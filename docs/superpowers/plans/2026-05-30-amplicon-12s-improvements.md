@@ -64,11 +64,8 @@ P0 first (data loss). Then the three architectural prerequisites the synthesis p
       XCTAssertEqual(samples.map(\.readCount).reduce(0, +), 3)
   }
 
-  func testResolveIlluminaSampleInputsThrowsIsNotUsed_PrefersDisambiguation() async throws {
-      // Guard: the chosen strategy is disambiguation (append source-stem hash), NOT throwing,
-      // so a legitimate run with messy filenames still succeeds. Asserted by the test above.
-  }
   ```
+  (Strategy is disambiguation — colliding IDs get a deterministic numeric suffix — NOT throwing, so a legitimate run with messy filenames still succeeds. The second `Sample 1`/`Sample-1` input becomes `Sample_1-2`. The `duplicateIlluminaSampleID` throw is only a defense-in-depth guard tested implicitly by the unique-IDs assertion above.)
   Add the two tiny helpers if absent (a `makeIlluminaFastqBundle(named:reads:in:)` that writes a `.lungfishfastq` dir containing one `reads.fastq`, and reuse the suite's temp-dir helper), and expose a test seam: `static func resolveIlluminaSampleInputsForTesting(from:stagingDirectory:) async throws -> [IlluminaSampleInput]` that forwards to the private `resolveIlluminaSampleInputs`. `IlluminaSampleInput` must be visible to the test target (it already is via `@testable import LungfishWorkflow` — confirm; if `private`, widen to `internal`).
 - [ ] Step 2: Run it, expect FAIL.
   `swift test --package-path "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/12s-amplicon-matching" --skip-update --filter ONTBarcodeDemuxGenotypingPipelineTests/testResolveIlluminaSampleInputsDisambiguatesCollidingSanitizedSampleIDs`
@@ -80,38 +77,36 @@ P0 first (data loss). Then the three architectural prerequisites the synthesis p
   for url in urls.map(\.standardizedFileURL) {
       // ... existing resolvedFASTQs / fastqURL resolution unchanged ...
       let baseID = sampleID(from: url)
-      let sampleID = Self.disambiguatedSampleID(baseID, sourceURL: url, existing: assignedIDs)
+      let sampleID = Self.disambiguatedSampleID(baseID, existing: assignedIDs)
       assignedIDs.insert(sampleID)
       // ... use `sampleID` for prefixedFASTQURL + writeSamplePrefixedFASTQ as before ...
   }
   // Defense in depth before returning: assert uniqueness so a future regression throws, not corrupts.
   let ids = samples.map(\.sampleID)
-  guard Set(ids).count == ids.count else {
-      throw ONTBarcodeDemuxGenotypingError.duplicateIlluminaSampleID(ids.duplicatesSorted().first ?? "")
+  let firstDuplicate = ids.first { id in ids.filter { $0 == id }.count > 1 }
+  guard firstDuplicate == nil else {
+      throw ONTBarcodeDemuxGenotypingError.duplicateIlluminaSampleID(firstDuplicate ?? "")
   }
   return samples
   ```
-  Add the helper and a new error case:
+  Add the helper and a new error case. Use a **deterministic numeric suffix** (no crypto dependency, no new helper, deterministic across reruns because input order is stable):
   ```swift
-  private static func disambiguatedSampleID(_ base: String, sourceURL: URL, existing: Set<String>) -> String {
+  private static func disambiguatedSampleID(_ base: String, existing: Set<String>) -> String {
       guard existing.contains(base) else { return base }
-      // Stable, filename-safe suffix from the full path so reruns are deterministic.
-      let digest = SHA256.hash(data: Data(sourceURL.standardizedFileURL.path.utf8))
-      let suffix = digest.compactMap { String(format: "%02x", $0) }.joined().prefix(6)
-      var candidate = "\(base)_\(suffix)"
-      var bump = 1
-      while existing.contains(candidate) { candidate = "\(base)_\(suffix)\(bump)"; bump += 1 }
+      var bump = 2
+      var candidate = "\(base)-\(bump)"
+      while existing.contains(candidate) { bump += 1; candidate = "\(base)-\(bump)" }
       return candidate
   }
   ```
-  (`import Crypto`/`import CryptoKit` per the module's existing hashing import — grep the file; if neither is present, reuse the project's existing checksum helper rather than adding a dependency.) Add `case duplicateIlluminaSampleID(String)` to `ONTBarcodeDemuxGenotypingError` with a `LocalizedError` message naming the colliding ID and source files. Also set the manifest `samples` write in `prepareIlluminaInputs` (806-822) to validate uniqueness already guaranteed upstream — no extra change needed there, but confirm `sampleDefinitionRows` (801-802) now carries distinct IDs.
+  (Note: the loop in Step 3's sketch calls `disambiguatedSampleID(baseID, existing: assignedIDs)` — update the call to drop the `sourceURL:` argument. Reruns are deterministic because `urls` preserves caller order, so the first occurrence keeps the bare ID and the second becomes `<id>-2`.) Add `case duplicateIlluminaSampleID(String)` to `ONTBarcodeDemuxGenotypingError` with a `LocalizedError` message naming the colliding ID. (This case is the defense-in-depth guard; with disambiguation it should never fire, but it converts any future regression into a clear error instead of silent corruption.) Also confirm `sampleDefinitionRows` (801-802) and the manifest `samples` write in `prepareIlluminaInputs` (806-822) now carry the distinct IDs — no extra change needed there since uniqueness is guaranteed upstream.
 - [ ] Step 4: Run tests, expect PASS — include the existing sibling so no regression:
   `swift test --package-path "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/12s-amplicon-matching" --skip-update --filter ONTBarcodeDemuxGenotypingPipelineTests`
 - [ ] Step 5: Commit.
   `git -C "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/12s-amplicon-matching" add Sources/LungfishWorkflow/ONTGenotyping/ONTBarcodeDemuxGenotypingPipeline.swift Tests/LungfishWorkflowTests/ONTBarcodeDemuxGenotypingPipelineTests.swift && git -C "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/12s-amplicon-matching" commit -m "$(cat <<'MSG'
 Fix multi-bundle Illumina sample-ID collision (S-P0-1)
 
-Disambiguate sanitized sample IDs by appending a path-derived hash so two
+Disambiguate sanitized sample IDs with a deterministic numeric suffix so two
 input bundles that sanitize to the same ID no longer overwrite each other's
 staged FASTQ or merge reads. Validate uniqueness before returning.
 
@@ -142,6 +137,9 @@ MSG
 - [ ] Step 2: Run, expect FAIL.
   `swift test --package-path "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/12s-amplicon-matching" --skip-update --filter ReferenceBundleEnvelopeTests`
   Expected: compile error (new symbols) or `isBundleURL` returns `true` for a manifest-less dir — the manifest-presence assertion fails.
+- [ ] Step 2b: **Audit every `isBundleURL` caller BEFORE editing (required — the count must be verified, not assumed).** Run:
+  `grep -rn "MHCAmpliconReferenceBundle.isBundleURL\|TwelveSReferenceBundle.isBundleURL" "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/12s-amplicon-matching/Sources"`
+  Record the actual call sites. For EACH, classify it as **consume-side** (inspecting an existing bundle the user selected/opened — keep the strict manifest-existence `isBundleURL`) or **produce-side** (checking a to-be-created output path before the manifest is written — must switch to the new extension-only `hasBundleExtension`). Write the classified list into the commit body so the audit is auditable. A missed produce-side caller silently breaks bundle creation, so do not skip this. (The earlier surface review estimated ~9 MHC callers, e.g. `WorkflowOperationDialogState.swift`, `HaplotypeDefinitionLibrary.swift`, `FastqGenotypingSubcommand.swift:172` (consume), `HaplotypeDefinitionCommandService.swift`, `ONTBarcodeDemuxGenotypingPipeline.swift` — treat that as a hint, not the source of truth; the grep is the source of truth.)
 - [ ] Step 3: Implement.
   - New `ReferenceBundleEnvelope.swift`:
     ```swift
@@ -203,14 +201,16 @@ MSG
 
 - [ ] Step 1: Write the failing tests.
   - `MinimumReadsThresholdTests.testActiveThresholdIsZeroWhenDisabled`: `MinimumReadsThreshold(value: 5000, isEnabled: false).active == 0`; enabled → `== 5000`; negative clamps to 0.
-  - `GenotypeResultDisplaySectionTests.testMinimumReadsFiltersRowsAndDrivesCohortFlag` (model-layer, no pixels): construct a `GenotypeResultDisplayState(minimumReads: 5000)`; assert `displayState.activeMinimumReads == 5000`; feed sample read counts `[6000, 4000]` to the pure filter helper (extract `GenotypeResultDisplayState.belowThreshold(sampleReads:)` or a free function) and assert it returns `["the-4000-sample"]`. Assert default `minimumReads == 0` so existing behavior (no hidden rows) is preserved unless the analyst sets it.
+  - `GenotypeResultDisplaySectionTests.testMinimumReadsFiltersRowsAndCohortFlagIsSeparate` (model-layer, no pixels): the two concerns are distinct. Default `minimumReads == 0` (no row filtering) and default `cohortFlagThreshold == 5_000` (historical flag preserved). Set `minimumReads = 5000`; assert `activeMinimumReads == 5000` and `samplesBelowFilter([("a",6000),("b",4000)]) == ["b"]`. Independently assert `samplesBelowCohortFlag([("a",6000),("b",4000)]) == ["b"]` at the default 5K, and that changing `cohortFlagThreshold` does NOT change `minimumReads`/`activeMinimumReads` (no aliasing).
   ```swift
-  func testGenotypeDefaultMinimumReadsIsZeroAndEditable() {
+  func testGenotypeReadThresholdsAreTwoIndependentEditableFields() {
       var s = GenotypeResultDisplayState()
-      XCTAssertEqual(s.minimumReads, 0)
+      XCTAssertEqual(s.minimumReads, 0)            // row filter off by default
       XCTAssertEqual(s.activeMinimumReads, 0)
-      s.minimumReads = 5_000
-      XCTAssertEqual(s.activeMinimumReads, 5_000)
+      XCTAssertEqual(s.cohortFlagThreshold, 5_000) // historical unreliable-below flag preserved, now editable
+      s.minimumReads = 3_000
+      XCTAssertEqual(s.activeMinimumReads, 3_000)
+      XCTAssertEqual(s.cohortFlagThreshold, 5_000, "cohort flag must not alias the row filter")
   }
   ```
 - [ ] Step 2: Run, expect FAIL.
@@ -227,8 +227,8 @@ MSG
         func includes(reads: Int) -> Bool { reads >= active }
     }
     ```
-  - `GenotypeResultDisplayState`: add stored `var minimumReads: Int = 0` (plus the matching init param/assignment, keeping `Equatable`), and `var activeMinimumReads: Int { MinimumReadsThreshold(value: minimumReads).active }`. Add a pure helper `func samplesBelowThreshold(_ reads: [(sample: String, reads: Int)]) -> [String]` returning sorted IDs with `reads < activeMinimumReads` (only when `activeMinimumReads > 0`).
-  - `GenotypeResultViewController.rebuildCohortSummary`: replace both `let belowThresholdValue = 5_000` (and the `.init(... belowThresholdValue: 5_000)` empty-state) with `let belowThresholdValue = displayState.activeMinimumReads == 0 ? 5_000 : displayState.activeMinimumReads`. Keep `5_000` ONLY as the default when the analyst has not set a value (preserves the existing "unreliable below 5K" flag), but now editable. Compute `belowThreshold` from `displayState.samplesBelowThreshold(...)` when `activeMinimumReads > 0`, else the existing `< 5_000` filter.
+  - `GenotypeResultDisplayState`: add TWO distinct stored fields so the concerns never alias (per plan review): (a) `var minimumReads: Int = 0` — the editable row-visibility filter (0 = no filtering, mirroring 12S where the analyst opts in); (b) `var cohortFlagThreshold: Int = 5_000` — the "calls below this are unreliable" cohort flag, now an editable field with the historical 5K default instead of a hardcoded constant. Add the matching init params/assignments (keep synthesized `Equatable` — no custom `==`). Add `var activeMinimumReads: Int { MinimumReadsThreshold(value: minimumReads).active }` and a pure helper `func samplesBelowFilter(_ reads: [(sample: String, reads: Int)]) -> [String]` returning sorted IDs with `reads < activeMinimumReads` (only when `activeMinimumReads > 0`), and `func samplesBelowCohortFlag(_ reads: [(sample: String, reads: Int)]) -> [String]` returning IDs with `reads < cohortFlagThreshold`.
+  - `GenotypeResultViewController.rebuildCohortSummary`: replace both `let belowThresholdValue = 5_000` (and the `.init(... belowThresholdValue: 5_000)` empty-state) with `let belowThresholdValue = displayState.cohortFlagThreshold`, and compute the flagged set via `displayState.samplesBelowCohortFlag(...)`. The cohort flag therefore keeps its 5K default but is now user-editable, and it stays a SEPARATE concern from the `minimumReads` row-visibility filter (which defaults to 0 = show all). Do not collapse the two into one overloaded field.
   - `TwelveSResultDisplayState`: leave `minimumExactReads` as the persisted field (CLI flag depends on it) but add a computed `var minimumReadsThreshold: MinimumReadsThreshold { .init(value: minimumExactReads) }` so both surfaces share the type. No behavior change for 12S.
   - The Inspector control (editable TextField+Stepper on `GenotypeResultDisplaySection`, mirroring `TwelveSResultDisplaySection`'s "Minimum Exact Reads" 228-255) is added in Task 9 (UI convergence); this task lands the model + binding only.
 - [ ] Step 4: Run, expect PASS.
@@ -279,8 +279,9 @@ MSG
   `swift test --package-path "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/12s-amplicon-matching" --skip-update --filter GenotypeExportSubcommandTests`
   Expected: compile error — `GenotypeExportSubcommand` does not exist.
 - [ ] Step 3: Implement.
-  - Factor `GenotypeExportXlsxSubcommand`'s `MatrixBuilder` + `writeMinimalXLSX` + styles into a reusable `GenotypeXlsxWorkbookWriter` (move, keep `export-xlsx` delegating to it so its tests stay green).
-  - `GenotypeExportSubcommand`: parse flags above; for `--format xlsx` write via the shared writer applying the `--view-projection` colors/visible-rows when provided (else full matrix); for `csv`/`tsv` emit the matrix rows delimited. Record provenance with `GenotypeExportProvenanceSupport.record(workflowName: "genotype.export", toolName: "lungfish-cli", command: ["lungfish-cli","genotype","export", ...], ...)` so the envelope reports `toolName == "lungfish-cli"` and `workflowName == "lungfish genotype export"`. (Confirm the existing `GenotypeExportProvenanceSupport.record` maps `toolName` straight through; the existing `export-xlsx` passes `"lungfish genotype export-xlsx"` as `toolName` — for the NEW command pass `"lungfish-cli"` to satisfy the binding rule and the GUI verifier.)
+  - **Define the `--view-projection` schema first (this command is the producer; Task 5 is only the consumer).** Add a `Codable, Sendable` `GenotypeViewProjection` struct in `LungfishIO` (or `LungfishWorkflow`) capturing exactly what the viewport renders: `lens`, ordered `sampleColumns: [String]`, ordered `rows: [GenotypeViewProjectionRow]` (each with a row label + per-sample cell value + optional `cellColorHex`/`rowColorHex`), and `cellColorMode`. This is the contract Task 5 serializes and this command deserializes. Defining it here unblocks Task 5.
+  - **Two distinct workbook shapes, one writer module.** The existing `export-xlsx` emits the analytical **matrix** (genotype × locus, Budde palette via `MatrixBuilder`/`writeMinimalXLSX`). The **viewport projection** is a different layout (sample columns, the colors the user sees). Factor BOTH into a `GenotypeXlsxWorkbookWriter` with two entry points — `writeMatrix(...)` (move the existing logic; keep `export-xlsx` delegating so its tests stay green) and `writeViewProjection(_ projection: GenotypeViewProjection, to:)` (new, renders sample-column layout + projection colors). Do NOT try to force the projection through the matrix builder.
+  - `GenotypeExportSubcommand`: parse the flags above; for `--format xlsx` with `--view-projection` present, deserialize and call `writeViewProjection`; without it, call `writeMatrix` (full bundle). For `csv`/`tsv`, emit the projection rows (or matrix rows) delimited. Record provenance with `GenotypeExportProvenanceSupport.record(workflowName: "genotype.export", toolName: "lungfish-cli", command: ["lungfish-cli","genotype","export", ...], bundleURL:..., outputURLs:[out], ...)`. **Confirm against `Sources/LungfishCLI/Commands/GenotypeExportXlsxSubcommand.swift:84`** (the `GenotypeExportProvenanceSupport.record` signature reviewers verified: `workflowName, toolName, command, bundleURL, outputURLs, outputDirectory, optionPaths, additionalInputURLs, startedAt`). The existing `export-xlsx` passes a `"lungfish genotype export-xlsx"`-style `toolName`; the NEW command MUST pass `toolName: "lungfish-cli"` so the envelope satisfies both the binding rule and the GUI verifier's `toolName == "lungfish-cli"` check.
   - Register in `GenotypeCommandGroup.subcommands`.
 - [ ] Step 4: Run, expect PASS — new suite + the existing export-xlsx suite (no regression):
   `swift test --package-path "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/12s-amplicon-matching" --skip-update --filter GenotypeExportSubcommandTests` and
@@ -316,19 +317,21 @@ MSG
       let recorder = RecordingExportRunner()    // captures arguments, then runs real CLI in-process
       let service = GenotypeViewportExportService(runner: recorder)
       let result = try service.export(snapshot: makeSnapshot(visibleSamples: ["S1","S2"]), format: .excel, to: outURL)
-      XCTAssertEqual(recorder.arguments.prefix(3), ["genotype", "export", "--bundle"].prefix(3).map(String.init) == [] ? recorder.arguments.prefix(3) : recorder.arguments.prefix(3))
+      XCTAssertTrue(recorder.arguments.starts(with: ["genotype", "export"]),
+                    "CLI invocation must begin with `genotype export`, got \(recorder.arguments)")
       XCTAssertTrue(recorder.arguments.contains("--lens"))
-      XCTAssertTrue(recorder.arguments.contains("S1") && recorder.arguments.contains("S2"))
+      XCTAssertTrue(recorder.arguments.contains("S1") && recorder.arguments.contains("S2"),
+                    "Both visible samples must be passed")
       let env = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: result.provenanceURL))
       XCTAssertEqual(env.toolName, "lungfish-cli")
   }
   ```
-  (Use the same `LungfishCLIRunner`-style runner protocol 12S uses so the test can inject a recording runner that still produces a real provenance sidecar. Drop the brittle ternary above — the intent is: arguments begin `genotype export`, include `--lens`, include each visible sample.)
+  (Use the same `LungfishCLIRunner`-style runner protocol 12S uses so the test can inject a recording runner that still produces a real provenance sidecar. The assertions are exactly: arguments start with `["genotype","export"]`, include `--lens`, and include each visible sample.)
 - [ ] Step 2: Run, expect FAIL.
   `swift test --package-path "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/12s-amplicon-matching" --skip-update --filter GenotypeViewportExcelExportTests`
   Expected: compile error — `GenotypeViewportExportService` does not exist; old service stamps `lungfish-gui`.
 - [ ] Step 3: Implement.
-  - `GenotypeViewportExportService`: protocol `GenotypeViewportExportRunning { func run(arguments: [String]) throws -> LungfishCLIRunner.Output }`, default impl `LungfishCLIRunner.run`. `export(snapshot:format:to:)` serializes the snapshot's visible rows + colors to a temp `--view-projection` JSON, builds `["genotype","export","--bundle",path,"--format",fmt,"--output",out,"--lens",snapshot.lens,"--view-projection",projPath,"--force"]` plus `--sample` per visible sample and `--min-reads` / `--filter` from the filter context, runs it, then verifies provenance exactly like `TwelveSAmpliconResultExportService.verifyProvenance` (require `toolName == "lungfish-cli"`, `workflowName == "lungfish genotype export"`, output path present). Clean up the temp projection via `defer`.
+  - `GenotypeViewportExportService`: protocol `GenotypeViewportExportRunning { func run(arguments: [String]) throws -> LungfishCLIRunner.Output }`, default impl `LungfishCLIRunner.run`. `export(snapshot:format:to:)` builds a `GenotypeViewProjection` (the exact type Task 4 defines — visible `sampleColumns`, ordered `rows` with cell values + color hexes, `lens`, `cellColorMode`) from the snapshot, writes it to a temp JSON, builds `["genotype","export","--bundle",path,"--format",fmt,"--output",out,"--lens",snapshot.lens,"--view-projection",projPath,"--force"]` plus `--sample` per visible sample and `--min-reads` / `--filter` from the filter context, runs it, then verifies provenance exactly like `TwelveSAmpliconResultExportService.verifyProvenance` (require `toolName == "lungfish-cli"`, `workflowName == "lungfish genotype export"`, output path present). Clean up the temp projection via `defer`. (Depends on Task 4: the `GenotypeViewProjection` schema and the `genotype export --view-projection` consumer must exist first.)
   - `exportExcelView(_:)`: replace the `GenotypeViewportExcelExportService().export(...)` call (3350) with the new service. Keep the `NSSavePanel`/`Task { @MainActor }` shape (already MainActor-correct). Surface errors via `NSAlert(error:)` as today.
   - Repurpose `GenotypeViewportExcelExportService` into the `--view-projection` serializer consumed by `genotype export`, or delete it if the shared `GenotypeXlsxWorkbookWriter` (Task 4) covers the rendering. Either way, remove the `lungfish-gui` argv.
 - [ ] Step 4: Run, expect PASS.
@@ -358,7 +361,7 @@ MSG
 
 - [ ] Step 1: Write the failing tests.
   - `FastqGenotypingBundleReferenceTests.testExplicitHaplotypeDefinitionMustExistInBundle`: build a `.lungfishmhcref` with definitions `[D1, D2]`; parse a command with `--reference bundle --haplotype-definition D3` → `cmd.run()` (or a pure resolver extracted from `run`) throws a validation error naming `D3` and the bundle. With `--haplotype-definition D2` → resolves to `D2` (not the default `D1`).
-  - `testReferenceHelpMentionsLungfishMHCRef`: `XCTAssertTrue(FastqGenotypingSubcommand.configuration.subcommands.isEmpty)` is not it — instead assert the `--reference` help string via reflection of the `ArgumentParser` help, or simpler: assert a constant. Pragmatic: extract the help text to a `static let referenceHelp = "Reference FASTA, .lungfishref, or .lungfishmhcref bundle ..."` and assert it `contains(".lungfishmhcref")`.
+  - `testReferenceHelpMentionsLungfishMHCRef`: extract the `--reference` help text to a `static let referenceHelp` and assert it `contains(".lungfishmhcref")`. (Asserting on a hoisted constant is simplest; do not try to introspect ArgumentParser's rendered help.)
   ```swift
   func testReferenceHelpMentionsLungfishMHCRef() {
       XCTAssertTrue(FastqGenotypingSubcommand.referenceHelp.contains(".lungfishmhcref"))
@@ -514,7 +517,7 @@ MSG
 **Files:**
 - Modify: `Sources/LungfishApp/Views/WorkflowOperations/HaplotypeDefinitionManagerWindowController.swift` (argv at 135, 156, 183, 198 use `"lungfish"`; 311 uses `"lungfish-cli"`; 382 `["lungfish"]` — normalize all to `lungfish-cli`).
 - Modify: `Sources/LungfishApp/Views/Results/Genotype/GenotypeAnnotationStore.swift` (452 `"lungfish-gui"`), `Sources/LungfishApp/Views/Results/Genotype/GenotypeResultViewController.swift` (2059 `"lungfish-gui"`) — normalize to `lungfish-cli` (these are replay-argv strings recorded in provenance, not actual GUI launches).
-- Decision (S-P1-8): two MHC bundle-create commands exist — `fastq mhc-reference-bundle` (`FastqMHCReferenceBundleSubcommand`) and `haplotypes bundle-create` (`HaplotypeDefinitionsCommand` 160). Pick `haplotypes bundle-create` as canonical (it lives with the rest of the haplotype CRUD the manager calls) and route the GUI there consistently; deprecate the other by making it delegate or removing it if unused elsewhere.
+- Decision (S-P1-8): two MHC bundle-create commands exist — `fastq mhc-reference-bundle` (`FastqMHCReferenceBundleSubcommand`) and `haplotypes bundle-create` (`HaplotypeDefinitionsCommand` 160). Pick `haplotypes bundle-create` as canonical (it lives with the rest of the haplotype CRUD the manager calls) and route the GUI there consistently. **Do NOT delete `FastqMHCReferenceBundleSubcommand` in this task** — it is a CLI-surface change with potential external callers (recipe engine, docs, tests). Make it DELEGATE to the canonical path (or leave it in place). Removal, if warranted, is a separate follow-up gated on a full caller audit (`grep -rn "mhc-reference-bundle" Sources docs Tests` and the recipe definitions). This keeps the risky surface change out of the low-risk argv normalization.
 - Test: `Tests/LungfishAppTests/` argv assertions (extend `GenotypeViewportExcelExportTests`/manager tests) + grep-guard.
 
 - [ ] Step 1: Write the failing test. Add `testAllRecordedReplayArgvUseLungfishCli` that asserts each argv-producing site emits `"lungfish-cli"` as argv[0]. Where a manager action records argv, assert via the recording runner. Also add a lightweight source guard test:
@@ -530,7 +533,7 @@ MSG
 - [ ] Step 2: Run, expect FAIL.
   `swift test --package-path "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/12s-amplicon-matching" --skip-update --filter testNoLungfishGuiArgvRemainsInGenotypeSources`
   Expected: both files still contain `"lungfish-gui"`.
-- [ ] Step 3: Implement — replace every replay-argv `"lungfish"` / `"lungfish-gui"` literal at the listed sites with `"lungfish-cli"`. Decide the bundle-create subcommand: point `HaplotypeDefinitionManagerWindowController.createMHCReferenceBundle`'s argv (311) and the actual service invocation at `haplotypes bundle-create`; if `FastqMHCReferenceBundleSubcommand` has no other caller (grep), remove it and its registration from `FastqCommand`, else leave a one-line delegation. Keep `mhcReferenceBundleURL(from:)` etc. unchanged.
+- [ ] Step 3: Implement — replace every replay-argv `"lungfish"` / `"lungfish-gui"` literal at the listed sites with `"lungfish-cli"`. Point `HaplotypeDefinitionManagerWindowController.createMHCReferenceBundle`'s argv (311) and the actual service invocation at the canonical `haplotypes bundle-create`. Leave `FastqMHCReferenceBundleSubcommand` in place (or make it delegate to the canonical path) — do not remove it here (see Decision above; removal is a separate audited follow-up). Keep `mhcReferenceBundleURL(from:)` etc. unchanged.
 - [ ] Step 4: Run, expect PASS.
   `swift test --package-path "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/12s-amplicon-matching" --skip-update --filter WorkflowLibraryTests` is unrelated; run the new guard + `swift build`:
   `swift test --package-path "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/12s-amplicon-matching" --skip-update --filter GenotypeViewportExcelExportTests` and `swift build --package-path "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/12s-amplicon-matching" --skip-update`
@@ -616,6 +619,7 @@ MSG
 > These build on the shared types from Phase 1a. Each is independently revertible. Where a refactor is "extract + redirect callers with no behavior change," the test is a characterization test asserting identical output before and after.
 
 ### Task 13: Extract shared BundleBuilderSupport + ProvenanceDirectoryDescriptor + a single TSVTable reader  (addresses S-P2-2)
+**Prerequisite:** Task 8 (the `DelimitedLineParser` this task's `TSVTable` reader builds on). Do not start until Task 8 has landed.
 **Files:**
 - Create: `Sources/LungfishIO/Bundles/BundleBuilderSupport.swift` (shared dir-checksum / provenance-directory descriptor) and `Sources/LungfishIO/Formats/TSVTable.swift` (one quote-aware delimited-table reader — reuse `DelimitedLineParser` from Task 8).
 - Modify: `Sources/LungfishWorkflow/ONTGenotyping/MHCAmpliconReferenceBundleBuilder.swift`, `Sources/LungfishWorkflow/TwelveS/TwelveSReferenceBundleBuilder.swift`, `Sources/LungfishWorkflow/TwelveS/TwelveSResultExportWorkflow.swift`, `Sources/LungfishWorkflow/ONTGenotyping/HaplotypeDefinitionCommandService.swift` — replace the triplicated copies.
@@ -699,10 +703,17 @@ MSG
 - **S-P2-9** `Sources/LungfishApp/Views/Inspector/Sections/GenotypeDropoutThresholdSection.swift:129` — replace `Color.accentColor` (system blue) with Lungfish Orange (`Color(nsColor: .lungfishAccent)` / `#D47B3A`). Test: assert the section's accent resolves to the Lungfish accent constant, not `.accentColor`.
 - **S-P2-10** `Sources/LungfishWorkflow/TwelveS/*` — rename the `Swift.zip`-shadowing free function to `zipOptionals` (grep for the local `func zip(`). Test: build + a unit test calling `zipOptionals`.
 - **S-P2-11** `Sources/LungfishWorkflow/TwelveS/TwelveSChimeraReview.swift` (UCHIME parse) — parse the designated column index instead of scanning all fields. Test: `TwelveSChimeraReviewTests` asserting a row whose non-designated field coincidentally matches no longer misparses.
-- **S-P2-12** misc: dead `?? ""` guard, fragile `targetID!`, duplicate `ResolvedDefinitionInput` struct, bespoke 12S disclosure buttons, delete-button color doubling, metadata-summary asymmetry, dialog reference picker → `ReferenceSequencePickerView` (I13 P2). Each: a focused failing test where logic is involved (e.g. `targetID!` → feed a nil target, assert graceful handling), build-only for pure cosmetic.
+- **S-P2-12** is NOT one fix — it is seven independent sub-fixes. Do each as its own failing-test→implement→commit cycle, tracked with its own checkbox. Grouped by risk tier (do the low-risk ones first; the last two are real refactors, not cosmetics):
+  - [ ] **(a, logic)** `MHCAmpliconReferenceBundle.swift:121` — remove the dead `?? ""` guard (bind the optional once). Test: a unit assertion that species matching still works with/without a species code.
+  - [ ] **(b, logic)** `HaplotypeDefinitionCommandService.swift:485` — replace the fragile `targetID!` with `targetID.flatMap { $0.isEmpty ? nil : $0 } ?? source.definitionSet.id`. Test: feed an empty/`nil` `targetID`, assert it falls back to the definition-set id without trapping.
+  - [ ] **(c, refactor)** `MHCAmpliconReferenceBundleBuilder.swift:199-204` — delete the duplicate private `ResolvedDefinitionInput`; thread the public `MHCAmpliconReferenceBundleDefinitionInput` through `validate`/`build`. Test: existing builder suite stays green (characterization).
+  - [ ] **(d, cosmetic)** 12S detail-pane bespoke `NSButton(.disclosure)` buttons — drop them for plain sections (or a shared helper). Build-only.
+  - [ ] **(e, cosmetic)** `HaplotypeDefinitionManagerWindowController.swift:604-605` — delete-button color doubling: use a single danger channel (`role: .destructive` or `.tint` alone). Build-only.
+  - [ ] **(f, cosmetic)** 12S Inspector metadata-source/warnings asymmetry — drop to a footnote or promote to a shared component. Build-only.
+  - [ ] **(g, refactor — highest risk, may defer)** dialog reference picker → `ReferenceSequencePickerView` (matrix I13, affects BOTH workflows since the dialog is shared). This is a real shared-control swap that needs `ReferenceSequencePickerView` extended for FASTA-or-bundle + the "Create reference" entry. If it balloons, split it into its own task rather than forcing it into the polish batch. Test: dialog-state test that reference selection still resolves for both 12S and genotype.
 
-For each fix: Step 1 failing test (or `swift build` red where cosmetic), Step 2 run → FAIL, Step 3 implement, Step 4 `swift test ... --skip-update --filter <Suite>` → PASS, Step 5 commit:
-`git -C "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/12s-amplicon-matching" add <files> && git -C "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/12s-amplicon-matching" commit -m "<polish fix> (S-P2-N)$(printf '\n\nCo-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>')"`
+For each fix above: Step 1 failing test (or `swift build` red where purely cosmetic), Step 2 run → FAIL, Step 3 implement, Step 4 `swift test ... --skip-update --filter <Suite>` → PASS, Step 5 commit (one commit per sub-fix):
+`git -C "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/12s-amplicon-matching" add <files> && git -C "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/12s-amplicon-matching" commit -m "<polish fix> (S-P2-12<letter>)$(printf '\n\nCo-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>')"`
 
 ---
 ## Phase 5 — End-to-end verification (these are the gates; nothing is "done" until all pass)
