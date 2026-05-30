@@ -7,7 +7,16 @@
 ## Goal
 
 Review the entire uncommitted code surface of the `12s-amplicon-matching` worktree from
-two lenses, then improve it before manual GUI testing:
+two lenses, then improve it before manual GUI testing. The review surface covers **both**
+analysis capabilities equally:
+
+- The **Amplicon Genotyping (MHC/KIR)** workflow and its improvements in this worktree
+  (genotyping pipeline, haplotype-definition system, genotyping CLI, the new `.lungfishmhcref`
+  bundle, and the genotype viewport/Inspector/sidebar changes).
+- The **12S amplicon matching** workflow (matching engine, `.lungfish12s` / `.lungfish12sref`
+  bundles, 12S viewport/Inspector, and CLI subcommands).
+
+Both surfaces get equal footing under both lenses:
 
 1. **Swift/AppKit engineering** lens: correctness, concurrency safety, code reuse,
    portability, maintainability.
@@ -44,11 +53,32 @@ Three feature threads, each with its own committed design + plan under
 Plus MHC amplicon reference bundle work (no standalone plan doc).
 
 Surface size: ~3,700 lines of tracked changes across all 7 modules, plus ~12,000 lines of
-new untracked files. New CLI subcommands (`12s-match`, `12s-reference-bundle`,
-`12s-reference-metadata`, 12S exports, MHC reference bundle), new bundle types
-(`.lungfish12s`, `.lungfish12sref`, `.lungfishmhcref`), a new AppKit viewport
+new untracked files.
+
+### 12S amplicon matching surface
+
+New CLI subcommands (`12s-match`, `12s-reference-bundle`, `12s-reference-metadata`, 12S
+exports), new bundle types (`.lungfish12s`, `.lungfish12sref`), a new AppKit viewport
 (`TwelveSAmpliconResultViewController`, 846 lines), Inspector sections, and a sample-metadata
 resolver in `LungfishCore`.
+
+### Amplicon Genotyping (MHC/KIR) surface
+
+The existing genotyping workflow received substantial changes in this worktree, all in scope
+for review:
+
+- Genotyping pipeline: `ONTBarcodeDemuxGenotypingPipeline.swift` (+43).
+- Haplotype-definition system: `HaplotypeDefinitionCommandService.swift` (+452),
+  `HaplotypeDefinitionLibrary.swift` (+82),
+  `HaplotypeDefinitionManagerWindowController.swift` (+269).
+- Genotyping CLI: `FastqGenotypingSubcommand.swift` (+22), `HaplotypeDefinitionsCommand.swift`
+  (+149).
+- New `.lungfishmhcref` bundle: `MHCAmpliconReferenceBundle.swift` (model),
+  `MHCAmpliconReferenceBundleBuilder.swift` (builder),
+  `FastqMHCReferenceBundleSubcommand.swift` (CLI).
+- Genotype GUI: `GenotypeResultViewController.swift`, genotype Inspector changes in
+  `InspectorViewController.swift`, `SidebarViewController.swift`,
+  `WorkflowOperationsWindowController.swift`, `ViewerViewController+Genotype.swift`.
 
 ### Known gaps / candidate findings spotted during exploration
 
@@ -74,7 +104,9 @@ improve.** Do not jump from review directly into edits.
 ### Phase 1: Baseline verification + commit
 
 - Run `swift build` for both products (`Lungfish`, `lungfish-cli`).
-- Run `swift test` with filters `TwelveS`, `SampleMetadata`, `Provenance`.
+- Run `swift test` with filters `TwelveS`, `SampleMetadata`, `Provenance`, plus the
+  genotyping/haplotype filters (`Genotyp`, `Haplotype`, `ONTBarcodeDemux`) so the MHC surface
+  is covered in the baseline too.
 - If green: commit the entire current worktree state as a labeled baseline.
 - If red: stop, report failures, ask before committing. (Do not commit a knowingly broken
   baseline without explicit user direction.)
@@ -91,26 +123,42 @@ memory rules (background to MainActor dispatch discipline, `%@` vs `String(forma
 interface classes, bundle/registry conventions), and the explicit instruction to compare new
 code against existing app surfaces.
 
+Each agent reviews **both** surfaces enumerated in Current State: the Amplicon Genotyping
+(MHC/KIR) workflow changes **and** the 12S amplicon matching workflow. Neither is treated as
+secondary; the genotyping/haplotype/`.lungfishmhcref` changes get the same scrutiny as the
+12S code.
+
 **Team A: Swift/AppKit engineering lens**
 
 - `code-reviewer`: correctness bugs, concurrency hazards, error handling, force-unwraps,
-  the `%@` / `String(format:)` traps, `Task`/MainActor dispatch rules.
-- `architect-reviewer`: module boundaries, reuse vs duplication (especially the 846-line
-  `TwelveSAmpliconResultViewController` and the 1028-line `TwelveSAmpliconResultBundle`),
-  portability, whether new bundles follow existing bundle/registry idioms.
+  the `%@` / `String(format:)` traps, `Task`/MainActor dispatch rules. Covers both the 12S
+  code and the genotyping/haplotype changes (`ONTBarcodeDemuxGenotypingPipeline`,
+  `HaplotypeDefinitionCommandService`, `HaplotypeDefinitionLibrary`, the genotyping CLI).
+- `architect-reviewer`: module boundaries, reuse vs duplication, portability, whether new
+  bundles follow existing bundle/registry idioms. 12S suspects: the 846-line
+  `TwelveSAmpliconResultViewController` and the 1028-line `TwelveSAmpliconResultBundle`. MHC
+  suspects: the +452 `HaplotypeDefinitionCommandService`, the +269
+  `HaplotypeDefinitionManagerWindowController`, and whether `.lungfishmhcref` /
+  `.lungfish12sref` share a coherent reference-bundle pattern rather than two divergent ones.
 - `swift-expert`: idiomatic Swift 6.2, `@Observable`/`@MainActor`/strict-concurrency
-  conformance, `Sendable` correctness, API design of new types.
+  conformance, `Sendable` correctness, API design of new types across both surfaces.
 
 **Team B: End-user UX consistency lens**
 
-- `frontend-developer` (AppKit): does the 12S viewport, Inspector sections, and workflow
-  dialog reuse existing LGE idioms (classifier-style information architecture,
-  `ClassifierActionBar`, shared `BlastResultsDrawerTab`, `ReferenceSequencePickerView`,
-  `SampleMetadataSection`)? Flag any bespoke widget that duplicates existing functionality
-  with a different interface.
-- `ux-researcher`: end-to-end flow from a user's perspective: enable the niche workflow in
-  Workflow Manager, import/merge, run, explore results, export. Flag friction, inconsistent
-  terminology, and the opt-in-default issue.
+- `frontend-developer` (AppKit): do the new/changed surfaces reuse existing LGE idioms
+  (classifier-style information architecture, `ClassifierActionBar`, shared
+  `BlastResultsDrawerTab`, `ReferenceSequencePickerView`, `SampleMetadataSection`)? Covers
+  the 12S viewport/Inspector/dialog **and** the genotype surface
+  (`GenotypeResultViewController`, genotype Inspector sections,
+  `HaplotypeDefinitionManagerWindowController`). Flag any bespoke widget that duplicates
+  existing functionality with a different interface, and any place where the 12S surface and
+  the genotype surface solve the same problem two different ways.
+- `ux-researcher`: end-to-end flow from a user's perspective for **both** workflows: for 12S,
+  enable in Workflow Manager, import/merge, run, explore, export; for Amplicon Genotyping,
+  select reference (including the `.lungfishmhcref` bundle), choose haplotype definitions, run,
+  explore genotype/haplotype results. Flag friction, inconsistent terminology, the
+  opt-in-default issue, and any cross-workflow inconsistency that would make the two feel like
+  different apps.
 
 Synthesis: the orchestrator merges all five reports into one triaged findings doc at
 `docs/superpowers/reviews/2026-05-30-synthesis.md`.
