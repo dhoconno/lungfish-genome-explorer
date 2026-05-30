@@ -207,6 +207,17 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 
 ---
 
+## Guiding directives (apply throughout, per user)
+
+- **The comprehensive review of these two workflows is the central goal**, not a gate to rush
+  past on the way to coding. Depth and completeness of the review (and the operation-intent
+  matrix) take precedence over speed. Build/commit mechanics serve the review, not the reverse.
+- **Expert involvement is continuous, not one-shot.** The agent teams may review and iterate
+  *throughout the entire process*: the initial surface review (Phase 2), the improvement plan
+  itself (Pass B authoring), and a re-review after implementation lands (Phase 4 -> final
+  review). Iterate with experts wherever it improves quality; do not treat Phase 2 as the only
+  review.
+
 ## Phase 3-5: Authored after review (second planning pass)
 
 These phases are intentionally not expanded into task code here, because their content depends
@@ -236,7 +247,19 @@ violates the no-placeholder rule.
    - **Phase 5 (verification):** the exact commands from the spec's Phase 5 (12S synthetic +
      real `32308`/Hilo run; MHC `32271.lungfish` run incl. multi-bundle and `.lungfishmhcref`
      gates; SampleMetadata/Provenance filters; cross-workflow filter equivalence).
-2. Execute Pass B with subagent-driven-development.
+2. **Expert review of the improvement plan (per user's continuous-iteration directive).** Before
+   executing Pass B, dispatch `architect-reviewer` (and `swift-expert` if the plan touches
+   concurrency/API design heavily) to review the improvement plan against the synthesis: does it
+   address every in-scope finding, is the sequencing sound, are the convergence refactors
+   coherent? Iterate the plan on their feedback before implementing.
+3. Execute Pass B with subagent-driven-development (per-task: implementer -> spec reviewer ->
+   code-quality reviewer).
+4. **Final post-implementation re-review (per user's continuous-iteration directive).** After
+   all Pass B tasks land, dispatch a final review (re-run the relevant Team A/Team B agents over
+   the *changed* surface) to confirm the findings are actually resolved and no consistency
+   regressions were introduced. Capture in
+   `docs/superpowers/reviews/2026-05-30-final-review.md`. Iterate on any new P0/P1.
+5. Conclude with superpowers:finishing-a-development-branch.
 
 **Verification assets (confirmed present):** see spec "Verification Assets".
 
