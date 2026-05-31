@@ -87,18 +87,26 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(at: condaRoot)
 
         let inputFASTQ = root.appendingPathComponent("barcode08.fastq")
-        let referenceFASTA = root.appendingPathComponent("reference.fa")
         let barcodeDefinitions = root.appendingPathComponent("barcodes.csv")
         let demuxManifest = root.appendingPathComponent("demux-manifest.json")
         let outputDirectory = root.appendingPathComponent("barcode08.lungfishgenotype", isDirectory: true)
+        // Definitions are now project-scoped `.lungfishmhcref` bundles (no compiled-in
+        // built-ins), so the assay-scoped definition the provenance envelope records is
+        // resolved from a bundle whose reference FASTA also drives mapping.
+        let referenceBundle = try makeMHCReferenceBundle(
+            root: root,
+            definition: Self.mhcDefinition(
+                id: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+                assayID: "MHC-exon2-miSeq"
+            )
+        )
         try "@r0\nACGT\n+\nIIII\n".write(to: inputFASTQ, atomically: true, encoding: .utf8)
-        try ">allele1\nACGT\n".write(to: referenceFASTA, atomically: true, encoding: .utf8)
         try "sample,barcode\nDW472,ACGT\n".write(to: barcodeDefinitions, atomically: true, encoding: .utf8)
         try #"{"sampleTotals":{"DW472":1},"totalInputReads":1}"#.write(to: demuxManifest, atomically: true, encoding: .utf8)
 
         let request = ONTBarcodeDemuxGenotypingRunRequest(
             inputFASTQURL: inputFASTQ,
-            referenceSourceURL: referenceFASTA,
+            referenceSourceURL: referenceBundle,
             barcodeDefinitionsURL: barcodeDefinitions,
             outputDirectory: outputDirectory,
             outputName: "barcode08-mhc",
@@ -909,6 +917,66 @@ print(json.dumps(payload))
         }
         try records.joined().write(to: fastqURL, atomically: true, encoding: .utf8)
         return bundleURL
+    }
+
+    /// A minimal assay-scoped definition set used to populate project `.lungfishmhcref`
+    /// bundles. Built-in (compiled-in) definitions were removed, so tests that need a
+    /// resolvable definition build one of these and write it into a bundle.
+    private static func mhcDefinition(id: String, assayID: String) -> GenotypeHaplotypeDefinitionSet {
+        GenotypeHaplotypeDefinitionSet(
+            id: id,
+            assayID: assayID,
+            displayName: "Mauritian cynomolgus macaques",
+            speciesName: "Mauritian cynomolgus macaque",
+            speciesCode: "MCM",
+            prefix: "Mafa",
+            locusDefinitions: [
+                GenotypeHaplotypeLocusDefinition(
+                    locus: "MHC-A",
+                    sourceLocus: "Mafa-A",
+                    haplotypes: [
+                        GenotypeHaplotypeDefinition(name: "M1A", diagnosticAlleles: ["A1_063"])
+                    ]
+                )
+            ]
+        )
+    }
+
+    /// Builds a project-scoped `.lungfishmhcref` reference bundle containing `definition`
+    /// and a tiny reference FASTA, returning the bundle URL. The pipeline resolves the
+    /// haplotype definition directly from this bundle and maps reads against its FASTA.
+    private func makeMHCReferenceBundle(
+        root: URL,
+        definition: GenotypeHaplotypeDefinitionSet,
+        name: String = "MCM MHC"
+    ) throws -> URL {
+        let bundleURL = root.appendingPathComponent("MCM-MHC.lungfishmhcref", isDirectory: true)
+        let definitionRelativePath = "haplotypes/\(definition.id).lungfishhaplotypedef.json"
+        let definitionURL = bundleURL.appendingPathComponent(definitionRelativePath)
+        try FileManager.default.createDirectory(
+            at: definitionURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try ">allele1\nACGT\n".write(
+            to: bundleURL.appendingPathComponent("reference.fa"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(definition).write(to: definitionURL, options: .atomic)
+        try MHCAmpliconReferenceBundle.writeManifest(
+            MHCAmpliconReferenceBundleManifest(
+                name: name,
+                referenceFastaPath: "reference.fa",
+                haplotypeDefinitionPaths: [definitionRelativePath],
+                defaultHaplotypeDefinitionID: definition.id,
+                metrics: MHCAmpliconReferenceBundleMetrics(referenceCount: 1, haplotypeDefinitionCount: 1),
+                createdAt: "2026-05-30T00:00:00Z"
+            ),
+            to: bundleURL
+        )
+        return bundleURL.standardizedFileURL
     }
 
     private func makeFakeONTGenotypingCondaRoot(at root: URL) throws -> URL {
