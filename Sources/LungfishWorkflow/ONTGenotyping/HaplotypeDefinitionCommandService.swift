@@ -20,14 +20,9 @@ public struct HaplotypeDefinitionCommandResult: Equatable, Sendable {
 
 public struct HaplotypeDefinitionCommandService: Sendable {
     public let projectRoot: URL?
-    public let globalRoot: URL
 
-    public init(
-        projectRoot: URL?,
-        globalRoot: URL = HaplotypeDefinitionLibrary.defaultGlobalRoot()
-    ) {
+    public init(projectRoot: URL?) {
         self.projectRoot = projectRoot?.standardizedFileURL
-        self.globalRoot = globalRoot.standardizedFileURL
     }
 
     public func listDefinitions(
@@ -120,9 +115,6 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         changeNote: String? = nil,
         argv: [String]
     ) throws -> HaplotypeDefinitionCommandResult {
-        guard scope != .builtIn else {
-            throw HaplotypeDefinitionCommandServiceError.cannotWriteBuiltIn
-        }
         let inputURL = inputURL.standardizedFileURL
         let data = try Data(contentsOf: inputURL)
         let definition = try JSONDecoder().decode(GenotypeHaplotypeDefinitionSet.self, from: data)
@@ -182,9 +174,6 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         changeNote: String? = nil,
         argv: [String]
     ) throws -> HaplotypeDefinitionCommandResult {
-        guard scope != .builtIn else {
-            throw HaplotypeDefinitionCommandServiceError.cannotWriteBuiltIn
-        }
         try validateDefinition(definition)
         let store = try writableStore(scope: scope)
         let context = provenanceContext(
@@ -471,9 +460,6 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         changeNote: String? = nil,
         argv: [String]
     ) throws -> HaplotypeDefinitionCommandResult {
-        guard toScope != .builtIn else {
-            throw HaplotypeDefinitionCommandServiceError.cannotWriteBuiltIn
-        }
         let source = try definitionRecord(
             definitionID: definitionID,
             assayID: assayID,
@@ -524,9 +510,6 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         scope: HaplotypeDefinitionScope,
         argv: [String]
     ) throws {
-        guard scope != .builtIn else {
-            throw HaplotypeDefinitionCommandServiceError.cannotWriteBuiltIn
-        }
         let store = try writableStore(scope: scope)
         let context = HaplotypeDefinitionProvenanceContext(
             workflowName: "Haplotype definition delete",
@@ -541,12 +524,12 @@ public struct HaplotypeDefinitionCommandService: Sendable {
     }
 
     private var library: HaplotypeDefinitionLibrary {
-        HaplotypeDefinitionLibrary(projectRoot: projectRoot, globalRoot: globalRoot)
+        HaplotypeDefinitionLibrary(projectRoot: projectRoot)
     }
 
     private func writableStore(scope: HaplotypeDefinitionScope) throws -> HaplotypeDefinitionStore {
         guard let store = library.store(for: scope) else {
-            throw HaplotypeDefinitionCommandServiceError.cannotWriteBuiltIn
+            throw HaplotypeDefinitionCommandServiceError.missingProjectRoot
         }
         return store
     }
@@ -638,7 +621,6 @@ public struct HaplotypeDefinitionCommandService: Sendable {
     private func resolvedDefaults(scope: HaplotypeDefinitionScope) -> [String: String] {
         [
             "projectRoot": projectRoot?.path ?? "",
-            "globalRoot": globalRoot.path,
             "scope": scope.rawValue,
         ]
     }
@@ -720,7 +702,6 @@ public struct HaplotypeDefinitionCommandService: Sendable {
                 explicit: explicit,
                 resolvedDefaults: [
                     "projectRoot": .string(projectRoot?.path ?? ""),
-                    "globalRoot": .string(globalRoot.path),
                     "bundleFormat": .string(MHCAmpliconReferenceBundle.directoryExtension),
                 ]
             ),
@@ -827,7 +808,7 @@ public struct HaplotypeDefinitionCommandService: Sendable {
 }
 
 public enum HaplotypeDefinitionCommandServiceError: Error, LocalizedError, Equatable {
-    case cannotWriteBuiltIn
+    case missingProjectRoot
     case definitionNotFound(String)
     case invalidMHCReferenceBundle(String)
     case missingInput(String)
@@ -839,8 +820,8 @@ public enum HaplotypeDefinitionCommandServiceError: Error, LocalizedError, Equat
 
     public var errorDescription: String? {
         switch self {
-        case .cannotWriteBuiltIn:
-            return "Built-in haplotype definitions cannot be modified. Duplicate them to the project or global library first."
+        case .missingProjectRoot:
+            return "A project is required to write haplotype definitions. Open or create a project first."
         case .definitionNotFound(let id):
             return "Haplotype definition not found: \(id)"
         case .invalidMHCReferenceBundle(let path):
