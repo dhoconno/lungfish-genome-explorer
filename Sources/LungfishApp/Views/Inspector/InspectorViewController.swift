@@ -5055,6 +5055,7 @@ extension SidebarItemType: CustomStringConvertible {
         case .image: return "Image"
         case .unknown: return "File"
         case .referenceBundle: return "Reference Bundle"
+        case .mhcReferenceBundle: return "MHC Reference Bundle"
         case .multipleSequenceAlignmentBundle: return "Multiple Sequence Alignment"
         case .phylogeneticTreeBundle: return "Phylogenetic Tree"
         case .fastqBundle: return "FASTQ Bundle"
