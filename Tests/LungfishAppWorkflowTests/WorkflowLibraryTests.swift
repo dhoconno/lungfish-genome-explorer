@@ -106,6 +106,25 @@ final class WorkflowLibraryTests: XCTestCase {
         wait(for: [expectation], timeout: 1)
     }
 
+    func testWorkflowFeatureAvailabilityFollowsEnabledSpecializedAndUserWorkflows() throws {
+        let defaults = try makeDefaults()
+        let store = WorkflowLibraryEnablementStore(userDefaults: defaults)
+
+        var availability = WorkflowFeatureAvailability.current(enablementStore: store)
+        XCTAssertTrue(availability.hasWorkflowOperations)
+        XCTAssertTrue(availability.hasHaplotypeDefinitions)
+
+        store.setWorkflow(.ontGenotyping, enabled: false)
+        availability = WorkflowFeatureAvailability.current(enablementStore: store)
+        XCTAssertFalse(availability.hasWorkflowOperations)
+        XCTAssertFalse(availability.hasHaplotypeDefinitions)
+
+        store.setUserWorkflow("org.example.custom", enabled: true)
+        availability = WorkflowFeatureAvailability.current(enablementStore: store)
+        XCTAssertTrue(availability.hasWorkflowOperations)
+        XCTAssertFalse(availability.hasHaplotypeDefinitions)
+    }
+
     func testEnablingSpecializedWorkflowIsBlockedUntilRequiredPluginPacksAreReady() async throws {
         let defaults = try makeDefaults()
         let store = WorkflowLibraryEnablementStore(userDefaults: defaults)

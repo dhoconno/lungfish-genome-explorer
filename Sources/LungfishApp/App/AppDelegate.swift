@@ -826,6 +826,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             object: nil
         )
 
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleWorkflowLibraryEnablementChanged(_:)),
+            name: .workflowLibraryEnablementChanged,
+            object: nil
+        )
+
         // Register for AI assistant show request
         NotificationCenter.default.addObserver(
             self,
@@ -920,7 +927,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         if experimentalFeaturesEnabled != lastAppliedExperimentalFeaturesEnabled {
             lastAppliedExperimentalFeaturesEnabled = experimentalFeaturesEnabled
             NSApp.mainMenu = MainMenu.createMainMenu(
-                experimentalFeaturesEnabled: experimentalFeaturesEnabled
+                experimentalFeaturesEnabled: experimentalFeaturesEnabled,
+                workflowFeatureAvailability: .current()
             )
         }
 
@@ -933,6 +941,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             // Apply reduced retention immediately instead of waiting for restart.
             await TempFileManager.shared.cleanupOnLaunch()
         }
+    }
+
+    @objc private func handleWorkflowLibraryEnablementChanged(_ notification: Notification) {
+        NSApp.mainMenu = MainMenu.createMainMenu(
+            experimentalFeaturesEnabled: AppSettings.shared.experimentalFeaturesEnabled,
+            workflowFeatureAvailability: .current()
+        )
     }
 
     // MARK: - Project Temp Cleanup
@@ -4892,7 +4907,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
 
         if menuItem.action == #selector(showHaplotypeDefinitions(_:)) {
-            let enabled = WorkflowLibraryEnablementStore.shared.isWorkflowEnabled(.ontGenotyping)
+            let enabled = WorkflowFeatureAvailability.current().hasHaplotypeDefinitions
+            menuItem.isHidden = !enabled
+            return enabled
+        }
+
+        if menuItem.action == #selector(showWorkflowOperations(_:)) {
+            let enabled = WorkflowFeatureAvailability.current().hasWorkflowOperations
             menuItem.isHidden = !enabled
             return enabled
         }

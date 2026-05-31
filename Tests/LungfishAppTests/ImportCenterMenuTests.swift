@@ -64,7 +64,13 @@ final class ImportCenterMenuTests: XCTestCase {
 
     func testMainMenuKeyItemsExposeStableIdentifiers() throws {
         let _ = NSApplication.shared
-        let mainMenu = MainMenu.createMainMenu(experimentalFeaturesEnabled: true)
+        let mainMenu = MainMenu.createMainMenu(
+            experimentalFeaturesEnabled: true,
+            workflowFeatureAvailability: .init(
+                hasWorkflowOperations: true,
+                hasHaplotypeDefinitions: true
+            )
+        )
         let appMenu = try XCTUnwrap(mainMenu.items.first?.submenu)
         let fileMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "File" })?.submenu)
         let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
@@ -167,7 +173,13 @@ final class ImportCenterMenuTests: XCTestCase {
 
     func testWorkflowOperationsMenuItemRoutesThroughToolsMenuActionProtocol() throws {
         let _ = NSApplication.shared
-        let mainMenu = MainMenu.createMainMenu(experimentalFeaturesEnabled: false)
+        let mainMenu = MainMenu.createMainMenu(
+            experimentalFeaturesEnabled: false,
+            workflowFeatureAvailability: .init(
+                hasWorkflowOperations: true,
+                hasHaplotypeDefinitions: false
+            )
+        )
         let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
         let workflowOperationsItem = try XCTUnwrap(toolsMenu.items.first(where: { $0.title == "Workflow Operations…" }))
         let selector = NSSelectorFromString("showWorkflowOperations:")
@@ -182,6 +194,48 @@ final class ImportCenterMenuTests: XCTestCase {
         recorder.perform(workflowOperationsItem.action, with: workflowOperationsItem)
 
         XCTAssertEqual(recorder.workflowOperationsInvocationCount, 1)
+    }
+
+    func testWorkflowFeatureMenuItemsAreHiddenWhenNoOptionalWorkflowUsesThem() throws {
+        let _ = NSApplication.shared
+        let mainMenu = MainMenu.createMainMenu(
+            workflowFeatureAvailability: .init(
+                hasWorkflowOperations: false,
+                hasHaplotypeDefinitions: false
+            )
+        )
+        let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
+
+        XCTAssertNil(toolsMenu.items.first(where: { $0.title == "Workflow Operations…" }))
+        XCTAssertNil(toolsMenu.items.first(where: { $0.title == "Haplotype Definitions…" }))
+    }
+
+    func testWorkflowOperationsCanAppearWithoutHaplotypeDefinitionsForCustomWorkflows() throws {
+        let _ = NSApplication.shared
+        let mainMenu = MainMenu.createMainMenu(
+            workflowFeatureAvailability: .init(
+                hasWorkflowOperations: true,
+                hasHaplotypeDefinitions: false
+            )
+        )
+        let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
+
+        XCTAssertNotNil(toolsMenu.items.first(where: { $0.title == "Workflow Operations…" }))
+        XCTAssertNil(toolsMenu.items.first(where: { $0.title == "Haplotype Definitions…" }))
+    }
+
+    func testHaplotypeDefinitionsAppearOnlyWhenEnabledWorkflowUsesThem() throws {
+        let _ = NSApplication.shared
+        let mainMenu = MainMenu.createMainMenu(
+            workflowFeatureAvailability: .init(
+                hasWorkflowOperations: true,
+                hasHaplotypeDefinitions: true
+            )
+        )
+        let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
+
+        XCTAssertNotNil(toolsMenu.items.first(where: { $0.title == "Workflow Operations…" }))
+        XCTAssertNotNil(toolsMenu.items.first(where: { $0.title == "Haplotype Definitions…" }))
     }
 
     func testToolsMenuOmitsGenericNFCoreWorkflowSurface() throws {

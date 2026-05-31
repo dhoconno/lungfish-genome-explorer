@@ -27,9 +27,11 @@ public final class MainMenu {
 
     /// Creates and returns the main menu bar.
     public static func createMainMenu(
-        experimentalFeaturesEnabled: Bool = AppSettings.shared.experimentalFeaturesEnabled
+        experimentalFeaturesEnabled: Bool = AppSettings.shared.experimentalFeaturesEnabled,
+        workflowFeatureAvailability: WorkflowFeatureAvailability? = nil
     ) -> NSMenu {
         let mainMenu = NSMenu()
+        let workflowFeatureAvailability = workflowFeatureAvailability ?? .current()
 
         // Application menu
         mainMenu.addItem(createApplicationMenu())
@@ -47,7 +49,12 @@ public final class MainMenu {
         mainMenu.addItem(createSequenceMenu())
 
         // Tools menu
-        mainMenu.addItem(createToolsMenu(experimentalFeaturesEnabled: experimentalFeaturesEnabled))
+        mainMenu.addItem(
+            createToolsMenu(
+                experimentalFeaturesEnabled: experimentalFeaturesEnabled,
+                workflowFeatureAvailability: workflowFeatureAvailability
+            )
+        )
 
         // Operations menu
         mainMenu.addItem(createOperationsMenu())
@@ -624,7 +631,10 @@ public final class MainMenu {
 
     // MARK: - Tools Menu
 
-    private static func createToolsMenu(experimentalFeaturesEnabled: Bool) -> NSMenuItem {
+    private static func createToolsMenu(
+        experimentalFeaturesEnabled: Bool,
+        workflowFeatureAvailability: WorkflowFeatureAvailability
+    ) -> NSMenuItem {
         let toolsMenuItem = NSMenuItem(title: "Tools", action: nil, keyEquivalent: "")
         toolsMenuItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.toolsMenu)
         let toolsMenu = NSMenu(title: "Tools")
@@ -694,19 +704,23 @@ public final class MainMenu {
         fastqOperationsItem.submenu = fastqOperationsMenu
         toolsMenu.addItem(fastqOperationsItem)
 
-        let workflowOperationsItem = toolsMenu.addItem(
-            withTitle: "Workflow Operations\u{2026}",
-            action: #selector(ToolsMenuActions.showWorkflowOperations(_:)),
-            keyEquivalent: ""
-        )
-        workflowOperationsItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.workflowOperations)
+        if workflowFeatureAvailability.hasWorkflowOperations {
+            let workflowOperationsItem = toolsMenu.addItem(
+                withTitle: "Workflow Operations\u{2026}",
+                action: #selector(ToolsMenuActions.showWorkflowOperations(_:)),
+                keyEquivalent: ""
+            )
+            workflowOperationsItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.workflowOperations)
+        }
 
-        let haplotypeDefinitionsItem = toolsMenu.addItem(
-            withTitle: "Haplotype Definitions\u{2026}",
-            action: #selector(ToolsMenuActions.showHaplotypeDefinitions(_:)),
-            keyEquivalent: ""
-        )
-        haplotypeDefinitionsItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.haplotypeDefinitions)
+        if workflowFeatureAvailability.hasHaplotypeDefinitions {
+            let haplotypeDefinitionsItem = toolsMenu.addItem(
+                withTitle: "Haplotype Definitions\u{2026}",
+                action: #selector(ToolsMenuActions.showHaplotypeDefinitions(_:)),
+                keyEquivalent: ""
+            )
+            haplotypeDefinitionsItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.haplotypeDefinitions)
+        }
 
         toolsMenu.addItem(.separator())
 

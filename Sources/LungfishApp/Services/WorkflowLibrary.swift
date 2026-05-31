@@ -23,13 +23,15 @@ struct WorkflowLibraryItem: Identifiable, Equatable, Sendable {
     let categoryID: FASTQOperationCategoryID
     let maturity: WorkflowLibraryMaturity
     let requiredPluginPackIDs: [String]
+    let capabilities: Set<WorkflowLibraryCapability>
 
     init(
         toolID: FASTQOperationToolID,
         title: String? = nil,
         subtitle: String? = nil,
         maturity: WorkflowLibraryMaturity,
-        requiredPluginPackIDs: [String] = []
+        requiredPluginPackIDs: [String] = [],
+        capabilities: Set<WorkflowLibraryCapability> = []
     ) {
         self.id = toolID.rawValue
         self.toolID = toolID
@@ -38,6 +40,7 @@ struct WorkflowLibraryItem: Identifiable, Equatable, Sendable {
         self.categoryID = toolID.categoryID
         self.maturity = maturity
         self.requiredPluginPackIDs = requiredPluginPackIDs
+        self.capabilities = capabilities
     }
 
     init(
@@ -46,7 +49,8 @@ struct WorkflowLibraryItem: Identifiable, Equatable, Sendable {
         subtitle: String,
         categoryID: FASTQOperationCategoryID,
         maturity: WorkflowLibraryMaturity,
-        requiredPluginPackIDs: [String] = []
+        requiredPluginPackIDs: [String] = [],
+        capabilities: Set<WorkflowLibraryCapability> = []
     ) {
         self.id = id
         self.toolID = nil
@@ -55,7 +59,43 @@ struct WorkflowLibraryItem: Identifiable, Equatable, Sendable {
         self.categoryID = categoryID
         self.maturity = maturity
         self.requiredPluginPackIDs = requiredPluginPackIDs
+        self.capabilities = capabilities
     }
+}
+
+enum WorkflowLibraryCapability: String, Codable, CaseIterable, Sendable {
+    case workflowOperations
+    case haplotypeDefinitions
+}
+
+public struct WorkflowFeatureAvailability: Equatable, Sendable {
+    public let hasWorkflowOperations: Bool
+    public let hasHaplotypeDefinitions: Bool
+
+    public init(hasWorkflowOperations: Bool, hasHaplotypeDefinitions: Bool) {
+        self.hasWorkflowOperations = hasWorkflowOperations
+        self.hasHaplotypeDefinitions = hasHaplotypeDefinitions
+    }
+
+    @MainActor
+    static func current(
+        enablementStore: WorkflowLibraryEnablementStore = .shared
+    ) -> WorkflowFeatureAvailability {
+        let enabledBuiltInCapabilities = Set(
+            WorkflowLibraryCatalog.builtIn
+                .filter { $0.maturity != .core && enablementStore.isWorkflowEnabled($0) }
+                .flatMap(\.capabilities)
+        )
+        return WorkflowFeatureAvailability(
+            hasWorkflowOperations: enabledBuiltInCapabilities.contains(.workflowOperations)
+                || !enablementStore.enabledUserWorkflowIDSnapshot.isEmpty,
+            hasHaplotypeDefinitions: enabledBuiltInCapabilities.contains(.haplotypeDefinitions)
+        )
+    }
+}
+
+extension Notification.Name {
+    static let workflowLibraryEnablementChanged = Notification.Name("com.lungfish.workflowLibraryEnablementChanged")
 }
 
 enum WorkflowLibrarySectionKind: String, Sendable, Codable, Equatable {
@@ -102,7 +142,8 @@ enum WorkflowLibraryCatalog {
             return WorkflowLibraryItem(
                 toolID: toolID,
                 maturity: .specialized,
-                requiredPluginPackIDs: ["lungfish-tools", "read-mapping"]
+                requiredPluginPackIDs: ["lungfish-tools", "read-mapping"],
+                capabilities: [.workflowOperations, .haplotypeDefinitions]
             )
         }
         return WorkflowLibraryItem(
@@ -277,6 +318,7 @@ final class WorkflowLibraryEnablementStore: WorkflowLibraryEnabling {
         } else {
             enabledWorkflowIDs.remove(item.id)
         }
+        guard wasEnabled != enabled else { return }
         persistEnabledWorkflowIDs()
         postEnablementDidChangeIfNeeded(
             workflowID: item.id,
@@ -284,6 +326,7 @@ final class WorkflowLibraryEnablementStore: WorkflowLibraryEnabling {
             wasEnabled: wasEnabled,
             isUserWorkflow: false
         )
+        NotificationCenter.default.post(name: .workflowLibraryEnablementChanged, object: self)
     }
 
     func isUserWorkflowEnabled(_ manifestID: String) -> Bool {
@@ -303,6 +346,7 @@ final class WorkflowLibraryEnablementStore: WorkflowLibraryEnabling {
         } else {
             enabledUserWorkflowIDs.remove(manifestID)
         }
+        guard wasEnabled != enabled else { return }
         persistEnabledUserWorkflowIDs()
         postEnablementDidChangeIfNeeded(
             workflowID: manifestID,
@@ -310,6 +354,7 @@ final class WorkflowLibraryEnablementStore: WorkflowLibraryEnabling {
             wasEnabled: wasEnabled,
             isUserWorkflow: true
         )
+        NotificationCenter.default.post(name: .workflowLibraryEnablementChanged, object: self)
     }
 
     func setUserWorkflow(_ package: WorkflowPackageValidationResult, enabled: Bool) {
