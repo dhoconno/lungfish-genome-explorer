@@ -1,0 +1,18 @@
+from pathlib import Path
+
+BUNDLE = "results/hello-world-snakemake.lungfishref"
+
+rule all:
+    input:
+        f"{BUNDLE}/sequence.fasta",
+        f"{BUNDLE}/manifest.json"
+
+rule write_reference_bundle:
+    output:
+        fasta=f"{BUNDLE}/sequence.fasta",
+        manifest=f"{BUNDLE}/manifest.json"
+    run:
+        Path(output.fasta).parent.mkdir(parents=True, exist_ok=True)
+        # Emit a tiny reference bundle: a short FASTA plus a minimal manifest.
+        Path(output[0]).write_text(">hello\nACGT\n")
+        Path(output.manifest).write_text("{}\n")

@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "id": "org.lungfish.templates.hello-world-snakemake",
+  "name": "Hello World Snakemake",
+  "version": "1.0.0",
+  "author": "Lungfish Genome Explorer",
+  "category": "Templates",
+  "maturity": "user",
+  "description": "Minimal Snakemake workflow package template that accepts a reference bundle and FASTQ bundle and writes a tiny reference bundle.",
+  "runner": {
+    "kind": "snakemake",
+    "entrypoint": "Snakefile"
+  },
+  "runtime": {
+    "kind": "none"
+  },
+  "inputs": [
+    {
+      "id": "reference_bundle",
+      "name": "Reference Bundle",
+      "bundleTypes": ["lungfishref"],
+      "required": true
+    },
+    {
+      "id": "reads_bundle",
+      "name": "FASTQ Bundle",
+      "bundleTypes": ["lungfishfastq"],
+      "required": true
+    }
+  ],
+  "outputs": [
+    {
+      "id": "reference_output",
+      "name": "Hello World Reference",
+      "bundleType": "lungfishref",
+      "pathTemplate": "hello-world-snakemake.lungfishref"
+    }
+  ],
+  "requiredPluginPackIDs": ["lungfish-tools"],
+  "template": {
+    "stepCount": 3,
+    "summary": "Records staged input paths, writes a tiny FASTA, and wraps it as a reference bundle."
+  }
+}

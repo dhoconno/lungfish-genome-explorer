@@ -25,6 +25,7 @@
 !Tests/**
 !containers/**
 !docs/**
+!Examples/**
 !lungfish-cli.entitlements
 !scripts/**
 scripts/**/__pycache__/
