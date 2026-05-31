@@ -18,7 +18,7 @@ final class GenotypeSubcommandsTests: XCTestCase {
             Set(names),
             [
                 "list-samples", "list-cohorts", "apply-annotations",
-                "export-xlsx", "export-pivot-xlsx", "export-labkey"
+                "export", "export-xlsx", "export-pivot-xlsx", "export-labkey"
             ]
         )
     }
@@ -326,7 +326,7 @@ final class GenotypeSubcommandsTests: XCTestCase {
         sidecar.settings.activeHaplotypeDefinitionSetID = definition.id
         let result = activeDefinitionResult(bundleURL: bundleURL)
 
-        let matrix = GenotypeExportXlsxSubcommand.MatrixBuilder.build(from: result, sidecar: sidecar)
+        let matrix = GenotypeXlsxWorkbookWriter.MatrixBuilder.build(from: result, sidecar: sidecar)
 
         XCTAssertEqual(matrix.loci, ["MHC-B"])
         XCTAssertEqual(matrix.rows.first?.cells.first?.label, "NewB")
