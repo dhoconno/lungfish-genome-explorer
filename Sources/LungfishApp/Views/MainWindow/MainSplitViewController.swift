@@ -1180,6 +1180,49 @@ public class MainSplitViewController: NSSplitViewController {
             return
         }
 
+        if MHCAmpliconReferenceBundle.isBundleURL(url) {
+            guard let projectURL else {
+                let errorMessage = "Open a project before importing reference allele databases."
+                postSidebarFileDropCompleted(
+                    requestID: requestID,
+                    sourceURL: url,
+                    success: false,
+                    error: errorMessage
+                )
+                return
+            }
+
+            do {
+                let installedURL = try HaplotypeDefinitionCommandService(projectRoot: projectURL)
+                    .installMHCReferenceBundle(
+                        from: url,
+                        argv: ["lungfish-cli", "haplotypes", "bundle-install", url.path]
+                    )
+                logger.info(
+                    "handleSidebarFileDropped: Installed reference allele database at \(installedURL.path, privacy: .public)"
+                )
+                sidebarController.reloadFromFilesystem()
+                postSidebarFileDropCompleted(
+                    requestID: requestID,
+                    sourceURL: url,
+                    success: true,
+                    error: nil
+                )
+            } catch {
+                let errorMessage = error.localizedDescription
+                logger.error(
+                    "handleSidebarFileDropped: Reference allele database install failed for \(url.lastPathComponent, privacy: .public): \(errorMessage, privacy: .public)"
+                )
+                postSidebarFileDropCompleted(
+                    requestID: requestID,
+                    sourceURL: url,
+                    success: false,
+                    error: errorMessage
+                )
+            }
+            return
+        }
+
         var urlToLoad = url
         var importSucceeded = true
         var importError: String?
@@ -2713,6 +2756,24 @@ public class MainSplitViewController: NSSplitViewController {
 
     func testingDisplayGenotypeResultBundle(_ url: URL) {
         displayGenotypeResultBundleFromSidebar(at: url)
+    }
+
+    /// Drives the non-FASTQ import routing used by sidebar drops so the classification
+    /// branches (standalone reference, annotation track, `.lungfishmhcref` bundle,
+    /// generic copy) can be exercised deterministically without a drag session.
+    func testingImportNonFASTQFile(
+        url: URL,
+        projectURL: URL?,
+        targetDir: URL
+    ) async {
+        await importNonFASTQFile(
+            url: url,
+            projectURL: projectURL,
+            targetDir: targetDir,
+            destinationItem: nil,
+            requestID: nil,
+            displayAfterImport: false
+        )
     }
 }
 

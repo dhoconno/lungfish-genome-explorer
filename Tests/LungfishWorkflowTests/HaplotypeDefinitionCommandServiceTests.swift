@@ -37,6 +37,121 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
         XCTAssertEqual(provenance.outputs.first?.path, result.definitionURL.path)
     }
 
+    func testInstallMHCReferenceBundleCopiesBundleIntoProjectAndIsDiscoverable() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let projectRoot = root.appendingPathComponent("project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        let sourceBundleURL = root
+            .appendingPathComponent("source", isDirectory: true)
+            .appendingPathComponent("Example.lungfishmhcref", isDirectory: true)
+        try writeMHCReferenceBundle(
+            bundleURL: sourceBundleURL,
+            referenceContents: ">M1\nACGT\n",
+            definition: makeDefinition(id: "custom.install", displayName: "Installed Definition")
+        )
+
+        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot)
+        let installed = try service.installMHCReferenceBundle(
+            from: sourceBundleURL,
+            argv: ["lungfish-cli", "haplotypes", "bundle-install", sourceBundleURL.path]
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: installed.path))
+        XCTAssertTrue(MHCAmpliconReferenceBundle.isBundleURL(installed))
+        let expectedParent = projectRoot
+            .appendingPathComponent("Reference allele databases", isDirectory: true)
+            .standardizedFileURL
+        XCTAssertEqual(installed.deletingLastPathComponent().standardizedFileURL, expectedParent)
+        XCTAssertEqual(installed.lastPathComponent, "Example.lungfishmhcref")
+        // The source bundle is copied, not moved.
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sourceBundleURL.path))
+
+        let records = HaplotypeDefinitionLibrary(projectRoot: projectRoot).records()
+        let match = records.first { $0.referenceBundleURL == installed.standardizedFileURL }
+        let discovered = try XCTUnwrap(match)
+        XCTAssertNotNil(discovered.referenceFASTAURL)
+        XCTAssertEqual(discovered.definitionSet.id, "custom.install")
+    }
+
+    func testInstallMHCReferenceBundleDisambiguatesExistingDestination() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let projectRoot = root.appendingPathComponent("project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        let sourceBundleURL = root
+            .appendingPathComponent("source", isDirectory: true)
+            .appendingPathComponent("Example.lungfishmhcref", isDirectory: true)
+        try writeMHCReferenceBundle(
+            bundleURL: sourceBundleURL,
+            referenceContents: ">M1\nACGT\n",
+            definition: makeDefinition(id: "custom.install", displayName: "Installed Definition")
+        )
+
+        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot)
+        let first = try service.installMHCReferenceBundle(
+            from: sourceBundleURL,
+            argv: ["lungfish-cli", "haplotypes", "bundle-install", sourceBundleURL.path]
+        )
+        let second = try service.installMHCReferenceBundle(
+            from: sourceBundleURL,
+            argv: ["lungfish-cli", "haplotypes", "bundle-install", sourceBundleURL.path]
+        )
+
+        XCTAssertEqual(first.lastPathComponent, "Example.lungfishmhcref")
+        XCTAssertEqual(second.lastPathComponent, "Example 2.lungfishmhcref")
+        XCTAssertNotEqual(first.standardizedFileURL, second.standardizedFileURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: first.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: second.path))
+        XCTAssertTrue(MHCAmpliconReferenceBundle.isBundleURL(second))
+    }
+
+    func testInstallMHCReferenceBundleRejectsNonBundle() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let projectRoot = root.appendingPathComponent("project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        let jsonURL = root.appendingPathComponent("plain.json")
+        try writeDefinition(makeDefinition(id: "custom.json", displayName: "Plain JSON"), to: jsonURL)
+
+        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot)
+        XCTAssertThrowsError(
+            try service.installMHCReferenceBundle(
+                from: jsonURL,
+                argv: ["lungfish-cli", "haplotypes", "bundle-install", jsonURL.path]
+            )
+        ) { error in
+            guard case HaplotypeDefinitionCommandServiceError.invalidMHCReferenceBundle = error else {
+                return XCTFail("Expected invalidMHCReferenceBundle, got \(error)")
+            }
+        }
+    }
+
+    func testInstallMHCReferenceBundleRequiresProjectRoot() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sourceBundleURL = root
+            .appendingPathComponent("source", isDirectory: true)
+            .appendingPathComponent("Example.lungfishmhcref", isDirectory: true)
+        try writeMHCReferenceBundle(
+            bundleURL: sourceBundleURL,
+            referenceContents: ">M1\nACGT\n",
+            definition: makeDefinition(id: "custom.install", displayName: "Installed Definition")
+        )
+
+        let service = HaplotypeDefinitionCommandService(projectRoot: nil)
+        XCTAssertThrowsError(
+            try service.installMHCReferenceBundle(
+                from: sourceBundleURL,
+                argv: ["lungfish-cli", "haplotypes", "bundle-install", sourceBundleURL.path]
+            )
+        ) { error in
+            guard case HaplotypeDefinitionCommandServiceError.missingProjectRoot = error else {
+                return XCTFail("Expected missingProjectRoot, got \(error)")
+            }
+        }
+    }
+
     func testExportDefinitionWritesJSONAndProvenanceSidecar() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
