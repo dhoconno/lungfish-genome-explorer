@@ -122,12 +122,12 @@ public struct HaplotypeDefinitionLibrary: Sendable {
         scope: HaplotypeDefinitionScope? = nil,
         includeShadowed: Bool = false
     ) -> HaplotypeDefinitionRecord? {
-        records().first { record in
+        // Single-record lookup spans all managed records (bare project-store defs
+        // + bundle defs) so CLI verbs like `export` can resolve a freshly-saved
+        // bare def. The GUI does not use this entry point for its bundle-only list.
+        allManagedRecords(assayID: assayID, scope: scope).first { record in
             if !includeShadowed, record.isShadowed { return false }
-            if record.definitionSet.id != definitionID { return false }
-            if let assayID, record.definitionSet.assayID != assayID { return false }
-            if let scope, record.scope != scope { return false }
-            return true
+            return record.definitionSet.id == definitionID
         }
     }
 
@@ -170,6 +170,60 @@ public struct HaplotypeDefinitionLibrary: Sendable {
                 )
             }
         }
+    }
+
+    /// Bare definitions on disk under the project's `Haplotype Definitions/`
+    /// store. These are NOT surfaced by `records()` (the GUI shows only
+    /// `.lungfishmhcref` bundles), but they remain valid INPUTS for building a
+    /// bundle (`haplotypes bundle-create`) and for the CLI `list`/`export`/
+    /// `duplicate`/`delete` verbs that operate on the project store directly.
+    private func projectStoreRecords() -> [HaplotypeDefinitionRecord] {
+        guard let store = store(for: .project) else { return [] }
+        return store.loadAllUserSets().map { definitionSet in
+            HaplotypeDefinitionRecord(
+                scope: .project,
+                assayDisplayName: assayDisplayName(for: definitionSet.assayID),
+                definitionSet: definitionSet,
+                fileURL: store.definitionURL(for: definitionSet.id),
+                isShadowed: false,
+                referenceBundleURL: nil,
+                referenceFASTAURL: nil
+            )
+        }
+    }
+
+    /// All managed definitions the CLI can act on: bare project-store defs PLUS
+    /// project `.lungfishmhcref` bundle defs. Unlike `records()` (bundle-only,
+    /// used by the GUI), this includes freshly-imported/saved bare defs so they
+    /// can be turned into bundles. When the same definition id appears both as a
+    /// bare def and inside a bundle, both records are returned (callers that need
+    /// uniqueness disambiguate by scope/bundle).
+    public func allManagedRecords(
+        assayID: String? = nil,
+        speciesCode: String? = nil,
+        scope: HaplotypeDefinitionScope? = nil
+    ) -> [HaplotypeDefinitionRecord] {
+        let combined = projectStoreRecords() + projectMHCReferenceBundleRecords()
+        return combined
+            .filter { record in
+                if let assayID = assayID?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !assayID.isEmpty,
+                   record.definitionSet.assayID != assayID {
+                    return false
+                }
+                if let speciesCode = speciesCode?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !speciesCode.isEmpty,
+                   record.definitionSet.speciesCode.caseInsensitiveCompare(speciesCode) != .orderedSame {
+                    return false
+                }
+                if let scope, record.scope != scope {
+                    return false
+                }
+                return true
+            }
+            .sorted { lhs, rhs in
+                lhs.id.localizedStandardCompare(rhs.id) == .orderedAscending
+            }
     }
 
     private func assayDisplayName(for assayID: String) -> String {

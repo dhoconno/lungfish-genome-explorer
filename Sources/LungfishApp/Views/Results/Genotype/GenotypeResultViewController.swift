@@ -2902,7 +2902,81 @@ final class GenotypeResultViewController: NSViewController {
            let definition = registry.definitionSet(id: id) {
             return (definition, .inferredPreview)
         }
+        // Provenance-only fallback: built-in/global definition scopes were
+        // removed, so a result whose recorded definition has no live project
+        // bundle would otherwise resolve to nothing. Reconstruct the definition
+        // from the analysis's own recorded diagnostic alleles so the diagnostic
+        // matrix still renders exactly what was used to make the call.
+        if let recorded = result.haplotypeAnalysis,
+           let synthesized = Self.synthesizedDefinitionSet(from: recorded) {
+            return (synthesized, .bundleAnalysis)
+        }
+        if let recorded = activeHaplotypeAnalysis(),
+           let synthesized = Self.synthesizedDefinitionSet(from: recorded) {
+            return (synthesized, .bundleAnalysis)
+        }
         return nil
+    }
+
+    /// Reconstructs a `GenotypeHaplotypeDefinitionSet` from a recorded
+    /// `GenotypeHaplotypeAnalysis`. The analysis carries, per locus, the matched
+    /// haplotype names + their diagnostic alleles, which is exactly the data the
+    /// diagnostic-allele matrix needs. Used as a provenance-only display source
+    /// when no live definition bundle matches the recorded definition id.
+    static func synthesizedDefinitionSet(
+        from analysis: GenotypeHaplotypeAnalysis
+    ) -> GenotypeHaplotypeDefinitionSet? {
+        var orderedLoci: [String] = []
+        var sourceLocusByLocus: [String: String] = [:]
+        var haplotypesByLocus: [String: [String: [String]]] = [:]
+        var haplotypeOrderByLocus: [String: [String]] = [:]
+
+        for sample in analysis.samples {
+            for call in sample.calls {
+                if haplotypesByLocus[call.locus] == nil {
+                    orderedLoci.append(call.locus)
+                    haplotypesByLocus[call.locus] = [:]
+                    haplotypeOrderByLocus[call.locus] = []
+                    sourceLocusByLocus[call.locus] = call.sourceLocus
+                }
+                for matched in call.matchedHaplotypes {
+                    if haplotypesByLocus[call.locus]?[matched.name] == nil {
+                        haplotypeOrderByLocus[call.locus]?.append(matched.name)
+                    }
+                    // Prefer the richest diagnostic-allele list seen for a haplotype.
+                    let existing = haplotypesByLocus[call.locus]?[matched.name] ?? []
+                    if matched.diagnosticAlleles.count >= existing.count {
+                        haplotypesByLocus[call.locus]?[matched.name] = matched.diagnosticAlleles
+                    }
+                }
+            }
+        }
+
+        let locusDefinitions: [GenotypeHaplotypeLocusDefinition] = orderedLoci.compactMap { locus in
+            guard let names = haplotypeOrderByLocus[locus], !names.isEmpty else { return nil }
+            let haplotypes = names.map { name in
+                GenotypeHaplotypeDefinition(
+                    name: name,
+                    diagnosticAlleles: haplotypesByLocus[locus]?[name] ?? []
+                )
+            }
+            return GenotypeHaplotypeLocusDefinition(
+                locus: locus,
+                sourceLocus: sourceLocusByLocus[locus] ?? locus,
+                haplotypes: haplotypes
+            )
+        }
+        guard !locusDefinitions.isEmpty else { return nil }
+
+        return GenotypeHaplotypeDefinitionSet(
+            id: analysis.definitionSetID,
+            assayID: analysis.assayID,
+            displayName: analysis.definitionSetName,
+            speciesName: analysis.speciesName,
+            speciesCode: "",
+            prefix: "",
+            locusDefinitions: locusDefinitions
+        )
     }
 
     private func activeHaplotypeDefinitionSetID() -> String? {

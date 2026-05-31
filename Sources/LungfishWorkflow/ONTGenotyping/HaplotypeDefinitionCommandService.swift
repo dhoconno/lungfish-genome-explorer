@@ -32,22 +32,17 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         includeShadowed: Bool = false,
         includeReferenceBundles: Bool = false
     ) -> [HaplotypeDefinitionRecord] {
-        library.records(includeReferenceBundles: includeReferenceBundles).filter { record in
-            if !includeShadowed, record.isShadowed { return false }
-            if let assayID = assayID?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !assayID.isEmpty,
-               record.definitionSet.assayID != assayID {
-                return false
-            }
-            if let speciesCode = speciesCode?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !speciesCode.isEmpty,
-               record.definitionSet.speciesCode.caseInsensitiveCompare(speciesCode) != .orderedSame {
-                return false
-            }
-            if let scope, record.scope != scope {
-                return false
-            }
-            return true
+        // CLI listing includes bare project-store defs AND bundle defs so that
+        // freshly-imported/saved defs are visible for `bundle-create`, `export`,
+        // `duplicate`, and `delete`. (The GUI uses `library.records()`, which is
+        // bundle-only.) `includeReferenceBundles` is retained for source-compat.
+        _ = includeReferenceBundles
+        return library.allManagedRecords(
+            assayID: assayID,
+            speciesCode: speciesCode,
+            scope: scope
+        ).filter { record in
+            includeShadowed || !record.isShadowed
         }
     }
 
@@ -558,23 +553,15 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         scope: HaplotypeDefinitionScope? = nil,
         includeReferenceBundles: Bool = false
     ) throws -> HaplotypeDefinitionRecord {
-        let matches = library.records(includeReferenceBundles: includeReferenceBundles).filter { record in
-            guard record.definitionSet.id == definitionID else { return false }
-            if let assayID = assayID?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !assayID.isEmpty,
-               record.definitionSet.assayID != assayID {
-                return false
-            }
-            if let speciesCode = speciesCode?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !speciesCode.isEmpty,
-               record.definitionSet.speciesCode.caseInsensitiveCompare(speciesCode) != .orderedSame {
-                return false
-            }
-            if let scope, record.scope != scope {
-                return false
-            }
-            return true
-        }
+        // Resolve against ALL managed records (bare project-store defs + bundle
+        // defs) so a freshly-imported def can be bundled/exported/duplicated.
+        // `includeReferenceBundles` is retained for source-compat.
+        _ = includeReferenceBundles
+        let matches = library.allManagedRecords(
+            assayID: assayID,
+            speciesCode: speciesCode,
+            scope: scope
+        ).filter { $0.definitionSet.id == definitionID }
         guard !matches.isEmpty else {
             throw HaplotypeDefinitionCommandServiceError.definitionNotFound(definitionID)
         }
