@@ -64,13 +64,13 @@ public final class SampleMetadataStore: @unchecked Sendable {
         }
 
         let delimiter: Character = headerLine.contains("\t") ? "\t" : ","
-        let headers = headerLine.split(separator: delimiter, omittingEmptySubsequences: false).map(String.init)
+        let headers = DelimitedLineParser.fields(in: headerLine, delimiter: delimiter)
         guard headers.count >= 2 else {
             throw MetadataParseError.insufficientColumns
         }
 
         let dataRows = lines.dropFirst().map { line in
-            line.split(separator: delimiter, omittingEmptySubsequences: false).map(String.init)
+            DelimitedLineParser.fields(in: line, delimiter: delimiter)
         }
 
         return (headers: headers, dataRows: dataRows, delimiter: delimiter)

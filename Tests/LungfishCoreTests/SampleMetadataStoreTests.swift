@@ -80,6 +80,14 @@ struct SampleMetadataStoreTests {
         #expect(store.records["S1"]?["Location"] == "Columbia")
     }
 
+    @Test("Parses quoted comma within a CSV field")
+    func parsesQuotedCommaWithinField() throws {
+        let csv = "sample_id,note\nS1,\"Doe, Jane\"\nS2,plain\n"
+        let store = try SampleMetadataStore(csvData: Data(csv.utf8), knownSampleIds: Set(["S1", "S2"]))
+        #expect(store.records["S1"]?["note"] == "Doe, Jane")
+        #expect(store.records["S2"]?["note"] == "plain")
+    }
+
     // MARK: - Column Scanning Tests
 
     @Test("scanForSampleColumn picks column with most matches")

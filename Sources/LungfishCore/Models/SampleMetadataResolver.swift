@@ -4,6 +4,53 @@
 
 import Foundation
 
+/// Splits a single line of delimited text (CSV/TSV) into fields.
+///
+/// Quote-aware: a field wrapped in double quotes may contain the delimiter, and a
+/// doubled quote (`""`) inside a quoted field is un-escaped to a single `"`. Empty
+/// fields are preserved (matching `String.split(omittingEmptySubsequences: false)`),
+/// so `"a,,c"` yields `["a", "", "c"]` and a trailing delimiter keeps the trailing
+/// empty field. Tab-delimited input is split on the literal delimiter without quote
+/// handling, mirroring conventional TSV parsing.
+public enum DelimitedLineParser {
+    public static func fields(in line: String, delimiter: Character) -> [String] {
+        guard delimiter == "," else {
+            return line.split(separator: delimiter, omittingEmptySubsequences: false).map(String.init)
+        }
+
+        var fields: [String] = []
+        var current = ""
+        var inQuotes = false
+        var iterator = line.makeIterator()
+        while let char = iterator.next() {
+            if char == "\"" {
+                if inQuotes, let next = iterator.next() {
+                    if next == "\"" {
+                        current.append("\"")
+                    } else {
+                        inQuotes.toggle()
+                        if next == delimiter {
+                            fields.append(current)
+                            current = ""
+                        } else {
+                            current.append(next)
+                        }
+                    }
+                } else {
+                    inQuotes.toggle()
+                }
+            } else if char == delimiter && !inQuotes {
+                fields.append(current)
+                current = ""
+            } else {
+                current.append(char)
+            }
+        }
+        fields.append(current)
+        return fields
+    }
+}
+
 public enum SampleMetadataSourceKind: String, Codable, Sendable, Equatable {
     case intrinsic
     case fastqFolder
@@ -254,40 +301,8 @@ public struct SampleMetadataTable: Codable, Equatable, Sendable {
     }
 
     private static func split(line: String, delimiter: String) -> [String] {
-        guard delimiter == "," else {
-            return line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
-        }
-
-        var fields: [String] = []
-        var current = ""
-        var inQuotes = false
-        var iterator = line.makeIterator()
-        while let char = iterator.next() {
-            if char == "\"" {
-                if inQuotes, let next = iterator.next() {
-                    if next == "\"" {
-                        current.append("\"")
-                    } else {
-                        inQuotes.toggle()
-                        if next == "," {
-                            fields.append(current)
-                            current = ""
-                        } else {
-                            current.append(next)
-                        }
-                    }
-                } else {
-                    inQuotes.toggle()
-                }
-            } else if char == "," && !inQuotes {
-                fields.append(current)
-                current = ""
-            } else {
-                current.append(char)
-            }
-        }
-        fields.append(current)
-        return fields
+        let separator: Character = delimiter == "," ? "," : "\t"
+        return DelimitedLineParser.fields(in: line, delimiter: separator)
     }
 
     private static func uniquedColumns(_ columns: [String]) -> [String] {
