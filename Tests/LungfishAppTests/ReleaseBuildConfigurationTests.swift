@@ -24,6 +24,18 @@ struct ReleaseBuildConfigurationTests {
 
     @Test("Xcode app bundle metadata uses 2026 Dave O'Connor copyright")
     func xcodeAppBundleMetadataUsesDaveOConnorCopyright() throws {
+        // The copyright (and the rest of the static Info.plist content) now lives
+        // in the shared source Info.plist that the xcodeproj consumes via
+        // INFOPLIST_FILE, rather than in per-config INFOPLIST_KEY_* settings.
+        let plist = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent("Lungfish-Info.plist"),
+            encoding: .utf8
+        )
+        #expect(plist.contains("Copyright © 2026 Dave O'Connor. MIT License."))
+
+        // Both app build configurations must point at the shared plist with
+        // generation disabled, so the document types reach the notarized build.
         let project = try String(
             contentsOf: Self.repositoryRoot()
                 .appendingPathComponent("Lungfish.xcodeproj/project.pbxproj"),
@@ -37,10 +49,10 @@ struct ReleaseBuildConfigurationTests {
             named: "F1E2D3C4B5A6978877665558 /* Debug */",
             in: project
         )
-        let expected = #"INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 Dave O'Connor. MIT License.";"#
-
-        #expect(releaseBlock.contains(expected))
-        #expect(debugBlock.contains(expected))
+        for block in [releaseBlock, debugBlock] {
+            #expect(block.contains("INFOPLIST_FILE = \"Lungfish-Info.plist\";"))
+            #expect(block.contains("GENERATE_INFOPLIST_FILE = NO;"))
+        }
     }
 
     @Test("Fallback build-app script builds arm64 release binary")
@@ -508,17 +520,28 @@ struct ReleaseBuildConfigurationTests {
         #expect(installIndex < dmgStageIndex)
     }
 
-    @Test("SwiftPM app bundle script declares Lungfish workflow bundle type")
-    func swiftPMAppBundleScriptDeclaresWorkflowBundleType() throws {
+    @Test("Shared Info.plist declares Lungfish workflow bundle type")
+    func sharedInfoPlistDeclaresWorkflowBundleType() throws {
+        // The document-type and exported-UTI declarations live in the single
+        // shared source Info.plist consumed by both build paths (the xcodeproj
+        // via INFOPLIST_FILE and scripts/build-app.sh via cp + plutil).
+        let plist = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent("Lungfish-Info.plist"),
+            encoding: .utf8
+        )
+
+        #expect(plist.contains("<string>org.lungfish.workflow</string>"))
+        #expect(plist.contains("<string>lungfishflow</string>"))
+        #expect(plist.contains("<string>com.apple.package</string>"))
+
+        // build-app.sh must consume the shared plist rather than embed its own.
         let script = try String(
             contentsOf: Self.repositoryRoot()
                 .appendingPathComponent("scripts/build-app.sh"),
             encoding: .utf8
         )
-
-        #expect(script.contains("<string>org.lungfish.workflow</string>"))
-        #expect(script.contains("<string>lungfishflow</string>"))
-        #expect(script.contains("<string>com.apple.package</string>"))
+        #expect(script.contains("Lungfish-Info.plist"))
     }
 
     @Test("Notarized DMG release script builds CLI with prefix maps")
