@@ -13,12 +13,23 @@ public struct TwelveSAmpliconReadClassifier: Sendable {
 
     private struct IndexedReference: Sendable {
         let targetID: String
+        let displayName: String
         let target: [UInt8]
     }
 
     private struct ExactReference: Sendable {
         let target: [UInt8]
         let targetIDs: [String]
+    }
+
+    /// A reference whose uppercased sequence appears verbatim as an internal substring of the
+    /// read (with at least `minimumSoftClipBases` flank on both ends). Carries enough information
+    /// (`sequence`, `displayName`) to collapse nested-substring and same-species duplication
+    /// artifacts before deciding exact-vs-ambiguous in ``classify(readSequence:)``.
+    private struct ExactMatch: Sendable {
+        let targetID: String
+        let displayName: String
+        let sequence: [UInt8]
     }
 
     private struct SeedHit: Sendable {
@@ -52,6 +63,7 @@ public struct TwelveSAmpliconReadClassifier: Sendable {
         self.indexedReferences = references.map {
             IndexedReference(
                 targetID: $0.targetID,
+                displayName: $0.displayName,
                 target: Array($0.sequence.uppercased().utf8)
             )
         }
@@ -105,11 +117,8 @@ public struct TwelveSAmpliconReadClassifier: Sendable {
         let read = Array(readSequence.uppercased().utf8)
         var matches: [(targetID: String, indelCount: Int)] = []
 
-        let exactTargetIDs = exactMatches(in: read)
-        if exactTargetIDs.count == 1, let targetID = exactTargetIDs.first {
-            return .exact(targetID: targetID, indelCount: 0)
-        } else if exactTargetIDs.count > 1 {
-            return .ambiguous(targetIDs: exactTargetIDs.sorted())
+        if let exactClassification = resolveExactMatches(exactMatchedReferences(in: read)) {
+            return exactClassification
         }
 
         for candidate in candidateReferences(for: read) {
@@ -133,13 +142,20 @@ public struct TwelveSAmpliconReadClassifier: Sendable {
         return .ambiguous(targetIDs: bestMatches.map(\.targetID).sorted())
     }
 
-    private func exactMatches(in read: [UInt8]) -> [String] {
+    /// Returns every reference whose uppercased sequence appears verbatim inside `read` with at
+    /// least `minimumSoftClipBases` flank on both ends. Order follows `indexedReferences`
+    /// (deterministic), and each `targetID` appears at most once. The exact boundary scan is
+    /// identical to the prior `exactMatches(in:)`; this variant only enriches the result with the
+    /// matched reference's sequence and display name so ``classify(readSequence:)`` can collapse
+    /// nested-substring and same-species duplication artifacts.
+    private func exactMatchedReferences(in read: [UInt8]) -> [ExactMatch] {
         guard minimumSoftClipBases >= 0 else { return [] }
         let lowerBound = minimumSoftClipBases
         let upperBound = read.count - minimumSoftClipBases
         guard upperBound > lowerBound else { return [] }
 
-        var matchedTargetIDs = Set<String>()
+        var matches: [ExactMatch] = []
+        var seenTargetIDs = Set<String>()
         for reference in indexedReferences {
             let pattern = reference.target
             let m = pattern.count
@@ -155,13 +171,92 @@ public struct TwelveSAmpliconReadClassifier: Sendable {
                     k += 1
                 }
                 if k == m {
-                    matchedTargetIDs.insert(reference.targetID)
+                    if seenTargetIDs.insert(reference.targetID).inserted {
+                        matches.append(
+                            ExactMatch(
+                                targetID: reference.targetID,
+                                displayName: reference.displayName,
+                                sequence: pattern
+                            )
+                        )
+                    }
                     break scan
                 }
                 start += 1
             }
         }
-        return Array(matchedTargetIDs)
+        return matches
+    }
+
+    /// Collapses nested-substring and same-species duplication artifacts in a set of exact matches,
+    /// then decides exact-vs-ambiguous. Applies only to the exact-embedded match path (indelCount
+    /// is always 0 here); the indel-only fallback in ``classify(readSequence:)`` is unaffected.
+    ///
+    /// Steps (per 2026-05-31 12S exact-collapse policy):
+    /// 1. **Substring containment collapse** drops any match whose sequence is a *proper* substring
+    ///    (contained AND strictly shorter) of another match's sequence. Equal-byte sequences are
+    ///    not proper substrings, so both survive this step.
+    /// 2. **Same-species canonicalization**: if all survivors share one `displayName`, the read is
+    ///    not ambiguous. The canonical survivor is the longest sequence, tie-broken by smallest
+    ///    `targetID` (lexicographic) for stability.
+    /// 3. **Cross-species ambiguity** is preserved: survivors spanning more than one `displayName`
+    ///    return `.ambiguous` over the survivors' target IDs (sorted).
+    private func resolveExactMatches(_ matches: [ExactMatch]) -> TwelveSReadClassification? {
+        guard !matches.isEmpty else { return nil }
+        if matches.count == 1, let only = matches.first {
+            return .exact(targetID: only.targetID, indelCount: 0)
+        }
+
+        // Step 1: drop any match that is a proper substring of another match's sequence.
+        let survivors = matches.enumerated().filter { index, candidate in
+            !matches.enumerated().contains { otherIndex, other in
+                otherIndex != index
+                    && other.sequence.count > candidate.sequence.count
+                    && Self.isSubstringContained(candidate.sequence, within: other.sequence)
+            }
+        }.map(\.element)
+
+        guard let first = survivors.first else { return nil }
+        if survivors.count == 1 {
+            return .exact(targetID: first.targetID, indelCount: 0)
+        }
+
+        // Step 2: if every survivor is the same species, collapse to a single canonical survivor.
+        let distinctDisplayNames = Set(survivors.map(\.displayName))
+        if distinctDisplayNames.count == 1 {
+            let canonical = survivors.max { lhs, rhs in
+                if lhs.sequence.count != rhs.sequence.count {
+                    return lhs.sequence.count < rhs.sequence.count
+                }
+                // Longest first; for equal length prefer the smallest targetID for stability.
+                return lhs.targetID > rhs.targetID
+            } ?? first
+            return .exact(targetID: canonical.targetID, indelCount: 0)
+        }
+
+        // Step 3: genuinely different species remain ambiguous.
+        return .ambiguous(targetIDs: survivors.map(\.targetID).sorted())
+    }
+
+    /// Returns `true` when `needle` occurs as a contiguous run inside `haystack`.
+    /// Both arguments are uppercased byte sequences. An empty `needle` is contained in anything.
+    private static func isSubstringContained(_ needle: [UInt8], within haystack: [UInt8]) -> Bool {
+        let n = needle.count
+        let h = haystack.count
+        guard n > 0 else { return true }
+        guard n <= h else { return false }
+        let lastStart = h - n
+        var start = 0
+        while start <= lastStart {
+            var k = 0
+            while k < n {
+                if haystack[start + k] != needle[k] { break }
+                k += 1
+            }
+            if k == n { return true }
+            start += 1
+        }
+        return false
     }
 
     private func candidateReferences(for read: [UInt8]) -> [CandidateReference] {
