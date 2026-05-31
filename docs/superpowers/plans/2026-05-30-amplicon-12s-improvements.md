@@ -770,20 +770,24 @@ For each fix above: Step 1 failing test (or `swift build` red where purely cosme
 
 - [ ] **12S real run.** Build `.lungfish12sref` from the real reference, produce the merged FASTQ via the amplicon import recipe path, then match:
   ```
+  # CONFIRMED flags (read from source 2026-05-31):
   $CLI fastq 12s-reference-bundle \
-    --fasta /Users/dho/Downloads/32308/ref/amplicons_deduplicated.fa \
-    --target-metadata /Users/dho/Downloads/32308/intermediate/12s_reference.tsv \
-    --output /tmp/12s-ref.lungfish12sref --force
-  # Merge the paired Hilo reads through the same amplicon-merge recipe the GUI import uses
-  # (R1/R2 -> clumpified, merged single FASTQ). For a pure-CLI run, invoke that recipe first:
+    --dedup-fasta /Users/dho/Downloads/32308/ref/amplicons_deduplicated.fa \
+    --midori-metadata /Users/dho/Downloads/32308/intermediate/12s_reference.tsv \
+    --output /tmp/12s-ref.lungfish12sref --name "32308 12S" --force
+  # Merge the paired Hilo reads -> single merged FASTQ. The GUI amplicon import recipe does
+  # this (clumpify+merge). For a pure-CLI run, produce a merged FASTQ first (the merge tool
+  # is `fastq merge`; verify its flags with `$CLI fastq merge --help`). If a quick merged
+  # fixture is impractical at run time, run 12s-match against R1 alone as a smoke (the matcher
+  # accepts a single merged-style FASTQ; note the result is then not biologically merged).
   #   inputs: /Users/dho/Downloads/HI_Hilo_WWTP_20260511__12S_F09_S69_L001_R{1,2}_001.fastq.gz
-  #   output: /tmp/hilo-merged.fastq(.gz)
-  $CLI fastq 12s-match \
-    --reference-bundle /tmp/12s-ref.lungfish12sref \
-    --input /tmp/hilo-merged.fastq.gz \
-    --output /tmp/hilo-12s.lungfish12s --force
+  #   merged: /tmp/hilo-merged.fastq.gz
+  # 12s-match takes the merged FASTQ POSITIONALLY; --reference accepts the .lungfish12sref bundle directly:
+  $CLI fastq 12s-match /tmp/hilo-merged.fastq.gz \
+    --reference /tmp/12s-ref.lungfish12sref \
+    --output-dir /tmp/lge-12s --output-name hilo-12s --force
   ```
-  Gate: `/tmp/hilo-12s.lungfish12s/targets.tsv` has populated `taxid` / `taxon_group` / `taxonomy` for known rows (e.g. `Homo sapiens` → `9606`), and `/tmp/hilo-12s.lungfish12s/.lungfish-provenance.json` is canonical (`toolName == "lungfish-cli"`, non-empty `argv`, output path recorded). (Confirm exact flag names against `FastqTwelveSReferenceBundleSubcommand` / `FastqTwelveSMatchSubcommand` — adjust `--fasta`/`--input` to the real option names.)
+  Gate: `/tmp/lge-12s/hilo-12s.lungfish12s/targets.tsv` has populated `taxid` / `taxon_group` / `taxonomy` for known rows (e.g. `Homo sapiens` → `9606`), and the bundle's `.lungfish-provenance.json` is canonical (`toolName == "lungfish-cli"`, non-empty `argv`, output path recorded). (Flag names CONFIRMED against source: `12s-reference-bundle` uses `--dedup-fasta`/`--midori-metadata`/`--output`/`--name`/`--force`; `12s-match` takes the FASTQ as a positional arg, `--reference` (FASTA OR `.lungfish12sref`), `--output-dir`, `--output-name`, `--min-soft-clip`, `--max-indels`, `--force` — there is NO `--reference-bundle`/`--input`/`--fasta`/`--target-metadata` flag.)
 
 - [ ] **MHC genotyping — base + multi-bundle + bundle-format gates** (uses `/Users/dho/Desktop/sandbox/32271.lungfish`):
   - Base ONT run against barcode05-08 `.lungfishfastq`, the MHC/KIR `.lungfishref`, and the Mauritian-cynomolgus haplotype defs (materialize virtual FASTQ as needed):
