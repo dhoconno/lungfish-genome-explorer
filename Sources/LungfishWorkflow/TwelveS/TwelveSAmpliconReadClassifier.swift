@@ -134,42 +134,34 @@ public struct TwelveSAmpliconReadClassifier: Sendable {
     }
 
     private func exactMatches(in read: [UInt8]) -> [String] {
-        guard read.count >= minimumSoftClipBases * 2 else { return [] }
-        let alignedEndLimit = read.count - minimumSoftClipBases
-        guard minimumSoftClipBases < alignedEndLimit else { return [] }
+        guard minimumSoftClipBases >= 0 else { return [] }
+        let lowerBound = minimumSoftClipBases
+        let upperBound = read.count - minimumSoftClipBases
+        guard upperBound > lowerBound else { return [] }
 
-        var matches = Set<String>()
-        for length in referenceLengths {
-            guard let hashTargets = exactHashReferencesByLength[length],
-                  let leadingPower = exactHashBasePowers[length] else {
-                continue
-            }
-            let firstStart = minimumSoftClipBases
-            let lastStart = alignedEndLimit - length
-            guard firstStart <= lastStart else { continue }
-
-            var hash = Self.sequenceHash(bytes: read, offset: firstStart, length: length)
-            for start in firstStart...lastStart {
-                if let candidates = hashTargets[hash] {
-                    for candidate in candidates where Self.bytesEqual(
-                        candidate.target,
-                        read,
-                        offset: start
-                    ) {
-                        matches.formUnion(candidate.targetIDs)
-                    }
+        var matchedTargetIDs = Set<String>()
+        for reference in indexedReferences {
+            let pattern = reference.target
+            let m = pattern.count
+            guard m > 0, m <= upperBound - lowerBound else { continue }
+            let firstStart = lowerBound
+            let lastStart = upperBound - m
+            guard lastStart >= firstStart else { continue }
+            var start = firstStart
+            scan: while start <= lastStart {
+                var k = 0
+                while k < m {
+                    if read[start + k] != pattern[k] { break }
+                    k += 1
                 }
-                if start < lastStart {
-                    hash = Self.rollHash(
-                        hash,
-                        removing: read[start],
-                        adding: read[start + length],
-                        leadingPower: leadingPower
-                    )
+                if k == m {
+                    matchedTargetIDs.insert(reference.targetID)
+                    break scan
                 }
+                start += 1
             }
         }
-        return Array(matches)
+        return Array(matchedTargetIDs)
     }
 
     private func candidateReferences(for read: [UInt8]) -> [CandidateReference] {
@@ -264,6 +256,14 @@ public struct TwelveSAmpliconReadClassifier: Sendable {
                 guard read[start] == target[0], read[end - 1] == target[target.count - 1] else {
                     continue
                 }
+                guard alignmentSoftClipIsGenuineFlank(
+                    target: target,
+                    read: read,
+                    queryStart: start,
+                    queryEnd: end
+                ) else {
+                    continue
+                }
                 guard let indelCount = indelOnlyDistance(
                     target: target,
                     read: read,
@@ -283,6 +283,44 @@ public struct TwelveSAmpliconReadClassifier: Sendable {
         }
 
         return best
+    }
+
+    /// Rejects indel-only alignments whose soft-clipped read bases are themselves an exact
+    /// continuation of the target's leading or trailing bases. Such a "flank" is not genuine:
+    /// it means the target core sits flush against a read boundary and the indel aligner is
+    /// manufacturing soft-clip out of the core's own bases. Per the design spec
+    /// (2026-05-31-12s-flanked-exact-match-undercall-design.md, lines 117-121, 244-245), a read
+    /// with no genuine `minimumSoftClipBases` flank on a side must stay unresolved.
+    private func alignmentSoftClipIsGenuineFlank(
+        target: [UInt8],
+        read: [UInt8],
+        queryStart: Int,
+        queryEnd: Int
+    ) -> Bool {
+        guard minimumSoftClipBases > 0 else { return true }
+
+        let leadingClipLength = queryStart
+        if leadingClipLength > 0, leadingClipLength <= target.count {
+            var matchesTargetPrefix = true
+            for index in 0..<leadingClipLength where read[index] != target[index] {
+                matchesTargetPrefix = false
+                break
+            }
+            if matchesTargetPrefix { return false }
+        }
+
+        let trailingClipLength = read.count - queryEnd
+        if trailingClipLength > 0, trailingClipLength <= target.count {
+            var matchesTargetSuffix = true
+            let targetTailStart = target.count - trailingClipLength
+            for index in 0..<trailingClipLength where read[queryEnd + index] != target[targetTailStart + index] {
+                matchesTargetSuffix = false
+                break
+            }
+            if matchesTargetSuffix { return false }
+        }
+
+        return true
     }
 
     private static func seedLength(forTargetLength targetLength: Int) -> Int {
