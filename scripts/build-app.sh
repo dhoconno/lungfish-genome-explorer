@@ -350,6 +350,32 @@ cat > "$CONTENTS_DIR/Info.plist" << EOF
                 <string>org.lungfish.tree-bundle</string>
             </array>
         </dict>
+        <!-- Reference bundle -->
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Lungfish Reference Bundle</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Owner</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>org.lungfish.reference-bundle</string>
+            </array>
+        </dict>
+        <!-- MHC reference bundle -->
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Lungfish MHC Reference Bundle</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Owner</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>org.lungfish.mhc-reference-bundle</string>
+            </array>
+        </dict>
     </array>
 
     <!-- Exported Type Declarations (Custom UTIs) -->
@@ -530,6 +556,44 @@ cat > "$CONTENTS_DIR/Info.plist" << EOF
                 <key>public.filename-extension</key>
                 <array>
                     <string>lungfishtree</string>
+                </array>
+            </dict>
+        </dict>
+        <!-- Reference bundle -->
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>org.lungfish.reference-bundle</string>
+            <key>UTTypeDescription</key>
+            <string>Lungfish Reference Bundle</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>com.apple.package</string>
+                <string>public.directory</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>lungfishref</string>
+                </array>
+            </dict>
+        </dict>
+        <!-- MHC reference bundle -->
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>org.lungfish.mhc-reference-bundle</string>
+            <key>UTTypeDescription</key>
+            <string>Lungfish MHC Reference Bundle</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>com.apple.package</string>
+                <string>public.directory</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>lungfishmhcref</string>
                 </array>
             </dict>
         </dict>

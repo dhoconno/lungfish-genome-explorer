@@ -1345,7 +1345,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         let splitViewController = controller.mainSplitViewController
         let viewerController = splitViewController?.viewerController
 
-        if type == .lungfishReferenceBundle || type == .lungfishMultipleSequenceAlignmentBundle || type == .lungfishPhylogeneticTreeBundle {
+        if type == .lungfishReferenceBundle || type == .lungfishMultipleSequenceAlignmentBundle || type == .lungfishPhylogeneticTreeBundle || type == .lungfishMHCReferenceBundle {
             Task {
                 viewerController?.showProgress("Loading \(url.lastPathComponent)...")
                 do {
@@ -1356,6 +1356,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                         try viewerController?.displayMultipleSequenceAlignmentBundle(at: url)
                     case .lungfishPhylogeneticTreeBundle:
                         try viewerController?.displayPhylogeneticTreeBundle(at: url)
+                    case .lungfishMHCReferenceBundle:
+                        splitViewController?.displayMHCReferenceBundleFromExternalOpen(at: url)
                     default:
                         break
                     }

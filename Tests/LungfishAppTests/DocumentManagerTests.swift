@@ -140,6 +140,10 @@ final class DocumentManagerTests: XCTestCase {
             AppDocumentType.detect(from: URL(fileURLWithPath: "/tmp/example.lungfishtree")),
             .lungfishPhylogeneticTreeBundle
         )
+        XCTAssertEqual(
+            AppDocumentType.detect(from: URL(fileURLWithPath: "/tmp/example.lungfishmhcref")),
+            .lungfishMHCReferenceBundle
+        )
     }
 
     func testDetectGzipCompressed() {
@@ -194,6 +198,8 @@ final class DocumentManagerTests: XCTestCase {
                        ".lungfishMultipleSequenceAlignmentBundle should be a directory format")
         XCTAssertTrue(AppDocumentType.lungfishPhylogeneticTreeBundle.isDirectoryFormat,
                        ".lungfishPhylogeneticTreeBundle should be a directory format")
+        XCTAssertTrue(AppDocumentType.lungfishMHCReferenceBundle.isDirectoryFormat,
+                       ".lungfishMHCReferenceBundle should be a directory format")
 
         // All other types should return false
         let nonDirectoryTypes: [AppDocumentType] = [.fasta, .fastq, .genbank, .gff3, .bed, .vcf, .bam]
@@ -219,6 +225,7 @@ final class DocumentManagerTests: XCTestCase {
             .lungfishReferenceBundle,
             .lungfishMultipleSequenceAlignmentBundle,
             .lungfishPhylogeneticTreeBundle,
+            .lungfishMHCReferenceBundle,
         ]
         let actualCases = Set(AppDocumentType.allCases)
         XCTAssertEqual(actualCases, expectedCases, "DocumentType should have exactly the expected cases")
@@ -241,6 +248,7 @@ final class DocumentManagerTests: XCTestCase {
         XCTAssertTrue(supported.contains("lungfishref"), "supportedExtensions should include 'lungfishref'")
         XCTAssertTrue(supported.contains("lungfishmsa"), "supportedExtensions should include 'lungfishmsa'")
         XCTAssertTrue(supported.contains("lungfishtree"), "supportedExtensions should include 'lungfishtree'")
+        XCTAssertTrue(supported.contains("lungfishmhcref"), "supportedExtensions should include 'lungfishmhcref'")
 
         // Verify total count matches sum of all type extensions
         let expectedCount = AppDocumentType.allCases.reduce(0) { $0 + $1.extensions.count }

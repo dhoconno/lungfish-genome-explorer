@@ -218,6 +218,49 @@ final class MappingViewportRoutingTests: XCTestCase {
         XCTAssertNil(controller.inspectorController.viewModel.provenanceSectionViewModel.currentItem)
     }
 
+    func testExternalOpenMHCReferenceBundleRoutesThroughDedicatedDisplayPath() throws {
+        let appDelegateSource = try loadSource(at: "Sources/LungfishApp/App/AppDelegate.swift")
+        let routeStart = try XCTUnwrap(appDelegateSource.range(of: "case .lungfishMHCReferenceBundle:"))
+        let routeEnd = try XCTUnwrap(
+            appDelegateSource.range(of: "default:", range: routeStart.upperBound..<appDelegateSource.endIndex)
+        )
+        let routeSource = String(appDelegateSource[routeStart.lowerBound..<routeEnd.lowerBound])
+
+        XCTAssertTrue(routeSource.contains("displayMHCReferenceBundleFromExternalOpen(at: url)"))
+        XCTAssertFalse(routeSource.contains("MHCAmpliconReferenceBundle.loadManifest(from: url)"))
+
+        let mainWindowSource = try loadSource(at: "Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift")
+        XCTAssertTrue(mainWindowSource.contains("func displayMHCReferenceBundleFromExternalOpen(at url: URL)"))
+        XCTAssertTrue(mainWindowSource.contains("inspectorController.updateMHCReferenceBundleDocument(url)"))
+    }
+
+    func testExternalOpenMHCReferenceBundlePopulatesInspectorAndProvenanceTarget() throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MHCExternalOpen-\(UUID().uuidString)", isDirectory: true)
+        let bundleURL = tempRoot.appendingPathComponent("MCM.lungfishmhcref", isDirectory: true)
+        try MHCReferenceBundleSidebarTests.writeMHCReferenceBundle(at: bundleURL, name: "MCM")
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let controller = MainSplitViewController()
+        _ = controller.view
+
+        controller.displayMHCReferenceBundleFromExternalOpen(at: bundleURL)
+
+        let state = try XCTUnwrap(
+            controller.inspectorController.viewModel.documentSectionViewModel.mhcReferenceBundleDocument
+        )
+        XCTAssertEqual(state.name, "MCM MHC")
+        XCTAssertEqual(state.bundleURL?.standardizedFileURL, bundleURL.standardizedFileURL)
+        XCTAssertEqual(
+            controller.inspectorController.viewModel.provenanceSectionViewModel.currentItem?.url,
+            bundleURL
+        )
+        XCTAssertEqual(
+            controller.inspectorController.viewModel.provenanceSectionViewModel.currentItem?.sidebarType,
+            .mhcReferenceBundle
+        )
+    }
+
     func testReferenceBundleSidebarRouteHasNoDeadForceReloadParameter() throws {
         let mainWindowSource = try loadSource(at: "Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift")
 

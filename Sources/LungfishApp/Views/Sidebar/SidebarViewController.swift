@@ -1254,6 +1254,7 @@ public class SidebarViewController: NSViewController {
 
         // Create the item (strip bundle extension for display)
         let displayName = (itemType == .referenceBundle
+            || itemType == .mhcReferenceBundle
             || itemType == .multipleSequenceAlignmentBundle
             || itemType == .phylogeneticTreeBundle
             || itemType == .fastqBundle
@@ -1426,6 +1427,8 @@ public class SidebarViewController: NSViewController {
         switch url.pathExtension.lowercased() {
         case "lungfishref":
             return (.referenceBundle, "cylinder.split.1x2")
+        case MHCAmpliconReferenceBundle.directoryExtension:
+            return (.mhcReferenceBundle, "cylinder.split.1x2")
         case MultipleSequenceAlignmentBundle.directoryExtension:
             return (.multipleSequenceAlignmentBundle, "rectangle.grid.1x2")
         case "lungfishtree":
@@ -2270,6 +2273,8 @@ public class SidebarViewController: NSViewController {
             return (.multipleSequenceAlignmentBundle, "rectangle.grid.1x2")
         case .lungfishPhylogeneticTreeBundle:
             return (.phylogeneticTreeBundle, "point.3.connected.trianglepath.dotted")
+        case .lungfishMHCReferenceBundle:
+            return (.mhcReferenceBundle, "cylinder.split.1x2")
         }
     }
 
@@ -3688,6 +3693,7 @@ public enum SidebarItemType {
     case image     // Image files - uses QuickLook preview
     case unknown   // Unknown file type - uses QuickLook preview
     case referenceBundle  // .lungfishref reference genome bundle
+    case mhcReferenceBundle  // .lungfishmhcref MHC amplicon reference bundle
     case multipleSequenceAlignmentBundle  // .lungfishmsa alignment bundle
     case phylogeneticTreeBundle  // .lungfishtree tree bundle
     case fastqBundle  // .lungfishfastq FASTQ package bundle
@@ -3716,6 +3722,7 @@ public enum SidebarItemType {
         case .image: return .systemPink
         case .unknown: return .tertiaryLabelColor
         case .referenceBundle: return .systemIndigo
+        case .mhcReferenceBundle: return .systemIndigo
         case .multipleSequenceAlignmentBundle: return .systemPurple
         case .phylogeneticTreeBundle: return .systemMint
         case .fastqBundle: return .systemGreen
@@ -3746,7 +3753,7 @@ public enum SidebarItemType {
     /// Whether this item type is a bundle that should appear as a single item
     var isBundle: Bool {
         switch self {
-        case .referenceBundle, .multipleSequenceAlignmentBundle, .phylogeneticTreeBundle,
+        case .referenceBundle, .mhcReferenceBundle, .multipleSequenceAlignmentBundle, .phylogeneticTreeBundle,
              .fastqBundle, .primerSchemeBundle, .genotypeResultBundle, .twelveSAmpliconResultBundle, .czIdResult:
             return true
         default:

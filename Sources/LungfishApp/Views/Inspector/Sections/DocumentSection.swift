@@ -48,6 +48,10 @@ public final class DocumentSectionViewModel {
     /// Genotype result document state shown when a lungfishgenotype viewport is active.
     var genotypeResultDocument: GenotypeResultDocumentState?
 
+    /// MHC amplicon reference bundle document state shown when a `.lungfishmhcref`
+    /// bundle is selected. This metadata-only document has no viewport.
+    var mhcReferenceBundleDocument: MHCReferenceBundleDocumentState?
+
     /// Callback for project-backed source data rows to navigate in the sidebar.
     var navigateToSourceData: ((URL) -> Void)?
 
@@ -71,6 +75,7 @@ public final class DocumentSectionViewModel {
         multipleSequenceAlignmentDocument = nil
         phylogeneticTreeDocument = nil
         genotypeResultDocument = nil
+        mhcReferenceBundleDocument = nil
         navigateToSourceData = nil
         self.manifest = manifest
         self.bundleURL = bundleURL
@@ -110,6 +115,7 @@ public final class DocumentSectionViewModel {
         multipleSequenceAlignmentDocument = nil
         phylogeneticTreeDocument = nil
         genotypeResultDocument = nil
+        mhcReferenceBundleDocument = nil
         navigateToSourceData = nil
         self.fastqStatistics = stats
         // Clear bundle-related data since this is a standalone FASTQ
@@ -148,6 +154,7 @@ public final class DocumentSectionViewModel {
         multipleSequenceAlignmentDocument = nil
         phylogeneticTreeDocument = nil
         genotypeResultDocument = nil
+        mhcReferenceBundleDocument = nil
         self.naoMgsManifest = manifest
         referenceTrackCapabilities = nil
         clearAlignmentTrackInventory()
@@ -165,6 +172,7 @@ public final class DocumentSectionViewModel {
         multipleSequenceAlignmentDocument = nil
         phylogeneticTreeDocument = nil
         genotypeResultDocument = nil
+        mhcReferenceBundleDocument = nil
         self.nvdManifest = manifest
         referenceTrackCapabilities = nil
         clearAlignmentTrackInventory()
@@ -179,6 +187,7 @@ public final class DocumentSectionViewModel {
         multipleSequenceAlignmentDocument = nil
         phylogeneticTreeDocument = nil
         genotypeResultDocument = nil
+        mhcReferenceBundleDocument = nil
         manifest = nil
         bundleURL = nil
         selectedChromosome = nil
@@ -202,6 +211,7 @@ public final class DocumentSectionViewModel {
         multipleSequenceAlignmentDocument = nil
         phylogeneticTreeDocument = nil
         genotypeResultDocument = nil
+        mhcReferenceBundleDocument = nil
         manifest = nil
         bundleURL = nil
         selectedChromosome = nil
@@ -225,6 +235,7 @@ public final class DocumentSectionViewModel {
         assemblyDocument = nil
         phylogeneticTreeDocument = nil
         genotypeResultDocument = nil
+        mhcReferenceBundleDocument = nil
         manifest = nil
         bundleURL = nil
         selectedChromosome = nil
@@ -249,6 +260,7 @@ public final class DocumentSectionViewModel {
         assemblyDocument = nil
         multipleSequenceAlignmentDocument = nil
         genotypeResultDocument = nil
+        mhcReferenceBundleDocument = nil
         manifest = nil
         bundleURL = nil
         selectedChromosome = nil
@@ -273,6 +285,32 @@ public final class DocumentSectionViewModel {
         assemblyDocument = nil
         multipleSequenceAlignmentDocument = nil
         phylogeneticTreeDocument = nil
+        mhcReferenceBundleDocument = nil
+        manifest = nil
+        bundleURL = nil
+        selectedChromosome = nil
+        referenceTrackCapabilities = nil
+        fastqStatistics = nil
+        sraRunInfo = nil
+        enaReadRecord = nil
+        ingestionMetadata = nil
+        fastqDerivativeManifest = nil
+        naoMgsManifest = nil
+        nvdManifest = nil
+        analysisManifestEntries = []
+        clearAlignmentTrackInventory()
+    }
+
+    /// Updates the view model with MHC reference bundle data and clears other document modes.
+    func updateMHCReferenceBundleDocument(_ state: MHCReferenceBundleDocumentState?) {
+        mhcReferenceBundleDocument = state
+        guard state != nil else { return }
+
+        mappingDocument = nil
+        assemblyDocument = nil
+        multipleSequenceAlignmentDocument = nil
+        phylogeneticTreeDocument = nil
+        genotypeResultDocument = nil
         manifest = nil
         bundleURL = nil
         selectedChromosome = nil
@@ -389,6 +427,7 @@ public final class DocumentSectionViewModel {
             multipleSequenceAlignmentDocument != nil ||
             phylogeneticTreeDocument != nil ||
             genotypeResultDocument != nil ||
+            mhcReferenceBundleDocument != nil ||
             manifest != nil ||
             fastqStatistics != nil ||
             sraRunInfo != nil ||
@@ -544,6 +583,8 @@ public struct DocumentSection: View {
             PhylogeneticTreeDocumentSection(state: phylogeneticTreeDocument)
         } else if let multipleSequenceAlignmentDocument = viewModel.multipleSequenceAlignmentDocument {
             MultipleSequenceAlignmentDocumentSection(state: multipleSequenceAlignmentDocument)
+        } else if let mhcReferenceBundleDocument = viewModel.mhcReferenceBundleDocument {
+            MHCReferenceBundleDocumentSection(state: mhcReferenceBundleDocument)
         } else if let manifest = viewModel.manifest {
             bundleContent(manifest)
                 .onChange(of: manifest.modifiedDate) { _, _ in
