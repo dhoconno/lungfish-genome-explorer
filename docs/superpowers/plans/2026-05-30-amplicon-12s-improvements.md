@@ -118,6 +118,33 @@ MSG
 
 ---
 
+### Task 1b: Fix stale FastqCommand subcommand-count assertion  (pre-existing failure caused by the 12S/MHC work; found during full-suite baseline)
+
+**Why this exists:** the 12S/MHC work registered 6 new `fastq` subcommands (`12s-match`, `12s-reference-bundle`, `12s-reference-metadata`, two 12s-export commands, `mhc-reference-bundle`), bringing `FastqCommand.configuration.subcommands.count` to **37**, but `Tests/LungfishCLITests/CLICommandTests.swift` still asserts `31`. This test is RED on the baseline and the 5-agent review missed it. (The 3 failing `WorkflowPackageManifestTests` found in the same baseline run are PRE-EXISTING and UNRELATED to amplicon/12S — they are tracked separately and are out of scope here.)
+
+**Files:**
+- Modify: `Tests/LungfishCLITests/CLICommandTests.swift` (~1249-1252: the doc comment "all 31 subcommands" and `XCTAssertEqual(subcommands.count, 31, ...)`).
+
+- [ ] Step 1: Confirm the real count and FAIL.
+  `swift test --package-path "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/12s-amplicon-matching" --skip-update --filter CLICommandTests/testFastqSubcommandCount`
+  Expected: `XCTAssertEqual failed: ("37") is not equal to ("31")`.
+- [ ] Step 2: Verify 37 is correct (not an accidental duplicate registration): read `Sources/LungfishCLI/Commands/FastqCommand.swift` `subcommands: [...]` and confirm each of the 6 new entries is a legitimate, distinct command. Only then update the expectation. (If any entry is a duplicate or stray, that is the real bug — fix the registration instead and STOP to report.)
+- [ ] Step 3: Update the assertion to `37` and the doc comment from "all 31 subcommands" to "all 37 subcommands". If the test enumerates expected names, add the 6 new names too.
+- [ ] Step 4: PASS.
+  `swift test --package-path "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/12s-amplicon-matching" --skip-update --filter CLICommandTests`
+- [ ] Step 5: Commit.
+  `git -C "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/12s-amplicon-matching" add Tests/LungfishCLITests/CLICommandTests.swift && git -C "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/12s-amplicon-matching" commit -m "$(cat <<'MSG'
+Update FastqCommand subcommand count 31 -> 37 for 12S/MHC commands
+
+The 12S/MHC work added 6 fastq subcommands but left the count assertion at
+31; correct it to the actual 37 (verified each new registration is distinct).
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+MSG
+)"`
+
+---
+
 ## Phase 1a — Architectural prerequisites (must precede dependent UI/CLI work)
 
 ### Task 2: Unify the reference-bundle design  (addresses S-P1-5)
