@@ -2,6 +2,15 @@ import SwiftUI
 import LungfishCore
 import LungfishIO
 
+/// Tri-state for a taxon-group filter pill: neutral (no constraint), included
+/// (only this group passes), or excluded (this group is hidden). Include and
+/// exclude are mutually exclusive — enforced by the view-model's setters.
+enum TaxonPillState {
+    case neutral
+    case included
+    case excluded
+}
+
 @Observable
 @MainActor
 final class TwelveSResultDisplaySectionViewModel {
@@ -124,6 +133,34 @@ final class TwelveSResultDisplaySectionViewModel {
         displayState.includedTaxonGroups = included
         displayState.excludedTaxonGroups = excluded
         notifyStateChanged()
+    }
+
+    /// Reports the current tri-state for a taxon group by reading the single
+    /// source of truth (`displayState`). Include and exclude are mutually
+    /// exclusive, so at most one set contains the group.
+    func pillState(for group: String) -> TaxonPillState {
+        if displayState.includedTaxonGroups.contains(group) {
+            return .included
+        }
+        if displayState.excludedTaxonGroups.contains(group) {
+            return .excluded
+        }
+        return .neutral
+    }
+
+    /// Advances a taxon group's pill through neutral → included → excluded →
+    /// neutral. All transitions route through the existing mutually-exclusive
+    /// setters so the display-state-change callback fires and exclusivity is
+    /// preserved through one code path (no parallel filter logic here).
+    func cycleTaxonGroup(_ group: String) {
+        switch pillState(for: group) {
+        case .neutral:
+            setIncludedTaxonGroup(group, isIncluded: true)
+        case .included:
+            setExcludedTaxonGroup(group, isExcluded: true)
+        case .excluded:
+            setExcludedTaxonGroup(group, isExcluded: false)
+        }
     }
 
     func setExcludeHuman(_ value: Bool) {
@@ -256,44 +293,48 @@ struct TwelveSResultDisplaySection: View {
         }
     }
 
+    // Converges on the genotype quick-filter pill idiom (pill-shaped toggles in
+    // a row, selected state in Lungfish Orange). The genotype bar is AppKit
+    // `pushOnPushOff` buttons; this is SwiftUI, so we match the visual and
+    // interaction idiom rather than reusing the AppKit view. A shared
+    // cross-framework pill component is deferred to P2.
     private var taxonomyControls: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Toggle("Exclude Human", isOn: Binding(
-                get: { viewModel.displayState.excludeHuman },
-                set: { viewModel.setExcludeHuman($0) }
-            ))
-            .controlSize(.small)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Attributes")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                FlowingPillRow {
+                    BooleanFilterPill(
+                        title: "Exclude Human",
+                        isOn: viewModel.displayState.excludeHuman,
+                        action: { viewModel.setExcludeHuman(!viewModel.displayState.excludeHuman) }
+                    )
+                    .accessibilityIdentifier("twelve-s-bool-pill-exclude-human")
 
-            Toggle("Only Rows With Alternates", isOn: Binding(
-                get: { viewModel.displayState.requireAlternateMatches },
-                set: { viewModel.setRequireAlternateMatches($0) }
-            ))
-            .controlSize(.small)
-
-            HStack(spacing: 8) {
-                Menu {
-                    ForEach(viewModel.taxonGroupOptions, id: \.self) { group in
-                        Toggle(group, isOn: Binding(
-                            get: { viewModel.displayState.includedTaxonGroups.contains(group) },
-                            set: { viewModel.setIncludedTaxonGroup(group, isIncluded: $0) }
-                        ))
-                    }
-                } label: {
-                    Label("Include", systemImage: "line.3.horizontal.decrease.circle")
+                    BooleanFilterPill(
+                        title: "Only With Alternates",
+                        isOn: viewModel.displayState.requireAlternateMatches,
+                        action: { viewModel.setRequireAlternateMatches(!viewModel.displayState.requireAlternateMatches) }
+                    )
+                    .accessibilityIdentifier("twelve-s-bool-pill-only-with-alternates")
                 }
-                .controlSize(.small)
+            }
 
-                Menu {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Taxon Groups")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                FlowingPillRow {
                     ForEach(viewModel.taxonGroupOptions, id: \.self) { group in
-                        Toggle(group, isOn: Binding(
-                            get: { viewModel.displayState.excludedTaxonGroups.contains(group) },
-                            set: { viewModel.setExcludedTaxonGroup(group, isExcluded: $0) }
-                        ))
+                        TaxonGroupPill(
+                            title: group,
+                            state: viewModel.pillState(for: group),
+                            action: { viewModel.cycleTaxonGroup(group) }
+                        )
+                        .accessibilityIdentifier("twelve-s-taxon-pill-\(group)")
                     }
-                } label: {
-                    Label("Exclude", systemImage: "line.3.horizontal.decrease.circle.fill")
                 }
-                .controlSize(.small)
             }
         }
     }
@@ -351,6 +392,175 @@ struct TwelveSResultDisplaySection: View {
         }
         .controlSize(.small)
         .accessibilityIdentifier("twelve-s-export-menu")
+    }
+}
+
+// MARK: - Filter pills
+
+/// A binary filter pill matching the genotype quick-filter bar idiom: a
+/// pill-shaped toggle that fills with Lungfish Orange when on. This is the
+/// faithful SwiftUI equivalent of the AppKit `pushOnPushOff` pills in
+/// `GenotypeQuickFilterBarView`.
+private struct BooleanFilterPill: View {
+    let title: String
+    let isOn: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.caption)
+                .lineLimit(1)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(
+                    Capsule()
+                        .fill(isOn ? Color.lungfishOrangeFallback : Color.clear)
+                )
+                .overlay(
+                    Capsule()
+                        .strokeBorder(
+                            isOn ? Color.lungfishOrangeFallback : Color.lungfishStroke,
+                            lineWidth: 1
+                        )
+                )
+                .foregroundStyle(isOn ? Color.white : Color.primary)
+        }
+        .buttonStyle(.plain)
+        .help(title)
+    }
+}
+
+/// A tri-state taxon-group pill. Visual distinctions (documented so the three
+/// states are unambiguous):
+///   - neutral  → outlined capsule, no glyph (no constraint applied)
+///   - included → filled Lungfish Orange with a leading "+" (only this group)
+///   - excluded → orange-outlined capsule with a leading "−" and a struck-out
+///                 label (this group is hidden)
+/// Tapping cycles neutral → included → excluded → neutral via the view-model's
+/// `cycleTaxonGroup`, which routes through the mutually-exclusive setters.
+private struct TaxonGroupPill: View {
+    let title: String
+    let state: TaxonPillState
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 3) {
+                if let glyph = leadingGlyph {
+                    Image(systemName: glyph)
+                        .font(.caption2.weight(.bold))
+                }
+                Text(title)
+                    .font(.caption)
+                    .lineLimit(1)
+                    .strikethrough(state == .excluded, color: Color.lungfishOrangeFallback)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(
+                Capsule().fill(fillColor)
+            )
+            .overlay(
+                Capsule().strokeBorder(strokeColor, lineWidth: 1)
+            )
+            .foregroundStyle(labelColor)
+        }
+        .buttonStyle(.plain)
+        .help(helpText)
+    }
+
+    private var leadingGlyph: String? {
+        switch state {
+        case .neutral:  return nil
+        case .included: return "plus"
+        case .excluded: return "minus"
+        }
+    }
+
+    private var fillColor: Color {
+        state == .included ? Color.lungfishOrangeFallback : Color.clear
+    }
+
+    private var strokeColor: Color {
+        switch state {
+        case .neutral:  return Color.lungfishStroke
+        case .included, .excluded: return Color.lungfishOrangeFallback
+        }
+    }
+
+    private var labelColor: Color {
+        switch state {
+        case .neutral:  return Color.primary
+        case .included: return Color.white
+        case .excluded: return Color.lungfishOrangeFallback
+        }
+    }
+
+    private var helpText: String {
+        switch state {
+        case .neutral:  return "\(title): no filter (tap to include)"
+        case .included: return "\(title): included (tap to exclude)"
+        case .excluded: return "\(title): excluded (tap to clear)"
+        }
+    }
+}
+
+/// A wrapping horizontal row of pills. Lays children left-to-right, wrapping to
+/// a new line when the available width is exceeded, so the Inspector's narrow
+/// column never clips the pill set.
+private struct FlowingPillRow: Layout {
+    var horizontalSpacing: CGFloat = 6
+    var verticalSpacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Void) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        var rowWidth: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        var totalHeight: CGFloat = 0
+        var maxRowWidth: CGFloat = 0
+
+        for size in sizes {
+            if rowWidth > 0, rowWidth + horizontalSpacing + size.width > maxWidth {
+                totalHeight += rowHeight + verticalSpacing
+                maxRowWidth = max(maxRowWidth, rowWidth)
+                rowWidth = size.width
+                rowHeight = size.height
+            } else {
+                rowWidth += (rowWidth > 0 ? horizontalSpacing : 0) + size.width
+                rowHeight = max(rowHeight, size.height)
+            }
+        }
+        totalHeight += rowHeight
+        maxRowWidth = max(maxRowWidth, rowWidth)
+
+        let resolvedWidth = proposal.width ?? maxRowWidth
+        return CGSize(width: resolvedWidth, height: totalHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Void) {
+        let maxWidth = bounds.width
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        var x = bounds.minX
+        var y = bounds.minY
+        var rowHeight: CGFloat = 0
+
+        for (index, subview) in subviews.enumerated() {
+            let size = sizes[index]
+            if x > bounds.minX, x + size.width - bounds.minX > maxWidth {
+                x = bounds.minX
+                y += rowHeight + verticalSpacing
+                rowHeight = 0
+            }
+            subview.place(
+                at: CGPoint(x: x, y: y),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(width: size.width, height: size.height)
+            )
+            x += size.width + horizontalSpacing
+            rowHeight = max(rowHeight, size.height)
+        }
     }
 }
 

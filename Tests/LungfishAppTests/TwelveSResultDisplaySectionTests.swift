@@ -51,4 +51,44 @@ final class TwelveSResultDisplaySectionTests: XCTestCase {
         XCTAssertTrue(viewModel.displayState.excludedTaxonGroups.contains("Fish"))
         XCTAssertTrue(viewModel.displayState.excludedTaxonGroups.contains("Mollusk"))
     }
+
+    func testTaxonPillTriStateReflectsDisplayState() {
+        let viewModel = TwelveSResultDisplaySectionViewModel()
+
+        XCTAssertEqual(viewModel.pillState(for: "Mammal"), .neutral)
+
+        viewModel.setIncludedTaxonGroup("Mammal", isIncluded: true)
+        XCTAssertEqual(viewModel.pillState(for: "Mammal"), .included)
+
+        viewModel.setExcludedTaxonGroup("Mammal", isExcluded: true)   // mutual exclusivity: include cleared
+        XCTAssertEqual(viewModel.pillState(for: "Mammal"), .excluded)
+        XCTAssertTrue(viewModel.displayState.includedTaxonGroups.isEmpty)
+    }
+
+    func testCycleTaxonGroupAdvancesThroughTriStateViaExistingSetters() {
+        let viewModel = TwelveSResultDisplaySectionViewModel()
+        var deliveredStates: [TwelveSResultDisplayState] = []
+        viewModel.onDisplayStateChanged = { deliveredStates.append($0) }
+
+        // neutral -> included
+        viewModel.cycleTaxonGroup("Fish")
+        XCTAssertEqual(viewModel.pillState(for: "Fish"), .included)
+        XCTAssertEqual(viewModel.displayState.includedTaxonGroups, ["Fish"])
+        XCTAssertTrue(viewModel.displayState.excludedTaxonGroups.isEmpty)
+
+        // included -> excluded (mutual exclusivity: include cleared)
+        viewModel.cycleTaxonGroup("Fish")
+        XCTAssertEqual(viewModel.pillState(for: "Fish"), .excluded)
+        XCTAssertTrue(viewModel.displayState.includedTaxonGroups.isEmpty)
+        XCTAssertEqual(viewModel.displayState.excludedTaxonGroups, ["Fish"])
+
+        // excluded -> neutral
+        viewModel.cycleTaxonGroup("Fish")
+        XCTAssertEqual(viewModel.pillState(for: "Fish"), .neutral)
+        XCTAssertTrue(viewModel.displayState.includedTaxonGroups.isEmpty)
+        XCTAssertTrue(viewModel.displayState.excludedTaxonGroups.isEmpty)
+
+        // Every cycle routes through the setters, so the change callback fired each time.
+        XCTAssertEqual(deliveredStates.count, 3)
+    }
 }
