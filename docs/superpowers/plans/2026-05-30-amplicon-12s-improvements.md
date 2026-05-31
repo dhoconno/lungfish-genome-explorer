@@ -803,6 +803,66 @@ For each fix above: Step 1 failing test (or `swift build` red where purely cosme
 
 ---
 
+## Phase 6 — Release: notarized DMG + GitHub + Sparkle (autonomous, runs after Phase 5 is fully green)
+
+> User directive: after all code work + Phase 5 verification pass, ship a release unattended — notarized/signed build with the next alpha bump, DMG uploaded to GitHub with detailed change notes, and a Sparkle appcast update so existing users auto-update. Authoritative process: `docs/release/sparkle-updates.md`. Current version is `0.5.0-alpha8`; next is **`0.5.0-alpha9`** (tag `v0.5.0-alpha9`).
+>
+> **HARD PRECONDITION GATE:** Do NOT start Phase 6 unless Phase 5 is entirely green (full suite + both products build + the multi-bundle and `.lungfishmhcref` gates pass on real data). A release of unverified code is worse than no release.
+
+### Task 23: Version bump 0.5.0-alpha8 -> 0.5.0-alpha9
+
+**Files (every hardcoded occurrence — verified by grep; update ALL or tests fail):**
+- `Sources/LungfishCLI/LungfishCLI.swift:31` (`version: "0.5.0-alpha8"`)
+- `Sources/LungfishCLI/Commands/SequenceCommand.swift:258` (`cliVersion`)
+- `Sources/LungfishCLI/Commands/PrimerCommand.swift:64` (`toolVersion: "lungfish-cli 0.5.0-alpha8"`)
+- `Sources/LungfishApp/App/AboutWindowController.swift:89` and `Sources/LungfishApp/Views/Welcome/WelcomeWindowController.swift:898` (fallback strings)
+- `Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json:4` (`"version"`)
+- `Sources/LungfishApp/Resources/HelpBook/Lungfish.help/Contents/Info.plist:16` (`CFBundleShortVersionString`)
+- Tests that assert the version (MUST update in the same commit or they go red): `Tests/LungfishCLITests/CLIRegressionTests.swift:30` (`== "0.5.0-alpha8"`) and `Tests/LungfishWorkflowTests/CondaManagerTests.swift:202` (`lock.version == "0.5.0-alpha8"`).
+- Also grep for any I missed: `grep -rn "0.5.0-alpha8\|alpha8" --include=*.swift --include=*.json --include=*.plist --include=*.xcconfig . | grep -v .build`
+- Confirm the app target's marketing version source (xcconfig/project) is bumped so `CFBundleShortVersionString` of the BUILT app is `0.5.0-alpha9` — the release script reads it; if the app version is set in an Xcode project/xcconfig not yet found, locate and update it.
+
+- [ ] Step 1: grep for every `alpha8` occurrence; update each to `alpha9` (source + the 2 test expectations). 
+- [ ] Step 2: `swift build --package-path "..." --skip-update` clean; `swift test --package-path "..." --skip-update --filter CLIRegression` and `--filter CondaManager` green (version assertions now match).
+- [ ] Step 3: Commit `Bump version to 0.5.0-alpha9`.
+
+### Task 24: Write release notes
+
+- [ ] Create `docs/release-notes/v0.5.0-alpha9.md` (the release script copies notes from this exact path). Follow the style of `docs/release-notes/v0.5.0-alpha8.md`. Detailed change notes covering this effort: the P0 multi-bundle genotyping data-loss fix; `.lungfishmhcref` consume path for MHC genotyping; reference-bundle unification; the cross-workflow consistency convergences (shared minimum-reads threshold, search placement, pill filters, CLI-backed genotype export, etc.); and the pre-existing fixes folded in (subcommand count, hello-world templates, runModal). Honor docs prose rules (no em dashes, bullet caps). Commit.
+
+### Task 25: Preflight the release credentials (gate)
+
+- [ ] Verify ALL of the following are present; if ANY is missing, STOP and leave a clear written report for the user instead of a half-run release:
+  - `LUNGFISH_SPARKLE_PUBLIC_ED_KEY` available (env or known location), and the Sparkle EdDSA private key reachable (Keychain, or exported to a temp mode-0600 file for `--sparkle-ed-key-file`).
+  - A `Developer ID Application` signing identity in the keychain (`security find-identity -v -p codesigning`).
+  - The notary profile (`xcrun notarytool history --keychain-profile <PROFILE>` succeeds) — profile name per memory is `LungfishNotary`, team-id `29G3WN2GSA`.
+  - `gh auth status` authenticated with release permissions.
+  - `generate_appcast` tool path (Sparkle bin).
+- [ ] Record which are present/absent (the preflight probe results are captured during planning — see the session).
+
+### Task 26: Build, notarize, upload DMG, publish Sparkle appcast
+
+- [ ] Run the documented release command (fill the signing identity from the keychain, the appcast tool path, and the private-key file from preflight):
+  ```bash
+  export LUNGFISH_SPARKLE_PUBLIC_ED_KEY="<base64 public key>"
+  bash scripts/release/build-notarized-dmg.sh \
+    --signing-identity "Developer ID Application: <name> (29G3WN2GSA)" \
+    --team-id 29G3WN2GSA \
+    --notary-profile LungfishNotary \
+    --github-release-tag "v0.5.0-alpha9" \
+    --sparkle-generate-appcast "<path>/generate_appcast" \
+    --sparkle-ed-key-file "<temp private-key.txt>" \
+    --sparkle-publish-release "sparkle-alpha"
+  ```
+  The script: sets `CFBundleVersion` from `git rev-list --count HEAD` (must exceed the prior shipped build), builds + signs + notarizes the DMG, uploads it to the `v0.5.0-alpha9` GitHub prerelease, regenerates `appcast-alpha.xml`, and publishes that feed to the fixed `sparkle-alpha` release (so existing users get the Sparkle update). Release notes are copied from `docs/release-notes/v0.5.0-alpha9.md`.
+- [ ] Delete any temporary exported private-key file afterward (mode-0600 cleanup).
+- [ ] Verify: the `v0.5.0-alpha9` GitHub release exists with the notarized DMG asset; `appcast-alpha.xml` on the `sparkle-alpha` release references the new DMG with a `sparkle:version` (CFBundleVersion) greater than the previous; `gh release view v0.5.0-alpha9` shows the change notes.
+- [ ] Run `scripts/tests/test_sparkle_release_packaging.py` if it validates the produced appcast/DMG.
+
+> If notarization or upload fails, STOP and leave a detailed report (do NOT retry-loop on credential or network failures). A failed notarization is not something to brute-force overnight.
+
+---
+
 ## Self-review
 
 ### Spec coverage — every synthesis finding maps to a task
