@@ -1369,6 +1369,74 @@ public class InspectorViewController: NSViewController {
         viewModel.selectedTab = .bundle
     }
 
+    /// Updates the Document inspector with MHC amplicon reference bundle metadata.
+    ///
+    /// The bundle (`.lungfishmhcref`) is metadata-only: it has no viewport, so this
+    /// loads its manifest plus any embedded haplotype definitions and surfaces them
+    /// in the Bundle inspector tab.
+    func updateMHCReferenceBundleDocument(_ bundleURL: URL) {
+        viewModel.readStyleSectionViewModel.clear()
+
+        guard let manifest = try? MHCAmpliconReferenceBundle.loadManifest(from: bundleURL) else {
+            viewModel.documentSectionViewModel.updateMHCReferenceBundleDocument(nil)
+            return
+        }
+
+        let definitions = (try? MHCAmpliconReferenceBundle.haplotypeDefinitions(in: bundleURL)) ?? []
+        let definitionRows = definitions.map { definition -> MHCReferenceBundleDefinitionRow in
+            let loci = definition.locusDefinitions.map(\.locus).joined(separator: ", ")
+            return MHCReferenceBundleDefinitionRow(
+                displayName: "\(definition.displayName) (\(definition.speciesName))",
+                loci: loci.isEmpty ? "No loci" : loci
+            )
+        }
+
+        var artifactRows: [MHCReferenceBundleArtifactRow] = [
+            MHCReferenceBundleArtifactRow(label: "Bundle Folder", fileURL: bundleURL),
+            MHCReferenceBundleArtifactRow(
+                label: "Reference FASTA",
+                fileURL: bundleURL.appendingPathComponent(manifest.referenceFastaPath)
+            ),
+        ]
+        for path in manifest.haplotypeDefinitionPaths {
+            artifactRows.append(
+                MHCReferenceBundleArtifactRow(
+                    label: "Haplotype Definitions",
+                    fileURL: bundleURL.appendingPathComponent(path)
+                )
+            )
+        }
+        if let provenancePath = manifest.provenancePath {
+            artifactRows.append(
+                MHCReferenceBundleArtifactRow(
+                    label: "Provenance",
+                    fileURL: bundleURL.appendingPathComponent(provenancePath)
+                )
+            )
+        }
+
+        let state = MHCReferenceBundleDocumentState(
+            name: manifest.name,
+            schemaVersion: manifest.schemaVersion,
+            kind: manifest.kind,
+            referenceCount: manifest.metrics.referenceCount,
+            haplotypeDefinitionCount: manifest.metrics.haplotypeDefinitionCount,
+            defaultDefinitionID: manifest.defaultHaplotypeDefinitionID,
+            createdAt: manifest.createdAt,
+            definitionRows: definitionRows,
+            artifactRows: artifactRows,
+            bundleURL: bundleURL,
+            provenancePath: manifest.provenancePath
+        )
+        viewModel.documentSectionViewModel.updateMHCReferenceBundleDocument(state)
+        updateProvenanceTarget(
+            url: bundleURL,
+            sidebarType: .mhcReferenceBundle,
+            displayName: manifest.name
+        )
+        viewModel.selectedTab = .bundle
+    }
+
     /// Updates the Document inspector with phylogenetic-tree bundle statistics.
     func updatePhylogeneticTreeDocument(_ bundle: PhylogeneticTreeBundle) {
         let manifest = bundle.manifest

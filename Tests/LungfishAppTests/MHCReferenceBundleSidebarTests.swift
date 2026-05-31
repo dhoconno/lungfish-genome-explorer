@@ -71,6 +71,44 @@ final class MHCReferenceBundleSidebarTests: XCTestCase {
         )
     }
 
+    // MARK: - Inspector document population
+
+    func testUpdateMHCReferenceBundleDocumentPopulatesStateFromManifest() throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MHCReferenceInspector-\(UUID().uuidString)", isDirectory: true)
+        let bundleURL = tempRoot.appendingPathComponent("MCM.lungfishmhcref", isDirectory: true)
+        try Self.writeMHCReferenceBundle(at: bundleURL, name: "MCM")
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let inspector = InspectorViewController()
+        inspector.loadViewIfNeeded()
+
+        inspector.updateMHCReferenceBundleDocument(bundleURL)
+
+        let state = try XCTUnwrap(
+            inspector.viewModel.documentSectionViewModel.mhcReferenceBundleDocument
+        )
+        XCTAssertEqual(state.name, "MCM MHC")
+        XCTAssertEqual(state.kind, "mhc-reference")
+        XCTAssertEqual(state.referenceCount, 1)
+        XCTAssertEqual(state.haplotypeDefinitionCount, 1)
+        XCTAssertEqual(state.defaultDefinitionID, "mcm-mhc")
+        XCTAssertEqual(state.bundleURL?.standardizedFileURL, bundleURL.standardizedFileURL)
+        XCTAssertTrue(
+            state.definitionRows.contains { $0.displayName.contains("MCM MHC") && $0.loci.contains("MHC-B") },
+            "Embedded haplotype definition should surface its species name and loci."
+        )
+
+        // Selecting the metadata-only bundle should make the Bundle tab the active inspector tab
+        // and mark content present.
+        XCTAssertEqual(inspector.viewModel.selectedTab, .bundle)
+        XCTAssertTrue(inspector.viewModel.documentSectionViewModel.hasAnyContent)
+        XCTAssertEqual(
+            inspector.viewModel.provenanceSectionViewModel.currentItem?.sidebarType,
+            .mhcReferenceBundle
+        )
+    }
+
     // MARK: - Fixture authoring
 
     /// Writes a minimal valid `.lungfishmhcref` directory bundle (manifest +

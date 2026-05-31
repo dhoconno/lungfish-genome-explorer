@@ -839,6 +839,8 @@ public class MainSplitViewController: NSSplitViewController {
             displayReferenceBundleViewportFromSidebar(at: url)
         case MultipleSequenceAlignmentBundle.directoryExtension:
             displayMultipleSequenceAlignmentBundleFromSidebar(at: url)
+        case MHCAmpliconReferenceBundle.directoryExtension:
+            displayMHCReferenceBundleFromSidebar(at: url)
         case "lungfishtree":
             displayPhylogeneticTreeBundleFromSidebar(at: url)
         case FASTQBundle.directoryExtension:
@@ -3067,6 +3069,11 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             return
         }
 
+        if item.type == .mhcReferenceBundle, let url = item.url {
+            displayMHCReferenceBundleFromSidebar(at: url, identity: displayIdentity, token: displayToken)
+            return
+        }
+
         if item.type == .phylogeneticTreeBundle, let url = item.url {
             displayPhylogeneticTreeBundleFromSidebar(at: url, identity: displayIdentity, token: displayToken)
             return
@@ -3187,6 +3194,34 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                     )
                     self.viewerController.clearViewport(statusMessage: "Unable to load alignment bundle.")
                 }
+            }
+        }
+    }
+
+    /// Display an MHC amplicon reference bundle (`.lungfishmhcref`). This bundle is
+    /// metadata-only with no viewport, so the viewport is cleared with an informative
+    /// status and all details are surfaced in the Bundle inspector tab.
+    private func displayMHCReferenceBundleFromSidebar(
+        at url: URL,
+        identity: ContentSelectionIdentity? = nil,
+        token: AsyncRequestToken<ContentSelectionIdentity>? = nil
+    ) {
+        logger.info("displayMHCReferenceBundle: Opening '\(url.lastPathComponent, privacy: .public)'")
+        let displayIdentity = identity ?? contentSelectionIdentity(url: url, kind: "mhcReferenceBundle")
+        let displayToken = token ?? beginDisplayRequest(identity: displayIdentity)
+
+        activityIndicator.show(message: "Loading \(url.lastPathComponent)...", style: .indeterminate)
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                defer { self.activityIndicator.hide() }
+                guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
+
+                self.inspectorController.clearSelection()
+                self.inspectorController.updateMHCReferenceBundleDocument(url)
+                self.viewerController.clearViewport(
+                    statusMessage: "MHC reference bundle — see the Bundle inspector for details."
+                )
             }
         }
     }
