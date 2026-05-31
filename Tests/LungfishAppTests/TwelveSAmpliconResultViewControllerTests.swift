@@ -75,6 +75,33 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
         XCTAssertEqual(controller.testingTargetText(row: 0, column: "scientificName"), "Canis lupus familiaris")
     }
 
+    func testViewportHeaderSearchFieldFiltersTargetRows() {
+        let controller = TwelveSAmpliconResultViewController()
+        controller.loadViewIfNeeded()
+        controller.configure(result: makeResult())
+
+        let searchField = findDescendant(ofType: NSSearchField.self, in: controller.view)
+        XCTAssertEqual(searchField?.accessibilityIdentifier(), "twelve-s-search-field")
+        XCTAssertEqual(searchField?.placeholderString, "Filter species or matches")
+
+        controller.setSearchTextForTesting("canis")
+
+        XCTAssertEqual(controller.visibleTargetRowCount, 1)
+        XCTAssertEqual(controller.testingTargetText(row: 0, column: "scientificName"), "Canis lupus familiaris")
+        XCTAssertEqual(searchField?.stringValue, "canis")
+    }
+
+    func testViewportSearchFieldMirrorsProgrammaticDisplayState() {
+        let controller = TwelveSAmpliconResultViewController()
+        controller.loadViewIfNeeded()
+        controller.configure(result: makeResult())
+
+        controller.applyDisplayState(TwelveSResultDisplayState(filterText: "homo"))
+
+        let searchField = findDescendant(ofType: NSSearchField.self, in: controller.view)
+        XCTAssertEqual(searchField?.stringValue, "homo")
+    }
+
     func testUnresolvedModeShowsUnresolvedSequences() {
         let controller = TwelveSAmpliconResultViewController()
         controller.loadViewIfNeeded()

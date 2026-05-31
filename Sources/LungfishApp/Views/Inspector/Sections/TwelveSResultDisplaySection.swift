@@ -253,14 +253,6 @@ struct TwelveSResultDisplaySection: View {
                     .controlSize(.small)
                 }
             }
-
-            TextField("Filter species or matches", text: Binding(
-                get: { viewModel.displayState.filterText },
-                set: { viewModel.setFilterText($0) }
-            ))
-            .textFieldStyle(.roundedBorder)
-            .controlSize(.small)
-            .accessibilityIdentifier("twelve-s-filter-field")
         }
     }
 

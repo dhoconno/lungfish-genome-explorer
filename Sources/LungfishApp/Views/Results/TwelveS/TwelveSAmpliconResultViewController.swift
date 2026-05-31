@@ -18,6 +18,7 @@ final class TwelveSAmpliconResultViewController: NSViewController {
         target: nil,
         action: nil
     )
+    private let searchField = NSSearchField()
     private let splitView = NSSplitView()
     private let scrollView = NSScrollView()
     private let tableView = NSTableView()
@@ -116,7 +117,13 @@ final class TwelveSAmpliconResultViewController: NSViewController {
 
     func applyDisplayState(_ state: TwelveSResultDisplayState) {
         displayState = state
+        searchField.stringValue = state.filterText
         applyFilters(notify: true)
+    }
+
+    func setSearchTextForTesting(_ text: String) {
+        searchField.stringValue = text
+        applyFilterText(text)
     }
 
     func showUnresolvedForTesting() {
@@ -222,6 +229,14 @@ final class TwelveSAmpliconResultViewController: NSViewController {
         modeControl.target = self
         modeControl.action = #selector(modeChanged(_:))
         modeControl.setAccessibilityIdentifier("twelve-s-mode-control")
+
+        searchField.placeholderString = "Filter species or matches"
+        searchField.controlSize = .small
+        searchField.font = .systemFont(ofSize: 11)
+        searchField.target = self
+        searchField.action = #selector(searchFieldChanged(_:))
+        searchField.setAccessibilityIdentifier("twelve-s-search-field")
+        searchField.setAccessibilityLabel("12S Filter Species Or Matches")
     }
 
     private func configureTable() {
@@ -304,7 +319,7 @@ final class TwelveSAmpliconResultViewController: NSViewController {
     }
 
     private func layout() {
-        let headerRow = NSStackView(views: [titleLabel, modeControl])
+        let headerRow = NSStackView(views: [titleLabel, modeControl, searchField])
         headerRow.orientation = .horizontal
         headerRow.alignment = .centerY
         headerRow.spacing = 12
@@ -328,6 +343,8 @@ final class TwelveSAmpliconResultViewController: NSViewController {
             headerRow.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
             headerRow.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
             modeControl.widthAnchor.constraint(equalToConstant: 190),
+            searchField.widthAnchor.constraint(lessThanOrEqualToConstant: 200),
+            searchField.widthAnchor.constraint(greaterThanOrEqualToConstant: 140),
 
             summaryLabel.topAnchor.constraint(equalTo: headerRow.bottomAnchor, constant: 6),
             summaryLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
@@ -355,6 +372,16 @@ final class TwelveSAmpliconResultViewController: NSViewController {
 
     @objc private func modeChanged(_ sender: NSSegmentedControl) {
         applyMode(Mode(rawValue: sender.selectedSegment) ?? .targets)
+    }
+
+    @objc private func searchFieldChanged(_ sender: NSSearchField) {
+        applyFilterText(sender.stringValue)
+    }
+
+    private func applyFilterText(_ text: String) {
+        guard displayState.filterText != text else { return }
+        displayState.filterText = text
+        applyFilters(notify: true)
     }
 
     @objc private func toggleSampleEvidenceDisclosure(_ sender: NSButton) {
