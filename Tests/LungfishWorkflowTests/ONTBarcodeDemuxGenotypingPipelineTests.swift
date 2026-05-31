@@ -404,6 +404,29 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(samples.map(\.readCount).reduce(0, +), 3)  // no overwrite: 2 + 1
     }
 
+    func testResolveIlluminaSampleInputsDisambiguatesCollidingStagedFilenames() async throws {
+        let tmp = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        // "Sample-1" and "Sample--1" sanitize to DISTINCT sample IDs (sampleID(from:)
+        // collapses runs of "_" but leaves "-" untouched, so the double hyphen
+        // survives), yet safeFilenameStem collapses runs of "-" so both yield the
+        // identical staged stem "Sample-1". Without independent filename
+        // disambiguation the second staged FASTQ overwrites the first and its reads
+        // never reach minimap2.
+        let bundleA = try makeIlluminaFastqBundle(named: "Sample-1", reads: ["rA1", "rA2"], in: tmp)
+        let bundleB = try makeIlluminaFastqBundle(named: "Sample--1", reads: ["rB1"], in: tmp)
+        let staging = tmp.appendingPathComponent("staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+
+        let samples = try await ONTBarcodeDemuxGenotypingPipeline
+            .resolveIlluminaSampleInputsForTesting(from: [bundleA, bundleB], stagingDirectory: staging)
+
+        XCTAssertEqual(samples.count, 2)
+        XCTAssertEqual(Set(samples.map(\.sampleID)).count, 2, "Sanitized sample IDs must be unique")
+        XCTAssertEqual(Set(samples.map(\.prefixedFASTQURL)).count, 2, "Staged FASTQ filenames must be unique")
+        XCTAssertEqual(samples.map(\.readCount).reduce(0, +), 3)  // no overwrite: 2 + 1
+    }
+
     func testRunRejectsInvalidHaplotypeDefinitionBeforeCreatingOutputs() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

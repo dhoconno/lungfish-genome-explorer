@@ -289,6 +289,7 @@ public enum ONTBarcodeDemuxGenotypingError: Error, LocalizedError, Sendable, Equ
     case noInputFASTQs
     case unsupportedIlluminaInput(URL)
     case duplicateIlluminaSampleID(String)
+    case duplicateIlluminaStagedFile(String)
     case ambiguousGenotypingMode
     case processFailed(tool: String, status: Int32, stderr: String)
     case filterFailed(status: Int32, stderr: String)
@@ -321,6 +322,8 @@ public enum ONTBarcodeDemuxGenotypingError: Error, LocalizedError, Sendable, Equ
             return "Illumina genotyping requires each input to be an already merged single-FASTQ sample bundle. Import paired R1/R2 reads with the Illumina Amplicon Merge recipe first: \(url.path)"
         case .duplicateIlluminaSampleID(let sampleID):
             return "Two Illumina input bundles resolved to the same sample identifier \(sampleID); rename the inputs so their sanitized names are distinct."
+        case .duplicateIlluminaStagedFile(let filename):
+            return "Two Illumina input bundles resolved to the same staged FASTQ filename \(filename); rename the inputs so their sanitized names are distinct."
         case .ambiguousGenotypingMode:
             return "Could not infer genotyping mode. Choose ONT barcode demux or Illumina sample bundles explicitly."
         case .processFailed(let tool, let status, let stderr):
@@ -838,6 +841,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
     ) async throws -> [IlluminaSampleInput] {
         var samples: [IlluminaSampleInput] = []
         var assignedIDs = Set<String>()
+        var assignedStems = Set<String>()
         for url in urls.map(\.standardizedFileURL) {
             let resolvedFASTQs: [URL]
             if FASTQBundle.isFASTQFileURL(url) {
@@ -853,8 +857,16 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             let baseID = sampleID(from: url)
             let sampleID = Self.disambiguatedSampleID(baseID, existing: assignedIDs)
             assignedIDs.insert(sampleID)
+            // The staged filename must be disambiguated independently of `sampleID`:
+            // `safeFilenameStem` collapses runs of "-" (and folds other punctuation to
+            // "-"), so two distinct sample IDs can still map to an identical stem (e.g.
+            // "Sample-1" and "Sample--1" both yield "Sample-1"). Reusing the same numeric
+            // suffix scheme keeps stems unique so one staged FASTQ never overwrites another.
+            let stem = Self.disambiguatedSampleID(safeFilenameStem(sampleID), existing: assignedStems)
+            assignedStems.insert(stem)
             let prefixedFASTQURL = stagingDirectory
-                .appendingPathComponent("\(safeFilenameStem(sampleID)).sample-prefixed.fastq")
+                .appendingPathComponent("\(stem).sample-prefixed.fastq")
+            // Reads stay tagged by the unique `sampleID`; only the filename derives from `stem`.
             let readCount = try await writeSamplePrefixedFASTQ(
                 sourceURL: fastqURL,
                 destinationURL: prefixedFASTQURL,
@@ -868,12 +880,20 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 readCount: readCount
             ))
         }
-        // Defense-in-depth: disambiguation above guarantees uniqueness, but verify
-        // before returning so a regression surfaces as a clear error, not data loss.
+        // Defense-in-depth: the disambiguation above guarantees uniqueness, but verify
+        // both the sample IDs and the staged filenames before returning so a regression
+        // surfaces as a clear error rather than silent data loss.
         let ids = samples.map(\.sampleID)
-        let firstDuplicate = ids.first { id in ids.filter { $0 == id }.count > 1 }
-        guard firstDuplicate == nil else {
-            throw ONTBarcodeDemuxGenotypingError.duplicateIlluminaSampleID(firstDuplicate ?? "")
+        let firstDuplicateID = ids.first { id in ids.filter { $0 == id }.count > 1 }
+        guard firstDuplicateID == nil else {
+            throw ONTBarcodeDemuxGenotypingError.duplicateIlluminaSampleID(firstDuplicateID ?? "")
+        }
+        let stagedURLs = samples.map(\.prefixedFASTQURL)
+        if Set(stagedURLs).count != samples.count {
+            let firstDuplicateFile = stagedURLs.first { url in stagedURLs.filter { $0 == url }.count > 1 }
+            throw ONTBarcodeDemuxGenotypingError.duplicateIlluminaStagedFile(
+                firstDuplicateFile?.lastPathComponent ?? ""
+            )
         }
         return samples
     }
