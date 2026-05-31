@@ -30,6 +30,8 @@
 
 ## Ordering rationale
 
+> **Pacing decision (2026-05-31, autonomous run, user asleep):** the user asked for a verified, consistent, CLI-backed, SHIPPABLE alpha tonight (Phase 5 verification + Phase 6 alpha9 release). To reach that, execute order is: finish the consistency P1s (Tasks 10, 11, 12) + Task 6b (sibling-subcommand bundle consume), then go straight to **Phase 5 verification** and **Phase 6 release**. The P2 reuse refactors (Tasks 13-21) are DEFERRED to a follow-up session — they are pure internal refactors (no user-facing behavior change), the highest-churn/highest-conflict-risk items, and are fully documented as tasks. They will be run only if Phase 5 surfaces an issue one of them resolves, or if there is runway after the release. Shipping a verified alpha takes precedence over completing internal refactors. (Tasks 13-21 remain in this plan, unstarted, for the next session.)
+
 P0 first (data loss). Then the three architectural prerequisites the synthesis pins (Phase-4 anchors): **S-P1-5** (shared bundle design) → **S-P1-3** (shared threshold model) → **S-P1-11** (unified export CLI), each before the UI/CLI work that consumes it (S-P1-1 reads the converged bundle; S-P1-4 routes through the unified export CLI). The remaining P1s (S-P1-2, S-P1-6, S-P1-7, S-P1-8, S-P1-9, S-P1-10) are independent and slot after. P2 reuse refactors follow (they build on the now-shared types). Phase 5 verification gates close the plan. The two Phase-5 gates (multi-bundle, `.lungfishmhcref`) are pinned to S-P0-1 and S-P1-1, so those land early.
 
 ---
