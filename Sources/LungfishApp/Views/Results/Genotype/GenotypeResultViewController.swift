@@ -3344,21 +3344,33 @@ final class GenotypeResultViewController: NSViewController {
         panel.prompt = "Export"
         panel.beginSheetModal(for: view.window ?? NSApp.keyWindow ?? NSWindow()) { [weak self] response in
             guard response == .OK, let url = panel.url else { return }
-            Task { @MainActor [weak self] in
-                guard let self else { return }
+            guard let self else { return }
+            // Capture the snapshot while still on the main actor: currentExportSnapshot()
+            // reads main-actor UI state. Only the export (which shells out to the CLI and
+            // blocks on process.waitUntilExit) is moved off the main thread.
+            guard let snapshot = self.currentExportSnapshot() else { return }
+            let outputURL = url
+            Task { [weak self] in
                 do {
-                    guard let snapshot = self.currentExportSnapshot() else { return }
-                    let export = try GenotypeViewportExportService().export(
-                        snapshot: snapshot,
-                        format: format,
-                        to: url
-                    )
-                    NSWorkspace.shared.activateFileViewerSelecting(self.fileViewerSelectionURLs(for: export))
+                    let export = try await Task.detached {
+                        try GenotypeViewportExportService().export(
+                            snapshot: snapshot,
+                            format: format,
+                            to: outputURL
+                        )
+                    }.value
+                    await MainActor.run {
+                        guard let self else { return }
+                        NSWorkspace.shared.activateFileViewerSelecting(self.fileViewerSelectionURLs(for: export))
+                    }
                 } catch {
-                    if let window = self.view.window ?? NSApp.keyWindow {
-                        NSAlert(error: error).beginSheetModal(for: window, completionHandler: { _ in })
-                    } else {
-                        NSApp.presentError(error)
+                    await MainActor.run {
+                        guard let self else { return }
+                        if let window = self.view.window ?? NSApp.keyWindow {
+                            NSAlert(error: error).beginSheetModal(for: window, completionHandler: { _ in })
+                        } else {
+                            NSApp.presentError(error)
+                        }
                     }
                 }
             }
