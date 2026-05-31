@@ -132,7 +132,7 @@ final class HaplotypeDefinitionManagerViewModel: ObservableObject {
                     from: url,
                     scope: scope,
                     changeNote: "Imported from Haplotype Definition Manager",
-                    argv: ["lungfish", "haplotypes", "import", url.path, "--scope", scope.rawValue]
+                    argv: ["lungfish-cli", "haplotypes", "import", url.path, "--scope", scope.rawValue]
                 )
             }
         }
@@ -153,7 +153,7 @@ final class HaplotypeDefinitionManagerViewModel: ObservableObject {
                     assayID: record.definitionSet.assayID,
                     scope: record.scope,
                     to: url,
-                    argv: ["lungfish", "haplotypes", "export", record.definitionSet.id, "--output", url.path]
+                    argv: ["lungfish-cli", "haplotypes", "export", record.definitionSet.id, "--output", url.path]
                 )
             }
         }
@@ -180,7 +180,7 @@ final class HaplotypeDefinitionManagerViewModel: ObservableObject {
                     toScope: scope,
                     changeNote: "Duplicated from \(record.scope.displayName)",
                     argv: [
-                        "lungfish", "haplotypes", "duplicate", record.definitionSet.id,
+                        "lungfish-cli", "haplotypes", "duplicate", record.definitionSet.id,
                         "--source-scope", record.scope.rawValue,
                         "--target-scope", scope.rawValue,
                     ]
@@ -195,7 +195,7 @@ final class HaplotypeDefinitionManagerViewModel: ObservableObject {
             try service.deleteDefinition(
                 definitionID: record.definitionSet.id,
                 scope: record.scope,
-                argv: ["lungfish", "haplotypes", "delete", record.definitionSet.id, "--scope", record.scope.rawValue]
+                argv: ["lungfish-cli", "haplotypes", "delete", record.definitionSet.id, "--scope", record.scope.rawValue]
             )
         }
     }
@@ -391,7 +391,7 @@ final class HaplotypeDefinitionManagerViewModel: ObservableObject {
     }
 
     private func cliArgv(_ arguments: [String], scope: HaplotypeDefinitionScope) -> [String] {
-        var argv = ["lungfish"] + arguments
+        var argv = ["lungfish-cli"] + arguments
         if scope == .project, let projectURL {
             argv += ["--project", projectURL.path]
         }

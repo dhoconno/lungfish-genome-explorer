@@ -2056,7 +2056,7 @@ final class GenotypeResultViewController: NSViewController {
         guard let store = annotationStore else { return }
         let annotationURL = store.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
         let argv = [
-            "lungfish-gui",
+            "lungfish-cli",
             "export-manual-haplotype-definitions",
             "--bundle", store.bundleURL.path,
             "--output", outputURL.path,
