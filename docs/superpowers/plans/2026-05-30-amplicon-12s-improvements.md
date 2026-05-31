@@ -840,6 +840,16 @@ For each fix above: Step 1 failing test (or `swift build` red where purely cosme
   - `generate_appcast` tool path (Sparkle bin).
 - [ ] Record which are present/absent (the preflight probe results are captured during planning — see the session).
 
+**Preflight results (probed 2026-05-30, during planning):**
+- Signing identity: ✅ `Developer ID Application: Pathogenuity LLC (29G3WN2GSA)` in login keychain.
+- Notary profile `LungfishNotary`: ✅ valid (`xcrun notarytool history --keychain-profile LungfishNotary` succeeded).
+- `gh` auth: ✅ logged in as `dhoconno` (keyring), release perms.
+- `generate_appcast`: ✅ vendored at `.build/sparkle-tools/bin/generate_appcast`.
+- Sparkle EdDSA PRIVATE key: ✅ present in login keychain (genp item) — `generate_appcast` reads it directly, so `--sparkle-ed-key-file` is NOT needed.
+- Sparkle PUBLIC key (`LUNGFISH_SPARKLE_PUBLIC_ED_KEY`): ✅ RECOVERED. Not in env/source/shell profile, but the authoritative value is embedded in the previously-shipped Release app and DMG. Verified identical across `build/Release/Lungfish.app/Contents/Info.plist`, the alpha8 xcarchive, and the shipped `Lungfish-0.5.0-alpha8-arm64.dmg`:
+  **`LUNGFISH_SPARKLE_PUBLIC_ED_KEY="FtnZIDTqGTwkglQR0z8iSgVvxvT26a05QB3cI4xQw/c="`**
+  This matches the private EdDSA key in the login keychain and the `SUFeedURL` (`.../sparkle-alpha/appcast-alpha.xml`) the shipped app already trusts. Export this at release time (Task 26). All release preconditions are therefore satisfied — the full Sparkle auto-update wiring can complete unattended.
+
 ### Task 26: Build, notarize, upload DMG, publish Sparkle appcast
 
 - [ ] Run the documented release command (fill the signing identity from the keychain, the appcast tool path, and the private-key file from preflight):
