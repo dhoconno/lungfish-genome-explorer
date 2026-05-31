@@ -691,6 +691,8 @@ MSG
 
 ### Task 16: Extract ResultBundle protocol + shared sample-metadata snapshot + one target-name resolver  (addresses S-P2-4)
 **Files:** Create `Sources/LungfishIO/Bundles/ResultBundle.swift` (protocol + shared sample-metadata snapshot); move 12S target-name interpretation into one resolver shared with `TwelveSTaxonGroupResolver`. Modify `TwelveSAmpliconResultBundle.swift`, `ONTGenotypeResultBundle`, `TwelveSTaxonGroupResolver.swift`. Test: new `ResultBundleTests` + existing `TwelveSReferenceBundleTests`/`ONTGenotypeResultBundleTests`.
+
+**Follow-up from Task 2 code review (reference-bundle envelope symmetry):** while here, also close the dead-code gap the Task 2 reviewer noted — (a) `MHCAmpliconReferenceBundle.validate(at:)` does not check `schemaVersion`, so `ReferenceBundleValidationError.Kind.schemaMismatch` is currently dead; add a `manifest.schemaVersion == supportedSchema` guard. (b) `TwelveSReferenceBundle` has NO `validate(at:)` at all — add a parallel one so both adopters of the shared envelope validate symmetrically. (c) Align existence-checking between MHC and 12S `referenceFASTAURL` (12S nil-checks, MHC doesn't). Add a focused test that `validate(at:)` rejects a manifest with a mismatched `schemaVersion`.
 - [ ] Step 1: Characterization test for target-name→taxon-group resolution across both call sites (assert identical results from the unified resolver).
 - [ ] Step 2: `swift test ... --skip-update --filter ResultBundleTests` → FAIL.
 - [ ] Step 3: Implement; redirect callers.
