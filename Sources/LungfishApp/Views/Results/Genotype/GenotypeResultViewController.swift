@@ -2490,7 +2490,7 @@ final class GenotypeResultViewController: NSViewController {
                 annotationCounts: [],
                 outlierSamples: [],
                 belowThresholdSamples: [],
-                belowThresholdValue: 5_000
+                belowThresholdValue: displayState.cohortFlagThreshold
             ))
             return
         }
@@ -2503,11 +2503,10 @@ final class GenotypeResultViewController: NSViewController {
         let errorTypeCounts = cohortErrorTypeCounts(for: result)
         let annotationCounts = cohortAnnotationCounts(for: result)
         let outliers = cohortLowCoverageOutliers(for: result)
-        let belowThresholdValue = 5_000
-        let belowThreshold = result.samples
-            .filter { $0.passedUniqueReads < belowThresholdValue }
-            .map(\.sample)
-            .sorted()
+        let belowThresholdValue = displayState.cohortFlagThreshold
+        let belowThreshold = displayState.samplesBelowCohortFlag(
+            result.samples.map { ($0.sample, $0.passedUniqueReads) }
+        )
         cohortSummaryPanel.configure(summary: .init(
             qcCounts: qcCounts,
             errorTypeCounts: errorTypeCounts,

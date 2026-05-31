@@ -71,6 +71,13 @@ struct TwelveSResultDisplayState: Equatable, Sendable {
         self.chimeraFilter = chimeraFilter
     }
 
+    /// The 12S row-visibility filter expressed as the shared threshold type so
+    /// both result viewports converge on one model. Behavior is unchanged: 12S
+    /// continues to drive its live filter from `minimumExactReads`.
+    var minimumReadsThreshold: MinimumReadsThreshold {
+        .init(value: minimumExactReads)
+    }
+
     var normalizedFilterText: String {
         filterText.trimmingCharacters(in: .whitespacesAndNewlines)
     }

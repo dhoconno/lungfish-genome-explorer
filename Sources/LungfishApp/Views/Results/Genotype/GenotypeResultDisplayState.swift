@@ -112,6 +112,17 @@ struct GenotypeResultDisplayState: Equatable {
     /// the canonical 7 loci instead of every locus the demux observed.
     var showsAncillaryLoci: Bool = false
 
+    /// Editable row-visibility filter: samples with fewer than this many
+    /// `passedUniqueReads` may be hidden from the result rows. `0` (the
+    /// default) disables the filter. This is a SEPARATE concern from the
+    /// cohort flag below and must never alias it.
+    var minimumReads: Int = 0
+
+    /// The historical "calls below this are unreliable" cohort flag (default
+    /// `5_000`). It LABELS samples in the Cohort Summary panel; it does not
+    /// hide rows. Previously hardcoded in the view controller, now editable.
+    var cohortFlagThreshold: Int = 5_000
+
     init(
         viewportLens: GenotypeResultViewportLens = .summary,
         summaryViewMode: GenotypeSummaryViewMode = .outline,
@@ -121,7 +132,9 @@ struct GenotypeResultDisplayState: Equatable {
         supportDenominator: ONTGenotypeSupportDenominator = .viewedLocus,
         cellColorMode: GenotypeResultCellColorMode = .support,
         hideFilteredHighlights: Bool = true,
-        showsAncillaryLoci: Bool = false
+        showsAncillaryLoci: Bool = false,
+        minimumReads: Int = 0,
+        cohortFlagThreshold: Int = 5_000
     ) {
         self.viewportLens = viewportLens
         self.summaryViewMode = summaryViewMode
@@ -132,10 +145,36 @@ struct GenotypeResultDisplayState: Equatable {
         self.cellColorMode = cellColorMode
         self.hideFilteredHighlights = hideFilteredHighlights
         self.showsAncillaryLoci = showsAncillaryLoci
+        self.minimumReads = minimumReads
+        self.cohortFlagThreshold = cohortFlagThreshold
     }
 
     var activeMinimumSupportPercent: Double {
         hideLowSupport ? minimumSupportPercent : 0
+    }
+
+    /// The effective row-visibility threshold. `0` means no row filtering.
+    var activeMinimumReads: Int {
+        MinimumReadsThreshold(value: minimumReads).active
+    }
+
+    /// Sample IDs hidden by the editable row-visibility filter, sorted.
+    /// Returns an empty array when the filter is off (`activeMinimumReads == 0`).
+    func samplesBelowFilter(_ reads: [(sample: String, reads: Int)]) -> [String] {
+        let threshold = activeMinimumReads
+        guard threshold > 0 else { return [] }
+        return reads
+            .filter { $0.reads < threshold }
+            .map(\.sample)
+            .sorted()
+    }
+
+    /// Sample IDs flagged as unreliable by the cohort flag, sorted.
+    func samplesBelowCohortFlag(_ reads: [(sample: String, reads: Int)]) -> [String] {
+        reads
+            .filter { $0.reads < cohortFlagThreshold }
+            .map(\.sample)
+            .sorted()
     }
 }
 

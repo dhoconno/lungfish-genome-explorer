@@ -29,6 +29,30 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         XCTAssertEqual(GenotypeResultDisplaySectionViewModel().displayState.layout, .listTop)
     }
 
+    func testGenotypeReadThresholdsAreTwoIndependentEditableFields() {
+        var s = GenotypeResultDisplayState()
+        XCTAssertEqual(s.minimumReads, 0)            // row filter off by default
+        XCTAssertEqual(s.activeMinimumReads, 0)
+        XCTAssertEqual(s.cohortFlagThreshold, 5_000) // historical unreliable-below flag preserved, now editable
+        s.minimumReads = 3_000
+        XCTAssertEqual(s.activeMinimumReads, 3_000)
+        XCTAssertEqual(s.cohortFlagThreshold, 5_000, "cohort flag must not alias the row filter")
+    }
+
+    func testSamplesBelowFilterUsesActiveMinimumReads() {
+        var s = GenotypeResultDisplayState()
+        // Row filter off by default => never hides anything.
+        XCTAssertEqual(s.samplesBelowFilter([("a", 6_000), ("b", 4_000)]), [])
+
+        s.minimumReads = 5_000
+        XCTAssertEqual(s.samplesBelowFilter([("a", 6_000), ("b", 4_000)]), ["b"])
+    }
+
+    func testSamplesBelowCohortFlagUsesCohortThreshold() {
+        let s = GenotypeResultDisplayState()
+        XCTAssertEqual(s.samplesBelowCohortFlag([("a", 6_000), ("b", 4_000)]), ["b"])
+    }
+
     func testLayoutControlUsesSharedTwoPaneRadioGroupStyle() throws {
         let sourceURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
