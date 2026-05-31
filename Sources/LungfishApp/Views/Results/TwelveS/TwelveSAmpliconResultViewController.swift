@@ -175,7 +175,7 @@ final class TwelveSAmpliconResultViewController: NSViewController {
         if let window = view.window {
             panel.beginSheetModal(for: window, completionHandler: completion)
         } else {
-            completion(panel.runModal())
+            panel.begin(completionHandler: completion)
         }
     }
 
@@ -841,6 +841,10 @@ extension TwelveSAmpliconResultViewController: NSTableViewDataSource, NSTableVie
         let alert = NSAlert(error: error)
         alert.messageText = "12S Export Failed"
         alert.informativeText = error.localizedDescription
-        alert.runModal()
+        if let window = view.window ?? NSApp.keyWindow {
+            alert.beginSheetModal(for: window)
+        } else {
+            NSApp.presentError(error)
+        }
     }
 }
