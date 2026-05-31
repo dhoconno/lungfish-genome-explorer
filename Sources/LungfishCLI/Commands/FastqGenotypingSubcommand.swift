@@ -61,9 +61,6 @@ struct FastqGenotypingSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("haplotype-species"), help: "Species code used to restrict compatible haplotype definitions, such as MCM or MAMU")
     var haplotypeSpecies: String?
 
-    @Option(name: .customLong("haplotype-definition-scope"), help: "Definition scope used to resolve --haplotype-definition: built-in, global, or project")
-    var haplotypeDefinitionScope: String?
-
     @Option(name: .customLong("haplotype-definition"), help: "Optional assay-scoped haplotype definition set ID; omit to skip haplotyping")
     var haplotypeDefinition: String?
 
@@ -103,9 +100,6 @@ struct FastqGenotypingSubcommand: AsyncParsableCommand {
         } catch {
             throw ValidationError("Invalid --extra-args: \(error.localizedDescription)")
         }
-        let parsedHaplotypeDefinitionScope = try haplotypeDefinitionScope.map {
-            try parseGenotypeHaplotypeDefinitionScope($0)
-        }
         let referenceURL = URL(fileURLWithPath: reference)
         let bundledHaplotype = try Self.resolveBundleHaplotypeDefinition(
             referenceURL: referenceURL,
@@ -131,7 +125,7 @@ struct FastqGenotypingSubcommand: AsyncParsableCommand {
             minSupport: minSupport,
             haplotypeAssayID: effectiveHaplotypeAssay,
             haplotypeSpeciesCode: effectiveHaplotypeSpecies,
-            haplotypeDefinitionScope: parsedHaplotypeDefinitionScope,
+            haplotypeDefinitionScope: .project,
             haplotypeDefinitionSetID: effectiveHaplotypeDefinition,
             extraArguments: parsedExtraArguments,
             mode: parsedMode,
@@ -184,17 +178,6 @@ struct FastqGenotypingSubcommand: AsyncParsableCommand {
             explicitID: explicitID
         )
     }
-}
-
-private func parseGenotypeHaplotypeDefinitionScope(_ rawValue: String) throws -> HaplotypeDefinitionScope {
-    let normalized = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    if normalized == "builtin" {
-        return .builtIn
-    }
-    guard let scope = HaplotypeDefinitionScope(rawValue: normalized) else {
-        throw ValidationError("Unknown --haplotype-definition-scope '\(rawValue)'. Use built-in, global, or project.")
-    }
-    return scope
 }
 
 private struct FastqGenotypingPayload: Encodable {

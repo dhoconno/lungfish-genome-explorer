@@ -8,10 +8,9 @@ struct HaplotypeDefinitionsCommand: AsyncParsableCommand {
         commandName: "haplotypes",
         abstract: "Manage ONT genotyping haplotype definition sets",
         discussion: """
-            Import, export, list, duplicate, and delete haplotype definition sets
-            before running ONT genotyping workflows. Project definitions override
-            global definitions, and global definitions override built-in definitions
-            with the same assay and definition id.
+            Import, export, list, duplicate, and delete project haplotype definition
+            sets before running ONT genotyping workflows. All definitions live in the
+            project scope and are sourced from the project's .lungfishmhcref bundles.
             """,
         subcommands: [
             HaplotypeDefinitionsListSubcommand.self,
@@ -37,16 +36,13 @@ struct HaplotypeDefinitionsListSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("project"), help: "Project root whose project-scoped definitions should be included")
     var project: String?
 
-    @Option(name: .customLong("global-root"), help: "Global haplotype definition library root")
-    var globalRoot: String?
-
     @Option(name: .customLong("assay"), help: "Filter to an assay/amplicon id")
     var assay: String?
 
     @Option(name: .customLong("species"), help: "Filter to a species code, such as MCM or MAMU")
     var species: String?
 
-    @Option(name: .customLong("scope"), help: "Filter to all, built-in, global, or project")
+    @Option(name: .customLong("scope"), help: "project (the only supported scope)")
     var scope: String?
 
     @Flag(name: .customLong("include-shadowed"), help: "Include definitions overridden by a higher-precedence scope")
@@ -56,7 +52,7 @@ struct HaplotypeDefinitionsListSubcommand: AsyncParsableCommand {
     var includeReferenceBundles = false
 
     func run() async throws {
-        let service = makeService(project: project, globalRoot: globalRoot)
+        let service = makeService(project: project)
         let records = service.listDefinitions(
             assayID: assay,
             speciesCode: species,
@@ -93,20 +89,17 @@ struct HaplotypeDefinitionsImportSubcommand: AsyncParsableCommand {
     @Argument(help: "Definition JSON file to import")
     var input: String
 
-    @Option(name: .customLong("scope"), help: "Destination scope: global or project")
+    @Option(name: .customLong("scope"), help: "project (the only supported scope)")
     var scope: String = HaplotypeDefinitionScope.project.rawValue
 
     @Option(name: .customLong("project"), help: "Project root for project-scoped definitions")
     var project: String?
 
-    @Option(name: .customLong("global-root"), help: "Global haplotype definition library root")
-    var globalRoot: String?
-
     @Option(name: .customLong("change-note"), help: "Human-readable provenance note for this import")
     var changeNote: String?
 
     func run() async throws {
-        let service = makeService(project: project, globalRoot: globalRoot)
+        let service = makeService(project: project)
         let result = try service.importDefinition(
             from: URL(fileURLWithPath: input),
             scope: try parseRequiredScope(scope),
@@ -126,14 +119,11 @@ struct HaplotypeDefinitionsSaveSubcommand: AsyncParsableCommand {
     @Argument(help: "Definition JSON file to save")
     var input: String
 
-    @Option(name: .customLong("scope"), help: "Destination scope: global or project")
+    @Option(name: .customLong("scope"), help: "project (the only supported scope)")
     var scope: String = HaplotypeDefinitionScope.project.rawValue
 
     @Option(name: .customLong("project"), help: "Project root for project-scoped definitions")
     var project: String?
-
-    @Option(name: .customLong("global-root"), help: "Global haplotype definition library root")
-    var globalRoot: String?
 
     @Option(name: .customLong("change-note"), help: "Human-readable provenance note for this edit")
     var changeNote: String?
@@ -144,7 +134,7 @@ struct HaplotypeDefinitionsSaveSubcommand: AsyncParsableCommand {
             GenotypeHaplotypeDefinitionSet.self,
             from: Data(contentsOf: inputURL)
         )
-        let service = makeService(project: project, globalRoot: globalRoot)
+        let service = makeService(project: project)
         let result = try service.saveDefinition(
             definition,
             scope: try parseRequiredScope(scope),
@@ -170,7 +160,7 @@ struct HaplotypeDefinitionsBundleCreateSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("species"), help: "Species code used to disambiguate definition ids")
     var species: String?
 
-    @Option(name: .customLong("scope"), help: "Definition source scope: built-in, global, or project")
+    @Option(name: .customLong("scope"), help: "project (the only supported scope)")
     var scope: String?
 
     @Option(name: .customLong("reference-fasta"), help: "MHC amplicon reference FASTA to embed")
@@ -188,14 +178,11 @@ struct HaplotypeDefinitionsBundleCreateSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("project"), help: "Project root whose project-scoped definitions should be included")
     var project: String?
 
-    @Option(name: .customLong("global-root"), help: "Global haplotype definition library root")
-    var globalRoot: String?
-
     @Flag(name: .customLong("force"), help: "Replace an existing .lungfishmhcref bundle")
     var force = false
 
     func run() async throws {
-        let service = makeService(project: project, globalRoot: globalRoot)
+        let service = makeService(project: project)
         let result = try await service.createMHCReferenceBundle(
             definitionIDs: definitions,
             assayID: assay,
@@ -227,9 +214,6 @@ struct HaplotypeDefinitionsBundleSaveSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("project"), help: "Project root used for provenance context")
     var project: String?
 
-    @Option(name: .customLong("global-root"), help: "Global haplotype definition library root")
-    var globalRoot: String?
-
     @Option(name: .customLong("change-note"), help: "Human-readable provenance note for this edit")
     var changeNote: String?
 
@@ -239,7 +223,7 @@ struct HaplotypeDefinitionsBundleSaveSubcommand: AsyncParsableCommand {
             GenotypeHaplotypeDefinitionSet.self,
             from: Data(contentsOf: inputURL)
         )
-        let service = makeService(project: project, globalRoot: globalRoot)
+        let service = makeService(project: project)
         let result = try service.saveDefinition(
             definition,
             inMHCReferenceBundle: URL(fileURLWithPath: bundle, isDirectory: true),
@@ -265,11 +249,8 @@ struct HaplotypeDefinitionsBundleReplaceReferenceSubcommand: AsyncParsableComman
     @Option(name: .customLong("project"), help: "Project root used for provenance context")
     var project: String?
 
-    @Option(name: .customLong("global-root"), help: "Global haplotype definition library root")
-    var globalRoot: String?
-
     func run() async throws {
-        let service = makeService(project: project, globalRoot: globalRoot)
+        let service = makeService(project: project)
         let referenceURL = try service.replaceReferenceFASTA(
             inMHCReferenceBundle: URL(fileURLWithPath: bundle, isDirectory: true),
             with: URL(fileURLWithPath: referenceFASTA),
@@ -294,17 +275,14 @@ struct HaplotypeDefinitionsExportSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("project"), help: "Project root whose project-scoped definitions should be included")
     var project: String?
 
-    @Option(name: .customLong("global-root"), help: "Global haplotype definition library root")
-    var globalRoot: String?
-
     @Option(name: .customLong("assay"), help: "Assay/amplicon id used to disambiguate duplicate definition ids")
     var assay: String?
 
-    @Option(name: .customLong("scope"), help: "Definition scope to export: built-in, global, or project")
+    @Option(name: .customLong("scope"), help: "project (the only supported scope)")
     var scope: String?
 
     func run() async throws {
-        let service = makeService(project: project, globalRoot: globalRoot)
+        let service = makeService(project: project)
         try service.exportDefinition(
             definitionID: definitionID,
             assayID: assay,
@@ -319,7 +297,7 @@ struct HaplotypeDefinitionsExportSubcommand: AsyncParsableCommand {
 struct HaplotypeDefinitionsDuplicateSubcommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "duplicate",
-        abstract: "Duplicate a built-in/global/project definition into a writable scope"
+        abstract: "Duplicate a project definition into the project scope"
     )
 
     @Argument(help: "Definition set id to duplicate")
@@ -328,16 +306,13 @@ struct HaplotypeDefinitionsDuplicateSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("project"), help: "Project root for project-scoped definitions")
     var project: String?
 
-    @Option(name: .customLong("global-root"), help: "Global haplotype definition library root")
-    var globalRoot: String?
-
     @Option(name: .customLong("assay"), help: "Assay/amplicon id used to disambiguate duplicate definition ids")
     var assay: String?
 
-    @Option(name: .customLong("source-scope"), help: "Optional source scope: built-in, global, or project")
+    @Option(name: .customLong("source-scope"), help: "project (the only supported scope)")
     var sourceScope: String?
 
-    @Option(name: .customLong("target-scope"), help: "Destination scope: global or project")
+    @Option(name: .customLong("target-scope"), help: "project (the only supported scope)")
     var targetScope: String = HaplotypeDefinitionScope.project.rawValue
 
     @Option(name: .customLong("new-definition-id"), help: "Optional id for the duplicate; omit to override/shadow the source id")
@@ -347,7 +322,7 @@ struct HaplotypeDefinitionsDuplicateSubcommand: AsyncParsableCommand {
     var changeNote: String?
 
     func run() async throws {
-        let service = makeService(project: project, globalRoot: globalRoot)
+        let service = makeService(project: project)
         let result = try service.duplicateDefinition(
             definitionID: definitionID,
             assayID: assay,
@@ -364,23 +339,20 @@ struct HaplotypeDefinitionsDuplicateSubcommand: AsyncParsableCommand {
 struct HaplotypeDefinitionsDeleteSubcommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "delete",
-        abstract: "Delete a global or project haplotype definition set"
+        abstract: "Delete a project haplotype definition set"
     )
 
     @Argument(help: "Definition set id to delete")
     var definitionID: String
 
-    @Option(name: .customLong("scope"), help: "Definition scope to delete: global or project")
+    @Option(name: .customLong("scope"), help: "project (the only supported scope)")
     var scope: String = HaplotypeDefinitionScope.project.rawValue
 
     @Option(name: .customLong("project"), help: "Project root for project-scoped definitions")
     var project: String?
 
-    @Option(name: .customLong("global-root"), help: "Global haplotype definition library root")
-    var globalRoot: String?
-
     func run() async throws {
-        let service = makeService(project: project, globalRoot: globalRoot)
+        let service = makeService(project: project)
         try service.deleteDefinition(
             definitionID: definitionID,
             scope: try parseRequiredScope(scope),
@@ -464,35 +436,34 @@ private struct HaplotypeDefinitionValidatePayload: Encodable {
     }
 }
 
-private func makeService(project: String?, globalRoot: String?) -> HaplotypeDefinitionCommandService {
+private func makeService(project: String?) -> HaplotypeDefinitionCommandService {
     HaplotypeDefinitionCommandService(
-        projectRoot: project.map { URL(fileURLWithPath: $0, isDirectory: true) },
-        globalRoot: globalRoot.map { URL(fileURLWithPath: $0, isDirectory: true) }
-            ?? HaplotypeDefinitionLibrary.defaultGlobalRoot()
+        projectRoot: project.map { URL(fileURLWithPath: $0, isDirectory: true) }
     )
 }
 
 private func parseOptionalScope(_ rawValue: String?) throws -> HaplotypeDefinitionScope? {
     guard let rawValue else { return nil }
-    if rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "all" {
+    let normalized = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    if normalized.isEmpty {
         return nil
     }
-    return try parseScope(rawValue)
+    return try parseScope(normalized)
 }
 
 private func parseRequiredScope(_ rawValue: String) throws -> HaplotypeDefinitionScope {
-    try parseScope(rawValue)
+    let normalized = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    if normalized.isEmpty {
+        return .project
+    }
+    return try parseScope(normalized)
 }
 
-private func parseScope(_ rawValue: String) throws -> HaplotypeDefinitionScope {
-    let normalized = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    if normalized == "builtin" {
-        return .builtIn
+private func parseScope(_ normalized: String) throws -> HaplotypeDefinitionScope {
+    guard normalized == HaplotypeDefinitionScope.project.rawValue else {
+        throw ValidationError("Only the 'project' scope is supported")
     }
-    guard let scope = HaplotypeDefinitionScope(rawValue: normalized) else {
-        throw ValidationError("Unknown haplotype definition scope '\(rawValue)'. Use all, built-in, global, or project.")
-    }
-    return scope
+    return .project
 }
 
 private func emitJSON<T: Encodable>(_ value: T) throws {

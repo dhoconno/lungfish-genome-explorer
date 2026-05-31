@@ -21,16 +21,16 @@ final class HaplotypeDefinitionsCommandTests: XCTestCase {
         XCTAssertEqual(command.changeNote, "initial import")
     }
 
-    func testListCommandParsesAllScopeAndCompatibilityFilters() throws {
+    func testListCommandParsesProjectScopeAndCompatibilityFilters() throws {
         let command = try HaplotypeDefinitionsListSubcommand.parse([
-            "--scope", "all",
+            "--scope", "project",
             "--assay", "MHC-exon2-miSeq",
             "--species", "MCM",
             "--include-shadowed",
             "--include-reference-bundles",
         ])
 
-        XCTAssertEqual(command.scope, "all")
+        XCTAssertEqual(command.scope, "project")
         XCTAssertEqual(command.assay, "MHC-exon2-miSeq")
         XCTAssertEqual(command.species, "MCM")
         XCTAssertTrue(command.includeShadowed)
@@ -48,12 +48,12 @@ final class HaplotypeDefinitionsCommandTests: XCTestCase {
     func testSaveCommandParsesEditableDefinitionOptions() throws {
         let command = try HaplotypeDefinitionsSaveSubcommand.parse([
             "/tmp/mcm-edited.lungfishhaplotypedef.json",
-            "--scope", "global",
+            "--scope", "project",
             "--change-note", "added B haplotype",
         ])
 
         XCTAssertEqual(command.input, "/tmp/mcm-edited.lungfishhaplotypedef.json")
-        XCTAssertEqual(command.scope, "global")
+        XCTAssertEqual(command.scope, "project")
         XCTAssertEqual(command.changeNote, "added B haplotype")
     }
 
@@ -84,7 +84,7 @@ final class HaplotypeDefinitionsCommandTests: XCTestCase {
             "--definition", "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
             "--assay", "MHC-exon2-miSeq",
             "--species", "MCM",
-            "--scope", "built-in",
+            "--scope", "project",
             "--reference-fasta", "/tmp/MCM_MHC.fa",
             "--output", "/tmp/MCM-MHC.lungfishmhcref",
             "--name", "MCM Explicit MHC",
@@ -95,7 +95,7 @@ final class HaplotypeDefinitionsCommandTests: XCTestCase {
         XCTAssertEqual(command.definitions, ["MHC-exon2-miSeq.mauritian-cynomolgus-macaques"])
         XCTAssertEqual(command.assay, "MHC-exon2-miSeq")
         XCTAssertEqual(command.species, "MCM")
-        XCTAssertEqual(command.scope, "built-in")
+        XCTAssertEqual(command.scope, "project")
         XCTAssertEqual(command.referenceFASTA, "/tmp/MCM_MHC.fa")
         XCTAssertEqual(command.output, "/tmp/MCM-MHC.lungfishmhcref")
         XCTAssertEqual(command.name, "MCM Explicit MHC")
@@ -111,13 +111,11 @@ final class HaplotypeDefinitionsCommandTests: XCTestCase {
             "--output-dir", "/tmp/out",
             "--haplotype-assay", "MHC-exon2-miSeq",
             "--haplotype-species", "MCM",
-            "--haplotype-definition-scope", "project",
             "--haplotype-definition", "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
         ])
 
         XCTAssertEqual(command.haplotypeAssay, "MHC-exon2-miSeq")
         XCTAssertEqual(command.haplotypeSpecies, "MCM")
-        XCTAssertEqual(command.haplotypeDefinitionScope, "project")
         XCTAssertEqual(command.haplotypeDefinition, "MHC-exon2-miSeq.mauritian-cynomolgus-macaques")
     }
 }
