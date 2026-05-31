@@ -54,28 +54,37 @@ final class WorkflowLibraryTests: XCTestCase {
         XCTAssertFalse(core.groups.flatMap(\.items).contains { $0.id == WorkflowLibraryCatalog.twelveSAmpliconMatchingID })
     }
 
-    func testFreshInstallEnablesBundledSpecializedWorkflowsAndPersistsExplicitChanges() throws {
+    func testFreshInstallKeepsNicheWorkflowsOptInAndPersistsExplicitChanges() throws {
         let defaults = try makeDefaults()
         let store = WorkflowLibraryEnablementStore(userDefaults: defaults)
         let twelveS = try XCTUnwrap(WorkflowLibraryCatalog.item(id: WorkflowLibraryCatalog.twelveSAmpliconMatchingID))
 
+        // A fresh install enables ONT genotyping (an enhancement to an existing
+        // workflow) but leaves 12S amplicon matching opt-in/disabled.
         XCTAssertTrue(store.isWorkflowEnabled(.minimap2))
         XCTAssertTrue(store.isWorkflowEnabled(.ontGenotyping))
+        XCTAssertFalse(
+            store.isWorkflowEnabled(twelveS),
+            "12S is a niche opt-in workflow; it must be DISABLED on fresh install"
+        )
+
+        // Explicitly enabling the niche workflow persists across reloads.
+        store.setWorkflow(twelveS, enabled: true)
         XCTAssertTrue(store.isWorkflowEnabled(twelveS))
 
-        store.setWorkflow(.ontGenotyping, enabled: false)
-        store.setWorkflow(twelveS, enabled: false)
-        XCTAssertFalse(store.isWorkflowEnabled(.ontGenotyping))
-        XCTAssertFalse(store.isWorkflowEnabled(twelveS))
+        let enabledReload = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        XCTAssertTrue(enabledReload.isWorkflowEnabled(twelveS))
+        XCTAssertTrue(enabledReload.isWorkflowEnabled(.ontGenotyping))
 
-        let reloaded = WorkflowLibraryEnablementStore(userDefaults: defaults)
-        XCTAssertFalse(reloaded.isWorkflowEnabled(.ontGenotyping))
-        XCTAssertFalse(reloaded.isWorkflowEnabled(twelveS))
+        // Disabling ONT genotyping and the niche workflow also persists.
+        enabledReload.setWorkflow(.ontGenotyping, enabled: false)
+        enabledReload.setWorkflow(twelveS, enabled: false)
+        XCTAssertFalse(enabledReload.isWorkflowEnabled(.ontGenotyping))
+        XCTAssertFalse(enabledReload.isWorkflowEnabled(twelveS))
 
-        reloaded.setWorkflow(.ontGenotyping, enabled: true)
-        reloaded.setWorkflow(twelveS, enabled: true)
-        XCTAssertTrue(reloaded.isWorkflowEnabled(.ontGenotyping))
-        XCTAssertTrue(reloaded.isWorkflowEnabled(twelveS))
+        let disabledReload = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        XCTAssertFalse(disabledReload.isWorkflowEnabled(.ontGenotyping))
+        XCTAssertFalse(disabledReload.isWorkflowEnabled(twelveS))
     }
 
     func testEnablementStorePostsChangeNotificationWhenWorkflowAvailabilityChanges() throws {

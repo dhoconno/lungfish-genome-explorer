@@ -226,7 +226,6 @@ final class WorkflowLibraryEnablementStore: WorkflowLibraryEnabling {
     private static let enabledUserWorkflowIDsKey = "WorkflowLibrary.enabledUserWorkflowIDs"
     private static let defaultEnabledWorkflowIDs: Set<String> = [
         FASTQOperationToolID.ontGenotyping.rawValue,
-        WorkflowLibraryCatalog.twelveSAmpliconMatchingID,
     ]
 
     private let userDefaults: UserDefaults

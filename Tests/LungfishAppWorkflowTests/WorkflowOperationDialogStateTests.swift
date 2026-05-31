@@ -165,13 +165,16 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         )
 
         let libraryStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        // 12S is opt-in (disabled on fresh install); enable it explicitly so the
+        // dialog reflects a library-store change made after it was created.
+        let twelveSItem = try XCTUnwrap(WorkflowLibraryCatalog.item(id: WorkflowLibraryCatalog.twelveSAmpliconMatchingID))
+        libraryStore.setWorkflow(twelveSItem, enabled: true)
         var ont = try XCTUnwrap(state.tools.first { $0.title == "Amplicon Genotyping" })
         XCTAssertEqual(ont.availability, .available)
         var twelveS = try XCTUnwrap(state.tools.first { $0.title == "12S Amplicon Matching" })
         XCTAssertEqual(twelveS.availability, .available)
 
         libraryStore.setWorkflow(.ontGenotyping, enabled: false)
-        let twelveSItem = try XCTUnwrap(WorkflowLibraryCatalog.item(id: WorkflowLibraryCatalog.twelveSAmpliconMatchingID))
         libraryStore.setWorkflow(twelveSItem, enabled: false)
 
         ont = try XCTUnwrap(state.tools.first { $0.title == "Amplicon Genotyping" })
@@ -321,6 +324,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             enablementStore: enablementStore,
             packageStore: packageStore
         )
+        try enableTwelveSAmpliconMatching(in: enablementStore)
         let twelveSTool = try XCTUnwrap(state.tools.first { $0.title == "12S Amplicon Matching" })
         state.selectTool(twelveSTool.id)
         state.setReference(referenceURL)
@@ -373,6 +377,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             enablementStore: enablementStore,
             packageStore: packageStore
         )
+        try enableTwelveSAmpliconMatching(in: enablementStore)
         let twelveSTool = try XCTUnwrap(state.tools.first { $0.title == "12S Amplicon Matching" })
         state.selectTool(twelveSTool.id)
         state.setReference(referenceURL)
@@ -418,6 +423,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             enablementStore: enablementStore,
             packageStore: packageStore
         )
+        try enableTwelveSAmpliconMatching(in: enablementStore)
         let twelveSTool = try XCTUnwrap(state.tools.first { $0.title == "12S Amplicon Matching" })
         state.selectTool(twelveSTool.id)
         state.setReference(referenceBundleURL)
@@ -477,6 +483,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             enablementStore: enablementStore,
             packageStore: packageStore
         )
+        try enableTwelveSAmpliconMatching(in: enablementStore)
         let twelveSTool = try XCTUnwrap(state.tools.first { $0.title == "12S Amplicon Matching" })
         state.selectTool(twelveSTool.id)
         state.setReference(referenceBundleURL)
@@ -535,6 +542,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             enablementStore: enablementStore,
             packageStore: packageStore
         )
+        try enableTwelveSAmpliconMatching(in: enablementStore)
         let twelveSTool = try XCTUnwrap(state.tools.first { $0.title == "12S Amplicon Matching" })
         state.selectTool(twelveSTool.id)
         state.setReference(referenceBundleURL)
@@ -571,6 +579,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             enablementStore: enablementStore,
             packageStore: packageStore
         )
+        try enableTwelveSAmpliconMatching(in: enablementStore)
         let twelveSTool = try XCTUnwrap(state.tools.first { $0.title == "12S Amplicon Matching" })
         state.selectTool(twelveSTool.id)
         state.setReference(referenceURL)
@@ -1064,6 +1073,13 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
         return defaults
+    }
+
+    /// 12S amplicon matching is a niche, opt-in workflow (disabled on fresh
+    /// install), so dialog tests that exercise it must enable it explicitly.
+    private func enableTwelveSAmpliconMatching(in store: WorkflowLibraryEnablementStore) throws {
+        let item = try XCTUnwrap(WorkflowLibraryCatalog.item(id: WorkflowLibraryCatalog.twelveSAmpliconMatchingID))
+        store.setWorkflow(item, enabled: true)
     }
 
     private func helloWorldNextflowPackageURL() -> URL {
