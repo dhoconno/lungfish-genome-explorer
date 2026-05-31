@@ -116,22 +116,45 @@ final class HaplotypeDefinitionManagerViewModel: ObservableObject {
 
     func importDefinition() {
         let panel = NSOpenPanel()
-        panel.title = "Import Haplotype Definition"
-        panel.canChooseDirectories = false
+        panel.title = "Import Haplotype Definition or Bundle"
+        panel.canChooseDirectories = true
         panel.canChooseFiles = true
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [.json]
+            + [UTType(filenameExtension: MHCAmpliconReferenceBundle.directoryExtension)].compactMap { $0 }
         begin(panel) { [weak self, panel] response in
             guard response == .OK, let url = panel.url else { return }
             guard let self else { return }
-            self.perform {
-                _ = try self.service.importDefinition(
-                    from: url,
-                    scope: .project,
-                    changeNote: "Imported from Haplotype Definition Manager",
-                    argv: ["lungfish-cli", "haplotypes", "import", url.path, "--scope", HaplotypeDefinitionScope.project.rawValue]
-                )
+            if MHCAmpliconReferenceBundle.isBundleURL(url) {
+                self.importBundle(at: url)
+            } else {
+                self.perform {
+                    _ = try self.service.importDefinition(
+                        from: url,
+                        scope: .project,
+                        changeNote: "Imported from Haplotype Definition Manager",
+                        argv: ["lungfish-cli", "haplotypes", "import", url.path, "--scope", HaplotypeDefinitionScope.project.rawValue]
+                    )
+                }
             }
+        }
+    }
+
+    /// Installs an existing `.lungfishmhcref` bundle into the project, reloads the
+    /// list, and selects the newly installed bundle's record. Exposed (not behind
+    /// the NSOpenPanel) so the install + reload + select behavior is unit testable.
+    func importBundle(at url: URL) {
+        do {
+            let installed = try service.installMHCReferenceBundle(
+                from: url,
+                argv: ["lungfish-cli", "haplotypes", "bundle-install", url.path]
+            )
+            reload()
+            selectedRecordID = records.first {
+                $0.referenceBundleURL == installed.standardizedFileURL
+            }?.id ?? selectedRecordID
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 
