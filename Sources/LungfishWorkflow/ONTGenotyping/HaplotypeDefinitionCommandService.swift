@@ -138,6 +138,54 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         )
     }
 
+    /// Installs an existing `.lungfishmhcref` bundle into the project by copying
+    /// the whole directory into `<projectRoot>/Reference allele databases/` (the
+    /// same location used by manager-created bundles), so it is immediately
+    /// discoverable by `HaplotypeDefinitionLibrary.records()`.
+    ///
+    /// The source bundle already carries its own provenance, so a plain copy does
+    /// not write new provenance. If a bundle of the same name already exists in
+    /// the destination directory, the name is disambiguated (` 2`, ` 3`, …) rather
+    /// than overwriting. Returns the destination bundle URL.
+    @discardableResult
+    public func installMHCReferenceBundle(
+        from sourceURL: URL,
+        argv: [String]
+    ) throws -> URL {
+        _ = argv
+        guard let projectRoot else {
+            throw HaplotypeDefinitionCommandServiceError.missingProjectRoot
+        }
+        let sourceURL = sourceURL.standardizedFileURL
+        guard MHCAmpliconReferenceBundle.isBundleURL(sourceURL) else {
+            throw HaplotypeDefinitionCommandServiceError.invalidMHCReferenceBundle(sourceURL.path)
+        }
+        try MHCAmpliconReferenceBundle.validate(at: sourceURL)
+
+        let destinationDirectory = projectRoot
+            .appendingPathComponent("Reference allele databases", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: destinationDirectory,
+            withIntermediateDirectories: true
+        )
+
+        // If the source already lives at its disambiguated destination, leave it
+        // in place rather than copying onto itself.
+        let preferredDestination = destinationDirectory
+            .appendingPathComponent(sourceURL.lastPathComponent)
+            .standardizedFileURL
+        if preferredDestination == sourceURL {
+            return sourceURL
+        }
+
+        let destinationURL = disambiguatedBundleDestination(
+            in: destinationDirectory,
+            named: sourceURL.lastPathComponent
+        )
+        try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+        return destinationURL.standardizedFileURL
+    }
+
     public func exportDefinition(
         definitionID: String,
         assayID: String? = nil,
@@ -628,6 +676,30 @@ public struct HaplotypeDefinitionCommandService: Sendable {
             }
         }
         return nil
+    }
+
+    /// Resolves a non-colliding destination URL for a bundle named `name` in
+    /// `directory`. If `name` is free it is used as-is; otherwise the base name is
+    /// suffixed with ` 2`, ` 3`, … before the `.lungfishmhcref` extension. Never
+    /// returns a URL that already exists on disk.
+    private func disambiguatedBundleDestination(in directory: URL, named name: String) -> URL {
+        let pathExtension = (name as NSString).pathExtension
+        let baseName = (name as NSString).deletingPathExtension
+        let fileManager = FileManager.default
+
+        func candidate(_ suffix: Int) -> URL {
+            let stem = suffix <= 1 ? baseName : "\(baseName) \(suffix)"
+            let component = pathExtension.isEmpty ? stem : "\(stem).\(pathExtension)"
+            return directory.appendingPathComponent(component)
+        }
+
+        var suffix = 1
+        var url = candidate(suffix)
+        while fileManager.fileExists(atPath: url.path) {
+            suffix += 1
+            url = candidate(suffix)
+        }
+        return url
     }
 
     private func updatedReferenceSourceFiles(
