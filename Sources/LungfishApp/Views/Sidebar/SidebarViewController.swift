@@ -2273,6 +2273,8 @@ public class SidebarViewController: NSViewController {
             return (.multipleSequenceAlignmentBundle, "rectangle.grid.1x2")
         case .lungfishPhylogeneticTreeBundle:
             return (.phylogeneticTreeBundle, "point.3.connected.trianglepath.dotted")
+        case .lungfishMHCReferenceBundle:
+            return (.mhcReferenceBundle, "cylinder.split.1x2")
         }
     }
 

@@ -3382,6 +3382,19 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         wireDirectReferenceViewportInspectorUpdates()
     }
 
+    /// Display an MHC amplicon reference bundle (`.lungfishmhcref`) opened outside the
+    /// project sidebar (Finder double-click, "Open With", File > Open Recent, drag-to-dock).
+    /// The bundle is metadata-only with no viewport, so the viewport is cleared with an
+    /// informative status and all details are surfaced in the Bundle inspector tab.
+    /// `updateMHCReferenceBundleDocument` sets the `.mhcReferenceBundle` provenance target.
+    func displayMHCReferenceBundleFromExternalOpen(at url: URL) {
+        inspectorController.clearSelection()
+        inspectorController.updateMHCReferenceBundleDocument(url)
+        viewerController.clearViewport(
+            statusMessage: "MHC reference bundle — see the Bundle inspector for details."
+        )
+    }
+
     /// Display a direct reference bundle in the shared list/detail reference viewport.
     private func displayReferenceBundleViewportFromSidebar(
         at url: URL,

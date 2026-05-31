@@ -102,6 +102,7 @@ public enum DocumentType: String, CaseIterable, Sendable {
     case lungfishReferenceBundle // .lungfishref reference genome bundle
     case lungfishMultipleSequenceAlignmentBundle // .lungfishmsa MSA bundle
     case lungfishPhylogeneticTreeBundle // .lungfishtree tree bundle
+    case lungfishMHCReferenceBundle // .lungfishmhcref MHC amplicon reference bundle
 
     /// File extensions for this document type.
     public var extensions: [String] {
@@ -117,6 +118,7 @@ public enum DocumentType: String, CaseIterable, Sendable {
         case .lungfishReferenceBundle: return ["lungfishref"]
         case .lungfishMultipleSequenceAlignmentBundle: return [MultipleSequenceAlignmentBundle.directoryExtension]
         case .lungfishPhylogeneticTreeBundle: return ["lungfishtree"]
+        case .lungfishMHCReferenceBundle: return [MHCAmpliconReferenceBundle.directoryExtension]
         }
     }
 
@@ -124,7 +126,7 @@ public enum DocumentType: String, CaseIterable, Sendable {
     public var isDirectoryFormat: Bool {
         switch self {
         case .lungfishProject, .lungfishReferenceBundle, .lungfishMultipleSequenceAlignmentBundle,
-             .lungfishPhylogeneticTreeBundle:
+             .lungfishPhylogeneticTreeBundle, .lungfishMHCReferenceBundle:
             return true
         default:
             return false
@@ -406,6 +408,9 @@ public final class DocumentManager {
             case .lungfishPhylogeneticTreeBundle:
                 logger.info("loadDocument: Tree bundles are displayed by the native bundle viewer")
                 throw DocumentLoadError.unsupportedFormat("Use the tree bundle viewer for .lungfishtree bundles")
+            case .lungfishMHCReferenceBundle:
+                logger.info("loadDocument: MHC reference bundles are displayed by the native bundle viewer")
+                throw DocumentLoadError.unsupportedFormat("Use the MHC reference bundle viewer for .lungfishmhcref bundles")
             }
         } catch {
             logger.error("loadDocument: Load failed with error: \(error.localizedDescription, privacy: .public)")
