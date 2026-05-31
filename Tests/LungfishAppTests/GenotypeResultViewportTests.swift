@@ -836,17 +836,15 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertFalse(snapshot.rows.contains { $0.genotype == "12_M3_B_075_01" })
     }
 
-    func testExportRevealTargetsProvenancePackageRatherThanBareWorkbook() {
+    func testExportRevealTargetsExportedWorkbookFile() {
         let controller = GenotypeResultViewController()
-        let packageURL = URL(fileURLWithPath: "/tmp/export.lungfishexport", isDirectory: true)
-        let workbookURL = packageURL.appendingPathComponent("genotype-view.xlsx")
-        let result = GenotypeViewportExcelExportResult(
-            packageURL: packageURL,
-            workbookURL: workbookURL,
-            provenanceURL: packageURL.appendingPathComponent("provenance/provenance.json")
+        let outputURL = URL(fileURLWithPath: "/tmp/export.xlsx")
+        let result = GenotypeViewportExportResult(
+            outputURL: outputURL,
+            provenanceURL: outputURL.appendingPathExtension("lungfish-provenance.json")
         )
 
-        XCTAssertEqual(controller.testingFileViewerSelectionURLs(for: result), [packageURL])
+        XCTAssertEqual(controller.testingFileViewerSelectionURLs(for: result), [outputURL])
     }
 
     func testDisplayStateCanMoveListRightAndTop() {

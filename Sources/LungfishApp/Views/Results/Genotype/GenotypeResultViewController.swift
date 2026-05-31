@@ -3306,8 +3306,8 @@ final class GenotypeResultViewController: NSViewController {
         )
     }
 
-    private func fileViewerSelectionURLs(for export: GenotypeViewportExcelExportResult) -> [URL] {
-        [export.packageURL]
+    private func fileViewerSelectionURLs(for export: GenotypeViewportExportResult) -> [URL] {
+        [export.outputURL]
     }
 
     private func outlineBlockLabel(_ kind: GenotypeBlockKind) -> String {
@@ -3335,9 +3335,11 @@ final class GenotypeResultViewController: NSViewController {
 
     @objc private func exportExcelView(_ sender: Any?) {
         guard let result else { return }
+        let format = GenotypeViewportExportFormat.excel
         let panel = NSSavePanel()
         panel.title = "Export Genotype View"
-        panel.nameFieldStringValue = "\(result.manifest.outputName)-genotype-view.lungfishexport"
+        panel.nameFieldStringValue = "\(result.manifest.outputName)-genotype-view.\(format.fileExtension)"
+        panel.allowedContentTypes = [format.contentType]
         panel.canCreateDirectories = true
         panel.prompt = "Export"
         panel.beginSheetModal(for: view.window ?? NSApp.keyWindow ?? NSWindow()) { [weak self] response in
@@ -3346,7 +3348,11 @@ final class GenotypeResultViewController: NSViewController {
                 guard let self else { return }
                 do {
                     guard let snapshot = self.currentExportSnapshot() else { return }
-                    let export = try GenotypeViewportExcelExportService().export(snapshot: snapshot, to: url)
+                    let export = try GenotypeViewportExportService().export(
+                        snapshot: snapshot,
+                        format: format,
+                        to: url
+                    )
                     NSWorkspace.shared.activateFileViewerSelecting(self.fileViewerSelectionURLs(for: export))
                 } catch {
                     if let window = self.view.window ?? NSApp.keyWindow {
@@ -4092,7 +4098,7 @@ extension GenotypeResultViewController {
         currentExportSnapshot()
     }
 
-    func testingFileViewerSelectionURLs(for export: GenotypeViewportExcelExportResult) -> [URL] {
+    func testingFileViewerSelectionURLs(for export: GenotypeViewportExportResult) -> [URL] {
         fileViewerSelectionURLs(for: export)
     }
 
