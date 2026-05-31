@@ -319,7 +319,11 @@ final class HaplotypeDefinitionManagerViewModel: ObservableObject {
             "--default-definition", record.definitionSet.id,
         ]
         isWorking = true
+        // `service` is a non-@MainActor Sendable struct; `record`, referenceFASTA,
+        // outputURL, and argv are all Sendable value inputs. The bundle build does
+        // heavy synchronous file IO, so it must run off the main thread.
         Task.detached(priority: .userInitiated) {
+            let outcome: Result<MHCAmpliconReferenceBundleBuildResult, Error>
             do {
                 let result = try await service.createMHCReferenceBundle(
                     records: [record],
@@ -330,18 +334,26 @@ final class HaplotypeDefinitionManagerViewModel: ObservableObject {
                     forceOverwrite: false,
                     argv: argv
                 )
-                await MainActor.run {
-                    self.isWorking = false
-                    self.reload()
-                    self.selectedRecordID = self.records.first {
-                        $0.referenceBundleURL == result.bundleURL
-                            && $0.definitionSet.id == record.definitionSet.id
-                    }?.id ?? self.selectedRecordID
-                }
+                outcome = .success(result)
             } catch {
-                await MainActor.run {
+                outcome = .failure(error)
+            }
+            // Hop back to the main actor without `await MainActor.run` (binding rule)
+            // using the project's blessed UI-callback pattern.
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
                     self.isWorking = false
-                    self.errorMessage = error.localizedDescription
+                    switch outcome {
+                    case .success(let result):
+                        self.reload()
+                        self.selectedRecordID = self.records.first {
+                            $0.referenceBundleURL == result.bundleURL
+                                && $0.definitionSet.id == record.definitionSet.id
+                        }?.id ?? self.selectedRecordID
+                    case .failure(let error):
+                        self.errorMessage = error.localizedDescription
+                    }
                 }
             }
         }

@@ -75,6 +75,11 @@ final class GenotypeResultDisplaySectionViewModel {
         notifyStateChanged()
     }
 
+    func setMinimumReads(_ value: Int) {
+        displayState.minimumReads = max(0, value)
+        notifyStateChanged()
+    }
+
     func setSupportDenominator(_ denominator: ONTGenotypeSupportDenominator) {
         displayState.supportDenominator = denominator
         notifyStateChanged()
@@ -330,6 +335,33 @@ struct GenotypeResultDisplaySection: View {
             }
             .pickerStyle(.menu)
             .controlSize(.small)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Minimum Reads")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack {
+                    TextField("Minimum", value: Binding(
+                        get: { viewModel.displayState.minimumReads },
+                        set: { viewModel.setMinimumReads($0) }
+                    ), format: .number)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 74)
+                    .textFieldStyle(.roundedBorder)
+                    .controlSize(.small)
+
+                    Stepper(
+                        "",
+                        value: Binding(
+                            get: { viewModel.displayState.minimumReads },
+                            set: { viewModel.setMinimumReads($0) }
+                        ),
+                        in: 0...1_000_000
+                    )
+                    .labelsHidden()
+                    .controlSize(.small)
+                }
+            }
         }
     }
 

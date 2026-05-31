@@ -29,6 +29,21 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         XCTAssertEqual(GenotypeResultDisplaySectionViewModel().displayState.layout, .listTop)
     }
 
+    func testGenotypeSectionSetMinimumReadsUpdatesStateAndNotifies() {
+        let vm = GenotypeResultDisplaySectionViewModel()
+        var fired = 0
+        vm.onDisplayStateChanged = { _ in fired += 1 }
+        vm.setMinimumReads(5_000)
+        XCTAssertEqual(vm.displayState.minimumReads, 5_000)
+        XCTAssertEqual(fired, 1)
+    }
+
+    func testGenotypeSectionSetMinimumReadsClampsNegativeValues() {
+        let vm = GenotypeResultDisplaySectionViewModel()
+        vm.setMinimumReads(-10)
+        XCTAssertEqual(vm.displayState.minimumReads, 0)
+    }
+
     func testGenotypeReadThresholdsAreTwoIndependentEditableFields() {
         var s = GenotypeResultDisplayState()
         XCTAssertEqual(s.minimumReads, 0)            // row filter off by default
