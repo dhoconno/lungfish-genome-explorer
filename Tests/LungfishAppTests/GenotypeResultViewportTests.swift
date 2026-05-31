@@ -817,7 +817,13 @@ final class GenotypeResultViewportTests: XCTestCase {
                             haplotype1: "M3B",
                             haplotype2: "-",
                             status: .called,
-                            matchedHaplotypes: [],
+                            matchedHaplotypes: [
+                                GenotypeHaplotypeMatchedDefinition(
+                                    name: "M3B",
+                                    diagnosticAlleles: ["12_M3_B_075_01", "12_M3_B_165_01"],
+                                    observedDiagnosticAlleles: ["12_M3_B_075_01", "12_M3_B_165_01"]
+                                ),
+                            ],
                             observedGenotypeCount: 2,
                             observedGenotypes: ["12_M3_B_075_01", "12_M3_B_165_01"]
                         )
@@ -1478,7 +1484,13 @@ final class GenotypeResultViewportTests: XCTestCase {
                             haplotype1: "M1A",
                             haplotype2: "-",
                             status: .called,
-                            matchedHaplotypes: [],
+                            matchedHaplotypes: [
+                                GenotypeHaplotypeMatchedDefinition(
+                                    name: "M1A",
+                                    diagnosticAlleles: ["01_M1_F_01_w_06"],
+                                    observedDiagnosticAlleles: ["01_M1_F_01_w_06"]
+                                ),
+                            ],
                             observedGenotypeCount: 1,
                             observedGenotypes: ["01_M1_F_01_w_06"]
                         ),
@@ -1488,7 +1500,13 @@ final class GenotypeResultViewportTests: XCTestCase {
                             haplotype1: "M3B",
                             haplotype2: "-",
                             status: .called,
-                            matchedHaplotypes: [],
+                            matchedHaplotypes: [
+                                GenotypeHaplotypeMatchedDefinition(
+                                    name: "M3B",
+                                    diagnosticAlleles: ["12_M3_B_075_01", "12_M3_B_165_01"],
+                                    observedDiagnosticAlleles: ["12_M3_B_075_01", "12_M3_B_165_01"]
+                                ),
+                            ],
                             observedGenotypeCount: 2,
                             observedGenotypes: ["12_M3_B_075_01", "12_M3_B_165_01"]
                         ),
@@ -1538,7 +1556,13 @@ final class GenotypeResultViewportTests: XCTestCase {
                             haplotype1: "M1A",
                             haplotype2: "-",
                             status: .called,
-                            matchedHaplotypes: [],
+                            matchedHaplotypes: [
+                                GenotypeHaplotypeMatchedDefinition(
+                                    name: "M1A",
+                                    diagnosticAlleles: ["01_M1_F_01_w_06"],
+                                    observedDiagnosticAlleles: ["01_M1_F_01_w_06"]
+                                ),
+                            ],
                             observedGenotypeCount: 1,
                             observedGenotypes: ["01_M1_F_01_w_06"]
                         ),
@@ -1548,7 +1572,13 @@ final class GenotypeResultViewportTests: XCTestCase {
                             haplotype1: "M3B",
                             haplotype2: "-",
                             status: .called,
-                            matchedHaplotypes: [],
+                            matchedHaplotypes: [
+                                GenotypeHaplotypeMatchedDefinition(
+                                    name: "M3B",
+                                    diagnosticAlleles: ["12_M3_B_075_01", "12_M3_B_165_01"],
+                                    observedDiagnosticAlleles: ["12_M3_B_075_01", "12_M3_B_165_01"]
+                                ),
+                            ],
                             observedGenotypeCount: 2,
                             observedGenotypes: ["12_M3_B_075_01", "12_M3_B_165_01"]
                         ),
@@ -1743,7 +1773,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertFalse(alleles.contains("14_M2_DQA1_01_04"))
     }
 
-    func testConfigureRecomputesHaplotypeAnalysisWithDefaultDropoutSettingsWhenNoPersistedAnalysis() throws {
+    func testConfigureRendersHaplotypeCallFromRecordedAnalysisInOutline() throws {
         let bundleURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeResultViewportTests-\(UUID().uuidString).lungfishgenotype", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: bundleURL) }
@@ -1753,11 +1783,40 @@ final class GenotypeResultViewportTests: XCTestCase {
             makeCall(sample: "DW472", genotype: "12_M2_B_019_03", reads: 400),
             makeCall(sample: "DW472", genotype: "12_M2_B_109_04", reads: 300),
         ]
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            definitionSetName: "Mauritian cynomolgus macaques",
+            speciesName: "Mauritian cynomolgus macaques",
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "DW472",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-B",
+                            sourceLocus: "Mafa-B",
+                            haplotype1: "M2B",
+                            haplotype2: "-",
+                            status: .called,
+                            matchedHaplotypes: [
+                                GenotypeHaplotypeMatchedDefinition(
+                                    name: "M2B",
+                                    diagnosticAlleles: ["12_M2_B_019_03", "12_M2_B_109_04"],
+                                    observedDiagnosticAlleles: ["12_M2_B_019_03", "12_M2_B_109_04"]
+                                ),
+                            ],
+                            observedGenotypeCount: 2,
+                            observedGenotypes: ["12_M2_B_019_03", "12_M2_B_109_04"]
+                        )
+                    ]
+                )
+            ]
+        )
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
             samples: [],
             calls: calls,
-            haplotypeAnalysis: nil,
+            haplotypeAnalysis: analysis,
             haplotypeDefinitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques"
         ))
 
@@ -1875,15 +1934,10 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(evidence.h2Name, "ERR: TMH (M1DR, M2DR, M3DR)")
     }
 
-    func testDW472bLikeMHCBReviewEvidenceUsesLiveDropoutAnalysis() throws {
+    func testDW472bLikeMHCBReviewEvidenceReflectsRecordedHaplotypeCall() throws {
         let bundleURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeResultViewportTests-\(UUID().uuidString).lungfishgenotype", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: bundleURL) }
-        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-05-23T00:00:00Z")
-        sidecar.settings.dropoutAbsolute = 50
-        sidecar.settings.dropoutSampleFraction = nil
-        sidecar.settings.dropoutLocusFraction = 0.05
-        try ONTGenotypeResultBundleData.writeAnnotationSidecar(sidecar, forBundleAt: bundleURL)
 
         let controller = GenotypeResultViewController()
         _ = controller.view
@@ -1899,11 +1953,64 @@ final class GenotypeResultViewportTests: XCTestCase {
             makeCall(sample: "DW472b", genotype: "12_M3_B_098_05", reads: 20),
             makeCall(sample: "DW472b", genotype: "12_M2M3_B_079g", reads: 15),
         ]
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            definitionSetName: "Mauritian cynomolgus macaques",
+            speciesName: "Mauritian cynomolgus macaques",
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "DW472b",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-B",
+                            sourceLocus: "Mafa-B",
+                            haplotype1: "M2B",
+                            haplotype2: "M3B",
+                            status: .called,
+                            matchedHaplotypes: [
+                                GenotypeHaplotypeMatchedDefinition(
+                                    name: "M2B",
+                                    diagnosticAlleles: [
+                                        "12_M2_B_019_03",
+                                        "12_M2_B_109_04",
+                                        "12_M2_B_150_01_01",
+                                        "12_M2_B_162",
+                                    ],
+                                    observedDiagnosticAlleles: [
+                                        "12_M2_B_019_03",
+                                        "12_M2_B_109_04",
+                                        "12_M2_B_150_01_01",
+                                        "12_M2_B_162",
+                                    ]
+                                ),
+                                GenotypeHaplotypeMatchedDefinition(
+                                    name: "M3B",
+                                    diagnosticAlleles: [
+                                        "12_M3_B_075_01",
+                                        "12_M3_B_098_05",
+                                        "12_M3_B_165_01",
+                                    ],
+                                    observedDiagnosticAlleles: [
+                                        "12_M3_B_075_01",
+                                        "12_M3_B_098_05",
+                                        "12_M3_B_165_01",
+                                    ]
+                                ),
+                            ],
+                            observedGenotypeCount: calls.count,
+                            observedGenotypes: calls.map(\.genotype)
+                        )
+                    ]
+                )
+            ]
+        )
 
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
             samples: [],
             calls: calls,
+            haplotypeAnalysis: analysis,
             haplotypeDefinitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques"
         ))
 
@@ -1915,7 +2022,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(evidence.candidateHaplotypes.first?.name, "M2B")
     }
 
-    func testMatrixModeUsesHaplotypeDefinitionMatrixWhenBundleDeclaresDefinitionSetOnly() throws {
+    func testMatrixModeRendersHaplotypeDefinitionMatrixFromRecordedAnalysis() throws {
         let controller = GenotypeResultViewController()
         _ = controller.view
         let calls = [
@@ -1924,10 +2031,49 @@ final class GenotypeResultViewportTests: XCTestCase {
             makeCall(sample: "DW472", genotype: "13_M3_DRB_W49_01_01", reads: 153),
             makeCall(sample: "DW472", genotype: "13_M3_DRB1_10_02", reads: 1491),
         ]
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            definitionSetName: "Mauritian cynomolgus macaques",
+            speciesName: "Mauritian cynomolgus macaques",
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "DW472",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-DRB",
+                            sourceLocus: "Mafa-DRB",
+                            haplotype1: "M2DR",
+                            haplotype2: "M3DR",
+                            status: .called,
+                            matchedHaplotypes: [
+                                GenotypeHaplotypeMatchedDefinition(
+                                    name: "M2DR",
+                                    diagnosticAlleles: ["13_M2_DRB_W4_02", "13_M2_DRB1_10_01"],
+                                    observedDiagnosticAlleles: ["13_M2_DRB_W4_02", "13_M2_DRB1_10_01"]
+                                ),
+                                GenotypeHaplotypeMatchedDefinition(
+                                    name: "M3DR",
+                                    diagnosticAlleles: ["13_M3_DRB_W49_01_01", "13_M3_DRB1_10_02"],
+                                    observedDiagnosticAlleles: ["13_M3_DRB_W49_01_01", "13_M3_DRB1_10_02"]
+                                ),
+                            ],
+                            observedGenotypeCount: 4,
+                            observedGenotypes: [
+                                "13_M2_DRB1_10_01",
+                                "13_M2_DRB_W4_02",
+                                "13_M3_DRB1_10_02",
+                                "13_M3_DRB_W49_01_01",
+                            ]
+                        )
+                    ]
+                )
+            ]
+        )
         controller.configure(result: makeResult(
             samples: [],
             calls: calls,
-            haplotypeAnalysis: nil,
+            haplotypeAnalysis: analysis,
             haplotypeDefinitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques"
         ))
         controller.testingApplyDisplayState(GenotypeResultDisplayState(summaryViewMode: .matrix, layout: .listTop))
@@ -1941,32 +2087,6 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(text.contains("M3DR"))
     }
 
-    func testRhesusBundleWithoutManifestDefinitionInfersBuiltInDefinitionSetForMatrix() throws {
-        let controller = GenotypeResultViewController()
-        _ = controller.view
-        let calls = [
-            makeCall(sample: "A11N094", genotype: "01_Mamu-A1_006g|A1_006_02_01_01,A1_006_03", reads: 142),
-            makeCall(sample: "A11N094", genotype: "04_Mamu-B_072g1|B_072_01_01_01,B_072_01_01_02", reads: 139),
-            makeCall(sample: "A11N094", genotype: "09_Mamu-DQA1_23_01", reads: 4030),
-        ]
-
-        controller.configure(result: makeResult(
-            samples: [],
-            calls: calls,
-            haplotypeAnalysis: nil,
-            haplotypeDefinitionSetID: nil
-        ))
-        controller.testingApplyDisplayState(GenotypeResultDisplayState(summaryViewMode: .matrix, layout: .listTop))
-
-        let matrixView = try XCTUnwrap(controller.view.firstDescendant(ofType: GenotypeHaplotypeDefinitionMatrixView.self))
-        XCTAssertFalse(matrixView.isHidden)
-        let text = controller.testingHaplotypeMatrixText
-        XCTAssertTrue(text.contains("Diagnostic allele matrix"))
-        XCTAssertTrue(text.contains("Rhesus macaques"))
-        XCTAssertTrue(text.contains("MHC-A"))
-        XCTAssertTrue(text.contains("A006.01"))
-    }
-
     func testRhesusHaplotypeMatrixCountsOnlyClassicalReadsForClassicalAAlleles() throws {
         let controller = GenotypeResultViewController()
         _ = controller.view
@@ -1974,11 +2094,40 @@ final class GenotypeResultViewportTests: XCTestCase {
             makeCall(sample: "A11N094", genotype: "01_Mamu-A1_006g|A1_006_02_01_01,A1_006_03", reads: 100),
             makeCall(sample: "A11N094", genotype: "15_Mamu-AG2_01g1|A1_006_02_01_01,A1_006_03", reads: 500),
         ]
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "MHC-exon2-miSeq.rhesus-macaques",
+            definitionSetName: "Rhesus macaques",
+            speciesName: "Rhesus macaques",
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "A11N094",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-A",
+                            sourceLocus: "Mamu-A",
+                            haplotype1: "A006.01",
+                            haplotype2: "-",
+                            status: .called,
+                            matchedHaplotypes: [
+                                GenotypeHaplotypeMatchedDefinition(
+                                    name: "A006.01",
+                                    diagnosticAlleles: ["A1_006"],
+                                    observedDiagnosticAlleles: ["A1_006"]
+                                ),
+                            ],
+                            observedGenotypeCount: 1,
+                            observedGenotypes: ["01_Mamu-A1_006g|A1_006_02_01_01,A1_006_03"]
+                        )
+                    ]
+                )
+            ]
+        )
 
         controller.configure(result: makeResult(
             samples: [],
             calls: calls,
-            haplotypeAnalysis: nil,
+            haplotypeAnalysis: analysis,
             haplotypeDefinitionSetID: nil
         ))
         controller.testingApplyDisplayState(GenotypeResultDisplayState(summaryViewMode: .matrix, layout: .listTop))
@@ -1988,25 +2137,6 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(text.contains("A006.01"))
         XCTAssertTrue(text.contains("A1_006 100"))
         XCTAssertFalse(text.contains("A1_006 600"))
-    }
-
-    func testInferredRhesusDefinitionIsVisibleAsPreviewInSummary() throws {
-        let controller = GenotypeResultViewController()
-        _ = controller.view
-        let calls = [
-            makeCall(sample: "A11N094", genotype: "01_Mamu-A1_006g|A1_006_02_01_01,A1_006_03", reads: 142),
-        ]
-
-        controller.configure(result: makeResult(
-            samples: [],
-            calls: calls,
-            haplotypeAnalysis: nil,
-            haplotypeDefinitionSetID: nil
-        ))
-
-        let summary = controller.testingSummaryStripText
-        XCTAssertTrue(summary.contains("Rhesus macaques"))
-        XCTAssertTrue(summary.contains("Inferred preview"))
     }
 
     func testNotAssayedOutlineDetailRendersAsSingleCoverageState() {
