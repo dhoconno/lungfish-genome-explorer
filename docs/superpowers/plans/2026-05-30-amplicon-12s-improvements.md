@@ -489,6 +489,9 @@ MSG
 ---
 
 ### Task 9: Fix the haplotype-manager detached task + add the genotype minimum-reads control  (addresses S-P1-7; completes S-P1-3 UI)
+
+> **DONE (commit `d1c5543f`).** REQUIRED follow-up (Task 9b) surfaced during implementation: the `minimumReads` field + control now persist/propagate, but `GenotypeResultDisplayState.activeMinimumReads`/`samplesBelowFilter` are NOT yet consumed by the genotype renderer, so rows are not actually hidden by the control. The genotype renderer DOES filter by display state — `minimumSupportPercent` is threaded into `GenotypeComparisonMatrixView.applyDisplayState`/its row filtering (`GenotypeResultViewController.swift:461,1442,2366`). Task 9b: thread `activeMinimumReads` (hide a sample/row whose reads `< activeMinimumReads`, via `samplesBelowFilter`) into that SAME matrix filtering path, and add a view-controller/matrix test that a non-zero `minimumReads` hides the below-threshold rows. **This must land before the Phase 5 "cross-workflow filter equivalence" gate**, which asserts the converged filter behaves equivalently in both workflows — without 9b, genotype's control is inert and that gate fails. (12S consumes its filter at `TwelveSAmpliconResultViewController.swift:416` `row.totalExactReads >= displayState.minimumExactReads` — mirror that semantics.)
+
 **Files:**
 - Modify: `Sources/LungfishApp/Views/WorkflowOperations/HaplotypeDefinitionManagerWindowController.swift` (`createMHCReferenceBundle` 304-348: replace `Task.detached`+`await MainActor.run` with the prescribed pattern + `[weak self]`).
 - Modify: `Sources/LungfishApp/Views/Inspector/Sections/GenotypeResultDisplaySection*` (add the editable "Minimum Reads" TextField+Stepper mirroring `TwelveSResultDisplaySection` 228-255, bound to `displayState.minimumReads` from Task 3).
