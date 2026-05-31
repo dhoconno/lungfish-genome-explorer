@@ -21,6 +21,14 @@ struct GenotypeHaplotypeDefinitionEditor: View {
     let isReadOnly: Bool
     let allowsIdentityEditing: Bool
     let allowsMetadataEditing: Bool
+    /// When `true`, the editor surfaces a required Reference FASTA picker and
+    /// blocks Save until one is chosen. Every definition is now a
+    /// `.lungfishmhcref` bundle (FASTA + defs), so a saved definition always
+    /// carries a reference FASTA.
+    let requiresReferenceFASTA: Bool
+    /// The project directory used to scan for `.lungfishref`/FASTA candidates.
+    let projectURL: URL?
+    @Binding var selectedReferenceURL: URL?
     let onSave: (GenotypeHaplotypeDefinitionSet) -> Void
     let onCancel: () -> Void
 
@@ -29,6 +37,9 @@ struct GenotypeHaplotypeDefinitionEditor: View {
         isReadOnly: Bool = false,
         allowsIdentityEditing: Bool = false,
         allowsMetadataEditing: Bool = false,
+        requiresReferenceFASTA: Bool = false,
+        projectURL: URL? = nil,
+        selectedReferenceURL: Binding<URL?> = .constant(nil),
         onSave: @escaping (GenotypeHaplotypeDefinitionSet) -> Void,
         onCancel: @escaping () -> Void
     ) {
@@ -36,6 +47,9 @@ struct GenotypeHaplotypeDefinitionEditor: View {
         self.isReadOnly = isReadOnly
         self.allowsIdentityEditing = allowsIdentityEditing
         self.allowsMetadataEditing = allowsMetadataEditing
+        self.requiresReferenceFASTA = requiresReferenceFASTA
+        self.projectURL = projectURL
+        _selectedReferenceURL = selectedReferenceURL
         self.onSave = onSave
         self.onCancel = onCancel
     }
@@ -378,22 +392,41 @@ struct GenotypeHaplotypeDefinitionEditor: View {
 
     private var footer: some View {
         let validationMessages = GenotypeHaplotypeDefinitionDrafting.validationMessages(for: draft)
-        return HStack {
-            if let firstMessage = validationMessages.first {
-                Text(firstMessage)
-                    .font(.caption)
-                    .foregroundStyle(Color(nsColor: .lungfishDanger))
-                    .lineLimit(2)
+        let missingReferenceFASTA = requiresReferenceFASTA && selectedReferenceURL == nil
+        return VStack(alignment: .leading, spacing: 8) {
+            if requiresReferenceFASTA {
+                ReferenceSequencePickerView(
+                    projectURL: projectURL,
+                    selectedReferenceURL: $selectedReferenceURL
+                )
             }
-            Spacer()
-            Button(isReadOnly ? "Close" : "Cancel", action: onCancel)
-                .keyboardShortcut(.cancelAction)
-            if !isReadOnly {
-                Button("Save") {
-                    onSave(draft)
+            HStack {
+                if let firstMessage = validationMessages.first {
+                    Text(firstMessage)
+                        .font(.caption)
+                        .foregroundStyle(Color(nsColor: .lungfishDanger))
+                        .lineLimit(2)
+                } else if missingReferenceFASTA {
+                    Text("Choose a reference FASTA to save this definition as a bundle.")
+                        .font(.caption)
+                        .foregroundStyle(Color(nsColor: .lungfishDanger))
+                        .lineLimit(2)
                 }
-                .keyboardShortcut(.defaultAction)
-                .disabled(draft.displayName.isEmpty || draft.locusDefinitions.isEmpty || !validationMessages.isEmpty)
+                Spacer()
+                Button(isReadOnly ? "Close" : "Cancel", action: onCancel)
+                    .keyboardShortcut(.cancelAction)
+                if !isReadOnly {
+                    Button("Save") {
+                        onSave(draft)
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(
+                        draft.displayName.isEmpty
+                            || draft.locusDefinitions.isEmpty
+                            || !validationMessages.isEmpty
+                            || missingReferenceFASTA
+                    )
+                }
             }
         }
         .padding(12)

@@ -134,7 +134,8 @@ enum WorkflowLibraryCatalog {
         subtitle: "Match merged 12S amplicon reads exactly to a deduplicated FASTA and review unresolved sequences.",
         categoryID: .classification,
         maturity: .specialized,
-        requiredPluginPackIDs: ["lungfish-tools"]
+        requiredPluginPackIDs: ["lungfish-tools"],
+        capabilities: [.workflowOperations]
     )
 
     static let builtIn: [WorkflowLibraryItem] = FASTQOperationToolID.allCases.map { toolID in
