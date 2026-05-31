@@ -108,6 +108,52 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertEqual(request.haplotypeSpeciesCode, definition.speciesCode)
     }
 
+    func testMHCReferenceBundleSelectionCollapsesHaplotypePickerStackAndSummarizesBundle() throws {
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let temp = try temporaryDirectory()
+        let referenceURL = temp.appendingPathComponent("Reference Sequences/MCM-MHC.lungfishmhcref", isDirectory: true)
+        let haplotypeURL = referenceURL.appendingPathComponent("haplotypes/mcm.json")
+        let readsURL = temp.appendingPathComponent("Reads/barcode10.lungfishfastq", isDirectory: true)
+        let outputURL = temp.appendingPathComponent("Analyses", isDirectory: true)
+        let plainFASTAURL = temp.appendingPathComponent("plain.fa")
+        try FileManager.default.createDirectory(at: haplotypeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: readsURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
+        try ">M1\nACGT\n".write(to: plainFASTAURL, atomically: true, encoding: .utf8)
+        try ">M1\nACGT\n".write(to: referenceURL.appendingPathComponent("reference.fa"), atomically: true, encoding: .utf8)
+        let definition = Self.mhcDefinition(id: "mcm-mhc")
+        try JSONEncoder().encode(definition).write(to: haplotypeURL)
+        try MHCAmpliconReferenceBundle.writeManifest(
+            MHCAmpliconReferenceBundleManifest(
+                name: "MCM MHC",
+                referenceFastaPath: "reference.fa",
+                haplotypeDefinitionPaths: ["haplotypes/mcm.json"],
+                defaultHaplotypeDefinitionID: definition.id,
+                metrics: MHCAmpliconReferenceBundleMetrics(referenceCount: 1, haplotypeDefinitionCount: 1),
+                createdAt: "2026-05-30T00:00:00Z"
+            ),
+            to: referenceURL
+        )
+
+        let state = WorkflowOperationDialogState(
+            projectURL: temp,
+            selectedReadURLs: [readsURL],
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+
+        state.setReference(plainFASTAURL)
+        XCTAssertFalse(state.usesBundledHaplotypeDefinitions)
+        XCTAssertNil(state.referenceBundleSummary)
+
+        state.setReference(referenceURL)
+
+        XCTAssertTrue(state.usesBundledHaplotypeDefinitions)
+        XCTAssertEqual(state.referenceBundleSummary, "From bundle: MCM MHC")
+    }
+
     func testOperationsDialogReflectsWorkflowEnabledByLibraryStoreAfterDialogStoreWasCreated() throws {
         let defaults = try makeDefaults()
         let operationsStore = WorkflowLibraryEnablementStore(userDefaults: defaults)

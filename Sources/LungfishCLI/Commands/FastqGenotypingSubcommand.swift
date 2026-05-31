@@ -18,7 +18,9 @@ struct FastqGenotypingSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("read-type"), help: "Read type override: auto, ont, or illumina")
     var readType: String = "auto"
 
-    @Option(name: .customLong("reference"), help: "Reference FASTA file or .lungfishref bundle used as the mapping target")
+    static let referenceHelp = "Reference FASTA file, .lungfishref bundle, or .lungfishmhcref bundle (FASTA + paired haplotype definitions) used as the mapping target"
+
+    @Option(name: .customLong("reference"), help: ArgumentHelp(stringLiteral: referenceHelp))
     var reference: String
 
     @Option(name: .customLong("barcodes"), help: "CSV/TSV file containing sample ID and Fluidigm barcode sequence columns for ONT barcode-demux mode")
@@ -105,10 +107,13 @@ struct FastqGenotypingSubcommand: AsyncParsableCommand {
             try parseGenotypeHaplotypeDefinitionScope($0)
         }
         let referenceURL = URL(fileURLWithPath: reference)
-        let bundledDefaultHaplotype = try Self.defaultBundledHaplotypeDefinition(for: referenceURL)
-        let effectiveHaplotypeDefinition = haplotypeDefinition ?? bundledDefaultHaplotype?.id
-        let effectiveHaplotypeAssay = haplotypeAssay ?? bundledDefaultHaplotype?.assayID
-        let effectiveHaplotypeSpecies = haplotypeSpecies ?? bundledDefaultHaplotype?.speciesCode
+        let bundledHaplotype = try Self.resolveBundleHaplotypeDefinition(
+            referenceURL: referenceURL,
+            explicitID: haplotypeDefinition
+        )
+        let effectiveHaplotypeDefinition = bundledHaplotype?.id ?? haplotypeDefinition
+        let effectiveHaplotypeAssay = bundledHaplotype?.assayID ?? haplotypeAssay
+        let effectiveHaplotypeSpecies = bundledHaplotype?.speciesCode ?? haplotypeSpecies
 
         let request = ONTBarcodeDemuxGenotypingRunRequest(
             inputFASTQURLs: inputs.map { URL(fileURLWithPath: $0) },
@@ -166,13 +171,35 @@ struct FastqGenotypingSubcommand: AsyncParsableCommand {
         FileHandle.standardOutput.write(Data("\n".utf8))
     }
 
-    private static func defaultBundledHaplotypeDefinition(
-        for referenceURL: URL
+    /// Resolves the haplotype definition for a `.lungfishmhcref` reference bundle.
+    ///
+    /// - Returns `nil` when the reference is not an MHC reference bundle, leaving any
+    ///   explicit haplotype flags to pass through unchanged.
+    /// - When no explicit id is supplied, returns the bundle's default definition.
+    /// - When an explicit id is supplied, returns that definition from the bundle, so a
+    ///   non-default selection from a multi-definition bundle is honoured.
+    /// - Throws a `ValidationError` naming the requested id and the available ids when the
+    ///   explicit id is not paired with the bundle.
+    static func resolveBundleHaplotypeDefinition(
+        referenceURL: URL,
+        explicitID: String?
     ) throws -> GenotypeHaplotypeDefinitionSet? {
-        guard MHCAmpliconReferenceBundle.isBundleURL(referenceURL) else {
+        let standardizedURL = referenceURL.standardizedFileURL
+        guard MHCAmpliconReferenceBundle.isBundleURL(standardizedURL) else {
             return nil
         }
-        return try MHCAmpliconReferenceBundle.defaultHaplotypeDefinition(in: referenceURL.standardizedFileURL)
+        guard let explicitID else {
+            return try MHCAmpliconReferenceBundle.defaultHaplotypeDefinition(in: standardizedURL)
+        }
+        let definitions = try MHCAmpliconReferenceBundle.haplotypeDefinitions(in: standardizedURL)
+        guard let match = definitions.first(where: { $0.id == explicitID }) else {
+            let bundleName = standardizedURL.deletingPathExtension().lastPathComponent
+            let available = definitions.map(\.id).joined(separator: ", ")
+            throw ValidationError(
+                "Haplotype definition '\(explicitID)' is not in reference bundle '\(bundleName)'. Available: \(available)."
+            )
+        }
+        return match
     }
 }
 

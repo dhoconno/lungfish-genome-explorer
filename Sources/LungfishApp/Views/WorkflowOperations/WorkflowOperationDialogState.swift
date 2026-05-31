@@ -230,6 +230,23 @@ final class WorkflowOperationDialogState {
         return selectedReferenceURL.standardizedFileURL
     }
 
+    /// True when an `.lungfishmhcref` bundle supplies the haplotype definition, so the
+    /// dialog should collapse the assay/species/scope/definition pickers in favour of the
+    /// bundle's paired definition.
+    var usesBundledHaplotypeDefinitions: Bool {
+        selectedMHCReferenceBundleURL != nil
+    }
+
+    /// "From bundle: <name>" caption shown in place of the haplotype picker stack when an
+    /// `.lungfishmhcref` bundle is selected; `nil` otherwise.
+    var referenceBundleSummary: String? {
+        guard let bundleURL = selectedMHCReferenceBundleURL,
+              let manifest = try? MHCAmpliconReferenceBundle.loadManifest(from: bundleURL) else {
+            return nil
+        }
+        return "From bundle: \(manifest.name)"
+    }
+
     var datasetLabel: String {
         guard !selectedReadURLs.isEmpty else { return "No read bundles selected" }
         if selectedReadURLs.count == 1 {

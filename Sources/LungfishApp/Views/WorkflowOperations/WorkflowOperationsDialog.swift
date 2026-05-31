@@ -284,47 +284,59 @@ private struct WorkflowOperationsDetailPane: View {
                 }
                 .controlSize(.small)
             }
-            Picker("Assay", selection: haplotypeAssayBinding) {
-                Text("Choose assay").tag("")
-                ForEach(haplotypeAssayOptions, id: \.id) { option in
-                    Text(option.label).tag(option.id)
-                }
-            }
-            .pickerStyle(.menu)
-            Picker("Species", selection: haplotypeSpeciesBinding) {
-                Text("Any species").tag("")
-                ForEach(haplotypeSpeciesOptions, id: \.code) { option in
-                    Text(option.label).tag(option.code)
-                }
-            }
-            .pickerStyle(.menu)
-            if state.selectedMHCReferenceBundleURL != nil {
-                HStack {
-                    Text("Source")
-                    Spacer()
-                    Text("Selected MHC reference bundle")
-                        .foregroundStyle(.secondary)
-                }
+            if state.usesBundledHaplotypeDefinitions {
+                bundledHaplotypeSummary
             } else {
-                Picker("Source", selection: haplotypeScopeBinding) {
-                    Text("Any source").tag("")
-                    ForEach(haplotypeScopeOptions, id: \.rawValue) { scope in
-                        Text(scope.displayName).tag(scope.rawValue)
-                    }
-                }
-                .pickerStyle(.menu)
+                haplotypeDefinitionPickerStack
             }
-            Picker("Definition", selection: haplotypeDefinitionBinding) {
-                Text("No haplotyping").tag("")
-                ForEach(haplotypeDefinitionOptions, id: \.id) { option in
-                    Text(option.label).tag(option.id)
-                }
-            }
-            .pickerStyle(.menu)
-            Text("Deterministic haplotyping runs only when a definition is selected.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
+    }
+
+    @ViewBuilder
+    private var bundledHaplotypeSummary: some View {
+        HStack {
+            Text(state.referenceBundleSummary ?? "From selected MHC reference bundle")
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        Text("This bundle pairs its own haplotype definition with the reference FASTA.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+    }
+
+    @ViewBuilder
+    private var haplotypeDefinitionPickerStack: some View {
+        Picker("Assay", selection: haplotypeAssayBinding) {
+            Text("Choose assay").tag("")
+            ForEach(haplotypeAssayOptions, id: \.id) { option in
+                Text(option.label).tag(option.id)
+            }
+        }
+        .pickerStyle(.menu)
+        Picker("Species", selection: haplotypeSpeciesBinding) {
+            Text("Any species").tag("")
+            ForEach(haplotypeSpeciesOptions, id: \.code) { option in
+                Text(option.label).tag(option.code)
+            }
+        }
+        .pickerStyle(.menu)
+        Picker("Source", selection: haplotypeScopeBinding) {
+            Text("Any source").tag("")
+            ForEach(haplotypeScopeOptions, id: \.rawValue) { scope in
+                Text(scope.displayName).tag(scope.rawValue)
+            }
+        }
+        .pickerStyle(.menu)
+        Picker("Definition", selection: haplotypeDefinitionBinding) {
+            Text("No haplotyping").tag("")
+            ForEach(haplotypeDefinitionOptions, id: \.id) { option in
+                Text(option.label).tag(option.id)
+            }
+        }
+        .pickerStyle(.menu)
+        Text("Deterministic haplotyping runs only when a definition is selected.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
     }
 
     @ViewBuilder
