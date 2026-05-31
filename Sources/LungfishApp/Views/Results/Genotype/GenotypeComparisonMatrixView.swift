@@ -386,6 +386,15 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                     return false
                 }
             }
+            // Editable minimum-reads row filter. When active (`> 0`), a row is
+            // hidden unless at least one supporting sample clears the threshold,
+            // mirroring 12S's `row.totalExactReads >= minimumExactReads` keep
+            // rule. `0` (the default) leaves every row visible.
+            let minimumReads = displayState.activeMinimumReads
+            if minimumReads > 0,
+               !row.sampleSupport.contains(where: { $0.passedUniqueReads >= minimumReads }) {
+                return false
+            }
             guard !normalizedFilter.isEmpty else { return true }
             if row.locus.localizedCaseInsensitiveContains(normalizedFilter) { return true }
             if row.genotype.localizedCaseInsensitiveContains(normalizedFilter) { return true }

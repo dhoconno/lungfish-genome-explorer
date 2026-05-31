@@ -922,6 +922,36 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(controller.testingVisibleGenotypes, ["01_Mafa_A1_001_01"])
     }
 
+    func testMinimumReadsThresholdHidesRowsWhoseEverySupporterIsBelowThreshold() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let highRow = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_HIGH", reads: 6_000)
+        let lowRow = makeCall(sample: "AnimalB", genotype: "01_Mafa_A1_LOW", reads: 1_000)
+        controller.configure(result: makeResult(samples: [], calls: [highRow, lowRow]))
+
+        // With the filter off (default 0) both rows stay visible.
+        controller.testingApplyDisplayState(GenotypeResultDisplayState(hideLowSupport: false, minimumReads: 0))
+        XCTAssertEqual(controller.testingVisibleGenotypes, ["01_Mafa_A1_HIGH", "01_Mafa_A1_LOW"])
+
+        // At 5,000 the low-support row drops because its only supporter has 1,000 reads.
+        controller.testingApplyDisplayState(GenotypeResultDisplayState(hideLowSupport: false, minimumReads: 5_000))
+        XCTAssertEqual(controller.testingVisibleGenotypes, ["01_Mafa_A1_HIGH"])
+    }
+
+    func testMinimumReadsThresholdKeepsRowWithAtLeastOneSupporterAboveThreshold() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        // One shared genotype supported by a strong sample and a weak sample.
+        let strong = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_SHARED", reads: 6_000)
+        let weak = makeCall(sample: "AnimalB", genotype: "01_Mafa_A1_SHARED", reads: 1_000)
+        controller.configure(result: makeResult(samples: [], calls: [strong, weak]))
+
+        controller.testingApplyDisplayState(GenotypeResultDisplayState(hideLowSupport: false, minimumReads: 5_000))
+
+        // The row survives because at least one supporter clears the threshold.
+        XCTAssertEqual(controller.testingVisibleGenotypes, ["01_Mafa_A1_SHARED"])
+    }
+
     func testFilteredSampleCellsCanHideManualRowHighlights() {
         let controller = GenotypeResultViewController()
         _ = controller.view
