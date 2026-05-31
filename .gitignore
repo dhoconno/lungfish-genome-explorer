@@ -11,6 +11,7 @@
 !.codex/agents/*.md
 !.codex/environments/environment.toml
 !LICENSE
+!Lungfish-Info.plist
 !Lungfish.xcodeproj/**
 !Package.resolved
 !Package.swift

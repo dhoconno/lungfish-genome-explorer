@@ -13,7 +13,10 @@ BUNDLE_NAME="Lungfish"
 DEBUG_BUNDLE_NAME="Lungfish Debug"
 BUNDLE_DISPLAY_NAME="Lungfish Genome Browser"
 DEBUG_BUNDLE_DISPLAY_NAME="Lungfish Genome Browser Debug"
-VERSION="0.5.0-alpha8"
+# VERSION is sourced from Lungfish.xcodeproj's MARKETING_VERSION below (after
+# PROJECT_ROOT is resolved) so the debug bundle and the notarized build share a
+# single version source of truth.
+VERSION=""
 BUILD_NUMBER="1"
 CONFIGURATION="release"
 SKIP_BUILD=0
@@ -22,6 +25,21 @@ LOG_DIR=""
 # Paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
+# Shared source Info.plist (consumed by both this script and Lungfish.xcodeproj)
+SHARED_INFO_PLIST="$PROJECT_ROOT/Lungfish-Info.plist"
+
+# Single source of truth for the version + minimum OS: the xcodeproj settings,
+# so the debug bundle and the notarized build never diverge.
+VERSION="$(/usr/bin/grep -m1 'MARKETING_VERSION' "$PROJECT_ROOT/Lungfish.xcodeproj/project.pbxproj" | /usr/bin/sed -E 's/.*= *"?([^";]+)"?;.*/\1/')"
+if [ -z "$VERSION" ]; then
+    echo "Error: could not read MARKETING_VERSION from Lungfish.xcodeproj" >&2
+    exit 1
+fi
+MINIMUM_SYSTEM_VERSION="$(/usr/bin/grep -m1 'MACOSX_DEPLOYMENT_TARGET' "$PROJECT_ROOT/Lungfish.xcodeproj/project.pbxproj" | /usr/bin/sed -E 's/.*= *"?([^";]+)"?;.*/\1/')"
+if [ -z "$MINIMUM_SYSTEM_VERSION" ]; then
+    MINIMUM_SYSTEM_VERSION="26.0"
+fi
 
 # Colors for output
 RED='\033[0;31m'
@@ -189,453 +207,41 @@ if ! /usr/bin/otool -l "$MACOS_DIR/Lungfish" | /usr/bin/grep -F '@executable_pat
     install_name_tool -add_rpath "@executable_path/../Frameworks" "$MACOS_DIR/Lungfish"
 fi
 
-# Create Info.plist
-echo -e "${GREEN}Creating Info.plist...${NC}"
-cat > "$CONTENTS_DIR/Info.plist" << EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <!-- Bundle Identification -->
-    <key>CFBundleIdentifier</key>
-    <string>$BUNDLE_ID</string>
-    <key>CFBundleName</key>
-    <string>$BUNDLE_NAME</string>
-    <key>CFBundleDisplayName</key>
-    <string>$BUNDLE_DISPLAY_NAME</string>
-    <key>CFBundleExecutable</key>
-    <string>Lungfish</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleHelpBookFolder</key>
-    <string>Lungfish.help</string>
-    <key>CFBundleHelpBookName</key>
-    <string>Lungfish Help</string>
+# Create Info.plist from the shared source plist.
+#
+# Lungfish-Info.plist is the single source of truth for the document-type and
+# exported-UTI registrations (shared with Lungfish.xcodeproj via INFOPLIST_FILE).
+# It contains $(BUILD_SETTING) placeholders that Xcode expands during the
+# notarized build; here we copy the file and substitute the concrete values for
+# this (debug or release) bundle, so the document-type arrays are never
+# duplicated and cannot drift between the two build paths.
+echo -e "${GREEN}Creating Info.plist from shared source ($SHARED_INFO_PLIST)...${NC}"
+if [ ! -f "$SHARED_INFO_PLIST" ]; then
+    echo -e "${RED}Error: shared Info.plist not found at $SHARED_INFO_PLIST${NC}"
+    exit 1
+fi
+cp "$SHARED_INFO_PLIST" "$CONTENTS_DIR/Info.plist"
 
-    <!-- Version Information -->
-    <key>CFBundleShortVersionString</key>
-    <string>$VERSION</string>
-    <key>CFBundleVersion</key>
-    <string>$BUILD_NUMBER</string>
+# Substitute the fields the xcodeproj would otherwise expand from build settings.
+/usr/bin/plutil -replace CFBundleIdentifier -string "$BUNDLE_ID" "$CONTENTS_DIR/Info.plist"
+/usr/bin/plutil -replace CFBundleName -string "$BUNDLE_NAME" "$CONTENTS_DIR/Info.plist"
+/usr/bin/plutil -replace CFBundleDisplayName -string "$BUNDLE_DISPLAY_NAME" "$CONTENTS_DIR/Info.plist"
+/usr/bin/plutil -replace CFBundleExecutable -string "$APP_NAME" "$CONTENTS_DIR/Info.plist"
+/usr/bin/plutil -replace CFBundleShortVersionString -string "$VERSION" "$CONTENTS_DIR/Info.plist"
+/usr/bin/plutil -replace CFBundleVersion -string "$BUILD_NUMBER" "$CONTENTS_DIR/Info.plist"
+/usr/bin/plutil -replace LSMinimumSystemVersion -string "$MINIMUM_SYSTEM_VERSION" "$CONTENTS_DIR/Info.plist"
 
-    <!-- macOS Requirements -->
-    <key>LSMinimumSystemVersion</key>
-    <string>14.0</string>
-    <key>LSApplicationCategoryType</key>
-    <string>public.app-category.medical</string>
+# The debug/local bundle does not ship Sparkle auto-update (no signing key here);
+# remove the feed/key so SparkleUpdaterBridge stays disabled.
+/usr/bin/plutil -remove SUFeedURL "$CONTENTS_DIR/Info.plist" 2>/dev/null || true
+/usr/bin/plutil -remove SUPublicEDKey "$CONTENTS_DIR/Info.plist" 2>/dev/null || true
+/usr/bin/plutil -remove SUVerifyUpdateBeforeExtraction "$CONTENTS_DIR/Info.plist" 2>/dev/null || true
 
-    <!-- Icon -->
-    <key>CFBundleIconFile</key>
-    <string>AppIcon</string>
-    <key>CFBundleIconName</key>
-    <string>AppIcon</string>
+if ! /usr/bin/plutil -lint "$CONTENTS_DIR/Info.plist" >/dev/null; then
+    echo -e "${RED}Error: generated Info.plist failed validation${NC}"
+    exit 1
+fi
 
-    <!-- Document Types -->
-    <key>CFBundleDocumentTypes</key>
-    <array>
-        <!-- FASTA -->
-        <dict>
-            <key>CFBundleTypeName</key>
-            <string>FASTA Sequence</string>
-            <key>CFBundleTypeRole</key>
-            <string>Editor</string>
-            <key>LSHandlerRank</key>
-            <string>Owner</string>
-            <key>LSItemContentTypes</key>
-            <array>
-                <string>org.lungfish.fasta</string>
-            </array>
-        </dict>
-        <!-- FASTQ -->
-        <dict>
-            <key>CFBundleTypeName</key>
-            <string>FASTQ Reads</string>
-            <key>CFBundleTypeRole</key>
-            <string>Viewer</string>
-            <key>LSHandlerRank</key>
-            <string>Alternate</string>
-            <key>LSItemContentTypes</key>
-            <array>
-                <string>org.lungfish.fastq</string>
-            </array>
-        </dict>
-        <!-- GenBank -->
-        <dict>
-            <key>CFBundleTypeName</key>
-            <string>GenBank File</string>
-            <key>CFBundleTypeRole</key>
-            <string>Editor</string>
-            <key>LSHandlerRank</key>
-            <string>Alternate</string>
-            <key>LSItemContentTypes</key>
-            <array>
-                <string>org.lungfish.genbank</string>
-            </array>
-        </dict>
-        <!-- GFF3 -->
-        <dict>
-            <key>CFBundleTypeName</key>
-            <string>GFF3 Annotations</string>
-            <key>CFBundleTypeRole</key>
-            <string>Editor</string>
-            <key>LSHandlerRank</key>
-            <string>Alternate</string>
-            <key>LSItemContentTypes</key>
-            <array>
-                <string>org.lungfish.gff3</string>
-            </array>
-        </dict>
-        <!-- BAM -->
-        <dict>
-            <key>CFBundleTypeName</key>
-            <string>BAM Alignment</string>
-            <key>CFBundleTypeRole</key>
-            <string>Viewer</string>
-            <key>LSHandlerRank</key>
-            <string>Alternate</string>
-            <key>LSItemContentTypes</key>
-            <array>
-                <string>org.lungfish.bam</string>
-            </array>
-        </dict>
-        <!-- VCF -->
-        <dict>
-            <key>CFBundleTypeName</key>
-            <string>VCF Variants</string>
-            <key>CFBundleTypeRole</key>
-            <string>Viewer</string>
-            <key>LSHandlerRank</key>
-            <string>Alternate</string>
-            <key>LSItemContentTypes</key>
-            <array>
-                <string>org.lungfish.vcf</string>
-            </array>
-        </dict>
-        <!-- Workflow bundle -->
-        <dict>
-            <key>CFBundleTypeName</key>
-            <string>Lungfish Workflow Bundle</string>
-            <key>CFBundleTypeRole</key>
-            <string>Editor</string>
-            <key>LSHandlerRank</key>
-            <string>Owner</string>
-            <key>LSItemContentTypes</key>
-            <array>
-                <string>org.lungfish.workflow</string>
-            </array>
-        </dict>
-        <!-- Multiple sequence alignment bundle -->
-        <dict>
-            <key>CFBundleTypeName</key>
-            <string>Lungfish Multiple Sequence Alignment Bundle</string>
-            <key>CFBundleTypeRole</key>
-            <string>Viewer</string>
-            <key>LSHandlerRank</key>
-            <string>Owner</string>
-            <key>LSItemContentTypes</key>
-            <array>
-                <string>org.lungfish.msa-bundle</string>
-            </array>
-        </dict>
-        <!-- Phylogenetic tree bundle -->
-        <dict>
-            <key>CFBundleTypeName</key>
-            <string>Lungfish Phylogenetic Tree Bundle</string>
-            <key>CFBundleTypeRole</key>
-            <string>Viewer</string>
-            <key>LSHandlerRank</key>
-            <string>Owner</string>
-            <key>LSItemContentTypes</key>
-            <array>
-                <string>org.lungfish.tree-bundle</string>
-            </array>
-        </dict>
-        <!-- Reference bundle -->
-        <dict>
-            <key>CFBundleTypeName</key>
-            <string>Lungfish Reference Bundle</string>
-            <key>CFBundleTypeRole</key>
-            <string>Viewer</string>
-            <key>LSHandlerRank</key>
-            <string>Owner</string>
-            <key>LSItemContentTypes</key>
-            <array>
-                <string>org.lungfish.reference-bundle</string>
-            </array>
-        </dict>
-        <!-- MHC reference bundle -->
-        <dict>
-            <key>CFBundleTypeName</key>
-            <string>Lungfish MHC Reference Bundle</string>
-            <key>CFBundleTypeRole</key>
-            <string>Viewer</string>
-            <key>LSHandlerRank</key>
-            <string>Owner</string>
-            <key>LSItemContentTypes</key>
-            <array>
-                <string>org.lungfish.mhc-reference-bundle</string>
-            </array>
-        </dict>
-    </array>
-
-    <!-- Exported Type Declarations (Custom UTIs) -->
-    <key>UTExportedTypeDeclarations</key>
-    <array>
-        <!-- FASTA -->
-        <dict>
-            <key>UTTypeIdentifier</key>
-            <string>org.lungfish.fasta</string>
-            <key>UTTypeDescription</key>
-            <string>FASTA Sequence File</string>
-            <key>UTTypeConformsTo</key>
-            <array>
-                <string>public.plain-text</string>
-                <string>public.data</string>
-            </array>
-            <key>UTTypeTagSpecification</key>
-            <dict>
-                <key>public.filename-extension</key>
-                <array>
-                    <string>fa</string>
-                    <string>fasta</string>
-                    <string>fna</string>
-                    <string>ffn</string>
-                    <string>faa</string>
-                </array>
-            </dict>
-        </dict>
-        <!-- FASTQ -->
-        <dict>
-            <key>UTTypeIdentifier</key>
-            <string>org.lungfish.fastq</string>
-            <key>UTTypeDescription</key>
-            <string>FASTQ Sequence Reads</string>
-            <key>UTTypeConformsTo</key>
-            <array>
-                <string>public.plain-text</string>
-                <string>public.data</string>
-            </array>
-            <key>UTTypeTagSpecification</key>
-            <dict>
-                <key>public.filename-extension</key>
-                <array>
-                    <string>fq</string>
-                    <string>fastq</string>
-                </array>
-            </dict>
-        </dict>
-        <!-- GenBank -->
-        <dict>
-            <key>UTTypeIdentifier</key>
-            <string>org.lungfish.genbank</string>
-            <key>UTTypeDescription</key>
-            <string>GenBank Sequence File</string>
-            <key>UTTypeConformsTo</key>
-            <array>
-                <string>public.plain-text</string>
-                <string>public.data</string>
-            </array>
-            <key>UTTypeTagSpecification</key>
-            <dict>
-                <key>public.filename-extension</key>
-                <array>
-                    <string>gb</string>
-                    <string>gbk</string>
-                    <string>genbank</string>
-                </array>
-            </dict>
-        </dict>
-        <!-- GFF3 -->
-        <dict>
-            <key>UTTypeIdentifier</key>
-            <string>org.lungfish.gff3</string>
-            <key>UTTypeDescription</key>
-            <string>GFF3 Annotation File</string>
-            <key>UTTypeConformsTo</key>
-            <array>
-                <string>public.plain-text</string>
-                <string>public.data</string>
-            </array>
-            <key>UTTypeTagSpecification</key>
-            <dict>
-                <key>public.filename-extension</key>
-                <array>
-                    <string>gff</string>
-                    <string>gff3</string>
-                </array>
-            </dict>
-        </dict>
-        <!-- BAM -->
-        <dict>
-            <key>UTTypeIdentifier</key>
-            <string>org.lungfish.bam</string>
-            <key>UTTypeDescription</key>
-            <string>BAM Alignment File</string>
-            <key>UTTypeConformsTo</key>
-            <array>
-                <string>public.data</string>
-            </array>
-            <key>UTTypeTagSpecification</key>
-            <dict>
-                <key>public.filename-extension</key>
-                <array>
-                    <string>bam</string>
-                </array>
-            </dict>
-        </dict>
-        <!-- VCF -->
-        <dict>
-            <key>UTTypeIdentifier</key>
-            <string>org.lungfish.vcf</string>
-            <key>UTTypeDescription</key>
-            <string>VCF Variant File</string>
-            <key>UTTypeConformsTo</key>
-            <array>
-                <string>public.plain-text</string>
-                <string>public.data</string>
-            </array>
-            <key>UTTypeTagSpecification</key>
-            <dict>
-                <key>public.filename-extension</key>
-                <array>
-                    <string>vcf</string>
-                </array>
-            </dict>
-        </dict>
-        <!-- Workflow bundle -->
-        <dict>
-            <key>UTTypeIdentifier</key>
-            <string>org.lungfish.workflow</string>
-            <key>UTTypeDescription</key>
-            <string>Lungfish Workflow Bundle</string>
-            <key>UTTypeConformsTo</key>
-            <array>
-                <string>com.apple.package</string>
-                <string>public.directory</string>
-            </array>
-            <key>UTTypeTagSpecification</key>
-            <dict>
-                <key>public.filename-extension</key>
-                <array>
-                    <string>lungfishflow</string>
-                </array>
-            </dict>
-        </dict>
-        <!-- Multiple sequence alignment bundle -->
-        <dict>
-            <key>UTTypeIdentifier</key>
-            <string>org.lungfish.msa-bundle</string>
-            <key>UTTypeDescription</key>
-            <string>Lungfish Multiple Sequence Alignment Bundle</string>
-            <key>UTTypeConformsTo</key>
-            <array>
-                <string>com.apple.package</string>
-                <string>public.directory</string>
-            </array>
-            <key>UTTypeTagSpecification</key>
-            <dict>
-                <key>public.filename-extension</key>
-                <array>
-                    <string>lungfishmsa</string>
-                </array>
-            </dict>
-        </dict>
-        <!-- Phylogenetic tree bundle -->
-        <dict>
-            <key>UTTypeIdentifier</key>
-            <string>org.lungfish.tree-bundle</string>
-            <key>UTTypeDescription</key>
-            <string>Lungfish Phylogenetic Tree Bundle</string>
-            <key>UTTypeConformsTo</key>
-            <array>
-                <string>com.apple.package</string>
-                <string>public.directory</string>
-            </array>
-            <key>UTTypeTagSpecification</key>
-            <dict>
-                <key>public.filename-extension</key>
-                <array>
-                    <string>lungfishtree</string>
-                </array>
-            </dict>
-        </dict>
-        <!-- Reference bundle -->
-        <dict>
-            <key>UTTypeIdentifier</key>
-            <string>org.lungfish.reference-bundle</string>
-            <key>UTTypeDescription</key>
-            <string>Lungfish Reference Bundle</string>
-            <key>UTTypeConformsTo</key>
-            <array>
-                <string>com.apple.package</string>
-                <string>public.directory</string>
-            </array>
-            <key>UTTypeTagSpecification</key>
-            <dict>
-                <key>public.filename-extension</key>
-                <array>
-                    <string>lungfishref</string>
-                </array>
-            </dict>
-        </dict>
-        <!-- MHC reference bundle -->
-        <dict>
-            <key>UTTypeIdentifier</key>
-            <string>org.lungfish.mhc-reference-bundle</string>
-            <key>UTTypeDescription</key>
-            <string>Lungfish MHC Reference Bundle</string>
-            <key>UTTypeConformsTo</key>
-            <array>
-                <string>com.apple.package</string>
-                <string>public.directory</string>
-            </array>
-            <key>UTTypeTagSpecification</key>
-            <dict>
-                <key>public.filename-extension</key>
-                <array>
-                    <string>lungfishmhcref</string>
-                </array>
-            </dict>
-        </dict>
-    </array>
-
-    <!-- URL Schemes -->
-    <key>CFBundleURLTypes</key>
-    <array>
-        <dict>
-            <key>CFBundleURLName</key>
-            <string>Lungfish URL</string>
-            <key>CFBundleURLSchemes</key>
-            <array>
-                <string>lungfish</string>
-            </array>
-        </dict>
-    </array>
-
-    <!-- Application Behavior -->
-    <key>NSPrincipalClass</key>
-    <string>NSApplication</string>
-    <key>NSHighResolutionCapable</key>
-    <true/>
-    <key>NSSupportsAutomaticTermination</key>
-    <true/>
-    <key>NSSupportsSuddenTermination</key>
-    <false/>
-
-    <!-- Privacy Descriptions -->
-    <key>NSDesktopFolderUsageDescription</key>
-    <string>Lungfish needs access to read and write genome data files on your Desktop.</string>
-    <key>NSDocumentsFolderUsageDescription</key>
-    <string>Lungfish needs access to read and write genome data files in your Documents folder.</string>
-    <key>NSDownloadsFolderUsageDescription</key>
-    <string>Lungfish needs access to read genome data files you have downloaded.</string>
-
-    <!-- Copyright -->
-    <key>NSHumanReadableCopyright</key>
-    <string>Copyright &#169; 2026 Dave O'Connor. MIT License.</string>
-</dict>
-</plist>
-EOF
 
 # Create PkgInfo
 echo -n "APPL????" > "$CONTENTS_DIR/PkgInfo"
