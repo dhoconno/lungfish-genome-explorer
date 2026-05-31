@@ -12,7 +12,9 @@ struct FastqONTBarcodeGenotypingSubcommand: AsyncParsableCommand {
     @Argument(help: "Original ONT FASTQ file or multi-file .lungfishfastq bundle")
     var input: String
 
-    @Option(name: .customLong("reference"), help: "Reference FASTA file or .lungfishref bundle used as the mapping target")
+    static let referenceHelp = MHCReferenceBundleResolution.referenceHelp
+
+    @Option(name: .customLong("reference"), help: ArgumentHelp(stringLiteral: referenceHelp))
     var reference: String
 
     @Option(name: .customLong("barcodes"), help: "CSV/TSV file containing sample ID and Fluidigm barcode sequence columns")
@@ -89,10 +91,18 @@ struct FastqONTBarcodeGenotypingSubcommand: AsyncParsableCommand {
         let parsedHaplotypeDefinitionScope = try haplotypeDefinitionScope.map {
             try parseHaplotypeDefinitionScope($0)
         }
+        let referenceURL = URL(fileURLWithPath: reference)
+        let bundledHaplotype = try Self.resolveBundleHaplotypeDefinition(
+            referenceURL: referenceURL,
+            explicitID: haplotypeDefinition
+        )
+        let effectiveHaplotypeDefinition = bundledHaplotype?.id ?? haplotypeDefinition
+        let effectiveHaplotypeAssay = bundledHaplotype?.assayID ?? haplotypeAssay
+        let effectiveHaplotypeSpecies = bundledHaplotype?.speciesCode ?? haplotypeSpecies
 
         let request = ONTBarcodeDemuxGenotypingRunRequest(
             inputFASTQURL: URL(fileURLWithPath: input),
-            referenceSourceURL: URL(fileURLWithPath: reference),
+            referenceSourceURL: referenceURL,
             barcodeDefinitionsURL: URL(fileURLWithPath: barcodes),
             outputDirectory: URL(fileURLWithPath: outputDir, isDirectory: true),
             outputName: outputName,
@@ -104,10 +114,10 @@ struct FastqONTBarcodeGenotypingSubcommand: AsyncParsableCommand {
             threads: threads,
             sortThreads: sortThreads,
             minSupport: minSupport,
-            haplotypeAssayID: haplotypeAssay,
-            haplotypeSpeciesCode: haplotypeSpecies,
+            haplotypeAssayID: effectiveHaplotypeAssay,
+            haplotypeSpeciesCode: effectiveHaplotypeSpecies,
             haplotypeDefinitionScope: parsedHaplotypeDefinitionScope,
-            haplotypeDefinitionSetID: haplotypeDefinition,
+            haplotypeDefinitionSetID: effectiveHaplotypeDefinition,
             extraArguments: parsedExtraArguments
         )
 
@@ -142,6 +152,20 @@ struct FastqONTBarcodeGenotypingSubcommand: AsyncParsableCommand {
         let data = try encoder.encode(payload)
         FileHandle.standardOutput.write(data)
         FileHandle.standardOutput.write(Data("\n".utf8))
+    }
+
+    /// Resolves the haplotype definition for a `.lungfishmhcref` reference bundle.
+    ///
+    /// Forwards to ``MHCReferenceBundleResolution/resolveBundleHaplotypeDefinition(referenceURL:explicitID:)``,
+    /// which is shared with the other genotyping subcommands.
+    static func resolveBundleHaplotypeDefinition(
+        referenceURL: URL,
+        explicitID: String?
+    ) throws -> GenotypeHaplotypeDefinitionSet? {
+        try MHCReferenceBundleResolution.resolveBundleHaplotypeDefinition(
+            referenceURL: referenceURL,
+            explicitID: explicitID
+        )
     }
 }
 

@@ -11,7 +11,9 @@ struct FastqONTGenotypingSubcommand: AsyncParsableCommand {
     @Argument(help: "Input FASTQ files or .lungfishfastq bundles. Multiple demultiplexed bundles are supported.")
     var inputs: [String]
 
-    @Option(name: .customLong("reference"), help: "Reference FASTA file or .lungfishref bundle used as the mapping target")
+    static let referenceHelp = MHCReferenceBundleResolution.referenceHelp
+
+    @Option(name: .customLong("reference"), help: ArgumentHelp(stringLiteral: referenceHelp))
     var reference: String
 
     @Option(name: .customLong("output-dir"), help: "Directory for filtered BAMs, indexes, report CSV, and workflow provenance")

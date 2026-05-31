@@ -18,7 +18,7 @@ struct FastqGenotypingSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("read-type"), help: "Read type override: auto, ont, or illumina")
     var readType: String = "auto"
 
-    static let referenceHelp = "Reference FASTA file, .lungfishref bundle, or .lungfishmhcref bundle (FASTA + paired haplotype definitions) used as the mapping target"
+    static let referenceHelp = MHCReferenceBundleResolution.referenceHelp
 
     @Option(name: .customLong("reference"), help: ArgumentHelp(stringLiteral: referenceHelp))
     var reference: String
@@ -173,33 +173,16 @@ struct FastqGenotypingSubcommand: AsyncParsableCommand {
 
     /// Resolves the haplotype definition for a `.lungfishmhcref` reference bundle.
     ///
-    /// - Returns `nil` when the reference is not an MHC reference bundle, leaving any
-    ///   explicit haplotype flags to pass through unchanged.
-    /// - When no explicit id is supplied, returns the bundle's default definition.
-    /// - When an explicit id is supplied, returns that definition from the bundle, so a
-    ///   non-default selection from a multi-definition bundle is honoured.
-    /// - Throws a `ValidationError` naming the requested id and the available ids when the
-    ///   explicit id is not paired with the bundle.
+    /// Forwards to ``MHCReferenceBundleResolution/resolveBundleHaplotypeDefinition(referenceURL:explicitID:)``,
+    /// which is shared with the sibling genotyping subcommands.
     static func resolveBundleHaplotypeDefinition(
         referenceURL: URL,
         explicitID: String?
     ) throws -> GenotypeHaplotypeDefinitionSet? {
-        let standardizedURL = referenceURL.standardizedFileURL
-        guard MHCAmpliconReferenceBundle.isBundleURL(standardizedURL) else {
-            return nil
-        }
-        guard let explicitID else {
-            return try MHCAmpliconReferenceBundle.defaultHaplotypeDefinition(in: standardizedURL)
-        }
-        let definitions = try MHCAmpliconReferenceBundle.haplotypeDefinitions(in: standardizedURL)
-        guard let match = definitions.first(where: { $0.id == explicitID }) else {
-            let bundleName = standardizedURL.deletingPathExtension().lastPathComponent
-            let available = definitions.map(\.id).joined(separator: ", ")
-            throw ValidationError(
-                "Haplotype definition '\(explicitID)' is not in reference bundle '\(bundleName)'. Available: \(available)."
-            )
-        }
-        return match
+        try MHCReferenceBundleResolution.resolveBundleHaplotypeDefinition(
+            referenceURL: referenceURL,
+            explicitID: explicitID
+        )
     }
 }
 
