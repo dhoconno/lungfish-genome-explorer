@@ -83,7 +83,9 @@ public enum SidebarImportPlanner {
             }
 
             let ext = standardizedURL.pathExtension.lowercased()
-            if ext == "lungfishref" || ext == FASTQBundle.directoryExtension {
+            if ext == "lungfishref"
+                || ext == FASTQBundle.directoryExtension
+                || ext == MHCAmpliconReferenceBundle.directoryExtension {
                 if isTopLevel {
                     appendAtomicSource(standardizedURL, seenPaths: &seenPaths, expanded: &expanded)
                 }

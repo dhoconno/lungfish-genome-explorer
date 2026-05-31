@@ -73,6 +73,30 @@ final class SidebarImportPlannerTests: XCTestCase {
         XCTAssertTrue(plan.shouldAutoDisplayImportedContent)
     }
 
+    func testPlanKeepsMHCReferenceBundleAtomic() throws {
+        let bundleURL = tempDir.appendingPathComponent("Example.lungfishmhcref")
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: bundleURL.appendingPathComponent("haplotypes"),
+            withIntermediateDirectories: true
+        )
+        try "{}".write(
+            to: bundleURL.appendingPathComponent("mhc-reference.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try ">ref\nACGT\n".write(
+            to: bundleURL.appendingPathComponent("reference.fa"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let plan = SidebarImportPlanner.makePlan(for: [bundleURL])
+
+        XCTAssertEqual(plan.sourceURLs, [bundleURL.standardizedFileURL])
+        XCTAssertTrue(plan.shouldAutoDisplayImportedContent)
+    }
+
     func testPlanKeepsONTDirectoryAtomic() throws {
         let ontRunURL = tempDir.appendingPathComponent("Run42")
         try FileManager.default.createDirectory(at: ontRunURL, withIntermediateDirectories: true)
@@ -99,6 +123,30 @@ final class SidebarImportPlannerTests: XCTestCase {
 
         let plainFASTA = droppedFolder.appendingPathComponent("plain.fa")
         try FileManager.default.createDirectory(at: droppedFolder, withIntermediateDirectories: true)
+        try ">plain\nTGCA\n".write(to: plainFASTA, atomically: true, encoding: .utf8)
+
+        let plan = SidebarImportPlanner.makePlan(for: [droppedFolder])
+
+        XCTAssertEqual(plan.sourceURLs.map(\.lastPathComponent), ["plain.fa"])
+    }
+
+    func testPlanSkipsNestedMHCReferenceBundleWhenExpandingFolder() throws {
+        let droppedFolder = tempDir.appendingPathComponent("decompressed")
+        let nestedBundle = droppedFolder.appendingPathComponent("Existing.lungfishmhcref")
+        let nestedBundleHaplotypes = nestedBundle.appendingPathComponent("haplotypes")
+        try FileManager.default.createDirectory(at: nestedBundleHaplotypes, withIntermediateDirectories: true)
+        try "{}".write(
+            to: nestedBundle.appendingPathComponent("mhc-reference.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try ">ref\nACGT\n".write(
+            to: nestedBundle.appendingPathComponent("reference.fa"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let plainFASTA = droppedFolder.appendingPathComponent("plain.fa")
         try ">plain\nTGCA\n".write(to: plainFASTA, atomically: true, encoding: .utf8)
 
         let plan = SidebarImportPlanner.makePlan(for: [droppedFolder])

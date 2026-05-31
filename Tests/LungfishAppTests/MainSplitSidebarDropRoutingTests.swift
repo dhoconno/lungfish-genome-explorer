@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishIO
 import XCTest
 @testable import LungfishApp
 
@@ -71,5 +72,64 @@ final class MainSplitSidebarDropRoutingTests: XCTestCase {
             controller.viewerController.testHasQuickLookView,
             "Unit tests should verify routing without instantiating embedded QuickLook views."
         )
+    }
+
+    func testDroppedMHCReferenceBundleInstallsIntoReferenceAlleleDatabases() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MainSplitMHCRefDrop-\(UUID().uuidString)", isDirectory: true)
+        let projectURL = tempRoot.appendingPathComponent("Fixture.lungfish", isDirectory: true)
+        let dropSourceDir = tempRoot.appendingPathComponent("DroppedFrom", isDirectory: true)
+        let bundleURL = dropSourceDir.appendingPathComponent("Example.lungfishmhcref", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        // A valid bundle so MHCAmpliconReferenceBundle.isBundleURL + validate pass.
+        try ">ref\nACGT\n".write(
+            to: bundleURL.appendingPathComponent("reference.fa"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let manifest = MHCAmpliconReferenceBundleManifest(
+            name: "Example",
+            referenceFastaPath: "reference.fa",
+            haplotypeDefinitionPaths: [],
+            defaultHaplotypeDefinitionID: nil,
+            metrics: MHCAmpliconReferenceBundleMetrics(referenceCount: 1, haplotypeDefinitionCount: 0),
+            createdAt: "2026-05-31T00:00:00Z"
+        )
+        try MHCAmpliconReferenceBundle.writeManifest(manifest, to: bundleURL)
+        XCTAssertTrue(MHCAmpliconReferenceBundle.isBundleURL(bundleURL))
+
+        let controller = MainSplitViewController()
+        _ = controller.view
+        controller.sidebarController.openProject(at: projectURL)
+
+        defer {
+            controller.sidebarController.closeProject()
+            try? FileManager.default.removeItem(at: tempRoot)
+        }
+
+        // Mirror the drop routing: dropping onto the project root passes targetDir =
+        // projectURL, but the bundle must land in Reference allele databases/, not
+        // the generic targetDir.
+        await controller.testingImportNonFASTQFile(
+            url: bundleURL,
+            projectURL: projectURL,
+            targetDir: projectURL
+        )
+
+        let installedBundleURL = projectURL
+            .appendingPathComponent("Reference allele databases", isDirectory: true)
+            .appendingPathComponent("Example.lungfishmhcref", isDirectory: true)
+        XCTAssertTrue(
+            MHCAmpliconReferenceBundle.isBundleURL(installedBundleURL),
+            "Dropped .lungfishmhcref must be installed as a single bundle under Reference allele databases/."
+        )
+
+        // It must NOT be shattered into the project root as loose manifest/reference files.
+        let strayManifest = projectURL.appendingPathComponent("mhc-reference.json")
+        let strayReference = projectURL.appendingPathComponent("reference.fa")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: strayManifest.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: strayReference.path))
     }
 }
