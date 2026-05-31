@@ -6,45 +6,57 @@ import Foundation
 
 /// Splits a single line of delimited text (CSV/TSV) into fields.
 ///
-/// Quote-aware: a field wrapped in double quotes may contain the delimiter, and a
-/// doubled quote (`""`) inside a quoted field is un-escaped to a single `"`. Empty
-/// fields are preserved (matching `String.split(omittingEmptySubsequences: false)`),
-/// so `"a,,c"` yields `["a", "", "c"]` and a trailing delimiter keeps the trailing
-/// empty field. Tab-delimited input is split on the literal delimiter without quote
-/// handling, mirroring conventional TSV parsing.
+/// Quote-aware for **any** delimiter (comma, tab, or otherwise): a field wrapped in
+/// double quotes may contain the delimiter, and a doubled quote (`""`) inside a quoted
+/// field is un-escaped to a single `"`. Empty fields are preserved (matching
+/// `String.split(omittingEmptySubsequences: false)`), so `"a,,c"` yields
+/// `["a", "", "c"]` and a trailing delimiter keeps the trailing empty field.
+///
+/// Implementation is a single index-based character state machine with no
+/// per-delimiter fast path, so tab-delimited input gets the same quote handling as
+/// comma-delimited input (a quoted embedded tab stays in one field).
+///
+/// Edge-case semantics (documented so callers can rely on them):
+/// - **Mid-field quote**: a `"` encountered while not already inside quotes opens a
+///   quoted run, even mid-field. `a"b,c"` therefore treats everything after the first
+///   `"` (up to the closing quote) as quoted content.
+/// - **Closing quote**: a `"` while inside quotes that is *not* followed by another `"`
+///   closes the quoted run. The character following the closing quote is left for the
+///   main loop to re-examine, so a closing quote followed by the delimiter ends the
+///   field (`"a",b` -> `["a", "b"]`) and a closing quote followed by an ordinary
+///   character appends that character to the same field (`"a"x,b` -> `["ax", "b"]`).
 public enum DelimitedLineParser {
     public static func fields(in line: String, delimiter: Character) -> [String] {
-        guard delimiter == "," else {
-            return line.split(separator: delimiter, omittingEmptySubsequences: false).map(String.init)
-        }
-
         var fields: [String] = []
         var current = ""
         var inQuotes = false
-        var iterator = line.makeIterator()
-        while let char = iterator.next() {
-            if char == "\"" {
-                if inQuotes, let next = iterator.next() {
-                    if next == "\"" {
+
+        var index = line.startIndex
+        while index < line.endIndex {
+            let char = line[index]
+            if inQuotes {
+                if char == "\"" {
+                    let next = line.index(after: index)
+                    if next < line.endIndex, line[next] == "\"" {
+                        // Doubled quote: emit a single literal quote and consume both.
                         current.append("\"")
+                        index = next
                     } else {
-                        inQuotes.toggle()
-                        if next == delimiter {
-                            fields.append(current)
-                            current = ""
-                        } else {
-                            current.append(next)
-                        }
+                        // Closing quote: leave the following character for the loop.
+                        inQuotes = false
                     }
                 } else {
-                    inQuotes.toggle()
+                    current.append(char)
                 }
-            } else if char == delimiter && !inQuotes {
+            } else if char == "\"" {
+                inQuotes = true
+            } else if char == delimiter {
                 fields.append(current)
                 current = ""
             } else {
                 current.append(char)
             }
+            index = line.index(after: index)
         }
         fields.append(current)
         return fields
@@ -179,7 +191,7 @@ public struct SampleMetadataTable: Codable, Equatable, Sendable {
             throw SampleMetadataResolverError.noData
         }
 
-        let delimiter = headerLine.contains("\t") ? "\t" : ","
+        let delimiter: Character = headerLine.contains("\t") ? "\t" : ","
         let headers = split(line: headerLine, delimiter: delimiter)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         guard headers.count >= 2 else {
@@ -300,9 +312,8 @@ public struct SampleMetadataTable: Codable, Equatable, Sendable {
         throw SampleMetadataResolverError.noSampleColumn
     }
 
-    private static func split(line: String, delimiter: String) -> [String] {
-        let separator: Character = delimiter == "," ? "," : "\t"
-        return DelimitedLineParser.fields(in: line, delimiter: separator)
+    private static func split(line: String, delimiter: Character) -> [String] {
+        DelimitedLineParser.fields(in: line, delimiter: delimiter)
     }
 
     private static func uniquedColumns(_ columns: [String]) -> [String] {
