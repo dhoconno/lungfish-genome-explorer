@@ -618,6 +618,53 @@ final class TwelveSAmpliconMatchingWorkflowTests: XCTestCase {
         XCTAssertEqual(loaded.readFate.unresolvedReads, 0)
         XCTAssertTrue(loaded.unresolvedSequences.isEmpty)
     }
+
+    func testCollapsesNestedSubstringSameGenusToLongestExactMatch() throws {
+        // Cow read: 107bp cattle core contains the 106bp zebu core as a substring.
+        let cattleCore = "ACTATGCTTAGCCCTAAACACAGATAATTACATAAACAAAATTATTCGCCAGAGTACTACTAGCAACAGCTTAAAACTCAAAGGACTTGGCGGTGCTTTATATCCTT"
+        let zebuCore = String(cattleCore.dropLast()) // 106bp proper substring (prefix) of the cattle core
+        let cattle = TwelveSReferenceRecord(targetID: "domestic cattle (Bos taurus)|seq_sha256=b4bc31d676a16759", displayName: "domestic cattle (Bos taurus)", sequence: cattleCore)
+        let zebu = TwelveSReferenceRecord(targetID: "zebu cattle (Bos indicus)|seq_sha256=zebu0001", displayName: "zebu cattle (Bos indicus)", sequence: zebuCore)
+        let classifier = TwelveSAmpliconReadClassifier(references: [cattle, zebu], minimumSoftClipBases: 1, maximumIndelBases: 3)
+        // Read embeds the full 107bp cattle core with flank on both sides.
+        let read = "ACTGGGATTAGATACCCC" + cattleCore + "CTAGAGGAGCCTGTTCTA"
+        // zebu (106) is a substring of cattle (107) -> collapse to the longest -> cattle, uniquely exact.
+        XCTAssertEqual(classifier.classify(readSequence: read), .exact(targetID: cattle.targetID, indelCount: 0))
+    }
+
+    func testCollapsesSameSpeciesLengthVariantsToCanonicalExactMatch() throws {
+        // Pig read: two distinct same-species variants both match exactly (neither a substring of the other).
+        let pigCoreA = "ACTATGCCTAGCCCTAAACCCAAATAGTTACATAACAAAACTATTCGCCAGAGTACTACTCGCAACTGCCTAAAACTCAAAGGACTTGGCGGTGCTTCACATCCAC" // 106
+        let pigCoreB = pigCoreA + "C" // 107, contains pigCoreA as a prefix substring
+        let pigCoreC = "T" + pigCoreA  // 107, distinct from pigCoreB, NOT a substring of pigCoreB, same species
+        let pigA = TwelveSReferenceRecord(targetID: "pig (Sus scrofa)|seq_sha256=pigA", displayName: "pig (Sus scrofa)", sequence: pigCoreA)
+        let pigB = TwelveSReferenceRecord(targetID: "pig (Sus scrofa)|seq_sha256=pigB", displayName: "pig (Sus scrofa)", sequence: pigCoreB)
+        let pigC = TwelveSReferenceRecord(targetID: "pig (Sus scrofa)|seq_sha256=pigC", displayName: "pig (Sus scrofa)", sequence: pigCoreC)
+        let classifier = TwelveSAmpliconReadClassifier(references: [pigA, pigB, pigC], minimumSoftClipBases: 1, maximumIndelBases: 3)
+        // A read containing pigCoreB (which also contains pigCoreA) AND, separately, embed so pigC matches too.
+        // Construct a read that contains both pigCoreB and pigCoreC as internal substrings:
+        let read = "ACTGGGATTAGATACCCC" + pigCoreC + "GG" + pigCoreB + "CTAGAGGAGCCTGTTCTA"
+        let result = classifier.classify(readSequence: read)
+        // After substring-collapse pigA drops (⊂ pigB); pigB and pigC are distinct 107bp but SAME species -> exact (not ambiguous).
+        guard case .exact(let id, let indel) = result else { return XCTFail("expected .exact, got \(result)") }
+        XCTAssertEqual(indel, 0)
+        XCTAssertTrue(id == pigB.targetID || id == pigC.targetID, "canonical pig id expected, got \(id)")
+    }
+
+    func testKeepsGenuineCrossSpeciesExactMatchesAmbiguous() throws {
+        // Two equal-length, DIFFERENT-species exact matches must STAY ambiguous.
+        let coreCattle = "ACTATGCTTAGCCCTAAACACAGATAATTACATAAACAAAATTATTCGCCAGAGTACTACTAGCAACAGCTTAAAACTCAAAGGACTTGGCGGTGCTTTATATCCTT"
+        // A different species with the SAME length but different sequence (flip several bases, keep length 107).
+        let coreOther = "TGCATGCTTAGCCCTAAACACAGATAATTACATAAACAAAATTATTCGCCAGAGTACTACTAGCAACAGCTTAAAACTCAAAGGACTTGGCGGTGCTTTATATCCTT"
+        let cattle = TwelveSReferenceRecord(targetID: "domestic cattle (Bos taurus)|seq_sha256=cattleX", displayName: "domestic cattle (Bos taurus)", sequence: coreCattle)
+        let other = TwelveSReferenceRecord(targetID: "sheep (Ovis aries)|seq_sha256=sheepX", displayName: "sheep (Ovis aries)", sequence: coreOther)
+        let classifier = TwelveSAmpliconReadClassifier(references: [cattle, other], minimumSoftClipBases: 1, maximumIndelBases: 3)
+        // A read containing BOTH cores as internal substrings.
+        let read = "ACTGGGATTAGATACCCC" + coreCattle + "GG" + coreOther + "CTAGAGGAGCCTGTTCTA"
+        let result = classifier.classify(readSequence: read)
+        guard case .ambiguous(let ids) = result else { return XCTFail("expected .ambiguous, got \(result)") }
+        XCTAssertEqual(Set(ids), Set([cattle.targetID, other.targetID]))
+    }
 }
 
 private final class TwelveSProgressRecorder: @unchecked Sendable {
