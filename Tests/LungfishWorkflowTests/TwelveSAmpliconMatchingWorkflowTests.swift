@@ -482,6 +482,142 @@ final class TwelveSAmpliconMatchingWorkflowTests: XCTestCase {
             XCTAssertEqual(stderr, "uchime failed")
         }
     }
+
+    func testClassifiesHiloCowAndPigFlankedExactReads() throws {
+        let cowCore = "ACTATGCTTAGCCCTAAACACAGATAATTACATAAACAAAATTATTCGCCAGAGTACTACTAGCAACAGCTTAAAACTCAAAGGACTTGGCGGTGCTTTATATCCTT"
+        let pigCore = "ACTATGCCTAGCCCTAAACCCAAATAGTTACATAACAAAACTATTCGCCAGAGTACTACTCGCAACTGCCTAAAACTCAAAGGACTTGGCGGTGCTTCACATCCAC"
+        let prefix = "ACTGGGATTAGATACCCC"
+        let suffix = "CTAGAGGAGCCTGTTCTA"
+
+        let cow = TwelveSReferenceRecord(
+            targetID: "domestic cattle (Bos taurus)|seq_sha256=b4bc31d676a16759",
+            displayName: "domestic cattle (Bos taurus)",
+            sequence: cowCore
+        )
+        let pig = TwelveSReferenceRecord(
+            targetID: "pig (Sus scrofa)|seq_sha256=f59a31cf5675f344",
+            displayName: "pig (Sus scrofa)",
+            sequence: pigCore
+        )
+        let classifier = TwelveSAmpliconReadClassifier(
+            references: [cow, pig],
+            minimumSoftClipBases: 1,
+            maximumIndelBases: 3
+        )
+
+        XCTAssertEqual(
+            classifier.classify(readSequence: prefix + cowCore + suffix),
+            .exact(targetID: cow.targetID, indelCount: 0)
+        )
+        XCTAssertEqual(
+            classifier.classify(readSequence: prefix + pigCore + suffix),
+            .exact(targetID: pig.targetID, indelCount: 0)
+        )
+    }
+
+    func testClassifiesExactCoreWhenFlankingSequenceHasErrors() throws {
+        let cowCore = "ACTATGCTTAGCCCTAAACACAGATAATTACATAAACAAAATTATTCGCCAGAGTACTACTAGCAACAGCTTAAAACTCAAAGGACTTGGCGGTGCTTTATATCCTT"
+        let cow = TwelveSReferenceRecord(
+            targetID: "domestic cattle (Bos taurus)|seq_sha256=b4bc31d676a16759",
+            displayName: "domestic cattle (Bos taurus)",
+            sequence: cowCore
+        )
+        let classifier = TwelveSAmpliconReadClassifier(
+            references: [cow],
+            minimumSoftClipBases: 1,
+            maximumIndelBases: 3
+        )
+
+        XCTAssertEqual(
+            classifier.classify(readSequence: "ACTGGGATTAGATACCCC" + cowCore + "CCAGAGGAGCCTGTTCTA"),
+            .exact(targetID: cow.targetID, indelCount: 0)
+        )
+    }
+
+    func testHiloExactCoreStillRequiresConfiguredSoftClipAtBothEnds() throws {
+        let pigCore = "ACTATGCCTAGCCCTAAACCCAAATAGTTACATAACAAAACTATTCGCCAGAGTACTACTCGCAACTGCCTAAAACTCAAAGGACTTGGCGGTGCTTCACATCCAC"
+        let pig = TwelveSReferenceRecord(
+            targetID: "pig (Sus scrofa)|seq_sha256=f59a31cf5675f344",
+            displayName: "pig (Sus scrofa)",
+            sequence: pigCore
+        )
+        let classifier = TwelveSAmpliconReadClassifier(
+            references: [pig],
+            minimumSoftClipBases: 1,
+            maximumIndelBases: 3
+        )
+
+        XCTAssertEqual(classifier.classify(readSequence: pigCore + "CTAGAGGAGCCTGTTCTA"), .unresolved)
+        XCTAssertEqual(classifier.classify(readSequence: "ACTGGGATTAGATACCCC" + pigCore), .unresolved)
+    }
+
+    func testWorkflowCountsHiloFlankedCowAndPigReadsInsteadOfLeavingThemUnresolved() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwelveSHiloRegression-\(UUID().uuidString)", isDirectory: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let cowCore = "ACTATGCTTAGCCCTAAACACAGATAATTACATAAACAAAATTATTCGCCAGAGTACTACTAGCAACAGCTTAAAACTCAAAGGACTTGGCGGTGCTTTATATCCTT"
+        let pigCore = "ACTATGCCTAGCCCTAAACCCAAATAGTTACATAACAAAACTATTCGCCAGAGTACTACTCGCAACTGCCTAAAACTCAAAGGACTTGGCGGTGCTTCACATCCAC"
+        let prefix = "ACTGGGATTAGATACCCC"
+        let suffix = "CTAGAGGAGCCTGTTCTA"
+
+        let referenceURL = root.appendingPathComponent("reference.fa")
+        try """
+        >domestic cattle (Bos taurus)|locus=12S|len=107|n_refs=161|n_species=7|primer_pairs=12S_vert_F_x_12S_vert_R
+        \(cowCore)
+        >pig (Sus scrofa)|locus=12S|len=106|n_refs=204|n_species=1|primer_pairs=12S_vert_F_x_12S_vert_R
+        \(pigCore)
+        """.write(to: referenceURL, atomically: true, encoding: .utf8)
+
+        let fastqURL = root.appendingPathComponent("hilo.fastq")
+        try """
+        @cow1
+        \(prefix)\(cowCore)\(suffix)
+        +
+        \(String(repeating: "I", count: prefix.count + cowCore.count + suffix.count))
+        @cow2
+        \(prefix)\(cowCore)\(suffix)
+        +
+        \(String(repeating: "I", count: prefix.count + cowCore.count + suffix.count))
+        @pig1
+        \(prefix)\(pigCore)\(suffix)
+        +
+        \(String(repeating: "I", count: prefix.count + pigCore.count + suffix.count))
+        @pig2
+        \(prefix)\(pigCore)\(suffix)
+        +
+        \(String(repeating: "I", count: prefix.count + pigCore.count + suffix.count))
+        @pig3
+        \(prefix)\(pigCore)\(suffix)
+        +
+        \(String(repeating: "I", count: prefix.count + pigCore.count + suffix.count))
+        """.write(to: fastqURL, atomically: true, encoding: .utf8)
+
+        let result = try await TwelveSAmpliconMatchingWorkflow(
+            chimeraReviewer: TwelveSNoOpChimeraReviewer()
+        ).run(
+            TwelveSAmpliconMatchingConfiguration(
+                inputFASTQs: [fastqURL],
+                referenceFASTA: referenceURL,
+                outputDirectory: root.appendingPathComponent("out", isDirectory: true),
+                outputName: "hilo-regression",
+                minimumSoftClipBases: 1,
+                maximumIndelBases: 3,
+                runChimeraReview: false
+            )
+        )
+
+        let loaded = try TwelveSAmpliconResultBundle.loadResult(from: result.bundleURL)
+        let cowRow = try XCTUnwrap(loaded.targetRows.first { $0.target.displayName == "domestic cattle (Bos taurus)" })
+        let pigRow = try XCTUnwrap(loaded.targetRows.first { $0.target.displayName == "pig (Sus scrofa)" })
+
+        XCTAssertEqual(cowRow.count(forSample: "hilo"), 2)
+        XCTAssertEqual(pigRow.count(forSample: "hilo"), 3)
+        XCTAssertEqual(loaded.readFate.exactMatchReads, 5)
+        XCTAssertEqual(loaded.readFate.unresolvedReads, 0)
+        XCTAssertTrue(loaded.unresolvedSequences.isEmpty)
+    }
 }
 
 private final class TwelveSProgressRecorder: @unchecked Sendable {
