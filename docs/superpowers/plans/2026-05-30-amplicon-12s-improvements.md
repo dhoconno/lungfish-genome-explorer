@@ -655,6 +655,7 @@ MSG
 - Create: `Sources/LungfishIO/Bundles/BundleBuilderSupport.swift` (shared dir-checksum / provenance-directory descriptor) and `Sources/LungfishIO/Formats/TSVTable.swift` (one quote-aware delimited-table reader — reuse `DelimitedLineParser` from Task 8).
 - Modify: `Sources/LungfishWorkflow/ONTGenotyping/MHCAmpliconReferenceBundleBuilder.swift`, `Sources/LungfishWorkflow/TwelveS/TwelveSReferenceBundleBuilder.swift`, `Sources/LungfishWorkflow/TwelveS/TwelveSResultExportWorkflow.swift`, `Sources/LungfishWorkflow/ONTGenotyping/HaplotypeDefinitionCommandService.swift` — replace the triplicated copies.
 - Test: `Tests/LungfishIOTests/TSVTableTests.swift` (new) + existing builder suites as regression.
+- **Follow-up from Task 8 review:** add explicit `DelimitedLineParser` tests for the unterminated-quote edges (`"a` and `"a""`) to lock in bounds-safety; and consider unifying `ResolvedSampleMetadata.loadTSV`'s raw `split(separator:)` read path onto the shared parser/`TSVTable` (currently a separate self-written-TSV format with its own escaping).
 
 - [ ] Step 1: Write `TSVTableTests` asserting quote-aware parse, header access, and round-trip equal to the prior ad-hoc parse on a known fixture (characterization). Add a `BundleBuilderSupportTests.testDirectoryChecksumIsStableAndOrderIndependent`.
 - [ ] Step 2: `swift test --package-path "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/12s-amplicon-matching" --skip-update --filter TSVTableTests` → FAIL (symbol missing).
