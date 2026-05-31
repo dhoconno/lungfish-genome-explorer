@@ -764,6 +764,8 @@ For each fix above: Step 1 failing test (or `swift build` red where purely cosme
 
 ### Task 22: Phase 5 verification gates
 
+> **VERIFICATION-ASSET CORRECTION (found during Phase 5, 2026-05-31):** the spec/plan wrongly named `/Users/dho/Downloads/32308/ref/amplicons_deduplicated.fa` as the 12S reference. It is NOT — it is an **MHC** amplicon reference (982 macaque `Mafa-DPA1*` class-II alleles, `locus=DPA212`). Building a `.lungfish12sref` from it correctly yields taxid/taxon_group/taxonomy counts of **0** (the MHC allele names don't join to 12S MIDORI taxonomy — correct behavior, not a bug). The REAL 12S vertebrate reference is **`/Users/dho/Downloads/amplicons_12s_deduplicated.fa`** (20,805 `... (Latin name)|locus=12S` vertebrate sequences). Rebuilding against it enriches ALL 20,805 rows: `taxidCount/taxonGroupCount/taxonomyCount == 20805`, and the `human (Homo sapiens)` row resolves to `scientific_name=Homo sapiens, taxid=9606, taxon_group=Mammal, taxonomy=root; Eukaryota; Chordata; Mammalia; Primates; Hominidae; Homo; Homo sapiens` — the Phase-5 gate value. So the 12S reference-bundle taxonomy enrichment + Task-2 schemaVersion/kind manifest + alternate-match resolution are VERIFIED on real data. (There is also a `/Users/dho/Downloads/12S.lungfish` prior real 12S project, and a `32308`-as-MHC reference usable for MHC verification.) **Use `amplicons_12s_deduplicated.fa` for all 12S real-data runs; `32308/ref/amplicons_deduplicated.fa` is MHC.**
+
 - [ ] **12S synthetic / deterministic.**
   `swift test --package-path "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/12s-amplicon-matching" --skip-update --filter TwelveS`
   Gate: all `TwelveS*` suites green (matching, reference bundle, row filter, display section, sort, export).
