@@ -1,16 +1,6 @@
 import Foundation
 
-public struct MHCAmpliconReferenceBundleSourceFile: Codable, Equatable, Sendable {
-    public let path: String
-    public let role: String
-    public let originalPath: String?
-
-    public init(path: String, role: String, originalPath: String? = nil) {
-        self.path = path
-        self.role = role
-        self.originalPath = originalPath
-    }
-}
+public typealias MHCAmpliconReferenceBundleSourceFile = ReferenceBundleSourceFile
 
 public struct MHCAmpliconReferenceBundleMetrics: Codable, Equatable, Sendable {
     public let referenceCount: Int
@@ -22,8 +12,12 @@ public struct MHCAmpliconReferenceBundleMetrics: Codable, Equatable, Sendable {
     }
 }
 
-public struct MHCAmpliconReferenceBundleManifest: Codable, Equatable, Sendable {
-    public let formatVersion: Int
+public struct MHCAmpliconReferenceBundleManifest: ReferenceBundleManifesting {
+    public static let manifestFilename = "mhc-reference.json"
+    public static let kindIdentifier = "mhc-reference"
+
+    public let schemaVersion: Int
+    public let kind: String
     public let name: String
     public let referenceFastaPath: String
     public let haplotypeDefinitionPaths: [String]
@@ -34,7 +28,8 @@ public struct MHCAmpliconReferenceBundleManifest: Codable, Equatable, Sendable {
     public let createdAt: String
 
     public init(
-        formatVersion: Int = 1,
+        schemaVersion: Int = 1,
+        kind: String = MHCAmpliconReferenceBundleManifest.kindIdentifier,
         name: String,
         referenceFastaPath: String,
         haplotypeDefinitionPaths: [String],
@@ -44,7 +39,8 @@ public struct MHCAmpliconReferenceBundleManifest: Codable, Equatable, Sendable {
         provenancePath: String? = nil,
         createdAt: String
     ) {
-        self.formatVersion = formatVersion
+        self.schemaVersion = schemaVersion
+        self.kind = kind
         self.name = name
         self.referenceFastaPath = referenceFastaPath
         self.haplotypeDefinitionPaths = haplotypeDefinitionPaths
@@ -58,10 +54,21 @@ public struct MHCAmpliconReferenceBundleManifest: Codable, Equatable, Sendable {
 
 public enum MHCAmpliconReferenceBundle {
     public static let directoryExtension = "lungfishmhcref"
-    public static let manifestFilename = "mhc-reference.json"
+    public static let manifestFilename = MHCAmpliconReferenceBundleManifest.manifestFilename
 
+    /// Consume-side check: requires both the extension and a manifest on disk.
     public static func isBundleURL(_ url: URL) -> Bool {
-        url.pathExtension.lowercased() == directoryExtension
+        ReferenceBundleEnvelope.isBundleURL(
+            url,
+            directoryExtension: directoryExtension,
+            manifestFilename: manifestFilename
+        )
+    }
+
+    /// Produce-side check: extension only, for validating an output path before
+    /// its manifest exists.
+    public static func hasBundleExtension(_ url: URL) -> Bool {
+        ReferenceBundleEnvelope.hasBundleExtension(url, directoryExtension: directoryExtension)
     }
 
     public static func manifestURL(in bundleURL: URL) -> URL {
@@ -80,6 +87,30 @@ public enum MHCAmpliconReferenceBundle {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(manifest).write(to: manifestURL(in: bundleURL), options: .atomic)
+    }
+
+    /// Confirms the bundle manifest references files that exist on disk and carries
+    /// the expected schema version and kind.
+    public static func validate(at bundleURL: URL) throws {
+        let manifest = try loadManifest(from: bundleURL)
+        guard manifest.kind == MHCAmpliconReferenceBundleManifest.kindIdentifier else {
+            throw ReferenceBundleValidationError(
+                kind: .kindMismatch(
+                    expected: MHCAmpliconReferenceBundleManifest.kindIdentifier,
+                    found: manifest.kind
+                )
+            )
+        }
+        let referencePath = bundleURL.appendingPathComponent(manifest.referenceFastaPath).path
+        guard FileManager.default.fileExists(atPath: referencePath) else {
+            throw ReferenceBundleValidationError(kind: .missingFile(referencePath))
+        }
+        for relativePath in manifest.haplotypeDefinitionPaths {
+            let definitionPath = bundleURL.appendingPathComponent(relativePath).path
+            guard FileManager.default.fileExists(atPath: definitionPath) else {
+                throw ReferenceBundleValidationError(kind: .missingFile(definitionPath))
+            }
+        }
     }
 
     public static func referenceFASTAURL(in bundleURL: URL) -> URL? {

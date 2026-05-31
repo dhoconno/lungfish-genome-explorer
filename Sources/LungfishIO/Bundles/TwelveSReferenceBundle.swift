@@ -1,16 +1,6 @@
 import Foundation
 
-public struct TwelveSReferenceBundleSourceFile: Codable, Equatable, Sendable {
-    public let path: String
-    public let role: String
-    public let originalPath: String?
-
-    public init(path: String, role: String, originalPath: String? = nil) {
-        self.path = path
-        self.role = role
-        self.originalPath = originalPath
-    }
-}
+public typealias TwelveSReferenceBundleSourceFile = ReferenceBundleSourceFile
 
 public struct TwelveSReferenceBundleMetrics: Codable, Equatable, Sendable {
     public let referenceCount: Int
@@ -37,8 +27,12 @@ public struct TwelveSReferenceBundleMetrics: Codable, Equatable, Sendable {
     }
 }
 
-public struct TwelveSReferenceBundleManifest: Codable, Equatable, Sendable {
-    public static let filename = "12s-reference.json"
+public struct TwelveSReferenceBundleManifest: ReferenceBundleManifesting {
+    public static let manifestFilename = "12s-reference.json"
+    public static let kindIdentifier = "12s-reference"
+
+    /// Retained for source compatibility with existing call sites.
+    public static let filename = manifestFilename
 
     public let schemaVersion: Int
     public let kind: String
@@ -52,7 +46,7 @@ public struct TwelveSReferenceBundleManifest: Codable, Equatable, Sendable {
 
     public init(
         schemaVersion: Int = 1,
-        kind: String = "12s-reference",
+        kind: String = TwelveSReferenceBundleManifest.kindIdentifier,
         name: String,
         referenceFastaPath: String,
         targetMetadataPath: String,
@@ -75,16 +69,25 @@ public struct TwelveSReferenceBundleManifest: Codable, Equatable, Sendable {
 
 public enum TwelveSReferenceBundle {
     public static let directoryExtension = "lungfish12sref"
+    public static let manifestFilename = TwelveSReferenceBundleManifest.manifestFilename
 
     public static func manifestURL(in bundleURL: URL) -> URL {
-        bundleURL.appendingPathComponent(TwelveSReferenceBundleManifest.filename).standardizedFileURL
+        bundleURL.appendingPathComponent(manifestFilename).standardizedFileURL
     }
 
+    /// Consume-side check: requires both the extension and a manifest on disk.
     public static func isBundleURL(_ url: URL) -> Bool {
-        url.pathExtension.lowercased() == directoryExtension
-            && FileManager.default.fileExists(
-                atPath: url.appendingPathComponent(TwelveSReferenceBundleManifest.filename).path
-            )
+        ReferenceBundleEnvelope.isBundleURL(
+            url,
+            directoryExtension: directoryExtension,
+            manifestFilename: manifestFilename
+        )
+    }
+
+    /// Produce-side check: extension only, for validating an output path before
+    /// its manifest exists.
+    public static func hasBundleExtension(_ url: URL) -> Bool {
+        ReferenceBundleEnvelope.hasBundleExtension(url, directoryExtension: directoryExtension)
     }
 
     public static func loadManifest(from bundleURL: URL) throws -> TwelveSReferenceBundleManifest {

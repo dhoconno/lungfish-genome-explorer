@@ -34,7 +34,10 @@ final class TwelveSReferenceBundleTests: XCTestCase {
 
         try TwelveSReferenceBundle.writeManifest(manifest, to: bundleURL)
 
+        XCTAssertEqual(manifest.schemaVersion, 1)
+        XCTAssertEqual(manifest.kind, "12s-reference")
         XCTAssertTrue(TwelveSReferenceBundle.isBundleURL(bundleURL))
+        XCTAssertTrue(TwelveSReferenceBundle.hasBundleExtension(bundleURL))
         let loaded = try TwelveSReferenceBundle.loadManifest(from: bundleURL)
         XCTAssertEqual(loaded, manifest)
         XCTAssertEqual(TwelveSReferenceBundle.referenceFASTAURL(in: bundleURL), bundleURL.appendingPathComponent("reference.fa").standardizedFileURL)

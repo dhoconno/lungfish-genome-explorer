@@ -27,7 +27,11 @@ final class MHCAmpliconReferenceBundleTests: XCTestCase {
 
         try MHCAmpliconReferenceBundle.writeManifest(manifest, to: bundleURL)
 
+        XCTAssertEqual(manifest.schemaVersion, 1)
+        XCTAssertEqual(manifest.kind, "mhc-reference")
         XCTAssertTrue(MHCAmpliconReferenceBundle.isBundleURL(bundleURL))
+        XCTAssertTrue(MHCAmpliconReferenceBundle.hasBundleExtension(bundleURL))
+        XCTAssertNoThrow(try MHCAmpliconReferenceBundle.validate(at: bundleURL))
         XCTAssertEqual(MHCAmpliconReferenceBundle.referenceFASTAURL(in: bundleURL)?.lastPathComponent, "reference.fa")
         XCTAssertEqual(try MHCAmpliconReferenceBundle.defaultHaplotypeDefinition(in: bundleURL)?.id, definition.id)
         XCTAssertEqual(

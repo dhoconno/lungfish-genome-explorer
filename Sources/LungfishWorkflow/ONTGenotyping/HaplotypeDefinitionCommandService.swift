@@ -264,7 +264,7 @@ public struct HaplotypeDefinitionCommandService: Sendable {
             ? manifest.haplotypeDefinitionPaths
             : manifest.haplotypeDefinitionPaths + [relativePath]
         let updatedManifest = MHCAmpliconReferenceBundleManifest(
-            formatVersion: manifest.formatVersion,
+            schemaVersion: manifest.schemaVersion,
             name: manifest.name,
             referenceFastaPath: manifest.referenceFastaPath,
             haplotypeDefinitionPaths: updatedPaths,
@@ -340,7 +340,7 @@ public struct HaplotypeDefinitionCommandService: Sendable {
             try replacementData.write(to: referenceURL, options: .atomic)
 
             let updatedManifest = MHCAmpliconReferenceBundleManifest(
-                formatVersion: manifest.formatVersion,
+                schemaVersion: manifest.schemaVersion,
                 name: manifest.name,
                 referenceFastaPath: manifest.referenceFastaPath,
                 haplotypeDefinitionPaths: manifest.haplotypeDefinitionPaths,
