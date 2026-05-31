@@ -379,6 +379,9 @@ MSG
 ---
 
 ### Task 6: Complete the `.lungfishmhcref` consume path  (addresses S-P1-1)
+
+> **DONE (commit `faee5118`).** Follow-up surfaced during implementation (tracked, NOT done): the sibling subcommands `FastqONTGenotypingSubcommand` and `FastqONTBarcodeGenotypingSubcommand` have the SAME consume-side gaps — `--reference` help omits `.lungfishmhcref`, and `FastqONTBarcodeGenotypingSubcommand`'s `--haplotype-definition` passes straight through with no bundle validation or auto-default. The bundle FASTA still resolves at the pipeline level for all of them, but the CLI ergonomics (help text, explicit-definition validation, auto-select) are only complete for `FastqGenotypingSubcommand`. Apply the same `resolveBundleHaplotypeDefinition` treatment to the two siblings as a follow-up task (call it Task 6b when scheduled). Also note: when a `.lungfishmhcref` is selected, its paired assay/species now take precedence over explicit `--haplotype-assay`/`--haplotype-species` flags (intended bundle-gate semantics).
+
 **Files:**
 - Modify: `Sources/LungfishCLI/Commands/FastqGenotypingSubcommand.swift` (`--reference` help 21-22; `effectiveHaplotypeDefinition`/`effectiveHaplotypeAssay`/`effectiveHaplotypeSpecies` 107-111; `defaultBundledHaplotypeDefinition` 169-176): document `.lungfishmhcref`; when the reference is a bundle AND an explicit `--haplotype-definition` is given, verify the definition exists in the bundle (consistency check) instead of silently bypassing.
 - Modify: `Sources/LungfishWorkflow/ONTGenotyping/ONTBarcodeDemuxGenotypingPipeline.swift` (`resolveReference` 979-1019 already resolves the bundle FASTA — confirm; ensure haplotype defs resolve from the same bundle).
