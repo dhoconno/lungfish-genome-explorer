@@ -3,24 +3,21 @@ import LungfishCore
 @testable import LungfishIO
 
 final class BuiltInGenotypeHaplotypeColorTokenTests: XCTestCase {
-    func testMCMHaplotypesHaveCanonicalTokens() {
-        let mcm = GenotypeHaplotypeDefinitionRegistry.mauritianCynomolgusMacaqueMHCExon2MiSeq
-        let mhcA = mcm.locusDefinitions.first { $0.locus == "MHC-A" }!
-        let m3A = mhcA.haplotypes.first { $0.name == "M3A" }!
+    func testCanonicalMNameAssignsCanonicalToken() {
+        // Names matching the canonical M1-M7 scheme derive a stable token
+        // index from the name when no explicit index is supplied.
+        let m3A = GenotypeHaplotypeDefinition(name: "M3A", diagnosticAlleles: ["x"])
         XCTAssertEqual(m3A.colorTokenIndex, 3)
     }
 
-    func testRhesusHaplotypesAcceptAnyToken() {
-        let mamu = GenotypeHaplotypeDefinitionRegistry.rhesusMacaqueMHCExon2MiSeq
-        let mhcA = mamu.locusDefinitions.first { $0.locus == "MHC-A" }!
-        XCTAssertFalse(mhcA.haplotypes.isEmpty)
-        // Rhesus tokens fall on the extended palette since their names don't
-        // map to canonical M1-M7 by name; verify the assignment is within the
-        // full canonical palette range.
+    func testNonCanonicalNamesStayWithinPaletteRange() {
+        // Names that don't map to a canonical M1-M7 token still fall on the
+        // extended palette; verify assignments stay within the palette range.
         let paletteCount = HaplotypeColorToken.canonicalPalette.count
-        for h in mhcA.haplotypes {
-            XCTAssertGreaterThanOrEqual(h.colorTokenIndex, 0)
-            XCTAssertLessThan(h.colorTokenIndex, paletteCount)
+        for name in ["A001.01", "B071.01", "DR15.01/02", "01g1"] {
+            let haplotype = GenotypeHaplotypeDefinition(name: name, diagnosticAlleles: ["x"])
+            XCTAssertGreaterThanOrEqual(haplotype.colorTokenIndex, 0)
+            XCTAssertLessThan(haplotype.colorTokenIndex, paletteCount)
         }
     }
 

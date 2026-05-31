@@ -20,14 +20,9 @@ public struct HaplotypeDefinitionCommandResult: Equatable, Sendable {
 
 public struct HaplotypeDefinitionCommandService: Sendable {
     public let projectRoot: URL?
-    public let globalRoot: URL
 
-    public init(
-        projectRoot: URL?,
-        globalRoot: URL = HaplotypeDefinitionLibrary.defaultGlobalRoot()
-    ) {
+    public init(projectRoot: URL?) {
         self.projectRoot = projectRoot?.standardizedFileURL
-        self.globalRoot = globalRoot.standardizedFileURL
     }
 
     public func listDefinitions(
@@ -37,22 +32,17 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         includeShadowed: Bool = false,
         includeReferenceBundles: Bool = false
     ) -> [HaplotypeDefinitionRecord] {
-        library.records(includeReferenceBundles: includeReferenceBundles).filter { record in
-            if !includeShadowed, record.isShadowed { return false }
-            if let assayID = assayID?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !assayID.isEmpty,
-               record.definitionSet.assayID != assayID {
-                return false
-            }
-            if let speciesCode = speciesCode?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !speciesCode.isEmpty,
-               record.definitionSet.speciesCode.caseInsensitiveCompare(speciesCode) != .orderedSame {
-                return false
-            }
-            if let scope, record.scope != scope {
-                return false
-            }
-            return true
+        // CLI listing includes bare project-store defs AND bundle defs so that
+        // freshly-imported/saved defs are visible for `bundle-create`, `export`,
+        // `duplicate`, and `delete`. (The GUI uses `library.records()`, which is
+        // bundle-only.) `includeReferenceBundles` is retained for source-compat.
+        _ = includeReferenceBundles
+        return library.allManagedRecords(
+            assayID: assayID,
+            speciesCode: speciesCode,
+            scope: scope
+        ).filter { record in
+            includeShadowed || !record.isShadowed
         }
     }
 
@@ -120,9 +110,6 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         changeNote: String? = nil,
         argv: [String]
     ) throws -> HaplotypeDefinitionCommandResult {
-        guard scope != .builtIn else {
-            throw HaplotypeDefinitionCommandServiceError.cannotWriteBuiltIn
-        }
         let inputURL = inputURL.standardizedFileURL
         let data = try Data(contentsOf: inputURL)
         let definition = try JSONDecoder().decode(GenotypeHaplotypeDefinitionSet.self, from: data)
@@ -182,9 +169,6 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         changeNote: String? = nil,
         argv: [String]
     ) throws -> HaplotypeDefinitionCommandResult {
-        guard scope != .builtIn else {
-            throw HaplotypeDefinitionCommandServiceError.cannotWriteBuiltIn
-        }
         try validateDefinition(definition)
         let store = try writableStore(scope: scope)
         let context = provenanceContext(
@@ -471,9 +455,6 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         changeNote: String? = nil,
         argv: [String]
     ) throws -> HaplotypeDefinitionCommandResult {
-        guard toScope != .builtIn else {
-            throw HaplotypeDefinitionCommandServiceError.cannotWriteBuiltIn
-        }
         let source = try definitionRecord(
             definitionID: definitionID,
             assayID: assayID,
@@ -524,9 +505,6 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         scope: HaplotypeDefinitionScope,
         argv: [String]
     ) throws {
-        guard scope != .builtIn else {
-            throw HaplotypeDefinitionCommandServiceError.cannotWriteBuiltIn
-        }
         let store = try writableStore(scope: scope)
         let context = HaplotypeDefinitionProvenanceContext(
             workflowName: "Haplotype definition delete",
@@ -541,12 +519,12 @@ public struct HaplotypeDefinitionCommandService: Sendable {
     }
 
     private var library: HaplotypeDefinitionLibrary {
-        HaplotypeDefinitionLibrary(projectRoot: projectRoot, globalRoot: globalRoot)
+        HaplotypeDefinitionLibrary(projectRoot: projectRoot)
     }
 
     private func writableStore(scope: HaplotypeDefinitionScope) throws -> HaplotypeDefinitionStore {
         guard let store = library.store(for: scope) else {
-            throw HaplotypeDefinitionCommandServiceError.cannotWriteBuiltIn
+            throw HaplotypeDefinitionCommandServiceError.missingProjectRoot
         }
         return store
     }
@@ -575,23 +553,15 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         scope: HaplotypeDefinitionScope? = nil,
         includeReferenceBundles: Bool = false
     ) throws -> HaplotypeDefinitionRecord {
-        let matches = library.records(includeReferenceBundles: includeReferenceBundles).filter { record in
-            guard record.definitionSet.id == definitionID else { return false }
-            if let assayID = assayID?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !assayID.isEmpty,
-               record.definitionSet.assayID != assayID {
-                return false
-            }
-            if let speciesCode = speciesCode?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !speciesCode.isEmpty,
-               record.definitionSet.speciesCode.caseInsensitiveCompare(speciesCode) != .orderedSame {
-                return false
-            }
-            if let scope, record.scope != scope {
-                return false
-            }
-            return true
-        }
+        // Resolve against ALL managed records (bare project-store defs + bundle
+        // defs) so a freshly-imported def can be bundled/exported/duplicated.
+        // `includeReferenceBundles` is retained for source-compat.
+        _ = includeReferenceBundles
+        let matches = library.allManagedRecords(
+            assayID: assayID,
+            speciesCode: speciesCode,
+            scope: scope
+        ).filter { $0.definitionSet.id == definitionID }
         guard !matches.isEmpty else {
             throw HaplotypeDefinitionCommandServiceError.definitionNotFound(definitionID)
         }
@@ -638,7 +608,6 @@ public struct HaplotypeDefinitionCommandService: Sendable {
     private func resolvedDefaults(scope: HaplotypeDefinitionScope) -> [String: String] {
         [
             "projectRoot": projectRoot?.path ?? "",
-            "globalRoot": globalRoot.path,
             "scope": scope.rawValue,
         ]
     }
@@ -720,7 +689,6 @@ public struct HaplotypeDefinitionCommandService: Sendable {
                 explicit: explicit,
                 resolvedDefaults: [
                     "projectRoot": .string(projectRoot?.path ?? ""),
-                    "globalRoot": .string(globalRoot.path),
                     "bundleFormat": .string(MHCAmpliconReferenceBundle.directoryExtension),
                 ]
             ),
@@ -827,7 +795,7 @@ public struct HaplotypeDefinitionCommandService: Sendable {
 }
 
 public enum HaplotypeDefinitionCommandServiceError: Error, LocalizedError, Equatable {
-    case cannotWriteBuiltIn
+    case missingProjectRoot
     case definitionNotFound(String)
     case invalidMHCReferenceBundle(String)
     case missingInput(String)
@@ -839,8 +807,8 @@ public enum HaplotypeDefinitionCommandServiceError: Error, LocalizedError, Equat
 
     public var errorDescription: String? {
         switch self {
-        case .cannotWriteBuiltIn:
-            return "Built-in haplotype definitions cannot be modified. Duplicate them to the project or global library first."
+        case .missingProjectRoot:
+            return "A project is required to write haplotype definitions. Open or create a project first."
         case .definitionNotFound(let id):
             return "Haplotype definition not found: \(id)"
         case .invalidMHCReferenceBundle(let path):

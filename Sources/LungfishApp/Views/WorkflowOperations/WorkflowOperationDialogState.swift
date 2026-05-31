@@ -759,7 +759,10 @@ final class WorkflowOperationDialogState {
     }
 
     private static func defaultHaplotypeAssayID() -> String? {
-        GenotypeHaplotypeDefinitionRegistry.builtIn.assays.first?.id
+        // Definitions now come exclusively from project `.lungfishmhcref` bundles
+        // (built-in/global scopes were removed), so there is no compiled-in assay to
+        // pre-select. The assay is resolved from the chosen bundle/definition instead.
+        nil
     }
 
     private static func ontGenotypingBundleURL(

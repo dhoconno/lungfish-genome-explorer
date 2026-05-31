@@ -320,13 +320,6 @@ private struct WorkflowOperationsDetailPane: View {
             }
         }
         .pickerStyle(.menu)
-        Picker("Source", selection: haplotypeScopeBinding) {
-            Text("Any source").tag("")
-            ForEach(haplotypeScopeOptions, id: \.rawValue) { scope in
-                Text(scope.displayName).tag(scope.rawValue)
-            }
-        }
-        .pickerStyle(.menu)
         Picker("Definition", selection: haplotypeDefinitionBinding) {
             Text("No haplotyping").tag("")
             ForEach(haplotypeDefinitionOptions, id: \.id) { option in
@@ -460,19 +453,6 @@ private struct WorkflowOperationsDetailPane: View {
         )
     }
 
-    private var haplotypeScopeBinding: Binding<String> {
-        Binding(
-            get: { state.selectedHaplotypeDefinitionScope?.rawValue ?? "" },
-            set: { value in
-                guard !value.isEmpty else {
-                    state.setHaplotypeDefinitionScope(nil)
-                    return
-                }
-                state.setHaplotypeDefinitionScope(HaplotypeDefinitionScope(rawValue: value))
-            }
-        )
-    }
-
     private var haplotypeAssayOptions: [(id: String, label: String)] {
         state.haplotypeDefinitionRegistry.assays.map { assay in
             (id: assay.id, label: assay.displayName)
@@ -491,10 +471,6 @@ private struct WorkflowOperationsDetailPane: View {
 
     private var haplotypeSpeciesOptions: [(code: String, label: String)] {
         state.haplotypeSpeciesOptions
-    }
-
-    private var haplotypeScopeOptions: [HaplotypeDefinitionScope] {
-        state.haplotypeScopeOptions
     }
 
     private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {

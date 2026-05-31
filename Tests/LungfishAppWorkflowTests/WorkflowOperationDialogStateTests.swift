@@ -632,30 +632,41 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         let defaults = try makeDefaults()
         let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
         enablementStore.setWorkflow(.ontGenotyping, enabled: true)
+        let projectRoot = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        // Definitions now come exclusively from project `.lungfishmhcref` bundles, so the
+        // selectable definition is provided by a bundle rather than a removed built-in.
+        let definition = Self.mhcDefinition(id: "MHC-exon2-miSeq.rhesus-macaques")
+        try makeMHCReferenceBundle(in: projectRoot, definition: definition)
+
         let state = WorkflowOperationDialogState(
-            projectURL: nil,
+            projectURL: projectRoot,
             enablementStore: enablementStore,
             packageStore: WorkflowLibraryImportedPackageStore(userDefaults: defaults)
         )
 
         state.setHaplotypeAssay(nil)
-        state.setHaplotypeDefinition("MHC-exon2-miSeq.rhesus-macaques")
+        state.setHaplotypeDefinition(definition.id)
 
-        XCTAssertEqual(state.selectedHaplotypeAssayID, "MHC-exon2-miSeq")
-        XCTAssertEqual(state.selectedHaplotypeDefinitionSetID, "MHC-exon2-miSeq.rhesus-macaques")
+        XCTAssertEqual(state.selectedHaplotypeAssayID, definition.assayID)
+        XCTAssertEqual(state.selectedHaplotypeDefinitionSetID, definition.id)
 
+        // Switching to an assay with no matching definition must clear the selection.
         state.setHaplotypeAssay("unsupported-assay")
 
         XCTAssertEqual(state.selectedHaplotypeAssayID, "unsupported-assay")
         XCTAssertNil(state.selectedHaplotypeDefinitionSetID)
     }
 
-    func testHaplotypeDefinitionSelectionIncludesProjectUserDefinitions() throws {
+    func testHaplotypeDefinitionSelectionIncludesProjectBundleDefinitions() throws {
         let defaults = try makeDefaults()
         let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
         enablementStore.setWorkflow(.ontGenotyping, enabled: true)
         let projectRoot = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: projectRoot) }
+        // A project-local custom definition is selectable in the dialog only when it is
+        // packaged as a `.lungfishmhcref` bundle (bare project-store defs are not surfaced
+        // by the bundle-only GUI registry).
         let custom = GenotypeHaplotypeDefinitionSet(
             id: "custom.mhc-exon2.test",
             assayID: "MHC-exon2-miSeq",
@@ -671,7 +682,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
                 )
             ]
         )
-        try HaplotypeDefinitionStore(projectRoot: projectRoot).save(custom)
+        try makeMHCReferenceBundle(in: projectRoot, definition: custom, name: "Custom Test MHC")
 
         let state = WorkflowOperationDialogState(
             projectURL: projectRoot,
@@ -1080,6 +1091,46 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
     private func enableTwelveSAmpliconMatching(in store: WorkflowLibraryEnablementStore) throws {
         let item = try XCTUnwrap(WorkflowLibraryCatalog.item(id: WorkflowLibraryCatalog.twelveSAmpliconMatchingID))
         store.setWorkflow(item, enabled: true)
+    }
+
+    /// Writes a project-scoped `.lungfishmhcref` bundle containing `definition` under the
+    /// project's `Reference Sequences/` folder. The dialog's bundle-only haplotype
+    /// registry resolves definitions exclusively from such bundles.
+    @discardableResult
+    private func makeMHCReferenceBundle(
+        in projectRoot: URL,
+        definition: GenotypeHaplotypeDefinitionSet,
+        name: String = "Project MHC"
+    ) throws -> URL {
+        let bundleURL = projectRoot
+            .appendingPathComponent("Reference Sequences", isDirectory: true)
+            .appendingPathComponent("\(definition.speciesCode)-MHC.lungfishmhcref", isDirectory: true)
+        let definitionRelativePath = "haplotypes/\(definition.id).lungfishhaplotypedef.json"
+        let definitionURL = bundleURL.appendingPathComponent(definitionRelativePath)
+        try FileManager.default.createDirectory(
+            at: definitionURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try ">M1\nACGT\n".write(
+            to: bundleURL.appendingPathComponent("reference.fa"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(definition).write(to: definitionURL, options: .atomic)
+        try MHCAmpliconReferenceBundle.writeManifest(
+            MHCAmpliconReferenceBundleManifest(
+                name: name,
+                referenceFastaPath: "reference.fa",
+                haplotypeDefinitionPaths: [definitionRelativePath],
+                defaultHaplotypeDefinitionID: definition.id,
+                metrics: MHCAmpliconReferenceBundleMetrics(referenceCount: 1, haplotypeDefinitionCount: 1),
+                createdAt: "2026-05-30T00:00:00Z"
+            ),
+            to: bundleURL
+        )
+        return bundleURL.standardizedFileURL
     }
 
     private func helloWorldNextflowPackageURL() -> URL {

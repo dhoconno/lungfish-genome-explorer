@@ -7,12 +7,11 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let projectRoot = root.appendingPathComponent("project.lungfish", isDirectory: true)
-        let globalRoot = root.appendingPathComponent("global", isDirectory: true)
         let sourceURL = root.appendingPathComponent("source.lungfishhaplotypedef.json")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try writeDefinition(makeDefinition(id: "custom.mcm", displayName: "Custom MCM"), to: sourceURL)
 
-        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot, globalRoot: globalRoot)
+        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot)
         let result = try service.importDefinition(
             from: sourceURL,
             scope: .project,
@@ -42,12 +41,11 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let projectRoot = root.appendingPathComponent("project.lungfish", isDirectory: true)
-        let globalRoot = root.appendingPathComponent("global", isDirectory: true)
         let exportURL = root.appendingPathComponent("exported.lungfishhaplotypedef.json")
         let definition = makeDefinition(id: "custom.export", displayName: "Export Me")
         try HaplotypeDefinitionStore(projectRoot: projectRoot).save(definition)
 
-        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot, globalRoot: globalRoot)
+        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot)
         try service.exportDefinition(
             definitionID: definition.id,
             assayID: definition.assayID,
@@ -94,8 +92,7 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
         try writeDefinition(invalid, to: sourceURL)
 
         let service = HaplotypeDefinitionCommandService(
-            projectRoot: root.appendingPathComponent("project.lungfish", isDirectory: true),
-            globalRoot: root.appendingPathComponent("global", isDirectory: true)
+            projectRoot: root.appendingPathComponent("project.lungfish", isDirectory: true)
         )
 
         XCTAssertThrowsError(
@@ -109,7 +106,6 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let projectRoot = root.appendingPathComponent("project.lungfish", isDirectory: true)
-        let globalRoot = root.appendingPathComponent("global", isDirectory: true)
         let bundleURL = projectRoot
             .appendingPathComponent("Reference allele databases", isDirectory: true)
             .appendingPathComponent("MCM-MHC.lungfishmhcref", isDirectory: true)
@@ -129,7 +125,7 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
             locusDefinitions: original.locusDefinitions
         )
 
-        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot, globalRoot: globalRoot)
+        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot)
         let result = try service.saveDefinition(
             edited,
             inMHCReferenceBundle: bundleURL,
@@ -163,7 +159,6 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let projectRoot = root.appendingPathComponent("project.lungfish", isDirectory: true)
-        let globalRoot = root.appendingPathComponent("global", isDirectory: true)
         let bundleURL = projectRoot
             .appendingPathComponent("Reference allele databases", isDirectory: true)
             .appendingPathComponent("MCM-MHC.lungfishmhcref", isDirectory: true)
@@ -176,7 +171,7 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
         let replacementURL = root.appendingPathComponent("replacement.fa")
         try ">M1\nACGT\n>M2\nTTTT\n".write(to: replacementURL, atomically: true, encoding: .utf8)
 
-        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot, globalRoot: globalRoot)
+        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot)
         let storedReferenceURL = try service.replaceReferenceFASTA(
             inMHCReferenceBundle: bundleURL,
             with: replacementURL,
@@ -199,24 +194,32 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
         XCTAssertTrue(provenance.outputs.contains { $0.path == storedReferenceURL.path })
     }
 
-    func testCreateMHCReferenceBundleFromBuiltInDefinitionEmbedsReferenceDefinitionAndProvenance() async throws {
+    func testCreateMHCReferenceBundleFromProjectDefinitionEmbedsReferenceDefinitionAndProvenance() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let projectRoot = root.appendingPathComponent("project.lungfish", isDirectory: true)
-        let globalRoot = root.appendingPathComponent("global", isDirectory: true)
         let referenceURL = root.appendingPathComponent("reference.fa")
         try ">Mafa-B*001\nACGT\n>Mafa-B*002\nTTTT\n".write(to: referenceURL, atomically: true, encoding: .utf8)
         let outputURL = projectRoot
             .appendingPathComponent("Reference allele databases", isDirectory: true)
             .appendingPathComponent("MCM-MHC.lungfishmhcref", isDirectory: true)
-        let definitionID = "MHC-exon2-miSeq.mauritian-cynomolgus-macaques"
+        let definitionID = "custom.mcm-bundle"
+        let definition = makeDefinition(id: definitionID, displayName: "Project MCM")
+        let bundleSourceURL = projectRoot
+            .appendingPathComponent("Reference allele databases", isDirectory: true)
+            .appendingPathComponent("MCM-source.lungfishmhcref", isDirectory: true)
+        try writeMHCReferenceBundle(
+            bundleURL: bundleSourceURL,
+            referenceContents: ">Mafa-B*001\nACGT\n",
+            definition: definition
+        )
 
-        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot, globalRoot: globalRoot)
+        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot)
         let result = try await service.createMHCReferenceBundle(
             definitionIDs: [definitionID],
             assayID: "MHC-exon2-miSeq",
             speciesCode: "MCM",
-            scope: .builtIn,
+            scope: .project,
             referenceFASTA: referenceURL,
             outputURL: outputURL,
             name: "MCM Explicit MHC",
@@ -225,7 +228,7 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
             argv: [
                 "lungfish-cli", "haplotypes", "bundle-create",
                 "--definition", definitionID,
-                "--scope", "built-in",
+                "--scope", "project",
                 "--reference-fasta", referenceURL.path,
                 "--output", outputURL.path,
             ]
@@ -248,7 +251,7 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
         XCTAssertTrue(definitionSources.contains { value in
             guard let fields = value.dictionaryValue else { return false }
             return fields["definitionID"] == .string(definitionID)
-                && fields["scope"] == .string(HaplotypeDefinitionScope.builtIn.rawValue)
+                && fields["scope"] == .string(HaplotypeDefinitionScope.project.rawValue)
         })
     }
 

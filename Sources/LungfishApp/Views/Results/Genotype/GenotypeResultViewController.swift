@@ -80,9 +80,6 @@ final class GenotypeResultViewController: NSViewController {
     /// `<projectRoot>/Haplotype Definitions/`. Populated from the bundle's
     /// surrounding project root in `configure(result:)`.
     private var haplotypeDefinitionStore = HaplotypeDefinitionStore(projectRoot: nil)
-    /// SwiftUI hosting controller for the active definition-editor sheet,
-    /// stored so the sheet can be dismissed programmatically on save/cancel.
-    private var haplotypeDefinitionEditorHost: NSHostingController<GenotypeHaplotypeDefinitionEditor>?
     private var selectedLens: Lens = .summary
     private var displayState = GenotypeResultDisplayState()
     private var currentSharedCall: ONTGenotypeSharedCall?
@@ -1476,7 +1473,7 @@ final class GenotypeResultViewController: NSViewController {
             addAuditSection(title: "Manual Haplotyping", contents: [makeManualHaplotypingHost()])
         }
         addAuditSection(title: "Dropout Thresholds", contents: [makeDropoutThresholdHost()])
-        addAuditSection(title: "Haplotype Definitions", contents: [makeHaplotypeDefinitionsRow()])
+        addAuditSection(title: "Haplotype Definition", contents: [makeActiveHaplotypeDefinitionRow()])
     }
 
     private func makeAuditTimelineHost(entries: [GenotypeAnnotationSidecar.AuditEntry]) -> NSView {
@@ -1512,10 +1509,13 @@ final class GenotypeResultViewController: NSViewController {
         group.trailingAnchor.constraint(equalTo: artifactStack.trailingAnchor, constant: 0).isActive = true
     }
 
-    /// List of all available haplotype definition sets — built-in
-    /// (read-only) plus user-defined (editable, deletable). Each row
-    /// surfaces the set's name + locus count + an action.
-    private func makeHaplotypeDefinitionsRow() -> NSView {
+    /// A read-only, provenance-only indicator of the haplotype definition the
+    /// analysis was run against. Definition CRUD now lives solely in the Tools
+    /// menu manager window; the analysis view only reports the active/recorded
+    /// definition. Shows the live definition's display name when a matching
+    /// project bundle is present, otherwise the recorded definition id so past
+    /// analyses still surface their provenance even with no live bundle.
+    private func makeActiveHaplotypeDefinitionRow() -> NSView {
         let container = NSStackView()
         container.translatesAutoresizingMaskIntoConstraints = false
         container.orientation = .vertical
@@ -1523,236 +1523,36 @@ final class GenotypeResultViewController: NSViewController {
         container.spacing = 6
         container.edgeInsets = NSEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
 
-        let description = NSTextField(wrappingLabelWithString:
-            "Built-in sets ship with Lungfish and are read-only — choose Clone to make an editable copy. User sets live as JSON under \"Haplotype Definitions/\" in the project root, can be edited or deleted, and are versioned alongside the bundle's provenance."
+        let name = activeHaplotypeDefinitionDisplayName()
+        let label = NSTextField(labelWithString: "Definition: \(name)")
+        label.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        container.addArrangedSubview(label)
+
+        let hint = NSTextField(wrappingLabelWithString:
+            "Manage haplotype definitions from Tools \u{203A} Haplotype Definitions\u{2026}. Each definition is a project .lungfishmhcref bundle that pairs its diagnostic alleles with a reference FASTA."
         )
-        description.font = NSFont.systemFont(ofSize: 10)
-        description.textColor = .secondaryLabelColor
-        description.maximumNumberOfLines = 4
-        container.addArrangedSubview(description)
-
-        // Built-in sets (read-only).
-        let builtInSets = GenotypeHaplotypeDefinitionRegistry.builtIn
-            .assays.flatMap(\.definitionSets)
-        let activeDefinitionID = activeHaplotypeDefinitionSetID()
-        for set in builtInSets {
-            container.addArrangedSubview(makeHaplotypeDefinitionRow(
-                set: set,
-                isUserDefined: false,
-                isActive: set.id == activeDefinitionID
-            ))
-        }
-
-        // User sets (editable + deletable).
-        let userSets = haplotypeDefinitionStore.loadAllUserSets()
-        if !userSets.isEmpty {
-            let sep = NSBox()
-            sep.boxType = .separator
-            container.addArrangedSubview(sep)
-            for set in userSets {
-                container.addArrangedSubview(makeHaplotypeDefinitionRow(
-                    set: set,
-                    isUserDefined: true,
-                    isActive: set.id == activeDefinitionID
-                ))
-            }
-        }
-
-        let newButton = NSButton(title: "New empty definition…", target: self, action: #selector(handleNewHaplotypeDefinition(_:)))
-        newButton.controlSize = .small
-        container.addArrangedSubview(newButton)
+        hint.font = NSFont.systemFont(ofSize: 10)
+        hint.textColor = .secondaryLabelColor
+        hint.maximumNumberOfLines = 3
+        container.addArrangedSubview(hint)
 
         return container
     }
 
-    private func makeHaplotypeDefinitionRow(
-        set: GenotypeHaplotypeDefinitionSet,
-        isUserDefined: Bool,
-        isActive: Bool
-    ) -> NSView {
-        let row = NSStackView()
-        row.orientation = .horizontal
-        row.spacing = 8
-        row.alignment = .centerY
-        let icon = NSImageView()
-        icon.image = NSImage(systemSymbolName: isUserDefined ? "person.crop.circle" : "lock.shield",
-                             accessibilityDescription: isUserDefined ? "User-defined" : "Built-in")
-        icon.contentTintColor = isUserDefined ? .lungfishOrange : .secondaryLabelColor
-        icon.widthAnchor.constraint(equalToConstant: 16).isActive = true
-        let name = NSTextField(labelWithString: set.displayName)
-        name.font = NSFont.systemFont(ofSize: 11, weight: .medium)
-        let locusCount = set.locusDefinitions.count
-        let haplotypeCount = set.locusDefinitions.reduce(0) { $0 + $1.haplotypes.count }
-        let counts = NSTextField(labelWithString: "\(locusCount) loci · \(haplotypeCount) haplotypes")
-        counts.font = NSFont.systemFont(ofSize: 10)
-        counts.textColor = .secondaryLabelColor
-        row.addArrangedSubview(icon)
-        row.addArrangedSubview(name)
-        row.addArrangedSubview(counts)
-        if isActive {
-            let active = NSTextField(labelWithString: "Active")
-            active.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
-            active.textColor = .controlAccentColor
-            row.addArrangedSubview(active)
+    /// Resolves the definition name to show in the read-only indicator:
+    /// the live definition's display name when a project bundle matches,
+    /// otherwise the recorded definition id from the bundle's analysis or
+    /// manifest provenance.
+    private func activeHaplotypeDefinitionDisplayName() -> String {
+        if let result, let definition = definitionSetForResult(result) {
+            return definition.displayName
         }
-        row.addArrangedSubview(NSView())  // flexible spacer
-
-        if !isActive {
-            let useButton = NSButton(title: "Use", target: self, action: #selector(handleUseHaplotypeDefinition(_:)))
-            useButton.identifier = NSUserInterfaceItemIdentifier("use:\(set.id)")
-            useButton.controlSize = .small
-            row.addArrangedSubview(useButton)
+        if let result,
+           let recordedID = result.haplotypeAnalysis?.definitionSetID
+               ?? result.manifest.haplotypeDefinitionSetID {
+            return recordedID
         }
-
-        if isUserDefined {
-            let editButton = NSButton(title: "Edit…", target: self, action: #selector(handleEditHaplotypeDefinition(_:)))
-            editButton.identifier = NSUserInterfaceItemIdentifier("edit:\(set.id)")
-            editButton.controlSize = .small
-            row.addArrangedSubview(editButton)
-            let deleteButton = NSButton(title: "Delete", target: self, action: #selector(handleDeleteHaplotypeDefinition(_:)))
-            deleteButton.identifier = NSUserInterfaceItemIdentifier("delete:\(set.id)")
-            deleteButton.controlSize = .small
-            row.addArrangedSubview(deleteButton)
-        } else {
-            let cloneButton = NSButton(title: "Clone…", target: self, action: #selector(handleCloneHaplotypeDefinition(_:)))
-            cloneButton.identifier = NSUserInterfaceItemIdentifier("clone:\(set.id)")
-            cloneButton.controlSize = .small
-            row.addArrangedSubview(cloneButton)
-            let viewButton = NSButton(title: "View…", target: self, action: #selector(handleViewHaplotypeDefinition(_:)))
-            viewButton.identifier = NSUserInterfaceItemIdentifier("view:\(set.id)")
-            viewButton.controlSize = .small
-            row.addArrangedSubview(viewButton)
-        }
-        return row
-    }
-
-    @objc private func handleUseHaplotypeDefinition(_ sender: NSButton) {
-        guard let raw = sender.identifier?.rawValue,
-              let id = raw.split(separator: ":", maxSplits: 1).last.map(String.init) else {
-            return
-        }
-        do {
-            try useHaplotypeDefinition(id: id)
-        } catch {
-            presentSheetAlert(error: error)
-        }
-    }
-
-    @objc private func handleCloneHaplotypeDefinition(_ sender: NSButton) {
-        guard let raw = sender.identifier?.rawValue,
-              let id = raw.split(separator: ":", maxSplits: 1).last.map(String.init),
-              let source = GenotypeHaplotypeDefinitionRegistry.builtIn.definitionSet(id: id) else {
-            return
-        }
-        // Build a new user-defined copy with a fresh ID + bumped name
-        // so editing doesn't collide with the source built-in.
-        let clone = GenotypeHaplotypeDefinitionSet(
-            id: "custom.\(id).\(Int(Date().timeIntervalSince1970))",
-            assayID: source.assayID,
-            displayName: "\(source.displayName) (Copy)",
-            speciesName: source.speciesName,
-            speciesCode: source.speciesCode,
-            prefix: source.prefix,
-            locusDefinitions: source.locusDefinitions
-        )
-        presentHaplotypeDefinitionEditor(draft: clone)
-    }
-
-    @objc private func handleViewHaplotypeDefinition(_ sender: NSButton) {
-        guard let raw = sender.identifier?.rawValue,
-              let id = raw.split(separator: ":", maxSplits: 1).last.map(String.init),
-              let set = GenotypeHaplotypeDefinitionRegistry.builtIn.definitionSet(id: id) else {
-            return
-        }
-        // Built-in sets are read-only; open the editor for inspection
-        // but Save is disabled (the editor's save callback also no-ops
-        // when the id matches a built-in).
-        presentHaplotypeDefinitionEditor(draft: set, isReadOnly: true)
-    }
-
-    @objc private func handleDeleteHaplotypeDefinition(_ sender: NSButton) {
-        guard let raw = sender.identifier?.rawValue,
-              let id = raw.split(separator: ":", maxSplits: 1).last.map(String.init) else {
-            return
-        }
-        let alert = NSAlert()
-        alert.messageText = "Delete this haplotype definition?"
-        alert.informativeText = "Removes the JSON file under \"Haplotype Definitions/\". This cannot be undone."
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Delete")
-        alert.addButton(withTitle: "Cancel")
-        alert.beginSheetModal(for: view.window ?? NSApp.keyWindow ?? NSWindow()) { [weak self] response in
-            guard response == .alertFirstButtonReturn, let self else { return }
-            do {
-                try self.haplotypeDefinitionStore.delete(id: id)
-                self.refreshAfterHaplotypeDefinitionChange()
-            } catch {
-                self.presentSheetAlert(error: error)
-            }
-        }
-    }
-
-    @objc private func handleNewHaplotypeDefinition(_ sender: NSButton) {
-        let blank = GenotypeHaplotypeDefinitionSet(
-            id: "custom.\(Int(Date().timeIntervalSince1970))",
-            assayID: "MHC-exon2-miSeq",
-            displayName: "New definition",
-            speciesName: "Custom",
-            speciesCode: "CUS",
-            prefix: "",
-            locusDefinitions: []
-        )
-        presentHaplotypeDefinitionEditor(draft: blank)
-    }
-
-    @objc private func handleEditHaplotypeDefinition(_ sender: NSButton) {
-        guard let raw = sender.identifier?.rawValue,
-              let id = raw.split(separator: ":", maxSplits: 1).last.map(String.init),
-              let existing = haplotypeDefinitionStore.loadAllUserSets().first(where: { $0.id == id }) else {
-            return
-        }
-        presentHaplotypeDefinitionEditor(draft: existing)
-    }
-
-    private func presentHaplotypeDefinitionEditor(
-        draft: GenotypeHaplotypeDefinitionSet,
-        isReadOnly: Bool = false
-    ) {
-        let editor = GenotypeHaplotypeDefinitionEditor(
-            draft: draft,
-            isReadOnly: isReadOnly,
-            onSave: { [weak self] saved in
-                guard let self else { return }
-                guard !isReadOnly else {
-                    self.dismissHaplotypeDefinitionEditor()
-                    return
-                }
-                do {
-                    try self.haplotypeDefinitionStore.save(saved)
-                    self.dismissHaplotypeDefinitionEditor()
-                    self.refreshAfterHaplotypeDefinitionChange()
-                } catch {
-                    self.presentSheetAlert(error: error)
-                }
-            },
-            onCancel: { [weak self] in
-                self?.dismissHaplotypeDefinitionEditor()
-            }
-        )
-        let hosting = NSHostingController(rootView: editor)
-        hosting.view.frame = NSRect(x: 0, y: 0, width: 760, height: 520)
-        haplotypeDefinitionEditorHost = hosting
-        guard let window = view.window ?? NSApp.keyWindow else {
-            NSApp.presentError(NSError(domain: "Lungfish", code: 0))
-            return
-        }
-        window.beginSheet(NSWindow(contentViewController: hosting), completionHandler: nil)
-    }
-
-    private func dismissHaplotypeDefinitionEditor() {
-        guard let host = haplotypeDefinitionEditorHost else { return }
-        host.view.window?.sheetParent?.endSheet(host.view.window!)
-        haplotypeDefinitionEditorHost = nil
+        return "None recorded"
     }
 
     private func makeDropoutThresholdHost() -> NSView {
@@ -3102,7 +2902,81 @@ final class GenotypeResultViewController: NSViewController {
            let definition = registry.definitionSet(id: id) {
             return (definition, .inferredPreview)
         }
+        // Provenance-only fallback: built-in/global definition scopes were
+        // removed, so a result whose recorded definition has no live project
+        // bundle would otherwise resolve to nothing. Reconstruct the definition
+        // from the analysis's own recorded diagnostic alleles so the diagnostic
+        // matrix still renders exactly what was used to make the call.
+        if let recorded = result.haplotypeAnalysis,
+           let synthesized = Self.synthesizedDefinitionSet(from: recorded) {
+            return (synthesized, .bundleAnalysis)
+        }
+        if let recorded = activeHaplotypeAnalysis(),
+           let synthesized = Self.synthesizedDefinitionSet(from: recorded) {
+            return (synthesized, .bundleAnalysis)
+        }
         return nil
+    }
+
+    /// Reconstructs a `GenotypeHaplotypeDefinitionSet` from a recorded
+    /// `GenotypeHaplotypeAnalysis`. The analysis carries, per locus, the matched
+    /// haplotype names + their diagnostic alleles, which is exactly the data the
+    /// diagnostic-allele matrix needs. Used as a provenance-only display source
+    /// when no live definition bundle matches the recorded definition id.
+    static func synthesizedDefinitionSet(
+        from analysis: GenotypeHaplotypeAnalysis
+    ) -> GenotypeHaplotypeDefinitionSet? {
+        var orderedLoci: [String] = []
+        var sourceLocusByLocus: [String: String] = [:]
+        var haplotypesByLocus: [String: [String: [String]]] = [:]
+        var haplotypeOrderByLocus: [String: [String]] = [:]
+
+        for sample in analysis.samples {
+            for call in sample.calls {
+                if haplotypesByLocus[call.locus] == nil {
+                    orderedLoci.append(call.locus)
+                    haplotypesByLocus[call.locus] = [:]
+                    haplotypeOrderByLocus[call.locus] = []
+                    sourceLocusByLocus[call.locus] = call.sourceLocus
+                }
+                for matched in call.matchedHaplotypes {
+                    if haplotypesByLocus[call.locus]?[matched.name] == nil {
+                        haplotypeOrderByLocus[call.locus]?.append(matched.name)
+                    }
+                    // Prefer the richest diagnostic-allele list seen for a haplotype.
+                    let existing = haplotypesByLocus[call.locus]?[matched.name] ?? []
+                    if matched.diagnosticAlleles.count >= existing.count {
+                        haplotypesByLocus[call.locus]?[matched.name] = matched.diagnosticAlleles
+                    }
+                }
+            }
+        }
+
+        let locusDefinitions: [GenotypeHaplotypeLocusDefinition] = orderedLoci.compactMap { locus in
+            guard let names = haplotypeOrderByLocus[locus], !names.isEmpty else { return nil }
+            let haplotypes = names.map { name in
+                GenotypeHaplotypeDefinition(
+                    name: name,
+                    diagnosticAlleles: haplotypesByLocus[locus]?[name] ?? []
+                )
+            }
+            return GenotypeHaplotypeLocusDefinition(
+                locus: locus,
+                sourceLocus: sourceLocusByLocus[locus] ?? locus,
+                haplotypes: haplotypes
+            )
+        }
+        guard !locusDefinitions.isEmpty else { return nil }
+
+        return GenotypeHaplotypeDefinitionSet(
+            id: analysis.definitionSetID,
+            assayID: analysis.assayID,
+            displayName: analysis.definitionSetName,
+            speciesName: analysis.speciesName,
+            speciesCode: "",
+            prefix: "",
+            locusDefinitions: locusDefinitions
+        )
     }
 
     private func activeHaplotypeDefinitionSetID() -> String? {

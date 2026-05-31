@@ -238,6 +238,38 @@ final class ImportCenterMenuTests: XCTestCase {
         XCTAssertNotNil(toolsMenu.items.first(where: { $0.title == "Haplotype Definitions…" }))
     }
 
+    func testTwelveSCapabilityDrivesWorkflowOperationsButNotHaplotypeDefinitions() throws {
+        let suiteName = "WorkflowFeatureAvailability-12S-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = WorkflowLibraryEnablementStore(userDefaults: defaults)
+
+        // ONT genotyping (which declares `.haplotypeDefinitions`) is enabled by
+        // default; disable it so this test isolates the 12S capability. With only
+        // 12S amplicon matching enabled, the 12S item declares `.workflowOperations`
+        // (and NOT `.haplotypeDefinitions`), so the Tools menu surfaces Workflow
+        // Operations but not Haplotype Definitions.
+        store.setWorkflow(.ontGenotyping, enabled: false)
+        store.setWorkflow(WorkflowLibraryCatalog.twelveSAmpliconMatchingItem, enabled: true)
+        let twelveSOnly = WorkflowFeatureAvailability.current(enablementStore: store)
+        XCTAssertTrue(twelveSOnly.hasWorkflowOperations)
+        XCTAssertFalse(twelveSOnly.hasHaplotypeDefinitions)
+    }
+
+    func testONTGenotypingCapabilityDrivesBothWorkflowFeatures() throws {
+        let suiteName = "WorkflowFeatureAvailability-ONT-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = WorkflowLibraryEnablementStore(userDefaults: defaults)
+
+        // ONT genotyping declares both `.workflowOperations` and
+        // `.haplotypeDefinitions`, so enabling it surfaces both Tools-menu features.
+        store.setWorkflow(.ontGenotyping, enabled: true)
+        let availability = WorkflowFeatureAvailability.current(enablementStore: store)
+        XCTAssertTrue(availability.hasWorkflowOperations)
+        XCTAssertTrue(availability.hasHaplotypeDefinitions)
+    }
+
     func testToolsMenuOmitsGenericNFCoreWorkflowSurface() throws {
         let _ = NSApplication.shared
         let mainMenu = MainMenu.createMainMenu()

@@ -7,9 +7,8 @@ import LungfishCore
 /// Definition sets live as JSON files under a `Haplotype Definitions/`
 /// folder in the project root, with the `.lungfishhaplotypedef.json`
 /// suffix. Each file holds one `GenotypeHaplotypeDefinitionSet` (which is
-/// already `Codable`). The store layers user-defined sets on top of the
-/// built-in registry, so the genotype workflow + inspector pick up user
-/// definitions automatically.
+/// already `Codable`). The store surfaces these on-disk user definitions
+/// so the genotype workflow + inspector pick them up automatically.
 ///
 /// **Why JSON files (not a single registry blob):** one file per
 /// definition set is easier to diff, share, and version in git. Users can
@@ -310,47 +309,25 @@ public struct HaplotypeDefinitionStore: Sendable {
         }.joined(separator: " ")
     }
 
-    /// Merge the built-in registry with all user-defined sets. User sets
-    /// with IDs matching built-in IDs override the built-in entry. The
-    /// returned registry is what the inspector + workflow should consult.
+    /// Registry built from all user-defined sets currently on disk. Each
+    /// definition set lives in its own JSON file under the project's
+    /// `Haplotype Definitions/` folder (or inside a `.lungfishmhcref`
+    /// bundle); there is no compiled-in source any more. Sets are grouped
+    /// by `assayID` into assays so the inspector + workflow can resolve a
+    /// definition from its id.
     public func mergedRegistry() -> GenotypeHaplotypeDefinitionRegistry {
-        let builtIn = GenotypeHaplotypeDefinitionRegistry.builtIn
         let userSets = loadAllUserSets()
-        guard !userSets.isEmpty else { return builtIn }
-        // Group user sets by assayID; merge into the matching built-in
-        // assay (or create a new assay when the assay id is unknown).
         let userByAssay = Dictionary(grouping: userSets, by: \.assayID)
-        var assays: [GenotypeHaplotypeAssay] = builtIn.assays.map { assay in
-            let userInThisAssay = userByAssay[assay.id] ?? []
-            var merged = assay.definitionSets
-            for userSet in userInThisAssay {
-                if let existing = merged.firstIndex(where: { $0.id == userSet.id }) {
-                    merged[existing] = userSet
-                } else {
-                    merged.append(userSet)
-                }
-            }
-            return GenotypeHaplotypeAssay(
-                id: assay.id,
-                displayName: assay.displayName,
-                definitionSets: merged
-            )
-        }
-        // Surface user sets whose assay isn't in the built-in registry
-        // as new assays so the picker can still find them.
-        let knownAssayIDs = Set(assays.map(\.id))
-        let novelAssayIDs = userByAssay.keys.filter { !knownAssayIDs.contains($0) }
-        for assayID in novelAssayIDs {
-            let sets = userByAssay[assayID] ?? []
-            assays.append(GenotypeHaplotypeAssay(
+        let assays = userByAssay.keys.sorted().map { assayID in
+            GenotypeHaplotypeAssay(
                 id: assayID,
                 displayName: assayID,
-                definitionSets: sets
-            ))
+                definitionSets: userByAssay[assayID] ?? []
+            )
         }
         return GenotypeHaplotypeDefinitionRegistry(
             assays: assays,
-            defaultDefinitionSetID: builtIn.defaultDefinitionSetID
+            defaultDefinitionSetID: nil
         )
     }
 }
