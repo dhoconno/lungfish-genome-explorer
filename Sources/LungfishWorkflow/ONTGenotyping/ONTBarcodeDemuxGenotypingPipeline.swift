@@ -288,6 +288,7 @@ public enum ONTBarcodeDemuxGenotypingError: Error, LocalizedError, Sendable, Equ
     case noFASTQSources(URL)
     case noInputFASTQs
     case unsupportedIlluminaInput(URL)
+    case duplicateIlluminaSampleID(String)
     case ambiguousGenotypingMode
     case processFailed(tool: String, status: Int32, stderr: String)
     case filterFailed(status: Int32, stderr: String)
@@ -318,6 +319,8 @@ public enum ONTBarcodeDemuxGenotypingError: Error, LocalizedError, Sendable, Equ
             return "No input FASTQ files could be resolved for genotyping."
         case .unsupportedIlluminaInput(let url):
             return "Illumina genotyping requires each input to be an already merged single-FASTQ sample bundle. Import paired R1/R2 reads with the Illumina Amplicon Merge recipe first: \(url.path)"
+        case .duplicateIlluminaSampleID(let sampleID):
+            return "Two Illumina input bundles resolved to the same sample identifier \(sampleID); rename the inputs so their sanitized names are distinct."
         case .ambiguousGenotypingMode:
             return "Could not infer genotyping mode. Choose ONT barcode demux or Illumina sample bundles explicitly."
         case .processFailed(let tool, let status, let stderr):
@@ -602,7 +605,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let illuminaPreparation: IlluminaPreparation?
     }
 
-    private struct IlluminaSampleInput {
+    struct IlluminaSampleInput {
         let sampleID: String
         let sourceURL: URL
         let fastqURL: URL
@@ -834,6 +837,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         stagingDirectory: URL
     ) async throws -> [IlluminaSampleInput] {
         var samples: [IlluminaSampleInput] = []
+        var assignedIDs = Set<String>()
         for url in urls.map(\.standardizedFileURL) {
             let resolvedFASTQs: [URL]
             if FASTQBundle.isFASTQFileURL(url) {
@@ -846,7 +850,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             guard resolvedFASTQs.count == 1, let fastqURL = resolvedFASTQs.first else {
                 throw ONTBarcodeDemuxGenotypingError.unsupportedIlluminaInput(url)
             }
-            let sampleID = sampleID(from: url)
+            let baseID = sampleID(from: url)
+            let sampleID = Self.disambiguatedSampleID(baseID, existing: assignedIDs)
+            assignedIDs.insert(sampleID)
             let prefixedFASTQURL = stagingDirectory
                 .appendingPathComponent("\(safeFilenameStem(sampleID)).sample-prefixed.fastq")
             let readCount = try await writeSamplePrefixedFASTQ(
@@ -862,7 +868,36 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 readCount: readCount
             ))
         }
+        // Defense-in-depth: disambiguation above guarantees uniqueness, but verify
+        // before returning so a regression surfaces as a clear error, not data loss.
+        let ids = samples.map(\.sampleID)
+        let firstDuplicate = ids.first { id in ids.filter { $0 == id }.count > 1 }
+        guard firstDuplicate == nil else {
+            throw ONTBarcodeDemuxGenotypingError.duplicateIlluminaSampleID(firstDuplicate ?? "")
+        }
         return samples
+    }
+
+    /// Returns `base` when unused, otherwise the first `base-N` (N >= 2) not yet
+    /// in `existing`, so two inputs that sanitize to the same ID stay distinct.
+    private static func disambiguatedSampleID(_ base: String, existing: Set<String>) -> String {
+        guard existing.contains(base) else { return base }
+        var bump = 2
+        var candidate = "\(base)-\(bump)"
+        while existing.contains(candidate) {
+            bump += 1
+            candidate = "\(base)-\(bump)"
+        }
+        return candidate
+    }
+
+    /// Test seam exposing the private Illumina sample-input resolution so the
+    /// disambiguation behavior can be exercised in isolation.
+    static func resolveIlluminaSampleInputsForTesting(
+        from urls: [URL],
+        stagingDirectory: URL
+    ) async throws -> [IlluminaSampleInput] {
+        try await resolveIlluminaSampleInputs(from: urls, stagingDirectory: stagingDirectory)
     }
 
     private static func writeSamplePrefixedFASTQ(

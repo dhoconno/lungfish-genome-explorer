@@ -387,6 +387,23 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertFalse(canonicalEnvelope.files.contains { $0.path.hasSuffix("merge-illumina-pairs.py") })
     }
 
+    func testResolveIlluminaSampleInputsDisambiguatesCollidingSanitizedSampleIDs() async throws {
+        let tmp = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let bundleA = try makeIlluminaFastqBundle(named: "Sample 1", reads: ["rA1", "rA2"], in: tmp)
+        let bundleB = try makeIlluminaFastqBundle(named: "Sample_1", reads: ["rB1"], in: tmp)
+        let staging = tmp.appendingPathComponent("staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+
+        let samples = try await ONTBarcodeDemuxGenotypingPipeline
+            .resolveIlluminaSampleInputsForTesting(from: [bundleA, bundleB], stagingDirectory: staging)
+
+        XCTAssertEqual(samples.count, 2)
+        XCTAssertEqual(Set(samples.map(\.sampleID)).count, 2, "Sanitized sample IDs must be unique")
+        XCTAssertEqual(Set(samples.map(\.prefixedFASTQURL)).count, 2, "Prefixed FASTQ destinations must be unique")
+        XCTAssertEqual(samples.map(\.readCount).reduce(0, +), 3)  // no overwrite: 2 + 1
+    }
+
     func testRunRejectsInvalidHaplotypeDefinitionBeforeCreatingOutputs() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -854,6 +871,21 @@ print(json.dumps(payload))
         try "@\(name):1:1:1:1:1:1\n\(sequence)\n+\n\(String(repeating: "I", count: sequence.count))\n"
             .write(to: fastqURL, atomically: true, encoding: .utf8)
         return (bundleURL, fastqURL)
+    }
+
+    private func makeIlluminaFastqBundle(
+        named name: String,
+        reads: [String],
+        in root: URL
+    ) throws -> URL {
+        let bundleURL = root.appendingPathComponent("\(name).lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let fastqURL = bundleURL.appendingPathComponent("reads.fastq")
+        let records = reads.map { readID in
+            "@\(readID)\nACGTACGT\n+\n\(String(repeating: "I", count: 8))\n"
+        }
+        try records.joined().write(to: fastqURL, atomically: true, encoding: .utf8)
+        return bundleURL
     }
 
     private func makeFakeONTGenotypingCondaRoot(at root: URL) throws -> URL {
