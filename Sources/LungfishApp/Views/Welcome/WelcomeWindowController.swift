@@ -6,6 +6,7 @@
 
 import AppKit
 import SwiftUI
+import LungfishAppKit
 import LungfishCore
 import LungfishWorkflow
 import os.log

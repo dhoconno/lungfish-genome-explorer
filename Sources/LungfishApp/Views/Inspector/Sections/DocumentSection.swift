@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import SwiftUI
+import LungfishAppKit
 import LungfishCore
 import LungfishIO
 

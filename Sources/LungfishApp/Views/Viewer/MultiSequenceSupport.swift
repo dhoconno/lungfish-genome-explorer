@@ -650,9 +650,6 @@ public extension Notification.Name {
     /// Posted when annotation visibility changes for any sequence
     static let annotationVisibilityChanged = Notification.Name("com.lungfish.annotationVisibilityChanged")
 
-    /// Posted when the persisted metagenomics panel layout preference changes.
-    static let metagenomicsLayoutSwapRequested = Notification.Name("com.lungfish.metagenomicsLayoutSwapRequested")
-
     /// Posted when the persisted assembly panel layout preference changes.
     static let assemblyLayoutSwapRequested = Notification.Name("com.lungfish.assemblyLayoutSwapRequested")
 

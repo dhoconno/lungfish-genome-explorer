@@ -10,7 +10,7 @@ import LungfishIO
 /// Virtual FASTQ bundles have internal file names (e.g., "materialized.fastq") that
 /// should not be shown to users. This utility checks the bundle manifest's `.name`
 /// field first, then falls back to the URL's last path component.
-enum FASTQDisplayNameResolver {
+public enum FASTQDisplayNameResolver {
 
     /// Resolve a display name for a sample ID.
     ///
@@ -18,7 +18,7 @@ enum FASTQDisplayNameResolver {
     /// 1. FASTQDerivedBundleManifest.name if the sample ID matches a bundle in the project
     /// 2. Bundle URL's last path component minus extension
     /// 3. Raw sample ID as fallback
-    static func resolveDisplayName(sampleId: String, projectURL: URL? = nil) -> String {
+    public static func resolveDisplayName(sampleId: String, projectURL: URL? = nil) -> String {
         if let projectURL {
             let fm = FileManager.default
             // Scan project directory for .lungfishfastq bundles

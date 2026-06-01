@@ -1,7 +1,12 @@
 import Foundation
 
+public extension Notification.Name {
+    /// Posted when the persisted metagenomics panel layout preference changes.
+    static let metagenomicsLayoutSwapRequested = Notification.Name("com.lungfish.metagenomicsLayoutSwapRequested")
+}
+
 @MainActor
-enum MetagenomicsPanelLayout: String, CaseIterable, Sendable {
+public enum MetagenomicsPanelLayout: String, CaseIterable, Sendable {
     case detailLeading
     case listLeading
     case stacked
@@ -9,7 +14,7 @@ enum MetagenomicsPanelLayout: String, CaseIterable, Sendable {
     nonisolated static let defaultsKey = "metagenomicsPanelLayout"
     nonisolated static let legacyTableOnLeftKey = "metagenomicsTableOnLeft"
 
-    static func current(defaults: UserDefaults = .standard) -> Self {
+    public static func current(defaults: UserDefaults = .standard) -> Self {
         if let raw = defaults.string(forKey: defaultsKey),
            let value = Self(rawValue: raw) {
             return value
@@ -18,7 +23,7 @@ enum MetagenomicsPanelLayout: String, CaseIterable, Sendable {
         return defaults.bool(forKey: legacyTableOnLeftKey) ? .listLeading : .detailLeading
     }
 
-    func persist(
+    public func persist(
         defaults: UserDefaults = .standard,
         notificationCenter: NotificationCenter = .default
     ) {

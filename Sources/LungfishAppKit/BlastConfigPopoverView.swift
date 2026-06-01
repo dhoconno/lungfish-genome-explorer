@@ -25,7 +25,7 @@ import SwiftUI
 /// The slider range is 1...50, clamped to the number of available clade reads.
 /// When the user clicks "Run BLAST", the ``onRun`` callback fires with the
 /// selected read count.
-struct BlastConfigPopoverView: View {
+public struct BlastConfigPopoverView: View {
 
     /// The taxon name for the title label.
     let taxonName: String
@@ -38,6 +38,12 @@ struct BlastConfigPopoverView: View {
 
     /// The selected number of reads to submit.
     @State private var readCount: Double = 20
+
+    public init(taxonName: String, readsClade: Int, onRun: @escaping (Int) -> Void) {
+        self.taxonName = taxonName
+        self.readsClade = readsClade
+        self.onRun = onRun
+    }
 
     /// Maximum slider value, capped to available reads.
     private var maxReads: Int {
@@ -54,7 +60,7 @@ struct BlastConfigPopoverView: View {
         readsClade >= 1
     }
 
-    var body: some View {
+    public var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Verify \"\(taxonName)\" via NCBI BLAST")
                 .font(.headline)

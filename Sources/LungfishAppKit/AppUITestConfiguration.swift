@@ -1,21 +1,21 @@
 import Foundation
 
-enum AppUITestBackendMode: String, Equatable, Sendable {
+public enum AppUITestBackendMode: String, Equatable, Sendable {
     case deterministic
     case liveSmoke = "live-smoke"
 }
 
-struct AppUITestConfiguration: Equatable, Sendable {
-    let isEnabled: Bool
-    let scenarioName: String?
-    let projectPath: URL?
-    let welcomeOpenProjectPath: URL?
-    let welcomeCreateProjectPath: URL?
+public struct AppUITestConfiguration: Equatable, Sendable {
+    public let isEnabled: Bool
+    public let scenarioName: String?
+    public let projectPath: URL?
+    public let welcomeOpenProjectPath: URL?
+    public let welcomeCreateProjectPath: URL?
     let eventLogPath: URL?
     let fixtureRootPath: URL?
-    let backendMode: AppUITestBackendMode
+    public let backendMode: AppUITestBackendMode
 
-    init(arguments: [String], environment: [String: String]) {
+    public init(arguments: [String], environment: [String: String]) {
         let explicitFlag = arguments.contains("--ui-test-mode")
         let environmentFlag = environment["LUNGFISH_UI_TEST_MODE"] == "1"
 
@@ -47,7 +47,7 @@ struct AppUITestConfiguration: Equatable, Sendable {
         ) ?? .deterministic
     }
 
-    func appendEvent(_ event: String) {
+    public func appendEvent(_ event: String) {
         guard let eventLogPath else { return }
 
         let line = event + "\n"
@@ -69,7 +69,7 @@ struct AppUITestConfiguration: Equatable, Sendable {
         }
     }
 
-    static let current = AppUITestConfiguration(
+    public static let current = AppUITestConfiguration(
         arguments: ProcessInfo.processInfo.arguments,
         environment: ProcessInfo.processInfo.environment
     )
