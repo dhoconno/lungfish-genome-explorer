@@ -469,6 +469,21 @@ EOF
 
 ## Phase 4 — Metagenomics infra + leaves
 
+> **Discovered during Phase 1 (Task 1.2):** `MetagenomicsDrawerView` (+ `MetagenomicsDrawerDelegate`,
+> `MetagenomicsDrawerTab`, `MetagenomicsDividerView`) is NOT kernel-clean — it holds stored
+> properties of two App-internal types `SampleFilterDrawerTab`
+> (`Views/Metagenomics/SampleFilterDrawerTab.swift`) and `TaxaCollectionsDrawerView`
+> (`Views/Metagenomics/TaxaCollectionsDrawerView.swift`), which are themselves used by the
+> Taxonomy hub. It was therefore LEFT in App (the audit's "clean" tag was wrong for it).
+> `EsVirituResultViewController` and `TaxTriageResultViewController` reference
+> `MetagenomicsDrawerView` directly, so those two leaves cannot be extracted until this is
+> resolved. Before extracting EsViritu/TaxTriage, decide at Phase-4 time whether to (a) invert
+> the drawer dependency (the result VC exposes a drawer-content callback the App satisfies, like
+> the 12S pattern), or (b) promote `SampleFilterDrawerTab` + `TaxaCollectionsDrawerView` if they
+> turn out to be kernel-safe on closer inspection. Prefer (a) — inversion — since those two
+> types are Taxonomy-hub-coupled. NaoMgs/Nvd reference only the notification (kernel-resident),
+> so they may be less blocked — re-verify per leaf.
+
 ### Task 4.1: Extract pinchZoomFactor + promote MiniBAMViewController
 
 **Files:**
