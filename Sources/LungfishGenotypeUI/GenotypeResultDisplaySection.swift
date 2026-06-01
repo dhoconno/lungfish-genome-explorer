@@ -5,42 +5,44 @@ import LungfishIO
 
 @Observable
 @MainActor
-final class GenotypeResultDisplaySectionViewModel {
-    var displayState = GenotypeResultDisplayState()
-    var isAvailable = false
-    var visibleRowCount = 0
-    var totalRowCount = 0
-    var hiddenCellCount = 0
-    var isExpanded = true
-    var genotypeResultSelection: GenotypeResultSelectionState?
-    var genotypeHighlightColor: Color = .blue
-    var genotypeBorderColor: Color = .blue
-    var genotypeHighlightScope: GenotypeResultHighlightScope = .selectedCell
-    var genotypeHighlightChannel: GenotypeResultHighlightChannel = .fill
+public final class GenotypeResultDisplaySectionViewModel {
+    public var displayState = GenotypeResultDisplayState()
+    public var isAvailable = false
+    public var visibleRowCount = 0
+    public var totalRowCount = 0
+    public var hiddenCellCount = 0
+    public var isExpanded = true
+    public var genotypeResultSelection: GenotypeResultSelectionState?
+    public var genotypeHighlightColor: Color = .blue
+    public var genotypeBorderColor: Color = .blue
+    public var genotypeHighlightScope: GenotypeResultHighlightScope = .selectedCell
+    public var genotypeHighlightChannel: GenotypeResultHighlightChannel = .fill
 
-    var onDisplayStateChanged: ((GenotypeResultDisplayState) -> Void)?
-    var onGenotypeHighlightRequested: ((GenotypeResultHighlightRequest) -> Void)?
+    public var onDisplayStateChanged: ((GenotypeResultDisplayState) -> Void)?
+    public var onGenotypeHighlightRequested: ((GenotypeResultHighlightRequest) -> Void)?
 
     @ObservationIgnored
     private var isUpdatingFromSelection = false
 
-    func update(isAvailable: Bool, state: GenotypeResultDisplayState = GenotypeResultDisplayState()) {
+    public init() {}
+
+    public func update(isAvailable: Bool, state: GenotypeResultDisplayState = GenotypeResultDisplayState()) {
         self.isAvailable = isAvailable
         self.displayState = state
         updateSelection(nil)
     }
 
-    func updateSummary(visibleRows: Int, totalRows: Int, hiddenCells: Int) {
+    public func updateSummary(visibleRows: Int, totalRows: Int, hiddenCells: Int) {
         visibleRowCount = visibleRows
         totalRowCount = totalRows
         hiddenCellCount = hiddenCells
     }
 
-    func updateDisplayState(_ state: GenotypeResultDisplayState) {
+    public func updateDisplayState(_ state: GenotypeResultDisplayState) {
         displayState = state
     }
 
-    func clear() {
+    public func clear() {
         isAvailable = false
         displayState = GenotypeResultDisplayState()
         visibleRowCount = 0
@@ -59,7 +61,7 @@ final class GenotypeResultDisplaySectionViewModel {
         notifyStateChanged()
     }
 
-    func setSummaryViewMode(_ mode: GenotypeSummaryViewMode) {
+    public func setSummaryViewMode(_ mode: GenotypeSummaryViewMode) {
         displayState.viewportLens = .summary
         displayState.summaryViewMode = mode
         notifyStateChanged()
@@ -95,12 +97,12 @@ final class GenotypeResultDisplaySectionViewModel {
         notifyStateChanged()
     }
 
-    func setShowsAncillaryLoci(_ enabled: Bool) {
+    public func setShowsAncillaryLoci(_ enabled: Bool) {
         displayState.showsAncillaryLoci = enabled
         notifyStateChanged()
     }
 
-    func updateSelection(_ selection: GenotypeResultSelectionState?) {
+    public func updateSelection(_ selection: GenotypeResultSelectionState?) {
         isUpdatingFromSelection = true
         defer { isUpdatingFromSelection = false }
 
@@ -196,10 +198,14 @@ final class GenotypeResultDisplaySectionViewModel {
     }
 }
 
-struct GenotypeResultDisplaySection: View {
+public struct GenotypeResultDisplaySection: View {
     @Bindable var viewModel: GenotypeResultDisplaySectionViewModel
 
-    var body: some View {
+    public init(viewModel: GenotypeResultDisplaySectionViewModel) {
+        self.viewModel = viewModel
+    }
+
+    public var body: some View {
         if viewModel.isAvailable {
             DisclosureGroup(isExpanded: $viewModel.isExpanded) {
                 VStack(alignment: .leading, spacing: 10) {

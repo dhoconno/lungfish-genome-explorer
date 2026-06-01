@@ -4,6 +4,7 @@
 
 import XCTest
 @testable import LungfishApp
+@testable import LungfishGenotypeUI
 import LungfishIO
 
 final class ProjectDeletionPlannerTests: XCTestCase {

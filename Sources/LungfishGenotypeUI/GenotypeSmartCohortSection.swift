@@ -11,13 +11,13 @@ import LungfishIO
 /// Each row shows the cohort name, a star icon for user-scope cohorts, the matching subject count,
 /// and a contextual delete button. Tapping a row selects the cohort; the "+ Add" affordance at the
 /// bottom invokes `onAdd` so the caller can present a "Save current filter" sheet.
-struct GenotypeSmartCohortSection: View {
-    struct DisplayedCohort: Identifiable, Equatable {
-        let filter: GenotypeCohortSmartFilter
-        let count: Int
-        var id: String { filter.name + "/" + filter.scope }
+public struct GenotypeSmartCohortSection: View {
+    public struct DisplayedCohort: Identifiable, Equatable {
+        public let filter: GenotypeCohortSmartFilter
+        public let count: Int
+        public var id: String { filter.name + "/" + filter.scope }
 
-        init(filter: GenotypeCohortSmartFilter, count: Int) {
+        public init(filter: GenotypeCohortSmartFilter, count: Int) {
             self.filter = filter
             self.count = count
         }
@@ -30,7 +30,19 @@ struct GenotypeSmartCohortSection: View {
 
     @State private var isExpanded = true
 
-    var body: some View {
+    public init(
+        cohorts: [DisplayedCohort],
+        onSelect: @escaping (GenotypeCohortSmartFilter) -> Void,
+        onDelete: @escaping (GenotypeCohortSmartFilter) -> Void,
+        onAdd: @escaping () -> Void
+    ) {
+        self.cohorts = cohorts
+        self.onSelect = onSelect
+        self.onDelete = onDelete
+        self.onAdd = onAdd
+    }
+
+    public var body: some View {
         DisclosureGroup("Smart Cohorts", isExpanded: $isExpanded) {
             VStack(alignment: .leading, spacing: 6) {
                 if cohorts.isEmpty {

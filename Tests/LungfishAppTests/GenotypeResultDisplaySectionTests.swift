@@ -1,5 +1,6 @@
 import XCTest
 @testable import LungfishApp
+@testable import LungfishGenotypeUI
 import AppKit
 import LungfishCore
 import SwiftUI
@@ -73,7 +74,7 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishApp/Views/Inspector/Sections/GenotypeResultDisplaySection.swift")
+            .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeResultDisplaySection.swift")
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
         let start = try XCTUnwrap(source.range(of: "private var layoutControls"))
         let end = try XCTUnwrap(source[start.lowerBound...].range(of: "private var supportControls"))
@@ -90,7 +91,7 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishApp/Views/Inspector/Sections/GenotypeResultDisplaySection.swift")
+            .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeResultDisplaySection.swift")
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
         let start = try XCTUnwrap(source.range(of: "Slider("))
         let end = try XCTUnwrap(source[start.lowerBound...].range(of: ".controlSize(.small)"))
@@ -105,7 +106,7 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishApp/Views/Inspector/Sections/GenotypeResultDisplaySection.swift")
+            .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeResultDisplaySection.swift")
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
         let start = try XCTUnwrap(source.range(of: "private var supportControls"))
         let end = try XCTUnwrap(source[start.lowerBound...].range(of: "private var colorControls"))
@@ -120,7 +121,7 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishApp/Views/Inspector/Sections/GenotypeResultDisplaySection.swift")
+            .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeResultDisplaySection.swift")
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
 
         XCTAssertTrue(source.contains("setViewportLens"))
@@ -148,7 +149,7 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let displaySource = try String(
-            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Inspector/Sections/GenotypeResultDisplaySection.swift"),
+            contentsOf: root.appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeResultDisplaySection.swift"),
             encoding: .utf8
         )
         let selectionSource = try String(

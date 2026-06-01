@@ -6,6 +6,7 @@ import SwiftUI
 import AppKit
 import LungfishCore
 import LungfishIO
+import LungfishGenotypeUI
 
 /// Mode for applying color changes.
 public enum ColorApplyMode: String, CaseIterable, Identifiable {

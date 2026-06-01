@@ -4,20 +4,20 @@
 
 import LungfishCore
 
-struct GenotypeResultSelectionState: Equatable {
-    let title: String
-    let subtitle: String?
-    let detailRows: [(String, String)]
-    let highlightTarget: GenotypeResultHighlightTarget?
-    let highlightColor: AnnotationColor?
-    let highlightStyle: GenotypeResultHighlightStyle
+public struct GenotypeResultSelectionState: Equatable {
+    public let title: String
+    public let subtitle: String?
+    public let detailRows: [(String, String)]
+    public let highlightTarget: GenotypeResultHighlightTarget?
+    public let highlightColor: AnnotationColor?
+    public let highlightStyle: GenotypeResultHighlightStyle
     /// Animal/sample id when the selection represents a sample row (vs a
     /// shared allele label). The "Edit calls…" button dispatches to this
     /// id so the Sample Detail sheet opens for the right sample. nil
     /// when the selection is something else (allele, locus, etc.).
-    let animalId: String?
+    public let animalId: String?
 
-    init(
+    public init(
         title: String,
         subtitle: String?,
         detailRows: [(String, String)],
@@ -38,7 +38,7 @@ struct GenotypeResultSelectionState: Equatable {
         self.animalId = animalId
     }
 
-    static func == (
+    public static func == (
         lhs: GenotypeResultSelectionState,
         rhs: GenotypeResultSelectionState
     ) -> Bool {

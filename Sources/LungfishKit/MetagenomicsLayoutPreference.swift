@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 
 public extension Notification.Name {
     /// Posted when the persisted metagenomics panel layout preference changes.
@@ -8,6 +9,19 @@ public extension Notification.Name {
     /// Shared across every metagenomics result view controller (Taxonomy, NAO-MGS,
     /// TaxTriage, EsViritu, NVD) so it lives in the kernel rather than any one leaf.
     static let metagenomicsSampleSelectionChanged = Notification.Name("com.lungfish.metagenomicsSampleSelectionChanged")
+
+    /// Posted when the user clicks the "Import Metadata..." button in the Inspector.
+    /// Shared by the metagenomics and genotype result document sections (which post it)
+    /// and observed by the App Inspector, so it lives in the kernel rather than any one leaf.
+    static let metagenomicsMetadataImportRequested = Notification.Name("com.lungfish.metagenomicsMetadataImportRequested")
+}
+
+public extension NotificationUserInfoKey {
+    /// Key carrying the originating window's `WindowStateScope` so window-scoped
+    /// notifications (genotype smart-cohort + sample-detail requests, metadata
+    /// import) only act on the matching window. Shared infrastructure, so it
+    /// lives in the kernel rather than any one leaf.
+    static let windowStateScope = "windowStateScope"
 }
 
 @MainActor

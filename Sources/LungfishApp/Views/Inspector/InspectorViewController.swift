@@ -7,6 +7,7 @@ import LungfishTwelveSUI
 import SwiftUI
 import LungfishCore
 import LungfishIO
+import LungfishGenotypeUI
 import LungfishWorkflow
 import os.log
 import LungfishKit

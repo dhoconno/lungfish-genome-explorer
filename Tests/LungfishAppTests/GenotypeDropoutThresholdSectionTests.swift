@@ -4,6 +4,7 @@ import SwiftUI
 import LungfishCore
 import LungfishIO
 @testable import LungfishApp
+@testable import LungfishGenotypeUI
 
 @MainActor
 final class GenotypeDropoutThresholdSectionTests: XCTestCase {

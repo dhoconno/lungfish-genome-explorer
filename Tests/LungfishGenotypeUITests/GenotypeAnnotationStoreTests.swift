@@ -2,7 +2,7 @@ import XCTest
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
-@testable import LungfishApp
+@testable import LungfishGenotypeUI
 
 @MainActor
 final class GenotypeAnnotationStoreTests: XCTestCase {

@@ -6,6 +6,7 @@ import XCTest
 import AppKit
 import SwiftUI
 @testable import LungfishApp
+@testable import LungfishGenotypeUI
 import LungfishCore
 import LungfishIO
 
@@ -46,7 +47,7 @@ final class GenotypeOverrideSectionTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishApp/Views/Inspector/Sections/GenotypeOverrideSection.swift")
+            .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeOverrideSection.swift")
         // Confirm the picker references each allowed entry via a `.tag(name)` call in
         // source — this is the contract guaranteeing the entries are wired into the
         // SwiftUI picker.
@@ -86,7 +87,7 @@ final class GenotypeOverrideSectionTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishApp/Views/Inspector/Sections/GenotypeOverrideSection.swift")
+            .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeOverrideSection.swift")
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
         XCTAssertTrue(source.contains("TextField(\"Haplotype name\", text: $draft.target)"))
     }
@@ -144,7 +145,7 @@ final class GenotypeOverrideSectionTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishApp/Views/Inspector/Sections/GenotypeOverrideSection.swift")
+            .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeOverrideSection.swift")
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
 
         // Each reason tag should be exposed via a chip case in `reasonLabel`.

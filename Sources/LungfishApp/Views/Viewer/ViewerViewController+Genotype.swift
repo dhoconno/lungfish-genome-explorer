@@ -4,6 +4,7 @@
 
 import AppKit
 import LungfishIO
+import LungfishGenotypeUI
 import os.log
 
 private let genotypeDisplayLogger = Logger(subsystem: LogSubsystem.app, category: "ViewerGenotype")

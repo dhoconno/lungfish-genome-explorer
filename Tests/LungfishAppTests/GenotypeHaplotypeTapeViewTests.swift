@@ -2,6 +2,7 @@ import XCTest
 import AppKit
 import LungfishCore
 @testable import LungfishApp
+@testable import LungfishGenotypeUI
 
 @MainActor
 final class GenotypeHaplotypeTapeViewTests: XCTestCase {

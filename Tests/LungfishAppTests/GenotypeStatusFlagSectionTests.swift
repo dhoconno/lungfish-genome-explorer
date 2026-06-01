@@ -6,6 +6,7 @@ import XCTest
 import AppKit
 import SwiftUI
 @testable import LungfishApp
+@testable import LungfishGenotypeUI
 import LungfishCore
 import LungfishIO
 
@@ -57,7 +58,7 @@ final class GenotypeStatusFlagSectionTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishApp/Views/Inspector/Sections/GenotypeStatusFlagSection.swift")
+            .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeStatusFlagSection.swift")
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
         XCTAssertTrue(source.contains("No comments yet."))
     }
@@ -86,7 +87,7 @@ final class GenotypeStatusFlagSectionTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishApp/Views/Inspector/Sections/GenotypeStatusFlagSection.swift")
+            .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeStatusFlagSection.swift")
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
 
         XCTAssertTrue(source.contains(".pickerStyle(.segmented)"))

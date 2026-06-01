@@ -30,8 +30,8 @@ final class ReplayArgvHygieneTests: XCTestCase {
         )
 
         let sources = [
-            "Sources/LungfishApp/Views/Results/Genotype/GenotypeAnnotationStore.swift",
-            "Sources/LungfishApp/Views/Results/Genotype/GenotypeResultViewController.swift",
+            "Sources/LungfishGenotypeUI/GenotypeAnnotationStore.swift",
+            "Sources/LungfishGenotypeUI/GenotypeResultViewController.swift",
             "Sources/LungfishApp/Views/WorkflowOperations/HaplotypeDefinitionManagerWindowController.swift",
         ]
         for rel in sources {

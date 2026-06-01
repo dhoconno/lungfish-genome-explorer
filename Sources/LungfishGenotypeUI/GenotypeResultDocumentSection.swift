@@ -4,53 +4,92 @@ import LungfishIO
 import SwiftUI
 import LungfishKit
 
-struct GenotypeResultArtifactRow: Equatable {
-    let label: String
-    let fileURL: URL?
+public struct GenotypeResultArtifactRow: Equatable {
+    public let label: String
+    public let fileURL: URL?
+
+    public init(label: String, fileURL: URL?) {
+        self.label = label
+        self.fileURL = fileURL
+    }
 }
 
-struct GenotypeResultDocumentState: Equatable {
-    var title: String
-    var subtitle: String?
-    var bundleURL: URL?
-    var sampleIds: [String]
-    var sampleMetadataStore: SampleMetadataStore?
-    var windowStateScope: WindowStateScope?
-    var summaryRows: [(String, String)]
-    var qcRows: [(String, String)]
-    var artifactRows: [GenotypeResultArtifactRow]
-    var summaryViewMode: GenotypeSummaryViewMode = .outline
-    var showsAncillaryLoci: Bool = false
-    var smartCohorts: [GenotypeSmartCohortSection.DisplayedCohort] = []
-    var auditEntries: [GenotypeAnnotationSidecar.AuditEntry] = []
-    var haplotypeDefinitionRows: [(String, String)] = []
-    var haplotypeDefinitionsFolderURL: URL?
+public struct GenotypeResultDocumentState: Equatable {
+    public var title: String
+    public var subtitle: String?
+    public var bundleURL: URL?
+    public var sampleIds: [String]
+    public var sampleMetadataStore: SampleMetadataStore?
+    public var windowStateScope: WindowStateScope?
+    public var summaryRows: [(String, String)]
+    public var qcRows: [(String, String)]
+    public var artifactRows: [GenotypeResultArtifactRow]
+    public var summaryViewMode: GenotypeSummaryViewMode = .outline
+    public var showsAncillaryLoci: Bool = false
+    public var smartCohorts: [GenotypeSmartCohortSection.DisplayedCohort] = []
+    public var auditEntries: [GenotypeAnnotationSidecar.AuditEntry] = []
+    public var haplotypeDefinitionRows: [(String, String)] = []
+    public var haplotypeDefinitionsFolderURL: URL?
 
-    func replacing(sampleMetadataStore: SampleMetadataStore?) -> GenotypeResultDocumentState {
+    public init(
+        title: String,
+        subtitle: String? = nil,
+        bundleURL: URL? = nil,
+        sampleIds: [String],
+        sampleMetadataStore: SampleMetadataStore? = nil,
+        windowStateScope: WindowStateScope? = nil,
+        summaryRows: [(String, String)],
+        qcRows: [(String, String)],
+        artifactRows: [GenotypeResultArtifactRow],
+        summaryViewMode: GenotypeSummaryViewMode = .outline,
+        showsAncillaryLoci: Bool = false,
+        smartCohorts: [GenotypeSmartCohortSection.DisplayedCohort] = [],
+        auditEntries: [GenotypeAnnotationSidecar.AuditEntry] = [],
+        haplotypeDefinitionRows: [(String, String)] = [],
+        haplotypeDefinitionsFolderURL: URL? = nil
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.bundleURL = bundleURL
+        self.sampleIds = sampleIds
+        self.sampleMetadataStore = sampleMetadataStore
+        self.windowStateScope = windowStateScope
+        self.summaryRows = summaryRows
+        self.qcRows = qcRows
+        self.artifactRows = artifactRows
+        self.summaryViewMode = summaryViewMode
+        self.showsAncillaryLoci = showsAncillaryLoci
+        self.smartCohorts = smartCohorts
+        self.auditEntries = auditEntries
+        self.haplotypeDefinitionRows = haplotypeDefinitionRows
+        self.haplotypeDefinitionsFolderURL = haplotypeDefinitionsFolderURL
+    }
+
+    public func replacing(sampleMetadataStore: SampleMetadataStore?) -> GenotypeResultDocumentState {
         var copy = self
         copy.sampleMetadataStore = sampleMetadataStore
         return copy
     }
 
-    func replacing(summaryViewMode: GenotypeSummaryViewMode) -> GenotypeResultDocumentState {
+    public func replacing(summaryViewMode: GenotypeSummaryViewMode) -> GenotypeResultDocumentState {
         var copy = self
         copy.summaryViewMode = summaryViewMode
         return copy
     }
 
-    func replacing(showsAncillaryLoci: Bool) -> GenotypeResultDocumentState {
+    public func replacing(showsAncillaryLoci: Bool) -> GenotypeResultDocumentState {
         var copy = self
         copy.showsAncillaryLoci = showsAncillaryLoci
         return copy
     }
 
-    func replacing(auditEntries: [GenotypeAnnotationSidecar.AuditEntry]) -> GenotypeResultDocumentState {
+    public func replacing(auditEntries: [GenotypeAnnotationSidecar.AuditEntry]) -> GenotypeResultDocumentState {
         var copy = self
         copy.auditEntries = auditEntries
         return copy
     }
 
-    static func == (
+    public static func == (
         lhs: GenotypeResultDocumentState,
         rhs: GenotypeResultDocumentState
     ) -> Bool {
@@ -73,7 +112,7 @@ struct GenotypeResultDocumentState: Equatable {
     }
 }
 
-struct GenotypeResultDocumentSection: View {
+public struct GenotypeResultDocumentSection: View {
     let state: GenotypeResultDocumentState
     var onViewModeChange: ((GenotypeSummaryViewMode) -> Void)? = nil
     var onShowsAncillaryLociChange: ((Bool) -> Void)? = nil
@@ -88,7 +127,23 @@ struct GenotypeResultDocumentSection: View {
     @State private var isViewModeExpanded = true
     @State private var isAuditTimelineExpanded = false
 
-    var body: some View {
+    public init(
+        state: GenotypeResultDocumentState,
+        onViewModeChange: ((GenotypeSummaryViewMode) -> Void)? = nil,
+        onShowsAncillaryLociChange: ((Bool) -> Void)? = nil,
+        onSmartCohortSelected: ((GenotypeCohortSmartFilter) -> Void)? = nil,
+        onSmartCohortDeleted: ((GenotypeCohortSmartFilter) -> Void)? = nil,
+        onSmartCohortAddRequested: (() -> Void)? = nil
+    ) {
+        self.state = state
+        self.onViewModeChange = onViewModeChange
+        self.onShowsAncillaryLociChange = onShowsAncillaryLociChange
+        self.onSmartCohortSelected = onSmartCohortSelected
+        self.onSmartCohortDeleted = onSmartCohortDeleted
+        self.onSmartCohortAddRequested = onSmartCohortAddRequested
+    }
+
+    public var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             header
             Divider()

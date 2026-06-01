@@ -2622,6 +2622,6 @@ public extension Notification.Name {
 }
 
 public extension NotificationUserInfoKey {
-    static let windowStateScope = "windowStateScope"
+    // `windowStateScope` now lives in the LungfishKit kernel (shared across leaves).
     static let contentSelectionIdentity = "contentSelectionIdentity"
 }

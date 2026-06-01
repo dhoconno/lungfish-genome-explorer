@@ -7,7 +7,7 @@ import XCTest
 import AppKit
 import LungfishCore
 import LungfishIO
-@testable import LungfishApp
+@testable import LungfishGenotypeUI
 
 @MainActor
 final class GenotypeRealBundleSmokeTests: XCTestCase {

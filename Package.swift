@@ -79,6 +79,11 @@ let package = Package(
             name: "LungfishEsVirituUI",
             targets: ["LungfishEsVirituUI"]
         ),
+        // MHC Genotype results UI leaf module extracted from LungfishApp
+        .library(
+            name: "LungfishGenotypeUI",
+            targets: ["LungfishGenotypeUI"]
+        ),
     ],
     dependencies: [
         // Swift Argument Parser for CLI tools
@@ -306,6 +311,24 @@ let package = Package(
             path: "Tests/LungfishEsVirituUITests"
         ),
 
+        // MARK: - LungfishGenotypeUI (MHC Genotype results UI leaf)
+        .target(
+            name: "LungfishGenotypeUI",
+            dependencies: [
+                "LungfishCore",
+                "LungfishIO",
+                "LungfishWorkflow",
+                "LungfishKit",
+                "LungfishTwelveSUI",
+            ],
+            path: "Sources/LungfishGenotypeUI"
+        ),
+        .testTarget(
+            name: "LungfishGenotypeUITests",
+            dependencies: ["LungfishGenotypeUI", "LungfishKit", "LungfishTwelveSUI"],
+            path: "Tests/LungfishGenotypeUITests"
+        ),
+
         // MARK: - LungfishApp
         .target(
             name: "LungfishApp",
@@ -321,6 +344,7 @@ let package = Package(
                 "LungfishNaoMgsUI",
                 "LungfishTaxTriageUI",
                 "LungfishEsVirituUI",
+                "LungfishGenotypeUI",
             ],
             path: "Sources/LungfishApp",
             resources: [
@@ -333,7 +357,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LungfishAppTests",
-            dependencies: ["LungfishApp", "LungfishKit", "LungfishCLI", "LungfishNvdUI", "LungfishNaoMgsUI", "LungfishTaxTriageUI", "LungfishEsVirituUI"],
+            dependencies: ["LungfishApp", "LungfishKit", "LungfishCLI", "LungfishNvdUI", "LungfishNaoMgsUI", "LungfishTaxTriageUI", "LungfishEsVirituUI", "LungfishGenotypeUI"],
             path: "Tests/LungfishAppTests",
             resources: [
                 .copy("Fixtures")

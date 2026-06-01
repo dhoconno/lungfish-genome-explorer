@@ -7,6 +7,7 @@ import LungfishKit
 import LungfishAssemblyUI
 import LungfishCore
 import LungfishIO
+import LungfishGenotypeUI
 
 // MARK: - DocumentSectionViewModel
 

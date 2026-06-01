@@ -6,10 +6,10 @@ import LungfishWorkflow
 
 @Observable
 @MainActor
-final class GenotypeAnnotationStore {
-    private(set) var sidecar: GenotypeAnnotationSidecar
-    let bundleURL: URL
-    let author: String
+public final class GenotypeAnnotationStore {
+    public private(set) var sidecar: GenotypeAnnotationSidecar
+    public let bundleURL: URL
+    public let author: String
 
     @ObservationIgnored
     private let isoFormatter: ISO8601DateFormatter = {
@@ -18,9 +18,9 @@ final class GenotypeAnnotationStore {
         return f
     }()
 
-    private(set) var isReadOnly: Bool
+    public private(set) var isReadOnly: Bool
 
-    init(bundleURL: URL, author: String) throws {
+    public init(bundleURL: URL, author: String) throws {
         self.bundleURL = bundleURL
         self.author = author
         self.sidecar = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: bundleURL)

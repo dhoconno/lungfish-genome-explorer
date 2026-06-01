@@ -14,7 +14,7 @@ import LungfishKit
 /// multi-level editing (assay → set → locus → haplotype → diagnostic
 /// alleles), which doesn't fit the narrow Inspector column. A modal sheet
 /// gives the analyst room to work locus-by-locus.
-struct GenotypeHaplotypeDefinitionEditor: View {
+public struct GenotypeHaplotypeDefinitionEditor: View {
     @State private var draft: GenotypeHaplotypeDefinitionSet
     @State private var selectedLocusIndex: Int = 0
     @State private var selectedHaplotypeIndex: Int? = nil
@@ -33,7 +33,7 @@ struct GenotypeHaplotypeDefinitionEditor: View {
     let onSave: (GenotypeHaplotypeDefinitionSet) -> Void
     let onCancel: () -> Void
 
-    init(
+    public init(
         draft: GenotypeHaplotypeDefinitionSet,
         isReadOnly: Bool = false,
         allowsIdentityEditing: Bool = false,
@@ -55,7 +55,7 @@ struct GenotypeHaplotypeDefinitionEditor: View {
         self.onCancel = onCancel
     }
 
-    var body: some View {
+    public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider()

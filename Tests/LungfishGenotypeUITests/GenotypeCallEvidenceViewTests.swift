@@ -3,7 +3,7 @@ import AppKit
 import SwiftUI
 import LungfishCore
 import LungfishIO
-@testable import LungfishApp
+@testable import LungfishGenotypeUI
 
 @MainActor
 final class GenotypeCallEvidenceViewTests: XCTestCase {
@@ -69,7 +69,7 @@ final class GenotypeCallEvidenceViewTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishApp/Views/Results/Genotype/GenotypeCallEvidenceView.swift")
+            .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeCallEvidenceView.swift")
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
 
         XCTAssertFalse(source.contains("Menu(\"Override"))
@@ -84,7 +84,7 @@ final class GenotypeCallEvidenceViewTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishApp/Views/Results/Genotype/GenotypeResultViewController.swift")
+            .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeResultViewController.swift")
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
 
         XCTAssertFalse(source.contains("NSPopover"))

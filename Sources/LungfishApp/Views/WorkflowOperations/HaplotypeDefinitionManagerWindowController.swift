@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import LungfishIO
+import LungfishGenotypeUI
 import LungfishWorkflow
 import SwiftUI
 import UniformTypeIdentifiers

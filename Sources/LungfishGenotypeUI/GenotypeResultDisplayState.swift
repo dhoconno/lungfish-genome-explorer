@@ -3,12 +3,12 @@ import LungfishCore
 import LungfishIO
 import LungfishKit
 
-enum GenotypeResultPanelLayout: String, CaseIterable, Equatable {
+public enum GenotypeResultPanelLayout: String, CaseIterable, Equatable {
     case listLeading
     case listTrailing
     case listTop
 
-    var displayName: String {
+    public var displayName: String {
         switch self {
         case .listLeading:
             return "List Left"
@@ -19,7 +19,7 @@ enum GenotypeResultPanelLayout: String, CaseIterable, Equatable {
         }
     }
 
-    var inspectorLabel: String {
+    public var inspectorLabel: String {
         switch self {
         case .listTrailing:
             return "Detail | List"
@@ -30,7 +30,7 @@ enum GenotypeResultPanelLayout: String, CaseIterable, Equatable {
         }
     }
 
-    var inspectorSystemImage: String {
+    public var inspectorSystemImage: String {
         switch self {
         case .listTrailing:
             return "sidebar.left"
@@ -42,12 +42,12 @@ enum GenotypeResultPanelLayout: String, CaseIterable, Equatable {
     }
 }
 
-enum GenotypeResultViewportLens: String, CaseIterable, Equatable {
+public enum GenotypeResultViewportLens: String, CaseIterable, Equatable {
     case summary
     case review
     case audit
 
-    var displayName: String {
+    public var displayName: String {
         switch self {
         case .summary: return "Summary"
         case .review:  return "Review"
@@ -55,7 +55,7 @@ enum GenotypeResultViewportLens: String, CaseIterable, Equatable {
         }
     }
 
-    var inspectorSystemImage: String {
+    public var inspectorSystemImage: String {
         switch self {
         case .summary: return "tablecells"
         case .review:  return "checklist"
@@ -63,16 +63,16 @@ enum GenotypeResultViewportLens: String, CaseIterable, Equatable {
         }
     }
 
-    var identifier: String {
+    public var identifier: String {
         rawValue
     }
 }
 
-enum GenotypeSummaryViewMode: String, CaseIterable, Equatable {
+public enum GenotypeSummaryViewMode: String, CaseIterable, Equatable {
     case outline
     case matrix
 
-    var displayName: String {
+    public var displayName: String {
         switch self {
         case .outline: return "Outline"
         case .matrix:  return "Matrix"
@@ -80,12 +80,12 @@ enum GenotypeSummaryViewMode: String, CaseIterable, Equatable {
     }
 }
 
-enum GenotypeResultCellColorMode: String, CaseIterable, Equatable {
+public enum GenotypeResultCellColorMode: String, CaseIterable, Equatable {
     case support
     case highlights
     case none
 
-    var displayName: String {
+    public var displayName: String {
         switch self {
         case .support:
             return "Support"
@@ -97,34 +97,34 @@ enum GenotypeResultCellColorMode: String, CaseIterable, Equatable {
     }
 }
 
-struct GenotypeResultDisplayState: Equatable {
-    var viewportLens: GenotypeResultViewportLens = .summary
-    var summaryViewMode: GenotypeSummaryViewMode = .outline
-    var layout: GenotypeResultPanelLayout = .listTop
-    var hideLowSupport: Bool = true
-    var minimumSupportPercent: Double = 1.0
-    var supportDenominator: ONTGenotypeSupportDenominator = .viewedLocus
-    var cellColorMode: GenotypeResultCellColorMode = .support
-    var hideFilteredHighlights: Bool = true
+public struct GenotypeResultDisplayState: Equatable {
+    public var viewportLens: GenotypeResultViewportLens = .summary
+    public var summaryViewMode: GenotypeSummaryViewMode = .outline
+    public var layout: GenotypeResultPanelLayout = .listTop
+    public var hideLowSupport: Bool = true
+    public var minimumSupportPercent: Double = 1.0
+    public var supportDenominator: ONTGenotypeSupportDenominator = .viewedLocus
+    public var cellColorMode: GenotypeResultCellColorMode = .support
+    public var hideFilteredHighlights: Bool = true
     /// When true, the Outline / Matrix views include observed loci
     /// that the active haplotype definition set does NOT cover. When false
     /// (the default), only the definition-set loci appear so the tape stays
     /// focused on the calls actually being haplotyped. For MCM that means
     /// the canonical 7 loci instead of every locus the demux observed.
-    var showsAncillaryLoci: Bool = false
+    public var showsAncillaryLoci: Bool = false
 
     /// Editable row-visibility filter: samples with fewer than this many
     /// `passedUniqueReads` may be hidden from the result rows. `0` (the
     /// default) disables the filter. This is a SEPARATE concern from the
     /// cohort flag below and must never alias it.
-    var minimumReads: Int = 0
+    public var minimumReads: Int = 0
 
     /// The historical "calls below this are unreliable" cohort flag (default
     /// `5_000`). It LABELS samples in the Cohort Summary panel; it does not
     /// hide rows. Previously hardcoded in the view controller, now editable.
-    var cohortFlagThreshold: Int = 5_000
+    public var cohortFlagThreshold: Int = 5_000
 
-    init(
+    public init(
         viewportLens: GenotypeResultViewportLens = .summary,
         summaryViewMode: GenotypeSummaryViewMode = .outline,
         layout: GenotypeResultPanelLayout = .listTop,
@@ -150,18 +150,18 @@ struct GenotypeResultDisplayState: Equatable {
         self.cohortFlagThreshold = cohortFlagThreshold
     }
 
-    var activeMinimumSupportPercent: Double {
+    public var activeMinimumSupportPercent: Double {
         hideLowSupport ? minimumSupportPercent : 0
     }
 
     /// The effective row-visibility threshold. `0` means no row filtering.
-    var activeMinimumReads: Int {
+    public var activeMinimumReads: Int {
         MinimumReadsThreshold(value: minimumReads).active
     }
 
     /// Sample IDs hidden by the editable row-visibility filter, sorted.
     /// Returns an empty array when the filter is off (`activeMinimumReads == 0`).
-    func samplesBelowFilter(_ reads: [(sample: String, reads: Int)]) -> [String] {
+    public func samplesBelowFilter(_ reads: [(sample: String, reads: Int)]) -> [String] {
         let threshold = activeMinimumReads
         guard threshold > 0 else { return [] }
         return reads
@@ -171,7 +171,7 @@ struct GenotypeResultDisplayState: Equatable {
     }
 
     /// Sample IDs flagged as unreliable by the cohort flag, sorted.
-    func samplesBelowCohortFlag(_ reads: [(sample: String, reads: Int)]) -> [String] {
+    public func samplesBelowCohortFlag(_ reads: [(sample: String, reads: Int)]) -> [String] {
         reads
             .filter { $0.reads < cohortFlagThreshold }
             .map(\.sample)
@@ -179,28 +179,28 @@ struct GenotypeResultDisplayState: Equatable {
     }
 }
 
-struct GenotypeResultHighlightTarget: Equatable, Hashable {
-    let genotype: String
-    let locus: String
-    let sample: String?
+public struct GenotypeResultHighlightTarget: Equatable, Hashable {
+    public let genotype: String
+    public let locus: String
+    public let sample: String?
 
-    init(genotype: String, locus: String, sample: String? = nil) {
+    public init(genotype: String, locus: String, sample: String? = nil) {
         self.genotype = genotype
         self.locus = locus
         self.sample = sample
     }
 
-    var displayScope: String {
+    public var displayScope: String {
         sample == nil ? "Genotype Row" : "Sample Cell"
     }
 }
 
-enum GenotypeResultHighlightScope: String, CaseIterable, Equatable {
+public enum GenotypeResultHighlightScope: String, CaseIterable, Equatable {
     case selectedCell
     case selectedRow
     case clear
 
-    var displayName: String {
+    public var displayName: String {
         switch self {
         case .selectedCell:
             return "Selected Cell"
@@ -212,11 +212,11 @@ enum GenotypeResultHighlightScope: String, CaseIterable, Equatable {
     }
 }
 
-enum GenotypeResultHighlightChannel: String, CaseIterable, Equatable {
+public enum GenotypeResultHighlightChannel: String, CaseIterable, Equatable {
     case fill
     case border
 
-    var displayName: String {
+    public var displayName: String {
         switch self {
         case .fill:
             return "Fill"
@@ -226,22 +226,22 @@ enum GenotypeResultHighlightChannel: String, CaseIterable, Equatable {
     }
 }
 
-struct GenotypeResultHighlightStyle: Equatable, Hashable {
-    var fillColor: AnnotationColor?
-    var borderColor: AnnotationColor?
+public struct GenotypeResultHighlightStyle: Equatable, Hashable, Sendable {
+    public var fillColor: AnnotationColor?
+    public var borderColor: AnnotationColor?
 
-    static let `default` = GenotypeResultHighlightStyle()
+    public static let `default` = GenotypeResultHighlightStyle()
 
-    init(fillColor: AnnotationColor? = nil, borderColor: AnnotationColor? = nil) {
+    public init(fillColor: AnnotationColor? = nil, borderColor: AnnotationColor? = nil) {
         self.fillColor = fillColor
         self.borderColor = borderColor
     }
 
-    var isDefault: Bool {
+    public var isDefault: Bool {
         fillColor == nil && borderColor == nil
     }
 
-    func color(for channel: GenotypeResultHighlightChannel) -> AnnotationColor? {
+    public func color(for channel: GenotypeResultHighlightChannel) -> AnnotationColor? {
         switch channel {
         case .fill:
             return fillColor
@@ -250,7 +250,7 @@ struct GenotypeResultHighlightStyle: Equatable, Hashable {
         }
     }
 
-    mutating func setColor(_ color: AnnotationColor?, for channel: GenotypeResultHighlightChannel) {
+    public mutating func setColor(_ color: AnnotationColor?, for channel: GenotypeResultHighlightChannel) {
         switch channel {
         case .fill:
             fillColor = color
@@ -260,13 +260,13 @@ struct GenotypeResultHighlightStyle: Equatable, Hashable {
     }
 }
 
-struct GenotypeResultHighlightRequest: Equatable {
-    let target: GenotypeResultHighlightTarget
-    let scope: GenotypeResultHighlightScope
-    let channel: GenotypeResultHighlightChannel
-    let color: AnnotationColor?
+public struct GenotypeResultHighlightRequest: Equatable {
+    public let target: GenotypeResultHighlightTarget
+    public let scope: GenotypeResultHighlightScope
+    public let channel: GenotypeResultHighlightChannel
+    public let color: AnnotationColor?
 
-    init(
+    public init(
         target: GenotypeResultHighlightTarget,
         scope: GenotypeResultHighlightScope,
         channel: GenotypeResultHighlightChannel = .fill,

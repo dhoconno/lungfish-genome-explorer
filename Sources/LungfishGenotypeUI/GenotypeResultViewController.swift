@@ -6,14 +6,14 @@ import LungfishWorkflow
 import LungfishKit
 
 @MainActor
-final class GenotypeResultViewController: NSViewController {
+public final class GenotypeResultViewController: NSViewController {
     typealias Lens = GenotypeResultViewportLens
 
-    var onSelectionStateChanged: ((GenotypeResultSelectionState?) -> Void)?
-    var onDisplaySummaryChanged: ((Int, Int, Int) -> Void)?
-    var onDisplayStateChanged: ((GenotypeResultDisplayState) -> Void)?
-    var onAnnotationSidecarChanged: ((GenotypeAnnotationSidecar) -> Void)?
-    var windowStateScope: WindowStateScope?
+    public var onSelectionStateChanged: ((GenotypeResultSelectionState?) -> Void)?
+    public var onDisplaySummaryChanged: ((Int, Int, Int) -> Void)?
+    public var onDisplayStateChanged: ((GenotypeResultDisplayState) -> Void)?
+    public var onAnnotationSidecarChanged: ((GenotypeAnnotationSidecar) -> Void)?
+    public var windowStateScope: WindowStateScope?
 
     private let summaryStrip = NSStackView()
     private let lensControl = NSSegmentedControl(
@@ -94,7 +94,7 @@ final class GenotypeResultViewController: NSViewController {
     private var outlineRowsBySample: [String: GenotypeOutlineView.Row] = [:]
     private var outlineRowOrder: [String] = []
 
-    override func loadView() {
+    public override func loadView() {
         let root = NSView()
         root.translatesAutoresizingMaskIntoConstraints = false
         root.setAccessibilityElement(true)
@@ -311,7 +311,7 @@ final class GenotypeResultViewController: NSViewController {
     /// - `⌘⇧O`: open the Sample Detail sheet for the override editor
     /// Returns true if the event was handled, allowing the responder chain
     /// to continue otherwise.
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+    public override func performKeyEquivalent(with event: NSEvent) -> Bool {
         // Only intercept when the Review lens is up and a sample is selected.
         guard selectedLens == .review, let animalId = currentSelectedSample else {
             return super.performKeyEquivalent(with: event)
@@ -355,7 +355,7 @@ final class GenotypeResultViewController: NSViewController {
         onAnnotationSidecarChanged?(store.sidecar)
     }
 
-    override func viewDidLayout() {
+    public override func viewDidLayout() {
         super.viewDidLayout()
         guard selectedLens == .summary, splitView.arrangedSubviews.count == 2 else { return }
         if view.window == nil {
@@ -365,7 +365,7 @@ final class GenotypeResultViewController: NSViewController {
         }
     }
 
-    func configure(result: ONTGenotypeResultBundleData) {
+    public func configure(result: ONTGenotypeResultBundleData) {
         self.result = result
         liveHaplotypeAnalysis = nil
         let knownSampleIDs = Set(
@@ -430,7 +430,7 @@ final class GenotypeResultViewController: NSViewController {
         )
     }
 
-    func applySampleMetadataStore(_ store: SampleMetadataStore?) {
+    public func applySampleMetadataStore(_ store: SampleMetadataStore?) {
         sampleMetadataStore = store
         comparisonMatrix.applyMetadataStore(store)
         refreshVisibleFilterDependentViews()
@@ -440,11 +440,11 @@ final class GenotypeResultViewController: NSViewController {
         }
     }
 
-    func notifySelectionStateIfAvailable() {
+    public func notifySelectionStateIfAvailable() {
         onSelectionStateChanged?(currentSelectionState)
     }
 
-    func applyDisplayState(_ state: GenotypeResultDisplayState) {
+    public func applyDisplayState(_ state: GenotypeResultDisplayState) {
         let previousViewMode = displayState.summaryViewMode
         let previousAncillary = displayState.showsAncillaryLoci
         displayState = state
@@ -470,7 +470,7 @@ final class GenotypeResultViewController: NSViewController {
         }
     }
 
-    func applyHighlight(_ request: GenotypeResultHighlightRequest) {
+    public func applyHighlight(_ request: GenotypeResultHighlightRequest) {
         let previousColor = previousHighlightColor(for: request)
         comparisonMatrix.applyHighlight(request)
         registerUndo(for: request, previousColor: previousColor)
@@ -3789,14 +3789,14 @@ private final class FlippedDocumentView: NSView {
 }
 
 extension GenotypeResultViewController: NSSplitViewDelegate {
-    func splitViewDidResizeSubviews(_ notification: Notification) {
+    public func splitViewDidResizeSubviews(_ notification: Notification) {
         splitCoordinator.splitViewDidResizeSubviews(
             splitView,
             minimumExtents: minimumSplitExtents()
         )
     }
 
-    func splitView(_ splitView: NSSplitView, resizeSubviewsWithOldSize oldSize: NSSize) {
+    public func splitView(_ splitView: NSSplitView, resizeSubviewsWithOldSize oldSize: NSSize) {
         splitCoordinator.resizeSubviewsWithOldSize(
             self.splitView,
             oldSize: oldSize,
@@ -3806,7 +3806,7 @@ extension GenotypeResultViewController: NSSplitViewDelegate {
         )
     }
 
-    func splitView(
+    public func splitView(
         _ splitView: NSSplitView,
         constrainMinCoordinate proposedMinimumPosition: CGFloat,
         ofSubviewAt dividerIndex: Int
@@ -3814,7 +3814,7 @@ extension GenotypeResultViewController: NSSplitViewDelegate {
         minimumSplitExtents().leading
     }
 
-    func splitView(
+    public func splitView(
         _ splitView: NSSplitView,
         constrainMaxCoordinate proposedMaximumPosition: CGFloat,
         ofSubviewAt dividerIndex: Int

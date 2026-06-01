@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 @testable import LungfishApp
+@testable import LungfishGenotypeUI
 
 @MainActor
 final class GenotypeCohortSummaryPanelViewTests: XCTestCase {

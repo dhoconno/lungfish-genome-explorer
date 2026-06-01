@@ -1,6 +1,7 @@
 import LungfishKit
 import XCTest
 @testable import LungfishApp
+@testable import LungfishGenotypeUI
 @testable import LungfishCLI
 import LungfishCore
 import LungfishIO
