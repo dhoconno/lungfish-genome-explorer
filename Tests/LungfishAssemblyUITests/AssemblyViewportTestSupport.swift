@@ -1,6 +1,6 @@
 import AppKit
 import Foundation
-@testable import LungfishApp
+@testable import LungfishAssemblyUI
 import LungfishIO
 import LungfishWorkflow
 import XCTest
@@ -15,9 +15,67 @@ final class RecordingPasteboard: PasteboardWriting {
     }
 }
 
-// `AsyncGate`, `FakeAssemblyContigCatalog`, and the `AssemblyContigCatalogProviding`
-// fake now live in Tests/LungfishAssemblyUITests, alongside the viewport unit tests
-// that moved into the LungfishAssemblyUI leaf module.
+actor AsyncGate {
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var isOpen = false
+
+    func wait() async {
+        if isOpen {
+            return
+        }
+
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    func open() {
+        guard !isOpen else { return }
+        isOpen = true
+        let pending = waiters
+        waiters.removeAll()
+        pending.forEach { $0.resume() }
+    }
+}
+
+actor FakeAssemblyContigCatalog {
+    let fakeRecords: [AssemblyContigRecord]
+    let sequenceByName: [String: String]
+    let summaryByNames: [Set<String>: AssemblyContigSelectionSummary]
+    let delayedSequenceGates: [String: AsyncGate]
+
+    init(
+        records: [AssemblyContigRecord],
+        sequenceByName: [String: String],
+        summaryByNames: [Set<String>: AssemblyContigSelectionSummary] = [:],
+        delayedSequenceGates: [String: AsyncGate] = [:]
+    ) {
+        self.fakeRecords = records
+        self.sequenceByName = sequenceByName
+        self.summaryByNames = summaryByNames
+        self.delayedSequenceGates = delayedSequenceGates
+    }
+}
+
+extension FakeAssemblyContigCatalog: AssemblyContigCatalogProviding {
+    func records() async throws -> [AssemblyContigRecord] {
+        fakeRecords
+    }
+
+    func sequenceFASTA(for name: String, lineWidth: Int) async throws -> String {
+        if let gate = delayedSequenceGates[name] {
+            await gate.wait()
+        }
+        return sequenceByName[name] ?? ""
+    }
+
+    func selectionSummary(for names: [String]) async throws -> AssemblyContigSelectionSummary {
+        if let explicit = summaryByNames[Set(names)] {
+            return explicit
+        }
+        throw NSError(domain: "FakeAssemblyContigCatalog", code: 1, userInfo: nil)
+    }
+}
 
 @MainActor
 func waitUntil(

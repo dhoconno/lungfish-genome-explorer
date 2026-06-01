@@ -1,5 +1,5 @@
 import XCTest
-@testable import LungfishApp
+import LungfishAssemblyUI
 import LungfishAppKit
 
 @MainActor

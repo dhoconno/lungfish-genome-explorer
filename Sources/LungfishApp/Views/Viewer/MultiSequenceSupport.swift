@@ -650,8 +650,7 @@ public extension Notification.Name {
     /// Posted when annotation visibility changes for any sequence
     static let annotationVisibilityChanged = Notification.Name("com.lungfish.annotationVisibilityChanged")
 
-    /// Posted when the persisted assembly panel layout preference changes.
-    static let assemblyLayoutSwapRequested = Notification.Name("com.lungfish.assemblyLayoutSwapRequested")
+    // `assemblyLayoutSwapRequested` now lives in the LungfishAssemblyUI leaf module.
 
     /// Posted when the persisted mapping panel layout preference changes.
     static let mappingLayoutSwapRequested = Notification.Name("com.lungfish.mappingLayoutSwapRequested")

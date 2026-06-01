@@ -1,6 +1,6 @@
 import LungfishAppKit
 import XCTest
-@testable import LungfishApp
+@testable import LungfishAssemblyUI
 @testable import LungfishWorkflow
 
 private final class CapturedArgumentsBox: @unchecked Sendable {

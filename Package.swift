@@ -54,6 +54,11 @@ let package = Package(
             name: "LungfishAlignmentUI",
             targets: ["LungfishAlignmentUI"]
         ),
+        // Assembly results UI leaf module extracted from LungfishApp
+        .library(
+            name: "LungfishAssemblyUI",
+            targets: ["LungfishAssemblyUI"]
+        ),
     ],
     dependencies: [
         // Swift Argument Parser for CLI tools
@@ -196,6 +201,23 @@ let package = Package(
             path: "Tests/LungfishAlignmentUITests"
         ),
 
+        // MARK: - LungfishAssemblyUI (Assembly results UI leaf)
+        .target(
+            name: "LungfishAssemblyUI",
+            dependencies: [
+                "LungfishCore",
+                "LungfishIO",
+                "LungfishWorkflow",
+                "LungfishAppKit",
+            ],
+            path: "Sources/LungfishAssemblyUI"
+        ),
+        .testTarget(
+            name: "LungfishAssemblyUITests",
+            dependencies: ["LungfishAssemblyUI", "LungfishAppKit"],
+            path: "Tests/LungfishAssemblyUITests"
+        ),
+
         // MARK: - LungfishApp
         .target(
             name: "LungfishApp",
@@ -206,6 +228,7 @@ let package = Package(
                 "LungfishAppKit",
                 "LungfishTwelveSUI",
                 "LungfishAlignmentUI",
+                "LungfishAssemblyUI",
             ],
             path: "Sources/LungfishApp",
             resources: [

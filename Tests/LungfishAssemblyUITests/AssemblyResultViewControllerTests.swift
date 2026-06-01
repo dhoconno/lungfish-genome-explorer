@@ -1,7 +1,8 @@
 import AppKit
 import XCTest
-@testable import LungfishApp
+@testable import LungfishAssemblyUI
 @testable import LungfishWorkflow
+import LungfishAppKit
 
 private enum AssemblyResultViewControllerTestDefaults {
     static let layoutKey = "assemblyPanelLayout"

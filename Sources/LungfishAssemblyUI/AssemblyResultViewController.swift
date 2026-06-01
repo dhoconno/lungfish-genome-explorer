@@ -552,7 +552,9 @@ public final class AssemblyResultViewController: NSViewController {
         alert.informativeText = message
         alert.alertStyle = .warning
         alert.addButton(withTitle: "OK")
-        alert.applyLungfishBranding()
+        // Leaf modules use the system default alert icon (the running app icon),
+        // matching the LungfishTwelveSUI leaf precedent. App-internal branding
+        // helpers stay in LungfishApp.
 
         if let window = view.window ?? NSApp.keyWindow {
             alert.beginSheetModal(for: window)

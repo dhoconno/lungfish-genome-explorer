@@ -1,6 +1,7 @@
 import XCTest
 @testable import LungfishApp
 import LungfishAppKit
+@testable import LungfishAssemblyUI
 
 @MainActor
 final class AssemblyViewerIntegrationTests: XCTestCase {

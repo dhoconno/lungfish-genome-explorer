@@ -4,6 +4,7 @@
 
 import SwiftUI
 import LungfishAppKit
+import LungfishAssemblyUI
 import LungfishCore
 import LungfishIO
 

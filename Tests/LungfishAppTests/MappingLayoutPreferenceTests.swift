@@ -1,5 +1,6 @@
 import XCTest
 @testable import LungfishApp
+import LungfishAssemblyUI
 
 @MainActor
 final class MappingLayoutPreferenceTests: XCTestCase {

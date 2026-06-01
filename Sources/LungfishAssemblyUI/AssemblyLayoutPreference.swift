@@ -1,14 +1,19 @@
 import Foundation
 
+public extension Notification.Name {
+    /// Posted when the persisted assembly panel layout preference changes.
+    static let assemblyLayoutSwapRequested = Notification.Name("com.lungfish.assemblyLayoutSwapRequested")
+}
+
 @MainActor
-enum AssemblyPanelLayout: String, CaseIterable, Sendable {
+public enum AssemblyPanelLayout: String, CaseIterable, Sendable {
     case detailLeading
     case listLeading
     case stacked
 
-    static let defaultsKey = "assemblyPanelLayout"
+    public nonisolated static let defaultsKey = "assemblyPanelLayout"
 
-    static func current(defaults: UserDefaults = .standard) -> Self {
+    public static func current(defaults: UserDefaults = .standard) -> Self {
         guard let raw = defaults.string(forKey: defaultsKey),
               let value = Self(rawValue: raw) else {
             return .detailLeading
@@ -16,7 +21,7 @@ enum AssemblyPanelLayout: String, CaseIterable, Sendable {
         return value
     }
 
-    func persist(
+    public func persist(
         defaults: UserDefaults = .standard,
         notificationCenter: NotificationCenter = .default
     ) {
