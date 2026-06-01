@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import LungfishWorkflow
 
-@Suite("IVarTSVToVCFConverter")
+@Suite("IVarTSVToVCFConverter", .tags(.vcf))
 struct IVarTSVToVCFConverterTests {
     private func fixtureURL(_ name: String) -> URL {
         URL(fileURLWithPath: #filePath)
