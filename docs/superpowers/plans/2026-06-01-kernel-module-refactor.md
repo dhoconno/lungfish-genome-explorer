@@ -10,6 +10,17 @@
 
 ---
 
+## Naming + language principle (user directive, 2026-06-01)
+
+- **The kernel is named `LungfishKit`, not `LungfishAppKit`.** The preferred LANGUAGE of LGE is
+  Swift; AppKit is just one (legacy) UI framework, so the kernel must not be named as if it were
+  "the AppKit layer." Phase 0 (below) renames `LungfishAppKit` -> `LungfishKit` everywhere. From
+  that point, all references in this plan that still say `LungfishAppKit` mean `LungfishKit`.
+- **Preserve on move, prefer Swift for new.** When RELOCATING existing code into the kernel/leaves,
+  keep it as-is (this refactor is behavior-preserving; do NOT rewrite working AppKit views into
+  SwiftUI mid-move — that is a risky behavior change outside scope). When writing any NEW shared
+  abstraction, prefer plain Swift / SwiftUI over hand-rolled AppKit.
+
 ## Critical execution rules (read before any task)
 
 1. **Serialize all `swift` invocations.** A single `.build/.lock` exists per checkout. NEVER
@@ -58,6 +69,77 @@
   imports the leaf and wires app services to the VC's callbacks.
 - Test target: `Tests/LungfishTwelveSUITests/` (mirror its structure for each new leaf).
 - `Package.swift` stanzas for `LungfishTwelveSUI` (target/product/testTarget) are the template.
+
+---
+
+## Phase 0 — Rename LungfishAppKit -> LungfishKit (runs AFTER Phase 3, on a green checkpoint)
+
+Mechanical global rename. ~249 occurrences across ~143 files (Sources + Tests + Package.swift +
+docs). `LungfishAppKit` is a clean token (not a prefix of any other identifier; `LungfishKit`
+does not already exist), so a literal global substitution is safe. Must land green.
+
+**Files:** `Package.swift` (target name, product name, all `dependencies:` lists, `path:`), the
+directory `Sources/LungfishAppKit/` -> `Sources/LungfishKit/`, the test dir is unaffected (tests
+live under `Tests/Lungfish*Tests/`), and every `.swift` file containing `import LungfishAppKit`
+or a doc-comment mention.
+
+- [ ] **Step 1: Rename the source directory**
+
+```bash
+cd /Users/dho/Documents/lungfish-genome-explorer
+git mv Sources/LungfishAppKit Sources/LungfishKit
+```
+
+- [ ] **Step 2: Global token replacement across Sources, Tests, Package.swift, docs**
+
+```bash
+cd /Users/dho/Documents/lungfish-genome-explorer
+# every tracked .swift + Package.swift + the plan/spec docs, excluding .build
+rg -l 'LungfishAppKit' --hidden -g '!.build' -g '!*.log' \
+  | while IFS= read -r f; do /usr/bin/sed -i '' 's/LungfishAppKit/LungfishKit/g' "$f"; done
+```
+(Per-file loop, NOT a single multi-file sed — multi-line file lists mangle sed.)
+
+- [ ] **Step 3: Verify zero stragglers**
+
+Run: `rg -n 'LungfishAppKit' --hidden -g '!.build' -g '!*.log' || echo "ALL RENAMED"`
+Expected: `ALL RENAMED`.
+
+- [ ] **Step 4: Build kernel + App + CLI**
+
+Run: `swift build --target LungfishKit --skip-update 2>&1 | tail -10 && swift build --target LungfishApp --skip-update 2>&1 | tail -10 && swift build --target LungfishCLI --skip-update 2>&1 | tail -10`
+Expected: three `Build complete!`.
+
+- [ ] **Step 5: Compile the full test target**
+
+Run: `swift build --build-tests --skip-update 2>&1 | tail -10`
+Expected: `Build complete!`.
+
+- [ ] **Step 6: Full suite (rename gate)**
+
+Run: `swift test --skip-update 2>&1 | tail -40`
+Expected: GREEN per the bar (XCTest failures a subset of the 9 known env-failures; swift-testing 0).
+
+- [ ] **Step 7: Commit**
+
+```bash
+cd /Users/dho/Documents/lungfish-genome-explorer
+git add -A
+git commit -m "$(cat <<'EOF'
+refactor(kernel): rename LungfishAppKit -> LungfishKit
+
+The preferred language of LGE is Swift; AppKit is just one UI framework. Rename
+the shared kernel module so its name reflects "shared Swift kernel", not "the
+AppKit layer". Pure mechanical rename (target/product/deps/path/imports/docs);
+full suite green.
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+EOF
+)"
+```
+
+> After Phase 0, the module is `LungfishKit`. All later phases use that name (this doc's earlier
+> phases were written/executed under the old name `LungfishAppKit`).
 
 ---
 

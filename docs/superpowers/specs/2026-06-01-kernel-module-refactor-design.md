@@ -5,6 +5,13 @@
 **Baseline commit:** `ae131e9d` (alpha10 shipped)
 **Supersedes the path-forward section of:** `docs/reports/2026-05-31-modularization-findings.md`
 
+> **Naming + language (user directive, 2026-06-01):** the shared kernel is renamed
+> `LungfishAppKit` -> **`LungfishKit`** (the preferred LGE language is Swift; AppKit is just one
+> UI framework, so the kernel is not named as "the AppKit layer"). Every `LungfishAppKit`
+> reference below means `LungfishKit` after the rename phase. Code principle: PRESERVE existing
+> AppKit on move (behavior-preserving relocation), PREFER plain Swift / SwiftUI for any NEW
+> shared abstraction.
+
 ## Goal
 
 Turn `LungfishApp` (a 217K-LOC monolith) into a **kernel + leaf-modules** architecture:
