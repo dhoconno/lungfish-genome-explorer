@@ -326,6 +326,9 @@ extension MainSplitViewController {
             controller.onDisplayStateChanged = { [weak self] state in
                 self?.inspectorController.updateTwelveSResultDisplayState(state)
             }
+            controller.onSelectedRowDetailChanged = { [weak self] payload in
+                self?.inspectorController.updateTwelveSDetail(payload)
+            }
             inspectorController.onTwelveSResultDisplayStateChanged = { [weak controller] state in
                 controller?.applyDisplayState(state)
             }

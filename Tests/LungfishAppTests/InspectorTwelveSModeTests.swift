@@ -83,6 +83,47 @@ final class InspectorTwelveSModeTests: XCTestCase {
         )
     }
 
+    func testTwelveSResultDocumentMakesDetailTabAvailable() {
+        let inspector = InspectorViewController()
+        inspector.loadViewIfNeeded()
+        inspector.updateTwelveSAmpliconResultDocument(makeResult())
+
+        XCTAssertTrue(inspector.twelveSDetailSectionViewModel.isAvailable)
+        XCTAssertFalse(inspector.twelveSDetailSectionViewModel.hasDetail)
+    }
+
+    func testUpdateTwelveSDetailPopulatesAndAutoSelectsDetailTabOnce() {
+        let inspector = InspectorViewController()
+        inspector.loadViewIfNeeded()
+        inspector.updateTwelveSAmpliconResultDocument(makeResult())
+        XCTAssertEqual(inspector.testingSelectedTab, .resultSummary)
+
+        let detail = TwelveSDetailPayload(kind: .target(.init(
+            scientificName: "Homo sapiens", totalExactReads: 50, referenceTargetCount: 2,
+            sampleEvidence: [], alternateTexts: ["Homo heidelbergensis"])))
+        inspector.updateTwelveSDetail(detail)
+
+        XCTAssertTrue(inspector.twelveSDetailSectionViewModel.hasDetail)
+        XCTAssertEqual(inspector.twelveSDetailSectionViewModel.title, "Homo sapiens")
+        // first single selection auto-switches to Detail
+        XCTAssertEqual(inspector.testingSelectedTab, .twelveSDetail)
+
+        // clearing (multi/empty selection) keeps the tab but drops the detail
+        inspector.updateTwelveSDetail(nil)
+        XCTAssertFalse(inspector.twelveSDetailSectionViewModel.hasDetail)
+        XCTAssertEqual(inspector.testingSelectedTab, .twelveSDetail)
+    }
+
+    func testClearTwelveSDetailResetsAvailability() {
+        let inspector = InspectorViewController()
+        inspector.loadViewIfNeeded()
+        inspector.updateTwelveSAmpliconResultDocument(makeResult())
+        inspector.clearTwelveSDetail()
+
+        XCTAssertFalse(inspector.twelveSDetailSectionViewModel.isAvailable)
+        XCTAssertFalse(inspector.twelveSDetailSectionViewModel.hasDetail)
+    }
+
     private func makeResult(
         sampleMetadata: ResolvedSampleMetadata? = nil,
         sampleMetadataManifest: TwelveSSampleMetadataSnapshotManifest? = nil

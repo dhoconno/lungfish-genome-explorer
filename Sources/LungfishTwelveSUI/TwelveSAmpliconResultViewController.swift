@@ -20,18 +20,9 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         action: nil
     )
     private let searchField = NSSearchField()
-    private let splitView = NSSplitView()
     private let tableContainer = NSView()
     private let targetTable = TwelveSTargetTableView()
     private let unresolvedTable = TwelveSUnresolvedTableView()
-    private let detailScrollView = NSScrollView()
-    private let detailStack = NSStackView()
-    private let detailTitleLabel = NSTextField(labelWithString: "Selection")
-    private let detailBodyLabel = NSTextField(labelWithString: "Select a row to review sample evidence.")
-    private let detailSampleDisclosureButton = NSButton(title: "Sample Evidence", target: nil, action: nil)
-    private let detailSampleLabel = NSTextField(labelWithString: "")
-    private let detailAlternatesDisclosureButton = NSButton(title: "Alternate Exact Matches", target: nil, action: nil)
-    private let detailAlternatesLabel = NSTextField(labelWithString: "")
     private let actionBar = ClassifierActionBar()
 
     private var splitViewBottomConstraint: NSLayoutConstraint?
@@ -46,11 +37,6 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     private var targetRows: [TwelveSScientificNameCountRow] = []
     private var allUnresolvedRows: [TwelveSUnresolvedSequence] = []
     private var unresolvedRows: [TwelveSUnresolvedSequence] = []
-    private var detailSampleRows: [TwelveSDetailSampleEvidenceRow] = []
-    private var detailAlternateTexts: [String] = []
-    private var isSampleEvidenceExpanded = true
-    private var areAlternateMatchesExpanded = true
-
     /// Pasteboard seam for the copy context menu (overridable in tests).
     private var pasteboard: PasteboardWriting = DefaultPasteboard()
     private let copyContextMenu = NSMenu()
@@ -59,6 +45,16 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     public var onDisplayStateChanged: ((TwelveSResultDisplayState) -> Void)?
     public var onUnresolvedBlastRequested: ((TwelveSUnresolvedBlastRequest) -> Void)?
     public var onUnresolvedBlastCancelRequested: (() -> Void)?
+
+    /// Emitted when the active-table selection changes. A single-row selection
+    /// produces a populated payload; a multi/empty selection produces `nil`.
+    /// The App wires this to the Inspector's 12S Detail tab.
+    public var onSelectedRowDetailChanged: ((TwelveSDetailPayload?) -> Void)?
+
+    /// The most recent detail payload, retained so the legacy `testing*`
+    /// accessors keep reporting the selected row's evidence after the split
+    /// detail pane was removed.
+    private var lastDetailPayload: TwelveSDetailPayload?
 
     /// The currently visible table, switched by ``mode``.
     private var activeTableView: NSTableView {
@@ -87,11 +83,18 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     }
 
     var testingDetailSampleRows: [TwelveSDetailSampleEvidenceRow] {
-        detailSampleRows
+        switch lastDetailPayload?.kind {
+        case let .target(detail): return detail.sampleEvidence
+        case let .unresolved(detail): return detail.sampleEvidence
+        case nil: return []
+        }
     }
 
     var testingAlternateMatchTexts: [String] {
-        detailAlternateTexts
+        if case let .target(detail) = lastDetailPayload?.kind {
+            return detail.alternateTexts
+        }
+        return []
     }
 
     var testingExportMenuTitles: [String] {
@@ -121,7 +124,6 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
 
         configureHeader()
         configureTables()
-        configureDetailPane()
         configureActionBar()
         layout()
     }
@@ -353,53 +355,6 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         }
     }
 
-    private func configureDetailPane() {
-        detailTitleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
-        detailTitleLabel.lineBreakMode = .byTruncatingTail
-
-        [detailBodyLabel, detailSampleLabel, detailAlternatesLabel].forEach { label in
-            label.font = .systemFont(ofSize: 12)
-            label.textColor = .secondaryLabelColor
-            label.maximumNumberOfLines = 0
-            label.lineBreakMode = .byWordWrapping
-            label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        }
-        configureDetailDisclosureButton(
-            detailSampleDisclosureButton,
-            action: #selector(toggleSampleEvidenceDisclosure(_:))
-        )
-        configureDetailDisclosureButton(
-            detailAlternatesDisclosureButton,
-            action: #selector(toggleAlternateMatchesDisclosure(_:))
-        )
-
-        detailStack.orientation = .vertical
-        detailStack.alignment = .leading
-        detailStack.spacing = 8
-        detailStack.edgeInsets = NSEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
-        detailStack.translatesAutoresizingMaskIntoConstraints = false
-        detailStack.addArrangedSubview(detailTitleLabel)
-        detailStack.addArrangedSubview(detailBodyLabel)
-        detailStack.addArrangedSubview(detailSampleDisclosureButton)
-        detailStack.addArrangedSubview(detailSampleLabel)
-        detailStack.addArrangedSubview(detailAlternatesDisclosureButton)
-        detailStack.addArrangedSubview(detailAlternatesLabel)
-        setTargetDetailSectionsHidden(true)
-
-        detailScrollView.documentView = detailStack
-        detailScrollView.hasVerticalScroller = true
-        detailScrollView.borderType = .noBorder
-    }
-
-    private func configureDetailDisclosureButton(_ button: NSButton, action: Selector) {
-        button.target = self
-        button.action = action
-        button.setButtonType(.pushOnPushOff)
-        button.bezelStyle = .disclosure
-        button.state = .on
-        button.font = .systemFont(ofSize: 12, weight: .semibold)
-    }
-
     private func configureActionBar() {
         actionBar.extractButton.isHidden = true
         actionBar.updateInfoText("Select unresolved clusters to BLAST")
@@ -422,19 +377,18 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         headerRow.spacing = 12
         headerRow.translatesAutoresizingMaskIntoConstraints = false
 
-        splitView.translatesAutoresizingMaskIntoConstraints = false
-        splitView.isVertical = true
-        splitView.dividerStyle = .thin
-        splitView.addArrangedSubview(tableContainer)
-        splitView.addArrangedSubview(detailScrollView)
+        tableContainer.translatesAutoresizingMaskIntoConstraints = false
 
-        [headerRow, summaryLabel, splitView, actionBar].forEach {
+        [headerRow, summaryLabel, tableContainer, actionBar].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             view.addSubview($0)
         }
 
-        let splitBottom = splitView.bottomAnchor.constraint(equalTo: actionBar.topAnchor)
-        splitViewBottomConstraint = splitBottom
+        // The detail pane moved to the Inspector, so the table host spans the
+        // full width. `splitViewBottomConstraint` now anchors the table
+        // container's bottom; the BLAST drawer re-points it when it opens.
+        let tableBottom = tableContainer.bottomAnchor.constraint(equalTo: actionBar.topAnchor)
+        splitViewBottomConstraint = tableBottom
         NSLayoutConstraint.activate([
             headerRow.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
             headerRow.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
@@ -447,14 +401,11 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
             summaryLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
             summaryLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
 
-            splitView.topAnchor.constraint(equalTo: summaryLabel.bottomAnchor, constant: 10),
-            splitView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            splitView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            splitBottom,
-            splitView.heightAnchor.constraint(greaterThanOrEqualToConstant: 240),
-
-            tableContainer.widthAnchor.constraint(greaterThanOrEqualToConstant: 420),
-            detailScrollView.widthAnchor.constraint(greaterThanOrEqualToConstant: 220),
+            tableContainer.topAnchor.constraint(equalTo: summaryLabel.bottomAnchor, constant: 10),
+            tableContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            tableContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            tableBottom,
+            tableContainer.heightAnchor.constraint(greaterThanOrEqualToConstant: 240),
 
             actionBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             actionBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -481,21 +432,11 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         applyFilters(notify: true)
     }
 
-    @objc private func toggleSampleEvidenceDisclosure(_ sender: NSButton) {
-        isSampleEvidenceExpanded = sender.state == .on
-        detailSampleLabel.isHidden = !isSampleEvidenceExpanded
-    }
-
-    @objc private func toggleAlternateMatchesDisclosure(_ sender: NSButton) {
-        areAlternateMatchesExpanded = sender.state == .on
-        detailAlternatesLabel.isHidden = !areAlternateMatchesExpanded
-    }
-
     private func applyMode(_ mode: Mode) {
         self.mode = mode
         targetTable.isHidden = mode != .targets
         unresolvedTable.isHidden = mode != .unresolved
-        clearDetail()
+        emitDetail(nil)
         updateActionBar()
         notifyDisplaySummaryChanged()
     }
@@ -594,15 +535,19 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
             || row.taxids.contains("9606")
     }
 
-    // MARK: - Detail (legacy split pane — removed in Phase 3)
+    // MARK: - Detail (emitted to the Inspector .twelveSDetail tab)
+
+    private var sampleDisplayNames: [String: String] {
+        Dictionary(uniqueKeysWithValues: result?.samples.map { ($0.sampleID, $0.displayName) } ?? [])
+    }
 
     private func handleTargetSelection(_ rows: [TwelveSScientificNameCountRow]) {
         guard mode == .targets else { return }
         updateActionBar()
         if rows.count == 1, let row = rows.first {
-            updateTargetDetail(row: row)
+            emitDetail(TwelveSDetailPayload(targetRow: row, sampleDisplayNames: sampleDisplayNames))
         } else {
-            clearDetail()
+            emitDetail(nil)
         }
     }
 
@@ -610,90 +555,15 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         guard mode == .unresolved else { return }
         updateActionBar()
         if rows.count == 1, let row = rows.first {
-            updateUnresolvedDetail(row: row)
+            emitDetail(TwelveSDetailPayload(unresolvedRow: row, sampleDisplayNames: sampleDisplayNames))
         } else {
-            clearDetail()
+            emitDetail(nil)
         }
     }
 
-    private func clearDetail() {
-        detailSampleRows = []
-        detailAlternateTexts = []
-        switch mode {
-        case .targets:
-            detailTitleLabel.stringValue = "Target Evidence"
-            detailBodyLabel.stringValue = "Select a target to review sample evidence and alternate exact matches."
-        case .unresolved:
-            detailTitleLabel.stringValue = "Unresolved Sequence"
-            detailBodyLabel.stringValue = "Select an unresolved cluster to review sequence and sample counts."
-        }
-        setTargetDetailSectionsHidden(true)
-    }
-
-    private func updateTargetDetail(row: TwelveSScientificNameCountRow) {
-        let sampleDisplayNames = Dictionary(uniqueKeysWithValues: result?.samples.map { ($0.sampleID, $0.displayName) } ?? [])
-        detailSampleRows = row.sampleCounts
-            .filter { $0.value > 0 }
-            .map { sampleID, count in
-                let denominator = row.sampleExactReadTotals[sampleID, default: 0]
-                let percent = denominator > 0 ? Double(count) / Double(denominator) * 100 : 0
-                return TwelveSDetailSampleEvidenceRow(
-                    sampleID: sampleID,
-                    displayName: sampleDisplayNames[sampleID] ?? sampleID,
-                    exactReads: count,
-                    percentOfSampleExactReads: percent
-                )
-            }
-            .sorted {
-                if $0.exactReads != $1.exactReads { return $0.exactReads > $1.exactReads }
-                return $0.sampleID < $1.sampleID
-            }
-        detailAlternateTexts = alternateTexts(for: row)
-
-        let sampleLines = detailSampleRows.map {
-            "\($0.displayName): \($0.exactReads) reads (\(Self.formatPercent($0.percentOfSampleExactReads)))"
-        }
-        let alternateLines = detailAlternateTexts.isEmpty
-            ? ["No alternate exact species labels recorded."]
-            : detailAlternateTexts.map { "Alternate: \($0)" }
-        detailTitleLabel.stringValue = row.scientificName
-        detailBodyLabel.stringValue = [
-            "\(row.totalExactReads) exact reads",
-            "\(row.referenceTargetCount) reference target\(row.referenceTargetCount == 1 ? "" : "s")",
-        ].joined(separator: " | ")
-        detailSampleDisclosureButton.title = "Sample Evidence (\(detailSampleRows.count))"
-        detailAlternatesDisclosureButton.title = "Alternate Exact Matches (\(detailAlternateTexts.count))"
-        detailSampleLabel.stringValue = sampleLines.isEmpty ? "No sample-level evidence recorded." : sampleLines.joined(separator: "\n")
-        detailAlternatesLabel.stringValue = alternateLines.joined(separator: "\n")
-        setTargetDetailSectionsHidden(false)
-    }
-
-    private func updateUnresolvedDetail(row: TwelveSUnresolvedSequence) {
-        detailSampleRows = []
-        detailAlternateTexts = []
-        let sampleLines = row.sampleCounts
-            .filter { $0.value > 0 }
-            .sorted {
-                if $0.value != $1.value { return $0.value > $1.value }
-                return $0.key < $1.key
-            }
-            .prefix(10)
-            .map { "\($0.key): \($0.value) reads" }
-        detailTitleLabel.stringValue = "\(row.sequenceID) | \(row.readCount) reads"
-        detailBodyLabel.stringValue = ([
-            "Chimera: \(row.chimeraStatus.displayName)",
-            row.sequence,
-        ] + sampleLines).joined(separator: "\n")
-        setTargetDetailSectionsHidden(true)
-    }
-
-    private func setTargetDetailSectionsHidden(_ hidden: Bool) {
-        detailSampleDisclosureButton.isHidden = hidden
-        detailAlternatesDisclosureButton.isHidden = hidden
-        detailSampleDisclosureButton.state = isSampleEvidenceExpanded ? .on : .off
-        detailAlternatesDisclosureButton.state = areAlternateMatchesExpanded ? .on : .off
-        detailSampleLabel.isHidden = hidden || !isSampleEvidenceExpanded
-        detailAlternatesLabel.isHidden = hidden || !areAlternateMatchesExpanded
+    private func emitDetail(_ payload: TwelveSDetailPayload?) {
+        lastDetailPayload = payload
+        onSelectedRowDetailChanged?(payload)
     }
 
     private func alternateTexts(for row: TwelveSScientificNameCountRow) -> [String] {
@@ -742,7 +612,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         view.addSubview(container)
         let heightConstraint = container.heightAnchor.constraint(equalToConstant: 0)
         splitViewBottomConstraint?.isActive = false
-        let newSplitBottom = splitView.bottomAnchor.constraint(equalTo: container.topAnchor)
+        let newSplitBottom = tableContainer.bottomAnchor.constraint(equalTo: container.topAnchor)
         splitViewBottomConstraint = newSplitBottom
         NSLayoutConstraint.activate([
             container.leadingAnchor.constraint(equalTo: view.leadingAnchor),

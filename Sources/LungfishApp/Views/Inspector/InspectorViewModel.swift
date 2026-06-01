@@ -41,6 +41,12 @@ public final class InspectorViewModel {
         case .fastq:
             return [.bundle, .provenance]
         case .metagenomics:
+            // The 12S Detail tab is only meaningful for the 12S amplicon
+            // viewport; other metagenomics tools (Kraken2, NAO-MGS, NVD) leave
+            // it out so they don't show an empty Detail tab.
+            if twelveSDetailSectionViewModel.isAvailable {
+                return [.resultSummary, .twelveSDetail, .provenance]
+            }
             return [.resultSummary, .provenance]
         case .genotype:
             return [.bundle, .selectedItem, .view, .provenance]
@@ -120,6 +126,9 @@ public final class InspectorViewModel {
 
     /// View model for 12S amplicon result viewport controls section.
     let twelveSResultDisplaySectionViewModel = TwelveSResultDisplaySectionViewModel()
+
+    /// View model for the 12S per-selection detail tab.
+    let twelveSDetailSectionViewModel = TwelveSDetailSectionViewModel()
 
     /// View model for FASTQ sample metadata section (Document tab)
     let fastqMetadataSectionViewModel = FASTQMetadataSectionViewModel()

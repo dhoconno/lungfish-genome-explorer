@@ -79,6 +79,8 @@ enum InspectorTab: String, CaseIterable {
     case fastqMetadata
     /// Metagenomics result summary (metagenomics mode).
     case resultSummary
+    /// Per-selection detail for the 12S amplicon viewport (metagenomics mode).
+    case twelveSDetail = "twelveSDetail"
     /// Reproducibility provenance for selected scientific bundles/results.
     case provenance
 }

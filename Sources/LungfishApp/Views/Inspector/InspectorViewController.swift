@@ -61,6 +61,10 @@ public class InspectorViewController: NSViewController {
         viewModel.twelveSResultDisplaySectionViewModel
     }
 
+    var twelveSDetailSectionViewModel: TwelveSDetailSectionViewModel {
+        viewModel.twelveSDetailSectionViewModel
+    }
+
     /// Public access to the read style section view model for wiring alignment data.
     public var readStyleSectionViewModel: ReadStyleSectionViewModel {
         viewModel.readStyleSectionViewModel

@@ -394,12 +394,30 @@ extension InspectorViewController {
         viewModel.twelveSResultDisplaySectionViewModel.updateTaxonGroupOptions(
             result.scientificNameRows.flatMap(\.displayTaxonGroups)
         )
+        viewModel.twelveSDetailSectionViewModel.isAvailable = true
+        viewModel.twelveSDetailSectionViewModel.clear()
         updateProvenanceTarget(
             url: result.bundleURL,
             sidebarType: .twelveSAmpliconResultBundle,
             displayName: result.manifest.analysisName
         )
         viewModel.selectedTab = .resultSummary
+    }
+
+    /// Updates the 12S Detail tab with the currently-selected row's payload, or
+    /// clears it for a multi/empty selection. Auto-selects the Detail tab the
+    /// first time a single row is selected, without stealing it thereafter.
+    func updateTwelveSDetail(_ payload: TwelveSDetailPayload?) {
+        let hadDetail = viewModel.twelveSDetailSectionViewModel.hasDetail
+        viewModel.twelveSDetailSectionViewModel.apply(payload)
+        if payload != nil, !hadDetail, viewModel.selectedTab == .resultSummary {
+            viewModel.selectedTab = .twelveSDetail
+        }
+    }
+
+    /// Clears the 12S Detail tab and marks it unavailable (12S viewport closed).
+    func clearTwelveSDetail() {
+        viewModel.twelveSDetailSectionViewModel.reset()
     }
 
     func updateTwelveSResultDisplaySummary(_ summary: TwelveSResultDisplaySummary) {

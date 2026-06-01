@@ -116,6 +116,7 @@ extension InspectorViewController {
         viewModel.genotypeResultDisplaySectionViewModel.clear()
         viewModel.twelveSResultDisplaySectionViewModel.clear()
         viewModel.twelveSResultDisplaySectionViewModel.onExportRequested = nil
+        viewModel.twelveSDetailSectionViewModel.reset()
         onGenotypeResultDisplayStateChanged = nil
         onTwelveSResultDisplayStateChanged = nil
         onGenotypeSampleMetadataImported = nil
