@@ -1,8 +1,48 @@
 # Tree Bundle Transform GUI Wiring — Design
 
 Date: 2026-06-01
-Status: Approved-for-planning (pending user spec review)
+Status: Approved (user-approved 2026-06-01)
 Author: dho + Claude
+
+## Execution and release decisions (user-approved)
+
+- **Implementation via sequential subagents on the main checkout.** SwiftPM holds one
+  `.build/.lock` per checkout, so implementer subagents are dispatched ONE AT A TIME (no parallel
+  builds, no worktrees). The lead reviews between phases and runs the single serialized build/test
+  gate. The feature's phases are interdependent (runner → glue → callback wiring → tests), so this
+  ordering is natural.
+- **Work on a feature branch, then merge to `main`.** Implementation happens on a branch; after the
+  green-bar gate it merges to `main`. The release must run from a clean tree at a commit that exists
+  on origin (release gotcha: `gh release create --target <sha>` / tag operations require the commit
+  pushed first).
+- **Same-version hotfix DMG (`0.5.0-alpha11`).** This is a hotfix that KEEPS the version released this
+  morning. Do NOT bump the ~8 hardcoded version sites or the 2 test expectations — they stay at
+  `0.5.0-alpha11`.
+  - This morning's `v0.5.0-alpha11` GitHub release + tag already exist (published 18:26 UTC) with a DMG,
+    and `appcast-alpha.xml` already points at it.
+  - Publish by **replacing artifacts in place on the existing tag**, which the release script does
+    natively: pass `--github-release-tag v0.5.0-alpha11`. The script `gh release upload --clobber`s the
+    new notarized DMG onto the SAME existing `v0.5.0-alpha11` release (line ~289), then regenerates
+    `appcast-alpha.xml` and `--clobber`s it onto the mutable `sparkle-alpha` release (`--sparkle-publish-release sparkle-alpha`).
+    No `gh release create` (no tag collision), no manual asset deletion.
+  - **Auto-update DOES reach existing alpha11 users.** Sparkle compares `CFBundleVersion` (the build
+    number), NOT the marketing string. The script derives `CFBundleVersion` from `git rev-list --count HEAD`
+    (script lines ~424-425, written at ~254). The hotfix adds commits on top of this morning's alpha11, so
+    the build number increases and Sparkle offers the update even though the marketing version stays
+    `0.5.0-alpha11`. (This corrects an earlier assumption that same-version meant no auto-update.)
+  - Canonical invocation (verify flags against the script at release time; the release-build memory is
+    ~47 days old): `bash scripts/release/build-notarized-dmg.sh --team-id 29G3WN2GSA
+    --notary-profile LungfishNotary --signing-identity "Developer ID Application: Pathogenuity LLC (29G3WN2GSA)"
+    --github-release-tag v0.5.0-alpha11 --sparkle-generate-appcast <generate_appcast path>
+    --sparkle-publish-release sparkle-alpha` with `LUNGFISH_SPARKLE_PUBLIC_ED_KEY` exported. The EdDSA
+    private key is in the login Keychain, so `--sparkle-ed-key-file` is optional.
+  - Release hygiene (from project memory): run from a CLEAN tree at a commit pushed to origin; do NOT
+    `--reuse-archive` after a successful notarize+staple (it re-signs and corrupts the stapled bundle) —
+    on any post-notarization failure, `rm -rf build/Release/Lungfish.xcarchive build/Release/*.dmg` and
+    rebuild fresh.
+  - Release notes: the script copies `docs/release-notes/v0.5.0-alpha11.md` when present. Since alpha11
+    already shipped, decide at release time whether to append a hotfix note to that file (it will be
+    re-uploaded to the release). Not a blocker for the code work.
 
 ## Problem
 
