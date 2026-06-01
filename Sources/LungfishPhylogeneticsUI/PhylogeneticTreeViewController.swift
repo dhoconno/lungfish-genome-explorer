@@ -34,11 +34,11 @@ private enum PhylogeneticTreeCanvasMetrics {
 }
 
 @MainActor
-final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
-    private(set) var bundleURL: URL?
-    private(set) var bundle: PhylogeneticTreeBundle?
-    var onSelectionStateChanged: ((PhylogeneticTreeSelectionState?) -> Void)?
-    var onTreeBundleOperationRequested: ((TreeBundleOperationRequest) -> Void)?
+public final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
+    public private(set) var bundleURL: URL?
+    public private(set) var bundle: PhylogeneticTreeBundle?
+    public var onSelectionStateChanged: ((PhylogeneticTreeSelectionState?) -> Void)?
+    public var onTreeBundleOperationRequested: ((TreeBundleOperationRequest) -> Void)?
 
     private let summaryLabel = NSTextField(labelWithString: "")
     private let searchField = NSSearchField()
@@ -75,14 +75,23 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
     private var metadataColumnTitles: [String] = []
     private var isUpdatingTableSelection = false
 
-    override func loadView() {
+    public init() {
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    public override func loadView() {
         view = NSView()
         view.setAccessibilityIdentifier(PhylogeneticTreeAccessibilityID.root)
         view.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         configureLayout()
     }
 
-    func displayBundle(at url: URL) throws {
+    public func displayBundle(at url: URL) throws {
         _ = view
         let loaded = try PhylogeneticTreeBundle.load(from: url)
         bundleURL = url
@@ -109,11 +118,11 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
         selectInitialNode()
     }
 
-    func numberOfRows(in tableView: NSTableView) -> Int {
+    public func numberOfRows(in tableView: NSTableView) -> Int {
         nodes.count
     }
 
-    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+    public func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard row < nodes.count, let identifier = tableColumn?.identifier else { return nil }
         let node = nodes[row]
         let value: String
@@ -132,7 +141,7 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
         return tableCell(identifier: identifier, value: value)
     }
 
-    func tableViewSelectionDidChange(_ notification: Notification) {
+    public func tableViewSelectionDidChange(_ notification: Notification) {
         guard !isUpdatingTableSelection else { return }
         let row = nodeTableView.selectedRow
         guard nodes.indices.contains(row) else { return }
@@ -495,7 +504,7 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
         notifySelectionStateIfAvailable()
     }
 
-    func notifySelectionStateIfAvailable() {
+    public func notifySelectionStateIfAvailable() {
         onSelectionStateChanged?(selectionState())
     }
 
@@ -736,7 +745,7 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
               let bundle else { return }
         do {
             let export = try bundle.subtreeExport(nodeID: selectedNodeID)
-            let panel = ViewerFilePanelFactory.phylogeneticSubtreeExportPanel(
+            let panel = Self.makeSubtreeExportPanel(
                 suggestedName: "\(export.selectedLabel).nwk"
             )
             let completion: (NSApplication.ModalResponse) -> Void = { response in
@@ -751,6 +760,13 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
         } catch {
             NSSound.beep()
         }
+    }
+
+    private static func makeSubtreeExportPanel(suggestedName: String) -> NSSavePanel {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.plainText]
+        panel.nameFieldStringValue = suggestedName
+        return panel
     }
 
     @objc private func centerSelectedNodeFromMenu(_ sender: Any?) {
@@ -833,24 +849,36 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
 }
 
 extension PhylogeneticTreeViewController {
-    enum TreeBundleOperation: Equatable {
+    public enum TreeBundleOperation: Equatable {
         case reroot
         case extractSubtree
         case collapse
     }
 
-    struct TreeBundleOperationRequest: Equatable {
-        let operation: TreeBundleOperation
-        let bundleURL: URL
-        let nodeID: String
-        let nodeLabel: String
+    public struct TreeBundleOperationRequest: Equatable {
+        public let operation: TreeBundleOperation
+        public let bundleURL: URL
+        public let nodeID: String
+        public let nodeLabel: String
+
+        public init(operation: TreeBundleOperation, bundleURL: URL, nodeID: String, nodeLabel: String) {
+            self.operation = operation
+            self.bundleURL = bundleURL
+            self.nodeID = nodeID
+            self.nodeLabel = nodeLabel
+        }
     }
 }
 
-extension PhylogeneticTreeViewController {
+public extension PhylogeneticTreeViewController {
     struct TestingToolbarTextControlMetric: Equatable {
-        let controlSize: NSControl.ControlSize
-        let fontPointSize: CGFloat
+        public let controlSize: NSControl.ControlSize
+        public let fontPointSize: CGFloat
+
+        public init(controlSize: NSControl.ControlSize, fontPointSize: CGFloat) {
+            self.controlSize = controlSize
+            self.fontPointSize = fontPointSize
+        }
     }
 
     var testingCanvasNodeCount: Int {
@@ -1026,13 +1054,13 @@ extension PhylogeneticTreeViewController {
     }
 }
 
-enum PhylogeneticTreeCanvasColorMode {
+public enum PhylogeneticTreeCanvasColorMode {
     case none
     case support
     case branchLength
 }
 
-enum PhylogeneticTreeCanvasLayoutMode {
+public enum PhylogeneticTreeCanvasLayoutMode {
     case phylogram
     case cladogram
 }

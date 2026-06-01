@@ -61,11 +61,4 @@ final class ViewerFilePanelFactoryTests: XCTestCase {
         XCTAssertTrue(contentTypes.contains(try XCTUnwrap(UTType(filenameExtension: "tsv"))))
         XCTAssertTrue(contentTypes.contains(try XCTUnwrap(UTType(filenameExtension: "csv"))))
     }
-
-    func testPhylogeneticSubtreeExportPanelUsesNewickName() {
-        let panel = ViewerFilePanelFactory.phylogeneticSubtreeExportPanel(suggestedName: "clade.nwk")
-
-        XCTAssertEqual(panel.nameFieldStringValue, "clade.nwk")
-        XCTAssertEqual(panel.allowedContentTypes, [.plainText])
-    }
 }

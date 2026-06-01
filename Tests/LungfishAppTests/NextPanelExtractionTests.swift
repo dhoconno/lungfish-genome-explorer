@@ -20,7 +20,6 @@ final class NextPanelExtractionTests: XCTestCase {
             "Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView.swift",
             "Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift",
             "Sources/LungfishApp/Views/Viewer/FASTQMetadataDrawerView.swift",
-            "Sources/LungfishApp/Views/Viewer/PhylogeneticTreeViewController.swift",
             "Sources/LungfishApp/Views/Viewer/SequenceViewerView+Drawing.swift",
         ]
 

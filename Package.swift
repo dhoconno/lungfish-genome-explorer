@@ -84,6 +84,11 @@ let package = Package(
             name: "LungfishGenotypeUI",
             targets: ["LungfishGenotypeUI"]
         ),
+        // Phylogenetic tree viewer UI leaf module extracted from LungfishApp
+        .library(
+            name: "LungfishPhylogeneticsUI",
+            targets: ["LungfishPhylogeneticsUI"]
+        ),
     ],
     dependencies: [
         // Swift Argument Parser for CLI tools
@@ -329,6 +334,23 @@ let package = Package(
             path: "Tests/LungfishGenotypeUITests"
         ),
 
+        // MARK: - LungfishPhylogeneticsUI (Phylogenetic tree viewer UI leaf)
+        .target(
+            name: "LungfishPhylogeneticsUI",
+            dependencies: [
+                "LungfishCore",
+                "LungfishIO",
+                "LungfishWorkflow",
+                "LungfishKit",
+            ],
+            path: "Sources/LungfishPhylogeneticsUI"
+        ),
+        .testTarget(
+            name: "LungfishPhylogeneticsUITests",
+            dependencies: ["LungfishPhylogeneticsUI", "LungfishKit"],
+            path: "Tests/LungfishPhylogeneticsUITests"
+        ),
+
         // MARK: - LungfishApp
         .target(
             name: "LungfishApp",
@@ -345,6 +367,7 @@ let package = Package(
                 "LungfishTaxTriageUI",
                 "LungfishEsVirituUI",
                 "LungfishGenotypeUI",
+                "LungfishPhylogeneticsUI",
             ],
             path: "Sources/LungfishApp",
             resources: [
@@ -357,7 +380,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LungfishAppTests",
-            dependencies: ["LungfishApp", "LungfishKit", "LungfishCLI", "LungfishNvdUI", "LungfishNaoMgsUI", "LungfishTaxTriageUI", "LungfishEsVirituUI", "LungfishGenotypeUI"],
+            dependencies: ["LungfishApp", "LungfishKit", "LungfishCLI", "LungfishNvdUI", "LungfishNaoMgsUI", "LungfishTaxTriageUI", "LungfishEsVirituUI", "LungfishGenotypeUI", "LungfishPhylogeneticsUI"],
             path: "Tests/LungfishAppTests",
             resources: [
                 .copy("Fixtures")

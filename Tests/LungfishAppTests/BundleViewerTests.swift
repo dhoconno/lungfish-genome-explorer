@@ -6,6 +6,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
 @testable import LungfishIO
+import LungfishPhylogeneticsUI
 
 // Disambiguate DocumentType: LungfishApp.DocumentType (file format type used by DocumentManager)
 // vs LungfishCore.DocumentCategory (genomic document classification). We test the LungfishApp one.

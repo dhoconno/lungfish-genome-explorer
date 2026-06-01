@@ -8,6 +8,7 @@ import SwiftUI
 import LungfishCore
 import LungfishIO
 import LungfishGenotypeUI
+import LungfishPhylogeneticsUI
 import LungfishWorkflow
 import os.log
 

@@ -74,11 +74,4 @@ enum ViewerFilePanelFactory {
     static func variantSampleMetadataImportPanel() -> NSOpenPanel {
         FeatureFilePanelFactory.variantSampleMetadataImportPanel()
     }
-
-    static func phylogeneticSubtreeExportPanel(suggestedName: String) -> NSSavePanel {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.plainText]
-        panel.nameFieldStringValue = suggestedName
-        return panel
-    }
 }

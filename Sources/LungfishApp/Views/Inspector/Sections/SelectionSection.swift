@@ -7,6 +7,7 @@ import AppKit
 import LungfishCore
 import LungfishIO
 import LungfishGenotypeUI
+import LungfishPhylogeneticsUI
 
 /// Mode for applying color changes.
 public enum ColorApplyMode: String, CaseIterable, Identifiable {
@@ -39,21 +40,6 @@ struct SequenceRegionSelectionState: Equatable {
     static func == (
         lhs: SequenceRegionSelectionState,
         rhs: SequenceRegionSelectionState
-    ) -> Bool {
-        lhs.title == rhs.title &&
-            lhs.subtitle == rhs.subtitle &&
-            lhs.detailRows.elementsEqual(rhs.detailRows, by: { $0.0 == $1.0 && $0.1 == $1.1 })
-    }
-}
-
-struct PhylogeneticTreeSelectionState: Equatable {
-    let title: String
-    let subtitle: String?
-    let detailRows: [(String, String)]
-
-    static func == (
-        lhs: PhylogeneticTreeSelectionState,
-        rhs: PhylogeneticTreeSelectionState
     ) -> Bool {
         lhs.title == rhs.title &&
             lhs.subtitle == rhs.subtitle &&

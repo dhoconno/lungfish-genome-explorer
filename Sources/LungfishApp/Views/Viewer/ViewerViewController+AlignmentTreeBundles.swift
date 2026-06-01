@@ -4,6 +4,7 @@
 
 import AppKit
 import LungfishCore
+import LungfishPhylogeneticsUI
 import os.log
 
 private let alignmentTreeViewerLogger = Logger(subsystem: LogSubsystem.app, category: "ViewerAlignmentTreeBundles")

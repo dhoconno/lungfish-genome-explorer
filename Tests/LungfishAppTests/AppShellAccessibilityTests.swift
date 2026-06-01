@@ -2,6 +2,7 @@ import AppKit
 import LungfishWorkflow
 import XCTest
 @testable import LungfishApp
+import LungfishPhylogeneticsUI
 
 @MainActor
 final class AppShellAccessibilityTests: XCTestCase {

@@ -11,6 +11,7 @@ import SwiftUI
 import LungfishCore
 import LungfishIO
 import LungfishGenotypeUI
+import LungfishPhylogeneticsUI
 import LungfishWorkflow
 import UniformTypeIdentifiers
 import Quartz  // For QLPreviewView
