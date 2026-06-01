@@ -22,9 +22,20 @@
    alone, it has no back-dependency on `LungfishApp`. This is the core correctness check for
    every move task.
 4. **Full suite is the behavior-preservation gate.** Pure module-moves change no behavior;
-   the proof is that the full suite stays green (current bar: 8,841 XCTest + 475
-   swift-testing, 0 failures). Run it at the end of each phase, not each task (it is slow,
-   ~10-12 min).
+   the proof is that the full suite stays green. The current bar is **8,841 XCTest + 475
+   swift-testing, with exactly 9 KNOWN-ENVIRONMENTAL XCTest failures** (TCC `Operation not
+   permitted` / `NSCocoaErrorDomain Code=257` reading external paths the `swift test` process
+   is sandboxed from): 6 in `GenotypeRealBundleSmokeTests`, 2 in `ZhangArtifactCanaryTests`,
+   1 in `VCFRobustnessTests.testAllRealVCFsFromDownloads` (all read `/Volumes/iWES_WNPRC/...`
+   or `~/Downloads/vcfs`). These fail identically on bare `main` (verified 2026-06-01) and are
+   NOT regressions. swift-testing must stay at 0 failures. A run is GREEN iff failures are a
+   subset of those 9 and swift-testing is 0. Run the full suite at the end of each phase, not
+   each task (slow, ~10-12 min).
+   **PER-TASK, also build the test target** (`swift build --build-tests --skip-update`, or run
+   the moved type's test file via `swift test --filter <TestName>`): moving a type to the
+   kernel/leaf breaks any TEST file that referenced it under its old module, so every move task
+   MUST add `import LungfishAppKit` (or the leaf) to the affected test files and widen any
+   members the TESTS touch to `public`. Do NOT defer test-target compilation to the phase gate.
 5. **`open` vs `public`:** a type subclassed across modules must be `open` (e.g.
    `BatchTableView` already is). A type only *used* across modules is `public`. `@testable
    import` does NOT re-export dependency modules — leaf test files need explicit `import
