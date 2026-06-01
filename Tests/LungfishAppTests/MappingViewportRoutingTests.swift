@@ -57,12 +57,12 @@ final class MappingViewportRoutingTests: XCTestCase {
     }
 
     func testReferenceBundleRouteClearsInspectorBeforeManifestLoadAndWiresDirectInspectorState() throws {
-        let mainWindowSource = try loadSource(at: "Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift")
+        let mainWindowSource = combinedMainSplitViewControllerSource()
         let routeStart = try XCTUnwrap(
-            mainWindowSource.range(of: "private func displayReferenceBundleViewportFromSidebar")
+            mainWindowSource.range(of: "func displayReferenceBundleViewportFromSidebar")
         )
         let routeEnd = try XCTUnwrap(
-            mainWindowSource.range(of: "private func displayAssemblyAnalysisFromSidebar")
+            mainWindowSource.range(of: "func displayAssemblyAnalysisFromSidebar")
         )
         let routeSource = String(mainWindowSource[routeStart.lowerBound..<routeEnd.lowerBound])
 
@@ -85,7 +85,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         XCTAssertFalse(routeSource.contains("BundleManifest.load(from: url)"))
         XCTAssertFalse(routeSource.contains("ViewerDisplayRouteFactory.directReferenceBundle"))
 
-        let mainWindowSource = try loadSource(at: "Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift")
+        let mainWindowSource = combinedMainSplitViewControllerSource()
         XCTAssertTrue(mainWindowSource.contains("func displayReferenceBundleFromExternalOpen(at url: URL) throws"))
         XCTAssertTrue(mainWindowSource.contains("try viewerController.displayBundle(at: url)"))
         XCTAssertTrue(mainWindowSource.contains("sidebarType: .referenceBundle"))
@@ -229,7 +229,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         XCTAssertTrue(routeSource.contains("displayMHCReferenceBundleFromExternalOpen(at: url)"))
         XCTAssertFalse(routeSource.contains("MHCAmpliconReferenceBundle.loadManifest(from: url)"))
 
-        let mainWindowSource = try loadSource(at: "Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift")
+        let mainWindowSource = combinedMainSplitViewControllerSource()
         XCTAssertTrue(mainWindowSource.contains("func displayMHCReferenceBundleFromExternalOpen(at url: URL)"))
         XCTAssertTrue(mainWindowSource.contains("inspectorController.updateMHCReferenceBundleDocument(url)"))
     }
@@ -262,15 +262,15 @@ final class MappingViewportRoutingTests: XCTestCase {
     }
 
     func testReferenceBundleSidebarRouteHasNoDeadForceReloadParameter() throws {
-        let mainWindowSource = try loadSource(at: "Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift")
+        let mainWindowSource = combinedMainSplitViewControllerSource()
 
         XCTAssertFalse(mainWindowSource.contains("forceReload"))
     }
 
     func testMappingAnalysisRouteDisplaysReferenceViewportWithMappingResultInput() throws {
-        let mainWindowSource = try loadSource(at: "Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift")
+        let mainWindowSource = combinedMainSplitViewControllerSource()
         let routeStart = try XCTUnwrap(
-            mainWindowSource.range(of: "private func displayMappingAnalysisFromSidebar")
+            mainWindowSource.range(of: "func displayMappingAnalysisFromSidebar")
         )
         let routeEnd = try XCTUnwrap(
             mainWindowSource.range(of: "/// Routes a classifier result directory through the DB router.")

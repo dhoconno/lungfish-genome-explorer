@@ -552,10 +552,7 @@ final class SequenceMenuOperationTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let mainSplitSource = try String(
-            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift"),
-            encoding: .utf8
-        )
+        let mainSplitSource = combinedMainSplitViewControllerSource()
         let appDelegateSource = combinedAppDelegateSource()
 
         XCTAssertTrue(mainSplitSource.contains("ReferenceBundleAnnotationImportConfigurationPresenter.choose"))

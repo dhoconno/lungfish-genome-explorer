@@ -82,11 +82,7 @@ final class GUIRegressionTests: XCTestCase {
     }
 
     func testONTImportOperationShowsAvailableCLICommand() throws {
-        let mainSplitSource = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift"),
-            encoding: .utf8
-        )
+        let mainSplitSource = combinedMainSplitViewControllerSource()
         let coordinatorSource = try String(
             contentsOf: repositoryRoot()
                 .appendingPathComponent("Sources/LungfishApp/Services/ONTImportOperationCoordinator.swift"),
@@ -106,11 +102,7 @@ final class GUIRegressionTests: XCTestCase {
     }
 
     func testONTDirectoryRoutingExcludesExistingFASTQBundles() throws {
-        let mainSplitSource = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift"),
-            encoding: .utf8
-        )
+        let mainSplitSource = combinedMainSplitViewControllerSource()
         let appDelegateSource = combinedAppDelegateSource()
 
         XCTAssertTrue(
