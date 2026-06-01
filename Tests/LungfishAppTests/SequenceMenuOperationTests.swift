@@ -310,15 +310,8 @@ final class SequenceMenuOperationTests: XCTestCase {
     }
 
     func testSequenceTransformMenuItemsReuseFASTQFASTAOperationsDialog() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
         let appDelegateSource = combinedAppDelegateSource()
-        let sequenceViewerSource = try String(
-            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Viewer/SequenceViewerView.swift"),
-            encoding: .utf8
-        )
+        let sequenceViewerSource = combinedSequenceViewerSource()
 
         XCTAssertTrue(appDelegateSource.contains("viewerView.runSelectedSequenceFASTAOperation(toolID: .reverseComplement)"))
         XCTAssertTrue(appDelegateSource.contains("viewerView.runSelectedSequenceFASTAOperation(toolID: .translate)"))
@@ -574,14 +567,7 @@ final class SequenceMenuOperationTests: XCTestCase {
     }
 
     func testReferenceBundleReloadInvalidatesInFlightAnnotationFetches() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let viewerSource = try String(
-            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Viewer/SequenceViewerView.swift"),
-            encoding: .utf8
-        )
+        let viewerSource = combinedSequenceViewerSource()
 
         XCTAssertTrue(viewerSource.contains("annotationFetchGeneration += 1"))
         XCTAssertTrue(viewerSource.contains("variantFetchGeneration += 1"))
@@ -613,10 +599,7 @@ final class SequenceMenuOperationTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let viewerSource = try String(
-            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Viewer/SequenceViewerView.swift"),
-            encoding: .utf8
-        )
+        let viewerSource = combinedSequenceViewerSource()
         let drawerSource = try String(
             contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Viewer/ViewerViewController+AnnotationDrawer.swift"),
             encoding: .utf8
