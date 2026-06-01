@@ -908,14 +908,30 @@ EOF
 
 ---
 
-## Phase 7 — Phylogenetics leaf (HARDEST — reviewed phase)
+## Phase 7 — Phylogenetics leaf (reviewed phase)
 
-Blockers (audit): `FASTQOperationDialogState` (op/dialog-pipeline-bound, NOT moved),
-`DatasetOperationsDialog`/`DatasetOperationSection`/`DatasetOperationToolSidebarItem`,
-`MultipleSequenceAlignmentTreeInferenceRequest` (in the MSA VC), `ViewerFilePanelFactory`,
-`LungfishKitControlStyle` (now kernel), `PhylogeneticTreeSelectionState` (split in 6.1).
-Strategy: invert the dialog/file-panel dependencies via protocols injected from App; move only
-the VC + IQTree options into the leaf; keep the dialog *presenter* App-side.
+> **CORRECTED by the Phase-7 survey (2026-06-01): NO inversion needed.** The audit conflated
+> two features. The tree VIEWER (`PhylogeneticTreeViewController`) is a clean leaf — verified it
+> references NONE of `FASTQOperationDialogState` / `DatasetOperationsDialog` /
+> `MultipleSequenceAlignmentTreeInferenceRequest` (rg count 0). Those belong to the IQ-TREE
+> INFERENCE dialog (`IQTreeInferenceDialog*`, `IQTreeInferenceOptions`), which is driven by the
+> MSA viewer and **STAYS in App**. The clean boundary is: viewer -> leaf, inference dialog -> App.
+> The tree VC's only real blockers are:
+> 1. `ViewerFilePanelFactory.phylogeneticSubtreeExportPanel(suggestedName:)` (App,
+>    `Views/Viewer/ViewerFilePanelFactory.swift:78`) — a 5-line `NSSavePanel` builder used ONLY
+>    by this VC -> INLINE it into the leaf as a private helper; delete the dead App method.
+> 2. `PhylogeneticTreeSelectionState` (still co-defined in `Inspector/Sections/SelectionSection.swift:49`)
+>    -> split into its own file + move to leaf + make `public` (like `GenotypeResultSelectionState`).
+>    It references only Foundation types, so the leaf file needs `import Foundation` only.
+> Plus: `bundleURL` must become `public private(set)` (read by `AppDelegate+ImportExport.swift:97`);
+> the `testing*` helper extension + `TreeBundleOperation`/`TreeBundleOperationRequest` go `public`
+> for `BundleViewerTests`/`AppShellAccessibilityTests`. `LungfishKitControlStyle` is already kernel.
+> Leaf deps: Core/IO/Workflow/LungfishKit (no other leaf). 6 App files need the leaf import
+> (`ViewerViewController`, `ViewerViewController+AlignmentTreeBundles`,
+> `MainSplitViewController+ContentDisplay`, `InspectorViewController+PublicAPI`, `SelectionSection`,
+> `AppDelegate+ImportExport`). `NextPanelExtractionTests.swift:23` has a stale source-path string to
+> update. NOTE (out of scope, flagged separately): `onTreeBundleOperationRequested` is invoked but
+> never wired in production (only a test), so reroot/extract-subtree menu items currently no-op.
 
 **Files:**
 - Create dir: `Sources/LungfishPhylogeneticsUI/`
