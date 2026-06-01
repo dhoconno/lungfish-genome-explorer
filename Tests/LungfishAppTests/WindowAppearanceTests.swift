@@ -49,14 +49,32 @@ final class WindowAppearanceTests: XCTestCase {
     func testSemanticDangerUIUsesLungfishPaletteInsteadOfSystemRed() throws {
         let root = repositoryRoot()
         let colorsSource = try String(
-            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Shared/LungfishColors.swift"),
+            contentsOf: root.appendingPathComponent("Sources/LungfishKit/LungfishColors.swift"),
             encoding: .utf8
         )
         XCTAssertTrue(colorsSource.contains("static let lungfishDanger"))
         XCTAssertTrue(colorsSource.contains("static let lungfishDangerFill"))
         XCTAssertTrue(colorsSource.contains("applyLungfishDestructiveStyle"))
 
-        let sourceRoot = root.appendingPathComponent("Sources/LungfishApp")
+        // Scan the app target plus the shared kernel and every feature leaf module,
+        // so semantic-danger styling is policed wherever UI code now lives (not just
+        // Sources/LungfishApp). Leaf module dirs are discovered dynamically so new
+        // leaves are covered automatically.
+        let sourcesDir = root.appendingPathComponent("Sources")
+        var scanRoots: [URL] = [
+            sourcesDir.appendingPathComponent("LungfishApp"),
+            sourcesDir.appendingPathComponent("LungfishKit"),
+        ]
+        if let entries = try? FileManager.default.contentsOfDirectory(
+            at: sourcesDir,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) {
+            for entry in entries where entry.lastPathComponent.hasPrefix("Lungfish")
+                && entry.lastPathComponent.hasSuffix("UI") {
+                scanRoots.append(entry)
+            }
+        }
         let allowedDataColorFiles: Set<String> = [
             "Sources/LungfishApp/Views/Settings/AppearanceSettingsTab.swift",
             "Sources/LungfishApp/Views/Viewer/AnnotationPopoverView.swift",
@@ -84,22 +102,24 @@ final class WindowAppearanceTests: XCTestCase {
             "role: .destructive",
         ]
 
-        let enumerator = try XCTUnwrap(
-            FileManager.default.enumerator(
-                at: sourceRoot,
-                includingPropertiesForKeys: [.isRegularFileKey],
-                options: [.skipsHiddenFiles]
-            )
-        )
         var violations: [String] = []
-        for case let url as URL in enumerator where url.pathExtension == "swift" {
-            let relativePath = url.path.replacingOccurrences(of: root.path + "/", with: "")
-            if allowedDataColorFiles.contains(relativePath) {
-                continue
-            }
-            let source = try String(contentsOf: url, encoding: .utf8)
-            for pattern in forbiddenPatterns where source.contains(pattern) {
-                violations.append("\(relativePath): \(pattern)")
+        for scanRoot in scanRoots {
+            let enumerator = try XCTUnwrap(
+                FileManager.default.enumerator(
+                    at: scanRoot,
+                    includingPropertiesForKeys: [.isRegularFileKey],
+                    options: [.skipsHiddenFiles]
+                )
+            )
+            for case let url as URL in enumerator where url.pathExtension == "swift" {
+                let relativePath = url.path.replacingOccurrences(of: root.path + "/", with: "")
+                if allowedDataColorFiles.contains(relativePath) {
+                    continue
+                }
+                let source = try String(contentsOf: url, encoding: .utf8)
+                for pattern in forbiddenPatterns where source.contains(pattern) {
+                    violations.append("\(relativePath): \(pattern)")
+                }
             }
         }
 
