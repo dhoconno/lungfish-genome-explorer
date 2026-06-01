@@ -86,6 +86,10 @@ extension ViewerViewController {
             throw error
         }
 
+        controller.onTreeBundleOperationRequested = { [weak self] request in
+            self?.performTreeBundleOperationViaCLI(request)
+        }
+
         phylogeneticTreeViewController = controller
         contentMode = .genomics
         alignmentTreeViewerLogger.info("displayPhylogeneticTreeBundle: Showing \(url.lastPathComponent, privacy: .public)")
