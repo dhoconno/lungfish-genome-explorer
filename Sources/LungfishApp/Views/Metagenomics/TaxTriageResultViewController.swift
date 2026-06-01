@@ -361,6 +361,11 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Called when the user wants to re-run TaxTriage with the same or different settings.
     public var onReRun: (() -> Void)?
 
+    /// Invoked when the user requests read extraction. The App host wires this to
+    /// presentClassifierExtractionDialog; kept as a callback so this VC has no
+    /// dependency on the App-internal extraction/operation pipeline.
+    public var onExtractReadsRequested: (@MainActor (ClassifierTool, URL, [ClassifierRowSelector], String) -> Void)?
+
     // MARK: - Lifecycle
 
     public override func loadView() {
@@ -3137,12 +3142,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         let selectors = buildTaxTriageSelectors()
         let firstAccession = selectors.first?.accessions.first ?? "extract"
         let sid = selectors.first?.sampleId ?? "sample"
-        presentClassifierExtractionDialog(
-            tool: .taxtriage,
-            resultPath: resultPath,
-            selectors: selectors,
-            suggestedName: "taxtriage_\(sid)_\(firstAccession)"
-        )
+        onExtractReadsRequested?(.taxtriage, resultPath, selectors, "taxtriage_\(sid)_\(firstAccession)")
     }
 
     // MARK: - Negative Control Helpers

@@ -207,6 +207,10 @@ extension ViewerViewController {
 
             OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
         }
+        controller.onExtractReadsRequested = { [weak controller] tool, resultPath, selectors, suggestedName in
+            guard let controller else { return }
+            controller.presentClassifierExtractionDialog(tool: tool, resultPath: resultPath, selectors: selectors, suggestedName: suggestedName)
+        }
         ttView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(ttView)
 

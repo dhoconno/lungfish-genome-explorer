@@ -262,6 +262,11 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     /// Called when the user wants to re-run EsViritu with the same or different settings.
     public var onReRun: (() -> Void)?
 
+    /// Invoked when the user requests read extraction. The App host wires this to
+    /// presentClassifierExtractionDialog; kept as a callback so this VC has no
+    /// dependency on the App-internal extraction/operation pipeline.
+    public var onExtractReadsRequested: (@MainActor (ClassifierTool, URL, [ClassifierRowSelector], String) -> Void)?
+
     /// Unified metagenomics drawer (available for views that adopt it).
     /// Provides Samples, Collections, and BLAST Results tabs.
     private(set) lazy var metagenomicsDrawer: MetagenomicsDrawerView = {
@@ -1273,12 +1278,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     private func presentUnifiedExtractionDialog() {
         guard let resultPath = esVirituDatabase?.databaseURL ?? esVirituConfig?.outputDirectory else { return }
         let firstAccession = detectionTableView.selectedAssemblyAccessions().first ?? "extract"
-        presentClassifierExtractionDialog(
-            tool: .esviritu,
-            resultPath: resultPath,
-            selectors: buildEsVirituSelectors(),
-            suggestedName: "esviritu_\(firstAccession)"
-        )
+        onExtractReadsRequested?(.esviritu, resultPath, buildEsVirituSelectors(), "esviritu_\(firstAccession)")
     }
 
     @objc private func handleLayoutSwapRequested(_ notification: Notification) {

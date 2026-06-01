@@ -237,6 +237,11 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     /// Called when the user selects a taxon and wants to view it on NCBI.
     public var onViewOnNCBI: ((NaoMgsTaxonSummary) -> Void)?
 
+    /// Invoked when the user requests read extraction. The App host wires this to
+    /// presentClassifierExtractionDialog; kept as a callback so this VC has no
+    /// dependency on the App-internal extraction/operation pipeline.
+    public var onExtractReadsRequested: (@MainActor (ClassifierTool, URL, [ClassifierRowSelector], String) -> Void)?
+
     // MARK: - Lifecycle
 
     public override func loadView() {
@@ -1616,12 +1621,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         let selectors = buildNaoMgsSelectors()
         let first = selectors.first
         let suggested = "naomgs_\(first?.sampleId ?? "sample")_\(first?.taxIds.first.map(String.init) ?? "extract")"
-        presentClassifierExtractionDialog(
-            tool: .naomgs,
-            resultPath: resultPath,
-            selectors: selectors,
-            suggestedName: suggested
-        )
+        onExtractReadsRequested?(.naomgs, resultPath, selectors, suggested)
     }
 
     @objc private func handleLayoutSwapRequested(_ notification: Notification) {

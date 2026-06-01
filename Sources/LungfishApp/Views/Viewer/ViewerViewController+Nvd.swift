@@ -172,6 +172,10 @@ extension ViewerViewController {
                 suggestedName: Self.suggestedName(from: fastaRecords, fallback: "nvd-contig")
             )
         }
+        controller.onExtractReadsRequested = { [weak controller] tool, resultPath, selectors, suggestedName in
+            guard let controller else { return }
+            controller.presentClassifierExtractionDialog(tool: tool, resultPath: resultPath, selectors: selectors, suggestedName: suggestedName)
+        }
 
         // Hide normal genomic viewer components (same pattern as Taxonomy/EsViritu/TaxTriage/NAO-MGS).
         enhancedRulerView.isHidden = true

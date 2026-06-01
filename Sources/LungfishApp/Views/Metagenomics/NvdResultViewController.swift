@@ -192,6 +192,11 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     /// Called when the user wants to export results.
     public var onExport: (() -> Void)?
 
+    /// Invoked when the user requests read extraction. The App host wires this to
+    /// presentClassifierExtractionDialog; kept as a callback so this VC has no
+    /// dependency on the App-internal extraction/operation pipeline.
+    public var onExtractReadsRequested: (@MainActor (ClassifierTool, URL, [ClassifierRowSelector], String) -> Void)?
+
     // MARK: - UI Components
 
     private let summaryBar = NvdSummaryBar()
@@ -1212,12 +1217,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         guard let resultPath = database?.databaseURL else { return }
         guard !selectors.isEmpty else { return }
         let firstContig = selectors.first?.accessions.first ?? "extract"
-        presentClassifierExtractionDialog(
-            tool: .nvd,
-            resultPath: resultPath,
-            selectors: selectors,
-            suggestedName: "nvd_\(firstContig)"
-        )
+        onExtractReadsRequested?(.nvd, resultPath, selectors, "nvd_\(firstContig)")
     }
 
     @objc private func contextExtractReadsUnified(_ sender: Any?) {
