@@ -129,9 +129,9 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
 
     func testAppDelegateVolatileImportProgressDoesNotUseUpdateWithLog() throws {
         let root = repositoryRoot()
-        let path = "Sources/LungfishApp/App/AppDelegate.swift"
-        let url = root.appendingPathComponent(path)
-        let source = try String(contentsOf: url, encoding: .utf8)
+        let path = "Sources/LungfishApp/App/AppDelegate.swift (+ AppDelegate+*.swift)"
+        _ = root.appendingPathComponent("Sources/LungfishApp/App/AppDelegate.swift")
+        let source = combinedAppDelegateSource()
         let lines = source.components(separatedBy: .newlines)
         let volatileMarkers = [
             "Self.runVCFImportViaHelper(",

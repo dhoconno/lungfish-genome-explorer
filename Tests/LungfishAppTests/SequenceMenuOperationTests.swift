@@ -314,10 +314,7 @@ final class SequenceMenuOperationTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let appDelegateSource = try String(
-            contentsOf: root.appendingPathComponent("Sources/LungfishApp/App/AppDelegate.swift"),
-            encoding: .utf8
-        )
+        let appDelegateSource = combinedAppDelegateSource()
         let sequenceViewerSource = try String(
             contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Viewer/SequenceViewerView.swift"),
             encoding: .utf8
@@ -333,10 +330,7 @@ final class SequenceMenuOperationTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let appDelegateSource = try String(
-            contentsOf: root.appendingPathComponent("Sources/LungfishApp/App/AppDelegate.swift"),
-            encoding: .utf8
-        )
+        let appDelegateSource = combinedAppDelegateSource()
 
         XCTAssertTrue(appDelegateSource.contains("OperationCenter.shared.canStartOperation(on: context.bundleURL)"))
         XCTAssertTrue(appDelegateSource.contains("activeLockHolder(for: context.bundleURL)"))
@@ -347,10 +341,7 @@ final class SequenceMenuOperationTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let appDelegateSource = try String(
-            contentsOf: root.appendingPathComponent("Sources/LungfishApp/App/AppDelegate.swift"),
-            encoding: .utf8
-        )
+        let appDelegateSource = combinedAppDelegateSource()
         let dialogSource = try String(
             contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Sequence/SequenceORFOperationDialog.swift"),
             encoding: .utf8
@@ -535,10 +526,7 @@ final class SequenceMenuOperationTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let appDelegateSource = try String(
-            contentsOf: root.appendingPathComponent("Sources/LungfishApp/App/AppDelegate.swift"),
-            encoding: .utf8
-        )
+        let appDelegateSource = combinedAppDelegateSource()
         let bundleDisplaySource = try String(
             contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Viewer/ViewerViewController+BundleDisplay.swift"),
             encoding: .utf8
@@ -557,10 +545,7 @@ final class SequenceMenuOperationTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let appDelegateSource = try String(
-            contentsOf: root.appendingPathComponent("Sources/LungfishApp/App/AppDelegate.swift"),
-            encoding: .utf8
-        )
+        let appDelegateSource = combinedAppDelegateSource()
 
         let activeMatchRange = try XCTUnwrap(appDelegateSource.range(of: "let activeSequenceViewer = targetViewerController.activeSequenceViewerController"))
         let reloadRange = try XCTUnwrap(appDelegateSource.range(of: "try activeSequenceViewer.reloadReferenceBundleAfterAnnotationTrackMutation(bundleURL: bundleURL)"))
@@ -583,10 +568,7 @@ final class SequenceMenuOperationTests: XCTestCase {
             contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift"),
             encoding: .utf8
         )
-        let appDelegateSource = try String(
-            contentsOf: root.appendingPathComponent("Sources/LungfishApp/App/AppDelegate.swift"),
-            encoding: .utf8
-        )
+        let appDelegateSource = combinedAppDelegateSource()
 
         XCTAssertTrue(mainSplitSource.contains("ReferenceBundleAnnotationImportConfigurationPresenter.choose"))
         XCTAssertFalse(mainSplitSource.contains("private func promptForAnnotationImportConfiguration"))

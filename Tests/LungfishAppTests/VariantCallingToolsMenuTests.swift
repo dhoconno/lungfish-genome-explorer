@@ -54,11 +54,7 @@ final class VariantCallingToolsMenuTests: XCTestCase {
 
     @MainActor
     func testAppDelegateSourceValidatesAndRoutesCallVariantsMenuItem() throws {
-        let source = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/App/AppDelegate.swift"),
-            encoding: .utf8
-        )
+        let source = combinedAppDelegateSource()
 
         XCTAssertTrue(source.contains("#selector(showBAMVariantCalling(_:))"))
         XCTAssertTrue(source.contains("presentVariantCallingDialog("))

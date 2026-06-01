@@ -111,11 +111,7 @@ final class GUIRegressionTests: XCTestCase {
                 .appendingPathComponent("Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift"),
             encoding: .utf8
         )
-        let appDelegateSource = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/App/AppDelegate.swift"),
-            encoding: .utf8
-        )
+        let appDelegateSource = combinedAppDelegateSource()
 
         XCTAssertTrue(
             mainSplitSource.contains("FASTQBundle.isBundleURL(url)"),

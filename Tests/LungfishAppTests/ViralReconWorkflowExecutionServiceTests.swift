@@ -572,10 +572,7 @@ private func repositoryRoot() -> URL {
 }
 
 private func appDelegateSource() throws -> String {
-    try String(
-        contentsOf: repositoryRoot().appendingPathComponent("Sources/LungfishApp/App/AppDelegate.swift"),
-        encoding: .utf8
-    )
+    combinedAppDelegateSource()
 }
 
 private func functionBody(named name: String, in source: String) throws -> String {

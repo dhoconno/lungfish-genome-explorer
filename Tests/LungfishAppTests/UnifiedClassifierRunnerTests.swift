@@ -212,7 +212,7 @@ final class UnifiedClassifierRunnerTests: XCTestCase {
         // private async runner. Until that workflow exposes a route/result seam,
         // keep this narrow source guard because preserving virtual input provenance
         // is a blocking scientific-data requirement.
-        let source = try loadSource(at: "Sources/LungfishApp/App/AppDelegate.swift")
+        let source = combinedAppDelegateSource()
         let methodStart = try XCTUnwrap(source.range(of: "    private func runMinimap2Mapping("))
         let methodEnd = try XCTUnwrap(
             source.range(of: "    func importCzIdResultFromURL", range: methodStart.upperBound..<source.endIndex)

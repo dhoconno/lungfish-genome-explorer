@@ -12,7 +12,7 @@ final class EsVirituProvenanceSourceTests: XCTestCase {
     }
 
     func testAppDelegateWritesRootProvenanceForSingleAndBatchEsVirituResults() throws {
-        let source = try String(contentsOf: appDelegateSourceURL, encoding: .utf8)
+        let source = combinedAppDelegateSource()
         let callCount = source.components(separatedBy: "MetagenomicsBatchProvenanceWriter.writeEsVirituBatchProvenance").count - 1
 
         XCTAssertGreaterThanOrEqual(callCount, 2)

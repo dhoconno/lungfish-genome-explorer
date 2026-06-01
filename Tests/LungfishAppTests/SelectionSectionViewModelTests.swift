@@ -16,7 +16,7 @@ final class SelectionSectionViewModelTests: XCTestCase {
         let viewerSource = try String(contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Viewer/ViewerViewController.swift"), encoding: .utf8)
         let extractionSource = try String(contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Viewer/ViewerViewController+Extraction.swift"), encoding: .utf8)
         let sequenceViewerSource = try String(contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Viewer/SequenceViewerView.swift"), encoding: .utf8)
-        let appDelegateSource = try String(contentsOf: root.appendingPathComponent("Sources/LungfishApp/App/AppDelegate.swift"), encoding: .utf8)
+        let appDelegateSource = combinedAppDelegateSource()
 
         XCTAssertTrue(selectionSource.contains("onRunFASTAOperation"))
         XCTAssertTrue(selectionSource.contains("Run FASTQ/FASTA Operation"))

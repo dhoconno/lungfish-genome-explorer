@@ -85,8 +85,9 @@ final class OperationRoutingTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishApp/App/AppDelegate.swift")
-        let source = try String(contentsOf: appDelegateURL, encoding: .utf8)
-        let start = try XCTUnwrap(source.range(of: "private func handleMultipleDownloadsSync"))
+        _ = appDelegateURL
+        let source = combinedAppDelegateSource()
+        let start = try XCTUnwrap(source.range(of: "func handleMultipleDownloadsSync"))
         let end = try XCTUnwrap(source[start.lowerBound...].range(of: "let totalCount = tempFileURLs.count"))
         let body = String(source[start.lowerBound..<end.lowerBound])
 
@@ -210,9 +211,10 @@ final class OperationRoutingTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishApp/App/AppDelegate.swift")
-        let source = try String(contentsOf: appDelegateURL, encoding: .utf8)
+        _ = appDelegateURL
+        let source = combinedAppDelegateSource()
         let start = try XCTUnwrap(source.range(of: "@objc func importSampleMetadataToBundle"))
-        let end = try XCTUnwrap(source[start.lowerBound...].range(of: "private func performVCFImport"))
+        let end = try XCTUnwrap(source[start.lowerBound...].range(of: "func performVCFImport"))
         let body = String(source[start.lowerBound..<end.lowerBound])
 
         XCTAssertTrue(body.contains("activeMainWindowController(sender: sender)"))
@@ -244,7 +246,8 @@ final class OperationRoutingTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishApp/App/AppDelegate.swift")
-        let source = try String(contentsOf: appDelegateURL, encoding: .utf8)
+        _ = appDelegateURL
+        let source = combinedAppDelegateSource()
         let body = try sourceFunctionBody(
             named: "@objc func showWorkflowOperations",
             endingBefore: "@objc func showImportCenter",
@@ -262,10 +265,11 @@ final class OperationRoutingTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishApp/App/AppDelegate.swift")
-        let source = try String(contentsOf: appDelegateURL, encoding: .utf8)
+        _ = appDelegateURL
+        let source = combinedAppDelegateSource()
         let body = try sourceFunctionBody(
             named: "@objc func applyAlignmentAnnotationToSelection",
-            endingBefore: "private func showAlert",
+            endingBefore: "func showAlert",
             in: source
         )
 
@@ -298,7 +302,8 @@ final class OperationRoutingTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishApp/App/AppDelegate.swift")
-        let source = try String(contentsOf: appDelegateURL, encoding: .utf8)
+        _ = appDelegateURL
+        let source = combinedAppDelegateSource()
 
         let naoLaunch = try sourceFunctionBody(
             named: "@objc func launchNaoMgsImport",
