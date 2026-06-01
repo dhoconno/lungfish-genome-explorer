@@ -655,8 +655,8 @@ public extension Notification.Name {
     /// Posted when the persisted mapping panel layout preference changes.
     static let mappingLayoutSwapRequested = Notification.Name("com.lungfish.mappingLayoutSwapRequested")
 
-    /// Posted when sample selection changes in the Inspector-embedded sample picker.
-    static let metagenomicsSampleSelectionChanged = Notification.Name("com.lungfish.metagenomicsSampleSelectionChanged")
+    // `metagenomicsSampleSelectionChanged` now lives in the LungfishKit kernel
+    // (shared across every metagenomics result view controller).
 
     /// Posted when the user clicks the "Import Metadata..." button in the Inspector.
     static let metagenomicsMetadataImportRequested = Notification.Name("com.lungfish.metagenomicsMetadataImportRequested")

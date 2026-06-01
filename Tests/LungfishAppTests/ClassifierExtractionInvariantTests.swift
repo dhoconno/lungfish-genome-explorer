@@ -89,7 +89,7 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
     }
 
     func testI1_nvd_menuItemVisible_sourceLevel() throws {
-        let path = "\(ClassifierExtractionFixtures.repositoryRoot.path)/Sources/LungfishApp/Views/Metagenomics/NvdResultViewController.swift"
+        let path = "\(ClassifierExtractionFixtures.repositoryRoot.path)/Sources/LungfishNvdUI/NvdResultViewController.swift"
         let source = try String(contentsOfFile: path, encoding: .utf8)
         XCTAssertTrue(
             source.contains("Extract Reads\u{2026}") || source.contains("Extract Reads\\u{2026}"),

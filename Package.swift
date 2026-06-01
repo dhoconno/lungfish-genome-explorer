@@ -59,6 +59,11 @@ let package = Package(
             name: "LungfishAssemblyUI",
             targets: ["LungfishAssemblyUI"]
         ),
+        // NVD (Novel Virus Diagnostics) results UI leaf module extracted from LungfishApp
+        .library(
+            name: "LungfishNvdUI",
+            targets: ["LungfishNvdUI"]
+        ),
     ],
     dependencies: [
         // Swift Argument Parser for CLI tools
@@ -218,6 +223,23 @@ let package = Package(
             path: "Tests/LungfishAssemblyUITests"
         ),
 
+        // MARK: - LungfishNvdUI (NVD results UI leaf)
+        .target(
+            name: "LungfishNvdUI",
+            dependencies: [
+                "LungfishCore",
+                "LungfishIO",
+                "LungfishWorkflow",
+                "LungfishKit",
+            ],
+            path: "Sources/LungfishNvdUI"
+        ),
+        .testTarget(
+            name: "LungfishNvdUITests",
+            dependencies: ["LungfishNvdUI", "LungfishKit"],
+            path: "Tests/LungfishNvdUITests"
+        ),
+
         // MARK: - LungfishApp
         .target(
             name: "LungfishApp",
@@ -229,6 +251,7 @@ let package = Package(
                 "LungfishTwelveSUI",
                 "LungfishAlignmentUI",
                 "LungfishAssemblyUI",
+                "LungfishNvdUI",
             ],
             path: "Sources/LungfishApp",
             resources: [
@@ -241,7 +264,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LungfishAppTests",
-            dependencies: ["LungfishApp", "LungfishCLI"],
+            dependencies: ["LungfishApp", "LungfishCLI", "LungfishNvdUI"],
             path: "Tests/LungfishAppTests",
             resources: [
                 .copy("Fixtures")

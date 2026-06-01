@@ -18,7 +18,7 @@ final class FeatureFilePanelExtractionTests: XCTestCase {
             "Sources/LungfishApp/Views/Metagenomics/NvdImportSheet.swift",
             "Sources/LungfishApp/Views/Metagenomics/CzIdImportSheet.swift",
             "Sources/LungfishApp/Views/Metagenomics/NaoMgsResultViewController.swift",
-            "Sources/LungfishApp/Views/Metagenomics/NvdResultViewController.swift",
+            "Sources/LungfishNvdUI/NvdResultViewController.swift",
             "Sources/LungfishApp/Views/Metagenomics/TaxTriageResultViewController.swift",
             "Sources/LungfishApp/Views/Metagenomics/EsVirituResultViewController.swift",
             "Sources/LungfishApp/Views/Metagenomics/TaxonomyViewController.swift",

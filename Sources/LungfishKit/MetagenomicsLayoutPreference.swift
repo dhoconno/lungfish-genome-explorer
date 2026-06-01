@@ -3,6 +3,11 @@ import Foundation
 public extension Notification.Name {
     /// Posted when the persisted metagenomics panel layout preference changes.
     static let metagenomicsLayoutSwapRequested = Notification.Name("com.lungfish.metagenomicsLayoutSwapRequested")
+
+    /// Posted when sample selection changes in the Inspector-embedded sample picker.
+    /// Shared across every metagenomics result view controller (Taxonomy, NAO-MGS,
+    /// TaxTriage, EsViritu, NVD) so it lives in the kernel rather than any one leaf.
+    static let metagenomicsSampleSelectionChanged = Notification.Name("com.lungfish.metagenomicsSampleSelectionChanged")
 }
 
 @MainActor

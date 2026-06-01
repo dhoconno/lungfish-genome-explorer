@@ -6,7 +6,7 @@ import Foundation
 import LungfishKit
 
 /// Utility functions for extracting, formatting, and converting NVD data.
-enum NvdDataConverter {
+public enum NvdDataConverter {
 
     /// Extracts a contig sequence from a multi-FASTA file by matching the header.
     ///
@@ -61,7 +61,7 @@ enum NvdDataConverter {
     ///   - qseqid: The full query sequence ID from the BLAST output.
     ///   - qlen: The contig length in bases.
     /// - Returns: A human-readable display name.
-    static func displayName(for qseqid: String, qlen: Int) -> String {
+    public static func displayName(for qseqid: String, qlen: Int) -> String {
         let parts = qseqid.split(separator: "_")
 
         // Try to extract NODE_N from SPAdes-style IDs

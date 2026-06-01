@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishNvdUI
 
 extension ViewerViewController {
     public func displayCzIdResult(_ controller: CzIdResultViewController) {

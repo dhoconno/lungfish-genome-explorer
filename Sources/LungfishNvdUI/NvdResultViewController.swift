@@ -170,7 +170,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     public var samplePickerState: ClassifierSamplePickerState!
 
     /// Sample metadata for dynamic column display in the outline view.
-    var sampleMetadataStore: SampleMetadataStore? {
+    public var sampleMetadataStore: SampleMetadataStore? {
         didSet {
             updateMetadataColumnsForCurrentSamples()
         }
