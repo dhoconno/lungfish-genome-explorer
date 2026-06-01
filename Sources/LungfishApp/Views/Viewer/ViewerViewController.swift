@@ -3601,4 +3601,60 @@ extension ViewerViewController {
 }
 #endif
 
+/// Pure helpers for translating a tree-node transform request into `lungfish tree …` CLI
+/// arguments and output naming. Separated from `ViewerViewController` so it is unit-testable
+/// without window/project state.
+enum TreeBundleTransformCommand {
+    /// The output bundle filename stem (no extension), e.g. "source-rerooted" / "Clade A-subtree".
+    /// Returns nil for operations that do not produce a bundle (e.g. `.collapse`).
+    static func outputStem(for request: PhylogeneticTreeViewController.TreeBundleOperationRequest) -> String? {
+        switch request.operation {
+        case .reroot:
+            let sourceStem = request.bundleURL.deletingPathExtension().lastPathComponent
+            return "\(sourceStem)-rerooted"
+        case .extractSubtree:
+            return "\(request.nodeLabel)-subtree"
+        case .collapse:
+            return nil
+        }
+    }
+
+    /// CLI argv for the request, or nil if the operation does not map to a CLI transform.
+    static func arguments(
+        for request: PhylogeneticTreeViewController.TreeBundleOperationRequest,
+        outputURL: URL
+    ) -> [String]? {
+        let bundlePath = request.bundleURL.standardizedFileURL.path
+        let outputPath = outputURL.standardizedFileURL.path
+        switch request.operation {
+        case .reroot:
+            return [
+                "tree", "reroot",
+                "--bundle", bundlePath,
+                "--on", request.nodeID,
+                "--output", outputPath,
+                "--format", "json",
+            ]
+        case .extractSubtree:
+            return [
+                "tree", "extract-subtree",
+                "--bundle", bundlePath,
+                "--node", request.nodeID,
+                "--output", outputPath,
+                "--format", "json",
+            ]
+        case .collapse:
+            return nil
+        }
+    }
+
+    static func title(for operation: PhylogeneticTreeViewController.TreeBundleOperation) -> String {
+        switch operation {
+        case .reroot: return "Re-root Tree"
+        case .extractSubtree: return "Extract Subtree"
+        case .collapse: return "Collapse Clade"
+        }
+    }
+}
+
 // AnnotationPopoverView extracted to AnnotationPopoverView.swift
