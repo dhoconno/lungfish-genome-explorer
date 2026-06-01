@@ -2,6 +2,7 @@ import Foundation
 import LungfishAppKit
 import LungfishCore
 import LungfishIO
+import LungfishTwelveSUI
 import LungfishWorkflow
 import UniformTypeIdentifiers
 

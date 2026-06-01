@@ -4,14 +4,14 @@ import LungfishIO
 import LungfishWorkflow
 import UniformTypeIdentifiers
 
-enum TwelveSAmpliconResultExportFormat: String, CaseIterable, Identifiable, Sendable {
+public enum TwelveSAmpliconResultExportFormat: String, CaseIterable, Identifiable, Sendable {
     case csv
     case tsv
     case excel
 
-    var id: String { rawValue }
+    public var id: String { rawValue }
 
-    var displayName: String {
+    public var displayName: String {
         switch self {
         case .csv: return "CSV"
         case .tsv: return "TSV"
@@ -19,7 +19,7 @@ enum TwelveSAmpliconResultExportFormat: String, CaseIterable, Identifiable, Send
         }
     }
 
-    var fileExtension: String {
+    public var fileExtension: String {
         switch self {
         case .csv: return "csv"
         case .tsv: return "tsv"
@@ -27,7 +27,7 @@ enum TwelveSAmpliconResultExportFormat: String, CaseIterable, Identifiable, Send
         }
     }
 
-    var cliValue: String {
+    public var cliValue: String {
         switch self {
         case .csv: return "csv"
         case .tsv: return "tsv"
@@ -35,7 +35,7 @@ enum TwelveSAmpliconResultExportFormat: String, CaseIterable, Identifiable, Send
         }
     }
 
-    var contentType: UTType {
+    public var contentType: UTType {
         switch self {
         case .csv:
             return .commaSeparatedText

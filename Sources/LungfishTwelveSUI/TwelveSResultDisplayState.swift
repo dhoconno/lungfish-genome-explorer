@@ -2,16 +2,16 @@ import Foundation
 import LungfishIO
 import LungfishAppKit
 
-enum TwelveSChimeraStatusFilter: String, CaseIterable, Identifiable, Sendable {
+public enum TwelveSChimeraStatusFilter: String, CaseIterable, Identifiable, Sendable {
     case all
     case notReviewed
     case notDetected
     case candidate
     case confirmed
 
-    var id: String { rawValue }
+    public var id: String { rawValue }
 
-    var displayName: String {
+    public var displayName: String {
         switch self {
         case .all:
             return "All"
@@ -26,7 +26,7 @@ enum TwelveSChimeraStatusFilter: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    func includes(_ status: TwelveSChimeraStatus) -> Bool {
+    public func includes(_ status: TwelveSChimeraStatus) -> Bool {
         switch self {
         case .all:
             return true
@@ -42,17 +42,17 @@ enum TwelveSChimeraStatusFilter: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
-struct TwelveSResultDisplayState: Equatable, Sendable {
-    var minimumExactReads: Int
-    var filterText: String
-    var includedTaxonGroups: Set<String>
-    var excludedTaxonGroups: Set<String>
-    var excludeHuman: Bool
-    var requireAlternateMatches: Bool
-    var minimumUnresolvedReads: Int
-    var chimeraFilter: TwelveSChimeraStatusFilter
+public struct TwelveSResultDisplayState: Equatable, Sendable {
+    public var minimumExactReads: Int
+    public var filterText: String
+    public var includedTaxonGroups: Set<String>
+    public var excludedTaxonGroups: Set<String>
+    public var excludeHuman: Bool
+    public var requireAlternateMatches: Bool
+    public var minimumUnresolvedReads: Int
+    public var chimeraFilter: TwelveSChimeraStatusFilter
 
-    init(
+    public init(
         minimumExactReads: Int = 0,
         filterText: String = "",
         includedTaxonGroups: Set<String> = [],
@@ -75,38 +75,57 @@ struct TwelveSResultDisplayState: Equatable, Sendable {
     /// The 12S row-visibility filter expressed as the shared threshold type so
     /// both result viewports converge on one model. Behavior is unchanged: 12S
     /// continues to drive its live filter from `minimumExactReads`.
-    var minimumReadsThreshold: MinimumReadsThreshold {
+    public var minimumReadsThreshold: MinimumReadsThreshold {
         .init(value: minimumExactReads)
     }
 
-    var normalizedFilterText: String {
+    public var normalizedFilterText: String {
         filterText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    var normalizedIncludedTaxonGroups: Set<String> {
+    public var normalizedIncludedTaxonGroups: Set<String> {
         Set(includedTaxonGroups.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }.filter { !$0.isEmpty })
     }
 
-    var normalizedExcludedTaxonGroups: Set<String> {
+    public var normalizedExcludedTaxonGroups: Set<String> {
         Set(excludedTaxonGroups.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }.filter { !$0.isEmpty })
     }
 }
 
-struct TwelveSResultDisplaySummary: Equatable, Sendable {
-    let rowLabel: String
-    let visibleRows: Int
-    let totalRows: Int
+public struct TwelveSResultDisplaySummary: Equatable, Sendable {
+    public let rowLabel: String
+    public let visibleRows: Int
+    public let totalRows: Int
+
+    public init(rowLabel: String, visibleRows: Int, totalRows: Int) {
+        self.rowLabel = rowLabel
+        self.visibleRows = visibleRows
+        self.totalRows = totalRows
+    }
 }
 
-struct TwelveSDetailSampleEvidenceRow: Equatable, Sendable {
-    let sampleID: String
-    let displayName: String
-    let exactReads: Int
-    let percentOfSampleExactReads: Double
+public struct TwelveSDetailSampleEvidenceRow: Equatable, Sendable {
+    public let sampleID: String
+    public let displayName: String
+    public let exactReads: Int
+    public let percentOfSampleExactReads: Double
+
+    public init(sampleID: String, displayName: String, exactReads: Int, percentOfSampleExactReads: Double) {
+        self.sampleID = sampleID
+        self.displayName = displayName
+        self.exactReads = exactReads
+        self.percentOfSampleExactReads = percentOfSampleExactReads
+    }
 }
 
-struct TwelveSUnresolvedBlastRequest: Equatable, Sendable {
-    let bundleURL: URL
-    let minimumReads: Int
-    let sequences: [TwelveSUnresolvedSequence]
+public struct TwelveSUnresolvedBlastRequest: Equatable, Sendable {
+    public let bundleURL: URL
+    public let minimumReads: Int
+    public let sequences: [TwelveSUnresolvedSequence]
+
+    public init(bundleURL: URL, minimumReads: Int, sequences: [TwelveSUnresolvedSequence]) {
+        self.bundleURL = bundleURL
+        self.minimumReads = minimumReads
+        self.sequences = sequences
+    }
 }

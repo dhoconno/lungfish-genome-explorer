@@ -1,4 +1,5 @@
 import AppKit
+import LungfishTwelveSUI
 import XCTest
 @testable import LungfishCore
 @testable import LungfishApp

@@ -1,7 +1,7 @@
 import AppKit
 import LungfishAppKit
 import XCTest
-@testable import LungfishApp
+@testable import LungfishTwelveSUI
 @testable import LungfishIO
 
 @MainActor

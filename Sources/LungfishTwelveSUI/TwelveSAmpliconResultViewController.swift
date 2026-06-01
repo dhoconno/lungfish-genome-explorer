@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 import LungfishAppKit
 
 @MainActor
-final class TwelveSAmpliconResultViewController: NSViewController {
+public final class TwelveSAmpliconResultViewController: NSViewController {
     private enum Mode: Int {
         case targets
         case unresolved
@@ -50,10 +50,10 @@ final class TwelveSAmpliconResultViewController: NSViewController {
     private var isSampleEvidenceExpanded = true
     private var areAlternateMatchesExpanded = true
 
-    var onDisplaySummaryChanged: ((TwelveSResultDisplaySummary) -> Void)?
-    var onDisplayStateChanged: ((TwelveSResultDisplayState) -> Void)?
-    var onUnresolvedBlastRequested: ((TwelveSUnresolvedBlastRequest) -> Void)?
-    var onUnresolvedBlastCancelRequested: (() -> Void)?
+    public var onDisplaySummaryChanged: ((TwelveSResultDisplaySummary) -> Void)?
+    public var onDisplayStateChanged: ((TwelveSResultDisplayState) -> Void)?
+    public var onUnresolvedBlastRequested: ((TwelveSUnresolvedBlastRequest) -> Void)?
+    public var onUnresolvedBlastCancelRequested: (() -> Void)?
 
     var visibleTargetRowCount: Int {
         mode == .targets ? tableView.numberOfRows : targetRows.count
@@ -87,7 +87,7 @@ final class TwelveSAmpliconResultViewController: NSViewController {
         actionBar.onProvenance != nil
     }
 
-    override func loadView() {
+    public override func loadView() {
         let root = NSView()
         root.translatesAutoresizingMaskIntoConstraints = false
         root.setAccessibilityElement(true)
@@ -103,7 +103,7 @@ final class TwelveSAmpliconResultViewController: NSViewController {
         layout()
     }
 
-    func configure(result: TwelveSAmpliconResultBundleData) {
+    public func configure(result: TwelveSAmpliconResultBundleData) {
         self.result = result
         allTargetRows = result.scientificNameRows
         allUnresolvedRows = result.unresolvedSequences.sorted { lhs, rhs in
@@ -116,7 +116,7 @@ final class TwelveSAmpliconResultViewController: NSViewController {
         showTargets()
     }
 
-    func applyDisplayState(_ state: TwelveSResultDisplayState) {
+    public func applyDisplayState(_ state: TwelveSResultDisplayState) {
         displayState = state
         searchField.stringValue = state.filterText
         applyFilters(notify: true)
@@ -160,7 +160,7 @@ final class TwelveSAmpliconResultViewController: NSViewController {
         )
     }
 
-    func presentExport(format: TwelveSAmpliconResultExportFormat) {
+    public func presentExport(format: TwelveSAmpliconResultExportFormat) {
         guard let snapshot = exportSnapshot() else { return }
         let panel = NSSavePanel()
         panel.canCreateDirectories = true
@@ -198,19 +198,19 @@ final class TwelveSAmpliconResultViewController: NSViewController {
         }
     }
 
-    func showBlastLoading(phase: BlastJobPhase, requestId: String?) {
+    public func showBlastLoading(phase: BlastJobPhase, requestId: String?) {
         let drawer = ensureBlastDrawer()
         drawer.showLoading(phase: phase, requestId: requestId)
         openBlastDrawerIfNeeded()
     }
 
-    func showBlastResults(_ result: BlastVerificationResult) {
+    public func showBlastResults(_ result: BlastVerificationResult) {
         let drawer = ensureBlastDrawer()
         drawer.showResults(result)
         openBlastDrawerIfNeeded()
     }
 
-    func showBlastFailure(_ message: String) {
+    public func showBlastFailure(_ message: String) {
         let drawer = ensureBlastDrawer()
         drawer.showFailure(message: message)
         openBlastDrawerIfNeeded()
@@ -672,7 +672,7 @@ final class TwelveSAmpliconResultViewController: NSViewController {
             guard let self, let heightConstraint = self.blastDrawerHeightConstraint else { return }
             let availableExtent = max(0, self.view.bounds.height - self.actionBar.frame.height)
             let proposed = heightConstraint.constant + delta
-            heightConstraint.constant = MetagenomicsPaneSizing.clampedDrawerExtent(
+            heightConstraint.constant = SplitPaneSizing.clampedDrawerExtent(
                 proposed: proposed,
                 containerExtent: availableExtent,
                 minimumDrawerExtent: 160,
@@ -789,7 +789,7 @@ private struct TwelveSProvenanceSummaryView: View {
 }
 
 extension TwelveSAmpliconResultViewController: NSTableViewDataSource, NSTableViewDelegate {
-    func numberOfRows(in tableView: NSTableView) -> Int {
+    public func numberOfRows(in tableView: NSTableView) -> Int {
         switch mode {
         case .targets:
             return targetRows.count
@@ -798,7 +798,7 @@ extension TwelveSAmpliconResultViewController: NSTableViewDataSource, NSTableVie
         }
     }
 
-    func tableView(
+    public func tableView(
         _ tableView: NSTableView,
         viewFor tableColumn: NSTableColumn?,
         row: Int
@@ -816,7 +816,7 @@ extension TwelveSAmpliconResultViewController: NSTableViewDataSource, NSTableVie
         return makeCell(text)
     }
 
-    func tableViewSelectionDidChange(_ notification: Notification) {
+    public func tableViewSelectionDidChange(_ notification: Notification) {
         updateDetailForCurrentSelection()
         updateActionBar()
     }

@@ -2,6 +2,7 @@ import AppKit
 import LungfishAppKit
 import LungfishCore
 import LungfishIO
+import LungfishTwelveSUI
 import LungfishWorkflow
 
 extension ViewerViewController {

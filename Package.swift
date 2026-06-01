@@ -44,6 +44,11 @@ let package = Package(
             name: "LungfishAppKit",
             targets: ["LungfishAppKit"]
         ),
+        // 12S amplicon results UI leaf module extracted from LungfishApp
+        .library(
+            name: "LungfishTwelveSUI",
+            targets: ["LungfishTwelveSUI"]
+        ),
     ],
     dependencies: [
         // Swift Argument Parser for CLI tools
@@ -152,6 +157,23 @@ let package = Package(
             path: "Sources/LungfishAppKit"
         ),
 
+        // MARK: - LungfishTwelveSUI (12S amplicon results UI leaf)
+        .target(
+            name: "LungfishTwelveSUI",
+            dependencies: [
+                "LungfishCore",
+                "LungfishIO",
+                "LungfishWorkflow",
+                "LungfishAppKit",
+            ],
+            path: "Sources/LungfishTwelveSUI"
+        ),
+        .testTarget(
+            name: "LungfishTwelveSUITests",
+            dependencies: ["LungfishTwelveSUI", "LungfishAppKit"],
+            path: "Tests/LungfishTwelveSUITests"
+        ),
+
         // MARK: - LungfishApp
         .target(
             name: "LungfishApp",
@@ -160,6 +182,7 @@ let package = Package(
                 "LungfishIO",
                 "LungfishWorkflow",
                 "LungfishAppKit",
+                "LungfishTwelveSUI",
             ],
             path: "Sources/LungfishApp",
             resources: [
