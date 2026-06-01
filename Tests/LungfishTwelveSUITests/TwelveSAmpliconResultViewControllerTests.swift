@@ -210,6 +210,30 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
         XCTAssertNotNil(findDescendant(ofType: BlastResultsDrawerContainerView.self, in: controller.view))
     }
 
+    func testActiveTableHostsRowsAndSwitchesWithMode() {
+        let controller = TwelveSAmpliconResultViewController()
+        controller.loadViewIfNeeded()
+        controller.configure(result: makeResult())
+
+        XCTAssertEqual(controller.testingActiveMode, .targets)
+        XCTAssertEqual(controller.testingActiveTableRowCount, 2)
+
+        controller.showUnresolvedForTesting()
+        XCTAssertEqual(controller.testingActiveMode, .unresolved)
+        XCTAssertEqual(controller.testingActiveTableRowCount, 2)
+    }
+
+    func testDefaultTargetSortIsExactReadsDescending() {
+        let controller = TwelveSAmpliconResultViewController()
+        controller.loadViewIfNeeded()
+        controller.configure(result: makeResult())
+
+        // Homo sapiens (15 exact reads aggregated) sorts above dog (5).
+        XCTAssertEqual(controller.testingTargetText(row: 0, column: "scientificName"), "Homo sapiens")
+        XCTAssertEqual(controller.testingTargetText(row: 0, column: "totalExactReads"), "15")
+        XCTAssertEqual(controller.testingTargetText(row: 1, column: "scientificName"), "Canis lupus familiaris")
+    }
+
     private func makeResult(
         sampleCount: Int = 2,
         includeTaxonGroups: Bool = true

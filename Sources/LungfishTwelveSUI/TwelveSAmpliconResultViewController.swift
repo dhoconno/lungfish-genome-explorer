@@ -6,7 +6,7 @@ import LungfishKit
 
 @MainActor
 public final class TwelveSAmpliconResultViewController: NSViewController {
-    private enum Mode: Int {
+    enum Mode: Int {
         case targets
         case unresolved
     }
@@ -21,8 +21,9 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     )
     private let searchField = NSSearchField()
     private let splitView = NSSplitView()
-    private let scrollView = NSScrollView()
-    private let tableView = NSTableView()
+    private let tableContainer = NSView()
+    private let targetTable = TwelveSTargetTableView()
+    private let unresolvedTable = TwelveSUnresolvedTableView()
     private let detailScrollView = NSScrollView()
     private let detailStack = NSStackView()
     private let detailTitleLabel = NSTextField(labelWithString: "Selection")
@@ -55,16 +56,26 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     public var onUnresolvedBlastRequested: ((TwelveSUnresolvedBlastRequest) -> Void)?
     public var onUnresolvedBlastCancelRequested: (() -> Void)?
 
+    /// The currently visible table, switched by ``mode``.
+    private var activeTableView: NSTableView {
+        mode == .targets ? targetTable.tableView : unresolvedTable.tableView
+    }
+
     var visibleTargetRowCount: Int {
-        mode == .targets ? tableView.numberOfRows : targetRows.count
+        targetTable.displayedRows.count
     }
 
     var visibleUnresolvedRowCount: Int {
-        mode == .unresolved ? tableView.numberOfRows : unresolvedRows.count
+        unresolvedTable.displayedRows.count
     }
 
     var tableColumnIdentifiers: [String] {
-        tableView.tableColumns.map { $0.identifier.rawValue }
+        let table = mode == .targets ? targetTable : unresolvedTable as NSView
+        guard let tableView = (table as? TwelveSTargetTableView)?.tableView
+            ?? (table as? TwelveSUnresolvedTableView)?.tableView else { return [] }
+        return tableView.tableColumns
+            .filter { !MetadataColumnController.isMetadataColumn($0.identifier) }
+            .map { $0.identifier.rawValue }
     }
 
     var summaryTextForTesting: String {
@@ -87,6 +98,14 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         actionBar.onProvenance != nil
     }
 
+    /// Test-only view of the active mode.
+    var testingActiveMode: Mode { mode }
+
+    /// Test-only count of rows displayed in the active table.
+    var testingActiveTableRowCount: Int {
+        mode == .targets ? targetTable.displayedRows.count : unresolvedTable.displayedRows.count
+    }
+
     public override func loadView() {
         let root = NSView()
         root.translatesAutoresizingMaskIntoConstraints = false
@@ -97,7 +116,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         view = root
 
         configureHeader()
-        configureTable()
+        configureTables()
         configureDetailPane()
         configureActionBar()
         layout()
@@ -110,6 +129,8 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
             if lhs.readCount != rhs.readCount { return lhs.readCount > rhs.readCount }
             return lhs.sequenceID < rhs.sequenceID
         }
+        targetTable.resultIdentity = result.manifest.outputName
+        unresolvedTable.resultIdentity = result.manifest.outputName
         titleLabel.stringValue = "\(result.manifest.outputName) 12S Matches"
         summaryLabel.stringValue = Self.summaryText(for: result)
         applyFilters(notify: false)
@@ -135,8 +156,10 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     func selectTargetForTesting(row: Int) {
         showTargets()
         guard targetRows.indices.contains(row) else { return }
-        tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-        updateDetailForCurrentSelection()
+        targetTable.tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        targetTable.tableViewSelectionDidChange(
+            Notification(name: NSTableView.selectionDidChangeNotification, object: targetTable.tableView)
+        )
     }
 
     func triggerUnresolvedBlastForTesting() {
@@ -145,7 +168,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
 
     func testingTargetText(row: Int, column: String) -> String {
         guard targetRows.indices.contains(row) else { return "" }
-        return targetText(for: targetRows[row], column: column)
+        return targetTable.cellContent(for: NSUserInterfaceItemIdentifier(column), row: targetTable.displayedRows[row]).text
     }
 
     func exportSnapshot() -> TwelveSAmpliconResultExportSnapshot? {
@@ -240,21 +263,37 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         searchField.setAccessibilityLabel("12S Filter Species Or Matches")
     }
 
-    private func configureTable() {
-        tableView.delegate = self
-        tableView.dataSource = self
-        tableView.usesAlternatingRowBackgroundColors = true
-        tableView.allowsColumnResizing = true
-        tableView.allowsMultipleSelection = true
-        tableView.rowHeight = 26
-        tableView.headerView = NSTableHeaderView()
-        tableView.setAccessibilityIdentifier("twelve-s-result-table")
+    private func configureTables() {
+        for table in [targetTable, unresolvedTable] as [NSView] {
+            table.translatesAutoresizingMaskIntoConstraints = false
+            tableContainer.addSubview(table)
+            NSLayoutConstraint.activate([
+                table.topAnchor.constraint(equalTo: tableContainer.topAnchor),
+                table.leadingAnchor.constraint(equalTo: tableContainer.leadingAnchor),
+                table.trailingAnchor.constraint(equalTo: tableContainer.trailingAnchor),
+                table.bottomAnchor.constraint(equalTo: tableContainer.bottomAnchor),
+            ])
+        }
+        unresolvedTable.isHidden = true
 
-        scrollView.documentView = tableView
-        scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = true
-        scrollView.autohidesScrollers = false
-        scrollView.borderType = .noBorder
+        targetTable.onRowSelected = { [weak self] row in
+            self?.handleTargetSelection([row])
+        }
+        targetTable.onMultipleRowsSelected = { [weak self] rows in
+            self?.handleTargetSelection(rows)
+        }
+        targetTable.onSelectionCleared = { [weak self] in
+            self?.handleTargetSelection([])
+        }
+        unresolvedTable.onRowSelected = { [weak self] row in
+            self?.handleUnresolvedSelection([row])
+        }
+        unresolvedTable.onMultipleRowsSelected = { [weak self] rows in
+            self?.handleUnresolvedSelection(rows)
+        }
+        unresolvedTable.onSelectionCleared = { [weak self] in
+            self?.handleUnresolvedSelection([])
+        }
     }
 
     private func configureDetailPane() {
@@ -329,7 +368,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         splitView.translatesAutoresizingMaskIntoConstraints = false
         splitView.isVertical = true
         splitView.dividerStyle = .thin
-        splitView.addArrangedSubview(scrollView)
+        splitView.addArrangedSubview(tableContainer)
         splitView.addArrangedSubview(detailScrollView)
 
         [headerRow, summaryLabel, splitView, actionBar].forEach {
@@ -357,7 +396,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
             splitBottom,
             splitView.heightAnchor.constraint(greaterThanOrEqualToConstant: 240),
 
-            scrollView.widthAnchor.constraint(greaterThanOrEqualToConstant: 420),
+            tableContainer.widthAnchor.constraint(greaterThanOrEqualToConstant: 420),
             detailScrollView.widthAnchor.constraint(greaterThanOrEqualToConstant: 220),
 
             actionBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -397,10 +436,9 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
 
     private func applyMode(_ mode: Mode) {
         self.mode = mode
-        rebuildColumns()
-        tableView.reloadData()
-        tableView.deselectAll(nil)
-        updateDetailForCurrentSelection()
+        targetTable.isHidden = mode != .targets
+        unresolvedTable.isHidden = mode != .unresolved
+        clearDetail()
         updateActionBar()
         notifyDisplaySummaryChanged()
     }
@@ -408,14 +446,29 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     private func applyFilters(notify: Bool) {
         targetRows = allTargetRows.filter(targetMatchesDisplayState)
         unresolvedRows = allUnresolvedRows.filter(unresolvedMatchesDisplayState)
-        if mode == .targets || mode == .unresolved {
-            tableView.reloadData()
-            updateDetailForCurrentSelection()
-            updateActionBar()
-        }
+        // Display-state filters narrow the row set; the kernel free-text filter
+        // (driven by the header search field) narrows within. Apply the current
+        // search text to both tables so the two filter layers compose.
+        targetTable.configure(rows: targetRows)
+        unresolvedTable.configure(rows: unresolvedRows)
+        applyDefaultSortIfNeeded()
+        targetTable.setFilterText(displayState.filterText)
+        unresolvedTable.setFilterText(displayState.filterText)
+        updateActionBar()
         notifyDisplaySummaryChanged()
         if notify {
             onDisplayStateChanged?(displayState)
+        }
+    }
+
+    /// Establishes the legacy default order (exact reads / read count descending)
+    /// the first time rows are shown, matching the pre-migration behavior.
+    private func applyDefaultSortIfNeeded() {
+        if targetTable.tableView.sortDescriptors.isEmpty {
+            targetTable.tableView.sortDescriptors = [NSSortDescriptor(key: "totalExactReads", ascending: false)]
+        }
+        if unresolvedTable.tableView.sortDescriptors.isEmpty {
+            unresolvedTable.tableView.sortDescriptors = [NSSortDescriptor(key: "readCount", ascending: false)]
         }
     }
 
@@ -484,60 +537,40 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
             || row.taxids.contains("9606")
     }
 
-    private func rebuildColumns() {
-        for column in tableView.tableColumns {
-            tableView.removeTableColumn(column)
-        }
-        switch mode {
-        case .targets:
-            addColumn("scientificName", title: "Scientific Name", width: 220)
-            addColumn("commonNames", title: "Common Names", width: 150)
-            addColumn("taxonGroups", title: "Group", width: 95)
-            addColumn("taxids", title: "Tax ID", width: 90)
-            addColumn("totalExactReads", title: "Exact Reads", width: 90)
-            addColumn("referenceTargets", title: "Refs", width: 60)
-            addColumn("maxSamplePercent", title: "Max %", width: 80)
-            addColumn("alternateMatchCount", title: "Alternates", width: 85)
-        case .unresolved:
-            addColumn("sequenceID", title: "Sequence", width: 130)
-            addColumn("readCount", title: "Reads", width: 70)
-            addColumn("sampleCount", title: "Samples", width: 75)
-            addColumn("chimeraStatus", title: "Chimera", width: 110)
-            addColumn("sequence", title: "Bases", width: 360)
+    // MARK: - Detail (legacy split pane — removed in Phase 3)
+
+    private func handleTargetSelection(_ rows: [TwelveSScientificNameCountRow]) {
+        guard mode == .targets else { return }
+        updateActionBar()
+        if rows.count == 1, let row = rows.first {
+            updateTargetDetail(row: row)
+        } else {
+            clearDetail()
         }
     }
 
-    private func addColumn(_ identifier: String, title: String, width: CGFloat) {
-        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(identifier))
-        column.title = title
-        column.width = width
-        column.minWidth = min(width, 60)
-        tableView.addTableColumn(column)
+    private func handleUnresolvedSelection(_ rows: [TwelveSUnresolvedSequence]) {
+        guard mode == .unresolved else { return }
+        updateActionBar()
+        if rows.count == 1, let row = rows.first {
+            updateUnresolvedDetail(row: row)
+        } else {
+            clearDetail()
+        }
     }
 
-    private func updateDetailForCurrentSelection() {
+    private func clearDetail() {
+        detailSampleRows = []
+        detailAlternateTexts = []
         switch mode {
         case .targets:
-            guard targetRows.indices.contains(tableView.selectedRow) else {
-                detailSampleRows = []
-                detailAlternateTexts = []
-                detailTitleLabel.stringValue = "Target Evidence"
-                detailBodyLabel.stringValue = "Select a target to review sample evidence and alternate exact matches."
-                setTargetDetailSectionsHidden(true)
-                return
-            }
-            updateTargetDetail(row: targetRows[tableView.selectedRow])
+            detailTitleLabel.stringValue = "Target Evidence"
+            detailBodyLabel.stringValue = "Select a target to review sample evidence and alternate exact matches."
         case .unresolved:
-            guard unresolvedRows.indices.contains(tableView.selectedRow) else {
-                detailSampleRows = []
-                detailAlternateTexts = []
-                detailTitleLabel.stringValue = "Unresolved Sequence"
-                detailBodyLabel.stringValue = "Select an unresolved cluster to review sequence and sample counts."
-                setTargetDetailSectionsHidden(true)
-                return
-            }
-            updateUnresolvedDetail(row: unresolvedRows[tableView.selectedRow])
+            detailTitleLabel.stringValue = "Unresolved Sequence"
+            detailBodyLabel.stringValue = "Select an unresolved cluster to review sequence and sample counts."
         }
+        setTargetDetailSectionsHidden(true)
     }
 
     private func updateTargetDetail(row: TwelveSScientificNameCountRow) {
@@ -607,10 +640,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     }
 
     private func alternateTexts(for row: TwelveSScientificNameCountRow) -> [String] {
-        if !row.alternateMatches.isEmpty {
-            return row.alternateMatches.map(\.displayName)
-        }
-        return row.potentialMatches
+        TwelveSTargetTableView.alternateTexts(for: row)
     }
 
     private func updateActionBar() {
@@ -627,10 +657,8 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
 
     private func selectedUnresolvedRows() -> [TwelveSUnresolvedSequence] {
         guard mode == .unresolved else { return [] }
-        let selected = tableView.selectedRowIndexes.compactMap { index in
-            unresolvedRows.indices.contains(index) ? unresolvedRows[index] : nil
-        }
-        return selected.isEmpty ? unresolvedRows : selected
+        let selected = unresolvedTable.selectedRowsByIdentity()
+        return selected.isEmpty ? unresolvedTable.displayedRows : selected
     }
 
     private func performUnresolvedBlast() {
@@ -757,6 +785,17 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         )
         popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .maxY)
     }
+
+    private func presentExportError(_ error: Error) {
+        let alert = NSAlert(error: error)
+        alert.messageText = "12S Export Failed"
+        alert.informativeText = error.localizedDescription
+        if let window = view.window ?? NSApp.keyWindow {
+            alert.beginSheetModal(for: window)
+        } else {
+            NSApp.presentError(error)
+        }
+    }
 }
 
 private struct TwelveSProvenanceSummaryView: View {
@@ -785,105 +824,5 @@ private struct TwelveSProvenanceSummaryView: View {
 
     private static func percentText(_ value: Double) -> String {
         String(format: "%.1f%%", value)
-    }
-}
-
-extension TwelveSAmpliconResultViewController: NSTableViewDataSource, NSTableViewDelegate {
-    public func numberOfRows(in tableView: NSTableView) -> Int {
-        switch mode {
-        case .targets:
-            return targetRows.count
-        case .unresolved:
-            return unresolvedRows.count
-        }
-    }
-
-    public func tableView(
-        _ tableView: NSTableView,
-        viewFor tableColumn: NSTableColumn?,
-        row: Int
-    ) -> NSView? {
-        guard let identifier = tableColumn?.identifier.rawValue else { return nil }
-        let text: String
-        switch mode {
-        case .targets:
-            guard targetRows.indices.contains(row) else { return nil }
-            text = targetText(for: targetRows[row], column: identifier)
-        case .unresolved:
-            guard unresolvedRows.indices.contains(row) else { return nil }
-            text = unresolvedText(for: unresolvedRows[row], column: identifier)
-        }
-        return makeCell(text)
-    }
-
-    public func tableViewSelectionDidChange(_ notification: Notification) {
-        updateDetailForCurrentSelection()
-        updateActionBar()
-    }
-
-    private func targetText(for row: TwelveSScientificNameCountRow, column: String) -> String {
-        switch column {
-        case "scientificName":
-            return row.scientificName
-        case "commonNames":
-            return row.commonNamesText
-        case "taxonGroups":
-            return row.displayTaxonGroups.joined(separator: "; ")
-        case "taxids":
-            return row.taxids.joined(separator: "; ")
-        case "totalExactReads":
-            return String(row.totalExactReads)
-        case "referenceTargets":
-            return String(row.referenceTargetCount)
-        case "maxSamplePercent":
-            return Self.formatPercent(row.maxSamplePercent)
-        case "alternateMatchCount":
-            return String(alternateTexts(for: row).count)
-        default:
-            return ""
-        }
-    }
-
-    private func unresolvedText(for row: TwelveSUnresolvedSequence, column: String) -> String {
-        switch column {
-        case "sequenceID":
-            return row.sequenceID
-        case "readCount":
-            return String(row.readCount)
-        case "sampleCount":
-            return String(row.sampleCounts.filter { $0.value > 0 }.count)
-        case "chimeraStatus":
-            return row.chimeraStatus.displayName
-        case "sequence":
-            return row.sequence
-        default:
-            return ""
-        }
-    }
-
-    private func makeCell(_ text: String) -> NSTableCellView {
-        let cell = NSTableCellView()
-        let label = NSTextField(labelWithString: text)
-        label.lineBreakMode = .byTruncatingTail
-        label.translatesAutoresizingMaskIntoConstraints = false
-        cell.addSubview(label)
-        cell.textField = label
-        NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 6),
-            label.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -6),
-            label.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-        ])
-        return cell
-    }
-
-    private func presentExportError(_ error: Error) {
-        let alert = NSAlert(error: error)
-        alert.messageText = "12S Export Failed"
-        alert.informativeText = error.localizedDescription
-        if let window = view.window ?? NSApp.keyWindow {
-            alert.beginSheetModal(for: window)
-        } else {
-            NSApp.presentError(error)
-        }
     }
 }
