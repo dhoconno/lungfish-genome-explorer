@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishAppKit
 import UniformTypeIdentifiers
 import XCTest
 @testable import LungfishApp

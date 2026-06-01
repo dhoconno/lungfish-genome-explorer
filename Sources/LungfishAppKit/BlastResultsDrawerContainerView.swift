@@ -68,12 +68,12 @@ final class BlastResultsDrawerDividerView: NSView {
 public final class BlastResultsDrawerContainerView: NSView {
     let dividerView = BlastResultsDrawerDividerView()
     private let contentContainer = NSView()
-    let blastResultsTab = BlastResultsDrawerTab()
+    public let blastResultsTab = BlastResultsDrawerTab()
 
-    var onDrag: ((CGFloat) -> Void)?
-    var onDragEnd: (() -> Void)?
+    public var onDrag: ((CGFloat) -> Void)?
+    public var onDragEnd: (() -> Void)?
 
-    var onRerunBlast: (() -> Void)? {
+    public var onRerunBlast: (() -> Void)? {
         didSet {
             blastResultsTab.onRerunBlast = onRerunBlast
         }
@@ -124,25 +124,25 @@ public final class BlastResultsDrawerContainerView: NSView {
         ])
     }
 
-    func showEmpty() {
+    public func showEmpty() {
         blastResultsTab.showEmpty()
     }
 
-    func showLoading(phase: BlastJobPhase, requestId: String?) {
+    public func showLoading(phase: BlastJobPhase, requestId: String?) {
         blastResultsTab.showLoading(phase: phase, requestId: requestId)
     }
 
-    func showResults(_ result: BlastVerificationResult) {
+    public func showResults(_ result: BlastVerificationResult) {
         blastResultsTab.showResults(result)
     }
 
-    func showFailure(message: String) {
+    public func showFailure(message: String) {
         blastResultsTab.showFailure(message: message)
     }
 
     // MARK: - Testing Accessors
 
-    var testDividerView: NSView { dividerView }
-    var testDrawerTab: BlastResultsDrawerTab { blastResultsTab }
+    public var testDividerView: NSView { dividerView }
+    public var testDrawerTab: BlastResultsDrawerTab { blastResultsTab }
     var testContentContainer: NSView { contentContainer }
 }

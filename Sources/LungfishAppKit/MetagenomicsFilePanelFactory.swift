@@ -6,8 +6,8 @@ import AppKit
 import UniformTypeIdentifiers
 
 @MainActor
-enum MetagenomicsFilePanelFactory {
-    static func naoMgsResultsImportPanel() -> NSOpenPanel {
+public enum MetagenomicsFilePanelFactory {
+    public static func naoMgsResultsImportPanel() -> NSOpenPanel {
         let panel = NSOpenPanel()
         panel.title = "Select NAO-MGS Results"
         panel.canChooseFiles = true
@@ -18,7 +18,7 @@ enum MetagenomicsFilePanelFactory {
         return panel
     }
 
-    static func nvdResultsImportPanel() -> NSOpenPanel {
+    public static func nvdResultsImportPanel() -> NSOpenPanel {
         let panel = NSOpenPanel()
         panel.title = "Select NVD Results Directory"
         panel.canChooseFiles = false
@@ -28,7 +28,7 @@ enum MetagenomicsFilePanelFactory {
         return panel
     }
 
-    static func czIdExportImportPanel() -> NSOpenPanel {
+    public static func czIdExportImportPanel() -> NSOpenPanel {
         let panel = NSOpenPanel()
         panel.title = "Select CZ-ID Export"
         panel.message = "Select a CZ-ID taxon report TSV, ZIP archive, or extracted folder"
@@ -45,7 +45,7 @@ enum MetagenomicsFilePanelFactory {
         return panel
     }
 
-    static func tsvSummaryExportPanel(title: String, suggestedName: String) -> NSSavePanel {
+    public static func tsvSummaryExportPanel(title: String, suggestedName: String) -> NSSavePanel {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.tabSeparatedText]
         panel.nameFieldStringValue = suggestedName
@@ -53,7 +53,7 @@ enum MetagenomicsFilePanelFactory {
         return panel
     }
 
-    static func delimitedExportPanel(
+    public static func delimitedExportPanel(
         title: String? = nil,
         suggestedName: String,
         contentTypes: [UTType] = [.plainText]
@@ -68,7 +68,7 @@ enum MetagenomicsFilePanelFactory {
         return panel
     }
 
-    static func blastDelimitedExportPanel(fileExtension: String) -> NSSavePanel {
+    public static func blastDelimitedExportPanel(fileExtension: String) -> NSSavePanel {
         let contentTypes: [UTType] = fileExtension == "csv"
             ? [.commaSeparatedText]
             : [.tabSeparatedText]
@@ -78,7 +78,7 @@ enum MetagenomicsFilePanelFactory {
         )
     }
 
-    static func readExtractionSavePanel(suggestedName: String) -> NSSavePanel {
+    public static func readExtractionSavePanel(suggestedName: String) -> NSSavePanel {
         let panel = NSSavePanel()
         panel.nameFieldStringValue = suggestedName
         return panel

@@ -9,12 +9,30 @@ import os.log
 
 private let blastLogger = Logger(subsystem: LogSubsystem.app, category: "BlastResultsDrawer")
 
+// MARK: - Palette
+
+private extension NSColor {
+    /// Palette-aligned danger color for BLAST verdict/confidence indicators.
+    ///
+    /// Mirrors the app's `NSColor.lungfishDanger` (muted clay/copper) so the
+    /// drawer reads consistently with the rest of Lungfish without depending on
+    /// the app-level brand-color extensions. The catalog name and RGB values
+    /// are identical to `NSColor.lungfishDanger`, so the two compare equal.
+    static let blastVerdictDanger: NSColor = NSColor(name: "LungfishDanger") { appearance in
+        if appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua {
+            return NSColor(red: 0.816, green: 0.541, blue: 0.392, alpha: 1.0) // #D08A64
+        } else {
+            return NSColor(red: 0.651, green: 0.373, blue: 0.227, alpha: 1.0) // #A65F3A
+        }
+    }
+}
+
 // MARK: - UI Helpers for BlastVerdict
 
 extension BlastVerdict {
 
     /// SF Symbol name for this verdict's icon in the results table.
-    var sfSymbolName: String {
+    public var sfSymbolName: String {
         switch self {
         case .verified:   return "checkmark.circle.fill"
         case .ambiguous:  return "exclamationmark.triangle.fill"
@@ -24,17 +42,17 @@ extension BlastVerdict {
     }
 
     /// Display color for this verdict's icon.
-    var displayColor: NSColor {
+    public var displayColor: NSColor {
         switch self {
         case .verified:   return .systemGreen
         case .ambiguous:  return .systemYellow
-        case .unverified: return .lungfishDanger
+        case .unverified: return .blastVerdictDanger
         case .error:      return .systemGray
         }
     }
 
     /// Accessibility description for VoiceOver.
-    var accessibilityDescription: String {
+    public var accessibilityDescription: String {
         switch self {
         case .verified:   return "Verified"
         case .ambiguous:  return "Ambiguous"
@@ -53,7 +71,7 @@ extension BlastVerificationResult.Confidence {
         switch self {
         case .supported:    return NSColor.systemGreen.withAlphaComponent(0.15)
         case .mixed:        return NSColor.systemYellow.withAlphaComponent(0.15)
-        case .unsupported:  return NSColor.lungfishDanger.withAlphaComponent(0.15)
+        case .unsupported:  return NSColor.blastVerdictDanger.withAlphaComponent(0.15)
         case .inconclusive: return NSColor.systemGray.withAlphaComponent(0.15)
         }
     }
@@ -63,13 +81,13 @@ extension BlastVerificationResult.Confidence {
         switch self {
         case .supported:    return .systemGreen
         case .mixed:        return .systemYellow
-        case .unsupported:  return .lungfishDanger
+        case .unsupported:  return .blastVerdictDanger
         case .inconclusive: return .systemGray
         }
     }
 
     /// Human-readable display label.
-    var displayLabel: String {
+    public var displayLabel: String {
         switch self {
         case .supported:    return "Supported"
         case .mixed:        return "Mixed"
@@ -84,12 +102,12 @@ extension BlastVerificationResult.Confidence {
 extension BlastVerificationResult {
 
     /// URL to open the BLAST results in the NCBI web interface.
-    var ncbiResultsURL: URL? {
+    public var ncbiResultsURL: URL? {
         URL(string: "https://blast.ncbi.nlm.nih.gov/Blast.cgi?CMD=Get&RID=\(rid)&FORMAT_TYPE=HTML")
     }
 
     /// Verification rate as a percentage (0 to 100).
-    var verificationPercentage: Int {
+    public var verificationPercentage: Int {
         Int(round(verificationRate * 100))
     }
 }
@@ -149,18 +167,18 @@ public enum BlastJobPhase: Int, Sendable {
 /// are `HitSummaryItem` instances representing hits 2-5 (hit 1 is shown
 /// inline on the parent row).
 @MainActor
-final class ReadResultItem {
+public final class ReadResultItem {
 
     /// The underlying BLAST read result.
-    let result: BlastReadResult
+    public let result: BlastReadResult
 
     /// Child hit items (hits 2+, since hit 1 is shown on the parent row).
-    let hitItems: [HitSummaryItem]
+    public let hitItems: [HitSummaryItem]
 
     /// Creates a wrapper for the given read result.
     ///
     /// Populates `hitItems` from `result.topHits` where rank > 1.
-    init(_ result: BlastReadResult) {
+    public init(_ result: BlastReadResult) {
         self.result = result
         let items = result.topHits.dropFirst().map { HitSummaryItem($0) }
         self.hitItems = items
@@ -177,16 +195,16 @@ final class ReadResultItem {
 /// Each `HitSummaryItem` is a child row under a `ReadResultItem`, showing
 /// a secondary BLAST hit's accession, organism, identity, and E-value.
 @MainActor
-final class HitSummaryItem {
+public final class HitSummaryItem {
 
     /// The underlying BLAST hit summary.
-    let hit: BlastHitSummary
+    public let hit: BlastHitSummary
 
     /// Back-reference to the parent read result item.
-    weak var parent: ReadResultItem?
+    public weak var parent: ReadResultItem?
 
     /// Creates a wrapper for the given hit summary.
-    init(_ hit: BlastHitSummary) {
+    public init(_ hit: BlastHitSummary) {
         self.hit = hit
     }
 }
@@ -252,7 +270,7 @@ private let hiddenColumnsDefaultsKey = "blastResultsHiddenColumns"
 /// run on the main thread.
 @MainActor
 public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
-    enum BlastResultsDrawerPresentationStyle: Equatable {
+    public enum BlastResultsDrawerPresentationStyle: Equatable {
         case verification
         case contigBlast
         case sequenceBlast
@@ -261,15 +279,15 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
     // MARK: - State
 
     /// The current display state of the BLAST results tab.
-    enum DisplayState {
+    public enum DisplayState {
         case empty
         case loading(phase: BlastJobPhase, requestId: String?)
         case results(BlastVerificationResult)
     }
 
     /// The current display state.
-    private(set) var displayState: DisplayState = .empty
-    var presentationStyle: BlastResultsDrawerPresentationStyle = .verification {
+    public private(set) var displayState: DisplayState = .empty
+    public var presentationStyle: BlastResultsDrawerPresentationStyle = .verification {
         didSet {
             guard oldValue != presentationStyle else { return }
             applyPresentationStyle()
@@ -287,13 +305,13 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
     // MARK: - Callbacks
 
     /// Called when the user clicks "Open in NCBI BLAST".
-    var onOpenInBrowser: ((URL) -> Void)?
+    public var onOpenInBrowser: ((URL) -> Void)?
 
     /// Called when the user clicks "Re-run BLAST".
-    var onRerunBlast: (() -> Void)?
+    public var onRerunBlast: (() -> Void)?
 
     /// Called when the user clicks "Cancel" during loading.
-    var onCancelBlast: (() -> Void)?
+    public var onCancelBlast: (() -> Void)?
 
     // MARK: - Subviews: Empty State
 
@@ -317,18 +335,18 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
     private let resultsContainer = NSView()
     let summaryBar = NSView()
     private let summaryIcon = NSImageView()
-    let summaryLabel = NSTextField(labelWithString: "")
-    let lcaWarningLabel = NSTextField(labelWithString: "")
-    let confidenceLabel = NSTextField(labelWithString: "")
-    let confidenceDots = NSTextField(labelWithString: "")
-    let exportButton = NSButton()
+    public let summaryLabel = NSTextField(labelWithString: "")
+    public let lcaWarningLabel = NSTextField(labelWithString: "")
+    public let confidenceLabel = NSTextField(labelWithString: "")
+    public let confidenceDots = NSTextField(labelWithString: "")
+    public let exportButton = NSButton()
     private let resultsScrollView = NSScrollView()
-    let resultsOutlineView = NSOutlineView()
+    public let resultsOutlineView = NSOutlineView()
     private let actionBar = NSView()
-    let openInBlastButton = NSButton()
-    let rerunBlastButton = NSButton()
-    var loadingPhaseText: String { loadingPhaseLabel.stringValue }
-    var isStatusColumnHidden: Bool {
+    public let openInBlastButton = NSButton()
+    public let rerunBlastButton = NSButton()
+    public var loadingPhaseText: String { loadingPhaseLabel.stringValue }
+    public var isStatusColumnHidden: Bool {
         resultsOutlineView.tableColumn(withIdentifier: NSUserInterfaceItemIdentifier("blastStatus"))?.isHidden ?? false
     }
 
@@ -368,7 +386,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
     // MARK: - Public API
 
     /// Shows the empty state with instructional text.
-    func showEmpty() {
+    public func showEmpty() {
         configureEmptyStateAsDefault()
         displayState = .empty
         showState(.empty)
@@ -380,7 +398,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
     /// user does not remain in an indefinite loading state.
     ///
     /// - Parameter message: User-facing error description.
-    func showFailure(message: String) {
+    public func showFailure(message: String) {
         configureEmptyStateAsFailure(message: message)
         displayState = .empty
         showState(.empty)
@@ -391,7 +409,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
     /// - Parameters:
     ///   - phase: The current BLAST job phase.
     ///   - requestId: The NCBI BLAST request ID, if available.
-    func showLoading(phase: BlastJobPhase, requestId: String?) {
+    public func showLoading(phase: BlastJobPhase, requestId: String?) {
         displayState = .loading(phase: phase, requestId: requestId)
 
         loadingPhaseLabel.stringValue = phase.label(for: presentationStyle)
@@ -422,7 +440,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
     /// child rows for secondary BLAST hits.
     ///
     /// - Parameter result: The BLAST verification result to display.
-    func showResults(_ result: BlastVerificationResult) {
+    public func showResults(_ result: BlastVerificationResult) {
         displayState = .results(result)
         let total = result.totalReads
 
@@ -502,7 +520,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
     }
 
     /// Returns the current result, if in the results state.
-    var currentResult: BlastVerificationResult? {
+    public var currentResult: BlastVerificationResult? {
         if case .results(let result) = displayState { return result }
         return nil
     }
@@ -1260,7 +1278,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
     ///   - contradicting: Number of reads whose top hit is a different organism.
     ///   - total: Total number of reads submitted.
     /// - Returns: A string like "●●●●●●●●●○○" with 10 characters total.
-    func buildConfidenceDots(supporting: Int, contradicting: Int, total: Int) -> String {
+    public func buildConfidenceDots(supporting: Int, contradicting: Int, total: Int) -> String {
         guard total > 0 else { return String(repeating: "\u{25CB}", count: 10) }
         let supportDots = Int(round(Double(supporting) / Double(total) * 10.0))
         let contradictDots = Int(round(Double(contradicting) / Double(total) * 10.0))
@@ -1360,7 +1378,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
     ///
     /// - Parameter eValue: The E-value to format, or `nil`.
     /// - Returns: A formatted string, or "--" if `nil`.
-    static func formatEValue(_ eValue: Double?) -> String {
+    public static func formatEValue(_ eValue: Double?) -> String {
         guard let eValue else { return "--" }
         if eValue == 0.0 { return "0.0" }
         if eValue < 0.001 {
@@ -1378,7 +1396,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
     ///
     /// - Parameter bitScore: The bit score to format, or `nil`.
     /// - Returns: A formatted string, or "--" if `nil`.
-    static func formatBitScore(_ bitScore: Double?) -> String {
+    public static func formatBitScore(_ bitScore: Double?) -> String {
         guard let bitScore else { return "--" }
         if bitScore >= 100 {
             return String(format: "%.0f", bitScore)

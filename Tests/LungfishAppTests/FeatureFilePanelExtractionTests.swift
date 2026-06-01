@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import LungfishAppKit
 import XCTest
 
 final class FeatureFilePanelExtractionTests: XCTestCase {
@@ -21,7 +22,7 @@ final class FeatureFilePanelExtractionTests: XCTestCase {
             "Sources/LungfishApp/Views/Metagenomics/TaxTriageResultViewController.swift",
             "Sources/LungfishApp/Views/Metagenomics/EsVirituResultViewController.swift",
             "Sources/LungfishApp/Views/Metagenomics/TaxonomyViewController.swift",
-            "Sources/LungfishApp/Views/Metagenomics/BlastResultsDrawerTab.swift",
+            "Sources/LungfishAppKit/BlastResultsDrawerTab.swift",
             "Sources/LungfishApp/Views/Metagenomics/TaxonomyReadExtractionAction.swift",
         ]
 
@@ -43,7 +44,7 @@ final class FeatureFilePanelExtractionTests: XCTestCase {
         let root = repositoryRoot()
         let helperFiles = [
             "Sources/LungfishApp/Views/Shared/FeatureFilePanelFactory.swift",
-            "Sources/LungfishApp/Views/Metagenomics/MetagenomicsFilePanelFactory.swift",
+            "Sources/LungfishAppKit/MetagenomicsFilePanelFactory.swift",
         ]
 
         for helperFile in helperFiles {
