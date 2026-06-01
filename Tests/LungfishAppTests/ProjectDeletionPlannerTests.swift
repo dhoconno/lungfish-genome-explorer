@@ -4,6 +4,7 @@
 
 import XCTest
 @testable import LungfishApp
+import LungfishIO
 
 final class ProjectDeletionPlannerTests: XCTestCase {
     private var tempDir: URL!
@@ -105,6 +106,75 @@ final class ProjectDeletionPlannerTests: XCTestCase {
             Set(sidecars.map(\.standardizedFileURL)),
             Set([metadataURL, appleDoubleMetadataURL, appleDoubleBundleURL].map(\.standardizedFileURL))
         )
+    }
+
+    func testProjectObjectDirectoryExtensionsIncludeMHCAndTwelveSBundles() throws {
+        let extensions = ProjectDeletionPlanner.projectObjectDirectoryExtensions
+
+        XCTAssertTrue(extensions.contains(MHCAmpliconReferenceBundle.directoryExtension))
+        XCTAssertTrue(extensions.contains(TwelveSReferenceBundle.directoryExtension))
+        XCTAssertTrue(extensions.contains(TwelveSAmpliconResultBundle.directoryExtension))
+        // Pre-existing entries must remain registered.
+        XCTAssertTrue(extensions.contains(FASTQBundle.directoryExtension))
+        XCTAssertTrue(extensions.contains(MultipleSequenceAlignmentBundle.directoryExtension))
+        XCTAssertTrue(extensions.contains(ONTGenotypeResultBundle.directoryExtension))
+        XCTAssertTrue(extensions.contains("lungfishref"))
+        XCTAssertTrue(extensions.contains("lungfishtree"))
+        XCTAssertTrue(extensions.contains("lungfishprimers"))
+        XCTAssertTrue(extensions.contains("lungfishtax"))
+    }
+
+    func testDeletionImpactTreatsMHCAndTwelveSBundlesAsOpaqueObjects() throws {
+        // Each newer reference/result bundle is a directory holding internal
+        // files (manifest + reference FASTA). The planner must treat the bundle
+        // as a single object and never surface its internal files as separate
+        // dependents or cascading-deletion targets.
+        let bundles: [URL] = [
+            projectURL.appendingPathComponent("MCM.\(MHCAmpliconReferenceBundle.directoryExtension)", isDirectory: true),
+            projectURL.appendingPathComponent("Ref.\(TwelveSReferenceBundle.directoryExtension)", isDirectory: true),
+            projectURL.appendingPathComponent("Run.\(TwelveSAmpliconResultBundle.directoryExtension)", isDirectory: true),
+        ]
+        for bundleURL in bundles {
+            try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+            try "{}".write(
+                to: bundleURL.appendingPathComponent("manifest.json"),
+                atomically: true,
+                encoding: .utf8
+            )
+            try ">seq\nACGT\n".write(
+                to: bundleURL.appendingPathComponent("reference.fasta"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+
+        // Deleting an unrelated FASTQ bundle must not pull in any of the opaque
+        // bundles' internal files as dependents.
+        let unrelatedURL = projectURL.appendingPathComponent("reads.\(FASTQBundle.directoryExtension)", isDirectory: true)
+        try FileManager.default.createDirectory(at: unrelatedURL, withIntermediateDirectories: true)
+        try "@r1\nACGT\n+\n!!!!\n".write(
+            to: unrelatedURL.appendingPathComponent("reads.fastq"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let impact = ProjectDeletionPlanner(fileManager: .default)
+            .impact(ofDeleting: [unrelatedURL], in: projectURL)
+
+        let internalFileURLs = bundles.flatMap { bundleURL in
+            [
+                bundleURL.appendingPathComponent("manifest.json"),
+                bundleURL.appendingPathComponent("reference.fasta"),
+            ]
+        }
+        let dependentPaths = Set(impact.dependentURLs.map(\.standardizedFileURL.path))
+        for internalURL in internalFileURLs {
+            XCTAssertFalse(
+                dependentPaths.contains(internalURL.standardizedFileURL.path),
+                "Planner leaked internal bundle file as a dependent: \(internalURL.lastPathComponent)"
+            )
+        }
+        XCTAssertTrue(impact.dependentURLs.isEmpty)
     }
 
     func testDependencyListPresentationTruncatesPreviewAndKeepsFullProjectRelativeList() throws {

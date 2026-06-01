@@ -3193,18 +3193,41 @@ extension SidebarViewController: NSOutlineViewDataSource {
                 try FileManager.default.trashItem(at: url, resultingItemURL: nil)
                 logger.info("performDelete: Trashed file \(url.path, privacy: .public)")
             } catch {
-                logger.error("performDelete: Failed to trash \(url.path, privacy: .public) - \(error.localizedDescription, privacy: .public)")
-                failedItems.append((label, error))
-                continue  // Don't remove from sidebar if file deletion failed
+                // If the object is already gone (e.g. removed by Finder, or a
+                // race where macOS moved it for us), that is not a user-facing
+                // failure: there is nothing left to delete.
+                if Self.isAlreadyDeletedError(error) {
+                    logger.debug("performDelete: Object already removed, skipping \(url.path, privacy: .public)")
+                } else {
+                    logger.error("performDelete: Failed to trash \(url.path, privacy: .public) - \(error.localizedDescription, privacy: .public)")
+                    failedItems.append((label, error))
+                    continue  // Don't remove from sidebar if file deletion failed
+                }
             }
 
             for sidecarURL in sidecars {
+                // macOS moves an AppleDouble companion (._<name>) to Trash
+                // alongside its paired object, so by the time we reach it the
+                // companion may already be gone. Re-check existence and skip
+                // silently rather than surfacing a spurious "doesn't exist"
+                // alert to the user.
+                guard FileManager.default.fileExists(atPath: sidecarURL.path) else {
+                    logger.debug("performDelete: Companion sidecar already removed, skipping \(sidecarURL.path, privacy: .public)")
+                    continue
+                }
                 do {
                     try FileManager.default.trashItem(at: sidecarURL, resultingItemURL: nil)
                     logger.info("performDelete: Trashed companion sidecar \(sidecarURL.path, privacy: .public)")
                 } catch {
-                    logger.error("performDelete: Failed to trash sidecar \(sidecarURL.path, privacy: .public) - \(error.localizedDescription, privacy: .public)")
-                    failedItems.append((sidecarURL.lastPathComponent, error))
+                    // Tolerate a TOCTOU race: the companion may vanish between
+                    // the existence check and the trash call. Only genuinely
+                    // unexpected errors (permissions, etc.) are surfaced.
+                    if Self.isAlreadyDeletedError(error) {
+                        logger.debug("performDelete: Companion sidecar already removed, skipping \(sidecarURL.path, privacy: .public)")
+                    } else {
+                        logger.error("performDelete: Failed to trash sidecar \(sidecarURL.path, privacy: .public) - \(error.localizedDescription, privacy: .public)")
+                        failedItems.append((sidecarURL.lastPathComponent, error))
+                    }
                 }
             }
 
@@ -3237,6 +3260,34 @@ extension SidebarViewController: NSOutlineViewDataSource {
             object: self,
             userInfo: windowScopedUserInfo(["items": deletedItems.isEmpty ? items : deletedItems])
         )
+    }
+
+    /// Returns `true` when `error` indicates the target file no longer exists,
+    /// i.e. it was already deleted (by Finder, another agent, or because macOS
+    /// moved an AppleDouble companion to Trash alongside its parent). Such an
+    /// error must be treated as success, not surfaced to the user.
+    ///
+    /// Recognizes `NSCocoaErrorDomain` `NSFileNoSuchFileError` (4) and
+    /// `NSPOSIXErrorDomain` `ENOENT` (2), including when wrapped as an
+    /// underlying error.
+    static func isAlreadyDeletedError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        if matchesNoSuchFile(nsError) { return true }
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError,
+           matchesNoSuchFile(underlying) {
+            return true
+        }
+        return false
+    }
+
+    private static func matchesNoSuchFile(_ error: NSError) -> Bool {
+        if error.domain == NSCocoaErrorDomain, error.code == NSFileNoSuchFileError {
+            return true
+        }
+        if error.domain == NSPOSIXErrorDomain, error.code == Int(POSIXErrorCode.ENOENT.rawValue) {
+            return true
+        }
+        return false
     }
 
     /// Removes an item from the sidebar hierarchy (without touching the file)
