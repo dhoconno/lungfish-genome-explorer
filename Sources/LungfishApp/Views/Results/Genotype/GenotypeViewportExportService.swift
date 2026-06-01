@@ -1,4 +1,5 @@
 import Foundation
+import LungfishAppKit
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow

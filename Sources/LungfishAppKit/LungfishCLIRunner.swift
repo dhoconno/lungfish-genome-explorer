@@ -15,11 +15,13 @@ private let logger = Logger(subsystem: LogSubsystem.app, category: "LungfishCLIR
 /// `build-db` that the GUI would otherwise have to duplicate. Reusing the CLI
 /// via a subprocess keeps the logic in one place and avoids pulling large
 /// parsing/SQL code into the GUI target.
-enum LungfishCLIRunner {
-    final class CancellationHandle: @unchecked Sendable {
+public enum LungfishCLIRunner {
+    public final class CancellationHandle: @unchecked Sendable {
         private let handle = NativeProcessCancellationHandle()
 
-        func cancel() {
+        public init() {}
+
+        public func cancel() {
             handle.terminateProcessTree(gracePeriod: 0)
         }
 
@@ -40,20 +42,26 @@ enum LungfishCLIRunner {
         }
     }
 
-    struct Output: Sendable, Equatable {
-        let stdout: String
-        let stderr: String
-        let status: Int32
+    public struct Output: Sendable, Equatable {
+        public let stdout: String
+        public let stderr: String
+        public let status: Int32
+
+        public init(stdout: String, stderr: String, status: Int32) {
+            self.stdout = stdout
+            self.stderr = stderr
+            self.status = status
+        }
     }
 
     /// An error returned from a CLI invocation.
-    enum RunError: Error, LocalizedError {
+    public enum RunError: Error, LocalizedError {
         case cliNotFound
         case cancelled
         case nonZeroExit(status: Int32, stderr: String)
         case launchFailed(String)
 
-        var errorDescription: String? {
+        public var errorDescription: String? {
             switch self {
             case .cliNotFound:
                 return "The `lungfish-cli` binary could not be found in the app bundle or build products."
@@ -72,7 +80,7 @@ enum LungfishCLIRunner {
 
     /// Locates the `lungfish-cli` binary.
     ///
-    /// Delegates to ``CLIImportRunner/cliBinaryPath()``, the canonical CLI
+    /// Delegates to ``CLIBinaryLocator/cliBinaryPath()``, the canonical CLI
     /// resolver already used by the FASTQ import pipeline. That implementation
     /// handles all three launch layouts:
     ///   * Plain SPM debug binary (`.build/debug/Lungfish`) — CLI found in the
@@ -87,8 +95,8 @@ enum LungfishCLIRunner {
     /// earlier version of this code used a `lungfish` fallback, which on
     /// case-insensitive filesystems accidentally matched the `Lungfish` GUI
     /// binary and ran it as the CLI.
-    static func findCLI() -> URL? {
-        CLIImportRunner.cliBinaryPath()
+    public static func findCLI() -> URL? {
+        CLIBinaryLocator.cliBinaryPath()
     }
 
     /// Runs the CLI with the supplied arguments and captures stdout/stderr.
@@ -96,7 +104,7 @@ enum LungfishCLIRunner {
     /// - Parameter arguments: Arguments passed to `lungfish-cli`.
     /// - Returns: The process output and termination status.
     /// - Throws: ``RunError`` on missing CLI, launch failure, or non-zero exit.
-    static func run(
+    public static func run(
         arguments: [String],
         executableURL: URL? = nil,
         cancellation: CancellationHandle? = nil
@@ -179,7 +187,7 @@ enum LungfishCLIRunner {
     ///   - tool: Classifier tool name (`kraken2`, `esviritu`, `taxtriage`).
     ///   - resultURL: The batch result directory that the CLI should operate on.
     /// - Throws: ``RunError`` on missing CLI, launch failure, or non-zero exit.
-    static func buildClassifierDatabase(tool: String, resultURL: URL, force: Bool = false) throws {
+    public static func buildClassifierDatabase(tool: String, resultURL: URL, force: Bool = false) throws {
         guard let cliURL = findCLI() else {
             let execDir = Bundle.main.executableURL?.deletingLastPathComponent().path ?? "<nil>"
             let bundleDir = Bundle.main.bundleURL.path
