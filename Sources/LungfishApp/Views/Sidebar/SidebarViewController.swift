@@ -9,7 +9,7 @@ import LungfishWorkflow
 import os.log
 
 /// Logger for sidebar operations
-private let logger = Logger(subsystem: LogSubsystem.app, category: "SidebarViewController")
+let sidebarLogger = Logger(subsystem: LogSubsystem.app, category: "SidebarViewController")
 
 /// Pasteboard type for internal sidebar item dragging
 let sidebarItemPasteboardType = NSPasteboard.PasteboardType("com.lungfish.browser.sidebaritem")
@@ -39,79 +39,6 @@ private final class LocalEventMonitor {
     }
 }
 
-// MARK: - Sidebar Drop Target View
-
-/// Custom NSView subclass that acts as a fallback drag destination for the sidebar.
-/// This ensures file drops are accepted even when the outline view doesn't handle them
-/// (e.g., when dropping onto empty space or when the sidebar is empty).
-@MainActor
-private class SidebarDropTargetView: NSView {
-
-    /// Weak reference to the sidebar controller to forward drop events
-    weak var sidebarController: SidebarViewController?
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        registerForDraggedTypes([.fileURL])
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        registerForDraggedTypes([.fileURL])
-    }
-
-    /// Check if the pasteboard contains valid file URLs.
-    ///
-    /// Accepts all files since non-genomics files use QuickLook preview.
-    private func hasValidFiles(in pasteboard: NSPasteboard) -> Bool {
-        guard let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
-              !urls.isEmpty else {
-            return false
-        }
-        // Accept any file with a non-empty extension (exclude hidden files)
-        return urls.contains { url in
-            !url.pathExtension.isEmpty
-        }
-    }
-
-    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        hasValidFiles(in: sender.draggingPasteboard) ? .copy : []
-    }
-
-    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        hasValidFiles(in: sender.draggingPasteboard) ? .copy : []
-    }
-
-    override func draggingExited(_ sender: NSDraggingInfo?) {
-        // No action needed
-    }
-
-    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        true
-    }
-
-    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        let pasteboard = sender.draggingPasteboard
-        guard let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
-              !urls.isEmpty else {
-            return false
-        }
-
-        // Post a single notification with all dropped URLs
-        NotificationCenter.default.post(
-            name: .sidebarFileDropped,
-            object: self.sidebarController,
-            userInfo: ["urls": urls, "destination": NSNull()]
-        )
-
-        return true
-    }
-
-    override func concludeDragOperation(_ sender: NSDraggingInfo?) {
-        // No action needed
-    }
-}
-
 /// Controller for the sidebar panel containing project/file navigation.
 ///
 /// Uses NSOutlineView for hierarchical file/sequence display.
@@ -121,7 +48,7 @@ public class SidebarViewController: NSViewController {
     // MARK: - UI Components
 
     /// The outline view for hierarchical navigation
-    private var outlineView: NSOutlineView!
+    var outlineView: NSOutlineView!
 
     /// Scroll view containing the outline view
     private var scrollView: NSScrollView!
@@ -146,18 +73,18 @@ public class SidebarViewController: NSViewController {
     // MARK: - Data
 
     /// Root items displayed in the sidebar
-    private var rootItems: [SidebarItem] = []
+    var rootItems: [SidebarItem] = []
 
     /// Filtered copy of rootItems when search is active; nil when no filter.
     private var filteredRootItems: [SidebarItem]?
 
     /// The items the outline view data source should use.
-    private var displayItems: [SidebarItem] {
+    var displayItems: [SidebarItem] {
         filteredRootItems ?? rootItems
     }
 
     /// The currently open project URL (filesystem-backed model)
-    private var projectURL: URL?
+    var projectURL: URL?
 
     /// Public read-only accessor for the current project folder URL.
     public var projectFolderURL: URL? { projectURL }
@@ -180,7 +107,7 @@ public class SidebarViewController: NSViewController {
     private var searchSpinner: NSProgressIndicator?
 
     /// Suppresses delegate and notification callbacks during programmatic selection changes.
-    private var suppressSelectionCallbacks = false
+    var suppressSelectionCallbacks = false
 
     /// Last width recommendation posted to the split-view controller.
     private var lastRecommendedSidebarWidth: CGFloat = 0
@@ -386,7 +313,7 @@ public class SidebarViewController: NSViewController {
         // The "OPEN DOCUMENTS" group is created automatically when first document is loaded
         rootItems = []
         reloadOutlineView()
-        logger.info("loadSampleData: Sidebar initialized (empty, waiting for documents)")
+        sidebarLogger.info("loadSampleData: Sidebar initialized (empty, waiting for documents)")
     }
 
     // MARK: - Actions
@@ -442,7 +369,7 @@ public class SidebarViewController: NSViewController {
                     self.outlineView.expandItem(nil, expandChildren: true)
                 }
             } catch {
-                logger.debug("searchFieldChanged: universal search unavailable: \(error.localizedDescription, privacy: .public)")
+                sidebarLogger.debug("searchFieldChanged: universal search unavailable: \(error.localizedDescription, privacy: .public)")
             }
 
             self.setSearchSpinnerVisible(false)
@@ -529,7 +456,7 @@ public class SidebarViewController: NSViewController {
 
     private func cancelUniversalSearch(reason: String) {
         if universalSearchTask != nil {
-            logger.debug("cancelUniversalSearch: cancelling in-flight query (\(reason, privacy: .public))")
+            sidebarLogger.debug("cancelUniversalSearch: cancelling in-flight query (\(reason, privacy: .public))")
             universalSearchTask?.cancel()
             universalSearchTask = nil
         }
@@ -575,7 +502,7 @@ public class SidebarViewController: NSViewController {
         reloadOutlineView()
     }
 
-    private func reloadOutlineView() {
+    func reloadOutlineView() {
         outlineView.reloadData()
         postPreferredSidebarWidthIfNeeded()
     }
@@ -653,7 +580,7 @@ public class SidebarViewController: NSViewController {
     @discardableResult
     public func selectItem(forURL url: URL) -> Bool {
         guard let item = findItem(byURL: url) else {
-            logger.debug("selectItem(forURL:): No item found for \(url.lastPathComponent, privacy: .public)")
+            sidebarLogger.debug("selectItem(forURL:): No item found for \(url.lastPathComponent, privacy: .public)")
             return false
         }
 
@@ -664,7 +591,7 @@ public class SidebarViewController: NSViewController {
         if row >= 0 {
             outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
             outlineView.scrollRowToVisible(row)
-            logger.debug("selectItem(forURL:): Selected \(url.lastPathComponent, privacy: .public) at row \(row)")
+            sidebarLogger.debug("selectItem(forURL:): Selected \(url.lastPathComponent, privacy: .public) at row \(row)")
             return true
         }
         return false
@@ -680,7 +607,7 @@ public class SidebarViewController: NSViewController {
         guard let url = notification.userInfo?["url"] as? URL else { return }
         let found = selectItem(forURL: url)
         if !found {
-            logger.debug("handleNavigateToSidebarItem: No sidebar item found for \(url.lastPathComponent, privacy: .public)")
+            sidebarLogger.debug("handleNavigateToSidebarItem: No sidebar item found for \(url.lastPathComponent, privacy: .public)")
         }
     }
 
@@ -692,7 +619,7 @@ public class SidebarViewController: NSViewController {
         return notificationScope == windowStateScope
     }
 
-    private func canWriteSidebarProjectOutputs(workflowName: String, targetURL: URL? = nil) -> Bool {
+    func canWriteSidebarProjectOutputs(workflowName: String, targetURL: URL? = nil) -> Bool {
         let resolvedProjectURL = projectURL
             ?? targetURL.flatMap(ProjectTempDirectory.findProjectRoot)
         return AppDelegate.shared?.canWriteProjectOutputs(
@@ -703,16 +630,16 @@ public class SidebarViewController: NSViewController {
         ) ?? true
     }
 
-    private func windowScopedUserInfo(_ userInfo: [AnyHashable: Any]) -> [AnyHashable: Any] {
+    func windowScopedUserInfo(_ userInfo: [AnyHashable: Any]) -> [AnyHashable: Any] {
         guard let windowStateScope else { return userInfo }
         var scopedUserInfo = userInfo
         scopedUserInfo[NotificationUserInfoKey.windowStateScope] = windowStateScope
         return scopedUserInfo
     }
 
-    private func rehydrateScientificProvenance(from sourceURL: URL, to destinationURL: URL) {
+    func rehydrateScientificProvenance(from sourceURL: URL, to destinationURL: URL) {
         ProvenancePathRehydrator.rehydrate(from: sourceURL, to: destinationURL) { message in
-            logger.warning("rehydrateScientificProvenance: \(message, privacy: .public)")
+            sidebarLogger.warning("rehydrateScientificProvenance: \(message, privacy: .public)")
         }
     }
 
@@ -750,7 +677,7 @@ public class SidebarViewController: NSViewController {
     ///
     /// - Parameter url: The URL of the project folder (.lungfish directory)
     public func openProject(at url: URL) {
-        logger.info("openProject: Opening project at '\(url.path, privacy: .public)'")
+        sidebarLogger.info("openProject: Opening project at '\(url.path, privacy: .public)'")
 
         // Stop watching previous project
         ProjectFilesystemRefreshCoordinator.shared.unregister(projectRefreshSubscriptionID)
@@ -780,12 +707,12 @@ public class SidebarViewController: NSViewController {
             }
         }
 
-        logger.info("openProject: Project opened, subscribed for filesystem changes")
+        sidebarLogger.info("openProject: Project opened, subscribed for filesystem changes")
     }
 
     /// Closes the current project and clears the sidebar.
     public func closeProject() {
-        logger.info("closeProject: Closing current project")
+        sidebarLogger.info("closeProject: Closing current project")
 
         let priorProjectURL = projectURL
         ProjectFilesystemRefreshCoordinator.shared.unregister(projectRefreshSubscriptionID)
@@ -856,15 +783,15 @@ public class SidebarViewController: NSViewController {
     }
 
     private func reloadFromFilesystem(notifyUnchangedSelectionRefresh: Bool) {
-        logger.info("reloadFromFilesystem: CALLED - starting filesystem scan")
+        sidebarLogger.info("reloadFromFilesystem: CALLED - starting filesystem scan")
         guard let projectURL = projectURL else {
-            logger.debug("reloadFromFilesystem: No project URL set")
+            sidebarLogger.debug("reloadFromFilesystem: No project URL set")
             rootItems = []
             reloadOutlineView()
             return
         }
 
-        logger.info("reloadFromFilesystem: Scanning '\(projectURL.path, privacy: .public)'")
+        sidebarLogger.info("reloadFromFilesystem: Scanning '\(projectURL.path, privacy: .public)'")
 
         // Save current selection to restore after reload
         let selectedURLs = selectedItems().compactMap { $0.url?.standardizedFileURL }
@@ -903,7 +830,7 @@ public class SidebarViewController: NSViewController {
             // scans. Avoid emitting a synthetic "selection cleared" event from refreshes;
             // explicit user deselection still flows through outlineViewSelectionDidChange.
             if !selectedURLSet.isEmpty && restoredItems.isEmpty {
-                logger.debug("reloadFromFilesystem: Selection temporarily unavailable after refresh, preserving active content")
+                sidebarLogger.debug("reloadFromFilesystem: Selection temporarily unavailable after refresh, preserving active content")
             } else {
                 handleSelectionChange(restoredItems, source: "reloadFromFilesystem")
             }
@@ -912,7 +839,7 @@ public class SidebarViewController: NSViewController {
         }
 
         let itemCount = rootItems.reduce(0) { $0 + countItems(in: $1) }
-        logger.info("reloadFromFilesystem: Sidebar updated with \(itemCount) items")
+        sidebarLogger.info("reloadFromFilesystem: Sidebar updated with \(itemCount) items")
         scheduleUniversalSearchRebuild()
     }
 
@@ -930,7 +857,7 @@ public class SidebarViewController: NSViewController {
     private func updateSidebar(changedPaths: FileSystemWatcher.ChangedPaths) {
         guard let projectURL else { return }
 
-        logger.debug("updateSidebar: Processing \(changedPaths.nonSidecar.count) non-sidecar changed paths")
+        sidebarLogger.debug("updateSidebar: Processing \(changedPaths.nonSidecar.count) non-sidecar changed paths")
 
         // Also forward ALL paths (including sidecars) to the search index
         updateSearchIndex(changedPaths: changedPaths.all)
@@ -960,12 +887,12 @@ public class SidebarViewController: NSViewController {
 
         // If the root level itself changed or the Analyses folder is affected, fall back to full reload.
         if affectsRoot || affectedTopLevelNames.contains(AnalysesFolder.directoryName) {
-            logger.info("updateSidebar: Root-level or Analyses change — falling back to full reload")
+            sidebarLogger.info("updateSidebar: Root-level or Analyses change — falling back to full reload")
             reloadFromFilesystem(notifyUnchangedSelectionRefresh: false)
             return
         }
 
-        logger.info("updateSidebar: Incremental update for \(affectedTopLevelNames.count) top-level items")
+        sidebarLogger.info("updateSidebar: Incremental update for \(affectedTopLevelNames.count) top-level items")
 
         for topLevelName in affectedTopLevelNames {
             let topLevelURL = projectURL.appendingPathComponent(topLevelName)
@@ -973,7 +900,7 @@ public class SidebarViewController: NSViewController {
             guard let existingItemIndex = rootItems.firstIndex(where: {
                 $0.url?.standardizedFileURL.path == topLevelURL.standardizedFileURL.path
             }) else {
-                logger.debug("updateSidebar: New top-level item '\(topLevelName)' — full reload")
+                sidebarLogger.debug("updateSidebar: New top-level item '\(topLevelName)' — full reload")
                 reloadFromFilesystem(notifyUnchangedSelectionRefresh: false)
                 return
             }
@@ -1214,7 +1141,7 @@ public class SidebarViewController: NSViewController {
 
             return items
         } catch {
-            logger.error("buildRootItems: Failed to scan directory: \(error.localizedDescription, privacy: .public)")
+            sidebarLogger.error("buildRootItems: Failed to scan directory: \(error.localizedDescription, privacy: .public)")
             return []
         }
     }
@@ -1396,7 +1323,7 @@ public class SidebarViewController: NSViewController {
                     item.children.append(childItem)
                 }
             } catch {
-                logger.error("buildSidebarTree: Failed to scan directory: \(error.localizedDescription, privacy: .public)")
+                sidebarLogger.error("buildSidebarTree: Failed to scan directory: \(error.localizedDescription, privacy: .public)")
             }
 
             // Scan for NAO-MGS result bundles at this directory level.
@@ -2280,12 +2207,12 @@ public class SidebarViewController: NSViewController {
 
     /// Adds a loaded document to the sidebar
     public func addLoadedDocument(_ document: LoadedDocument) {
-        logger.info("addLoadedDocument: Adding '\(document.name, privacy: .public)' to sidebar")
+        sidebarLogger.info("addLoadedDocument: Adding '\(document.name, privacy: .public)' to sidebar")
 
         // Find or create the "Open Documents" group
         var openDocsGroup = rootItems.first(where: { $0.title == "OPEN DOCUMENTS" })
         if openDocsGroup == nil {
-            logger.debug("addLoadedDocument: Creating OPEN DOCUMENTS group")
+            sidebarLogger.debug("addLoadedDocument: Creating OPEN DOCUMENTS group")
             openDocsGroup = SidebarItem(
                 title: "OPEN DOCUMENTS",
                 type: .group,
@@ -2298,7 +2225,7 @@ public class SidebarViewController: NSViewController {
 
         // Check if document already exists in sidebar
         if openDocsGroup!.children.contains(where: { $0.url == document.url }) {
-            logger.debug("addLoadedDocument: Document already in sidebar")
+            sidebarLogger.debug("addLoadedDocument: Document already in sidebar")
             return
         }
 
@@ -2312,7 +2239,7 @@ public class SidebarViewController: NSViewController {
         )
 
         openDocsGroup!.children.append(item)
-        logger.info("addLoadedDocument: Added item to sidebar, reloading")
+        sidebarLogger.info("addLoadedDocument: Added item to sidebar, reloading")
 
         reloadOutlineView()
 
@@ -2333,7 +2260,7 @@ public class SidebarViewController: NSViewController {
     ///   - document: The loaded document to add
     ///   - projectURL: The project folder URL (if available)
     public func addDownloadedDocument(_ document: LoadedDocument, projectURL: URL?) {
-        logger.info("addDownloadedDocument: Adding '\(document.name, privacy: .public)' to Downloads folder")
+        sidebarLogger.info("addDownloadedDocument: Adding '\(document.name, privacy: .public)' to Downloads folder")
 
         // Try to find an existing project folder in the sidebar
         var targetProjectItem: SidebarItem?
@@ -2352,12 +2279,12 @@ public class SidebarViewController: NSViewController {
 
         // If still no project, fall back to addLoadedDocument behavior
         guard let projectItem = targetProjectItem else {
-            logger.debug("addDownloadedDocument: No project found, falling back to OPEN DOCUMENTS")
+            sidebarLogger.debug("addDownloadedDocument: No project found, falling back to OPEN DOCUMENTS")
             addLoadedDocument(document)
             return
         }
 
-        logger.debug("addDownloadedDocument: Found project '\(projectItem.title, privacy: .public)'")
+        sidebarLogger.debug("addDownloadedDocument: Found project '\(projectItem.title, privacy: .public)'")
 
         // Find or create the "Downloads" folder within the project
         var downloadsFolder = projectItem.children.first(where: {
@@ -2365,7 +2292,7 @@ public class SidebarViewController: NSViewController {
         })
 
         if downloadsFolder == nil {
-            logger.debug("addDownloadedDocument: Creating Downloads folder")
+            sidebarLogger.debug("addDownloadedDocument: Creating Downloads folder")
             let downloadsURL = projectItem.url?.appendingPathComponent("Downloads", isDirectory: true)
             downloadsFolder = SidebarItem(
                 title: "Downloads",
@@ -2384,7 +2311,7 @@ public class SidebarViewController: NSViewController {
 
         // Check if document already exists in downloads folder
         if downloadsFolder!.children.contains(where: { $0.url == document.url }) {
-            logger.debug("addDownloadedDocument: Document already in downloads folder")
+            sidebarLogger.debug("addDownloadedDocument: Document already in downloads folder")
             return
         }
 
@@ -2398,7 +2325,7 @@ public class SidebarViewController: NSViewController {
         )
 
         downloadsFolder!.children.append(item)
-        logger.info("addDownloadedDocument: Added '\(document.name, privacy: .public)' to Downloads folder, reloading")
+        sidebarLogger.info("addDownloadedDocument: Added '\(document.name, privacy: .public)' to Downloads folder, reloading")
 
         reloadOutlineView()
 
@@ -2418,14 +2345,14 @@ public class SidebarViewController: NSViewController {
     ///   - folderURL: The root folder URL
     ///   - documents: The loaded documents from the folder
     public func addProjectFolder(_ folderURL: URL, documents: [LoadedDocument]) {
-        logger.info("addProjectFolder: Adding folder '\(folderURL.lastPathComponent, privacy: .public)' with \(documents.count) documents")
+        sidebarLogger.info("addProjectFolder: Adding folder '\(folderURL.lastPathComponent, privacy: .public)' with \(documents.count) documents")
 
         // Idempotent: Remove existing project folder with same URL if present
         let normalizedURL = folderURL.standardizedFileURL
         if let existingIndex = rootItems.firstIndex(where: {
             $0.type == .project && $0.url?.standardizedFileURL == normalizedURL
         }) {
-            logger.info("addProjectFolder: Replacing existing folder at index \(existingIndex)")
+            sidebarLogger.info("addProjectFolder: Replacing existing folder at index \(existingIndex)")
             rootItems.remove(at: existingIndex)
         }
 
@@ -2462,7 +2389,7 @@ public class SidebarViewController: NSViewController {
             if relativePath.isEmpty {
                 // File is directly in root folder
                 folderItem.children.append(docItem)
-                logger.debug("addProjectFolder: Added '\(document.name, privacy: .public)' to root")
+                sidebarLogger.debug("addProjectFolder: Added '\(document.name, privacy: .public)' to root")
             } else {
                 // File is in a subfolder - create subfolder hierarchy if needed
                 if subfolderItems[relativePath] == nil {
@@ -2477,10 +2404,10 @@ public class SidebarViewController: NSViewController {
                     )
                     subfolderItems[relativePath] = subfolderItem
                     folderItem.children.append(subfolderItem)
-                    logger.debug("addProjectFolder: Created subfolder '\(subfolderName, privacy: .public)'")
+                    sidebarLogger.debug("addProjectFolder: Created subfolder '\(subfolderName, privacy: .public)'")
                 }
                 subfolderItems[relativePath]?.children.append(docItem)
-                logger.debug("addProjectFolder: Added '\(document.name, privacy: .public)' to subfolder '\(relativePath, privacy: .public)'")
+                sidebarLogger.debug("addProjectFolder: Added '\(document.name, privacy: .public)' to subfolder '\(relativePath, privacy: .public)'")
             }
         }
 
@@ -2504,7 +2431,7 @@ public class SidebarViewController: NSViewController {
         // Add to root items
         rootItems.append(folderItem)
 
-        logger.info("addProjectFolder: Reloading outline view with \(folderItem.children.count) children")
+        sidebarLogger.info("addProjectFolder: Reloading outline view with \(folderItem.children.count) children")
         reloadOutlineView()
 
         // Expand the folder to show contents
@@ -2516,7 +2443,7 @@ public class SidebarViewController: NSViewController {
             let row = outlineView.row(forItem: firstDoc)
             if row >= 0 {
                 outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-                logger.debug("addProjectFolder: Selected first document at row \(row)")
+                sidebarLogger.debug("addProjectFolder: Selected first document at row \(row)")
             }
         }
     }
@@ -2530,14 +2457,14 @@ public class SidebarViewController: NSViewController {
     ///   - document: The loaded document to add
     ///   - projectURL: The project folder URL
     public func addFileToProject(_ document: LoadedDocument, projectURL: URL) {
-        logger.info("addFileToProject: Adding '\(document.name, privacy: .public)' to project")
+        sidebarLogger.info("addFileToProject: Adding '\(document.name, privacy: .public)' to project")
 
         // Find the project item in the sidebar
         let normalizedProjectURL = projectURL.standardizedFileURL
         guard let projectItem = rootItems.first(where: {
             $0.type == .project && $0.url?.standardizedFileURL == normalizedProjectURL
         }) else {
-            logger.warning("addFileToProject: Project not found in sidebar, falling back to addLoadedDocument")
+            sidebarLogger.warning("addFileToProject: Project not found in sidebar, falling back to addLoadedDocument")
             addLoadedDocument(document)
             return
         }
@@ -2573,14 +2500,14 @@ public class SidebarViewController: NSViewController {
         }
 
         if documentExists(in: projectItem.children) {
-            logger.debug("addFileToProject: Document already exists in project sidebar")
+            sidebarLogger.debug("addFileToProject: Document already exists in project sidebar")
             return
         }
 
         if relativePath.isEmpty {
             // File is directly in project root folder
             projectItem.children.append(docItem)
-            logger.info("addFileToProject: Added '\(document.name, privacy: .public)' to project root")
+            sidebarLogger.info("addFileToProject: Added '\(document.name, privacy: .public)' to project root")
         } else {
             // File is in a subfolder - find or create the subfolder
             let subfolderName = URL(fileURLWithPath: relativePath).lastPathComponent
@@ -2598,11 +2525,11 @@ public class SidebarViewController: NSViewController {
                     url: projectURL.appendingPathComponent(relativePath)
                 )
                 projectItem.children.append(subfolderItem!)
-                logger.info("addFileToProject: Created subfolder '\(subfolderName, privacy: .public)'")
+                sidebarLogger.info("addFileToProject: Created subfolder '\(subfolderName, privacy: .public)'")
             }
 
             subfolderItem!.children.append(docItem)
-            logger.info("addFileToProject: Added '\(document.name, privacy: .public)' to subfolder '\(subfolderName, privacy: .public)'")
+            sidebarLogger.info("addFileToProject: Added '\(document.name, privacy: .public)' to subfolder '\(subfolderName, privacy: .public)'")
 
             // Expand the subfolder
             outlineView.expandItem(subfolderItem)
@@ -2628,7 +2555,7 @@ public class SidebarViewController: NSViewController {
             outlineView.scrollRowToVisible(row)
         }
 
-        logger.info("addFileToProject: Sidebar updated successfully")
+        sidebarLogger.info("addFileToProject: Sidebar updated successfully")
     }
 
     /// Refreshes a sidebar item after background loading completes.
@@ -2654,1036 +2581,13 @@ public class SidebarViewController: NSViewController {
         }
 
         guard let item = findItem(in: rootItems) else {
-            logger.debug("refreshItem: No item found for \(url.lastPathComponent, privacy: .public)")
+            sidebarLogger.debug("refreshItem: No item found for \(url.lastPathComponent, privacy: .public)")
             return
         }
 
         // Reload just this item to update its display
         outlineView.reloadItem(item, reloadChildren: false)
-        logger.debug("refreshItem: Refreshed \(item.title, privacy: .public)")
-    }
-}
-
-// MARK: - NSOutlineViewDataSource
-
-extension SidebarViewController: NSOutlineViewDataSource {
-
-    public func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
-        if item == nil {
-            return displayItems.count
-        }
-        if let sidebarItem = item as? SidebarItem {
-            return sidebarItem.children.count
-        }
-        return 0
-    }
-
-    public func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
-        if item == nil {
-            return displayItems[index]
-        }
-        if let sidebarItem = item as? SidebarItem {
-            return sidebarItem.children[index]
-        }
-        fatalError("Unexpected item type")
-    }
-
-    public func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
-        if let sidebarItem = item as? SidebarItem {
-            return !sidebarItem.children.isEmpty
-        }
-        return false
-    }
-
-    // MARK: - Drag Source
-
-    /// Initiates a drag operation when user starts dragging an item
-    public func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> NSPasteboardWriting? {
-        guard let sidebarItem = item as? SidebarItem else { return nil }
-
-        // Don't allow dragging groups
-        if sidebarItem.type == .group {
-            return nil
-        }
-
-        logger.debug("pasteboardWriterForItem: Starting drag for '\(sidebarItem.title, privacy: .public)'")
-
-        // Create a pasteboard item with the sidebar item's identifier
-        let pasteboardItem = NSPasteboardItem()
-
-        // Use the item's URL path as the identifier (or title if no URL)
-        let identifier = sidebarItem.url?.path ?? sidebarItem.title
-        pasteboardItem.setString(identifier, forType: sidebarItemPasteboardType)
-
-        // Also provide file URL if available for external drops
-        if let url = sidebarItem.url {
-            pasteboardItem.setString(url.absoluteString, forType: .fileURL)
-        }
-
-        return pasteboardItem
-    }
-
-    /// Allows the user to drag multiple items at once
-    public func outlineView(_ outlineView: NSOutlineView, draggingSession session: NSDraggingSession, willBeginAt screenPoint: NSPoint, forItems draggedItems: [Any]) {
-        logger.debug("draggingSession willBegin: Dragging \(draggedItems.count) items")
-        session.draggingFormation = .stack
-    }
-
-    /// Called when dragging ends
-    public func outlineView(_ outlineView: NSOutlineView, draggingSession session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
-        logger.debug("draggingSession ended: operation=\(operation.rawValue)")
-    }
-
-    // MARK: - Drag Destination
-
-    /// Called by NSOutlineView to update dragging items - required for proper drag feedback
-    public func outlineView(_ outlineView: NSOutlineView, updateDraggingItemsForDrag draggingInfo: NSDraggingInfo) {
-        debugLog("updateDraggingItemsForDrag: Called")
-    }
-
-    /// Validates whether a drop is allowed at the proposed location
-    public func outlineView(_ outlineView: NSOutlineView, validateDrop info: NSDraggingInfo, proposedItem item: Any?, proposedChildIndex index: Int) -> NSDragOperation {
-        debugLog("validateDrop: ENTERED METHOD")
-
-        // Get the destination item
-        let destinationItem = item as? SidebarItem
-
-        debugLog("validateDrop: Called with destinationItem='\(destinationItem?.title ?? "nil")' type=\(String(describing: destinationItem?.type)) index=\(index)")
-
-        // Determine if this is an internal drag
-        let isInternalDrag = info.draggingPasteboard.availableType(from: [sidebarItemPasteboardType]) != nil
-        debugLog("validateDrop: isInternalDrag=\(isInternalDrag)")
-
-        if isInternalDrag {
-            let sourceIdentifier = info.draggingPasteboard.string(forType: sidebarItemPasteboardType)
-            let hasLocalSource = sourceIdentifier.flatMap { findItem(byPath: $0) } != nil
-
-            guard Self.internalDropDestinationURL(projectURL: projectURL, destinationItem: destinationItem) != nil else {
-                return []
-            }
-
-            // Cross-window drags carry the internal type, but source items aren't
-            // in this sidebar model. Treat these as copy imports.
-            if !hasLocalSource {
-                logger.debug("validateDrop: Internal type from another window - COPY import")
-                return .copy
-            }
-
-            // Check for Control key to copy, otherwise move
-            let modifiers = NSEvent.modifierFlags
-            if modifiers.contains(.control) || modifiers.contains(.option) {
-                logger.debug("validateDrop: Internal drag - COPY")
-                return .copy
-            } else {
-                logger.debug("validateDrop: Internal drag - MOVE")
-                return .move
-            }
-        } else {
-            // External file drop - accept anywhere in the sidebar
-            debugLog("validateDrop: External file drag detected")
-
-            // For external files, retarget to the project root or accept at root level
-            // This ensures drops anywhere in the sidebar are accepted
-            if let dest = destinationItem {
-                debugLog("validateDrop: External file over '\(dest.title)' type=\(String(describing: dest.type))")
-
-                // If dropping on a specific container, accept there
-                if dest.type == .folder || dest.type == .project || dest.type == .group {
-                    debugLog("validateDrop: External file - ACCEPTING into container '\(dest.title)'")
-                    return .copy
-                }
-
-                // If dropping on a file item, retarget to its parent container
-                // The drop will still work - we just need to return .copy
-                debugLog("validateDrop: External file over non-container - ACCEPTING (will use project root)")
-                return .copy
-            }
-
-            // Drop at root level - accept it
-            debugLog("validateDrop: External file - ACCEPTING at root level")
-            return .copy
-        }
-    }
-
-    /// Logs debug info for drag-and-drop troubleshooting
-    private func debugLog(_ message: String) {
-        logger.debug("SidebarVC: \(message, privacy: .public)")
-    }
-
-    /// Performs the actual drop operation
-    public func outlineView(_ outlineView: NSOutlineView, acceptDrop info: NSDraggingInfo, item: Any?, childIndex index: Int) -> Bool {
-        debugLog("acceptDrop: CALLED!")
-        let pasteboard = info.draggingPasteboard
-        let destinationItem = item as? SidebarItem
-        debugLog("acceptDrop: destinationItem='\(destinationItem?.title ?? "nil")'")
-
-        // Log all available pasteboard types
-        let types = pasteboard.types ?? []
-        debugLog("acceptDrop: Available pasteboard types: \(types.map { $0.rawValue }.joined(separator: ", "))")
-
-        // Check if this is an internal drag
-        let hasInternalType = pasteboard.availableType(from: [sidebarItemPasteboardType]) != nil
-        debugLog("acceptDrop: hasInternalType=\(hasInternalType)")
-
-        if hasInternalType {
-            let identifiers = Self.draggedItemIdentifiers(from: pasteboard)
-            debugLog("acceptDrop: Internal drag detected with \(identifiers.count) identifier(s)")
-
-            // Find the source item by its identifier
-            let sourceItems = identifiers.compactMap { findItem(byPath: $0) }
-            if !sourceItems.isEmpty,
-               let destinationURL = Self.internalDropDestinationURL(projectURL: projectURL, destinationItem: destinationItem) {
-                // Check modifier keys for copy vs move
-                let modifiers = NSEvent.modifierFlags
-                let isCopy = modifiers.contains(.control) || modifiers.contains(.option)
-
-                if isCopy {
-                    // Copy the item
-                    return copyItems(sourceItems, toFolderURL: destinationURL, at: index)
-                } else {
-                    // Move the item
-                    return moveItems(sourceItems, toFolderURL: destinationURL, at: index)
-                }
-            }
-
-            // Cross-window drags include our internal type but the source item
-            // is not present in this window's sidebar model; fall through to the
-            // external file URL path so the file is copied into this project.
-            logger.debug("acceptDrop: Internal identifier not resolvable in this sidebar; falling back to file URL import")
-        }
-
-        // External file drop
-        debugLog("acceptDrop: Attempting to read file URLs from pasteboard")
-
-        // Try reading with NSURL class
-        if let fileURLs = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !fileURLs.isEmpty {
-            debugLog("acceptDrop: SUCCESS - got \(fileURLs.count) file URLs")
-            for (i, url) in fileURLs.enumerated() {
-                debugLog("acceptDrop: URL[\(i)] = \(url.path)")
-            }
-
-            logger.info("acceptDrop: Posting notification for \(fileURLs.count) files")
-            NotificationCenter.default.post(
-                name: .sidebarFileDropped,
-                object: self,
-                userInfo: ["urls": fileURLs, "destination": destinationItem as Any]
-            )
-            return true
-        }
-
-        // Fallback: try reading file URLs directly from pasteboard
-        if let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL], !urls.isEmpty {
-            logger.info("acceptDrop: Fallback - found \(urls.count) URLs")
-            let fileURLs = urls.filter { $0.isFileURL }
-            logger.info("acceptDrop: Fallback - \(fileURLs.count) are file URLs")
-
-            if !fileURLs.isEmpty {
-                logger.info("acceptDrop: Fallback posting notification for \(fileURLs.count) files")
-                NotificationCenter.default.post(
-                    name: .sidebarFileDropped,
-                    object: self,
-                    userInfo: ["urls": fileURLs, "destination": destinationItem as Any]
-                )
-                return true
-            }
-        }
-
-        debugLog("acceptDrop: FAILED - No file URLs found in pasteboard")
-        return false
-    }
-
-    // MARK: - Selection Helpers
-
-    static func draggedItemIdentifiers(from pasteboard: NSPasteboard) -> [String] {
-        var identifiers: [String] = []
-        var seen = Set<String>()
-
-        for item in pasteboard.pasteboardItems ?? [] {
-            guard let identifier = item.string(forType: sidebarItemPasteboardType),
-                  !seen.contains(identifier) else {
-                continue
-            }
-            identifiers.append(identifier)
-            seen.insert(identifier)
-        }
-
-        if identifiers.isEmpty,
-           let identifier = pasteboard.string(forType: sidebarItemPasteboardType) {
-            identifiers.append(identifier)
-        }
-
-        return identifiers
-    }
-
-    /// Returns all currently selected sidebar items
-    public func selectedItems() -> [SidebarItem] {
-        var items: [SidebarItem] = []
-        outlineView.selectedRowIndexes.forEach { row in
-            if let item = outlineView.item(atRow: row) as? SidebarItem {
-                items.append(item)
-            }
-        }
-        return items
-    }
-
-    /// Returns the URL of the first selected sidebar item that has a file URL.
-    public var selectedFileURL: URL? {
-        selectedItems().first(where: { $0.url != nil })?.url
-    }
-
-    static func suggestedMergedBundleName(for items: [SidebarItem]) -> String {
-        let trimmedTitle = items.first?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return trimmedTitle.isEmpty ? "Merged Bundle" : "\(trimmedTitle) merged"
-    }
-
-    static func deepestCommonParent(for urls: [URL]) -> URL? {
-        let parentComponents = urls.map { $0.deletingLastPathComponent().standardizedFileURL.pathComponents }
-        guard var sharedComponents = parentComponents.first else { return nil }
-
-        for components in parentComponents.dropFirst() {
-            while sharedComponents.count > 1 && !components.starts(with: sharedComponents) {
-                sharedComponents.removeLast()
-            }
-        }
-
-        guard sharedComponents.count > 1 else { return nil }
-
-        var result = URL(fileURLWithPath: sharedComponents[0], isDirectory: true)
-        for component in sharedComponents.dropFirst() {
-            result.appendPathComponent(component, isDirectory: true)
-        }
-        return result.standardizedFileURL
-    }
-
-    static func internalDropDestinationURL(projectURL: URL?, destinationItem: SidebarItem?) -> URL? {
-        if let destinationItem {
-            guard destinationItem.type == .folder || destinationItem.type == .project else {
-                return nil
-            }
-            return destinationItem.url?.standardizedFileURL
-        }
-
-        return projectURL?.standardizedFileURL
-    }
-
-    // MARK: - Select All Siblings
-
-    /// Selects all sibling items of the currently selected item in the outline view.
-    /// Triggered by Cmd+Shift+A. Useful for batch-selecting all barcodes at the same level.
-    public func selectAllSiblings() {
-        guard let selectedItem = selectedItems().first else { return }
-
-        // Find the parent — siblings are the parent's children (or rootItems if top-level)
-        let siblings: [SidebarItem]
-        if let parent = findParent(of: selectedItem) {
-            siblings = parent.children
-        } else {
-            // Top-level item — siblings are rootItems
-            siblings = rootItems
-        }
-
-        guard siblings.count > 1 else { return }
-
-        // Build row index set for all siblings
-        var rowIndexes = IndexSet()
-        for sibling in siblings {
-            let row = outlineView.row(forItem: sibling)
-            if row >= 0 {
-                rowIndexes.insert(row)
-            }
-        }
-
-        guard !rowIndexes.isEmpty else { return }
-        outlineView.selectRowIndexes(rowIndexes, byExtendingSelection: false)
-        logger.info("selectAllSiblings: Selected \(rowIndexes.count) sibling(s)")
-    }
-
-    // MARK: - Delete Operations
-
-    /// Deletes the currently selected items, moving files to Trash
-    @objc public func deleteSelectedItems() {
-        let items = selectedItems()
-        guard !items.isEmpty else {
-            logger.debug("deleteSelectedItems: No items selected")
-            return
-        }
-
-        // Filter out items that shouldn't be deleted (groups, projects).
-        // Batch groups WITH a URL (analysis batches in Analyses/) are deletable —
-        // trashing the batch directory removes all component sample results.
-        let deletableItems = items.filter { item in
-            if item.type == .group || item.type == .project { return false }
-            if item.type == .batchGroup { return item.url != nil }
-            return true
-        }
-
-        guard !deletableItems.isEmpty else {
-            logger.debug("deleteSelectedItems: No deletable items in selection")
-            return
-        }
-        guard canWriteSidebarProjectOutputs(
-            workflowName: "Sidebar delete",
-            targetURL: deletableItems.first?.url
-        ) else {
-            return
-        }
-
-        let planner = ProjectDeletionPlanner()
-        let impact = projectURL.map {
-            planner.impact(
-                ofDeleting: deletableItems.compactMap(\.url),
-                in: $0
-            )
-        }
-
-        guard let window = view.window else { return }
-        presentDeleteConfirmation(items: deletableItems, impact: impact, in: window)
-    }
-
-    private func presentDeleteConfirmation(
-        items deletableItems: [SidebarItem],
-        impact: ProjectDeletionImpact?,
-        in window: NSWindow
-    ) {
-        let itemCount = deletableItems.count
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-
-        if let impact, impact.hasDependents {
-            let presentation = ProjectDeletionDependencyListPresentation(
-                dependentURLs: impact.dependentURLs,
-                projectURL: projectURL
-            )
-            let dependentCount = presentation.count
-            let selectedText = itemCount == 1
-                ? "\"\(deletableItems[0].title)\""
-                : "\(itemCount) selected items"
-            let preview = presentation.previewLines.joined(separator: "\n")
-            let overflow = presentation.overflowLine.map { "\n\($0)" } ?? ""
-
-            alert.messageText = "Move Items With Dependencies to Trash?"
-            alert.informativeText = """
-            Moving \(selectedText) to the Trash will break provenance for \(dependentCount) dependent project item\(dependentCount == 1 ? "" : "s").
-
-            Dependent items:
-            \(preview)\(overflow)
-            """
-            alert.addButton(withTitle: "Move All to Trash")
-            alert.addButton(withTitle: "Move Selected Only")
-            if presentation.isTruncated {
-                alert.addButton(withTitle: "Show Full List")
-            }
-            alert.addButton(withTitle: "Cancel")
-            alert.buttons.first?.applyLungfishDestructiveStyle()
-            if alert.buttons.count > 1 {
-                alert.buttons[1].applyLungfishDestructiveStyle()
-            }
-        } else {
-            let message = itemCount == 1
-                ? "Are you sure you want to move \"\(deletableItems[0].title)\" to the Trash?"
-                : "Are you sure you want to move \(itemCount) items to the Trash?"
-
-            alert.messageText = "Move to Trash"
-            alert.informativeText = message
-            alert.addButton(withTitle: "Move to Trash")
-            alert.addButton(withTitle: "Cancel")
-            alert.buttons.first?.applyLungfishDestructiveStyle()
-        }
-
-        alert.beginSheetModal(for: window) { [weak self] response in
-            guard let self else { return }
-            if let impact, impact.hasDependents {
-                let presentation = ProjectDeletionDependencyListPresentation(
-                    dependentURLs: impact.dependentURLs,
-                    projectURL: self.projectURL
-                )
-                switch response {
-                case .alertFirstButtonReturn:
-                    self.performDelete(items: deletableItems, includingDependentURLs: impact.dependentURLs)
-                case .alertSecondButtonReturn:
-                    self.performDelete(items: deletableItems)
-                case .alertThirdButtonReturn where presentation.isTruncated:
-                    self.showFullDeletionDependencyList(presentation, in: window) {
-                        self.presentDeleteConfirmation(items: deletableItems, impact: impact, in: window)
-                    }
-                default:
-                    return
-                }
-            } else {
-                guard response == .alertFirstButtonReturn else { return }
-                self.performDelete(items: deletableItems)
-            }
-        }
-    }
-
-    private func showFullDeletionDependencyList(
-        _ presentation: ProjectDeletionDependencyListPresentation,
-        in window: NSWindow,
-        completion: @escaping () -> Void
-    ) {
-        let alert = NSAlert()
-        alert.alertStyle = .informational
-        alert.messageText = "Affected Project Items"
-        alert.informativeText = """
-        These \(presentation.count) dependent project item\(presentation.count == 1 ? "" : "s") would have broken provenance if the selected item or items are moved to the Trash by themselves.
-        """
-        alert.addButton(withTitle: "Back")
-
-        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 560, height: 260))
-        scrollView.borderType = .bezelBorder
-        scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = true
-        scrollView.autohidesScrollers = true
-
-        let textView = NSTextView(frame: scrollView.contentView.bounds)
-        textView.string = presentation.fullListText
-        textView.isEditable = false
-        textView.isSelectable = true
-        textView.drawsBackground = true
-        textView.backgroundColor = .textBackgroundColor
-        textView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
-        textView.textContainerInset = NSSize(width: 8, height: 8)
-        textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = true
-        textView.autoresizingMask = [.width]
-        textView.textContainer?.containerSize = NSSize(
-            width: CGFloat.greatestFiniteMagnitude,
-            height: CGFloat.greatestFiniteMagnitude
-        )
-        textView.textContainer?.widthTracksTextView = false
-        scrollView.documentView = textView
-
-        alert.accessoryView = scrollView
-        alert.beginSheetModal(for: window) { _ in
-            completion()
-        }
-    }
-
-    /// Performs the actual deletion of items
-    private func performDelete(items: [SidebarItem], includingDependentURLs dependentURLs: [URL] = []) {
-        logger.info("performDelete: Deleting \(items.count) selected item(s) and \(dependentURLs.count) dependent URL(s)")
-        guard canWriteSidebarProjectOutputs(
-            workflowName: "Sidebar delete",
-            targetURL: items.first?.url
-        ) else {
-            return
-        }
-
-        let planner = ProjectDeletionPlanner()
-        let selectedItemsByPath = Dictionary(
-            uniqueKeysWithValues: items.compactMap { item -> (String, SidebarItem)? in
-                guard let url = item.url else { return nil }
-                return (url.standardizedFileURL.path, item)
-            }
-        )
-        let deletionURLs = ProjectDeletionPlanner.topLevelURLsForDeletion(
-            items.compactMap(\.url) + dependentURLs
-        )
-        let deletedItems = deletionURLs.compactMap { url in
-            selectedItemsByPath[url.standardizedFileURL.path] ?? findItem(byPath: url.standardizedFileURL.path)
-        }
-        var failedItems: [(String, Error)] = []
-
-        for url in deletionURLs {
-            let item = selectedItemsByPath[url.standardizedFileURL.path] ?? findItem(byPath: url.standardizedFileURL.path)
-            let label = item?.title ?? url.lastPathComponent
-            let sidecars = planner.existingCompanionSidecarURLs(for: url)
-
-            do {
-                try FileManager.default.trashItem(at: url, resultingItemURL: nil)
-                logger.info("performDelete: Trashed file \(url.path, privacy: .public)")
-            } catch {
-                // If the object is already gone (e.g. removed by Finder, or a
-                // race where macOS moved it for us), that is not a user-facing
-                // failure: there is nothing left to delete.
-                if Self.isAlreadyDeletedError(error) {
-                    logger.debug("performDelete: Object already removed, skipping \(url.path, privacy: .public)")
-                } else {
-                    logger.error("performDelete: Failed to trash \(url.path, privacy: .public) - \(error.localizedDescription, privacy: .public)")
-                    failedItems.append((label, error))
-                    continue  // Don't remove from sidebar if file deletion failed
-                }
-            }
-
-            for sidecarURL in sidecars {
-                // macOS moves an AppleDouble companion (._<name>) to Trash
-                // alongside its paired object, so by the time we reach it the
-                // companion may already be gone. Re-check existence and skip
-                // silently rather than surfacing a spurious "doesn't exist"
-                // alert to the user.
-                guard FileManager.default.fileExists(atPath: sidecarURL.path) else {
-                    logger.debug("performDelete: Companion sidecar already removed, skipping \(sidecarURL.path, privacy: .public)")
-                    continue
-                }
-                do {
-                    try FileManager.default.trashItem(at: sidecarURL, resultingItemURL: nil)
-                    logger.info("performDelete: Trashed companion sidecar \(sidecarURL.path, privacy: .public)")
-                } catch {
-                    // Tolerate a TOCTOU race: the companion may vanish between
-                    // the existence check and the trash call. Only genuinely
-                    // unexpected errors (permissions, etc.) are surfaced.
-                    if Self.isAlreadyDeletedError(error) {
-                        logger.debug("performDelete: Companion sidecar already removed, skipping \(sidecarURL.path, privacy: .public)")
-                    } else {
-                        logger.error("performDelete: Failed to trash sidecar \(sidecarURL.path, privacy: .public) - \(error.localizedDescription, privacy: .public)")
-                        failedItems.append((sidecarURL.lastPathComponent, error))
-                    }
-                }
-            }
-
-            if let item {
-                removeItemFromSidebar(item)
-            }
-        }
-
-        for item in items where item.url == nil {
-            removeItemFromSidebar(item)
-        }
-
-        reloadOutlineView()
-
-        // Show error if some items failed
-        if !failedItems.isEmpty {
-            let alert = NSAlert()
-            alert.messageText = "Some items could not be deleted"
-            alert.informativeText = failedItems.map { "\($0.0): \($0.1.localizedDescription)" }.joined(separator: "\n")
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "OK")
-            if let window = view.window {
-                alert.beginSheetModal(for: window)
-            }
-        }
-
-        // Post notification about deletion
-        NotificationCenter.default.post(
-            name: .sidebarItemsDeleted,
-            object: self,
-            userInfo: windowScopedUserInfo(["items": deletedItems.isEmpty ? items : deletedItems])
-        )
-    }
-
-    /// Returns `true` when `error` indicates the target file no longer exists,
-    /// i.e. it was already deleted (by Finder, another agent, or because macOS
-    /// moved an AppleDouble companion to Trash alongside its parent). Such an
-    /// error must be treated as success, not surfaced to the user.
-    ///
-    /// Recognizes `NSCocoaErrorDomain` `NSFileNoSuchFileError` (4) and
-    /// `NSPOSIXErrorDomain` `ENOENT` (2), including when wrapped as an
-    /// underlying error.
-    static func isAlreadyDeletedError(_ error: Error) -> Bool {
-        let nsError = error as NSError
-        if matchesNoSuchFile(nsError) { return true }
-        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError,
-           matchesNoSuchFile(underlying) {
-            return true
-        }
-        return false
-    }
-
-    private static func matchesNoSuchFile(_ error: NSError) -> Bool {
-        if error.domain == NSCocoaErrorDomain, error.code == NSFileNoSuchFileError {
-            return true
-        }
-        if error.domain == NSPOSIXErrorDomain, error.code == Int(POSIXErrorCode.ENOENT.rawValue) {
-            return true
-        }
-        return false
-    }
-
-    /// Removes an item from the sidebar hierarchy (without touching the file)
-    private func removeItemFromSidebar(_ item: SidebarItem) {
-        if let parent = findParent(of: item) {
-            parent.children.removeAll { $0 === item }
-            logger.debug("removeItemFromSidebar: Removed '\(item.title, privacy: .public)' from parent '\(parent.title, privacy: .public)'")
-        } else {
-            // Item is at root level
-            rootItems.removeAll { $0 === item }
-            logger.debug("removeItemFromSidebar: Removed '\(item.title, privacy: .public)' from root")
-        }
-    }
-
-    // MARK: - Drag Helper Methods
-
-    /// Finds a sidebar item by its URL path
-    private func findItem(byPath path: String) -> SidebarItem? {
-        func search(in items: [SidebarItem]) -> SidebarItem? {
-            for item in items {
-                if item.url?.path == path || item.title == path {
-                    return item
-                }
-                if let found = search(in: item.children) {
-                    return found
-                }
-            }
-            return nil
-        }
-        return search(in: rootItems)
-    }
-
-    /// Finds the parent of a sidebar item
-    private func findParent(of targetItem: SidebarItem) -> SidebarItem? {
-        func search(in items: [SidebarItem], parent: SidebarItem?) -> SidebarItem? {
-            for item in items {
-                if item === targetItem {
-                    return parent
-                }
-                if let found = search(in: item.children, parent: item) {
-                    return found
-                }
-            }
-            return nil
-        }
-        return search(in: rootItems, parent: nil)
-    }
-
-    /// Moves an item from its current location to a new destination
-    private func moveItem(_ sourceItem: SidebarItem, to destination: SidebarItem, at index: Int) -> Bool {
-        moveItems([sourceItem], to: destination, at: index)
-    }
-
-    /// Moves multiple items from their current locations to a new destination.
-    private func moveItems(_ sourceItems: [SidebarItem], to destination: SidebarItem, at index: Int) -> Bool {
-        guard !sourceItems.isEmpty else { return false }
-        if sourceItems.count == 1 {
-            logger.info("moveItem: Moving '\(sourceItems[0].title, privacy: .public)' to '\(destination.title, privacy: .public)'")
-        } else {
-            logger.info("moveItems: Moving \(sourceItems.count) items to '\(destination.title, privacy: .public)'")
-        }
-
-        guard let destFolderURL = destination.url else {
-            logger.warning("moveItems: Missing URL for destination")
-            return false
-        }
-
-        return moveItems(sourceItems, toFolderURL: destFolderURL.standardizedFileURL, at: index)
-    }
-
-    private func moveItems(_ sourceItems: [SidebarItem], toFolderURL destFolderURL: URL, at index: Int) -> Bool {
-        guard !sourceItems.isEmpty else { return false }
-        guard canWriteSidebarProjectOutputs(
-            workflowName: "Sidebar move",
-            targetURL: destFolderURL
-        ) else {
-            return false
-        }
-
-        var movedCount = 0
-        for sourceItem in sourceItems {
-            guard let sourceURL = sourceItem.url else {
-                logger.warning("moveItems: Missing URL for source '\(sourceItem.title, privacy: .public)'")
-                continue
-            }
-
-            let standardizedSourceURL = sourceURL.standardizedFileURL
-            let standardizedDestinationFolderURL = destFolderURL.standardizedFileURL
-
-            if standardizedDestinationFolderURL == standardizedSourceURL ||
-                standardizedDestinationFolderURL.path.hasPrefix(standardizedSourceURL.path + "/") {
-                logger.warning("moveItems: Cannot move '\(sourceItem.title, privacy: .public)' into itself or a descendant")
-                continue
-            }
-
-            if standardizedSourceURL.deletingLastPathComponent() == standardizedDestinationFolderURL {
-                logger.debug("moveItems: '\(sourceItem.title, privacy: .public)' is already in destination")
-                movedCount += 1
-                continue
-            }
-
-            var destURL = standardizedDestinationFolderURL.appendingPathComponent(sourceURL.lastPathComponent)
-            if FileManager.default.fileExists(atPath: destURL.path) {
-                destURL = uniqueDestinationURL(for: sourceURL, in: standardizedDestinationFolderURL)
-            }
-
-            do {
-                try FileManager.default.moveItem(at: sourceURL, to: destURL)
-                rehydrateScientificProvenance(from: sourceURL, to: destURL)
-                movedCount += 1
-                logger.info("moveItems: File moved from \(sourceURL.path, privacy: .public) to \(destURL.path, privacy: .public)")
-            } catch {
-                logger.error("moveItems: Failed to move \(sourceURL.lastPathComponent, privacy: .public) - \(error.localizedDescription, privacy: .public)")
-            }
-        }
-
-        if movedCount > 0 {
-            reloadFromFilesystem()
-        }
-        return movedCount == sourceItems.count
-    }
-
-    /// Copies an item to a new destination
-    private func copyItem(_ sourceItem: SidebarItem, to destination: SidebarItem, at index: Int) -> Bool {
-        copyItems([sourceItem], to: destination, at: index)
-    }
-
-    /// Copies multiple items to a new destination.
-    private func copyItems(_ sourceItems: [SidebarItem], to destination: SidebarItem, at index: Int) -> Bool {
-        guard !sourceItems.isEmpty else { return false }
-        if sourceItems.count == 1 {
-            logger.info("copyItem: Copying '\(sourceItems[0].title, privacy: .public)' to '\(destination.title, privacy: .public)'")
-        } else {
-            logger.info("copyItems: Copying \(sourceItems.count) items to '\(destination.title, privacy: .public)'")
-        }
-
-        guard let destFolderURL = destination.url else {
-            logger.warning("copyItems: Missing URL for destination")
-            return false
-        }
-
-        return copyItems(sourceItems, toFolderURL: destFolderURL.standardizedFileURL, at: index)
-    }
-
-    private func copyItems(_ sourceItems: [SidebarItem], toFolderURL destFolderURL: URL, at index: Int) -> Bool {
-        guard !sourceItems.isEmpty else { return false }
-        guard canWriteSidebarProjectOutputs(
-            workflowName: "Sidebar copy",
-            targetURL: destFolderURL
-        ) else {
-            return false
-        }
-
-        var copiedCount = 0
-        for sourceItem in sourceItems {
-            guard let sourceURL = sourceItem.url else {
-                logger.warning("copyItems: Missing URL for source '\(sourceItem.title, privacy: .public)'")
-                continue
-            }
-
-            let destURL = uniqueDestinationURL(for: sourceURL, in: destFolderURL.standardizedFileURL, copyStyle: true)
-
-            do {
-                try FileManager.default.copyItem(at: sourceURL, to: destURL)
-                rehydrateScientificProvenance(from: sourceURL, to: destURL)
-                copiedCount += 1
-                logger.info("copyItems: File copied to \(destURL.path, privacy: .public)")
-            } catch {
-                logger.error("copyItems: Failed to copy \(sourceURL.lastPathComponent, privacy: .public) - \(error.localizedDescription, privacy: .public)")
-            }
-        }
-
-        if copiedCount > 0 {
-            reloadFromFilesystem()
-        }
-        return copiedCount == sourceItems.count
-    }
-
-    private func uniqueDestinationURL(for sourceURL: URL, in destinationFolderURL: URL, copyStyle: Bool = false) -> URL {
-        var destURL = destinationFolderURL.appendingPathComponent(sourceURL.lastPathComponent)
-        guard FileManager.default.fileExists(atPath: destURL.path) else {
-            return destURL
-        }
-
-        var counter = copyStyle ? 1 : 2
-        let baseName = sourceURL.deletingPathExtension().lastPathComponent
-        let fileExtension = sourceURL.pathExtension
-
-        while FileManager.default.fileExists(atPath: destURL.path) {
-            let suffix: String
-            if copyStyle {
-                suffix = counter > 1 ? "_copy_\(counter)" : "_copy"
-                counter += 1
-            } else {
-                suffix = " \(counter)"
-                counter += 1
-            }
-            let newName = fileExtension.isEmpty ? "\(baseName)\(suffix)" : "\(baseName)\(suffix).\(fileExtension)"
-            destURL = destinationFolderURL.appendingPathComponent(newName)
-        }
-
-        return destURL
-    }
-}
-
-// MARK: - NSOutlineViewDelegate
-
-extension SidebarViewController: NSOutlineViewDelegate {
-
-    public func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
-        guard let sidebarItem = item as? SidebarItem else { return nil }
-
-        let hasSubtitle = sidebarItem.subtitle != nil
-        let identifier = NSUserInterfaceItemIdentifier(hasSubtitle ? "SidebarCellWithSubtitle" : "SidebarCell")
-        var cellView = outlineView.makeView(withIdentifier: identifier, owner: self) as? NSTableCellView
-
-        if cellView == nil {
-            cellView = NSTableCellView()
-            cellView?.identifier = identifier
-
-            let imageView = NSImageView()
-            imageView.translatesAutoresizingMaskIntoConstraints = false
-            cellView?.addSubview(imageView)
-            cellView?.imageView = imageView
-
-            let textField = NSTextField(labelWithString: "")
-            textField.translatesAutoresizingMaskIntoConstraints = false
-            textField.lineBreakMode = .byTruncatingTail
-            cellView?.addSubview(textField)
-            cellView?.textField = textField
-
-            if hasSubtitle {
-                let subtitleField = NSTextField(labelWithString: "")
-                subtitleField.translatesAutoresizingMaskIntoConstraints = false
-                subtitleField.lineBreakMode = .byTruncatingTail
-                subtitleField.font = NSFont.systemFont(ofSize: 10)
-                subtitleField.textColor = .secondaryLabelColor
-                subtitleField.tag = 999
-                cellView?.addSubview(subtitleField)
-
-                NSLayoutConstraint.activate([
-                    imageView.leadingAnchor.constraint(equalTo: cellView!.leadingAnchor, constant: 2),
-                    imageView.centerYAnchor.constraint(equalTo: cellView!.centerYAnchor),
-                    imageView.widthAnchor.constraint(equalToConstant: 16),
-                    imageView.heightAnchor.constraint(equalToConstant: 16),
-
-                    textField.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 4),
-                    textField.trailingAnchor.constraint(equalTo: cellView!.trailingAnchor, constant: -2),
-                    textField.topAnchor.constraint(equalTo: cellView!.topAnchor, constant: 2),
-
-                    subtitleField.leadingAnchor.constraint(equalTo: textField.leadingAnchor),
-                    subtitleField.trailingAnchor.constraint(equalTo: textField.trailingAnchor),
-                    subtitleField.topAnchor.constraint(equalTo: textField.bottomAnchor, constant: 0),
-                    subtitleField.bottomAnchor.constraint(lessThanOrEqualTo: cellView!.bottomAnchor, constant: -2),
-                ])
-            } else {
-                NSLayoutConstraint.activate([
-                    imageView.leadingAnchor.constraint(equalTo: cellView!.leadingAnchor, constant: 2),
-                    imageView.centerYAnchor.constraint(equalTo: cellView!.centerYAnchor),
-                    imageView.widthAnchor.constraint(equalToConstant: 16),
-                    imageView.heightAnchor.constraint(equalToConstant: 16),
-
-                    textField.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 4),
-                    textField.trailingAnchor.constraint(equalTo: cellView!.trailingAnchor, constant: -2),
-                    textField.centerYAnchor.constraint(equalTo: cellView!.centerYAnchor),
-                ])
-            }
-        }
-
-        // Configure cell
-        cellView?.textField?.stringValue = sidebarItem.title
-
-        if let accessibilityIdentifier = sidebarItem.userInfo["accessibilityIdentifier"] {
-            cellView?.setAccessibilityIdentifier(accessibilityIdentifier)
-            cellView?.textField?.setAccessibilityIdentifier(accessibilityIdentifier)
-        }
-
-        // Update subtitle field if present
-        if let subtitleField = cellView?.viewWithTag(999) as? NSTextField {
-            subtitleField.stringValue = sidebarItem.subtitle ?? ""
-        }
-
-        if sidebarItem.type == .group {
-            cellView?.textField?.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
-            cellView?.textField?.textColor = .secondaryLabelColor
-            cellView?.imageView?.image = nil
-            cellView?.toolTip = nil
-            cellView?.textField?.toolTip = nil
-        } else {
-            cellView?.textField?.font = NSFont.systemFont(ofSize: 13)
-            cellView?.textField?.textColor = .labelColor
-
-            if let customImage = sidebarItem.customImage {
-                cellView?.imageView?.image = customImage
-                cellView?.imageView?.contentTintColor = nil  // custom image has its own colors
-            } else if let iconName = sidebarItem.icon {
-                cellView?.imageView?.image = NSImage(systemSymbolName: iconName, accessibilityDescription: sidebarItem.title)
-                cellView?.imageView?.contentTintColor = sidebarItem.type.tintColor
-            }
-
-            let detail = sidebarItem.url?.path ?? sidebarItem.title
-            cellView?.toolTip = detail
-            cellView?.textField?.toolTip = detail
-        }
-
-        return cellView
-    }
-
-    public func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
-        if let sidebarItem = item as? SidebarItem, sidebarItem.subtitle != nil {
-            return 36
-        }
-        return 24
-    }
-
-    public func outlineView(_ outlineView: NSOutlineView, isGroupItem item: Any) -> Bool {
-        if let sidebarItem = item as? SidebarItem {
-            return sidebarItem.type == .group
-        }
-        return false
-    }
-
-    public func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool {
-        if let sidebarItem = item as? SidebarItem {
-            return sidebarItem.type != .group
-        }
-        return true
-    }
-
-    public func outlineViewSelectionDidChange(_ notification: Notification) {
-        if suppressSelectionCallbacks {
-            logger.debug("outlineViewSelectionDidChange: Suppressed during programmatic update")
-            return
-        }
-
-        // Get ALL selected items for multi-selection support
-        let items = selectedItems()
-        handleSelectionChange(items, source: "outlineViewSelectionDidChange")
-    }
-
-    private func handleSelectionChange(_ items: [SidebarItem], source: String) {
-
-        if items.isEmpty {
-            logger.debug("\(source, privacy: .public): Selection cleared")
-
-            // Call delegate directly - synchronous, no Task needed
-            selectionDelegate?.sidebarDidSelectItem(nil)
-
-            // Keep notification for other observers (e.g., InspectorViewController)
-            NotificationCenter.default.post(
-                name: .sidebarSelectionChanged,
-                object: self,
-                userInfo: sidebarSelectionUserInfo(items: [])
-            )
-            return
-        }
-
-        // Log all selected items
-        let itemNames = items.map { $0.title }.joined(separator: ", ")
-        logger.info("\(source, privacy: .public): Selected \(items.count) items: [\(itemNames, privacy: .public)]")
-
-        // Call delegate directly - synchronous, reliable
-        // This is the primary way to handle selection changes for content display
-        if items.count == 1 {
-            selectionDelegate?.sidebarDidSelectItem(items.first)
-        } else {
-            selectionDelegate?.sidebarDidSelectItems(items)
-        }
-
-        // Keep notification for other observers (e.g., InspectorViewController)
-        // but document loading should NOT be triggered by this notification
-        NotificationCenter.default.post(
-            name: .sidebarSelectionChanged,
-            object: self,
-            userInfo: sidebarSelectionUserInfo(items: items)
-        )
-        logger.debug("\(source, privacy: .public): Called delegate and posted notification with \(items.count) items")
-    }
-
-    private func sidebarSelectionUserInfo(items: [SidebarItem]) -> [String: Any] {
-        var userInfo: [String: Any] = ["items": items]
-        if let first = items.first {
-            userInfo["item"] = first
-            if let scope = windowStateScope {
-                userInfo[NotificationUserInfoKey.contentSelectionIdentity] = ContentSelectionIdentity(
-                    url: first.url,
-                    kind: first.type.description,
-                    resultID: first.title,
-                    windowID: scope.id
-                )
-            }
-        }
-        if let scope = windowStateScope {
-            userInfo[NotificationUserInfoKey.windowStateScope] = scope
-        }
-        return userInfo
+        sidebarLogger.debug("refreshItem: Refreshed \(item.title, privacy: .public)")
     }
 }
 
@@ -3700,1341 +2604,6 @@ extension SidebarViewController {
             }
         }
         return urls
-    }
-}
-
-// MARK: - SidebarItem Model
-
-/// Represents an item in the sidebar hierarchy
-public class SidebarItem: NSObject {
-    public var title: String
-    public let type: SidebarItemType
-    public let icon: String?
-    /// Custom pre-rendered image for this item. When set, takes precedence over `icon`.
-    public var customImage: NSImage?
-    public var children: [SidebarItem]
-    public var url: URL?
-    /// Optional subtitle for additional context (e.g. read composition label).
-    public var subtitle: String?
-    /// Arbitrary key-value metadata for routing (e.g. sampleId for batch children).
-    public var userInfo: [String: String] = [:]
-
-    public init(title: String, type: SidebarItemType, icon: String? = nil, customImage: NSImage? = nil, children: [SidebarItem] = [], url: URL? = nil, subtitle: String? = nil) {
-        self.title = title
-        self.type = type
-        self.icon = icon
-        self.customImage = customImage
-        self.children = children
-        self.url = url
-        self.subtitle = subtitle
-        super.init()
-    }
-}
-
-/// Types of sidebar items
-public enum SidebarItemType {
-    case group
-    case folder
-    case sequence
-    case annotation
-    case alignment
-    case coverage
-    case project
-    case document  // PDFs, text files, etc. - uses QuickLook preview
-    case image     // Image files - uses QuickLook preview
-    case unknown   // Unknown file type - uses QuickLook preview
-    case referenceBundle  // .lungfishref reference genome bundle
-    case mhcReferenceBundle  // .lungfishmhcref MHC amplicon reference bundle
-    case multipleSequenceAlignmentBundle  // .lungfishmsa alignment bundle
-    case phylogeneticTreeBundle  // .lungfishtree tree bundle
-    case fastqBundle  // .lungfishfastq FASTQ package bundle
-    case primerSchemeBundle  // .lungfishprimers primer-scheme bundle
-    case genotypeResultBundle // .lungfishgenotype ONT genotyping result bundle
-    case twelveSAmpliconResultBundle // .lungfish12s 12S amplicon result bundle
-    case batchGroup   // Virtual node representing a batch operation across multiple bundles
-    case classificationResult  // Kraken2 classification result folder
-    case esvirituResult        // EsViritu viral detection result folder
-    case taxTriageResult       // TaxTriage comprehensive triage result folder
-    case naoMgsResult          // NAO-MGS surveillance result bundle
-    case nvdResult             // NVD (Novel Virus Diagnostics) result bundle
-    case czIdResult            // CZ-ID imported taxonomy result bundle
-    case analysisResult        // Analysis result in Analyses/ folder
-
-    var tintColor: NSColor {
-        switch self {
-        case .group: return .secondaryLabelColor
-        case .folder: return .systemBlue
-        case .sequence: return .systemGreen
-        case .annotation: return .systemOrange
-        case .alignment: return .systemPurple
-        case .coverage: return .systemTeal
-        case .project: return .systemGray
-        case .document: return .systemBrown
-        case .image: return .systemPink
-        case .unknown: return .tertiaryLabelColor
-        case .referenceBundle: return .systemIndigo
-        case .mhcReferenceBundle: return .systemIndigo
-        case .multipleSequenceAlignmentBundle: return .systemPurple
-        case .phylogeneticTreeBundle: return .systemMint
-        case .fastqBundle: return .systemGreen
-        case .primerSchemeBundle: return .systemYellow
-        case .genotypeResultBundle: return .lungfishOrange
-        case .twelveSAmpliconResultBundle: return .systemTeal
-        case .batchGroup: return .systemCyan
-        case .classificationResult: return .lungfishOrange
-        case .esvirituResult: return .lungfishOrange
-        case .taxTriageResult: return .lungfishOrange
-        case .naoMgsResult: return .lungfishOrange
-        case .nvdResult: return .lungfishOrange
-        case .czIdResult: return .lungfishOrange
-        case .analysisResult: return .lungfishOrange
-        }
-    }
-
-    /// Whether this item type should use QuickLook for preview
-    var usesQuickLook: Bool {
-        switch self {
-        case .document, .image, .unknown:
-            return true
-        default:
-            return false
-        }
-    }
-
-    /// Whether this item type is a bundle that should appear as a single item
-    var isBundle: Bool {
-        switch self {
-        case .referenceBundle, .mhcReferenceBundle, .multipleSequenceAlignmentBundle, .phylogeneticTreeBundle,
-             .fastqBundle, .primerSchemeBundle, .genotypeResultBundle, .twelveSAmpliconResultBundle, .czIdResult:
-            return true
-        default:
-            return false
-        }
-    }
-
-    /// Creates a sidebar item type from a LungfishIO UICategory.
-    ///
-    /// - Parameter category: The UICategory from format detection
-    init(from category: UICategory) {
-        switch category {
-        case .sequence:
-            self = .sequence
-        case .annotation:
-            self = .annotation
-        case .alignment:
-            self = .alignment
-        case .variant:
-            self = .annotation  // Variants shown as annotations
-        case .coverage:
-            self = .coverage
-        case .index:
-            self = .unknown  // Index files shown as unknown
-        case .document:
-            self = .document
-        case .image:
-            self = .image
-        case .compressed:
-            self = .unknown
-        case .referenceBundle:
-            self = .referenceBundle
-        case .unknown:
-            self = .unknown
-        }
-    }
-}
-
-// MARK: - NSMenuDelegate
-
-extension SidebarViewController: NSMenuDelegate {
-
-    public func menuNeedsUpdate(_ menu: NSMenu) {
-        menu.removeAllItems()
-
-        // Get clicked row
-        let clickedRow = outlineView.clickedRow
-
-        // If clicked on a row that's not selected, select it first
-        if clickedRow >= 0 && !outlineView.selectedRowIndexes.contains(clickedRow) {
-            outlineView.selectRowIndexes(IndexSet(integer: clickedRow), byExtendingSelection: false)
-        }
-
-        let items = selectedItems()
-
-        // Check if clicked on empty space (no row)
-        let clickedOnEmptySpace = clickedRow < 0
-
-        guard !items.isEmpty || clickedOnEmptySpace else {
-            // No selection and not on empty space - show minimal menu
-            let noSelectionItem = NSMenuItem(title: "No Selection", action: nil, keyEquivalent: "")
-            noSelectionItem.isEnabled = false
-            menu.addItem(noSelectionItem)
-            return
-        }
-
-        // If clicked on empty space with a project open, show New Folder option
-        if clickedOnEmptySpace && projectURL != nil {
-            let newFolderItem = NSMenuItem(title: "New Folder", action: #selector(contextMenuNewFolder(_:)), keyEquivalent: "N")
-            newFolderItem.keyEquivalentModifierMask = [.command, .shift]
-            newFolderItem.target = self
-            menu.addItem(newFolderItem)
-            return
-        }
-
-        // If no items selected (shouldn't happen at this point, but safety check)
-        guard !items.isEmpty else { return }
-
-        // Check what types we have selected
-        let hasFiles = items.contains {
-            $0.type != .group
-                && $0.type != .project
-                && $0.type != .folder
-                && !$0.type.isBundle
-                && $0.type != .batchGroup
-        }
-        let hasFolders = items.contains { $0.type == .folder || $0.type == .project }
-        let hasGroups = items.contains { $0.type == .group }
-        let hasDeletable = items.contains { item in
-            if item.type == .group || item.type == .project { return false }
-            if item.type == .batchGroup { return item.url != nil }
-            return true
-        }
-        let hasBundles = items.contains { $0.type == .referenceBundle }
-        let hasFASTQBundles = items.contains { $0.type == .fastqBundle }
-        let mergeSelectionKind = BundleMergeSelection.detectKind(for: items)
-
-        // Reference bundle(s) selected — export sequences
-        if hasBundles {
-            let bundleCount = items.filter { $0.type == .referenceBundle }.count
-            let exportTitle = bundleCount > 1
-                ? "Export \(bundleCount) Sequences\u{2026}"
-                : "Export Sequences\u{2026}"
-            let exportSeqItem = NSMenuItem(title: exportTitle, action: #selector(FileMenuActions.exportFASTA(_:)), keyEquivalent: "")
-            menu.addItem(exportSeqItem)
-
-            if mergeSelectionKind == .reference {
-                let mergeItem = NSMenuItem(
-                    title: "Merge into New Bundle\u{2026}",
-                    action: #selector(contextMenuMergeIntoNewBundle(_:)),
-                    keyEquivalent: ""
-                )
-                mergeItem.target = self
-                menu.addItem(mergeItem)
-            }
-
-            menu.addItem(NSMenuItem.separator())
-        }
-
-        // Single bundle selected - show bundle-specific options
-        if items.count == 1 && hasBundles {
-            let openItem = NSMenuItem(title: "Open Bundle", action: #selector(contextMenuOpen(_:)), keyEquivalent: "")
-            openItem.target = self
-            menu.addItem(openItem)
-
-            let showContentsItem = NSMenuItem(title: "Show Package Contents", action: #selector(contextMenuShowBundleContents(_:)), keyEquivalent: "")
-            showContentsItem.target = self
-            menu.addItem(showContentsItem)
-
-            let getInfoItem = NSMenuItem(title: "Get Bundle Info", action: #selector(contextMenuGetBundleInfo(_:)), keyEquivalent: "")
-            getInfoItem.target = self
-            menu.addItem(getInfoItem)
-
-            let importMetadataItem = NSMenuItem(title: "Import Sample Metadata…", action: #selector(contextMenuImportSampleMetadata(_:)), keyEquivalent: "")
-            importMetadataItem.target = self
-            menu.addItem(importMetadataItem)
-
-            // Delete Variant Tracks — only if bundle has variant tracks
-            if let url = items.first?.url, bundleHasVariantTracks(url) {
-                menu.addItem(NSMenuItem.separator())
-                let deleteVariantsItem = NSMenuItem(title: "Delete Variant Tracks\u{2026}", action: #selector(contextMenuDeleteVariantTracks(_:)), keyEquivalent: "")
-                deleteVariantsItem.target = self
-                menu.addItem(deleteVariantsItem)
-            }
-
-            // Reassemble — only if bundle has assembly provenance
-            if let url = items.first?.url, bundleHasAssemblyProvenance(url) {
-                let reassembleItem = NSMenuItem(title: "Reassemble\u{2026}", action: #selector(contextMenuReassemble(_:)), keyEquivalent: "")
-                reassembleItem.target = self
-                menu.addItem(reassembleItem)
-            }
-
-            menu.addItem(NSMenuItem.separator())
-        }
-
-        // FASTQ bundle(s) selected - show FASTQ-specific options
-        if hasFASTQBundles {
-            if items.count == 1 {
-                let openItem = NSMenuItem(title: "Open Bundle", action: #selector(contextMenuOpen(_:)), keyEquivalent: "")
-                openItem.target = self
-                menu.addItem(openItem)
-            }
-
-            let fastqCount = items.filter { $0.type == .fastqBundle }.count
-            let exportTitle = fastqCount > 1
-                ? "Export \(fastqCount) as FASTQ\u{2026}"
-                : "Export as FASTQ\u{2026}"
-            let exportItem = NSMenuItem(title: exportTitle, action: #selector(contextMenuExportFASTQ(_:)), keyEquivalent: "")
-            exportItem.target = self
-            menu.addItem(exportItem)
-
-            if mergeSelectionKind == .fastq {
-                let mergeItem = NSMenuItem(
-                    title: "Merge into New Bundle\u{2026}",
-                    action: #selector(contextMenuMergeIntoNewBundle(_:)),
-                    keyEquivalent: ""
-                )
-                mergeItem.target = self
-                menu.addItem(mergeItem)
-            }
-
-            if items.count == 1 {
-                let showContentsItem = NSMenuItem(title: "Show Package Contents", action: #selector(contextMenuShowBundleContents(_:)), keyEquivalent: "")
-                showContentsItem.target = self
-                menu.addItem(showContentsItem)
-            }
-
-            // Clone Metadata From... — available for FASTQ bundles
-            let cloneItem = NSMenuItem(title: "Clone Metadata From\u{2026}", action: #selector(contextMenuCloneMetadata(_:)), keyEquivalent: "")
-            cloneItem.target = self
-            menu.addItem(cloneItem)
-
-            menu.addItem(NSMenuItem.separator())
-        }
-
-        // Classification result selected - show Copy Classification Command
-        if items.count == 1, let item = items.first, item.type == .classificationResult {
-            let copyCommandItem = NSMenuItem(
-                title: "Copy Classification Command",
-                action: #selector(contextMenuCopyClassificationCommand(_:)),
-                keyEquivalent: ""
-            )
-            copyCommandItem.target = self
-            menu.addItem(copyCommandItem)
-            menu.addItem(NSMenuItem.separator())
-        }
-
-        // Single item selected - show Open
-        if items.count == 1 && hasFiles {
-            let openItem = NSMenuItem(title: "Open", action: #selector(contextMenuOpen(_:)), keyEquivalent: "")
-            openItem.target = self
-            menu.addItem(openItem)
-            menu.addItem(NSMenuItem.separator())
-        }
-
-        // New Folder (when folder or project is selected, or when we have a project open)
-        if (items.count == 1 && hasFolders) || projectURL != nil {
-            let newFolderItem = NSMenuItem(title: "New Folder", action: #selector(contextMenuNewFolder(_:)), keyEquivalent: "N")
-            newFolderItem.keyEquivalentModifierMask = [.command, .shift]
-            newFolderItem.target = self
-            menu.addItem(newFolderItem)
-            menu.addItem(NSMenuItem.separator())
-        }
-
-        // Edit / Export / Import Sample Metadata (for folders containing FASTQ bundles)
-        if items.count == 1 && hasFolders, let folderItem = items.first, folderItem.url != nil {
-            let hasFASTQChildren = folderItem.children.contains { $0.type == .fastqBundle }
-            if hasFASTQChildren {
-                let editMetaItem = NSMenuItem(
-                    title: "Edit Sample Metadata\u{2026}",
-                    action: #selector(contextMenuEditFolderMetadata(_:)),
-                    keyEquivalent: ""
-                )
-                editMetaItem.target = self
-                menu.addItem(editMetaItem)
-
-                let exportMetaItem = NSMenuItem(
-                    title: "Export Sample Metadata (CSV)\u{2026}",
-                    action: #selector(contextMenuExportProjectMetadata(_:)),
-                    keyEquivalent: ""
-                )
-                exportMetaItem.target = self
-                menu.addItem(exportMetaItem)
-
-                let importMetaItem = NSMenuItem(
-                    title: "Import Sample Metadata (CSV)\u{2026}",
-                    action: #selector(contextMenuImportProjectMetadata(_:)),
-                    keyEquivalent: ""
-                )
-                importMetaItem.target = self
-                menu.addItem(importMetaItem)
-
-                menu.addItem(NSMenuItem.separator())
-            }
-        }
-
-        // Show in Finder
-        if !hasGroups {
-            let showInFinderItem = NSMenuItem(title: "Show in Finder", action: #selector(contextMenuShowInFinder(_:)), keyEquivalent: "")
-            showInFinderItem.target = self
-            menu.addItem(showInFinderItem)
-        }
-
-        // Copy Path
-        if !hasGroups && items.count == 1 {
-            let copyPathItem = NSMenuItem(title: "Copy Path", action: #selector(contextMenuCopyPath(_:)), keyEquivalent: "")
-            copyPathItem.target = self
-            menu.addItem(copyPathItem)
-        }
-
-        // Show in Inspector (for reference bundles)
-        if items.count == 1 && hasBundles {
-            let showInInspectorItem = NSMenuItem(title: "Show in Inspector", action: #selector(contextMenuShowInInspector(_:)), keyEquivalent: "")
-            showInInspectorItem.target = self
-            menu.addItem(showInInspectorItem)
-        }
-
-        menu.addItem(NSMenuItem.separator())
-
-        // Rename (single item only, not groups)
-        if items.count == 1 && !hasGroups {
-            let renameItem = NSMenuItem(title: "Rename...", action: #selector(contextMenuRename(_:)), keyEquivalent: "")
-            renameItem.target = self
-            menu.addItem(renameItem)
-        }
-
-        // Duplicate (files and folders, not groups)
-        if !hasGroups && (hasFiles || hasFolders) {
-            let duplicateItem = NSMenuItem(title: "Duplicate", action: #selector(contextMenuDuplicate(_:)), keyEquivalent: "D")
-            duplicateItem.keyEquivalentModifierMask = .command
-            duplicateItem.target = self
-            menu.addItem(duplicateItem)
-        }
-
-        // Move to... submenu (for files and non-project folders)
-        if !hasGroups && projectURL != nil {
-            let moveToItem = NSMenuItem(title: "Move to", action: nil, keyEquivalent: "")
-            let moveToSubmenu = buildMoveToSubmenu(for: items)
-            if moveToSubmenu.items.count > 0 {
-                moveToItem.submenu = moveToSubmenu
-                menu.addItem(moveToItem)
-            }
-        }
-
-        // Move to Trash
-        if hasDeletable {
-            menu.addItem(NSMenuItem.separator())
-            let deleteTitle = items.count == 1 ? "Move to Trash" : "Move \(items.count) Items to Trash"
-            let deleteItem = NSMenuItem(title: deleteTitle, action: #selector(deleteSelectedItems), keyEquivalent: "\u{8}")  // Backspace key
-            deleteItem.target = self
-            menu.addItem(deleteItem)
-        }
-    }
-
-    @objc private func contextMenuOpen(_ sender: Any?) {
-        let items = selectedItems()
-        guard let item = items.first, item.type != .group && item.type != .project && item.type != .batchGroup else { return }
-
-        logger.info("contextMenuOpen: Opening '\(item.title, privacy: .public)'")
-
-        selectionDelegate?.sidebarDidSelectItem(item)
-
-        // Keep notification for other observers; display routes through the delegate.
-        NotificationCenter.default.post(
-            name: .sidebarSelectionChanged,
-            object: self,
-            userInfo: sidebarSelectionUserInfo(items: [item])
-        )
-    }
-
-    @objc private func contextMenuMergeIntoNewBundle(_ sender: Any?) {
-        let items = selectedItems()
-        guard let mergeKind = BundleMergeSelection.detectKind(for: items) else { return }
-
-        let selectedURLs = items.compactMap(\.url)
-        guard selectedURLs.count == items.count,
-              let destinationDirectory = Self.deepestCommonParent(for: selectedURLs) else { return }
-
-        let alert = NSAlert()
-        alert.messageText = "Merge into New Bundle"
-        alert.informativeText = "Enter a name for the merged bundle:"
-        alert.addButton(withTitle: "Merge")
-        alert.addButton(withTitle: "Cancel")
-
-        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
-        textField.stringValue = Self.suggestedMergedBundleName(for: items)
-        alert.accessoryView = textField
-
-        guard let window = view.window ?? NSApp.keyWindow else { return }
-        alert.beginSheetModal(for: window) { [weak self] response in
-            guard response == .alertFirstButtonReturn else { return }
-
-            let bundleName = textField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !bundleName.isEmpty else { return }
-
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-
-                do {
-                    let mergedURL: URL
-                    switch mergeKind {
-                    case .fastq:
-                        mergedURL = try await FASTQBundleMergeService.merge(
-                            sourceBundleURLs: selectedURLs,
-                            outputDirectory: destinationDirectory,
-                            bundleName: bundleName
-                        )
-                    case .reference:
-                        mergedURL = try await ReferenceBundleMergeService.merge(
-                            sourceBundleURLs: selectedURLs,
-                            outputDirectory: destinationDirectory,
-                            bundleName: bundleName
-                        )
-                    }
-
-                    self.reloadFromFilesystem()
-                    _ = self.selectItem(forURL: mergedURL)
-                } catch {
-                    self.presentError(error)
-                }
-            }
-        }
-    }
-
-    /// Shows the internal contents of a bundle in Finder (like "Show Package Contents" in macOS).
-    @objc private func contextMenuShowBundleContents(_ sender: Any?) {
-        let items = selectedItems()
-        guard let item = items.first, (item.type == .referenceBundle || item.type == .fastqBundle), let url = item.url else { return }
-
-        logger.info("contextMenuShowBundleContents: Showing contents of '\(item.title, privacy: .public)'")
-
-        // Open the bundle directory in Finder to show its internal structure
-        NSWorkspace.shared.open(url)
-    }
-
-    /// Shows bundle metadata info in an alert dialog.
-    @objc private func contextMenuGetBundleInfo(_ sender: Any?) {
-        let items = selectedItems()
-        guard let item = items.first, item.type == .referenceBundle, let url = item.url else { return }
-
-        logger.info("contextMenuGetBundleInfo: Getting info for '\(item.title, privacy: .public)'")
-
-        // Try to load the bundle manifest
-        let manifestURL = url.appendingPathComponent("manifest.json")
-
-        Task { @MainActor in
-            var infoText = "Bundle: \(item.title)\n"
-            infoText += "Location: \(url.path)\n\n"
-
-            if FileManager.default.fileExists(atPath: manifestURL.path) {
-                do {
-                    let data = try Data(contentsOf: manifestURL)
-                    if let manifest = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                        // Extract key info from manifest
-                        if let name = manifest["name"] as? String {
-                            infoText += "Name: \(name)\n"
-                        }
-                        if let identifier = manifest["identifier"] as? String {
-                            infoText += "Identifier: \(identifier)\n"
-                        }
-                        if let description = manifest["description"] as? String {
-                            infoText += "Description: \(description)\n"
-                        }
-                        if let formatVersion = manifest["formatVersion"] as? String {
-                            infoText += "Format Version: \(formatVersion)\n"
-                        }
-
-                        // Source info
-                        if let source = manifest["source"] as? [String: Any] {
-                            infoText += "\nSource:\n"
-                            if let organism = source["organism"] as? String {
-                                infoText += "  Organism: \(organism)\n"
-                            }
-                            if let assembly = source["assembly"] as? String {
-                                infoText += "  Assembly: \(assembly)\n"
-                            }
-                        }
-
-                        // Genome info
-                        if let genome = manifest["genome"] as? [String: Any] {
-                            infoText += "\nGenome:\n"
-                            if let totalLength = genome["totalLength"] as? Int {
-                                infoText += "  Total Length: \(totalLength.formatted()) bp\n"
-                            }
-                            if let chromosomes = genome["chromosomes"] as? [[String: Any]] {
-                                infoText += "  Chromosomes: \(chromosomes.count)\n"
-                            }
-                        }
-
-                        // Track counts
-                        if let annotations = manifest["annotations"] as? [[String: Any]] {
-                            infoText += "\nAnnotation Tracks: \(annotations.count)\n"
-                        }
-                        if let variants = manifest["variants"] as? [[String: Any]] {
-                            infoText += "Variant Tracks: \(variants.count)\n"
-                        }
-                        if let tracks = manifest["tracks"] as? [[String: Any]] {
-                            infoText += "Signal Tracks: \(tracks.count)\n"
-                        }
-                    }
-                } catch {
-                    infoText += "Error reading manifest: \(error.localizedDescription)\n"
-                    logger.error("contextMenuGetBundleInfo: Failed to read manifest - \(error.localizedDescription, privacy: .public)")
-                }
-            } else {
-                infoText += "No manifest.json found in bundle.\n"
-            }
-
-            // Show info alert
-            let alert = NSAlert()
-            alert.messageText = "Bundle Info"
-            alert.informativeText = infoText
-            alert.alertStyle = .informational
-            alert.addButton(withTitle: "OK")
-
-            if let window = self.view.window ?? NSApp.keyWindow {
-                alert.beginSheetModal(for: window)
-            }
-
-        }
-    }
-
-    @objc private func contextMenuImportSampleMetadata(_ sender: Any?) {
-        let items = selectedItems()
-        guard let item = items.first,
-              (item.type == .referenceBundle || item.type == .fastqBundle),
-              let bundleURL = item.url else { return }
-
-        logger.info("contextMenuImportSampleMetadata: Importing metadata into '\(item.title, privacy: .public)'")
-        guard canWriteSidebarProjectOutputs(workflowName: "Sample metadata import", targetURL: bundleURL) else {
-            return
-        }
-        guard let appDelegate = NSApp.delegate as? AppDelegate else { return }
-        appDelegate.presentMetadataImportPanel(
-            for: bundleURL,
-            presentingWindow: view.window,
-            routeContext: OperationRouteContext(projectURL: projectURL, windowStateScope: windowStateScope)
-        )
-    }
-
-    @objc private func contextMenuEditFolderMetadata(_ sender: Any?) {
-        let items = selectedItems()
-        guard let item = items.first,
-              (item.type == .folder || item.type == .project),
-              let folderURL = item.url else { return }
-
-        logger.info("contextMenuEditFolderMetadata: Opening metadata editor for '\(item.title, privacy: .public)'")
-        guard canWriteSidebarProjectOutputs(workflowName: "Folder metadata edit", targetURL: folderURL) else {
-            return
-        }
-
-        let editorSheet = FolderMetadataEditorSheet(folderURL: folderURL, windowStateScope: windowStateScope)
-        guard let window = view.window else { return }
-
-        window.contentViewController?.presentAsSheet(editorSheet)
-    }
-
-    @objc private func contextMenuExportProjectMetadata(_ sender: Any?) {
-        let items = selectedItems()
-        guard let item = items.first,
-              (item.type == .folder || item.type == .project),
-              let folderURL = item.url else { return }
-
-        logger.info("contextMenuExportProjectMetadata: Exporting metadata from '\(item.title, privacy: .public)'")
-
-        let sheet = MetadataExportSheet(folderURL: folderURL)
-        guard let window = view.window else { return }
-        window.contentViewController?.presentAsSheet(sheet)
-    }
-
-    @objc private func contextMenuImportProjectMetadata(_ sender: Any?) {
-        let items = selectedItems()
-        guard let item = items.first,
-              (item.type == .folder || item.type == .project),
-              let folderURL = item.url else { return }
-
-        logger.info("contextMenuImportProjectMetadata: Importing metadata into '\(item.title, privacy: .public)'")
-        guard canWriteSidebarProjectOutputs(workflowName: "Project metadata import", targetURL: folderURL) else {
-            return
-        }
-
-        let sheet = MetadataImportSheet(folderURL: folderURL, windowStateScope: windowStateScope)
-        guard let window = view.window else { return }
-        window.contentViewController?.presentAsSheet(sheet)
-    }
-
-    /// Checks if a bundle URL has variant tracks by reading its manifest.
-    private func bundleHasVariantTracks(_ bundleURL: URL) -> Bool {
-        let manifestURL = bundleURL.appendingPathComponent("manifest.json")
-        guard FileManager.default.fileExists(atPath: manifestURL.path) else { return false }
-        guard let data = try? Data(contentsOf: manifestURL),
-              let manifest = try? JSONDecoder().decode(BundleManifest.self, from: data) else { return false }
-        return !manifest.variants.isEmpty
-    }
-
-    @objc private func contextMenuDeleteVariantTracks(_ sender: Any?) {
-        let items = selectedItems()
-        guard let item = items.first, item.type == .referenceBundle, let bundleURL = item.url else { return }
-        guard canWriteSidebarProjectOutputs(workflowName: "Variant track deletion", targetURL: bundleURL) else {
-            return
-        }
-
-        let manifestURL = bundleURL.appendingPathComponent("manifest.json")
-        guard let data = try? Data(contentsOf: manifestURL),
-              let manifest = try? JSONDecoder().decode(BundleManifest.self, from: data),
-              !manifest.variants.isEmpty else { return }
-
-        let tracks = manifest.variants
-        let trackNames = tracks.map(\.name).joined(separator: ", ")
-        let alert = NSAlert()
-        alert.messageText = "Delete Variant Tracks?"
-        alert.informativeText = "This will permanently delete \(tracks.count) variant track\(tracks.count == 1 ? "" : "s") (\(trackNames)) and their database files from the bundle. This cannot be undone."
-        alert.addButton(withTitle: "Delete")
-        alert.addButton(withTitle: "Cancel")
-        alert.buttons.first?.applyLungfishDestructiveStyle()
-        alert.alertStyle = .critical
-
-        guard let window = self.view.window else { return }
-        alert.beginSheetModal(for: window) { [weak self] response in
-            guard response == .alertFirstButtonReturn else { return }
-            self?.performDeleteVariantTracks(bundleURL: bundleURL, manifest: manifest)
-        }
-    }
-
-    private func performDeleteVariantTracks(bundleURL: URL, manifest: BundleManifest) {
-        let tracks = manifest.variants
-        guard !tracks.isEmpty else { return }
-        guard canWriteSidebarProjectOutputs(workflowName: "Variant track deletion", targetURL: bundleURL) else {
-            return
-        }
-
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let fm = FileManager.default
-            var deletedFiles: [String] = []
-            var errors: [String] = []
-            var warnings: [String] = []
-
-            func removeFile(_ url: URL, label: String, critical: Bool) {
-                guard fm.fileExists(atPath: url.path) else { return }
-                do {
-                    try fm.removeItem(at: url)
-                    deletedFiles.append(label)
-                } catch {
-                    let msg = "Failed to delete \(label): \(error.localizedDescription)"
-                    if critical {
-                        errors.append(msg)
-                    } else {
-                        warnings.append(msg)
-                    }
-                }
-            }
-
-            for track in tracks {
-                // Delete BCF file
-                let bcfURL = bundleURL.appendingPathComponent(track.path)
-                removeFile(bcfURL, label: track.path, critical: true)
-
-                // Delete CSI index file
-                let csiURL = bundleURL.appendingPathComponent(track.indexPath)
-                removeFile(csiURL, label: track.indexPath, critical: true)
-
-                // Delete SQLite variant database
-                if let dbPath = track.databasePath {
-                    let dbURL = bundleURL.appendingPathComponent(dbPath)
-                    removeFile(dbURL, label: dbPath, critical: true)
-                    // WAL/SHM are transient journal files — warn but don't block
-                    let walURL = dbURL.appendingPathExtension("wal")
-                    let shmURL = dbURL.appendingPathExtension("shm")
-                    removeFile(walURL, label: "\(dbPath).wal", critical: false)
-                    removeFile(shmURL, label: "\(dbPath).shm", critical: false)
-                }
-            }
-
-            // Update manifest to remove variant tracks
-            let updatedManifest = BundleManifest(
-                formatVersion: manifest.formatVersion,
-                name: manifest.name,
-                identifier: manifest.identifier,
-                description: manifest.description,
-                createdDate: manifest.createdDate,
-                modifiedDate: Date(),
-                source: manifest.source,
-                genome: manifest.genome,
-                annotations: manifest.annotations,
-                variants: [],
-                tracks: manifest.tracks,
-                metadata: manifest.metadata
-            )
-
-            let manifestURL = bundleURL.appendingPathComponent("manifest.json")
-            do {
-                let jsonData = try JSONEncoder().encode(updatedManifest)
-                try jsonData.write(to: manifestURL, options: .atomic)
-            } catch {
-                errors.append("Failed to write manifest.json: \(error.localizedDescription)")
-            }
-
-            let finalDeletedCount = deletedFiles.count
-            let finalErrors = errors
-            let finalWarnings = warnings
-            DispatchQueue.main.async {
-                guard let self else { return }
-                MainActor.assumeIsolated {
-                    for w in finalWarnings {
-                        logger.warning("performDeleteVariantTracks: \(w, privacy: .public)")
-                    }
-
-                    if finalErrors.isEmpty {
-                        logger.info("performDeleteVariantTracks: Deleted \(finalDeletedCount) files from bundle")
-                        NotificationCenter.default.post(
-                            name: .bundleVariantTracksDeleted,
-                            object: nil,
-                            userInfo: [NotificationUserInfoKey.bundleURL: bundleURL]
-                        )
-                    }
-
-                    if !finalErrors.isEmpty {
-                        logger.error("performDeleteVariantTracks: Completed with \(finalErrors.count) error(s)")
-                        let alert = NSAlert()
-                        alert.messageText = "Variant Track Deletion Completed with Errors"
-                        alert.informativeText = finalErrors.joined(separator: "\n")
-                        alert.alertStyle = .warning
-                        alert.addButton(withTitle: "OK")
-                        if let window = self.view.window ?? NSApp.keyWindow {
-                            alert.beginSheetModal(for: window)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private func bundleHasAssemblyProvenance(_ bundleURL: URL) -> Bool {
-        let provenanceURL = bundleURL.appendingPathComponent("assembly/provenance.json")
-        return FileManager.default.fileExists(atPath: provenanceURL.path)
-    }
-
-    @objc private func contextMenuReassemble(_ sender: Any?) {
-        let items = selectedItems()
-        guard let item = items.first, item.type == .referenceBundle, let bundleURL = item.url else { return }
-
-        let assemblyDir = bundleURL.appendingPathComponent("assembly")
-        guard let provenance = try? AssemblyProvenance.load(from: assemblyDir) else {
-            logger.error("contextMenuReassemble: Failed to load provenance from \(bundleURL.lastPathComponent)")
-            return
-        }
-
-        // Try to locate original input files from provenance
-        let inputFiles = provenance.inputs.compactMap { record -> URL? in
-            if let originalPath = record.originalPath {
-                let originalURL = URL(fileURLWithPath: originalPath)
-                if FileManager.default.fileExists(atPath: originalURL.path) {
-                    return originalURL
-                }
-            }
-
-            // Look for files relative to current project
-            if let projectURL = self.projectURL {
-                let candidates = [
-                    projectURL.appendingPathComponent(record.filename),
-                    projectURL.appendingPathComponent("FASTQ").appendingPathComponent(record.filename),
-                    projectURL.appendingPathComponent("Reads").appendingPathComponent(record.filename),
-                ]
-                return candidates.first { FileManager.default.fileExists(atPath: $0.path) }
-            }
-            return nil
-        }
-
-        guard let window = self.view.window else { return }
-        let outputDir = bundleURL.deletingLastPathComponent()
-        let initialTool = AssemblyTool(
-            rawValue: provenance.assembler.lowercased()
-                .replacingOccurrences(of: " ", with: "")
-        ) ?? .spades
-
-        AssemblySheetPresenter.present(
-            from: window,
-            inputFiles: inputFiles,
-            outputDirectory: outputDir,
-            initialTool: initialTool,
-            routeContext: OperationRouteContext(
-                projectURL: projectURL,
-                windowStateScope: windowStateScope
-            ),
-            onCancel: nil
-        )
-    }
-
-    @objc private func contextMenuShowInFinder(_ sender: Any?) {
-        let items = selectedItems()
-        let urls = items.compactMap { $0.url }
-
-        guard !urls.isEmpty else { return }
-
-        logger.info("contextMenuShowInFinder: Revealing \(urls.count) items in Finder")
-        NSWorkspace.shared.activateFileViewerSelecting(urls)
-    }
-
-    @objc private func contextMenuCopyPath(_ sender: Any?) {
-        let items = selectedItems()
-        guard let item = items.first, let url = item.url else { return }
-
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(url.path, forType: .string)
-
-        logger.info("contextMenuCopyPath: Copied path '\(url.path, privacy: .public)'")
-    }
-
-    /// Copies the classification command(s) to the system clipboard.
-    ///
-    /// Loads provenance or config from the classification result directory
-    /// and builds a shell-ready command string for kraken2 (and bracken,
-    /// if profiling was performed).
-    @objc private func contextMenuCopyClassificationCommand(_ sender: Any?) {
-        let items = selectedItems()
-        guard let item = items.first,
-              item.type == .classificationResult,
-              let url = item.url else { return }
-
-        guard let command = ClassificationResult.copyableCommandString(from: url) else {
-            logger.warning("contextMenuCopyClassificationCommand: Failed to build command for '\(item.title, privacy: .public)'")
-            return
-        }
-
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(command, forType: .string)
-
-        logger.info("contextMenuCopyClassificationCommand: Copied command for '\(item.title, privacy: .public)'")
-    }
-
-    /// Posts a notification to show the selected bundle in the inspector.
-    @objc private func contextMenuShowInInspector(_ sender: Any?) {
-        let items = selectedItems()
-        guard let item = items.first else { return }
-
-        logger.info("contextMenuShowInInspector: Showing '\(item.title, privacy: .public)' in inspector")
-
-        // Post notification to show inspector with Document tab
-        var userInfo: [AnyHashable: Any] = [NotificationUserInfoKey.inspectorTab: "document"]
-        if let windowStateScope {
-            userInfo[NotificationUserInfoKey.windowStateScope] = windowStateScope
-        }
-        NotificationCenter.default.post(
-            name: .showInspectorRequested,
-            object: self,
-            userInfo: userInfo
-        )
-    }
-
-    @objc private func contextMenuNewFolder(_ sender: Any?) {
-        // Determine where to create the folder
-        let parentURL: URL
-        let clickedRow = outlineView.clickedRow
-
-        // If clicked on empty space (row == -1), always create at project root
-        if clickedRow < 0 {
-            if let project = projectURL {
-                parentURL = project
-                logger.info("contextMenuNewFolder: Clicked on empty space, creating at project root")
-            } else {
-                logger.warning("contextMenuNewFolder: No project open")
-                return
-            }
-        } else {
-            // Clicked on a specific item - check if it's a folder/project
-            let items = selectedItems()
-            if let item = items.first, (item.type == .folder || item.type == .project), let url = item.url {
-                // Create inside the selected folder/project
-                parentURL = url
-            } else if let project = projectURL {
-                // Selected item is a file - create at project root
-                parentURL = project
-            } else {
-                logger.warning("contextMenuNewFolder: No valid location to create folder")
-                return
-            }
-        }
-
-        logger.info("contextMenuNewFolder: Creating new folder in '\(parentURL.lastPathComponent, privacy: .public)'")
-
-        // Show dialog for folder name
-        let alert = NSAlert()
-        alert.messageText = "New Folder"
-        alert.informativeText = "Enter a name for the new folder:"
-        alert.addButton(withTitle: "Create")
-        alert.addButton(withTitle: "Cancel")
-
-        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
-        textField.stringValue = "untitled folder"
-        textField.selectText(nil)
-        alert.accessoryView = textField
-
-        guard let window = view.window else { return }
-
-        alert.beginSheetModal(for: window) { [weak self] response in
-            guard response == .alertFirstButtonReturn else { return }
-
-            let folderName = textField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !folderName.isEmpty else { return }
-
-            DispatchQueue.main.async { [weak self] in
-                MainActor.assumeIsolated {
-                    self?.createFolder(named: folderName, in: parentURL)
-                }
-            }
-        }
-    }
-
-    private func createFolder(named name: String, in parentURL: URL) {
-        guard canWriteSidebarProjectOutputs(workflowName: "Folder creation", targetURL: parentURL) else {
-            return
-        }
-        var folderURL = parentURL.appendingPathComponent(name, isDirectory: true)
-
-        // Handle duplicate names
-        var counter = 1
-        while FileManager.default.fileExists(atPath: folderURL.path) {
-            counter += 1
-            folderURL = parentURL.appendingPathComponent("\(name) \(counter)", isDirectory: true)
-        }
-
-        do {
-            try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
-            logger.info("createFolder: Created '\(folderURL.lastPathComponent, privacy: .public)'")
-            // Immediately refresh sidebar for instant feedback
-            reloadFromFilesystem()
-        } catch {
-            logger.error("createFolder: Failed - \(error.localizedDescription, privacy: .public)")
-
-            let alert = NSAlert()
-            alert.messageText = "Create Folder Failed"
-            alert.informativeText = error.localizedDescription
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "OK")
-            if let window = view.window {
-                alert.beginSheetModal(for: window)
-            }
-        }
-    }
-
-    @objc private func contextMenuRename(_ sender: Any?) {
-        let items = selectedItems()
-        guard let item = items.first else { return }
-
-        logger.info("contextMenuRename: Renaming '\(item.title, privacy: .public)'")
-
-        // Show rename dialog
-        let alert = NSAlert()
-        alert.messageText = "Rename"
-        alert.informativeText = "Enter a new name:"
-        alert.addButton(withTitle: "Rename")
-        alert.addButton(withTitle: "Cancel")
-
-        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
-        textField.stringValue = item.url?.deletingPathExtension().lastPathComponent ?? item.title
-        alert.accessoryView = textField
-
-        guard let window = view.window else { return }
-
-        alert.beginSheetModal(for: window) { [weak self] response in
-            guard response == .alertFirstButtonReturn else { return }
-
-            let newName = textField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !newName.isEmpty else { return }
-
-            self?.performRename(item: item, newName: newName)
-        }
-    }
-
-    private func performRename(item: SidebarItem, newName: String) {
-        guard let url = item.url else {
-            // Item has no URL, just update the title (legacy behavior)
-            item.title = newName
-            reloadOutlineView()
-            return
-        }
-        guard canWriteSidebarProjectOutputs(workflowName: "Sidebar rename", targetURL: url) else {
-            return
-        }
-
-        // Construct new URL with same extension
-        let fileExtension = url.pathExtension
-        let newFilename = fileExtension.isEmpty ? newName : "\(newName).\(fileExtension)"
-        let newURL = url.deletingLastPathComponent().appendingPathComponent(newFilename)
-
-        do {
-            try FileManager.default.moveItem(at: url, to: newURL)
-            rehydrateScientificProvenance(from: url, to: newURL)
-            logger.info("performRename: Renamed to '\(newFilename, privacy: .public)'")
-            // Immediately refresh sidebar for instant feedback
-            reloadFromFilesystem()
-        } catch {
-            logger.error("performRename: Failed - \(error.localizedDescription, privacy: .public)")
-
-            let alert = NSAlert()
-            alert.messageText = "Rename Failed"
-            alert.informativeText = error.localizedDescription
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "OK")
-            if let window = view.window {
-                alert.beginSheetModal(for: window)
-            }
-        }
-    }
-
-    @objc private func contextMenuDuplicate(_ sender: Any?) {
-        let items = selectedItems()
-        logger.info("contextMenuDuplicate: Duplicating \(items.count) items")
-        guard canWriteSidebarProjectOutputs(
-            workflowName: "Sidebar duplicate",
-            targetURL: items.first?.url
-        ) else {
-            return
-        }
-
-        for item in items {
-            guard let url = item.url else { continue }
-
-            // Generate unique name
-            let baseName = url.deletingPathExtension().lastPathComponent
-            let ext = url.pathExtension
-            var counter = 1
-            var newURL = url.deletingLastPathComponent().appendingPathComponent("\(baseName) copy.\(ext)")
-
-            while FileManager.default.fileExists(atPath: newURL.path) {
-                counter += 1
-                newURL = url.deletingLastPathComponent().appendingPathComponent("\(baseName) copy \(counter).\(ext)")
-            }
-
-            do {
-                try FileManager.default.copyItem(at: url, to: newURL)
-                rehydrateScientificProvenance(from: url, to: newURL)
-                logger.info("contextMenuDuplicate: Created '\(newURL.lastPathComponent, privacy: .public)'")
-            } catch {
-                logger.error("contextMenuDuplicate: Failed - \(error.localizedDescription, privacy: .public)")
-            }
-        }
-        // Immediately refresh sidebar for instant feedback
-        reloadFromFilesystem()
-    }
-    // MARK: - FASTQ Export
-
-    /// Exports a FASTQ bundle to a standalone FASTQ file via NSSavePanel.
-    @objc private func contextMenuExportFASTQ(_ sender: Any?) {
-        // Delegate to the AppDelegate's exportFASTQ which handles single and multi-selection
-        NSApp.sendAction(#selector(FileMenuActions.exportFASTQ(_:)), to: nil, from: sender)
-    }
-
-    // MARK: - Clone Metadata
-
-    @objc private func contextMenuCloneMetadata(_ sender: Any?) {
-        let targetItems = selectedItems().filter { $0.type == .fastqBundle }
-        guard !targetItems.isEmpty else { return }
-        guard canWriteSidebarProjectOutputs(
-            workflowName: "Metadata cloning",
-            targetURL: targetItems.first?.url
-        ) else {
-            return
-        }
-
-        // Find all FASTQ bundles in the same parent folder as potential sources
-        guard let parentURL = targetItems.first?.url?.deletingLastPathComponent() else { return }
-        let targetURLs = Set(targetItems.compactMap { $0.url })
-
-        let fm = FileManager.default
-        let allBundles: [URL]
-        do {
-            allBundles = try fm.contentsOfDirectory(at: parentURL, includingPropertiesForKeys: nil)
-                .filter { $0.pathExtension == "lungfishfastq" && !targetURLs.contains($0) }
-                .sorted { $0.lastPathComponent < $1.lastPathComponent }
-        } catch {
-            return
-        }
-
-        guard !allBundles.isEmpty else { return }
-
-        // Build a picker menu as an alert with a popup button
-        let alert = NSAlert()
-        alert.messageText = "Clone Metadata From"
-        alert.informativeText = "Select a sample to copy metadata from. All fields except sample name will be copied."
-        alert.addButton(withTitle: "Clone")
-        alert.addButton(withTitle: "Cancel")
-
-        let popUp = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 300, height: 24), pullsDown: false)
-        for bundle in allBundles {
-            let name = bundle.deletingPathExtension().lastPathComponent
-            popUp.addItem(withTitle: name)
-            popUp.lastItem?.representedObject = bundle
-        }
-        alert.accessoryView = popUp
-
-        guard let window = view.window else { return }
-        alert.beginSheetModal(for: window) { [weak self] response in
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    guard response == .alertFirstButtonReturn,
-                          let sourceURL = popUp.selectedItem?.representedObject as? URL else {
-                        return
-                    }
-
-                    // Load source metadata
-                    let sourceName = sourceURL.deletingPathExtension().lastPathComponent
-                    let sourceCSV = FASTQBundleCSVMetadata.load(from: sourceURL)
-                    let sourceMeta: FASTQSampleMetadata
-                    if let csv = sourceCSV {
-                        sourceMeta = FASTQSampleMetadata(from: csv, fallbackName: sourceName)
-                    } else {
-                        sourceMeta = FASTQSampleMetadata(sampleName: sourceName)
-                    }
-
-                    // Apply to each target bundle
-                    for targetURL in targetURLs {
-                        let targetName = targetURL.deletingPathExtension().lastPathComponent
-                        let cloned = sourceMeta.cloned(withName: targetName)
-                        let legacyCSV = cloned.toLegacyCSV()
-                        try? FASTQBundleCSVMetadata.save(legacyCSV, to: targetURL)
-                    }
-
-                    // Post notification to refresh the inspector if needed
-                    NotificationCenter.default.post(
-                        name: .sampleMetadataDidChange,
-                        object: self,
-                        userInfo: self?.windowScopedUserInfo([:]) ?? [:]
-                    )
-                }
-            }
-        }
-    }
-
-    // MARK: - Move To Submenu
-
-    /// Builds a submenu with available folder destinations for moving items
-    private func buildMoveToSubmenu(for items: [SidebarItem]) -> NSMenu {
-        let submenu = NSMenu()
-
-        guard let projectURL = projectURL else { return submenu }
-
-        // Get URLs of items being moved (to exclude them from destinations)
-        let movingURLs = Set(items.compactMap { $0.url?.standardizedFileURL })
-
-        // Add project root as a destination
-        let projectRootItem = NSMenuItem(title: projectURL.lastPathComponent + " (Root)", action: #selector(contextMenuMoveToFolder(_:)), keyEquivalent: "")
-        projectRootItem.target = self
-        projectRootItem.representedObject = projectURL
-        submenu.addItem(projectRootItem)
-
-        submenu.addItem(NSMenuItem.separator())
-
-        // Recursively find all folders in the project
-        let folders = findAllFolders(in: projectURL, excludingURLs: movingURLs)
-
-        for folder in folders {
-            // Create relative path for display
-            let relativePath = folder.path.replacingOccurrences(of: projectURL.path + "/", with: "")
-            let menuItem = NSMenuItem(title: relativePath, action: #selector(contextMenuMoveToFolder(_:)), keyEquivalent: "")
-            menuItem.target = self
-            menuItem.representedObject = folder
-            submenu.addItem(menuItem)
-        }
-
-        return submenu
-    }
-
-    /// Finds all folders recursively in a directory
-    private func findAllFolders(in directory: URL, excludingURLs: Set<URL>) -> [URL] {
-        var folders: [URL] = []
-        let fileManager = FileManager.default
-
-        guard let enumerator = fileManager.enumerator(
-            at: directory,
-            includingPropertiesForKeys: [.isDirectoryKey, .isHiddenKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return folders
-        }
-
-        for case let url as URL in enumerator {
-            // Skip excluded URLs and their children
-            if excludingURLs.contains(url.standardizedFileURL) {
-                enumerator.skipDescendants()
-                continue
-            }
-
-            // Check if it's a directory
-            var isDirectory: ObjCBool = false
-            if fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue {
-                folders.append(url)
-            }
-        }
-
-        // Sort alphabetically
-        return folders.sorted { $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending }
-    }
-
-    @objc private func contextMenuMoveToFolder(_ sender: NSMenuItem) {
-        guard let destinationURL = sender.representedObject as? URL else {
-            logger.warning("contextMenuMoveToFolder: No destination URL")
-            return
-        }
-        guard canWriteSidebarProjectOutputs(workflowName: "Sidebar move", targetURL: destinationURL) else {
-            return
-        }
-
-        let items = selectedItems()
-        logger.info("contextMenuMoveToFolder: Moving \(items.count) items to '\(destinationURL.lastPathComponent, privacy: .public)'")
-
-        var failedItems: [(SidebarItem, Error)] = []
-
-        for item in items {
-            guard let sourceURL = item.url else { continue }
-
-            // Skip if trying to move into itself or a child
-            if destinationURL.path.hasPrefix(sourceURL.path) {
-                logger.warning("contextMenuMoveToFolder: Cannot move '\(item.title, privacy: .public)' into itself or a subdirectory")
-                continue
-            }
-
-            // Skip if already in the destination
-            if sourceURL.deletingLastPathComponent().standardizedFileURL == destinationURL.standardizedFileURL {
-                logger.debug("contextMenuMoveToFolder: '\(item.title, privacy: .public)' is already in destination")
-                continue
-            }
-
-            let destURL = destinationURL.appendingPathComponent(sourceURL.lastPathComponent)
-
-            do {
-                // Check for existing file with same name
-                let finalURL: URL
-                if FileManager.default.fileExists(atPath: destURL.path) {
-                    // Generate unique name
-                    var uniqueURL = destURL
-                    var counter = 1
-                    let baseName = sourceURL.deletingPathExtension().lastPathComponent
-                    let ext = sourceURL.pathExtension
-
-                    while FileManager.default.fileExists(atPath: uniqueURL.path) {
-                        counter += 1
-                        let newName = ext.isEmpty ? "\(baseName) \(counter)" : "\(baseName) \(counter).\(ext)"
-                        uniqueURL = destinationURL.appendingPathComponent(newName)
-                    }
-
-                    finalURL = uniqueURL
-                } else {
-                    finalURL = destURL
-                }
-                try FileManager.default.moveItem(at: sourceURL, to: finalURL)
-                rehydrateScientificProvenance(from: sourceURL, to: finalURL)
-                logger.info("contextMenuMoveToFolder: Moved '\(item.title, privacy: .public)' to '\(finalURL.lastPathComponent, privacy: .public)'")
-            } catch {
-                logger.error("contextMenuMoveToFolder: Failed to move '\(item.title, privacy: .public)' - \(error.localizedDescription, privacy: .public)")
-                failedItems.append((item, error))
-            }
-        }
-
-        // Refresh sidebar
-        reloadFromFilesystem()
-
-        // Show error if some items failed
-        if !failedItems.isEmpty {
-            let alert = NSAlert()
-            alert.messageText = "Some items could not be moved"
-            alert.informativeText = failedItems.map { "\($0.0.title): \($0.1.localizedDescription)" }.joined(separator: "\n")
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "OK")
-            if let window = view.window {
-                alert.beginSheetModal(for: window)
-            }
-        }
     }
 }
 

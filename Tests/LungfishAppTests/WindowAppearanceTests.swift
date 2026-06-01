@@ -467,11 +467,14 @@ final class WindowAppearanceTests: XCTestCase {
         ]
 
         for alertCase in cases {
-            // InspectorViewController.swift was split into focused files; read the
-            // combined source so methods that moved into an extension are still found.
+            // InspectorViewController.swift and SidebarViewController.swift were split
+            // into focused files; read the combined source so methods that moved into
+            // an extension are still found.
             let source: String
             if alertCase.path == "Sources/LungfishApp/Views/Inspector/InspectorViewController.swift" {
                 source = combinedInspectorViewControllerSource()
+            } else if alertCase.path == "Sources/LungfishApp/Views/Sidebar/SidebarViewController.swift" {
+                source = combinedSidebarViewControllerSource()
             } else {
                 source = try String(
                     contentsOf: repositoryRoot().appendingPathComponent(alertCase.path),

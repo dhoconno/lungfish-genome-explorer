@@ -366,12 +366,9 @@ final class OperationRoutingTests: XCTestCase {
     }
 
     func testSidebarMetadataMutationsUseWindowScopedWriteGuards() throws {
-        let sidebarURL = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishApp/Views/Sidebar/SidebarViewController.swift")
-        let source = try String(contentsOf: sidebarURL, encoding: .utf8)
+        // SidebarViewController.swift was split into focused files; read the
+        // combined source so methods that moved into an extension are still found.
+        let source = combinedSidebarViewControllerSource()
 
         let sampleImport = try sourceFunctionBody(
             named: "@objc private func contextMenuImportSampleMetadata",
@@ -398,12 +395,9 @@ final class OperationRoutingTests: XCTestCase {
     }
 
     func testSidebarFileOperationsRehydrateScientificProvenanceAfterFinalPathChanges() throws {
-        let sidebarURL = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishApp/Views/Sidebar/SidebarViewController.swift")
-        let source = try String(contentsOf: sidebarURL, encoding: .utf8)
+        // SidebarViewController.swift was split into focused files; read the
+        // combined source so methods that moved into an extension are still found.
+        let source = combinedSidebarViewControllerSource()
 
         let copyBody = try sourceFunctionBody(
             named: "private func copyItems(_ sourceItems: [SidebarItem], toFolderURL destFolderURL: URL, at index: Int) -> Bool",
