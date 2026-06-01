@@ -64,6 +64,11 @@ let package = Package(
             name: "LungfishNvdUI",
             targets: ["LungfishNvdUI"]
         ),
+        // NAO-MGS metagenomics results UI leaf module extracted from LungfishApp
+        .library(
+            name: "LungfishNaoMgsUI",
+            targets: ["LungfishNaoMgsUI"]
+        ),
     ],
     dependencies: [
         // Swift Argument Parser for CLI tools
@@ -240,6 +245,23 @@ let package = Package(
             path: "Tests/LungfishNvdUITests"
         ),
 
+        // MARK: - LungfishNaoMgsUI (NAO-MGS metagenomics results UI leaf)
+        .target(
+            name: "LungfishNaoMgsUI",
+            dependencies: [
+                "LungfishCore",
+                "LungfishIO",
+                "LungfishWorkflow",
+                "LungfishKit",
+            ],
+            path: "Sources/LungfishNaoMgsUI"
+        ),
+        .testTarget(
+            name: "LungfishNaoMgsUITests",
+            dependencies: ["LungfishNaoMgsUI", "LungfishKit"],
+            path: "Tests/LungfishNaoMgsUITests"
+        ),
+
         // MARK: - LungfishApp
         .target(
             name: "LungfishApp",
@@ -252,6 +274,7 @@ let package = Package(
                 "LungfishAlignmentUI",
                 "LungfishAssemblyUI",
                 "LungfishNvdUI",
+                "LungfishNaoMgsUI",
             ],
             path: "Sources/LungfishApp",
             resources: [
@@ -264,7 +287,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LungfishAppTests",
-            dependencies: ["LungfishApp", "LungfishCLI", "LungfishNvdUI"],
+            dependencies: ["LungfishApp", "LungfishCLI", "LungfishNvdUI", "LungfishNaoMgsUI"],
             path: "Tests/LungfishAppTests",
             resources: [
                 .copy("Fixtures")

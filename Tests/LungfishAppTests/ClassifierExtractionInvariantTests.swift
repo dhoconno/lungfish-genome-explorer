@@ -7,6 +7,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishCLI
 @testable import LungfishIO
+@testable import LungfishNaoMgsUI
 @testable import LungfishWorkflow
 
 /// Asserts the 7 spec invariants for the unified classifier extraction feature.
@@ -76,7 +77,7 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
     }
 
     func testI1_naomgs_menuItemVisible_sourceLevel() throws {
-        let path = "\(ClassifierExtractionFixtures.repositoryRoot.path)/Sources/LungfishApp/Views/Metagenomics/NaoMgsResultViewController.swift"
+        let path = "\(ClassifierExtractionFixtures.repositoryRoot.path)/Sources/LungfishNaoMgsUI/NaoMgsResultViewController.swift"
         let source = try String(contentsOfFile: path, encoding: .utf8)
         XCTAssertTrue(
             source.contains("Extract Reads\u{2026}") || source.contains("Extract Reads\\u{2026}"),

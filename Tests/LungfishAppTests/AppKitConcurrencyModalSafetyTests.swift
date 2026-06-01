@@ -39,7 +39,7 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
             "Sources/LungfishApp/Views/WorkflowBuilder/WorkflowBuilderViewController.swift",
             "Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift",
             "Sources/LungfishApp/Views/Viewer/ViewerViewController.swift",
-            "Sources/LungfishApp/Views/Metagenomics/NaoMgsResultViewController.swift",
+            "Sources/LungfishNaoMgsUI/NaoMgsResultViewController.swift",
             "Sources/LungfishKit/MiniBAMViewController.swift",
         ]
         let mainActorRunForbiddenPaths: Set<String> = [

@@ -1,6 +1,7 @@
 import XCTest
 @testable import LungfishApp
 @testable import LungfishIO
+@testable import LungfishNaoMgsUI
 @testable import LungfishNvdUI
 import ObjectiveC.runtime
 import LungfishKit

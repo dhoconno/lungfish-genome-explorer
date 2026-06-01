@@ -6,6 +6,7 @@ import AppKit
 import XCTest
 @testable import LungfishApp
 @testable import LungfishIO
+@testable import LungfishNaoMgsUI
 @testable import LungfishWorkflow
 
 /// Phase 7 Task 7.2 — Verifies that a context-menu "Extract Reads…" click

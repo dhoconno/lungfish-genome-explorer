@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishNaoMgsUI
 import LungfishNvdUI
 
 extension ViewerViewController {

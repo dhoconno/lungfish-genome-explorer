@@ -69,16 +69,16 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     private var selectedSamples: Set<String> = []
 
     /// Sample entries for the picker view.
-    var sampleEntries: [NaoMgsSampleEntry] = []
+    public var sampleEntries: [NaoMgsSampleEntry] = []
 
     /// NAO-MGS sample entry for the unified picker.
-    struct NaoMgsSampleEntry: ClassifierSampleEntry {
-        let id: String
-        let displayName: String
-        let hitCount: Int
+    public struct NaoMgsSampleEntry: ClassifierSampleEntry {
+        public let id: String
+        public let displayName: String
+        public let hitCount: Int
 
-        var metricLabel: String { "hits" }
-        var metricValue: String {
+        public var metricLabel: String { "hits" }
+        public var metricValue: String {
             let formatter = NumberFormatter()
             formatter.numberStyle = .decimal
             return formatter.string(from: NSNumber(value: hitCount)) ?? "\(hitCount)"
@@ -86,7 +86,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     }
 
     /// Common prefix stripped from sample display names.
-    var strippedPrefix: String = ""
+    public var strippedPrefix: String = ""
 
     /// Currently displayed taxonomy rows (filtered + sorted).
     private var displayedRows: [NaoMgsTaxonSummaryRow] = []
@@ -209,10 +209,10 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     private var samplePopover: NSPopover?
 
     /// Observable state shared with the SwiftUI sample picker popover and Inspector.
-    var samplePickerState: ClassifierSamplePickerState!
+    public var samplePickerState: ClassifierSamplePickerState!
 
     /// Sample metadata for dynamic column display in the taxonomy table.
-    var sampleMetadataStore: SampleMetadataStore? {
+    public var sampleMetadataStore: SampleMetadataStore? {
         didSet {
             updateMetadataColumnsForCurrentSamples()
         }
@@ -1013,7 +1013,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     /// function only performs filesystem probes, so it's safe to run off the
     /// main actor.
     nonisolated fileprivate static func naomgsLocateSamtools() -> String? {
-        BundleBuildHelpers.managedToolExecutablePath(.samtools)
+        ManagedToolLocator.managedToolExecutablePath(.samtools)
     }
 
     // MARK: - Async MiniBAM Loading
