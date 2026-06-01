@@ -464,11 +464,7 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
     }
 
     func testInspectorControllerSourceWiresCallVariantsWorkflow() throws {
-        let source = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/Views/Inspector/InspectorViewController.swift"),
-            encoding: .utf8
-        )
+        let source = combinedInspectorViewControllerSource()
 
         XCTAssertTrue(source.contains("onCallVariantsRequested"))
         XCTAssertTrue(source.contains("runCallVariantsWorkflow()"))

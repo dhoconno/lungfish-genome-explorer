@@ -6,11 +6,6 @@ final class ProvenanceSectionSourceTests: XCTestCase {
             .appendingPathComponent("Sources/LungfishApp/Views/Inspector/Sections/ProvenanceSection.swift")
     }
 
-    private var inspectorSourceURL: URL {
-        URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-            .appendingPathComponent("Sources/LungfishApp/Views/Inspector/InspectorViewController.swift")
-    }
-
     private var viewModelSourceURL: URL {
         URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             .appendingPathComponent("Sources/LungfishApp/Views/Inspector/ProvenanceInspectorViewModel.swift")
@@ -45,7 +40,7 @@ final class ProvenanceSectionSourceTests: XCTestCase {
     }
 
     func testInspectorTabRendersProvenanceSection() throws {
-        let source = try String(contentsOf: inspectorSourceURL, encoding: .utf8)
+        let source = combinedInspectorViewControllerSource()
 
         XCTAssertTrue(source.contains("ProvenanceSection(viewModel: viewModel.provenanceSectionViewModel)"))
         XCTAssertFalse(source.contains("provenanceContextRows"))

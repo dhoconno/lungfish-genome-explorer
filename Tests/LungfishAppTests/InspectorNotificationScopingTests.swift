@@ -132,13 +132,8 @@ final class InspectorNotificationScopingTests: XCTestCase {
     }
 
     func testFASTQAnalysisNavigationDoesNotUseGlobalActiveProjectOrMainWindow() throws {
-        let inspectorURL = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishApp/Views/Inspector/InspectorViewController.swift")
-        let source = try String(contentsOf: inspectorURL, encoding: .utf8)
-        let start = try XCTUnwrap(source.range(of: "@objc private func handleFASTQDatasetLoaded"))
+        let source = combinedInspectorViewControllerSource()
+        let start = try XCTUnwrap(source.range(of: "@objc func handleFASTQDatasetLoaded"))
         let end = try XCTUnwrap(source[start.lowerBound...].range(of: "viewModel.selectedTab = .bundle"))
         let body = String(source[start.lowerBound..<end.lowerBound])
 
@@ -157,15 +152,10 @@ final class InspectorNotificationScopingTests: XCTestCase {
     }
 
     func testInspectorVariantSampleMetadataWritesUseWindowScopedWriteGuard() throws {
-        let inspectorURL = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishApp/Views/Inspector/InspectorViewController.swift")
-        let source = try String(contentsOf: inspectorURL, encoding: .utf8)
+        let source = combinedInspectorViewControllerSource()
 
         let sampleUpdateBody = try sourceBody(
-            named: "private func updateSampleSection",
+            named: "func updateSampleSection",
             endingBefore: "/// Presents an open panel for importing sample metadata from TSV/CSV.",
             in: source
         )
@@ -174,7 +164,7 @@ final class InspectorNotificationScopingTests: XCTestCase {
 
         let importBody = try sourceBody(
             named: "private func presentMetadataImportPanel(variantDBURLs: [URL], bundle: ReferenceBundle)",
-            endingBefore: "private func makeReadDisplaySettingsPayload",
+            endingBefore: "func makeReadDisplaySettingsPayload",
             in: source
         )
         XCTAssertTrue(importBody.contains("canWriteProjectOutputs"))

@@ -110,22 +110,14 @@ final class WindowAppearanceTests: XCTestCase {
     }
 
     func testInspectorUsesTextTabsInsteadOfIconOnlySegmentLabels() throws {
-        let source = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/Views/Inspector/InspectorViewController.swift"),
-            encoding: .utf8
-        )
+        let source = combinedInspectorViewControllerSource()
 
         XCTAssertTrue(source.contains("label: \\.displayLabel"))
         XCTAssertFalse(source.contains("Image(systemName: tab.iconName)"))
     }
 
     func testInspectorUsesSecondarySegmentedControlsForViewAndAnalysisShells() throws {
-        let controllerSource = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/Views/Inspector/InspectorViewController.swift"),
-            encoding: .utf8
-        )
+        let controllerSource = combinedInspectorViewControllerSource()
         let readStyleSource = try String(
             contentsOf: repositoryRoot()
                 .appendingPathComponent("Sources/LungfishApp/Views/Inspector/Sections/ReadStyleSection.swift"),
@@ -145,11 +137,7 @@ final class WindowAppearanceTests: XCTestCase {
     }
 
     func testInspectorControlsFitFixedWidthSidecar() throws {
-        let controllerSource = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/Views/Inspector/InspectorViewController.swift"),
-            encoding: .utf8
-        )
+        let controllerSource = combinedInspectorViewControllerSource()
         let readStyleSource = try String(
             contentsOf: repositoryRoot()
                 .appendingPathComponent("Sources/LungfishApp/Views/Inspector/Sections/ReadStyleSection.swift"),
@@ -171,11 +159,7 @@ final class WindowAppearanceTests: XCTestCase {
     }
 
     func testInspectorControlsDoNotScaleIndividualLabelsToFitSidecar() throws {
-        let controllerSource = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/Views/Inspector/InspectorViewController.swift"),
-            encoding: .utf8
-        )
+        let controllerSource = combinedInspectorViewControllerSource()
         let readStyleSource = try String(
             contentsOf: repositoryRoot()
                 .appendingPathComponent("Sources/LungfishApp/Views/Inspector/Sections/ReadStyleSection.swift"),
@@ -195,11 +179,7 @@ final class WindowAppearanceTests: XCTestCase {
     }
 
     func testMappingLayoutControlsStayAvailableAndFitFixedWidthSidecar() throws {
-        let controllerSource = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/Views/Inspector/InspectorViewController.swift"),
-            encoding: .utf8
-        )
+        let controllerSource = combinedInspectorViewControllerSource()
 
         let readStyleSection = try sourceSlice(
             controllerSource,
@@ -219,11 +199,7 @@ final class WindowAppearanceTests: XCTestCase {
     }
 
     func testVariantCallingReloadsEmbeddedMappingViewerAfterBundleMutation() throws {
-        let controllerSource = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/Views/Inspector/InspectorViewController.swift"),
-            encoding: .utf8
-        )
+        let controllerSource = combinedInspectorViewControllerSource()
         let variantCallingLaunch = try sourceSlice(
             controllerSource,
             from: "private func launchVariantCallingOperation",
@@ -491,10 +467,17 @@ final class WindowAppearanceTests: XCTestCase {
         ]
 
         for alertCase in cases {
-            let source = try String(
-                contentsOf: repositoryRoot().appendingPathComponent(alertCase.path),
-                encoding: .utf8
-            )
+            // InspectorViewController.swift was split into focused files; read the
+            // combined source so methods that moved into an extension are still found.
+            let source: String
+            if alertCase.path == "Sources/LungfishApp/Views/Inspector/InspectorViewController.swift" {
+                source = combinedInspectorViewControllerSource()
+            } else {
+                source = try String(
+                    contentsOf: repositoryRoot().appendingPathComponent(alertCase.path),
+                    encoding: .utf8
+                )
+            }
             let slice = try sourceSlice(source, from: alertCase.startToken, to: alertCase.endToken)
             XCTAssertTrue(
                 slice.contains("applyLungfishDestructiveStyle()"),

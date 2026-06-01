@@ -52,7 +52,14 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
 
         for path in scannedPaths {
             let url = root.appendingPathComponent(path)
-            let source = try String(contentsOf: url, encoding: .utf8)
+            // InspectorViewController.swift was split into focused files; scan the
+            // combined source so unsafe hops in an extension are still caught.
+            let source: String
+            if path == "Sources/LungfishApp/Views/Inspector/InspectorViewController.swift" {
+                source = combinedInspectorViewControllerSource()
+            } else {
+                source = try String(contentsOf: url, encoding: .utf8)
+            }
             if source.contains("Task { @MainActor") {
                 violations.append("\(path): contains Task { @MainActor")
             }

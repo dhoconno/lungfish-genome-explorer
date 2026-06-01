@@ -12,7 +12,7 @@ final class SelectionSectionViewModelTests: XCTestCase {
     func testSelectionInspectorAndViewerRouteAnnotationsToGenericFASTAOperations() throws {
         let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         let selectionSource = try String(contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Inspector/Sections/SelectionSection.swift"), encoding: .utf8)
-        let inspectorSource = try String(contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Inspector/InspectorViewController.swift"), encoding: .utf8)
+        let inspectorSource = combinedInspectorViewControllerSource()
         let viewerSource = try String(contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Viewer/ViewerViewController.swift"), encoding: .utf8)
         let extractionSource = try String(contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Viewer/ViewerViewController+Extraction.swift"), encoding: .utf8)
         let sequenceViewerSource = combinedSequenceViewerSource()

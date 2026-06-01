@@ -26,7 +26,14 @@ final class FeatureFilePanelExtractionTests: XCTestCase {
         ]
 
         for targetFile in targetFiles {
-            let source = try String(contentsOf: root.appendingPathComponent(targetFile), encoding: .utf8)
+            // InspectorViewController.swift was split into focused files; scan the
+            // combined source so panel construction in an extension is still caught.
+            let source: String
+            if targetFile == "Sources/LungfishApp/Views/Inspector/InspectorViewController.swift" {
+                source = combinedInspectorViewControllerSource()
+            } else {
+                source = try String(contentsOf: root.appendingPathComponent(targetFile), encoding: .utf8)
+            }
             XCTAssertFalse(source.contains("NSOpenPanel("), "\(targetFile) should use a panel helper")
             XCTAssertFalse(source.contains("NSSavePanel("), "\(targetFile) should use a panel helper")
         }
