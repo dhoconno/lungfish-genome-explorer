@@ -1,4 +1,4 @@
-import LungfishAppKit
+import LungfishKit
 import XCTest
 @testable import LungfishApp
 
@@ -8,7 +8,7 @@ final class LungfishCLIRunnerTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let sourceURL = root.appendingPathComponent("Sources/LungfishAppKit/LungfishCLIRunner.swift")
+        let sourceURL = root.appendingPathComponent("Sources/LungfishKit/LungfishCLIRunner.swift")
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
         let catchStart = try XCTUnwrap(source.range(of: "} catch {"))
         let throwRange = try XCTUnwrap(

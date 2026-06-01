@@ -6,7 +6,7 @@ import Testing
 import AppKit
 @testable import LungfishCore
 @testable import LungfishApp
-import LungfishAppKit
+import LungfishKit
 
 @Suite("MetadataColumnController")
 @MainActor

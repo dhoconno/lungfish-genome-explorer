@@ -1,5 +1,5 @@
 import Foundation
-import LungfishAppKit
+import LungfishKit
 import LungfishWorkflow
 
 @MainActor

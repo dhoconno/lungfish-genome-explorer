@@ -41,8 +41,8 @@ let package = Package(
         ),
         // Shared UI kernel extracted from LungfishApp
         .library(
-            name: "LungfishAppKit",
-            targets: ["LungfishAppKit"]
+            name: "LungfishKit",
+            targets: ["LungfishKit"]
         ),
         // 12S amplicon results UI leaf module extracted from LungfishApp
         .library(
@@ -156,15 +156,15 @@ let package = Package(
             ]
         ),
 
-        // MARK: - LungfishAppKit (shared UI kernel)
+        // MARK: - LungfishKit (shared UI kernel)
         .target(
-            name: "LungfishAppKit",
+            name: "LungfishKit",
             dependencies: [
                 "LungfishCore",
                 "LungfishIO",
                 "LungfishWorkflow",
             ],
-            path: "Sources/LungfishAppKit"
+            path: "Sources/LungfishKit"
         ),
 
         // MARK: - LungfishTwelveSUI (12S amplicon results UI leaf)
@@ -174,13 +174,13 @@ let package = Package(
                 "LungfishCore",
                 "LungfishIO",
                 "LungfishWorkflow",
-                "LungfishAppKit",
+                "LungfishKit",
             ],
             path: "Sources/LungfishTwelveSUI"
         ),
         .testTarget(
             name: "LungfishTwelveSUITests",
-            dependencies: ["LungfishTwelveSUI", "LungfishAppKit"],
+            dependencies: ["LungfishTwelveSUI", "LungfishKit"],
             path: "Tests/LungfishTwelveSUITests"
         ),
 
@@ -191,13 +191,13 @@ let package = Package(
                 "LungfishCore",
                 "LungfishIO",
                 "LungfishWorkflow",
-                "LungfishAppKit",
+                "LungfishKit",
             ],
             path: "Sources/LungfishAlignmentUI"
         ),
         .testTarget(
             name: "LungfishAlignmentUITests",
-            dependencies: ["LungfishAlignmentUI", "LungfishAppKit"],
+            dependencies: ["LungfishAlignmentUI", "LungfishKit"],
             path: "Tests/LungfishAlignmentUITests"
         ),
 
@@ -208,13 +208,13 @@ let package = Package(
                 "LungfishCore",
                 "LungfishIO",
                 "LungfishWorkflow",
-                "LungfishAppKit",
+                "LungfishKit",
             ],
             path: "Sources/LungfishAssemblyUI"
         ),
         .testTarget(
             name: "LungfishAssemblyUITests",
-            dependencies: ["LungfishAssemblyUI", "LungfishAppKit"],
+            dependencies: ["LungfishAssemblyUI", "LungfishKit"],
             path: "Tests/LungfishAssemblyUITests"
         ),
 
@@ -225,7 +225,7 @@ let package = Package(
                 "LungfishCore",
                 "LungfishIO",
                 "LungfishWorkflow",
-                "LungfishAppKit",
+                "LungfishKit",
                 "LungfishTwelveSUI",
                 "LungfishAlignmentUI",
                 "LungfishAssemblyUI",

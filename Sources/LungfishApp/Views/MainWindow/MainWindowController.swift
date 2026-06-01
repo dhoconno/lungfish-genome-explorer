@@ -7,7 +7,7 @@ import SwiftUI
 import LungfishCore
 import LungfishIO
 import os.log
-import LungfishAppKit
+import LungfishKit
 
 private let logger = Logger(subsystem: LogSubsystem.app, category: "MainWindowController")
 

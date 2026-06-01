@@ -33,7 +33,7 @@ import Foundation
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
-import LungfishAppKit
+import LungfishKit
 
 // MARK: - Unsupported Export Format Error
 

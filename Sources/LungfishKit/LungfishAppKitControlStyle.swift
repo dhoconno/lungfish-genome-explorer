@@ -1,11 +1,11 @@
-// LungfishAppKitControlStyle.swift - Shared AppKit control metrics
+// LungfishKitControlStyle.swift - Shared AppKit control metrics
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
 import AppKit
 
 @MainActor
-public enum LungfishAppKitControlStyle {
+public enum LungfishKitControlStyle {
     static var inspectorControlFont: NSFont {
         .systemFont(ofSize: NSFont.smallSystemFontSize)
     }

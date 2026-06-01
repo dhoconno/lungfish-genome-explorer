@@ -7,7 +7,7 @@ import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 import os.log
-import LungfishAppKit
+import LungfishKit
 
 /// Logger for sidebar operations
 let sidebarLogger = Logger(subsystem: LogSubsystem.app, category: "SidebarViewController")

@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
-import LungfishAppKit
+import LungfishKit
 import LungfishCore
 import LungfishIO
 
@@ -555,7 +555,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         searchField.placeholderString = "Find sequence or column"
         searchField.target = self
         searchField.action = #selector(performSearchFromField(_:))
-        LungfishAppKitControlStyle.applyInspectorMetrics(to: searchField)
+        LungfishKitControlStyle.applyInspectorMetrics(to: searchField)
         searchField.setAccessibilityIdentifier(MultipleSequenceAlignmentAccessibilityID.searchField)
         searchField.translatesAutoresizingMaskIntoConstraints = false
         searchField.widthAnchor.constraint(equalToConstant: 190).isActive = true
@@ -593,23 +593,23 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         siteModeControl.selectedSegment = 0
         siteModeControl.target = self
         siteModeControl.action = #selector(siteModeChanged(_:))
-        LungfishAppKitControlStyle.applyInspectorMetrics(to: siteModeControl)
+        LungfishKitControlStyle.applyInspectorMetrics(to: siteModeControl)
         siteModeControl.setAccessibilityIdentifier(MultipleSequenceAlignmentAccessibilityID.siteMode)
 
         previousVariableButton.target = self
         previousVariableButton.action = #selector(previousVariableSite(_:))
         previousVariableButton.bezelStyle = .rounded
-        LungfishAppKitControlStyle.applyInspectorMetrics(to: previousVariableButton)
+        LungfishKitControlStyle.applyInspectorMetrics(to: previousVariableButton)
 
         nextVariableButton.target = self
         nextVariableButton.action = #selector(nextVariableSite(_:))
         nextVariableButton.bezelStyle = .rounded
-        LungfishAppKitControlStyle.applyInspectorMetrics(to: nextVariableButton)
+        LungfishKitControlStyle.applyInspectorMetrics(to: nextVariableButton)
 
         colorSchemeControl.selectedSegment = MultipleSequenceAlignmentColorScheme.nucleotide.rawValue
         colorSchemeControl.target = self
         colorSchemeControl.action = #selector(colorSchemeChanged(_:))
-        LungfishAppKitControlStyle.applyInspectorMetrics(to: colorSchemeControl)
+        LungfishKitControlStyle.applyInspectorMetrics(to: colorSchemeControl)
         colorSchemeControl.setAccessibilityIdentifier(MultipleSequenceAlignmentAccessibilityID.colorScheme)
         colorSchemeControl.setAccessibilityLabel("Alignment color scheme")
 
@@ -636,7 +636,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         fallbackTitle: String,
         accessibilityLabel: String
     ) {
-        LungfishAppKitControlStyle.configureInspectorIconButton(
+        LungfishKitControlStyle.configureInspectorIconButton(
             button,
             symbolName: symbolName,
             fallbackTitle: fallbackTitle,

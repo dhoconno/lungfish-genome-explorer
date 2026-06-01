@@ -3,7 +3,7 @@ import XCTest
 @testable import LungfishCore
 @testable import LungfishIO
 @testable import LungfishWorkflow
-import LungfishAppKit
+import LungfishKit
 
 @MainActor
 final class MappingResultViewControllerTests: XCTestCase {

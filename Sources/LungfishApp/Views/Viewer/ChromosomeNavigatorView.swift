@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
-import LungfishAppKit
+import LungfishKit
 import LungfishCore
 import os.log
 
@@ -151,7 +151,7 @@ public class ChromosomeNavigatorView: NSView, NSTableViewDataSource, NSTableView
 
         // Sort popup
         sortPopup.addItems(withTitles: ["Natural", "A-Z", "Size"])
-        LungfishAppKitControlStyle.applyInspectorMetrics(to: sortPopup)
+        LungfishKitControlStyle.applyInspectorMetrics(to: sortPopup)
         sortPopup.translatesAutoresizingMaskIntoConstraints = false
         sortPopup.target = self
         sortPopup.action = #selector(sortModeChanged(_:))
@@ -160,7 +160,7 @@ public class ChromosomeNavigatorView: NSView, NSTableViewDataSource, NSTableView
 
         // Filter search field
         filterField.placeholderString = "Filter"
-        LungfishAppKitControlStyle.applyInspectorMetrics(to: filterField)
+        LungfishKitControlStyle.applyInspectorMetrics(to: filterField)
         filterField.translatesAutoresizingMaskIntoConstraints = false
         filterField.sendsSearchStringImmediately = true
         filterField.target = self

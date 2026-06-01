@@ -6,7 +6,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishIO
 @testable import LungfishWorkflow
-import LungfishAppKit
+import LungfishKit
 
 // MARK: - BatchClassificationRow Tests
 

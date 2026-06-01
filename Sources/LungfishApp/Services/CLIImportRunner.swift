@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
-import LungfishAppKit
+import LungfishKit
 import LungfishCore
 import LungfishWorkflow
 import os.log
@@ -51,7 +51,7 @@ public actor CLIImportRunner {
 
     /// Resolves the `lungfish-cli` binary path.
     ///
-    /// Delegates to ``CLIBinaryLocator/cliBinaryPath()`` in `LungfishAppKit`,
+    /// Delegates to ``CLIBinaryLocator/cliBinaryPath()`` in `LungfishKit`,
     /// the canonical (dependency-free) resolver. Kept here as a thin wrapper so
     /// the existing call sites and tests that reference
     /// `CLIImportRunner.cliBinaryPath()` / `CLIImportRunner.resolveCLIPath(...)`

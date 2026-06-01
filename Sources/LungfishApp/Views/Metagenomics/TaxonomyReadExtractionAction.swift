@@ -9,7 +9,7 @@ import LungfishIO
 import LungfishWorkflow
 import SwiftUI
 import os.log
-import LungfishAppKit
+import LungfishKit
 
 private let logger = Logger(
     subsystem: "com.lungfish.app",

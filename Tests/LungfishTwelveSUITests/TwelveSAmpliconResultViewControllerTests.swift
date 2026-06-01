@@ -1,5 +1,5 @@
 import AppKit
-import LungfishAppKit
+import LungfishKit
 import XCTest
 @testable import LungfishTwelveSUI
 @testable import LungfishIO

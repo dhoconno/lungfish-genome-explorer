@@ -7,7 +7,7 @@ import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 import os.log
-import LungfishAppKit
+import LungfishKit
 
 extension MainSplitViewController {
     var testingShellLayoutState: WorkspaceShellLayoutState {

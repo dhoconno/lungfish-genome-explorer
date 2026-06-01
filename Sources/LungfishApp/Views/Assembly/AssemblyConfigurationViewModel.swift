@@ -9,7 +9,7 @@ import UserNotifications
 import LungfishWorkflow
 import LungfishIO
 import LungfishCore
-import LungfishAppKit
+import LungfishKit
 
 /// Logger for assembly runner operations.
 private let logger = Logger(subsystem: LogSubsystem.app, category: "AssemblyRunner")

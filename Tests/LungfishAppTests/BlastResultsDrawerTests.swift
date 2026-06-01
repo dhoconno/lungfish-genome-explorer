@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
-import LungfishAppKit
+import LungfishKit
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCore

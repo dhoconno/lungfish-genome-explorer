@@ -7,7 +7,7 @@ import LungfishCore
 import LungfishIO
 import SwiftUI
 import os.log
-import LungfishAppKit
+import LungfishKit
 
 private let logger = Logger(subsystem: LogSubsystem.app, category: "BatchTaxTriageTableView")
 

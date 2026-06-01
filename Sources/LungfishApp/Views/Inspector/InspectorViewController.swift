@@ -9,7 +9,7 @@ import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 import os.log
-import LungfishAppKit
+import LungfishKit
 
 /// Logger for inspector operations
 internal let inspectorLogger = Logger(subsystem: LogSubsystem.app, category: "InspectorViewController")

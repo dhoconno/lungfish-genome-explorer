@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
-import LungfishAppKit
+import LungfishKit
 import LungfishIO
 import UniformTypeIdentifiers
 
@@ -250,7 +250,7 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
         searchField.placeholderString = "Find tip or node"
         searchField.target = self
         searchField.action = #selector(searchFieldSubmitted(_:))
-        LungfishAppKitControlStyle.applyInspectorMetrics(to: searchField)
+        LungfishKitControlStyle.applyInspectorMetrics(to: searchField)
         searchField.setAccessibilityIdentifier(PhylogeneticTreeAccessibilityID.searchField)
         searchField.translatesAutoresizingMaskIntoConstraints = false
         let searchIdealWidth = searchField.widthAnchor.constraint(equalToConstant: 180)
@@ -304,19 +304,19 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
         layoutModeControl.selectedSegment = 0
         layoutModeControl.target = self
         layoutModeControl.action = #selector(layoutModeChanged(_:))
-        LungfishAppKitControlStyle.applyInspectorMetrics(to: layoutModeControl)
+        LungfishKitControlStyle.applyInspectorMetrics(to: layoutModeControl)
         layoutModeControl.setAccessibilityIdentifier(PhylogeneticTreeAccessibilityID.layoutMode)
 
         colorModeControl.selectedSegment = 0
         colorModeControl.target = self
         colorModeControl.action = #selector(colorModeChanged(_:))
-        LungfishAppKitControlStyle.applyInspectorMetrics(to: colorModeControl)
+        LungfishKitControlStyle.applyInspectorMetrics(to: colorModeControl)
         colorModeControl.setAccessibilityIdentifier(PhylogeneticTreeAccessibilityID.colorMode)
 
         tipLabelColumnPopup.target = self
         tipLabelColumnPopup.action = #selector(tipLabelColumnChanged(_:))
         tipLabelColumnPopup.setAccessibilityIdentifier(PhylogeneticTreeAccessibilityID.tipLabelColumn)
-        LungfishAppKitControlStyle.applyInspectorMetrics(to: tipLabelColumnPopup)
+        LungfishKitControlStyle.applyInspectorMetrics(to: tipLabelColumnPopup)
         tipLabelColumnPopup.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             tipLabelColumnPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 92),
@@ -346,7 +346,7 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
         fallbackTitle: String,
         accessibilityLabel: String
     ) {
-        LungfishAppKitControlStyle.configureInspectorIconButton(
+        LungfishKitControlStyle.configureInspectorIconButton(
             button,
             symbolName: symbolName,
             fallbackTitle: fallbackTitle,

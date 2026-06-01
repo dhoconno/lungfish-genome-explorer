@@ -13,7 +13,7 @@
 import AppKit
 import Foundation
 import LungfishWorkflow
-import LungfishAppKit
+import LungfishKit
 
 extension NSViewController {
 

@@ -8,7 +8,7 @@ import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 import os.log
-import LungfishAppKit
+import LungfishKit
 
 private let extractionLogger = Logger(subsystem: LogSubsystem.app, category: "Extraction")
 

@@ -9,7 +9,7 @@ import LungfishIO
 import LungfishWorkflow
 import SQLite3
 import os
-import LungfishAppKit
+import LungfishKit
 
 extension AppDelegate {
     // MARK: - ToolsMenuActions

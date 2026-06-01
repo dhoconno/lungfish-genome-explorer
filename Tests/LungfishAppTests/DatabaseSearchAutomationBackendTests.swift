@@ -1,7 +1,7 @@
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
-import LungfishAppKit
+import LungfishKit
 
 final class DatabaseSearchAutomationBackendTests: XCTestCase {
     func testUnknownScenarioNameReturnsNilBackend() {

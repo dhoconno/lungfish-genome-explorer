@@ -11,7 +11,7 @@ private let logger = Logger(subsystem: LogSubsystem.app, category: "CLIBinaryLoc
 /// Locates the `lungfish-cli` binary across the supported launch layouts.
 ///
 /// This is a dependency-free utility (Bundle/FileManager/ProcessInfo/Process/URL only)
-/// so it can live in the shared ``LungfishAppKit`` kernel and be reused by both
+/// so it can live in the shared ``LungfishKit`` kernel and be reused by both
 /// app-internal runners and leaf modules without dragging in OperationCenter or
 /// event-streaming machinery.
 public enum CLIBinaryLocator {

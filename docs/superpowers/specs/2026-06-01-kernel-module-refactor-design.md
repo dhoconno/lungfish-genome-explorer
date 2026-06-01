@@ -5,18 +5,17 @@
 **Baseline commit:** `ae131e9d` (alpha10 shipped)
 **Supersedes the path-forward section of:** `docs/reports/2026-05-31-modularization-findings.md`
 
-> **Naming + language (user directive, 2026-06-01):** the shared kernel is renamed
-> `LungfishAppKit` -> **`LungfishKit`** (the preferred LGE language is Swift; AppKit is just one
-> UI framework, so the kernel is not named as "the AppKit layer"). Every `LungfishAppKit`
-> reference below means `LungfishKit` after the rename phase. Code principle: PRESERVE existing
-> AppKit on move (behavior-preserving relocation), PREFER plain Swift / SwiftUI for any NEW
-> shared abstraction.
+> **Naming + language (user directive, 2026-06-01):** the shared kernel module is named
+> **`LungfishKit`** (it was briefly named after AppKit during alpha10; renamed because the
+> preferred LGE language is Swift and the kernel must not be named as "the AppKit layer").
+> Code principle: PRESERVE existing AppKit on move (behavior-preserving relocation), PREFER
+> plain Swift / SwiftUI for any NEW shared abstraction.
 
 ## Goal
 
 Turn `LungfishApp` (a 217K-LOC monolith) into a **kernel + leaf-modules** architecture:
 
-- **Kernel (`LungfishAppKit`)** holds all shared, reusable UI/infrastructure that multiple
+- **Kernel (`LungfishKit`)** holds all shared, reusable UI/infrastructure that multiple
   feature surfaces consume. When building a new module, a developer "shops the kernel" for
   what already exists.
 - **Leaf modules** (`LungfishTwelveSUI`, and the new ones added here) each own exactly one
@@ -33,7 +32,7 @@ give this for free once the boundaries exist.
 Yes. Today every feature edit recompiles the 217K-LOC monolith and the test suite runs as
 one giant pass. A kernel/module split fixes both, and it matches how the team wants to build:
 discover reusable code in the kernel, add features as isolated modules. The alpha10 work
-already proved the pattern end to end (`LungfishAppKit` builds standalone; `LungfishTwelveSUI`
+already proved the pattern end to end (`LungfishKit` builds standalone; `LungfishTwelveSUI`
 is a green leaf with its own test target). This campaign generalizes that pattern across the
 whole app.
 
@@ -63,7 +62,7 @@ then either (a) T must first be promoted into the kernel (only if T does not its
 a callback/protocol the app satisfies). `LungfishApp` may freely depend on (import) any leaf.
 
 Current dependency graph (verified in `Package.swift:150-186`):
-`LungfishAppKit -> Core/IO/Workflow`; `LungfishTwelveSUI -> Core/IO/Workflow/AppKit`;
+`LungfishKit -> Core/IO/Workflow`; `LungfishTwelveSUI -> Core/IO/Workflow/AppKit`;
 `LungfishApp -> Core/IO/Workflow/AppKit/TwelveSUI`; `LungfishCLI -> Core/IO/Workflow` (NOT
 AppKit — so kernel-promoted UI types stay invisible to the CLI, which is fine).
 
@@ -87,7 +86,7 @@ obsolete because Tier 0 (below) already shipped.
 `BlastResultsDrawerTab`, `BlastResultsDrawerContainerView`, `MetagenomicsFilePanelFactory`.
 
 ### Kernel promotions needed (each a clean module-move unless noted)
-1. **Pure AppKit/SwiftUI leaves:** `LungfishAppKitControlStyle` (`Views/Shared/`),
+1. **Pure AppKit/SwiftUI leaves:** `LungfishKitControlStyle` (`Views/Shared/`),
    `GenomicSummaryCardBar` (`Views/Shared/`), `ScrollViewSplitPaneContainerView` +
    `SplitPaneFillContainerView` (`Views/Layout/`), `FASTASequenceActionMenuBuilder` +
    `FASTASequenceActionHandlers` (`Views/Shared/`), `ZoomShortcutHandler` (`Views/Shared/`).
@@ -137,7 +136,7 @@ obsolete because Tier 0 (below) already shipped.
    `Views/Phylogenetics/IQTree*`. Hardest. Blockers: `FASTQOperationDialogState`
    (op/dialog-pipeline-bound), `DatasetOperationsDialog` + `DatasetOperationSection` +
    `DatasetOperationToolSidebarItem`, `MultipleSequenceAlignmentTreeInferenceRequest`
-   (defined in the MSA VC), `ViewerFilePanelFactory`, `LungfishAppKitControlStyle`,
+   (defined in the MSA VC), `ViewerFilePanelFactory`, `LungfishKitControlStyle`,
    `PhylogeneticTreeSelectionState`. Requires inverting the dialog/file-panel dependencies
    (inject via protocol) and resolving `FASTQOperationDialogState`. Done LAST.
 

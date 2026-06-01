@@ -1,7 +1,7 @@
 # LungfishApp Modularization: Findings and Path Forward
 
 **Date:** 2026-05-31
-**Status:** Kernel extracted (LungfishAppKit); leaf extraction blocked by shared infrastructure; designed follow-up required
+**Status:** Kernel extracted (LungfishKit); leaf extraction blocked by shared infrastructure; designed follow-up required
 
 ## What was done
 
@@ -10,7 +10,7 @@
    VariantDatabase 6K, FASTQDerivativeService 6.4K, plus SidebarViewController 5K) into
    focused files. Swift type-checks a file as a unit, so this directly reduces incremental
    recompile cost for edits in those areas. Pure mechanical, zero behavior change.
-2. **Extracted `LungfishAppKit`**, a shared UI-kernel module that sits below `LungfishApp`
+2. **Extracted `LungfishKit`**, a shared UI-kernel module that sits below `LungfishApp`
    and above LungfishCore/IO/Workflow. It holds 10 clean kernel pieces (~2,244 LOC):
    `WindowStateScope`, `SelectionIdentityStore`, `ColumnFilter`, `SplitPaneSizing`,
    `TwoPaneTrackedSplitCoordinator`, `TrackedDividerSplitView`, `MetadataColumnController`,
@@ -50,7 +50,7 @@ coupling. Verified directly.
 
 To make feature surfaces leaf-extractable, do this as its own reviewed effort:
 
-1. **Promote the shared classifier/result UI cluster into LungfishAppKit**, untangling each
+1. **Promote the shared classifier/result UI cluster into LungfishKit**, untangling each
    dependency in order:
    - `ClassifierActionBar` (already clean: AppKit only) — move first.
    - `MinimumReadsThreshold` (clean, 33 LOC) — move.
@@ -60,7 +60,7 @@ To make feature surfaces leaf-extractable, do this as its own reviewed effort:
    - `BlastResultsDrawerTab`/`Container`/`ClassifierActionBar`: resolve the
      `MetagenomicsFilePanelFactory` reference (inject the panel factory via a protocol, or
      move a kernel-safe file-panel abstraction down). Then move the BLAST drawer cluster.
-2. Once the shared cluster is in LungfishAppKit, extract leaf modules in order of
+2. Once the shared cluster is in LungfishKit, extract leaf modules in order of
    independence, each with its own test target, each landing green:
    12S results -> Genotype results (+ its Inspector sections, breaking the Genotype<->Inspector
    cycle) -> Phylogenetics -> larger surfaces.
@@ -73,7 +73,7 @@ To make feature surfaces leaf-extractable, do this as its own reviewed effort:
 
 - Incremental builds for edits in the eight split files are meaningfully cheaper (smaller
   type-check units).
-- LungfishAppKit is a real, clean shared module — the foundation the leaf extraction needs.
+- LungfishKit is a real, clean shared module — the foundation the leaf extraction needs.
 - The remaining leaf extraction is scoped, sequenced, and documented for a deliberate
   follow-up, rather than forced into a fragile state. Per the engineering principle that a
   clean, working module boundary beats a half-untangled one that breaks behavior.

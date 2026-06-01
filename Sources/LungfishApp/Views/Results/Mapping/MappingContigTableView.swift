@@ -1,6 +1,6 @@
 import AppKit
 import LungfishWorkflow
-import LungfishAppKit
+import LungfishKit
 
 @MainActor
 final class MappingContigTableView: BatchTableView<MappingContigSummary> {

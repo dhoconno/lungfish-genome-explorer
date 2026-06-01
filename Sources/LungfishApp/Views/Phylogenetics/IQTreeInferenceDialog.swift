@@ -5,7 +5,7 @@
 import Foundation
 import Observation
 import SwiftUI
-import LungfishAppKit
+import LungfishKit
 import LungfishWorkflow
 
 enum IQTreeSequenceTypeOption: String, CaseIterable, Sendable {

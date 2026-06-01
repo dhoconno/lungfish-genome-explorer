@@ -5,7 +5,7 @@
 **Host:** 14-core Apple Silicon (arm64), macOS 26
 
 Build-time measurements before and after the build/test reorganization (giant-file
-splits + LungfishAppKit kernel + LungfishTwelveSUI leaf module + infrastructure
+splits + LungfishKit kernel + LungfishTwelveSUI leaf module + infrastructure
 untangling). Measured with `scripts/measure-build-times.sh`.
 
 ## Headline timings
@@ -28,7 +28,7 @@ LungfishApp:
 | --- | ---: |
 | LungfishApp file (the prior default) | 10.6s |
 | LungfishTwelveSUI file (extracted leaf, ~1.2K LOC) | **6.3s (-41%)** |
-| LungfishAppKit file (shared kernel, body-only change) | **1.3s (-88%)** |
+| LungfishKit file (shared kernel, body-only change) | **1.3s (-88%)** |
 
 This is the structural payoff: code that lives in a focused module iterates far
 faster than code in the monolith. As more feature surfaces are extracted into leaf
@@ -58,7 +58,7 @@ modules (the documented follow-up), more of the app gains this speedup.
    FASTQDerivativeService, SidebarViewController).
 3. Added fast-iteration tooling (surface test runner, background full-suite gate,
    pre-push hook, swift-testing tags, workflow guide).
-4. Extracted `LungfishAppKit` (shared UI kernel, 17 files) and `LungfishTwelveSUI`
+4. Extracted `LungfishKit` (shared UI kernel, 17 files) and `LungfishTwelveSUI`
    (first leaf feature module with its own test target), untangling CLIBinaryLocator,
    LungfishCLIRunner, the BLAST results drawer cluster, and MetagenomicsFilePanelFactory
    into the kernel.

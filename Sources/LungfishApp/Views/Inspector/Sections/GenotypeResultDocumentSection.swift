@@ -2,7 +2,7 @@ import AppKit
 import LungfishCore
 import LungfishIO
 import SwiftUI
-import LungfishAppKit
+import LungfishKit
 
 struct GenotypeResultArtifactRow: Equatable {
     let label: String

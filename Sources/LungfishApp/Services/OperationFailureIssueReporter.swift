@@ -1,7 +1,7 @@
 import AppKit
 import Darwin
 import Foundation
-import LungfishAppKit
+import LungfishKit
 
 struct OperationFailureIssueEnvironment: Equatable, Sendable {
     var appVersion: String

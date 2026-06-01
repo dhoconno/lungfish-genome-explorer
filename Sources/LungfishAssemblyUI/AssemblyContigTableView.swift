@@ -4,7 +4,7 @@
 
 import AppKit
 import LungfishWorkflow
-import LungfishAppKit
+import LungfishKit
 
 @MainActor
 final class AssemblyContigTableView: BatchTableView<AssemblyContigRecord> {

@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
-import LungfishAppKit
+import LungfishKit
 import LungfishWorkflow
 
 enum SequenceAnnotationOperationKind: Sendable, Equatable {

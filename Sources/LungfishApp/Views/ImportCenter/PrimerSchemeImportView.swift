@@ -6,7 +6,7 @@ import AppKit
 import SwiftUI
 import LungfishCore
 import LungfishIO
-import LungfishAppKit
+import LungfishKit
 
 /// Minimal form that collects the inputs for a user-authored primer-scheme
 /// bundle and invokes ``PrimerSchemeImportViewModel/performImport``.

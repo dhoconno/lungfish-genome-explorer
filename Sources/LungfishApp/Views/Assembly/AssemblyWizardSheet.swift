@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import SwiftUI
-import LungfishAppKit
+import LungfishKit
 import LungfishWorkflow
 
 struct AssemblyWizardRunPresentation {

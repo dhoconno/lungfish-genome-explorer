@@ -8,7 +8,7 @@ import AppKit
 @testable import LungfishApp
 @testable import LungfishCore
 @testable import LungfishIO
-import LungfishAppKit
+import LungfishKit
 
 // MARK: - Shared Test Helpers
 

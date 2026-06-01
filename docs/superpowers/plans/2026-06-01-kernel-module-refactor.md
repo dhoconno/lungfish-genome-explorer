@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Generalize the LungfishAppKit kernel + leaf-module architecture across the whole app — promote all shared UI/infrastructure into the kernel and extract every clean feature surface (plus OperationCenter and Phylogenetics) into standalone leaf modules, so a module edit recompiles/tests only that module.
+**Goal:** Generalize the LungfishKit kernel + leaf-module architecture across the whole app — promote all shared UI/infrastructure into the kernel and extract every clean feature surface (plus OperationCenter and Phylogenetics) into standalone leaf modules, so a module edit recompiles/tests only that module.
 
-**Architecture:** `LungfishAppKit` is a shared kernel below `LungfishApp` and above Core/IO/Workflow. Leaf modules (`LungfishTwelveSUI` and the new ones) own one feature surface each, import only the kernel + lower layers, and expose callbacks. `LungfishApp` keeps the composition hubs (Viewer/MainSplit/Inspector/Sidebar) and imports the leaves. A module below `LungfishApp` may never reference a type defined in `LungfishApp`.
+**Architecture:** `LungfishKit` is a shared kernel below `LungfishApp` and above Core/IO/Workflow. Leaf modules (`LungfishTwelveSUI` and the new ones) own one feature surface each, import only the kernel + lower layers, and expose callbacks. `LungfishApp` keeps the composition hubs (Viewer/MainSplit/Inspector/Sidebar) and imports the leaves. A module below `LungfishApp` may never reference a type defined in `LungfishApp`.
 
 **Tech Stack:** Swift 6.2, SwiftPM, macOS 26 (arm64), AppKit + SwiftUI, XCTest + swift-testing.
 
@@ -12,10 +12,11 @@
 
 ## Naming + language principle (user directive, 2026-06-01)
 
-- **The kernel is named `LungfishKit`, not `LungfishAppKit`.** The preferred LANGUAGE of LGE is
-  Swift; AppKit is just one (legacy) UI framework, so the kernel must not be named as if it were
-  "the AppKit layer." Phase 0 (below) renames `LungfishAppKit` -> `LungfishKit` everywhere. From
-  that point, all references in this plan that still say `LungfishAppKit` mean `LungfishKit`.
+- **The kernel is named `LungfishKit`** (NOT named after AppKit). The preferred LANGUAGE of LGE
+  is Swift; AppKit is just one (legacy) UI framework, so the kernel must not be named as if it
+  were "the AppKit layer." Phase 0 performed this rename (it was briefly AppKit-named in alpha10);
+  earlier phases in this plan were written/executed under the old name, so the new name applies
+  throughout.
 - **Preserve on move, prefer Swift for new.** When RELOCATING existing code into the kernel/leaves,
   keep it as-is (this refactor is behavior-preserving; do NOT rewrite working AppKit views into
   SwiftUI mid-move — that is a risky behavior change outside scope). When writing any NEW shared
@@ -45,12 +46,12 @@
    **PER-TASK, also build the test target** (`swift build --build-tests --skip-update`, or run
    the moved type's test file via `swift test --filter <TestName>`): moving a type to the
    kernel/leaf breaks any TEST file that referenced it under its old module, so every move task
-   MUST add `import LungfishAppKit` (or the leaf) to the affected test files and widen any
+   MUST add `import LungfishKit` (or the leaf) to the affected test files and widen any
    members the TESTS touch to `public`. Do NOT defer test-target compilation to the phase gate.
 5. **`open` vs `public`:** a type subclassed across modules must be `open` (e.g.
    `BatchTableView` already is). A type only *used* across modules is `public`. `@testable
    import` does NOT re-export dependency modules — leaf test files need explicit `import
-   LungfishAppKit` etc.
+   LungfishKit` etc.
 6. **`Package.swift` registration:** new leaf targets need a `.target`, a `.library` product,
    a `.testTarget`, and an addition to `LungfishApp`'s `dependencies:`. Mirror the existing
    `LungfishTwelveSUI` + `LungfishTwelveSUITests` stanzas exactly.
@@ -64,7 +65,7 @@
 ## Reference: the proven leaf pattern (LungfishTwelveSUI)
 
 - Leaf dir: `Sources/LungfishTwelveSUI/` — holds VC + display-state + export-service.
-- Leaf imports: `Foundation`/`AppKit`/`LungfishCore`/`LungfishIO`/`LungfishWorkflow`/`LungfishAppKit`.
+- Leaf imports: `Foundation`/`AppKit`/`LungfishCore`/`LungfishIO`/`LungfishWorkflow`/`LungfishKit`.
 - Glue stays in App: `Sources/LungfishApp/Views/Viewer/ViewerViewController+TwelveS.swift`
   imports the leaf and wires app services to the VC's callbacks.
 - Test target: `Tests/LungfishTwelveSUITests/` (mirror its structure for each new leaf).
@@ -72,22 +73,22 @@
 
 ---
 
-## Phase 0 — Rename LungfishAppKit -> LungfishKit (runs AFTER Phase 3, on a green checkpoint)
+## Phase 0 — Rename LungfishKit -> LungfishKit (runs AFTER Phase 3, on a green checkpoint)
 
 Mechanical global rename. ~249 occurrences across ~143 files (Sources + Tests + Package.swift +
-docs). `LungfishAppKit` is a clean token (not a prefix of any other identifier; `LungfishKit`
+docs). `LungfishKit` is a clean token (not a prefix of any other identifier; `LungfishKit`
 does not already exist), so a literal global substitution is safe. Must land green.
 
 **Files:** `Package.swift` (target name, product name, all `dependencies:` lists, `path:`), the
-directory `Sources/LungfishAppKit/` -> `Sources/LungfishKit/`, the test dir is unaffected (tests
-live under `Tests/Lungfish*Tests/`), and every `.swift` file containing `import LungfishAppKit`
+directory `Sources/LungfishKit/` -> `Sources/LungfishKit/`, the test dir is unaffected (tests
+live under `Tests/Lungfish*Tests/`), and every `.swift` file containing `import LungfishKit`
 or a doc-comment mention.
 
 - [ ] **Step 1: Rename the source directory**
 
 ```bash
 cd /Users/dho/Documents/lungfish-genome-explorer
-git mv Sources/LungfishAppKit Sources/LungfishKit
+git mv Sources/LungfishKit Sources/LungfishKit
 ```
 
 - [ ] **Step 2: Global token replacement across Sources, Tests, Package.swift, docs**
@@ -95,14 +96,14 @@ git mv Sources/LungfishAppKit Sources/LungfishKit
 ```bash
 cd /Users/dho/Documents/lungfish-genome-explorer
 # every tracked .swift + Package.swift + the plan/spec docs, excluding .build
-rg -l 'LungfishAppKit' --hidden -g '!.build' -g '!*.log' \
-  | while IFS= read -r f; do /usr/bin/sed -i '' 's/LungfishAppKit/LungfishKit/g' "$f"; done
+rg -l 'LungfishKit' --hidden -g '!.build' -g '!*.log' \
+  | while IFS= read -r f; do /usr/bin/sed -i '' 's/LungfishKit/LungfishKit/g' "$f"; done
 ```
 (Per-file loop, NOT a single multi-file sed — multi-line file lists mangle sed.)
 
 - [ ] **Step 3: Verify zero stragglers**
 
-Run: `rg -n 'LungfishAppKit' --hidden -g '!.build' -g '!*.log' || echo "ALL RENAMED"`
+Run: `rg -n 'LungfishKit' --hidden -g '!.build' -g '!*.log' || echo "ALL RENAMED"`
 Expected: `ALL RENAMED`.
 
 - [ ] **Step 4: Build kernel + App + CLI**
@@ -126,7 +127,7 @@ Expected: GREEN per the bar (XCTest failures a subset of the 9 known env-failure
 cd /Users/dho/Documents/lungfish-genome-explorer
 git add -A
 git commit -m "$(cat <<'EOF'
-refactor(kernel): rename LungfishAppKit -> LungfishKit
+refactor(kernel): rename LungfishKit -> LungfishKit
 
 The preferred language of LGE is Swift; AppKit is just one UI framework. Rename
 the shared kernel module so its name reflects "shared Swift kernel", not "the
@@ -139,42 +140,42 @@ EOF
 ```
 
 > After Phase 0, the module is `LungfishKit`. All later phases use that name (this doc's earlier
-> phases were written/executed under the old name `LungfishAppKit`).
+> phases were written/executed under the old name `LungfishKit`).
 
 ---
 
 ## Phase 1 — Clean kernel cluster
 
 Promote the mechanically-clean shared UI/util types into the kernel. Each is a file MOVE
-(`git mv` the source file from `Sources/LungfishApp/...` to `Sources/LungfishAppKit/`,
+(`git mv` the source file from `Sources/LungfishApp/...` to `Sources/LungfishKit/`,
 change nothing but access modifiers as needed, fix the now-redundant imports). After each
 group, build the kernel standalone + build LungfishApp.
 
 ### Task 1.1: Promote pure AppKit/SwiftUI shared views
 
 **Files:**
-- Move: `Sources/LungfishApp/Views/Shared/LungfishAppKitControlStyle.swift` → `Sources/LungfishAppKit/LungfishAppKitControlStyle.swift`
-- Move: `Sources/LungfishApp/Views/Shared/GenomicSummaryCardBar.swift` → `Sources/LungfishAppKit/GenomicSummaryCardBar.swift`
-- Move: `Sources/LungfishApp/Views/Layout/ScrollViewSplitPaneContainerView.swift` (contains `ScrollViewSplitPaneContainerView` + `SplitPaneFillContainerView`) → `Sources/LungfishAppKit/ScrollViewSplitPaneContainerView.swift`
-- Move: `Sources/LungfishApp/Views/Shared/FASTASequenceActionMenuBuilder.swift` (contains `FASTASequenceActionMenuBuilder` + `FASTASequenceActionHandlers`) → `Sources/LungfishAppKit/FASTASequenceActionMenuBuilder.swift`
-- Move: `Sources/LungfishApp/Views/Shared/ZoomShortcutHandler.swift` → `Sources/LungfishAppKit/ZoomShortcutHandler.swift`
+- Move: `Sources/LungfishApp/Views/Shared/LungfishKitControlStyle.swift` → `Sources/LungfishKit/LungfishKitControlStyle.swift`
+- Move: `Sources/LungfishApp/Views/Shared/GenomicSummaryCardBar.swift` → `Sources/LungfishKit/GenomicSummaryCardBar.swift`
+- Move: `Sources/LungfishApp/Views/Layout/ScrollViewSplitPaneContainerView.swift` (contains `ScrollViewSplitPaneContainerView` + `SplitPaneFillContainerView`) → `Sources/LungfishKit/ScrollViewSplitPaneContainerView.swift`
+- Move: `Sources/LungfishApp/Views/Shared/FASTASequenceActionMenuBuilder.swift` (contains `FASTASequenceActionMenuBuilder` + `FASTASequenceActionHandlers`) → `Sources/LungfishKit/FASTASequenceActionMenuBuilder.swift`
+- Move: `Sources/LungfishApp/Views/Shared/ZoomShortcutHandler.swift` → `Sources/LungfishKit/ZoomShortcutHandler.swift`
 
-(If any listed path differs slightly, `rg -l 'class LungfishAppKitControlStyle|struct GenomicSummaryCardBar|class ScrollViewSplitPaneContainerView|enum FASTASequenceActionMenuBuilder|class ZoomShortcutHandler|class FASTASequenceActionHandlers' Sources/LungfishApp` to locate the true file before moving.)
+(If any listed path differs slightly, `rg -l 'class LungfishKitControlStyle|struct GenomicSummaryCardBar|class ScrollViewSplitPaneContainerView|enum FASTASequenceActionMenuBuilder|class ZoomShortcutHandler|class FASTASequenceActionHandlers' Sources/LungfishApp` to locate the true file before moving.)
 
 - [ ] **Step 1: Locate exact definition files**
 
-Run: `cd /Users/dho/Documents/lungfish-genome-explorer && rg -n 'class LungfishAppKitControlStyle|struct GenomicSummaryCardBar|class ScrollViewSplitPaneContainerView|struct ScrollViewSplitPaneContainerView|class SplitPaneFillContainerView|enum FASTASequenceActionMenuBuilder|struct FASTASequenceActionMenuBuilder|class ZoomShortcutHandler|enum FASTASequenceActionHandlers' Sources/LungfishApp --type swift`
+Run: `cd /Users/dho/Documents/lungfish-genome-explorer && rg -n 'class LungfishKitControlStyle|struct GenomicSummaryCardBar|class ScrollViewSplitPaneContainerView|struct ScrollViewSplitPaneContainerView|class SplitPaneFillContainerView|enum FASTASequenceActionMenuBuilder|struct FASTASequenceActionMenuBuilder|class ZoomShortcutHandler|enum FASTASequenceActionHandlers' Sources/LungfishApp --type swift`
 Expected: one definition site per type; note the actual file paths.
 
 - [ ] **Step 2: Move each file into the kernel with git mv**
 
 ```bash
 cd /Users/dho/Documents/lungfish-genome-explorer
-git mv Sources/LungfishApp/Views/Shared/LungfishAppKitControlStyle.swift Sources/LungfishAppKit/LungfishAppKitControlStyle.swift
-git mv Sources/LungfishApp/Views/Shared/GenomicSummaryCardBar.swift Sources/LungfishAppKit/GenomicSummaryCardBar.swift
-git mv Sources/LungfishApp/Views/Layout/ScrollViewSplitPaneContainerView.swift Sources/LungfishAppKit/ScrollViewSplitPaneContainerView.swift
-git mv Sources/LungfishApp/Views/Shared/FASTASequenceActionMenuBuilder.swift Sources/LungfishAppKit/FASTASequenceActionMenuBuilder.swift
-git mv Sources/LungfishApp/Views/Shared/ZoomShortcutHandler.swift Sources/LungfishAppKit/ZoomShortcutHandler.swift
+git mv Sources/LungfishApp/Views/Shared/LungfishKitControlStyle.swift Sources/LungfishKit/LungfishKitControlStyle.swift
+git mv Sources/LungfishApp/Views/Shared/GenomicSummaryCardBar.swift Sources/LungfishKit/GenomicSummaryCardBar.swift
+git mv Sources/LungfishApp/Views/Layout/ScrollViewSplitPaneContainerView.swift Sources/LungfishKit/ScrollViewSplitPaneContainerView.swift
+git mv Sources/LungfishApp/Views/Shared/FASTASequenceActionMenuBuilder.swift Sources/LungfishKit/FASTASequenceActionMenuBuilder.swift
+git mv Sources/LungfishApp/Views/Shared/ZoomShortcutHandler.swift Sources/LungfishKit/ZoomShortcutHandler.swift
 ```
 (Adjust source paths to the ones found in Step 1.)
 
@@ -186,18 +187,18 @@ In each moved file, the top-level type and any members referenced from `Lungfish
 `public class X` (or `open` if subclassed), `struct X` → `public struct X`, and every
 property/method/init that `LungfishApp` code touches → `public`. Find what App touches:
 
-Run: `rg -n 'LungfishAppKitControlStyle|GenomicSummaryCardBar|ScrollViewSplitPaneContainerView|SplitPaneFillContainerView|FASTASequenceActionMenuBuilder|FASTASequenceActionHandlers|ZoomShortcutHandler' Sources/LungfishApp --type swift`
+Run: `rg -n 'LungfishKitControlStyle|GenomicSummaryCardBar|ScrollViewSplitPaneContainerView|SplitPaneFillContainerView|FASTASequenceActionMenuBuilder|FASTASequenceActionHandlers|ZoomShortcutHandler' Sources/LungfishApp --type swift`
 Then make exactly those referenced members `public`. Add `import AppKit`/`import SwiftUI` at the top of each moved file if it relied on an app-wide umbrella import.
 
 - [ ] **Step 4: Build the kernel standalone**
 
-Run: `cd /Users/dho/Documents/lungfish-genome-explorer && swift build --target LungfishAppKit --skip-update 2>&1 | tail -20`
+Run: `cd /Users/dho/Documents/lungfish-genome-explorer && swift build --target LungfishKit --skip-update 2>&1 | tail -20`
 Expected: `Build complete!` (proves no back-dependency on LungfishApp). If it fails with "cannot find type X in scope", that type is another app-internal dependency — STOP and report it; do not force-add it.
 
 - [ ] **Step 5: Build LungfishApp**
 
 Run: `cd /Users/dho/Documents/lungfish-genome-explorer && swift build --target LungfishApp --skip-update 2>&1 | tail -20`
-Expected: `Build complete!` (App now imports these from the kernel; `import LungfishAppKit` is already present in the consuming files — if not, add it where the compiler reports "cannot find X in scope").
+Expected: `Build complete!` (App now imports these from the kernel; `import LungfishKit` is already present in the consuming files — if not, add it where the compiler reports "cannot find X in scope").
 
 - [ ] **Step 6: Commit**
 
@@ -205,9 +206,9 @@ Expected: `Build complete!` (App now imports these from the kernel; `import Lung
 cd /Users/dho/Documents/lungfish-genome-explorer
 git add -A
 git commit -m "$(cat <<'EOF'
-refactor(kernel): promote pure AppKit/SwiftUI shared views to LungfishAppKit
+refactor(kernel): promote pure AppKit/SwiftUI shared views to LungfishKit
 
-Move LungfishAppKitControlStyle, GenomicSummaryCardBar, the split-pane
+Move LungfishKitControlStyle, GenomicSummaryCardBar, the split-pane
 containers, FASTASequenceActionMenuBuilder/Handlers, and ZoomShortcutHandler
 into the kernel. Pure relocation; kernel builds standalone.
 
@@ -236,23 +237,23 @@ Expected: one definition site per type.
 
 ```bash
 cd /Users/dho/Documents/lungfish-genome-explorer
-git mv Sources/LungfishApp/Views/Metagenomics/MetagenomicsPaneSizing.swift Sources/LungfishAppKit/MetagenomicsPaneSizing.swift
-git mv Sources/LungfishApp/Views/Metagenomics/MetagenomicsLayoutPreference.swift Sources/LungfishAppKit/MetagenomicsLayoutPreference.swift
-git mv Sources/LungfishApp/Views/Metagenomics/MetagenomicsDrawerView.swift Sources/LungfishAppKit/MetagenomicsDrawerView.swift
-git mv Sources/LungfishApp/Views/Metagenomics/ClassifierUniqueReads.swift Sources/LungfishAppKit/ClassifierUniqueReads.swift
-git mv Sources/LungfishApp/Views/Metagenomics/BlastConfigPopoverView.swift Sources/LungfishAppKit/BlastConfigPopoverView.swift
-git mv Sources/LungfishApp/Services/FASTQDisplayNameResolver.swift Sources/LungfishAppKit/FASTQDisplayNameResolver.swift
-git mv Sources/LungfishApp/App/AppUITestConfiguration.swift Sources/LungfishAppKit/AppUITestConfiguration.swift
+git mv Sources/LungfishApp/Views/Metagenomics/MetagenomicsPaneSizing.swift Sources/LungfishKit/MetagenomicsPaneSizing.swift
+git mv Sources/LungfishApp/Views/Metagenomics/MetagenomicsLayoutPreference.swift Sources/LungfishKit/MetagenomicsLayoutPreference.swift
+git mv Sources/LungfishApp/Views/Metagenomics/MetagenomicsDrawerView.swift Sources/LungfishKit/MetagenomicsDrawerView.swift
+git mv Sources/LungfishApp/Views/Metagenomics/ClassifierUniqueReads.swift Sources/LungfishKit/ClassifierUniqueReads.swift
+git mv Sources/LungfishApp/Views/Metagenomics/BlastConfigPopoverView.swift Sources/LungfishKit/BlastConfigPopoverView.swift
+git mv Sources/LungfishApp/Services/FASTQDisplayNameResolver.swift Sources/LungfishKit/FASTQDisplayNameResolver.swift
+git mv Sources/LungfishApp/App/AppUITestConfiguration.swift Sources/LungfishKit/AppUITestConfiguration.swift
 ```
 (Adjust to Step 1 paths.)
 
 - [ ] **Step 3: Widen access modifiers**
 
-Same procedure as Task 1.1 Step 3: make each type and its App-referenced members `public`; add `import` lines the file relied on via umbrella imports. `MetagenomicsPaneSizing` imports `CoreGraphics` + `LungfishAppKit`-internal — since it now IS in the kernel, drop any `import LungfishAppKit`. `FASTQDisplayNameResolver` needs `import LungfishIO`.
+Same procedure as Task 1.1 Step 3: make each type and its App-referenced members `public`; add `import` lines the file relied on via umbrella imports. `MetagenomicsPaneSizing` imports `CoreGraphics` + `LungfishKit`-internal — since it now IS in the kernel, drop any `import LungfishKit`. `FASTQDisplayNameResolver` needs `import LungfishIO`.
 
 - [ ] **Step 4: Build kernel standalone**
 
-Run: `cd /Users/dho/Documents/lungfish-genome-explorer && swift build --target LungfishAppKit --skip-update 2>&1 | tail -20`
+Run: `cd /Users/dho/Documents/lungfish-genome-explorer && swift build --target LungfishKit --skip-update 2>&1 | tail -20`
 Expected: `Build complete!`
 
 - [ ] **Step 5: Build LungfishApp**
@@ -266,7 +267,7 @@ Expected: `Build complete!`
 cd /Users/dho/Documents/lungfish-genome-explorer
 git add -A
 git commit -m "$(cat <<'EOF'
-refactor(kernel): promote clean metagenomics/util types to LungfishAppKit
+refactor(kernel): promote clean metagenomics/util types to LungfishKit
 
 Move MetagenomicsPaneSizing/PanelLayout/DrawerView, ClassifierUniqueReads,
 BlastConfigPopoverView, FASTQDisplayNameResolver, AppUITestConfiguration into
@@ -285,7 +286,7 @@ ACTION type depends on `OperationCenter` (stays in App until Phase 5). Split the
 into a new kernel file; leave the action in App.
 
 **Files:**
-- Create: `Sources/LungfishAppKit/SavePanelPresenting.swift`
+- Create: `Sources/LungfishKit/SavePanelPresenting.swift`
 - Modify: `Sources/LungfishApp/Views/Metagenomics/TaxonomyReadExtractionAction.swift`
 
 - [ ] **Step 1: Read the current definitions**
@@ -295,15 +296,15 @@ Then read the file to capture the exact protocol/struct bodies.
 
 - [ ] **Step 2: Create the kernel file with the moved protocols**
 
-Create `Sources/LungfishAppKit/SavePanelPresenting.swift` containing the `SavePanelPresenting` protocol, `DefaultSavePanelPresenter`, the pasteboard-writing protocol, and `DefaultPasteboard` — each marked `public`, with `public` initializers and members. Add `import AppKit`. (Copy the exact bodies read in Step 1; do not paraphrase.)
+Create `Sources/LungfishKit/SavePanelPresenting.swift` containing the `SavePanelPresenting` protocol, `DefaultSavePanelPresenter`, the pasteboard-writing protocol, and `DefaultPasteboard` — each marked `public`, with `public` initializers and members. Add `import AppKit`. (Copy the exact bodies read in Step 1; do not paraphrase.)
 
 - [ ] **Step 3: Remove the moved definitions from the App file**
 
-Delete the protocol/struct definitions from `TaxonomyReadExtractionAction.swift` (keep the action type). Add `import LungfishAppKit` at the top if not present.
+Delete the protocol/struct definitions from `TaxonomyReadExtractionAction.swift` (keep the action type). Add `import LungfishKit` at the top if not present.
 
 - [ ] **Step 4: Build kernel standalone**
 
-Run: `cd /Users/dho/Documents/lungfish-genome-explorer && swift build --target LungfishAppKit --skip-update 2>&1 | tail -20`
+Run: `cd /Users/dho/Documents/lungfish-genome-explorer && swift build --target LungfishKit --skip-update 2>&1 | tail -20`
 Expected: `Build complete!`
 
 - [ ] **Step 5: Build LungfishApp**
@@ -326,7 +327,7 @@ refactor(kernel): extract SavePanelPresenting/Pasteboard protocols to kernel
 
 Split the reusable save-panel/pasteboard protocols out of
 TaxonomyReadExtractionAction (whose action stays in App, OperationCenter-bound)
-into LungfishAppKit. Full suite green.
+into LungfishKit. Full suite green.
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
 EOF
@@ -355,9 +356,9 @@ Expected: NO matches in code (doc-comment matches are fine). If a real reference
 - [ ] **Step 2: Add the leaf target to Package.swift**
 
 In `Package.swift`, copy the `LungfishTwelveSUI` target/product/testTarget stanzas and adapt to `LungfishAlignmentUI`:
-- a `.target(name: "LungfishAlignmentUI", dependencies: ["LungfishCore", "LungfishIO", "LungfishWorkflow", "LungfishAppKit"])`
+- a `.target(name: "LungfishAlignmentUI", dependencies: ["LungfishCore", "LungfishIO", "LungfishWorkflow", "LungfishKit"])`
 - a `.library(name: "LungfishAlignmentUI", targets: ["LungfishAlignmentUI"])`
-- a `.testTarget(name: "LungfishAlignmentUITests", dependencies: ["LungfishAlignmentUI", "LungfishCore", "LungfishIO", "LungfishWorkflow", "LungfishAppKit"])`
+- a `.testTarget(name: "LungfishAlignmentUITests", dependencies: ["LungfishAlignmentUI", "LungfishCore", "LungfishIO", "LungfishWorkflow", "LungfishKit"])`
 - add `"LungfishAlignmentUI"` to the `LungfishApp` target's `dependencies:` array.
 
 - [ ] **Step 3: Move the VC into the leaf**
@@ -367,7 +368,7 @@ cd /Users/dho/Documents/lungfish-genome-explorer
 mkdir -p Sources/LungfishAlignmentUI
 git mv Sources/LungfishApp/Views/Results/Alignment/AlignmentResultViewController.swift Sources/LungfishAlignmentUI/AlignmentResultViewController.swift
 ```
-Then in the moved file: change the VC class to `public` (and `open` if subclassed — check `rg -n 'AlignmentResultViewController' Sources/LungfishApp`), make every member App touches `public`, and ensure imports are `Foundation`/`AppKit`/`LungfishWorkflow`/`LungfishAppKit` (the audit said it imports AppKit + Workflow + AppKit-kernel types). Add an `import LungfishAlignmentUI` to whichever App file constructs the VC.
+Then in the moved file: change the VC class to `public` (and `open` if subclassed — check `rg -n 'AlignmentResultViewController' Sources/LungfishApp`), make every member App touches `public`, and ensure imports are `Foundation`/`AppKit`/`LungfishWorkflow`/`LungfishKit` (the audit said it imports AppKit + Workflow + AppKit-kernel types). Add an `import LungfishAlignmentUI` to whichever App file constructs the VC.
 
 - [ ] **Step 4: Build leaf standalone**
 
@@ -383,7 +384,7 @@ import XCTest
 import AppKit
 @testable import LungfishAlignmentUI
 import LungfishWorkflow
-import LungfishAppKit
+import LungfishKit
 
 final class AlignmentResultViewControllerTests: XCTestCase {
     @MainActor
@@ -440,7 +441,7 @@ EOF
 > Proceed directly to Task 3.2 (Assembly), which IS clean.
 
 **Files (SUPERSEDED — do not execute):**
-- Move (promote): `Sources/LungfishApp/Views/Results/Reference/ReferenceBundleViewportController.swift` → `Sources/LungfishAppKit/ReferenceBundleViewportController.swift` (it is the only blocker for Mapping; if it has its own App-internal deps, STOP and report)
+- Move (promote): `Sources/LungfishApp/Views/Results/Reference/ReferenceBundleViewportController.swift` → `Sources/LungfishKit/ReferenceBundleViewportController.swift` (it is the only blocker for Mapping; if it has its own App-internal deps, STOP and report)
 - Create dir: `Sources/LungfishMappingUI/`
 - Move: `Sources/LungfishApp/Views/Results/Mapping/*` → `Sources/LungfishMappingUI/`
 - Create: `Tests/LungfishMappingUITests/MappingResultViewControllerTests.swift`
@@ -455,10 +456,10 @@ Expected: no real code references. If clean, promote it (git mv into kernel, mak
 
 ```bash
 cd /Users/dho/Documents/lungfish-genome-explorer
-git mv Sources/LungfishApp/Views/Results/Reference/ReferenceBundleViewportController.swift Sources/LungfishAppKit/ReferenceBundleViewportController.swift
+git mv Sources/LungfishApp/Views/Results/Reference/ReferenceBundleViewportController.swift Sources/LungfishKit/ReferenceBundleViewportController.swift
 ```
 Make the type + App-referenced members `public`/`open`. Then:
-Run: `swift build --target LungfishAppKit --skip-update 2>&1 | tail -20`
+Run: `swift build --target LungfishKit --skip-update 2>&1 | tail -20`
 Expected: `Build complete!`
 
 - [ ] **Step 3: Enumerate the Mapping directory**
@@ -514,7 +515,7 @@ EOF
 
 ### Task 3.2: Extract Assembly leaf
 
-Prereqs already in kernel after Phase 1: `LungfishAppKitControlStyle`, `MetagenomicsPaneSizing`,
+Prereqs already in kernel after Phase 1: `LungfishKitControlStyle`, `MetagenomicsPaneSizing`,
 `FASTASequenceActionMenuBuilder`/`Handlers`, `SavePanelPresenting`/`DefaultPasteboard`.
 
 **Files:**
@@ -593,7 +594,7 @@ EOF
 
 **Files:**
 - Modify: `Sources/LungfishApp/.../SequenceViewerView*.swift` (extract the `pinchZoomFactor` static helper)
-- Create: `Sources/LungfishAppKit/PinchZoomFactor.swift`
+- Create: `Sources/LungfishKit/PinchZoomFactor.swift`
 - Move: `Sources/LungfishApp/Views/Metagenomics/MiniBAMViewController.swift` → kernel
 
 - [ ] **Step 1: Locate pinchZoomFactor**
@@ -603,7 +604,7 @@ Expected: a definition on `SequenceViewerView` (used at `MiniBAMViewController.s
 
 - [ ] **Step 2: Move the helper into a free kernel function**
 
-Create `Sources/LungfishAppKit/PinchZoomFactor.swift` with the logic as a `public` free function or a `public enum` static (e.g. `public enum PinchZoom { public static func factor(...) -> CGFloat }`). Copy the exact body. Add `import CoreGraphics`/`import AppKit` as needed.
+Create `Sources/LungfishKit/PinchZoomFactor.swift` with the logic as a `public` free function or a `public enum` static (e.g. `public enum PinchZoom { public static func factor(...) -> CGFloat }`). Copy the exact body. Add `import CoreGraphics`/`import AppKit` as needed.
 
 - [ ] **Step 3: Update SequenceViewerView + MiniBAM call sites to use the kernel helper**
 
@@ -615,13 +616,13 @@ Verify its only remaining blockers are now kernel-resident (`ZoomShortcutHandler
 Run: `rg -n 'OperationCenter|AppDelegate|ViewerViewController|SequenceViewerView' Sources/LungfishApp/Views/Metagenomics/MiniBAMViewController.swift`
 Expected: no real code refs to App-internal types. Then:
 ```bash
-git mv Sources/LungfishApp/Views/Metagenomics/MiniBAMViewController.swift Sources/LungfishAppKit/MiniBAMViewController.swift
+git mv Sources/LungfishApp/Views/Metagenomics/MiniBAMViewController.swift Sources/LungfishKit/MiniBAMViewController.swift
 ```
 Make `public`/`open`; fix imports.
 
 - [ ] **Step 5: Build kernel standalone + App**
 
-Run: `swift build --target LungfishAppKit --skip-update 2>&1 | tail -20 && swift build --target LungfishApp --skip-update 2>&1 | tail -10`
+Run: `swift build --target LungfishKit --skip-update 2>&1 | tail -20 && swift build --target LungfishApp --skip-update 2>&1 | tail -10`
 Expected: both `Build complete!`
 
 - [ ] **Step 6: Commit**
@@ -634,7 +635,7 @@ refactor(kernel): promote MiniBAMViewController + pinch-zoom helper to kernel
 
 Extract SequenceViewerView.pinchZoomFactor into a kernel helper so
 MiniBAMViewController (its last app-internal blocker, plus ZoomShortcutHandler)
-can move into LungfishAppKit. Kernel builds standalone.
+can move into LungfishKit. Kernel builds standalone.
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
 EOF
@@ -706,13 +707,13 @@ op-model types move into the kernel. The audit confirmed NO `LungfishApp`-intern
 mechanical.
 
 **Files:**
-- Move: `Sources/LungfishApp/Services/OperationCenter.swift` → `Sources/LungfishAppKit/OperationCenter.swift`
-- Modify: up to 45 files that reference `OperationCenter`/op-model types — only to add `import LungfishAppKit` where the compiler reports the types missing (most consuming files already import the kernel).
+- Move: `Sources/LungfishApp/Services/OperationCenter.swift` → `Sources/LungfishKit/OperationCenter.swift`
+- Modify: up to 45 files that reference `OperationCenter`/op-model types — only to add `import LungfishKit` where the compiler reports the types missing (most consuming files already import the kernel).
 
 - [ ] **Step 1: Inventory all referencing files (baseline)**
 
 Run: `cd /Users/dho/Documents/lungfish-genome-explorer && rg -ln '\bOperationCenter\b|\bOperationType\b|\bOperationLogEntry\b|\bOperationLogLevel\b|\bOperationRouteContext\b|\bOperationRetryMetadata\b' Sources/LungfishApp --type swift | sort > /tmp/opcenter-refs.txt && wc -l /tmp/opcenter-refs.txt && cat /tmp/opcenter-refs.txt`
-Expected: ~45 files. Keep this list — it's the set that may need an `import LungfishAppKit` added.
+Expected: ~45 files. Keep this list — it's the set that may need an `import LungfishKit` added.
 
 - [ ] **Step 2: Confirm no App-internal back-deps in OperationCenter itself**
 
@@ -723,19 +724,19 @@ Expected: only doc comments (the audit confirmed lines 242, 520 are comments; `o
 
 ```bash
 cd /Users/dho/Documents/lungfish-genome-explorer
-git mv Sources/LungfishApp/Services/OperationCenter.swift Sources/LungfishAppKit/OperationCenter.swift
+git mv Sources/LungfishApp/Services/OperationCenter.swift Sources/LungfishKit/OperationCenter.swift
 ```
-Verify the class + all op-model types + `shared` + every member referenced from App are `public` (it is already `public final class` per the audit; confirm the nested `Item`/`Item.State`, the enums, and the methods used by consumers are `public`). Add `import LungfishCore`/`import LungfishWorkflow`/`import SwiftUI` as needed (drop any `import LungfishAppKit`, since it now IS the kernel).
+Verify the class + all op-model types + `shared` + every member referenced from App are `public` (it is already `public final class` per the audit; confirm the nested `Item`/`Item.State`, the enums, and the methods used by consumers are `public`). Add `import LungfishCore`/`import LungfishWorkflow`/`import SwiftUI` as needed (drop any `import LungfishKit`, since it now IS the kernel).
 
 - [ ] **Step 4: Build kernel standalone**
 
-Run: `cd /Users/dho/Documents/lungfish-genome-explorer && swift build --target LungfishAppKit --skip-update 2>&1 | tail -30`
+Run: `cd /Users/dho/Documents/lungfish-genome-explorer && swift build --target LungfishKit --skip-update 2>&1 | tail -30`
 Expected: `Build complete!` If it reports a missing type, that type is an undiscovered App-internal dep — STOP and report (do not pull it down blindly).
 
 - [ ] **Step 5: Build LungfishApp, adding imports where needed**
 
 Run: `cd /Users/dho/Documents/lungfish-genome-explorer && swift build --target LungfishApp --skip-update 2>&1 | tee /tmp/opcenter-appbuild.log | tail -40`
-For each "cannot find 'OperationCenter' (or op type) in scope" error, add `import LungfishAppKit` to the named file. Re-run until `Build complete!`. (Most files already import the kernel; expect only a handful of additions.)
+For each "cannot find 'OperationCenter' (or op type) in scope" error, add `import LungfishKit` to the named file. Re-run until `Build complete!`. (Most files already import the kernel; expect only a handful of additions.)
 
 - [ ] **Step 6: Build the CLI target (it does NOT depend on the kernel)**
 
@@ -753,12 +754,12 @@ Expected: 0 failures. Because the import pipeline runs through `OperationCenter`
 cd /Users/dho/Documents/lungfish-genome-explorer
 git add -A
 git commit -m "$(cat <<'EOF'
-refactor(kernel): promote OperationCenter + op-model types to LungfishAppKit
+refactor(kernel): promote OperationCenter + op-model types to LungfishKit
 
 OperationCenter has no LungfishApp-internal back-dependencies (decoupled from
 AppDelegate via onBundleReady callbacks; needs only the kernel's
 WindowStateScope). Pure relocation; ~N consuming files gained an explicit
-import LungfishAppKit. Kernel + App + CLI build; full suite green.
+import LungfishKit. Kernel + App + CLI build; full suite green.
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
 EOF
@@ -897,7 +898,7 @@ EOF
 Blockers (audit): `FASTQOperationDialogState` (op/dialog-pipeline-bound, NOT moved),
 `DatasetOperationsDialog`/`DatasetOperationSection`/`DatasetOperationToolSidebarItem`,
 `MultipleSequenceAlignmentTreeInferenceRequest` (in the MSA VC), `ViewerFilePanelFactory`,
-`LungfishAppKitControlStyle` (now kernel), `PhylogeneticTreeSelectionState` (split in 6.1).
+`LungfishKitControlStyle` (now kernel), `PhylogeneticTreeSelectionState` (split in 6.1).
 Strategy: invert the dialog/file-panel dependencies via protocols injected from App; move only
 the VC + IQTree options into the leaf; keep the dialog *presenter* App-side.
 

@@ -2,7 +2,7 @@ import XCTest
 import AppKit
 @testable import LungfishAlignmentUI
 import LungfishWorkflow
-import LungfishAppKit
+import LungfishKit
 
 final class AlignmentResultViewControllerTests: XCTestCase {
     @MainActor

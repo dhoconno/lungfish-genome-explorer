@@ -1,6 +1,6 @@
 import XCTest
 import LungfishAssemblyUI
-import LungfishAppKit
+import LungfishKit
 
 @MainActor
 final class AssemblyLayoutPreferenceTests: XCTestCase {

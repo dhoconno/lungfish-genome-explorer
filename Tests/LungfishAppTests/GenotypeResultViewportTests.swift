@@ -2,7 +2,7 @@ import XCTest
 @testable import LungfishApp
 import LungfishCore
 import LungfishIO
-import LungfishAppKit
+import LungfishKit
 
 @MainActor
 final class GenotypeResultViewportTests: XCTestCase {

@@ -6,7 +6,7 @@ import AppKit
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
-import LungfishAppKit
+import LungfishKit
 
 @MainActor
 final class ReferenceSequenceTableView: BatchTableView<BundleBrowserSequenceSummary> {
@@ -186,7 +186,7 @@ public class ReferenceBundleViewportController: NSViewController {
     private let focusButton: NSButton = {
         let button = NSButton(title: "Focus", target: nil, action: nil)
         button.bezelStyle = .rounded
-        LungfishAppKitControlStyle.applyInspectorMetrics(to: button)
+        LungfishKitControlStyle.applyInspectorMetrics(to: button)
         button.translatesAutoresizingMaskIntoConstraints = false
         button.setAccessibilityIdentifier("reference-viewport-focus-button")
         button.setAccessibilityLabel("Focus reference detail")
@@ -204,7 +204,7 @@ public class ReferenceBundleViewportController: NSViewController {
     private let focusedBackButton: NSButton = {
         let button = NSButton(title: "Back", target: nil, action: nil)
         button.bezelStyle = .rounded
-        LungfishAppKitControlStyle.applyInspectorMetrics(to: button)
+        LungfishKitControlStyle.applyInspectorMetrics(to: button)
         button.translatesAutoresizingMaskIntoConstraints = false
         button.setAccessibilityIdentifier("reference-viewport-back-button")
         button.setAccessibilityLabel("Back to reference list and detail")

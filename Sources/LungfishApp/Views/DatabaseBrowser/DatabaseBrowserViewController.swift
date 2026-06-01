@@ -10,7 +10,7 @@ import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 import os.log
-import LungfishAppKit
+import LungfishKit
 
 /// Logger for database browser operations
 private let logger = Logger(subsystem: LogSubsystem.app, category: "DatabaseBrowser")

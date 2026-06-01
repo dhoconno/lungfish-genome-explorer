@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
-import LungfishAppKit
+import LungfishKit
 
 @MainActor
 final class AssemblyActionBar: NSView {
@@ -71,7 +71,7 @@ final class AssemblyActionBar: NSView {
         button.target = self
         button.action = action
         button.bezelStyle = .rounded
-        LungfishAppKitControlStyle.applyInspectorMetrics(to: button)
+        LungfishKitControlStyle.applyInspectorMetrics(to: button)
         button.setAccessibilityIdentifier(identifier)
         button.setAccessibilityLabel(label)
     }

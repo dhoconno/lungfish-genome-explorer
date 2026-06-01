@@ -5,7 +5,7 @@
 import AppKit
 import LungfishCore
 import os.log
-import LungfishAppKit
+import LungfishKit
 
 private let logger = Logger(subsystem: LogSubsystem.app, category: "FASTACollection")
 

@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
-import LungfishAppKit
+import LungfishKit
 import os.log
 import LungfishCore
 
@@ -64,13 +64,13 @@ public final class GeneTabBarView: NSView {
         segmentedControl.target = self
         segmentedControl.action = #selector(segmentClicked(_:))
         segmentedControl.translatesAutoresizingMaskIntoConstraints = false
-        LungfishAppKitControlStyle.applyInspectorMetrics(to: segmentedControl)
+        LungfishKitControlStyle.applyInspectorMetrics(to: segmentedControl)
         addSubview(segmentedControl)
 
         // Overflow popup for long gene lists.
         overflowPopup.target = self
         overflowPopup.action = #selector(overflowSelected(_:))
-        LungfishAppKitControlStyle.applyInspectorMetrics(to: overflowPopup)
+        LungfishKitControlStyle.applyInspectorMetrics(to: overflowPopup)
         overflowPopup.translatesAutoresizingMaskIntoConstraints = false
         overflowPopup.isHidden = true
         addSubview(overflowPopup)
@@ -80,7 +80,7 @@ public final class GeneTabBarView: NSView {
         dismissButton.action = #selector(dismissClicked(_:))
         dismissButton.bezelStyle = .accessoryBarAction
         dismissButton.isBordered = false
-        LungfishAppKitControlStyle.applyInspectorMetrics(to: dismissButton)
+        LungfishKitControlStyle.applyInspectorMetrics(to: dismissButton)
         dismissButton.translatesAutoresizingMaskIntoConstraints = false
         dismissButton.setAccessibilityLabel("Dismiss gene tabs")
         addSubview(dismissButton)

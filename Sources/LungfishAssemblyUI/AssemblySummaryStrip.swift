@@ -5,7 +5,7 @@
 import AppKit
 import Foundation
 import LungfishWorkflow
-import LungfishAppKit
+import LungfishKit
 
 @MainActor
 final class AssemblyQuickCopyTextField: NSTextField {

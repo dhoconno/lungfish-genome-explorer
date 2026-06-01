@@ -8,7 +8,7 @@ import LungfishIO
 import LungfishWorkflow
 import SwiftUI
 import os.log
-import LungfishAppKit
+import LungfishKit
 
 private let logger = Logger(subsystem: LogSubsystem.app, category: "EsVirituResultVC")
 
@@ -163,7 +163,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         btn.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: "Recompute Unique Reads")
         btn.bezelStyle = .accessoryBarAction
         btn.imagePosition = .imageLeading
-        LungfishAppKitControlStyle.applyInspectorMetrics(to: btn)
+        LungfishKitControlStyle.applyInspectorMetrics(to: btn)
         btn.setContentHuggingPriority(.required, for: .horizontal)
         btn.isHidden = true  // shown only in batch mode
         return btn
