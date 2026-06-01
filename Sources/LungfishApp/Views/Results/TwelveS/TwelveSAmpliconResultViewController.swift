@@ -2,6 +2,7 @@ import AppKit
 import LungfishIO
 import SwiftUI
 import UniformTypeIdentifiers
+import LungfishAppKit
 
 @MainActor
 final class TwelveSAmpliconResultViewController: NSViewController {

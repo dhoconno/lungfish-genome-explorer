@@ -1,6 +1,7 @@
 import Foundation
 import LungfishCore
 import LungfishIO
+import LungfishAppKit
 
 enum GenotypeResultPanelLayout: String, CaseIterable, Equatable {
     case listLeading

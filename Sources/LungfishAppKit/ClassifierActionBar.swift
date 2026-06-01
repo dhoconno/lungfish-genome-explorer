@@ -15,11 +15,11 @@ import AppKit
 /// | 8pt | [BLAST Verify] 6pt [Export] 6pt [Custom...] | flex info text | [Provenance i] | 12pt |
 /// ```
 @MainActor
-final class ClassifierActionBar: NSView {
+public final class ClassifierActionBar: NSView {
 
     // MARK: - Core Buttons
 
-    let blastButton: NSButton = {
+    public let blastButton: NSButton = {
         let btn = NSButton()
         btn.title = "BLAST Verify"
         btn.image = NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: "BLAST Verify")
@@ -33,7 +33,7 @@ final class ClassifierActionBar: NSView {
         return btn
     }()
 
-    let exportButton: NSButton = {
+    public let exportButton: NSButton = {
         let btn = NSButton()
         btn.title = "Export"
         btn.image = NSImage(systemSymbolName: "square.and.arrow.up", accessibilityDescription: "Export")
@@ -46,7 +46,7 @@ final class ClassifierActionBar: NSView {
         return btn
     }()
 
-    let extractButton: NSButton = {
+    public let extractButton: NSButton = {
         let btn = NSButton()
         btn.title = "Extract FASTQ"
         btn.image = NSImage(systemSymbolName: "arrow.down.doc", accessibilityDescription: "Extract FASTQ")
@@ -60,7 +60,7 @@ final class ClassifierActionBar: NSView {
         return btn
     }()
 
-    let infoLabel: NSTextField = {
+    public let infoLabel: NSTextField = {
         let label = NSTextField(labelWithString: "")
         label.font = .systemFont(ofSize: 11)
         label.textColor = .secondaryLabelColor
@@ -71,7 +71,7 @@ final class ClassifierActionBar: NSView {
         return label
     }()
 
-    let provenanceButton: NSButton = {
+    public let provenanceButton: NSButton = {
         let btn = NSButton()
         btn.image = NSImage(systemSymbolName: "info.circle", accessibilityDescription: "Pipeline Info")
         btn.bezelStyle = .accessoryBarAction
@@ -84,10 +84,10 @@ final class ClassifierActionBar: NSView {
 
     // MARK: - Callbacks
 
-    var onBlastVerify: (() -> Void)?
-    var onExport: (() -> Void)?
-    var onExtractFASTQ: (() -> Void)?
-    var onProvenance: ((NSButton) -> Void)?
+    public var onBlastVerify: (() -> Void)?
+    public var onExport: (() -> Void)?
+    public var onExtractFASTQ: (() -> Void)?
+    public var onProvenance: ((NSButton) -> Void)?
 
     // MARK: - Custom Buttons
 
@@ -96,12 +96,12 @@ final class ClassifierActionBar: NSView {
 
     // MARK: - Init
 
-    override init(frame: NSRect) {
+    public override init(frame: NSRect) {
         super.init(frame: frame)
         setupUI()
     }
 
-    required init?(coder: NSCoder) {
+    public required init?(coder: NSCoder) {
         super.init(coder: coder)
         setupUI()
     }
@@ -109,7 +109,7 @@ final class ClassifierActionBar: NSView {
     // MARK: - Public API
 
     /// Insert a custom button after Export, before the info label.
-    func addCustomButton(_ button: NSButton) {
+    public func addCustomButton(_ button: NSButton) {
         button.translatesAutoresizingMaskIntoConstraints = false
         customButtons.append(button)
         addSubview(button)
@@ -117,18 +117,18 @@ final class ClassifierActionBar: NSView {
     }
 
     /// Update the center info label text.
-    func updateInfoText(_ text: String) {
+    public func updateInfoText(_ text: String) {
         infoLabel.stringValue = text
     }
 
     /// Enable/disable BLAST button, with an optional tooltip reason shown when disabled.
-    func setBlastEnabled(_ enabled: Bool, reason: String? = nil) {
+    public func setBlastEnabled(_ enabled: Bool, reason: String? = nil) {
         blastButton.isEnabled = enabled
         blastButton.toolTip = enabled ? "Verify selected taxon with BLAST" : reason
     }
 
     /// Enable/disable Extract FASTQ button.
-    func setExtractEnabled(_ enabled: Bool) {
+    public func setExtractEnabled(_ enabled: Bool) {
         extractButton.isEnabled = enabled
     }
 

@@ -1,5 +1,6 @@
 import Foundation
 import LungfishIO
+import LungfishAppKit
 
 enum TwelveSChimeraStatusFilter: String, CaseIterable, Identifiable, Sendable {
     case all
