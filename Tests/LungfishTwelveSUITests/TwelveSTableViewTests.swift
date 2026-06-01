@@ -1,6 +1,8 @@
 import XCTest
 import AppKit
+import LungfishCore
 import LungfishIO
+import LungfishKit
 @testable import LungfishTwelveSUI
 
 @MainActor
@@ -82,5 +84,42 @@ final class TwelveSTableViewTests: XCTestCase {
         let a = makeUnresolved(id: "a", reads: 3)
         let b = makeUnresolved(id: "b", reads: 30)
         XCTAssertTrue(table.compareRows(b, a, by: "readCount", ascending: false))
+    }
+
+    // MARK: - Multi-sample comparison
+
+    func testSelectingSampleSubsetReaggregatesTargetRows() {
+        let vc = TwelveSAmpliconResultViewController()
+        vc.loadViewIfNeeded()
+        let bundle = TwelveSFixtures.twoSampleResult() // human(both) + chicken(SampleB only)
+        vc.configure(result: bundle)
+        let entries = bundle.samples.map {
+            TwelveSSampleEntry(id: $0.sampleID, displayName: $0.displayName, exactReads: $0.exactMatchReads)
+        }
+        let state = ClassifierSamplePickerState(allSamples: Set(entries.map(\.id)))
+        vc.configureSamples(entries, state: state)
+
+        // Both species visible with all samples.
+        XCTAssertEqual(vc.testingActiveTableRowCount, 2)
+
+        // Restrict to SampleA: chicken (SampleA == 0 reads) drops out.
+        vc.testingSetSelectedSamples(["SampleA"])
+        XCTAssertEqual(vc.testingActiveTableRowCount, 1)
+        XCTAssertEqual(vc.testingTargetText(row: 0, column: "scientificName"), "Homo sapiens")
+
+        // Back to all samples → both species again.
+        vc.testingSetSelectedSamples(["SampleA", "SampleB"])
+        XCTAssertEqual(vc.testingActiveTableRowCount, 2)
+    }
+
+    func testSingleSampleBundleHidesSampleFilterButton() {
+        let vc = TwelveSAmpliconResultViewController()
+        vc.loadViewIfNeeded()
+        let bundle = TwelveSFixtures.twoSampleResult()
+        vc.configure(result: bundle)
+        let oneEntry = [TwelveSSampleEntry(id: "SampleA", displayName: "Sample A", exactReads: 45)]
+        let state = ClassifierSamplePickerState(allSamples: ["SampleA"])
+        vc.configureSamples(oneEntry, state: state)
+        XCTAssertTrue(vc.testingSampleFilterButtonHidden)
     }
 }

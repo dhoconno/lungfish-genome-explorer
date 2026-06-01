@@ -20,6 +20,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         action: nil
     )
     private let searchField = NSSearchField()
+    private let sampleFilterButton = NSButton(title: "All Samples", target: nil, action: nil)
     private let tableContainer = NSView()
     private let targetTable = TwelveSTargetTableView()
     private let unresolvedTable = TwelveSUnresolvedTableView()
@@ -40,6 +41,17 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     /// Pasteboard seam for the copy context menu (overridable in tests).
     private var pasteboard: PasteboardWriting = DefaultPasteboard()
     private let copyContextMenu = NSMenu()
+
+    // MARK: - Multi-sample comparison
+
+    /// Shared picker state observed for sample-selection changes. `nil` until
+    /// the host wires samples via ``configureSamples(_:state:)``.
+    private var samplePickerState: ClassifierSamplePickerState?
+    private var sampleEntries: [TwelveSSampleEntry] = []
+    private var allSampleIDs: Set<String> = []
+    private var selectedSamples: Set<String> = []
+    private var samplePopover: NSPopover?
+    private var sampleNameStrippedPrefix = ""
 
     public var onDisplaySummaryChanged: ((TwelveSResultDisplaySummary) -> Void)?
     public var onDisplayStateChanged: ((TwelveSResultDisplayState) -> Void)?
@@ -113,6 +125,9 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         mode == .targets ? targetTable.displayedRows.count : unresolvedTable.displayedRows.count
     }
 
+    /// Test-only visibility of the sample filter button.
+    var testingSampleFilterButtonHidden: Bool { sampleFilterButton.isHidden }
+
     public override func loadView() {
         let root = NSView()
         root.translatesAutoresizingMaskIntoConstraints = false
@@ -147,6 +162,94 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         displayState = state
         searchField.stringValue = state.filterText
         applyFilters(notify: true)
+    }
+
+    /// Wires the multi-sample picker. Pass the sample entries (built from the
+    /// bundle's samples) and a shared ``ClassifierSamplePickerState``; the
+    /// viewport observes the state and re-aggregates rows over the selection.
+    public func configureSamples(_ entries: [TwelveSSampleEntry], state: ClassifierSamplePickerState) {
+        sampleEntries = entries
+        allSampleIDs = Set(entries.map(\.id))
+        samplePickerState = state
+        selectedSamples = state.selectedSamples
+        sampleNameStrippedPrefix = ClassifierSamplePickerView.commonPrefix(of: entries.map(\.displayName))
+        sampleFilterButton.isHidden = entries.count <= 1
+        updateSampleFilterButtonTitle()
+        startObservingSampleSelection()
+        applyFilters(notify: false)
+    }
+
+    private func updateSampleFilterButtonTitle() {
+        let total = allSampleIDs.count
+        let selected = selectedSamples.count
+        sampleFilterButton.title = (selected == total || total == 0)
+            ? "All Samples"
+            : "\(selected) of \(total) Samples"
+    }
+
+    /// Reactively observes `samplePickerState.selectedSamples` using
+    /// `withObservationTracking`, re-registering after each change. The
+    /// main-actor hop follows the project's binding runtime pattern rather than
+    /// `Task { @MainActor }` from a background callback.
+    private func startObservingSampleSelection() {
+        guard let pickerState = samplePickerState else { return }
+        withObservationTracking {
+            _ = pickerState.selectedSamples
+        } onChange: { [weak self] in
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                MainActor.assumeIsolated {
+                    let newSelection = self.samplePickerState?.selectedSamples ?? []
+                    guard newSelection != self.selectedSamples else {
+                        self.startObservingSampleSelection()
+                        return
+                    }
+                    self.selectedSamples = newSelection
+                    self.updateSampleFilterButtonTitle()
+                    self.applyFilters(notify: false)
+                    self.startObservingSampleSelection()
+                }
+            }
+        }
+    }
+
+    @objc private func sampleFilterButtonClicked(_ sender: NSButton) {
+        if let existing = samplePopover, existing.isShown {
+            existing.close()
+            samplePopover = nil
+            return
+        }
+        guard let samplePickerState else { return }
+        samplePickerState.selectedSamples = selectedSamples
+
+        let pickerView = ClassifierSamplePickerView(
+            samples: sampleEntries,
+            pickerState: samplePickerState,
+            strippedPrefix: sampleNameStrippedPrefix,
+            isInline: false
+        )
+        let popover = NSPopover()
+        popover.contentViewController = NSHostingController(rootView: pickerView)
+        popover.behavior = .transient
+        popover.delegate = self
+        popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .maxY)
+        samplePopover = popover
+    }
+
+    /// Whether the current selection is a strict subset of all samples
+    /// (multi-sample comparison restricting the visible rows).
+    private var isSampleSubset: Bool {
+        !allSampleIDs.isEmpty && selectedSamples.count < allSampleIDs.count
+    }
+
+    /// Test seam: drive the sample selection without the popover.
+    func testingSetSelectedSamples(_ ids: Set<String>) {
+        if let samplePickerState {
+            samplePickerState.selectedSamples = ids
+        }
+        selectedSamples = ids
+        updateSampleFilterButtonTitle()
+        applyFilters(notify: false)
     }
 
     func setSearchTextForTesting(_ text: String) {
@@ -267,6 +370,15 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         searchField.action = #selector(searchFieldChanged(_:))
         searchField.setAccessibilityIdentifier("twelve-s-search-field")
         searchField.setAccessibilityLabel("12S Filter Species Or Matches")
+
+        sampleFilterButton.bezelStyle = .push
+        sampleFilterButton.controlSize = .small
+        sampleFilterButton.font = .systemFont(ofSize: 11)
+        sampleFilterButton.target = self
+        sampleFilterButton.action = #selector(sampleFilterButtonClicked(_:))
+        sampleFilterButton.setAccessibilityIdentifier("twelve-s-sample-filter-button")
+        sampleFilterButton.setAccessibilityLabel("12S Sample Filter")
+        sampleFilterButton.isHidden = true // shown once samples are wired
     }
 
     private func configureTables() {
@@ -371,7 +483,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     }
 
     private func layout() {
-        let headerRow = NSStackView(views: [titleLabel, modeControl, searchField])
+        let headerRow = NSStackView(views: [titleLabel, modeControl, sampleFilterButton, searchField])
         headerRow.orientation = .horizontal
         headerRow.alignment = .centerY
         headerRow.spacing = 12
@@ -444,6 +556,13 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     private func applyFilters(notify: Bool) {
         targetRows = allTargetRows.filter(targetMatchesDisplayState)
         unresolvedRows = allUnresolvedRows.filter(unresolvedMatchesDisplayState)
+        // When comparing a strict subset of samples, drop rows that have no
+        // reads in the selected samples (NAO-MGS / NVD idiom). A single-sample
+        // bundle or "All Samples" leaves the row set unchanged.
+        if isSampleSubset {
+            targetRows = targetRows.filter { TwelveSRowAggregator.includesTarget($0, selected: selectedSamples) }
+            unresolvedRows = unresolvedRows.filter { TwelveSRowAggregator.includesUnresolved($0, selected: selectedSamples) }
+        }
         // Display-state filters narrow the row set; the kernel free-text filter
         // (driven by the header search field) narrows within. Apply the current
         // search text to both tables so the two filter layers compose.
@@ -729,6 +848,17 @@ extension TwelveSAmpliconResultViewController: NSMenuDelegate {
     public func menuNeedsUpdate(_ menu: NSMenu) {
         guard menu === copyContextMenu else { return }
         populateCopyContextMenu()
+    }
+}
+
+extension TwelveSAmpliconResultViewController: NSPopoverDelegate {
+    public func popoverDidClose(_ notification: Notification) {
+        let newSelection = samplePickerState?.selectedSamples ?? selectedSamples
+        samplePopover = nil
+        guard newSelection != selectedSamples else { return }
+        selectedSamples = newSelection
+        updateSampleFilterButtonTitle()
+        applyFilters(notify: false)
     }
 }
 

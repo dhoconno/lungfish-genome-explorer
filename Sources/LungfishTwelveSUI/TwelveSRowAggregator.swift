@@ -67,11 +67,17 @@ enum TwelveSRowAggregator {
 
 /// A 12S sample entry for the shared `ClassifierSamplePickerView`, surfacing the
 /// per-sample exact-read count as the picker metric.
-struct TwelveSSampleEntry: ClassifierSampleEntry {
-    let id: String
-    let displayName: String
-    let exactReads: Int
+public struct TwelveSSampleEntry: ClassifierSampleEntry {
+    public let id: String
+    public let displayName: String
+    public let exactReads: Int
 
-    var metricLabel: String { "reads" }
-    var metricValue: String { formatReadCount(exactReads) }
+    public init(id: String, displayName: String, exactReads: Int) {
+        self.id = id
+        self.displayName = displayName
+        self.exactReads = exactReads
+    }
+
+    public var metricLabel: String { "reads" }
+    public var metricValue: String { formatReadCount(exactReads) }
 }

@@ -145,6 +145,19 @@ extension ViewerViewController {
         ])
 
         controller.configure(result: result)
+
+        // Wire the multi-sample picker (reusing the NAO-MGS / NVD idiom). Each
+        // entry's metric is the sample's exact-match read count.
+        let sampleEntries = result.samples.map { sample in
+            TwelveSSampleEntry(
+                id: sample.sampleID,
+                displayName: sample.displayName,
+                exactReads: sample.exactMatchReads
+            )
+        }
+        let pickerState = ClassifierSamplePickerState(allSamples: Set(sampleEntries.map(\.id)))
+        controller.configureSamples(sampleEntries, state: pickerState)
+
         twelveSAmpliconResultViewController = controller
 
         enhancedRulerView.isHidden = true
