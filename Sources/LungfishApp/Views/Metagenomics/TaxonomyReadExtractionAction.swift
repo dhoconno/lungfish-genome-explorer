@@ -9,6 +9,7 @@ import LungfishIO
 import LungfishWorkflow
 import SwiftUI
 import os.log
+import LungfishAppKit
 
 private let logger = Logger(
     subsystem: "com.lungfish.app",
@@ -33,12 +34,6 @@ public protocol SavePanelPresenting {
 @MainActor
 public protocol SharingServicePresenting {
     func present(items: [Any], relativeTo view: NSView, preferredEdge: NSRectEdge)
-}
-
-/// Test seam for writing strings to `NSPasteboard`.
-@MainActor
-public protocol PasteboardWriting {
-    func setString(_ string: String)
 }
 
 // MARK: - Default implementations

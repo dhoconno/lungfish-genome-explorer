@@ -29,21 +29,21 @@ private final class BatchQuickCopyTextField: NSTextField {
 /// Column specification for a batch table.
 ///
 /// Each entry describes one fixed column in a ``BatchTableView`` subclass.
-struct BatchColumnSpec {
+public struct BatchColumnSpec {
     /// The column's unique identifier (used as the sort-descriptor key too).
-    let identifier: NSUserInterfaceItemIdentifier
+    public let identifier: NSUserInterfaceItemIdentifier
     /// The header title string.
-    let title: String
+    public let title: String
     /// Default column width.
-    let width: CGFloat
+    public let width: CGFloat
     /// Minimum column width enforced by the table.
-    let minWidth: CGFloat
+    public let minWidth: CGFloat
     /// Whether the column sorts ascending by default (`true`) or descending (`false`).
-    let defaultAscending: Bool
+    public let defaultAscending: Bool
     /// Optional header tooltip describing units and interpretation.
-    let toolTip: String?
+    public let toolTip: String?
 
-    init(
+    public init(
         identifier: NSUserInterfaceItemIdentifier,
         title: String,
         width: CGFloat,
@@ -85,41 +85,41 @@ struct BatchColumnSpec {
 /// class header (not in extensions) because Swift does not allow `@objc` protocol
 /// conformances in extensions of generic classes.
 @MainActor
-class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
+open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
 
     // MARK: - Subclass Hooks
 
     /// Fixed column specifications. Subclasses must override this.
-    var columnSpecs: [BatchColumnSpec] { [] }
+    open var columnSpecs: [BatchColumnSpec] { [] }
 
     /// Placeholder string for the search field. Defaults to `"Filter…"`.
-    var searchPlaceholder: String { "Filter\u{2026}" }
+    open var searchPlaceholder: String { "Filter\u{2026}" }
 
     /// Optional accessibility identifier for the search field.
-    var searchAccessibilityIdentifier: String? { nil }
+    open var searchAccessibilityIdentifier: String? { nil }
 
     /// Optional accessibility label for the search field.
-    var searchAccessibilityLabel: String? { nil }
+    open var searchAccessibilityLabel: String? { nil }
 
     /// Optional accessibility identifier for the table view.
-    var tableAccessibilityIdentifier: String? { nil }
+    open var tableAccessibilityIdentifier: String? { nil }
 
     /// Optional accessibility label for the table view.
-    var tableAccessibilityLabel: String? { nil }
+    open var tableAccessibilityLabel: String? { nil }
 
     /// Optional pasteboard used for command-click scalar copy in visible cells.
-    var cellCopyPasteboard: PasteboardWriting? { nil }
+    open var cellCopyPasteboard: PasteboardWriting? { nil }
 
     /// The list of standard (non-metadata) column titles registered with
     /// ``metadataColumns``. Defaults to the ``columnSpecs`` titles.
-    var standardColumnNames: [String] { columnSpecs.map(\.title) }
+    open var standardColumnNames: [String] { columnSpecs.map(\.title) }
 
     /// Returns the text, alignment, and optional font override for a cell.
     ///
     /// Subclasses override this to provide tool-specific rendering.
     /// When `font` is `nil`, the cell keeps the default font set by ``makeCellView(identifier:)``.
     /// The default implementation returns an empty string with left alignment and no font override.
-    func cellContent(
+    open func cellContent(
         for column: NSUserInterfaceItemIdentifier,
         row: Row
     ) -> (text: String, alignment: NSTextAlignment, font: NSFont?) {
@@ -129,57 +129,57 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
     /// Returns whether the given row matches `filterText`.
     ///
     /// The default implementation always returns `true` (no filtering).
-    func rowMatchesFilter(_ row: Row, filterText: String) -> Bool { true }
+    open func rowMatchesFilter(_ row: Row, filterText: String) -> Bool { true }
 
     /// Returns `true` if `lhs` should be ordered before `rhs` when sorting by `key`.
     ///
     /// Pass `ascending` directly to control the result direction. Returning `false` for
     /// both `(lhs, rhs)` and `(rhs, lhs)` is treated as equal by the sort. The default
     /// returns `false` for all keys.
-    func compareRows(_ lhs: Row, _ rhs: Row, by key: String, ascending: Bool) -> Bool { false }
+    open func compareRows(_ lhs: Row, _ rhs: Row, by key: String, ascending: Bool) -> Bool { false }
 
     /// Returns the sample identifier for `row`, used for metadata column lookups.
     ///
     /// Return `nil` if the row has no associated sample. The default returns `nil`.
-    func sampleId(for row: Row) -> String? { nil }
+    open func sampleId(for row: Row) -> String? { nil }
 
     /// Result/run identity to include in stable row IDs for duplicated biological names.
-    var resultIdentity: String?
+    public var resultIdentity: String?
 
     /// Returns a stable biological identity for `row`.
     ///
     /// Subclasses that can display duplicate names after sort/filter/reload should
     /// include result/run context, sample, and the tool-specific biological key.
-    func rowIdentity(for row: Row) -> String? { nil }
+    open func rowIdentity(for row: Row) -> String? { nil }
 
     /// Returns a string value for a column, used by per-column filtering.
     ///
     /// Subclasses should override to return the appropriate value for each column.
     /// The default returns the cell content text from ``cellContent(for:row:)``.
-    func columnValue(for columnId: String, row: Row) -> String {
+    open func columnValue(for columnId: String, row: Row) -> String {
         cellContent(for: NSUserInterfaceItemIdentifier(columnId), row: row).text
     }
 
     /// Column type hints — true = numeric, false = text.
     /// Subclasses should override to declare which columns are numeric.
-    var columnTypeHints: [String: Bool] { [:] }
+    open var columnTypeHints: [String: Bool] { [:] }
 
     // MARK: - State
 
     /// The rows currently displayed (after any filter and sort).
-    private(set) var displayedRows: [Row] = []
+    public private(set) var displayedRows: [Row] = []
 
     /// Pre-filter baseline preserved so re-sort can restart without re-filtering.
     private var unsortedRows: [Row] = []
 
     /// The full unfiltered set of rows as last provided by ``configure(rows:)``.
-    var unfilteredRows: [Row] = []
+    public var unfilteredRows: [Row] = []
 
     /// Per-column filters applied via column header click menus.
-    var columnFilterSet = ColumnFilterSet()
+    public var columnFilterSet = ColumnFilterSet()
 
     /// Compatibility view of active filters keyed by column identifier.
-    var columnFilters: [String: ColumnFilter] {
+    public var columnFilters: [String: ColumnFilter] {
         columnFilterSet.activeFiltersByColumn()
     }
 
@@ -198,21 +198,21 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
     // MARK: - Callbacks
 
     /// Called when the user selects a single row.
-    var onRowSelected: ((Row) -> Void)?
+    public var onRowSelected: ((Row) -> Void)?
 
     /// Called when the user selects multiple rows. Provides the full array of selected rows.
-    var onMultipleRowsSelected: (([Row]) -> Void)?
+    public var onMultipleRowsSelected: (([Row]) -> Void)?
 
     /// Called when the selection is cleared.
-    var onSelectionCleared: (() -> Void)?
+    public var onSelectionCleared: (() -> Void)?
 
     // MARK: - Metadata Columns
 
     /// Controller for dynamic sample-metadata columns (from imported CSV/TSV).
-    let metadataColumns = MetadataColumnController()
+    public let metadataColumns = MetadataColumnController()
 
     /// Optional contextual menu assigned to the table.
-    var tableContextMenu: NSMenu? {
+    public var tableContextMenu: NSMenu? {
         didSet {
             tableView?.menu = tableContextMenu
         }
@@ -221,18 +221,18 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
     // MARK: - Child Views
 
     /// The table view. Accessible to subclasses for targeted column reloads.
-    private(set) var tableView: NSTableView!
+    public private(set) var tableView: NSTableView!
     private var scrollView: NSScrollView!
     private var searchField: NSSearchField!
 
     // MARK: - Init
 
-    override init(frame frameRect: NSRect) {
+    public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         setupTableView()
     }
 
-    required init?(coder: NSCoder) {
+    public required init?(coder: NSCoder) {
         super.init(coder: coder)
         setupTableView()
     }
@@ -380,7 +380,7 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
     /// filter state is preserved across sample filter changes.
     ///
     /// - Parameter rows: The new rows to display.
-    func configure(rows: [Row]) {
+    open func configure(rows: [Row]) {
         self.unfilteredRows = rows
         applyFilter()
         hideEmptyColumns()
@@ -393,18 +393,18 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
     ///
     /// The default implementation always returns `true` (no columns hidden).
     /// Subclasses override this to hide columns that are never populated for a given tool.
-    func columnHasData(_ columnId: NSUserInterfaceItemIdentifier) -> Bool {
+    open func columnHasData(_ columnId: NSUserInterfaceItemIdentifier) -> Bool {
         return true
     }
 
     /// Hook for subclasses that need to react after filtering/sorting replaces ``displayedRows``.
-    func didApplyDisplayedRows() {}
+    open func didApplyDisplayedRows() {}
 
     /// Hides fixed (non-metadata) columns that have no data across all rows.
     ///
     /// Called automatically at the end of ``configure(rows:)``. Each non-metadata column
     /// is shown or hidden based on the result of ``columnHasData(_:)``.
-    func hideEmptyColumns() {
+    open func hideEmptyColumns() {
         for col in tableView.tableColumns {
             guard !MetadataColumnController.isMetadataColumn(col.identifier) else { continue }
             col.isHidden = !columnHasData(col.identifier)
@@ -474,20 +474,20 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
     }
 
     /// Returns the current free-text filter query.
-    var currentFilterText: String { searchField.stringValue }
+    public var currentFilterText: String { searchField.stringValue }
 
     /// Applies a new free-text filter query and refreshes the table.
-    func setFilterText(_ text: String) {
+    public func setFilterText(_ text: String) {
         searchField.stringValue = text
         filterText = text
         applyFilter()
     }
 
     /// Returns the scroll origin of the table view content.
-    var currentScrollOriginY: CGFloat { scrollView.contentView.bounds.origin.y }
+    public var currentScrollOriginY: CGFloat { scrollView.contentView.bounds.origin.y }
 
     /// Restores the table view scroll origin.
-    func restoreScrollOriginY(_ originY: CGFloat) {
+    public func restoreScrollOriginY(_ originY: CGFloat) {
         layoutSubtreeIfNeeded()
         scrollView.layoutSubtreeIfNeeded()
         scrollView.contentView.scroll(to: NSPoint(x: 0, y: originY))
@@ -495,7 +495,7 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
     }
 
     /// Positions a displayed row at the top of the visible table area.
-    func scrollRowToTop(_ rowIndex: Int) {
+    public func scrollRowToTop(_ rowIndex: Int) {
         guard rowIndex >= 0, rowIndex < tableView.numberOfRows else { return }
         layoutSubtreeIfNeeded()
         scrollView.layoutSubtreeIfNeeded()
@@ -509,38 +509,38 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
     }
 
     /// Replaces or inserts a column filter and refreshes the table.
-    func setColumnFilter(_ filter: ColumnFilter, for columnId: String) {
+    public func setColumnFilter(_ filter: ColumnFilter, for columnId: String) {
         columnFilterSet.replaceFilters(for: columnId, with: filter)
         applyFilter()
     }
 
     /// Appends a column filter without replacing other filters on the same column.
-    func addColumnFilter(_ filter: ColumnFilter) {
+    public func addColumnFilter(_ filter: ColumnFilter) {
         columnFilterSet.append(filter)
         applyFilter()
     }
 
     /// Sets whether active filters compose as AND or OR.
-    func setColumnFilterComposition(_ composition: ColumnFilterComposition) {
+    public func setColumnFilterComposition(_ composition: ColumnFilterComposition) {
         columnFilterSet.composition = composition
         applyFilter()
     }
 
     /// Removes one column filter and refreshes the table.
-    func clearColumnFilter(for columnId: String) {
+    public func clearColumnFilter(for columnId: String) {
         columnFilterSet.removeFilters(for: columnId)
         applyFilter()
     }
 
     /// Removes every column filter and refreshes the table.
-    func clearAllColumnFilters() {
+    public func clearAllColumnFilters() {
         columnFilterSet.removeAll()
         applyFilter()
     }
 
     // MARK: - Cell Factory
 
-    func makeCellView(identifier: NSUserInterfaceItemIdentifier) -> NSTableCellView {
+    open func makeCellView(identifier: NSUserInterfaceItemIdentifier) -> NSTableCellView {
         let cell = NSTableCellView()
         cell.identifier = identifier
         let tf = BatchQuickCopyTextField(labelWithString: "")
@@ -561,11 +561,11 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
 
     // MARK: - NSTableViewDataSource
 
-    func numberOfRows(in tableView: NSTableView) -> Int {
+    public func numberOfRows(in tableView: NSTableView) -> Int {
         displayedRows.count
     }
 
-    func tableView(
+    public func tableView(
         _ tableView: NSTableView,
         sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]
     ) {
@@ -582,7 +582,7 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
         restoreSelectionByIdentityAfterDisplayedRowsChanged()
     }
 
-    func tableView(_ tableView: NSTableView, didClick tableColumn: NSTableColumn) {
+    public func tableView(_ tableView: NSTableView, didClick tableColumn: NSTableColumn) {
         showColumnHeaderFilterMenu(for: tableColumn)
     }
 
@@ -759,7 +759,7 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
 
     // MARK: - NSTableViewDelegate
 
-    func tableView(
+    public func tableView(
         _ tableView: NSTableView,
         viewFor tableColumn: NSTableColumn?,
         row: Int
@@ -791,7 +791,7 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
         return cellView
     }
 
-    func tableViewSelectionDidChange(_ notification: Notification) {
+    open func tableViewSelectionDidChange(_ notification: Notification) {
         guard !isRestoringSelection else { return }
 
         let selectedIndexes = tableView.selectedRowIndexes
@@ -817,7 +817,7 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
     }
 
     /// Returns selected visible rows using stable identity when available.
-    func selectedRowsByIdentity() -> [Row] {
+    public func selectedRowsByIdentity() -> [Row] {
         guard let visibleIDs = displayedRowIdentities(),
               !selectionIdentities.selectedIDs.isEmpty else {
             return selectedRowsByCurrentIndexes()
@@ -830,12 +830,12 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
     }
 
     /// Returns true when the current stable selection still maps to a visible row.
-    func hasVisibleIdentitySelection() -> Bool {
+    public func hasVisibleIdentitySelection() -> Bool {
         !selectedRowsByIdentity().isEmpty
     }
 
     /// Selects a clicked context-menu row through the same identity store as visible selection.
-    func selectDisplayedRowForContextMenuIfNeeded(_ rowIndex: Int) {
+    public func selectDisplayedRowForContextMenuIfNeeded(_ rowIndex: Int) {
         guard rowIndex >= 0, rowIndex < displayedRows.count else { return }
         let row = displayedRows[rowIndex]
 
@@ -907,8 +907,8 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
 
 #if DEBUG
 extension BatchTableView {
-    var testSearchField: NSSearchField { searchField }
-    var testTableView: NSTableView { tableView }
+    public var testSearchField: NSSearchField { searchField }
+    public var testTableView: NSTableView { tableView }
 }
 #endif
 
@@ -919,7 +919,7 @@ extension BatchTableView {
 /// - `>= 1 000 000` → `"12.3M"`
 /// - `>= 1 000`     → `"4.5K"`
 /// - otherwise      → `"123"`
-func formatReadCount(_ count: Int) -> String {
+public func formatReadCount(_ count: Int) -> String {
     if count >= 1_000_000 {
         return String(format: "%.1fM", Double(count) / 1_000_000)
     } else if count >= 1_000 {

@@ -1,27 +1,29 @@
 import AppKit
 
 @MainActor
-final class TwoPaneTrackedSplitCoordinator {
-    private(set) var didSetInitialSplitPosition = false
-    private(set) var needsInitialSplitValidation = true
+public final class TwoPaneTrackedSplitCoordinator {
+    public private(set) var didSetInitialSplitPosition = false
+    public private(set) var needsInitialSplitValidation = true
+
+    public init() {}
 
     private var pendingInitialSplitValidation = false
     private var pendingInitialValidationLeadingExtent: CGFloat?
     private var isSynchronizingTrackedSplitPosition = false
 
-    func invalidateInitialSplitPosition() {
+    public func invalidateInitialSplitPosition() {
         didSetInitialSplitPosition = false
         needsInitialSplitValidation = true
     }
 
-    func currentDividerPosition(in splitView: NSSplitView) -> CGFloat? {
+    public func currentDividerPosition(in splitView: NSSplitView) -> CGFloat? {
         guard splitView.arrangedSubviews.count == 2 else { return nil }
         return splitView.isVertical
             ? splitView.arrangedSubviews[0].frame.width
             : splitView.arrangedSubviews[0].frame.height
     }
 
-    func resetInitialSplitPositionIfNeeded(
+    public func resetInitialSplitPositionIfNeeded(
         in splitView: NSSplitView,
         minimumExtents: (leading: CGFloat, trailing: CGFloat)
     ) {
@@ -43,7 +45,7 @@ final class TwoPaneTrackedSplitCoordinator {
         }
     }
 
-    func hasValidInitialSplitPosition(
+    public func hasValidInitialSplitPosition(
         in splitView: NSSplitView,
         minimumExtents: (leading: CGFloat, trailing: CGFloat)
     ) -> Bool {
@@ -65,7 +67,7 @@ final class TwoPaneTrackedSplitCoordinator {
         return leadingExtent >= minimumExtents.leading && trailingExtent >= minimumExtents.trailing
     }
 
-    func applyInitialSplitPositionIfNeeded(
+    public func applyInitialSplitPositionIfNeeded(
         to splitView: TrackedDividerSplitView,
         defaultLeadingFraction: CGFloat,
         defaultLeadingExtent: CGFloat? = nil,
@@ -92,7 +94,7 @@ final class TwoPaneTrackedSplitCoordinator {
         afterApply?()
     }
 
-    func scheduleInitialSplitValidationIfNeeded(
+    public func scheduleInitialSplitValidationIfNeeded(
         ownerView: NSView,
         splitView: TrackedDividerSplitView,
         minimumExtents: @escaping () -> (leading: CGFloat, trailing: CGFloat),
@@ -143,7 +145,7 @@ final class TwoPaneTrackedSplitCoordinator {
         }
     }
 
-    func applyLayoutPreference(
+    public func applyLayoutPreference(
         to splitView: TrackedDividerSplitView,
         desiredIsVertical: Bool,
         desiredFirstPane: NSView,
@@ -214,7 +216,7 @@ final class TwoPaneTrackedSplitCoordinator {
         afterApply?()
     }
 
-    func resizeSubviewsWithOldSize(
+    public func resizeSubviewsWithOldSize(
         _ splitView: TrackedDividerSplitView,
         oldSize: NSSize,
         defaultLeadingFraction: CGFloat,
@@ -243,7 +245,7 @@ final class TwoPaneTrackedSplitCoordinator {
         afterResize?()
     }
 
-    func splitViewDidResizeSubviews(
+    public func splitViewDidResizeSubviews(
         _ splitView: TrackedDividerSplitView,
         minimumExtents: (leading: CGFloat, trailing: CGFloat),
         afterResize: (() -> Void)? = nil

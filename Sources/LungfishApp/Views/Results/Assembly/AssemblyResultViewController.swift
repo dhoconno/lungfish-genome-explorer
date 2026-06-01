@@ -6,6 +6,7 @@ import AppKit
 import Foundation
 import LungfishCore
 import LungfishWorkflow
+import LungfishAppKit
 
 protocol AssemblyContigCatalogProviding: Sendable {
     func records() async throws -> [AssemblyContigRecord]

@@ -1,5 +1,6 @@
 import AppKit
 import LungfishIO
+import LungfishAppKit
 
 @MainActor
 final class GenotypeResultTableView: BatchTableView<ONTGenotypeSampleResult> {

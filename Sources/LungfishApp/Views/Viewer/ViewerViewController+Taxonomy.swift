@@ -10,6 +10,7 @@ import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 import os.log
+import LungfishAppKit
 
 /// Logger for taxonomy display operations.
 private let taxonomyLogger = Logger(subsystem: LogSubsystem.app, category: "ViewerTaxonomy")

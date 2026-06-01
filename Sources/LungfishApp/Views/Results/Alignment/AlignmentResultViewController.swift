@@ -16,6 +16,7 @@
 
 import AppKit
 import LungfishWorkflow
+import LungfishAppKit
 
 // MARK: - AlignmentResultViewController
 

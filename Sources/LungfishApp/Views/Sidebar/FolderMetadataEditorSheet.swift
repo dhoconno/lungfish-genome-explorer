@@ -6,6 +6,7 @@ import AppKit
 import LungfishCore
 import LungfishIO
 import os.log
+import LungfishAppKit
 
 private let logger = Logger(subsystem: "com.lungfish.app", category: "FolderMetadataEditor")
 

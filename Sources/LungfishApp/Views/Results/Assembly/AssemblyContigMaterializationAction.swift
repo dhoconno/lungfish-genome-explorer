@@ -6,6 +6,7 @@ import AppKit
 import Foundation
 import LungfishIO
 import LungfishWorkflow
+import LungfishAppKit
 
 @MainActor
 final class AssemblyContigMaterializationAction {

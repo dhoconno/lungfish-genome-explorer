@@ -7,6 +7,7 @@ import SwiftUI
 import LungfishCore
 import LungfishIO
 import os.log
+import LungfishAppKit
 
 /// Logger for annotation drawer operations
 let annotationDrawerLogger = Logger(subsystem: LogSubsystem.app, category: "AnnotationDrawer")

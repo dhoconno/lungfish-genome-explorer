@@ -6,6 +6,7 @@ import AppKit
 import LungfishCore
 import LungfishWorkflow
 import os.log
+import LungfishAppKit
 
 private let assemblyDisplayLogger = Logger(subsystem: LogSubsystem.app, category: "ViewerAssembly")
 

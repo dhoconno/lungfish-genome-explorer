@@ -3,6 +3,7 @@ import SwiftUI
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
+import LungfishAppKit
 
 @MainActor
 final class GenotypeResultViewController: NSViewController {

@@ -39,6 +39,11 @@ let package = Package(
             name: "LungfishApp",
             targets: ["LungfishApp"]
         ),
+        // Shared UI kernel extracted from LungfishApp
+        .library(
+            name: "LungfishAppKit",
+            targets: ["LungfishAppKit"]
+        ),
     ],
     dependencies: [
         // Swift Argument Parser for CLI tools
@@ -136,6 +141,17 @@ let package = Package(
             ]
         ),
 
+        // MARK: - LungfishAppKit (shared UI kernel)
+        .target(
+            name: "LungfishAppKit",
+            dependencies: [
+                "LungfishCore",
+                "LungfishIO",
+                "LungfishWorkflow",
+            ],
+            path: "Sources/LungfishAppKit"
+        ),
+
         // MARK: - LungfishApp
         .target(
             name: "LungfishApp",
@@ -143,6 +159,7 @@ let package = Package(
                 "LungfishCore",
                 "LungfishIO",
                 "LungfishWorkflow",
+                "LungfishAppKit",
             ],
             path: "Sources/LungfishApp",
             resources: [

@@ -1,6 +1,7 @@
 import XCTest
 import LungfishCore
 @testable import LungfishApp
+import LungfishAppKit
 
 @MainActor
 final class WorkspaceShellLayoutTests: XCTestCase {

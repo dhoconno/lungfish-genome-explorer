@@ -2,6 +2,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishIO
 import ObjectiveC.runtime
+import LungfishAppKit
 
 private final class SplitViewPositionSpy: NSSplitView {
     static var setPositionCallCount = 0

@@ -4,6 +4,7 @@ import Foundation
 import LungfishIO
 import LungfishWorkflow
 import XCTest
+import LungfishAppKit
 
 @MainActor
 final class RecordingPasteboard: PasteboardWriting {

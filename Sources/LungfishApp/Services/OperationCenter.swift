@@ -6,6 +6,7 @@ import Foundation
 import LungfishCore
 import LungfishWorkflow
 import SwiftUI
+import LungfishAppKit
 
 /// The type of long-running operation being tracked.
 public enum OperationType: String, Sendable {

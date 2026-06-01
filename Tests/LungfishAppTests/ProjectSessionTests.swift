@@ -1,6 +1,7 @@
 import XCTest
 @testable import LungfishApp
 import LungfishCore
+import LungfishAppKit
 
 @MainActor
 final class ProjectSessionTests: XCTestCase {

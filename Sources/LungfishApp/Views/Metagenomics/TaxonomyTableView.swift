@@ -4,6 +4,7 @@
 
 import AppKit
 import LungfishIO
+import LungfishAppKit
 
 // MARK: - TaxonomyTableView
 

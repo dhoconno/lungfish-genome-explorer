@@ -8,6 +8,7 @@ import LungfishIO
 import LungfishWorkflow
 import SwiftUI
 import os.log
+import LungfishAppKit
 
 private let logger = Logger(subsystem: LogSubsystem.app, category: "NvdResultVC")
 

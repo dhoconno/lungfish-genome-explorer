@@ -7,6 +7,7 @@ import LungfishWorkflow
 import UniformTypeIdentifiers
 import os.log
 import LungfishCore
+import LungfishAppKit
 
 /// Logger for workflow builder operations
 private let logger = Logger(subsystem: LogSubsystem.app, category: "WorkflowBuilderViewController")

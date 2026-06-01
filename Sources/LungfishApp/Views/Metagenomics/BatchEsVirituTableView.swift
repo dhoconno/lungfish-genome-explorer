@@ -5,6 +5,7 @@
 import AppKit
 import LungfishCore
 import os.log
+import LungfishAppKit
 
 private let logger = Logger(subsystem: LogSubsystem.app, category: "BatchEsVirituTableView")
 

@@ -11,6 +11,7 @@ import UniformTypeIdentifiers
 import Quartz  // For QLPreviewView
 import PDFKit  // For PDF rendering (more reliable than QLPreviewView for PDFs)
 import os.log
+import LungfishAppKit
 
 // QuickLookItem extracted to QuickLookItem.swift
 // BaseColors extracted to BaseColors.swift

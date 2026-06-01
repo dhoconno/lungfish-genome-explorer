@@ -4,6 +4,7 @@
 
 import XCTest
 @testable import LungfishApp
+import LungfishAppKit
 
 @MainActor
 final class ProjectSampleMetadataModalRouterTests: XCTestCase {

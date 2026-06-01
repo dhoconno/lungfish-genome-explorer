@@ -6,6 +6,7 @@ import AppKit
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
+import LungfishAppKit
 
 @MainActor
 final class ReferenceSequenceTableView: BatchTableView<BundleBrowserSequenceSummary> {

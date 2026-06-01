@@ -5,6 +5,7 @@
 import AppKit
 import LungfishIO
 import SwiftUI
+import LungfishAppKit
 
 // MARK: - ViralDetectionTableView
 

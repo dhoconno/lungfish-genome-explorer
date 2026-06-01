@@ -1,5 +1,6 @@
 import XCTest
 @testable import LungfishApp
+import LungfishAppKit
 
 final class ContentSelectionIdentityTests: XCTestCase {
     func testStandardizedURLsMatchForEquivalentPaths() {

@@ -9,6 +9,7 @@ import LungfishIO
 import LungfishWorkflow
 import SQLite3
 import os
+import LungfishAppKit
 
 /// Main application delegate handling app lifecycle and global state.
 @MainActor

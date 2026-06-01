@@ -42,27 +42,29 @@ private let metadataColumnPrefix = "metadata_"
 ///
 /// This class is `@MainActor` isolated.
 @MainActor
-final class MetadataColumnController {
+public final class MetadataColumnController {
 
     // MARK: - Properties
+
+    public init() {}
 
     private static let zeroWidthDisableThreshold: CGFloat = 0.5
 
     /// The metadata store providing column names and values.
-    private(set) var store: SampleMetadataStore?
+    public private(set) var store: SampleMetadataStore?
 
     /// The current sample ID for value lookups.
-    private(set) var currentSampleId: String?
+    public private(set) var currentSampleId: String?
 
     /// Set of metadata column names currently toggled visible by the user.
-    var visibleColumns: Set<String> = []
+    public var visibleColumns: Set<String> = []
 
     /// Whether multiple samples are currently being viewed.
     ///
     /// Metadata columns are always available regardless of this flag.
     /// In multi-sample mode each row shows the metadata value for its
     /// respective sample (via ``cellForColumn(_:sampleId:)``).
-    var isMultiSampleMode: Bool = false {
+    public var isMultiSampleMode: Bool = false {
         didSet {
             if isMultiSampleMode != oldValue {
                 rebuildHeaderMenu()
@@ -83,7 +85,7 @@ final class MetadataColumnController {
     private var isApplyingColumnVisibility = false
 
     /// Standard column names for the header menu (shown as non-toggleable).
-    var standardColumnNames: [String] = []
+    public var standardColumnNames: [String] = []
 
     deinit {
         if let columnResizeObserver {
@@ -98,7 +100,7 @@ final class MetadataColumnController {
     /// Sets up the header context menu for column visibility toggling.
     ///
     /// - Parameter table: The NSTableView or NSOutlineView to manage.
-    func install(on table: NSTableView) {
+    public func install(on table: NSTableView) {
         self.tableView = table
         configureFlexibleTable(table)
         captureAndRelaxExistingColumns(on: table)
@@ -116,7 +118,7 @@ final class MetadataColumnController {
     /// - Parameters:
     ///   - store: The metadata store, or nil if no metadata has been imported.
     ///   - sampleId: The current sample ID for value lookups.
-    func update(store: SampleMetadataStore?, sampleId: String?) {
+    public func update(store: SampleMetadataStore?, sampleId: String?) {
         self.store = store
         self.currentSampleId = sampleId
         rebuildHeaderMenu()
@@ -128,7 +130,7 @@ final class MetadataColumnController {
     /// Call this when the user switches samples in a multi-sample classifier.
     ///
     /// - Parameter sampleId: The new sample ID.
-    func updateSampleId(_ sampleId: String?) {
+    public func updateSampleId(_ sampleId: String?) {
         self.currentSampleId = sampleId
         tableView?.reloadData()
     }
@@ -361,7 +363,7 @@ final class MetadataColumnController {
     // MARK: - Cell Rendering
 
     /// Returns true if the given column identifier is a metadata column.
-    static func isMetadataColumn(_ identifier: NSUserInterfaceItemIdentifier) -> Bool {
+    public static func isMetadataColumn(_ identifier: NSUserInterfaceItemIdentifier) -> Bool {
         identifier.rawValue.hasPrefix(metadataColumnPrefix)
     }
 
@@ -371,7 +373,7 @@ final class MetadataColumnController {
     ///
     /// - Parameter column: The table column to check.
     /// - Returns: A configured NSTextField cell, or nil if not a metadata column.
-    func cellForColumn(_ column: NSTableColumn) -> NSView? {
+    public func cellForColumn(_ column: NSTableColumn) -> NSView? {
         return cellForColumn(column, sampleId: currentSampleId)
     }
 
@@ -384,7 +386,7 @@ final class MetadataColumnController {
     ///   - column: The table column to check.
     ///   - sampleId: The sample ID to look up metadata for.
     /// - Returns: A configured NSTextField cell, or nil if not a metadata column.
-    func cellForColumn(_ column: NSTableColumn, sampleId: String?) -> NSView? {
+    public func cellForColumn(_ column: NSTableColumn, sampleId: String?) -> NSView? {
         let rawID = column.identifier.rawValue
         guard rawID.hasPrefix(metadataColumnPrefix) else { return nil }
 
@@ -419,13 +421,13 @@ final class MetadataColumnController {
     // MARK: - Export Support
 
     /// Returns the header names for visible metadata columns (in store order).
-    var exportHeaders: [String] {
+    public var exportHeaders: [String] {
         guard let store else { return [] }
         return store.columnNames.filter { visibleColumns.contains($0) }
     }
 
     /// Returns the values for visible metadata columns for the current sample.
-    var exportValues: [String] {
+    public var exportValues: [String] {
         guard let store, let sampleId = currentSampleId else { return [] }
         return store.columnNames.compactMap { colName in
             guard visibleColumns.contains(colName) else { return nil }
@@ -439,7 +441,7 @@ final class MetadataColumnController {
     ///
     /// - Parameter sampleId: The sample ID to look up values for.
     /// - Returns: Array of metadata values in the same order as ``exportHeaders``.
-    func exportValues(for sampleId: String) -> [String] {
+    public func exportValues(for sampleId: String) -> [String] {
         guard let store else { return [] }
         return store.columnNames.compactMap { colName in
             guard visibleColumns.contains(colName) else { return nil }
@@ -448,17 +450,17 @@ final class MetadataColumnController {
     }
 
     /// Returns whether any metadata columns are currently visible.
-    var hasVisibleColumns: Bool {
+    public var hasVisibleColumns: Bool {
         !visibleColumns.isEmpty && store != nil
     }
 
     // MARK: - Testing Hooks
 
-    func testingSyncDisabledColumnsFromWidths() {
+    public func testingSyncDisabledColumnsFromWidths() {
         syncDisabledColumnsFromWidths()
     }
 
-    func testingSetStandardColumnVisible(id: String, visible: Bool) {
+    public func testingSetStandardColumnVisible(id: String, visible: Bool) {
         setStandardColumnVisible(id: id, visible: visible)
     }
 }

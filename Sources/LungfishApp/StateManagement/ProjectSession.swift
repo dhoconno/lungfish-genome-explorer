@@ -1,6 +1,7 @@
 import Foundation
 import LungfishCore
 import LungfishIO
+import LungfishAppKit
 
 @MainActor
 public final class ProjectSession: Identifiable {

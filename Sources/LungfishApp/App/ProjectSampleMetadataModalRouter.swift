@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishAppKit
 
 struct ProjectSampleMetadataSheetRequest: Equatable {
     let projectURL: URL

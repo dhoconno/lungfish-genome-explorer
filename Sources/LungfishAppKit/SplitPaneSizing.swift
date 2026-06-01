@@ -1,7 +1,7 @@
 import CoreGraphics
 
-enum SplitPaneSizing {
-    static func clampedDrawerExtent(
+public enum SplitPaneSizing {
+    public static func clampedDrawerExtent(
         proposed: CGFloat,
         containerExtent: CGFloat,
         minimumDrawerExtent: CGFloat,
@@ -16,7 +16,7 @@ enum SplitPaneSizing {
         return min(max(proposed, minimumDrawerExtent), maximumDrawerExtent)
     }
 
-    static func clampedDividerPosition(
+    public static func clampedDividerPosition(
         proposed: CGFloat,
         containerExtent: CGFloat,
         minimumLeadingExtent: CGFloat,

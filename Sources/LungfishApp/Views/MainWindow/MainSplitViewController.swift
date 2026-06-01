@@ -7,6 +7,7 @@ import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 import os.log
+import LungfishAppKit
 
 /// Logger for main split view operations
 internal let mainSplitLogger = Logger(subsystem: LogSubsystem.app, category: "MainSplitViewController")

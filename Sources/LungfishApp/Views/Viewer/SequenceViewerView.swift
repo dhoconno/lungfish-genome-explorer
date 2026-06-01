@@ -10,6 +10,7 @@ import UniformTypeIdentifiers
 import Quartz
 import PDFKit
 import os.log
+import LungfishAppKit
 
 /// Logger for SequenceViewerView operations
 let sequenceViewerLogger = Logger(subsystem: LogSubsystem.app, category: "SequenceViewerView")

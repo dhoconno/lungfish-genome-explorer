@@ -8,6 +8,7 @@ import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 import os.log
+import LungfishAppKit
 
 
 // MARK: - InspectorView (SwiftUI)
