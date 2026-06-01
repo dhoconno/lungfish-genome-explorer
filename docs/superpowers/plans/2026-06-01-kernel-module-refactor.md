@@ -575,6 +575,21 @@ EOF
 
 ## Phase 4 — Metagenomics infra + leaves
 
+> **Discovered during Phase 4 (Nvd attempt, 2026-06-01) — SHARED PREREQUISITE for all 4 leaves:**
+> all four classifier result VCs (Nvd, NaoMgs, TaxTriage, EsViritu) AND the Taxonomy hub call
+> `presentClassifierExtractionDialog(tool:resultPath:selectors:suggestedName:)`, an `NSViewController`
+> extension in `Views/Metagenomics/ClassifierExtractionDialogPresenting.swift` whose body reaches
+> App-internal `MainWindowController`, `OperationRouteContext`, and `TaxonomyReadExtractionAction`
+> (the read-extraction -> operation pipeline). A leaf cannot call it. INVERSION (Task 4.0 below):
+> add a callback `onExtractReadsRequested: (@MainActor (ClassifierTool, URL, [ClassifierRowSelector], String) -> Void)?`
+> to each of the 4 VCs (the signature is leaf-legal: `ClassifierTool`/`ClassifierRowSelector` are
+> in LungfishWorkflow), have the VC's extraction entry point invoke the callback instead of calling
+> the dialog directly, and wire each App host (where the VC is constructed:
+> `MainSplitViewController+ClassifierDisplay.swift`, `ViewerViewController+EsViritu.swift`,
+> `ViewerViewController+TaxTriage.swift`) to set the callback to call
+> `presentClassifierExtractionDialog` on the VC. The Taxonomy hub stays in App and keeps calling
+> the dialog directly (no change). Do this BEFORE extracting any of the 4 leaves.
+>
 > **Discovered during Phase 1 (Task 1.2):** `MetagenomicsDrawerView` (+ `MetagenomicsDrawerDelegate`,
 > `MetagenomicsDrawerTab`, `MetagenomicsDividerView`) is NOT kernel-clean — it holds stored
 > properties of two App-internal types `SampleFilterDrawerTab`
