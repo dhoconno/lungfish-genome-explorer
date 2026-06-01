@@ -51,6 +51,10 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     private var isSampleEvidenceExpanded = true
     private var areAlternateMatchesExpanded = true
 
+    /// Pasteboard seam for the copy context menu (overridable in tests).
+    private var pasteboard: PasteboardWriting = DefaultPasteboard()
+    private let copyContextMenu = NSMenu()
+
     public var onDisplaySummaryChanged: ((TwelveSResultDisplaySummary) -> Void)?
     public var onDisplayStateChanged: ((TwelveSResultDisplayState) -> Void)?
     public var onUnresolvedBlastRequested: ((TwelveSUnresolvedBlastRequest) -> Void)?
@@ -293,6 +297,59 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         }
         unresolvedTable.onSelectionCleared = { [weak self] in
             self?.handleUnresolvedSelection([])
+        }
+
+        copyContextMenu.delegate = self
+        targetTable.tableContextMenu = copyContextMenu
+        unresolvedTable.tableContextMenu = copyContextMenu
+    }
+
+    /// Repopulates the copy context menu for the active table's current
+    /// selection. If the user right-clicked a row outside the current
+    /// selection, that row is selected first (matching NVD's behavior).
+    private func populateCopyContextMenu() {
+        switch mode {
+        case .targets:
+            let clicked = targetTable.tableView.clickedRow
+            if clicked >= 0, !targetTable.tableView.selectedRowIndexes.contains(clicked) {
+                targetTable.selectDisplayedRowForContextMenuIfNeeded(clicked)
+            }
+            let rows = resolvedTargetSelection()
+            TwelveSCopyMenuProvider.populateTargetMenu(copyContextMenu, rows: rows, pasteboard: pasteboard)
+        case .unresolved:
+            let clicked = unresolvedTable.tableView.clickedRow
+            if clicked >= 0, !unresolvedTable.tableView.selectedRowIndexes.contains(clicked) {
+                unresolvedTable.selectDisplayedRowForContextMenuIfNeeded(clicked)
+            }
+            let rows = resolvedUnresolvedSelection()
+            TwelveSCopyMenuProvider.populateUnresolvedMenu(copyContextMenu, rows: rows, pasteboard: pasteboard)
+        }
+    }
+
+    private func resolvedTargetSelection() -> [TwelveSScientificNameCountRow] {
+        let selected = targetTable.selectedRowsByIdentity()
+        return selected.isEmpty ? Array(targetTable.displayedRows.prefix(1)) : selected
+    }
+
+    private func resolvedUnresolvedSelection() -> [TwelveSUnresolvedSequence] {
+        let selected = unresolvedTable.selectedRowsByIdentity()
+        return selected.isEmpty ? Array(unresolvedTable.displayedRows.prefix(1)) : selected
+    }
+
+    /// Test seam: override the pasteboard used by the copy menu.
+    func testingSetPasteboard(_ pasteboard: PasteboardWriting) {
+        self.pasteboard = pasteboard
+    }
+
+    /// Test seam: select a row and exercise the "Copy Name" path directly.
+    func testingCopyNameForSelectedRow(_ row: Int) {
+        switch mode {
+        case .targets:
+            guard targetTable.displayedRows.indices.contains(row) else { return }
+            pasteboard.setString(TwelveSCopyFormatting.names([targetTable.displayedRows[row]]))
+        case .unresolved:
+            guard unresolvedTable.displayedRows.indices.contains(row) else { return }
+            pasteboard.setString(TwelveSCopyFormatting.unresolvedNames([unresolvedTable.displayedRows[row]]))
         }
     }
 
@@ -795,6 +852,13 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         } else {
             NSApp.presentError(error)
         }
+    }
+}
+
+extension TwelveSAmpliconResultViewController: NSMenuDelegate {
+    public func menuNeedsUpdate(_ menu: NSMenu) {
+        guard menu === copyContextMenu else { return }
+        populateCopyContextMenu()
     }
 }
 

@@ -16,7 +16,10 @@ final class TwelveSTargetTableView: BatchTableView<TwelveSScientificNameCountRow
 
     /// Returns the alternate-match display texts for a row (alternate matches,
     /// else potential matches) — used by the Alternates column and detail.
-    static func alternateTexts(for row: TwelveSScientificNameCountRow) -> [String] {
+    ///
+    /// `nonisolated` because it reads only `Sendable` row data and is needed by
+    /// the nonisolated ``TwelveSCopyFormatting`` helpers.
+    nonisolated static func alternateTexts(for row: TwelveSScientificNameCountRow) -> [String] {
         row.alternateMatches.isEmpty ? row.potentialMatches : row.alternateMatches.map(\.displayName)
     }
 
