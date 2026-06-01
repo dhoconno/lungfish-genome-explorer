@@ -4,6 +4,7 @@
 
 import XCTest
 @testable import LungfishApp
+@testable import LungfishTaxTriageUI
 @testable import LungfishIO
 @testable import LungfishWorkflow
 import LungfishKit

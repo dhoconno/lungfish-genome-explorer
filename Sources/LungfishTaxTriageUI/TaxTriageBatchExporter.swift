@@ -15,7 +15,7 @@ import LungfishWorkflow
 /// - Summary text report with batch metadata, per-sample highlights, and contamination flags
 ///
 /// Thread-safe: all methods are pure functions operating on provided data.
-enum TaxTriageBatchExporter {
+public enum TaxTriageBatchExporter {
 
     // MARK: - Organism Matrix CSV
 
@@ -30,7 +30,7 @@ enum TaxTriageBatchExporter {
     ///   - sampleIds: Ordered sample identifiers.
     ///   - negativeControlSampleIds: Sample IDs marked as negative controls.
     /// - Returns: CSV string.
-    static func generateOrganismMatrixCSV(
+    public static func generateOrganismMatrixCSV(
         metrics: [TaxTriageMetric],
         sampleIds: [String],
         negativeControlSampleIds: Set<String> = []
@@ -78,7 +78,7 @@ enum TaxTriageBatchExporter {
     ///   - metrics: All parsed metrics.
     ///   - sampleIds: Ordered sample identifiers.
     /// - Returns: Plain text report string.
-    static func generateSummaryReport(
+    public static func generateSummaryReport(
         result: TaxTriageResult,
         config: TaxTriageConfig,
         metrics: [TaxTriageMetric],

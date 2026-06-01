@@ -3,6 +3,7 @@ import XCTest
 @testable import LungfishIO
 @testable import LungfishNaoMgsUI
 @testable import LungfishNvdUI
+@testable import LungfishTaxTriageUI
 import ObjectiveC.runtime
 import LungfishKit
 

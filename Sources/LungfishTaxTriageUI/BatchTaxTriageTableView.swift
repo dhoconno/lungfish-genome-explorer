@@ -37,7 +37,7 @@ private extension NSUserInterfaceItemIdentifier {
 /// ``uniqueReadsByKey`` holds deduplication counts populated asynchronously by the
 /// owning view controller. Call ``reloadUniqueReadsColumn()`` after updating it.
 @MainActor
-final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric> {
+public final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric> {
 
     // MARK: - Callbacks
 
@@ -51,7 +51,7 @@ final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric> {
 
     // MARK: - Context Menu
 
-    override func viewDidMoveToSuperview() {
+    public override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         installContextMenu()
     }
@@ -223,7 +223,7 @@ final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric> {
     }
 
     /// Returns the metrics for all currently selected rows.
-    func selectedMetrics() -> [TaxTriageMetric] {
+    public func selectedMetrics() -> [TaxTriageMetric] {
         selectedRowsByIdentity()
     }
 
@@ -234,18 +234,18 @@ final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric> {
     /// Key format: `"<sampleId>\t<organism>"`. Values are populated from
     /// miniBAM selections and/or background computation. When absent, cells fall
     /// back to the parser-provided `row.reads` value.
-    var totalReadsByKey: [String: Int] = [:]
+    public var totalReadsByKey: [String: Int] = [:]
 
     /// Lookup dictionary for unique (deduplicated) read counts in batch group mode.
     ///
     /// Key format: `"<sampleId>\t<organism>"`. Values are populated from
     /// `perSampleDeduplicatedReadCounts` by the owning view controller as background
     /// BAM deduplication completes. Cells show "—" when the key is absent.
-    var uniqueReadsByKey: [String: Int] = [:]
+    public var uniqueReadsByKey: [String: Int] = [:]
 
     // MARK: - Subclass Hooks
 
-    override var columnSpecs: [BatchColumnSpec] {
+    public override var columnSpecs: [BatchColumnSpec] {
         [
             // TASS Score sorts descending by default (defaultAscending: false) — highest score first.
             BatchColumnSpec(identifier: .tt_sample,          title: "Sample",          width: 130, minWidth: 70,  defaultAscending: true),
@@ -260,9 +260,9 @@ final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric> {
         ]
     }
 
-    override var searchPlaceholder: String { "Filter organisms\u{2026}" }
+    public override var searchPlaceholder: String { "Filter organisms\u{2026}" }
 
-    override var columnTypeHints: [String: Bool] {
+    public override var columnTypeHints: [String: Bool] {
         [
             "sample": false, "organism": false, "confidence": false,
             "tassScore": true, "reads": true, "uniqueReads": true,
@@ -270,13 +270,13 @@ final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric> {
         ]
     }
 
-    override var standardColumnNames: [String] {
+    public override var standardColumnNames: [String] {
         ["Sample", "Organism", "TASS Score",
          "Reads", "Unique Reads", "Confidence",
          "Coverage Breadth", "Coverage Depth", "Abundance"]
     }
 
-    override func cellContent(
+    public override func cellContent(
         for column: NSUserInterfaceItemIdentifier,
         row: TaxTriageMetric
     ) -> (text: String, alignment: NSTextAlignment, font: NSFont?) {
@@ -314,11 +314,11 @@ final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric> {
         }
     }
 
-    override func rowMatchesFilter(_ row: TaxTriageMetric, filterText: String) -> Bool {
+    public override func rowMatchesFilter(_ row: TaxTriageMetric, filterText: String) -> Bool {
         row.organism.localizedCaseInsensitiveContains(filterText)
     }
 
-    override func compareRows(
+    public override func compareRows(
         _ lhs: TaxTriageMetric,
         _ rhs: TaxTriageMetric,
         by key: String,
@@ -360,9 +360,9 @@ final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric> {
         return ascending ? result : !result
     }
 
-    override func sampleId(for row: TaxTriageMetric) -> String? { row.sample }
+    public override func sampleId(for row: TaxTriageMetric) -> String? { row.sample }
 
-    override func rowIdentity(for row: TaxTriageMetric) -> String? {
+    public override func rowIdentity(for row: TaxTriageMetric) -> String? {
         [
             "taxtriage",
             resultIdentity ?? "unknown-result",
@@ -375,7 +375,7 @@ final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric> {
 
     // MARK: - Empty Column Hiding
 
-    override func columnHasData(_ columnId: NSUserInterfaceItemIdentifier) -> Bool {
+    public override func columnHasData(_ columnId: NSUserInterfaceItemIdentifier) -> Bool {
         switch columnId {
         case .tt_coverageBreadth:
             return unfilteredRows.contains { $0.coverageBreadth != nil }
@@ -390,7 +390,7 @@ final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric> {
 
     // MARK: - Public API
 
-    override func configure(rows: [TaxTriageMetric]) {
+    public override func configure(rows: [TaxTriageMetric]) {
         super.configure(rows: rows)
         logger.info("BatchTaxTriageTableView configured with \(rows.count) rows")
     }

@@ -9,6 +9,7 @@ import AppKit
 @testable import LungfishCore
 @testable import LungfishIO
 @testable import LungfishNaoMgsUI
+@testable import LungfishTaxTriageUI
 import LungfishKit
 
 // MARK: - Shared Test Helpers

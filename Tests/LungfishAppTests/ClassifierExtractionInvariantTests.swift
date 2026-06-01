@@ -61,7 +61,7 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
     // tools and rely on I3 (click wiring) in their integration test suites
     // for dynamic coverage.
     func testI1_taxtriage_menuItemVisible_sourceLevel() throws {
-        let path = "\(ClassifierExtractionFixtures.repositoryRoot.path)/Sources/LungfishApp/Views/Metagenomics/TaxTriageResultViewController.swift"
+        let path = "\(ClassifierExtractionFixtures.repositoryRoot.path)/Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift"
         let source = try String(contentsOfFile: path, encoding: .utf8)
         XCTAssertTrue(
             source.contains("Extract Reads\u{2026}") || source.contains("Extract Reads\\u{2026}"),

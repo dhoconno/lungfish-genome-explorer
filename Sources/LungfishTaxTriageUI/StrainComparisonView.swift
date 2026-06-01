@@ -4,6 +4,7 @@
 
 import AppKit
 import LungfishIO
+import LungfishKit
 import os.log
 
 private let logger = Logger(subsystem: "com.lungfish.app", category: "StrainComparison")

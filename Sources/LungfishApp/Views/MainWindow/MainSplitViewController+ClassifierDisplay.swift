@@ -8,6 +8,7 @@ import LungfishCore
 import LungfishIO
 import LungfishNaoMgsUI
 import LungfishNvdUI
+import LungfishTaxTriageUI
 import LungfishWorkflow
 import os.log
 

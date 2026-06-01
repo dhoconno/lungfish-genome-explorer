@@ -8,6 +8,7 @@
 import AppKit
 import LungfishCore
 import LungfishIO
+import LungfishTaxTriageUI
 import LungfishWorkflow
 import SwiftUI
 import os.log

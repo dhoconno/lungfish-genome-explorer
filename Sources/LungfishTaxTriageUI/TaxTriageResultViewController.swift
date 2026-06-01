@@ -146,7 +146,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     private var resolvedDisplayNames: [String: String] = [:]
 
     /// Currently selected sample filter index (0 = "All Samples", 1.. = per-sample).
-    private(set) var selectedSampleIndex: Int = 0
+    public private(set) var selectedSampleIndex: Int = 0
 
     /// Optional pre-selected sample ID set by sidebar routing before `configure` runs.
     var preselectedSampleId: String?
@@ -192,11 +192,11 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// independent TaxTriage results aggregated into a single flat table).
     /// Distinct from the existing `selectedSampleIndex`-based batch switching
     /// which operates within a single multi-sample TaxTriage result.
-    var isBatchGroupMode: Bool = false
+    public var isBatchGroupMode: Bool = false
 
     /// Whether the last `configureFromDatabase` call loaded data from a pre-built manifest
     /// rather than parsing per-sample files. Used to populate the Inspector manifest status.
-    private(set) var didLoadFromManifestCache: Bool = false
+    public private(set) var didLoadFromManifestCache: Bool = false
 
     /// True when this VC is displaying a single multi-sample TaxTriage result
     /// using the flat table + Inspector sample picker pattern.
@@ -221,7 +221,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     private let summaryBar = TaxTriageSummaryBar()
     private let sampleFilterControl = NSSegmentedControl()
-    let splitView = TrackedDividerSplitView()
+    public let splitView = TrackedDividerSplitView()
     private let leftPaneContainer = FlippedSplitPaneFillContainerView()
     private var miniBAMController: MiniBAMViewController?
     private let organismTableView = TaxTriageOrganismTableView()
@@ -275,19 +275,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     private var blastDrawerHeightConstraint: NSLayoutConstraint?
     private var splitViewBottomConstraint: NSLayoutConstraint?
 
-    /// Unified metagenomics drawer (Samples + Collections + BLAST tabs).
-    /// Created lazily and available for view controllers that adopt the unified drawer.
-    private(set) lazy var metagenomicsDrawer: MetagenomicsDrawerView = {
-        let drawer = MetagenomicsDrawerView()
-        drawer.onSampleFilterChanged = { [weak self] visibleIds in
-            self?.applyMetadataFilter(visibleSampleIds: visibleIds)
-        }
-        return drawer
-    }()
-
-    /// Metadata per sample, keyed by sampleId.
-    private var sampleMetadata: [String: FASTQSampleMetadata] = [:]
-
     /// Height constraint for the sample filter bar (0 when hidden, 24 when visible).
     private var sampleFilterHeightConstraint: NSLayoutConstraint?
     /// Top spacing constraint between sample filter and split view.
@@ -327,7 +314,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     public var strippedPrefix: String = ""
 
     /// Sample metadata for dynamic column display in the organism table.
-    var sampleMetadataStore: SampleMetadataStore? {
+    public var sampleMetadataStore: SampleMetadataStore? {
         didSet {
             updateMetadataColumnsForCurrentSample()
         }
@@ -1869,7 +1856,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
                 // Parse accession lengths from BAM header for this sample's references.
                 var localLengths: [String: Int] = [:]
-                if let samtoolsPath = BundleBuildHelpers.managedToolExecutablePath(.samtools) {
+                if let samtoolsPath = ManagedToolLocator.managedToolExecutablePath(.samtools) {
                     let samtools = URL(fileURLWithPath: samtoolsPath)
                     let proc = Process()
                     proc.executableURL = samtools
@@ -2188,7 +2175,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             return externalIndex
         }
 
-        guard let samtoolsPath = BundleBuildHelpers.managedToolExecutablePath(.samtools) else {
+        guard let samtoolsPath = ManagedToolLocator.managedToolExecutablePath(.samtools) else {
             logger.warning("Cannot generate BAM index: samtools not found")
             return nil
         }
@@ -2217,7 +2204,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Uses `samtools view -H` for index-independent sequence lengths and
     /// `samtools idxstats` for mapped-read counts when possible.
     private func parseBamReferenceLengths(bamURL: URL, indexURL: URL? = nil) {
-        guard let samtoolsPath = BundleBuildHelpers.managedToolExecutablePath(.samtools) else {
+        guard let samtoolsPath = ManagedToolLocator.managedToolExecutablePath(.samtools) else {
             logger.warning("Cannot parse BAM references: samtools not found")
             return
         }
@@ -2372,35 +2359,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         if !isBlastDrawerOpen {
             blastDrawer.isHidden = true
         }
-    }
-
-    // MARK: - Sample Metadata Integration
-
-    /// Configures the metagenomics drawer's Samples tab with metadata.
-    ///
-    /// Call this after `configure(metrics:...)` once sample metadata has been
-    /// loaded from FASTQ bundles.
-    public func configureSampleMetadata(_ metadata: [String: FASTQSampleMetadata]) {
-        self.sampleMetadata = metadata
-        metagenomicsDrawer.configureSamples(sampleIds: sampleIds, metadata: metadata)
-    }
-
-    /// Called by the metagenomics drawer when sample visibility changes.
-    private func applyMetadataFilter(visibleSampleIds: Set<String>) {
-        // Re-filter using the visible set
-        let filtered = sampleIds.filter { visibleSampleIds.contains($0) }
-        guard !filtered.isEmpty else { return }
-
-        // Reconfigure batch overview with filtered sample IDs
-        let negControlIds = negativeControlSampleIds()
-        let labels = buildSampleLabelsFromCSVMetadata()
-        batchOverviewView.configure(
-            metrics: metrics,
-            sampleIds: filtered,
-            negativeControlSampleIds: negControlIds,
-            sampleLabels: labels,
-            perSampleDeduplicatedReadCounts: perSampleDeduplicatedReadCounts
-        )
     }
 
     // MARK: - Setup: Batch Flat Table View
@@ -3626,52 +3584,52 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     // MARK: - Testing Accessors
 
     /// Returns the summary bar for testing.
-    var testSummaryBar: TaxTriageSummaryBar { summaryBar }
+    public var testSummaryBar: TaxTriageSummaryBar { summaryBar }
 
     /// Returns the organism table view for testing.
     var testOrganismTableView: TaxTriageOrganismTableView { organismTableView }
 
     /// Returns the action bar for testing.
-    var testActionBar: ClassifierActionBar { actionBar }
+    public var testActionBar: ClassifierActionBar { actionBar }
 
     /// Returns the split view for testing.
-    var testSplitView: NSSplitView { splitView }
+    public var testSplitView: NSSplitView { splitView }
 
     /// Returns the left pane container for testing.
-    var testLeftPaneContainer: NSView { leftPaneContainer }
+    public var testLeftPaneContainer: NSView { leftPaneContainer }
 
     /// Returns the right pane container for testing.
-    var testRightPaneContainer: NSView { rightPaneContainer }
+    public var testRightPaneContainer: NSView { rightPaneContainer }
 
     /// Returns the current result for testing.
-    var testResult: TaxTriageResult? { taxTriageResult }
+    public var testResult: TaxTriageResult? { taxTriageResult }
 
     /// Returns the batch flat table view for testing.
-    var testBatchFlatTableView: BatchTaxTriageTableView { batchFlatTableView }
+    public var testBatchFlatTableView: BatchTaxTriageTableView { batchFlatTableView }
 
     /// Returns the batch overview view for testing.
     var testBatchOverviewView: TaxTriageBatchOverviewView { batchOverviewView }
 
     /// Returns the sample filter segmented control for testing.
-    var testSampleFilterControl: NSSegmentedControl { sampleFilterControl }
+    public var testSampleFilterControl: NSSegmentedControl { sampleFilterControl }
 
     /// Returns the last requested divider position for testing.
-    var testRequestedDividerPosition: CGFloat? { splitView.requestedDividerPosition(at: 0) }
+    public var testRequestedDividerPosition: CGFloat? { splitView.requestedDividerPosition(at: 0) }
 
     /// Returns whether initial split validation is still pending for testing.
-    var testNeedsInitialSplitValidation: Bool { needsInitialSplitValidation }
+    public var testNeedsInitialSplitValidation: Bool { needsInitialSplitValidation }
 
     /// Returns per-sample deduplicated read counts for testing.
-    var testPerSampleDeduplicatedReadCounts: [String: [String: Int]] { perSampleDeduplicatedReadCounts }
+    public var testPerSampleDeduplicatedReadCounts: [String: [String: Int]] { perSampleDeduplicatedReadCounts }
 
     /// Returns deduplicated read counts for testing.
-    var testDeduplicatedReadCounts: [String: Int] { deduplicatedReadCounts }
+    public var testDeduplicatedReadCounts: [String: Int] { deduplicatedReadCounts }
 
     /// Returns parsed BAM accession lengths for testing.
-    var testAccessionLengths: [String: Int] { accessionLengths }
+    public var testAccessionLengths: [String: Int] { accessionLengths }
 
     /// Test hook for applying flat-table read stats updates.
-    func testApplyBatchFlatTableReadStats(sampleId: String, organism: String, totalReads: Int, uniqueReads: Int) {
+    public func testApplyBatchFlatTableReadStats(sampleId: String, organism: String, totalReads: Int, uniqueReads: Int) {
         applyBatchFlatTableReadStats(
             sampleId: sampleId,
             organism: organism,
@@ -3681,12 +3639,12 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     }
 
     /// Test hook for parsing BAM reference lengths with optional external index.
-    func testParseBamReferenceLengths(bamURL: URL, indexURL: URL?) {
+    public func testParseBamReferenceLengths(bamURL: URL, indexURL: URL?) {
         parseBamReferenceLengths(bamURL: bamURL, indexURL: indexURL)
     }
 
     /// Test hook for organism/sample accession lookup resolution.
-    func testAccessions(forOrganism organism: String, sampleId: String? = nil) -> [String]? {
+    public func testAccessions(forOrganism organism: String, sampleId: String? = nil) -> [String]? {
         accessions(for: organism, sampleId: sampleId)
     }
 }
@@ -3709,39 +3667,39 @@ private struct BatchUniqueReadsCache: Codable {
 /// A unified table row combining organism report data with TASS metrics.
 ///
 /// Used as the data model for ``TaxTriageOrganismTableView``.
-struct TaxTriageTableRow: Equatable {
+public struct TaxTriageTableRow: Equatable {
 
     /// Scientific name of the organism.
-    let organism: String
+    public let organism: String
 
     /// TASS confidence score (0.0 to 1.0).
-    let tassScore: Double
+    public let tassScore: Double
 
     /// Number of reads assigned to this organism.
-    let reads: Int
+    public let reads: Int
 
     /// Number of reads remaining after PCR-duplicate masking/removal.
-    let uniqueReads: Int?
+    public let uniqueReads: Int?
 
     /// Coverage breadth percentage (0.0 to 100.0), if available.
-    let coverage: Double?
+    public let coverage: Double?
 
     /// Qualitative confidence label (e.g., "high", "medium", "low").
-    let confidence: String?
+    public let confidence: String?
 
     /// NCBI taxonomy ID, if available.
-    let taxId: Int?
+    public let taxId: Int?
 
     /// Taxonomic rank code, if available.
-    let rank: String?
+    public let rank: String?
 
     /// Relative abundance (0.0 to 1.0), if available.
-    let abundance: Double?
+    public let abundance: Double?
 
     /// Whether this organism was detected in a negative control sample (contamination risk).
-    let isContaminationRisk: Bool
+    public let isContaminationRisk: Bool
 
-    init(
+    public init(
         organism: String,
         tassScore: Double,
         reads: Int,
@@ -4343,7 +4301,7 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
 ///
 /// Shows four cards: Organisms Detected, Pipeline Runtime, High Confidence, and Samples.
 @MainActor
-final class TaxTriageSummaryBar: GenomicSummaryCardBar {
+public final class TaxTriageSummaryBar: GenomicSummaryCardBar {
 
     private var organismCount: Int = 0
     private var runtime: TimeInterval = 0
@@ -4357,7 +4315,7 @@ final class TaxTriageSummaryBar: GenomicSummaryCardBar {
     private var batchTotalOrganisms: Int = 0
 
     /// Updates the summary bar with result data.
-    func update(
+    public func update(
         organismCount: Int,
         runtime: TimeInterval,
         highConfidenceCount: Int,
@@ -4378,14 +4336,14 @@ final class TaxTriageSummaryBar: GenomicSummaryCardBar {
     /// - Parameters:
     ///   - sampleCount: Number of samples in the batch.
     ///   - totalOrganisms: Total number of organism rows across all samples.
-    func updateBatch(sampleCount: Int, totalOrganisms: Int) {
+    public func updateBatch(sampleCount: Int, totalOrganisms: Int) {
         isBatchMode = true
         batchSampleCount = sampleCount
         batchTotalOrganisms = totalOrganisms
         needsDisplay = true
     }
 
-    override var cards: [Card] {
+    public override var cards: [Card] {
         if isBatchMode {
             return [
                 Card(label: "Batch", value: "TaxTriage"),
@@ -4409,7 +4367,7 @@ final class TaxTriageSummaryBar: GenomicSummaryCardBar {
         ]
     }
 
-    override func abbreviatedLabel(for label: String) -> String {
+    public override func abbreviatedLabel(for label: String) -> String {
         switch label {
         case "Organisms": return "Org."
         case "High Confidence": return "Hi-Conf"
