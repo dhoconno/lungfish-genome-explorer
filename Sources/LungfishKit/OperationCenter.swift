@@ -32,6 +32,7 @@ public enum OperationType: String, Sendable {
     case multipleSequenceAlignmentAction = "MSA Action"
     case phylogeneticTreeImport = "Tree Import"
     case phylogeneticTreeInference = "Tree Inference"
+    case phylogeneticTreeTransform = "Tree Transform"
 }
 
 /// A timestamped log entry recorded during an operation's lifecycle.
