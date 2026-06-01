@@ -343,9 +343,21 @@ EOF
 
 ## Phase 3 — Mid leaves: Mapping, Assembly
 
-### Task 3.1: Promote ReferenceBundleViewportController, then extract Mapping leaf
+### Task 3.1: ~~Promote ReferenceBundleViewportController, then extract Mapping leaf~~ SKIPPED (verified 2026-06-01)
 
-**Files:**
+> **DECISION: Mapping is NOT extractable as a leaf and is SKIPPED.** Verification found
+> `ReferenceBundleViewportController` (`Views/Results/Reference/ReferenceBundleViewportController.swift`)
+> EMBEDS the central hub: `private let embeddedViewerController = ViewerViewController()` (line 168)
+> and `var activeSequenceViewerController: ViewerViewController` (line 722). `MappingResultViewController`
+> SUBCLASSES it (`MappingResultViewController: ReferenceBundleViewportController`, line 8). Since
+> `ViewerViewController` is a composition root that must stay in LungfishApp, neither promoting
+> `ReferenceBundleViewportController` to the kernel nor co-extracting Mapping is possible without
+> dragging the hub down (out of scope, high risk). The audit's "only blocker: ReferenceBundleViewportController"
+> was wrong — that controller is itself hub-coupled. Mapping is architecturally a reference-bundle
+> viewport that HOSTS an embedded full viewer, i.e. a composition root, not a leaf. It stays in App.
+> Proceed directly to Task 3.2 (Assembly), which IS clean.
+
+**Files (SUPERSEDED — do not execute):**
 - Move (promote): `Sources/LungfishApp/Views/Results/Reference/ReferenceBundleViewportController.swift` → `Sources/LungfishAppKit/ReferenceBundleViewportController.swift` (it is the only blocker for Mapping; if it has its own App-internal deps, STOP and report)
 - Create dir: `Sources/LungfishMappingUI/`
 - Move: `Sources/LungfishApp/Views/Results/Mapping/*` → `Sources/LungfishMappingUI/`
