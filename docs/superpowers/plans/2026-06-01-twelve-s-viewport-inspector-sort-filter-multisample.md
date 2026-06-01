@@ -935,18 +935,16 @@ git commit -m "feat(12s): sample picker + subset aggregation in the viewport
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
 
-### Task 11: Per-sample metadata columns wiring
+### Task 11: Per-sample metadata columns — RESOLVED BY DESIGN (no code)
 
-**Files:**
-- Modify: `TwelveSAmpliconResultViewController.swift` (feed `targetTable.metadataColumns` / `unresolvedTable.metadataColumns` the sample list, matching NAO-MGS) + `sampleId(for:)` override on the subclasses if a dominant-sample mapping is needed.
-- Test: append a VC test asserting metadata columns install for >1 sample (mirror the NAO-MGS metadata-column test).
-
-- [ ] **Step 1–5:** Read the NAO-MGS metadata-column feeding code and its test, replicate the smallest equivalent for 12S, run `swift test --skip-update --filter LungfishTwelveSUITests`, commit:
-```bash
-git commit -m "feat(12s): per-sample metadata columns in multi-sample mode
-
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
-```
+**Implementation finding:** 12S target rows are aggregates across samples (one row per species), unlike NAO-MGS/NVD
+which have one row per sample. `MetadataColumnController` keys metadata off a single `sampleId(for: row)`, which has no
+correct value for an aggregated species row — a "dominant sample" mapping would attach misleading metadata. The
+per-sample breakdown therefore surfaces through the two mechanisms that map correctly onto aggregated rows, both already
+built: (1) the Inspector Detail tab's sample-evidence list (Task 6/7), and (2) the sample-picker filter (Task 10). The
+shared `MetadataColumnController` stays inherited and dormant (available for genuine imported metadata), so there is no
+regression and no misuse. See the spec's "Per-sample breakdown surfacing — design refinement" note. No additional code
+or commit for this task.
 
 ---
 

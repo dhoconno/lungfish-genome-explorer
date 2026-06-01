@@ -140,8 +140,19 @@ and the App glue can pass it without the leaf importing App. The Inspector view-
 - **Aggregation:** for the selected sample set, each target row's `totalExactReads` / `maxSamplePercent` recompute from
   the per-sample maps restricted to the selected samples (`count(forSample:)` already supports this). A single-sample
   bundle aggregated over its one sample equals today's totals — zero behavior change for existing bundles.
-- `MetadataColumnController` (embedded in `BatchTableView`, `isMultiSampleMode = true`) provides optional per-sample
-  columns, fed the same way NAO-MGS feeds it.
+- `MetadataColumnController` (embedded in `BatchTableView`, `isMultiSampleMode = true`) is inherited and remains
+  available for genuine imported sample metadata (its actual purpose), keyed by `sampleId(for:)`.
+
+**Per-sample breakdown surfacing — design refinement (implementation finding).** During implementation it became clear
+that 12S target rows are *aggregates across samples* (one row per species, holding a `sampleCounts` map), unlike
+NAO-MGS/NVD where there is one row *per sample*. `MetadataColumnController` keys metadata off a single
+`sampleId(for: row)`, which is well-defined for per-sample rows but not for an aggregated species row. Forcing a
+"dominant sample" mapping would attach misleading metadata. Therefore the per-sample breakdown surfaces through the two
+mechanisms that map correctly onto aggregated rows: (1) the **Inspector Detail tab's sample-evidence list** (per-sample
+reads + percentages for the selected species), and (2) the **sample-picker filter** (restrict the visible/aggregated row
+set to a chosen sample subset). The shared `MetadataColumnController` is retained, dormant unless real imported metadata
+is present, so there is no regression and no net-new misuse of the shared component. This honors the "reuse + surface
+per-sample data" intent without inventing a column-per-sample matrix (an explicit non-goal).
 
 ## Edge Cases
 
