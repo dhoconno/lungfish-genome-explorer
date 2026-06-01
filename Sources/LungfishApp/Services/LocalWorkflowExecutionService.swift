@@ -1,5 +1,6 @@
 import Foundation
 import LungfishWorkflow
+import LungfishKit
 
 @MainActor
 final class LocalWorkflowExecutionService {

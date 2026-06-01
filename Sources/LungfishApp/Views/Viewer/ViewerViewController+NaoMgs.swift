@@ -6,6 +6,7 @@ import AppKit
 import LungfishCore
 import LungfishIO
 import LungfishNaoMgsUI
+import LungfishKit
 import os.log
 
 private let naoMgsDisplayLogger = Logger(subsystem: "com.lungfish", category: "NaoMgsDisplay")

@@ -5,6 +5,7 @@
 import XCTest
 import os
 @testable import LungfishApp
+import LungfishKit
 
 /// Unit tests for ``DownloadCenter``.
 ///

@@ -7,6 +7,7 @@ import LungfishCore
 import LungfishIO
 import LungfishNaoMgsUI
 import LungfishNvdUI
+import LungfishKit
 import os.log
 
 private let nvdDisplayLogger = Logger(subsystem: "com.lungfish", category: "NvdDisplay")

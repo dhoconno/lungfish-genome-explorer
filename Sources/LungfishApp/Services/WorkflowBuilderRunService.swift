@@ -1,5 +1,6 @@
 import Foundation
 import LungfishWorkflow
+import LungfishKit
 
 public struct WorkflowBuilderRunSample: Sendable, Equatable {
     public let displayName: String

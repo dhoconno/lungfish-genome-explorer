@@ -6,7 +6,6 @@ import Foundation
 import LungfishCore
 import LungfishWorkflow
 import SwiftUI
-import LungfishKit
 
 /// The type of long-running operation being tracked.
 public enum OperationType: String, Sendable {
@@ -246,6 +245,14 @@ public final class OperationCenter: ObservableObject {
 
     /// Maps bundle path string to the operation ID that holds the lock.
     private var bundleLocks: [String: UUID] = [:]
+
+    /// Creates an empty operation center.
+    ///
+    /// In the running app, prefer the shared singleton ``shared``. A fresh
+    /// instance is primarily useful for isolated tests that need their own
+    /// operation state. Exposed publicly so callers outside this module (such
+    /// as test targets) can construct an isolated instance.
+    public init() {}
 
     public var activeCount: Int {
         items.filter { $0.state == .running }.count

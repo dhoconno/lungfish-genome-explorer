@@ -8,6 +8,7 @@
 import AppKit
 import LungfishCore
 import LungfishWorkflow
+import LungfishKit
 import UniformTypeIdentifiers
 
 /// Builds the application's main menu bar programmatically.

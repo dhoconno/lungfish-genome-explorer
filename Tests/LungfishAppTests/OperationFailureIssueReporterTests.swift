@@ -4,6 +4,7 @@
 
 import XCTest
 @testable import LungfishApp
+import LungfishKit
 
 @MainActor
 final class OperationFailureIssueReporterTests: XCTestCase {

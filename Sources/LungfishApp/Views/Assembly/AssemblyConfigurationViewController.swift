@@ -7,6 +7,7 @@ import SwiftUI
 import os.log
 import LungfishCore
 import LungfishWorkflow
+import LungfishKit
 
 /// Logger for assembly sheet presenter operations.
 private let logger = Logger(subsystem: LogSubsystem.app, category: "AssemblySheetPresenter")

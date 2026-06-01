@@ -1,6 +1,7 @@
 import Foundation
 import LungfishIO
 import LungfishWorkflow
+import LungfishKit
 
 protocol WorkflowOperationViewerBundlePreparing: Sendable {
     func prepareBaseBundle(

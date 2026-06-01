@@ -10,6 +10,7 @@ import LungfishCore
 import LungfishIO
 import LungfishTaxTriageUI
 import LungfishWorkflow
+import LungfishKit
 import SwiftUI
 import os.log
 

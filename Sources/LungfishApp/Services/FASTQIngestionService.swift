@@ -6,6 +6,7 @@ import Foundation
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
+import LungfishKit
 import os.log
 
 private let logger = Logger(subsystem: LogSubsystem.app, category: "FASTQIngestionService")

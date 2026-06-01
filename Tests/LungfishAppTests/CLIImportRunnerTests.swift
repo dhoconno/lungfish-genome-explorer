@@ -7,6 +7,7 @@ import Darwin
 import LungfishIO
 import LungfishWorkflow
 @testable import LungfishApp
+import LungfishKit
 
 final class CLIImportRunnerTests: XCTestCase {
 

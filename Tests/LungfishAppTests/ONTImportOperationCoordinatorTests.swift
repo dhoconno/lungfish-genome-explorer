@@ -3,6 +3,7 @@ import LungfishIO
 import LungfishWorkflow
 @testable import LungfishApp
 import XCTest
+import LungfishKit
 
 @MainActor
 final class ONTImportOperationCoordinatorTests: XCTestCase {

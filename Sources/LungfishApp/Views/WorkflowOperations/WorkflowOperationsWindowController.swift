@@ -1,5 +1,6 @@
 import AppKit
 import LungfishWorkflow
+import LungfishKit
 import SwiftUI
 
 @MainActor

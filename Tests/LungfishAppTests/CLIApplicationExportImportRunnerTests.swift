@@ -1,5 +1,6 @@
 import XCTest
 @testable import LungfishApp
+import LungfishKit
 
 final class CLIApplicationExportImportRunnerTests: XCTestCase {
     private var temporaryURLs: [URL] = []

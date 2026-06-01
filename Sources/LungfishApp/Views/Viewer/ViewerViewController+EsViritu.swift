@@ -10,6 +10,7 @@ import LungfishCore
 import LungfishEsVirituUI
 import LungfishIO
 import LungfishWorkflow
+import LungfishKit
 import SwiftUI
 import os.log
 

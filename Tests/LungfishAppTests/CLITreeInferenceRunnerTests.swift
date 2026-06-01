@@ -1,5 +1,6 @@
 import XCTest
 @testable import LungfishApp
+import LungfishKit
 
 final class CLITreeInferenceRunnerTests: XCTestCase {
     private var cleanupURLs: [URL] = []

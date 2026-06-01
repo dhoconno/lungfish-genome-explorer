@@ -5,6 +5,7 @@
 import AppKit
 import LungfishIO
 import LungfishWorkflow
+import LungfishKit
 import UniformTypeIdentifiers
 
 @MainActor

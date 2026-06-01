@@ -7,6 +7,7 @@ import AppKit
 import LungfishWorkflow
 import os.log
 import LungfishCore
+import LungfishKit
 
 /// Logger for the Plugin Manager view model.
 private let logger = Logger(subsystem: LogSubsystem.app, category: "PluginManagerVM")

@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import LungfishCore
+import LungfishKit
 
 enum DatabaseSearchDestination: String, CaseIterable, Identifiable, Sendable {
     case genBankGenomes

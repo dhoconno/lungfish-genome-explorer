@@ -4,6 +4,7 @@
 
 import XCTest
 @testable import LungfishApp
+import LungfishKit
 
 /// Tests verifying classification operation icons and button titles.
 ///

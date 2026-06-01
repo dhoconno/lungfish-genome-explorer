@@ -1,5 +1,6 @@
 import XCTest
 @testable import LungfishApp
+import LungfishKit
 
 final class CLIMSAActionRunnerTests: XCTestCase {
     private var cleanupURLs: [URL] = []

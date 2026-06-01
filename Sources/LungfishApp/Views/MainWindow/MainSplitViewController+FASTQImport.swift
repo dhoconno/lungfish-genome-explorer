@@ -6,6 +6,7 @@ import AppKit
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
+import LungfishKit
 import os.log
 
 extension MainSplitViewController {

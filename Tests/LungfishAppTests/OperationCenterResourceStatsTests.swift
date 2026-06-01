@@ -1,5 +1,6 @@
 import XCTest
 @testable import LungfishApp
+import LungfishKit
 
 @MainActor
 final class OperationCenterResourceStatsTests: XCTestCase {

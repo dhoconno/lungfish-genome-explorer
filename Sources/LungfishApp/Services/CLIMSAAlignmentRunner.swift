@@ -1,6 +1,7 @@
 import Foundation
 import LungfishCore
 import LungfishWorkflow
+import LungfishKit
 import os.log
 
 private let msaAlignmentRunnerLogger = Logger(

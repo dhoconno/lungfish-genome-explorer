@@ -1,5 +1,6 @@
 import Foundation
 import LungfishCore
+import LungfishKit
 import os.log
 
 private let nativeBundleImportLogger = Logger(

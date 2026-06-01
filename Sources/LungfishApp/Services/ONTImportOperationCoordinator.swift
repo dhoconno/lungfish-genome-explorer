@@ -5,6 +5,7 @@
 import Foundation
 import LungfishIO
 import LungfishWorkflow
+import LungfishKit
 
 @MainActor
 public final class ONTImportOperationCoordinator {

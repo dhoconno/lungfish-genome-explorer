@@ -19,6 +19,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishIO
 @testable import LungfishWorkflow
+import LungfishKit
 
 final class GUIRegressionTests: XCTestCase {
 
