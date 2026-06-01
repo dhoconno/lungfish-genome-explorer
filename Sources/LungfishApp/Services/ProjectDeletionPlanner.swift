@@ -71,6 +71,27 @@ final class ProjectDeletionPlanner {
     private let fileManager: FileManager
     private let maxMetadataFileBytes: UInt64 = 5 * 1024 * 1024
 
+    /// Directory extensions for every opaque project-object bundle. A directory
+    /// with one of these extensions is treated as a single object: the planner
+    /// recognizes it as a project object and never enumerates into its internal
+    /// files. Keep this as the single source of truth so the two consumers
+    /// (`isProjectObjectDirectory` and `isInsideProjectObjectContainer`) stay in
+    /// sync as new bundle types ship. Use the typed `directoryExtension`
+    /// constants where they exist; the remaining entries have no typed constant
+    /// and are used as string literals across the codebase.
+    static let projectObjectDirectoryExtensions: Set<String> = [
+        FASTQBundle.directoryExtension,
+        MultipleSequenceAlignmentBundle.directoryExtension,
+        ONTGenotypeResultBundle.directoryExtension,
+        MHCAmpliconReferenceBundle.directoryExtension,
+        TwelveSReferenceBundle.directoryExtension,
+        TwelveSAmpliconResultBundle.directoryExtension,
+        "lungfishref",
+        "lungfishtree",
+        "lungfishprimers",
+        "lungfishtax",
+    ]
+
     init(fileManager: FileManager = .default) {
         self.fileManager = fileManager
     }
@@ -357,15 +378,7 @@ final class ProjectDeletionPlanner {
 
     private func isProjectObjectDirectory(_ url: URL) -> Bool {
         let ext = url.pathExtension.lowercased()
-        if [
-            FASTQBundle.directoryExtension,
-            "lungfishref",
-            "lungfishmsa",
-            "lungfishtree",
-            "lungfishprimers",
-            ONTGenotypeResultBundle.directoryExtension,
-            "lungfishtax",
-        ].contains(ext) {
+        if Self.projectObjectDirectoryExtensions.contains(ext) {
             return true
         }
 
@@ -492,15 +505,7 @@ final class ProjectDeletionPlanner {
         let relativeComponents = components.dropFirst(projectComponents.count).dropLast()
         return relativeComponents.contains { component in
             let ext = (component as NSString).pathExtension.lowercased()
-            return [
-                FASTQBundle.directoryExtension,
-                "lungfishref",
-                "lungfishmsa",
-                "lungfishtree",
-                "lungfishprimers",
-                ONTGenotypeResultBundle.directoryExtension,
-                "lungfishtax",
-            ].contains(ext)
+            return Self.projectObjectDirectoryExtensions.contains(ext)
         }
     }
 
