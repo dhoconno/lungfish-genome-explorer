@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
-import LungfishKit
 import LungfishCore
 import LungfishIO
 import os.log
@@ -437,7 +436,7 @@ public final class MiniBAMViewController: NSViewController {
         currentZoom: Double,
         contigLength: Int
     ) -> Double {
-        let factor = SequenceViewerView.pinchZoomFactor(magnification: magnification)
+        let factor = PinchZoom.factor(magnification: magnification)
         let maxZoom = max(1, Double(contigLength) / 2.0)
         return min(maxZoom, max(1.0, currentZoom * factor))
     }

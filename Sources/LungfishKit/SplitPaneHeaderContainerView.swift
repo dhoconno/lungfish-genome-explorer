@@ -3,16 +3,16 @@ import AppKit
 /// A split-pane container that keeps a header view above a fill content view
 /// using frame-based layout, so content fitting widths do not fight the parent
 /// split view's divider math.
-final class SplitPaneHeaderContainerView: NSView {
-    let headerView: NSView
-    let contentView: NSView
+public final class SplitPaneHeaderContainerView: NSView {
+    public let headerView: NSView
+    public let contentView: NSView
 
-    var topInset: CGFloat
-    var sideInset: CGFloat
-    var bottomInset: CGFloat
-    var spacing: CGFloat
+    public var topInset: CGFloat
+    public var sideInset: CGFloat
+    public var bottomInset: CGFloat
+    public var spacing: CGFloat
 
-    init(
+    public init(
         headerView: NSView,
         contentView: NSView,
         topInset: CGFloat = 6,
@@ -37,14 +37,14 @@ final class SplitPaneHeaderContainerView: NSView {
         fatalError("init(coder:) not implemented")
     }
 
-    override var isFlipped: Bool { true }
+    public override var isFlipped: Bool { true }
 
-    override func layout() {
+    public override func layout() {
         super.layout()
         layoutPaneSubviews()
     }
 
-    override func resizeSubviews(withOldSize oldSize: NSSize) {
+    public override func resizeSubviews(withOldSize oldSize: NSSize) {
         super.resizeSubviews(withOldSize: oldSize)
         layoutPaneSubviews()
     }

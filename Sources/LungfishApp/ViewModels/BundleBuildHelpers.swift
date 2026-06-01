@@ -4,6 +4,7 @@
 
 import Foundation
 import LungfishCore
+import LungfishKit
 import LungfishWorkflow
 
 /// Shared helpers used by both ``GenomeDownloadViewModel`` and ``GenBankBundleDownloadViewModel``
@@ -412,18 +413,6 @@ extension BundleBuildHelpers {
         _ tool: NativeTool,
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> String? {
-        guard case .managed(let environment, let executableName) = tool.location else {
-            return nil
-        }
-
-        let executableURL = CoreToolLocator.managedExecutableURL(
-            environment: environment,
-            executableName: executableName,
-            homeDirectory: homeDirectory
-        )
-        guard FileManager.default.isExecutableFile(atPath: executableURL.path) else {
-            return nil
-        }
-        return executableURL.path
+        ManagedToolLocator.managedToolExecutablePath(tool, homeDirectory: homeDirectory)
     }
 }

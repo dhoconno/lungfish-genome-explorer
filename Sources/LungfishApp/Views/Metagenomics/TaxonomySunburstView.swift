@@ -4,6 +4,7 @@
 
 import AppKit
 import LungfishIO
+import LungfishKit
 
 // MARK: - TaxonomySunburstView
 

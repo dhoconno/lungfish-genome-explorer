@@ -3,7 +3,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
 @testable import LungfishIO
-import LungfishKit
+@testable import LungfishKit
 
 @MainActor
 final class MetagenomicsColumnResizeRegressionTests: XCTestCase {

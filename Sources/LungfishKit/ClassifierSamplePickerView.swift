@@ -10,13 +10,25 @@ import LungfishCore
 /// Shows a searchable, scrollable checklist. Each row displays the sample's
 /// display name and right-aligned metric value. Supports inline embedding
 /// in the Inspector or fixed-size popover from a toolbar button.
-struct ClassifierSamplePickerView: View {
+public struct ClassifierSamplePickerView: View {
 
     let samples: [any ClassifierSampleEntry]
     @Bindable var pickerState: ClassifierSamplePickerState
     @State private var searchText: String = ""
     let strippedPrefix: String
     var isInline: Bool = false
+
+    public init(
+        samples: [any ClassifierSampleEntry],
+        pickerState: ClassifierSamplePickerState,
+        strippedPrefix: String,
+        isInline: Bool = false
+    ) {
+        self.samples = samples
+        self.pickerState = pickerState
+        self.strippedPrefix = strippedPrefix
+        self.isInline = isInline
+    }
 
     private var filteredSamples: [any ClassifierSampleEntry] {
         if searchText.isEmpty { return samples }
@@ -30,7 +42,7 @@ struct ClassifierSamplePickerView: View {
         return !visibleIds.isEmpty && visibleIds.isSubset(of: pickerState.selectedSamples)
     }
 
-    var body: some View {
+    public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Search field
             HStack {
@@ -133,7 +145,7 @@ struct ClassifierSamplePickerView: View {
     }
 
     /// Computes the longest common prefix across all sample names, breaking at word boundaries.
-    nonisolated static func commonPrefix(of names: [String]) -> String {
+    public nonisolated static func commonPrefix(of names: [String]) -> String {
         guard let first = names.first, names.count > 1 else { return "" }
         var prefix = first
         for name in names.dropFirst() {

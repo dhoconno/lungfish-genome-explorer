@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishKit
 
 /// Utility functions for extracting, formatting, and converting NVD data.
 enum NvdDataConverter {
