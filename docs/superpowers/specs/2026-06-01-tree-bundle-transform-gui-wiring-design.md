@@ -236,13 +236,18 @@ integration test — `TreeCommandTests` + `PhylogeneticTreeBundleTests` already 
    confirm an operation runs in the Operations Panel and a new `.lungfishtree` appears in the sidebar and opens.
 5. **Full suite** green: XCTest failures ⊆ the 9 known TCC-environmental ones, swift-testing = 0.
 
-## Files touched
+## Files touched (as implemented)
 
-- `Sources/LungfishApp/Services/CLITreeTransformRunner.swift` — new.
-- `Sources/LungfishApp/Views/Viewer/ViewerViewController+AlignmentTreeBundles.swift` —
-  assign callback in `displayPhylogeneticTreeBundle`; add `performTreeBundleOperationViaCLI(_:)` (+ argv helper).
+- `Sources/LungfishApp/Services/CLITreeTransformRunner.swift` — new (event enum, result struct, `parseEvent`, `run`/`cancel`).
+- `Sources/LungfishApp/Views/Viewer/ViewerViewController.swift` — add `performTreeBundleOperationViaCLI(_:)`
+  (after `runIQTreeInferenceViaCLI`) and the file-scope `TreeBundleTransformCommand` argv/output-naming helper
+  (bottom of file). These live HERE, not in the extension, because they reuse `private` file-scoped helpers
+  (`enclosingProjectURL`, `projectURLForDerivedReferenceBundle`, `presentBlockingAlert`, `nextAvailableBundleURL`).
+- `Sources/LungfishApp/Views/Viewer/ViewerViewController+AlignmentTreeBundles.swift` — assign the
+  `onTreeBundleOperationRequested` callback in `displayPhylogeneticTreeBundle` (one 3-line closure).
 - `Sources/LungfishKit/OperationCenter.swift` — add `phylogeneticTreeTransform` case.
-- `Tests/LungfishAppTests/CLITreeTransformRunnerTests.swift` (+ arg-builder test) — new.
+- `Tests/LungfishAppTests/CLITreeTransformRunnerTests.swift` — new (5 parse tests + 2 fake-CLI E2E tests).
+- `Tests/LungfishAppTests/TreeBundleTransformArgvTests.swift` — new (6 argv/naming tests).
 
 No CLI, bundle-method, relabel, export, or collapse changes.
 
