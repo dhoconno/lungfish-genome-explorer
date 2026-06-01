@@ -81,4 +81,203 @@ actor CLITreeTransformRunner {
             return nil
         }
     }
+
+    func run(arguments: [String], operationID: UUID) async throws -> CLITreeTransformResult {
+        guard let binaryURL = cliURLOverride ?? CLIImportRunner.cliBinaryPath() else {
+            await failOperation(operationID, detail: RunError.cliNotFound.localizedDescription)
+            throw RunError.cliNotFound
+        }
+
+        let proc = Process()
+        proc.executableURL = binaryURL
+        proc.arguments = arguments
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        proc.standardOutput = stdoutPipe
+        proc.standardError = stderrPipe
+        process = proc
+
+        final class StreamState: @unchecked Sendable {
+            var stdoutBuffer = Data()
+            var stderrBuffer = Data()
+            var outputPath: String?
+            var failedMessage: String?
+        }
+
+        let state = OSAllocatedUnfairLock(initialState: StreamState())
+        let stdoutHandle = stdoutPipe.fileHandleForReading
+        let stderrHandle = stderrPipe.fileHandleForReading
+        let stdoutHandlerGroup = DispatchGroup()
+        let stderrHandlerGroup = DispatchGroup()
+        let opID = operationID
+
+        @Sendable func handleLine(_ data: Data) {
+            guard let line = String(data: data, encoding: .utf8),
+                  !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return
+            }
+            do {
+                guard let event = try Self.parseEvent(from: line) else { return }
+                switch event {
+                case let .start(progress, message):
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            OperationCenter.shared.log(id: opID, level: .info, message: message)
+                            OperationCenter.shared.update(id: opID, progress: max(0, min(1, progress)), detail: message)
+                        }
+                    }
+                case let .progress(progress, message):
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            OperationCenter.shared.update(
+                                id: opID,
+                                progress: max(0, min(1, progress)),
+                                detail: message
+                            )
+                        }
+                    }
+                case let .complete(output):
+                    state.withLock { $0.outputPath = output }
+                case let .failed(error):
+                    state.withLock { $0.failedMessage = error }
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            OperationCenter.shared.log(id: opID, level: .error, message: error)
+                        }
+                    }
+                }
+            } catch {
+                treeTransformRunnerLogger.warning("Failed to parse tree transform CLI event")
+            }
+        }
+
+        @Sendable func consumeStdout(_ data: Data) {
+            guard !data.isEmpty else { return }
+            let lines = state.withLock { current -> [Data] in
+                current.stdoutBuffer.append(data)
+                var parsed: [Data] = []
+                while let newlineIndex = current.stdoutBuffer.firstIndex(of: 0x0A) {
+                    let line = Data(current.stdoutBuffer.prefix(upTo: newlineIndex))
+                    current.stdoutBuffer.removeSubrange(...newlineIndex)
+                    parsed.append(line)
+                }
+                return parsed
+            }
+            for line in lines {
+                handleLine(line)
+            }
+        }
+
+        @Sendable func consumeStderr(_ data: Data) {
+            guard !data.isEmpty else { return }
+            state.withLock { $0.stderrBuffer.append(data) }
+        }
+
+        func drainStreamHandlers() {
+            stdoutHandlerGroup.wait()
+            stderrHandlerGroup.wait()
+        }
+
+        stdoutHandle.readabilityHandler = { handle in
+            stdoutHandlerGroup.enter()
+            defer { stdoutHandlerGroup.leave() }
+            let chunk = handle.availableData
+            guard !chunk.isEmpty else { return }
+            consumeStdout(chunk)
+        }
+        stderrHandle.readabilityHandler = { handle in
+            stderrHandlerGroup.enter()
+            defer { stderrHandlerGroup.leave() }
+            let chunk = handle.availableData
+            guard !chunk.isEmpty else { return }
+            consumeStderr(chunk)
+        }
+
+        await performCLIOperationCenterUpdate {
+            OperationCenter.shared.update(id: opID, progress: 0.01, detail: "Launching lungfish-cli...")
+        }
+
+        do {
+            try proc.run()
+        } catch {
+            stdoutHandle.readabilityHandler = nil
+            stderrHandle.readabilityHandler = nil
+            drainStreamHandlers()
+            process = nil
+            await failOperation(opID, detail: error.localizedDescription)
+            throw RunError.launchFailed(error.localizedDescription)
+        }
+
+        proc.waitUntilExit()
+        stdoutHandle.readabilityHandler = nil
+        stderrHandle.readabilityHandler = nil
+        drainStreamHandlers()
+        consumeStdout(stdoutHandle.readDataToEndOfFile())
+        consumeStderr(stderrHandle.readDataToEndOfFile())
+        drainStreamHandlers()
+        if let trailing = state.withLock({ current -> Data? in
+            guard !current.stdoutBuffer.isEmpty else { return nil }
+            defer { current.stdoutBuffer.removeAll(keepingCapacity: false) }
+            return current.stdoutBuffer
+        }) {
+            handleLine(trailing)
+        }
+        process = nil
+
+        let snapshot = state.withLock { current in
+            (
+                stderr: String(data: current.stderrBuffer, encoding: .utf8) ?? "",
+                outputPath: current.outputPath,
+                failedMessage: current.failedMessage
+            )
+        }
+
+        if await isOperationCancelled(opID) {
+            throw CancellationError()
+        }
+        if let failedMessage = snapshot.failedMessage {
+            await failOperation(opID, detail: failedMessage)
+            throw RunError.failedEvent(failedMessage)
+        }
+        if proc.terminationStatus != 0 {
+            let error = RunError.nonZeroExit(status: proc.terminationStatus, stderr: snapshot.stderr)
+            await failOperation(opID, detail: error.localizedDescription)
+            throw error
+        }
+        guard let outputPath = snapshot.outputPath,
+              !outputPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            await failOperation(opID, detail: RunError.missingCompletion.localizedDescription)
+            throw RunError.missingCompletion
+        }
+
+        let bundleURL = URL(fileURLWithPath: outputPath, isDirectory: true)
+        await performCLIOperationCenterUpdate {
+            OperationCenter.shared.complete(
+                id: opID,
+                detail: "Tree transform complete",
+                bundleURLs: [bundleURL]
+            )
+        }
+
+        return CLITreeTransformResult(bundleURL: bundleURL)
+    }
+
+    func cancel() {
+        guard let process, process.isRunning else { return }
+        process.terminate()
+    }
+
+    @MainActor
+    private func isOperationCancelled(_ id: UUID) -> Bool {
+        OperationCenter.shared.items.first { $0.id == id }?.state == .cancelled
+    }
+
+    @MainActor
+    private func failOperation(_ id: UUID, detail: String?) {
+        let message = detail ?? "Tree transform failed"
+        guard OperationCenter.shared.items.first(where: { $0.id == id })?.state != .cancelled else {
+            return
+        }
+        OperationCenter.shared.fail(id: id, detail: message, errorMessage: message)
+    }
 }
