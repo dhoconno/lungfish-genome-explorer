@@ -508,14 +508,9 @@ final class SequenceMenuOperationTests: XCTestCase {
     }
 
     func testAnnotationTracksMenuRemainsVisibleForSingleTrackDeletion() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let drawerSource = try String(
-            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView.swift"),
-            encoding: .utf8
-        )
+        // AnnotationTableDrawerView was split into focused extension files; read the
+        // combined source so this assertion is location-agnostic across the split.
+        let drawerSource = combinedAnnotationTableDrawerSource()
 
         XCTAssertTrue(drawerSource.contains("annotationTracksButton.isHidden = activeTab != .annotations || annotationTrackOrder.isEmpty"))
         XCTAssertFalse(drawerSource.contains("annotationTracksButton.isHidden = activeTab != .annotations || annotationTrackOrder.count <= 1"))
