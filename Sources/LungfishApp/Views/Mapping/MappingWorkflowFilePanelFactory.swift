@@ -3,22 +3,13 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishKit
 import UniformTypeIdentifiers
 
 @MainActor
 enum MappingWorkflowFilePanelFactory {
     static func referenceFASTAPanel(title: String? = nil, message: String? = nil) -> NSOpenPanel {
-        let panel = NSOpenPanel()
-        if let title {
-            panel.title = title
-        }
-        if let message {
-            panel.message = message
-        }
-        panel.allowedContentTypes = FASTAFileTypes.readableContentTypes
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        return panel
+        ReferenceFASTAPanel.make(title: title, message: message)
     }
 
     static func gffAnnotationPanel(title: String) -> NSOpenPanel {

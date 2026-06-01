@@ -1,6 +1,10 @@
+// FASTAFileTypes.swift - Shared FASTA/GenBank UTType data for file panels
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+
 import UniformTypeIdentifiers
 
-enum FASTAFileTypes {
+public enum FASTAFileTypes {
     static let readableExtensions = ["fa", "fasta", "fna", "fsa", "fas", "faa", "ffn", "frn", "gb", "gbk", "gbff", "genbank", "embl"]
     static let compressionWrapperExtensions = ["gz", "gzip", "bgz", "bz2", "xz", "zst", "zstd"]
 
@@ -8,7 +12,7 @@ enum FASTAFileTypes {
     ///
     /// Includes plain FASTA/GenBank/EMBL extensions and compressed wrappers
     /// so NSOpenPanel accepts files like `sequence.fa.gz` and `reference.gbk.xz`.
-    static let readableContentTypes: [UTType] = {
+    public static let readableContentTypes: [UTType] = {
         var types = readableExtensions.compactMap { UTType(filenameExtension: $0) }
         types.append(.gzip)
         for wrapper in compressionWrapperExtensions {

@@ -2,6 +2,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import LungfishIO
 import LungfishWorkflow
+import LungfishKit
 
 struct FASTQOperationToolPanes: View {
     @Bindable var state: FASTQOperationDialogState

@@ -333,7 +333,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LungfishAppTests",
-            dependencies: ["LungfishApp", "LungfishCLI", "LungfishNvdUI", "LungfishNaoMgsUI", "LungfishTaxTriageUI", "LungfishEsVirituUI"],
+            dependencies: ["LungfishApp", "LungfishKit", "LungfishCLI", "LungfishNvdUI", "LungfishNaoMgsUI", "LungfishTaxTriageUI", "LungfishEsVirituUI"],
             path: "Tests/LungfishAppTests",
             resources: [
                 .copy("Fixtures")

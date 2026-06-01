@@ -1,5 +1,5 @@
 import XCTest
-@testable import LungfishApp
+@testable import LungfishKit
 
 final class FASTAFileTypesTests: XCTestCase {
     func testReadableExtensionsIncludeCommonFASTAAliases() {

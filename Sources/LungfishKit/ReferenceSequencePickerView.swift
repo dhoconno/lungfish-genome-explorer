@@ -23,7 +23,7 @@ private struct DiscoveredReference: Identifiable {
 /// bundles (with `ReferenceSequenceManifest`) and full genome bundles (with
 /// `BundleManifest` and FASTA in `genome/` subdirectory). Also supports
 /// browsing the filesystem for standalone FASTA files (including `.fa.gz`).
-struct ReferenceSequencePickerView: View {
+public struct ReferenceSequencePickerView: View {
 
     /// The project directory URL. When `nil`, only filesystem browsing is available.
     let projectURL: URL?
@@ -40,9 +40,14 @@ struct ReferenceSequencePickerView: View {
     /// Whether a FASTA import is in progress.
     @State private var isImporting: Bool = false
 
+    public init(projectURL: URL?, selectedReferenceURL: Binding<URL?>) {
+        self.projectURL = projectURL
+        self._selectedReferenceURL = selectedReferenceURL
+    }
+
     // MARK: - Body
 
-    var body: some View {
+    public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Reference")
                 .font(.system(size: 12, weight: .medium))
@@ -113,7 +118,7 @@ struct ReferenceSequencePickerView: View {
     // MARK: - Browse
 
     private func browseForReference() {
-        let panel = MappingWorkflowFilePanelFactory.referenceFASTAPanel(
+        let panel = ReferenceFASTAPanel.make(
             message: "Select a reference FASTA file"
         )
 

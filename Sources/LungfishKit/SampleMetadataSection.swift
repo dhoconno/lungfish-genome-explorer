@@ -6,7 +6,7 @@ import SwiftUI
 import LungfishCore
 
 /// Inspector section displaying imported sample metadata with inline editing.
-struct SampleMetadataSection: View {
+public struct SampleMetadataSection: View {
     @Bindable var store: SampleMetadataStore
     var title: String = "Sample Metadata"
     var isEditable: Bool = true
@@ -14,7 +14,13 @@ struct SampleMetadataSection: View {
     @State private var editingCell: (sampleId: String, column: String)?
     @State private var editText: String = ""
 
-    var body: some View {
+    public init(store: SampleMetadataStore, title: String = "Sample Metadata", isEditable: Bool = true) {
+        self.store = store
+        self.title = title
+        self.isEditable = isEditable
+    }
+
+    public var body: some View {
         DisclosureGroup(title, isExpanded: $isExpanded) {
             if store.records.isEmpty {
                 Text("No metadata imported")

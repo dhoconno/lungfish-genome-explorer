@@ -5,6 +5,7 @@
 import SwiftUI
 import LungfishCore
 import LungfishIO
+import LungfishKit
 
 /// Editor sheet for user-defined `GenotypeHaplotypeDefinitionSet` values.
 /// Hosted in a sheet from the Audit lens (or a future Tools menu item).
