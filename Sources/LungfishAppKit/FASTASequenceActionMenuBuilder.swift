@@ -2,15 +2,35 @@ import AppKit
 import ObjectiveC
 
 @MainActor
-struct FASTASequenceActionHandlers {
-    var onExtractSequence: (() -> Void)? = nil
-    var blastMenuTitle: String = "Verify with BLAST…"
-    var onBlast: (() -> Void)?
-    var onCopy: (() -> Void)?
-    var onExport: (() -> Void)?
-    var onCreateBundle: (() -> Void)?
-    var onAlignWithMAFFT: (() -> Void)?
-    var onRunOperation: (() -> Void)?
+public struct FASTASequenceActionHandlers {
+    public var onExtractSequence: (() -> Void)? = nil
+    public var blastMenuTitle: String = "Verify with BLAST…"
+    public var onBlast: (() -> Void)?
+    public var onCopy: (() -> Void)?
+    public var onExport: (() -> Void)?
+    public var onCreateBundle: (() -> Void)?
+    public var onAlignWithMAFFT: (() -> Void)?
+    public var onRunOperation: (() -> Void)?
+
+    public init(
+        onExtractSequence: (() -> Void)? = nil,
+        blastMenuTitle: String = "Verify with BLAST…",
+        onBlast: (() -> Void)? = nil,
+        onCopy: (() -> Void)? = nil,
+        onExport: (() -> Void)? = nil,
+        onCreateBundle: (() -> Void)? = nil,
+        onAlignWithMAFFT: (() -> Void)? = nil,
+        onRunOperation: (() -> Void)? = nil
+    ) {
+        self.onExtractSequence = onExtractSequence
+        self.blastMenuTitle = blastMenuTitle
+        self.onBlast = onBlast
+        self.onCopy = onCopy
+        self.onExport = onExport
+        self.onCreateBundle = onCreateBundle
+        self.onAlignWithMAFFT = onAlignWithMAFFT
+        self.onRunOperation = onRunOperation
+    }
 
     static let noop = FASTASequenceActionHandlers(
         onExtractSequence: {},
@@ -24,7 +44,7 @@ struct FASTASequenceActionHandlers {
 }
 
 @MainActor
-enum FASTASequenceActionMenuBuilder {
+public enum FASTASequenceActionMenuBuilder {
     private static let actionAssociationKey = UnsafeRawPointer(bitPattern: 0xFA57A)!
 
     private final class ActionTarget: NSObject {
@@ -39,7 +59,7 @@ enum FASTASequenceActionMenuBuilder {
         }
     }
 
-    static func buildMenu(
+    public static func buildMenu(
         selectionCount: Int,
         handlers: FASTASequenceActionHandlers
     ) -> NSMenu {
@@ -48,7 +68,7 @@ enum FASTASequenceActionMenuBuilder {
         return menu
     }
 
-    static func buildItems(
+    public static func buildItems(
         selectionCount: Int,
         handlers: FASTASequenceActionHandlers
     ) -> [NSMenuItem] {

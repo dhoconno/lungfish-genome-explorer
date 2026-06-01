@@ -2,11 +2,11 @@ import AppKit
 
 /// A split-pane host that keeps a scroll view filling the pane bounds and can
 /// optionally constrain the document view to the clip-view width/height.
-final class ScrollViewSplitPaneContainerView: SplitPaneFillContainerView {
-    let scrollView: NSScrollView
-    let documentView: NSView
+public final class ScrollViewSplitPaneContainerView: SplitPaneFillContainerView {
+    public let scrollView: NSScrollView
+    public let documentView: NSView
 
-    init(
+    public init(
         scrollView: NSScrollView,
         documentView: NSView,
         trackDocumentWidth: Bool = true,
@@ -43,9 +43,9 @@ final class ScrollViewSplitPaneContainerView: SplitPaneFillContainerView {
         fillSubview = scrollView
     }
 
-    required init?(coder: NSCoder) {
+    public required init?(coder: NSCoder) {
         fatalError("init(coder:) not implemented")
     }
 
-    override var isFlipped: Bool { true }
+    public override var isFlipped: Bool { true }
 }

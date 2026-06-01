@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishAppKit
 
 @MainActor
 final class AssemblyActionBar: NSView {

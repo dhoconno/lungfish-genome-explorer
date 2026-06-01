@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishAppKit
 import LungfishIO
 
 // MARK: - FASTQSummaryBar

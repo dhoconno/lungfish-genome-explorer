@@ -5,7 +5,7 @@
 import AppKit
 
 @MainActor
-enum LungfishAppKitControlStyle {
+public enum LungfishAppKitControlStyle {
     static var inspectorControlFont: NSFont {
         .systemFont(ofSize: NSFont.smallSystemFontSize)
     }
@@ -14,23 +14,23 @@ enum LungfishAppKitControlStyle {
         .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
     }
 
-    static func applyInspectorMetrics(to control: NSControl, emphasized: Bool = false) {
+    public static func applyInspectorMetrics(to control: NSControl, emphasized: Bool = false) {
         control.controlSize = .small
         control.font = emphasized ? inspectorEmphasizedControlFont : inspectorControlFont
     }
 
-    static func applyInspectorMetrics(to segmentedControl: NSSegmentedControl) {
+    public static func applyInspectorMetrics(to segmentedControl: NSSegmentedControl) {
         segmentedControl.controlSize = .small
         segmentedControl.font = inspectorControlFont
         segmentedControl.segmentStyle = .rounded
     }
 
-    static func applyInspectorMetrics(to searchField: NSSearchField) {
+    public static func applyInspectorMetrics(to searchField: NSSearchField) {
         searchField.controlSize = .small
         searchField.font = inspectorControlFont
     }
 
-    static func configureInspectorIconButton(
+    public static func configureInspectorIconButton(
         _ button: NSButton,
         symbolName: String,
         fallbackTitle: String,
