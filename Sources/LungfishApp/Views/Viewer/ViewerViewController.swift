@@ -1892,6 +1892,96 @@ public class ViewerViewController: NSViewController {
         }
     }
 
+    /// Runs a tree-node transform (re-root / extract-subtree) via the lungfish CLI, mirroring
+    /// `inferTreeFromMSAViaCLI`. The selected node already supplies the selector, so no dialog is
+    /// shown — the operation starts immediately. Completion routes the new bundle through
+    /// OperationCenter's `onBundleReadyWithContext` path (opens it in the sidebar/viewer).
+    func performTreeBundleOperationViaCLI(_ request: PhylogeneticTreeViewController.TreeBundleOperationRequest) {
+        guard let outputStem = TreeBundleTransformCommand.outputStem(for: request) else {
+            // Operations like .collapse are handled in the view controller and never reach here.
+            return
+        }
+
+        guard let projectURL = Self.enclosingProjectURL(for: request.bundleURL)
+                ?? projectURLForDerivedReferenceBundle() else {
+            presentBlockingAlert(
+                title: "No Project",
+                message: "Open a Lungfish project before transforming this tree."
+            )
+            return
+        }
+
+        guard view.window != nil else {
+            presentBlockingAlert(
+                title: "No Window",
+                message: "Open this tree in a project window before transforming it."
+            )
+            return
+        }
+
+        let workflowName = "Tree transform"
+        guard canWriteProjectOutputs(projectURL: projectURL, workflowName: workflowName) else { return }
+
+        do {
+            let treeDirectory = projectURL.appendingPathComponent("Phylogenetic Trees", isDirectory: true)
+            try FileManager.default.createDirectory(at: treeDirectory, withIntermediateDirectories: true)
+            let outputURL = Self.nextAvailableBundleURL(
+                suggestedName: "\(outputStem).lungfishtree",
+                pathExtension: "lungfishtree",
+                in: treeDirectory
+            )
+
+            guard let args = TreeBundleTransformCommand.arguments(for: request, outputURL: outputURL) else {
+                return
+            }
+            let cliCommand = OperationCenter.buildCLICommand(
+                subcommand: args.first ?? "tree",
+                args: Array(args.dropFirst())
+            )
+            let title = TreeBundleTransformCommand.title(for: request.operation)
+            let opID = OperationCenter.shared.start(
+                title: title,
+                detail: "\(title) on \(request.nodeLabel)...",
+                operationType: .phylogeneticTreeTransform,
+                targetBundleURL: request.bundleURL,
+                cliCommand: cliCommand,
+                routeContext: OperationRouteContext(
+                    projectURL: projectURL,
+                    windowStateScope: windowStateScope
+                )
+            )
+            let runner = CLITreeTransformRunner()
+            OperationCenter.shared.setCancelCallback(for: opID) {
+                Task {
+                    await runner.cancel()
+                }
+            }
+
+            Task.detached {
+                do {
+                    _ = try await runner.run(arguments: args, operationID: opID)
+                } catch is CancellationError {
+                    return
+                } catch {
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            OperationCenter.shared.fail(
+                                id: opID,
+                                detail: error.localizedDescription,
+                                errorMessage: error.localizedDescription
+                            )
+                        }
+                    }
+                }
+            }
+        } catch {
+            presentBlockingAlert(
+                title: "Tree Transform Failed",
+                message: error.localizedDescription
+            )
+        }
+    }
+
     private func presentBlockingAlert(title: String, message: String) {
         let alert = NSAlert()
         alert.messageText = title
