@@ -17,11 +17,6 @@ public struct TwelveSAmpliconReadClassifier: Sendable {
         let target: [UInt8]
     }
 
-    private struct ExactReference: Sendable {
-        let target: [UInt8]
-        let targetIDs: [String]
-    }
-
     /// A reference whose uppercased sequence appears verbatim as an internal substring of the
     /// read (with at least `minimumSoftClipBases` flank on both ends). Carries enough information
     /// (`sequence`, `displayName`) to collapse nested-substring and same-species duplication
@@ -45,12 +40,7 @@ public struct TwelveSAmpliconReadClassifier: Sendable {
     private let indexedReferences: [IndexedReference]
     private let seedIndex: [String: [SeedHit]]
     private let indexedSeedLengths: [Int]
-    private let exactHashReferencesByLength: [Int: [UInt64: [ExactReference]]]
-    private let exactHashBasePowers: [Int: UInt64]
-    private let referenceLengths: [Int]
     private let minimumReferenceAlignedLengths: [Int]
-
-    private static let rollingHashBase: UInt64 = 131
 
     public init(
         references: [TwelveSReferenceRecord],
@@ -67,14 +57,9 @@ public struct TwelveSAmpliconReadClassifier: Sendable {
                 target: Array($0.sequence.uppercased().utf8)
             )
         }
-        var exactSequenceTargets: [String: [String]] = [:]
         var seedIndex: [String: [SeedHit]] = [:]
         var seedLengths = Set<Int>()
-        var referenceLengths = Set<Int>()
         for (referenceIndex, reference) in indexedReferences.enumerated() {
-            referenceLengths.insert(reference.target.count)
-            exactSequenceTargets[String(decoding: reference.target, as: UTF8.self), default: []]
-                .append(reference.targetID)
             let seedLength = Self.seedLength(forTargetLength: reference.target.count)
             guard seedLength > 0, reference.target.count >= seedLength else { continue }
             seedLengths.insert(seedLength)
@@ -93,20 +78,6 @@ public struct TwelveSAmpliconReadClassifier: Sendable {
         }
         self.seedIndex = seedIndex
         self.indexedSeedLengths = seedLengths.sorted()
-        var exactHashReferencesByLength: [Int: [UInt64: [ExactReference]]] = [:]
-        var exactHashBasePowers: [Int: UInt64] = [:]
-        for (sequence, targetIDs) in exactSequenceTargets {
-            let target = Array(sequence.utf8)
-            let length = target.count
-            let hash = Self.sequenceHash(bytes: target)
-            exactHashReferencesByLength[length, default: [:]][hash, default: []].append(
-                ExactReference(target: target, targetIDs: targetIDs)
-            )
-            exactHashBasePowers[length] = Self.leadingBasePower(forLength: length)
-        }
-        self.exactHashReferencesByLength = exactHashReferencesByLength
-        self.exactHashBasePowers = exactHashBasePowers
-        self.referenceLengths = referenceLengths.sorted()
         let maximumIndels = self.maximumIndelBases
         self.minimumReferenceAlignedLengths = indexedReferences.map {
             max(1, $0.target.count - maximumIndels)
@@ -424,44 +395,6 @@ public struct TwelveSAmpliconReadClassifier: Sendable {
 
     private static func seedKey(bytes: [UInt8], offset: Int, length: Int) -> String {
         "\(length):" + String(decoding: bytes[offset..<(offset + length)], as: UTF8.self)
-    }
-
-    private static func sequenceHash(bytes: [UInt8]) -> UInt64 {
-        sequenceHash(bytes: bytes, offset: 0, length: bytes.count)
-    }
-
-    private static func sequenceHash(bytes: [UInt8], offset: Int, length: Int) -> UInt64 {
-        var hash: UInt64 = 0
-        for index in offset..<(offset + length) {
-            hash = hash &* rollingHashBase &+ UInt64(bytes[index])
-        }
-        return hash
-    }
-
-    private static func leadingBasePower(forLength length: Int) -> UInt64 {
-        guard length > 1 else { return 1 }
-        var power: UInt64 = 1
-        for _ in 1..<length {
-            power = power &* rollingHashBase
-        }
-        return power
-    }
-
-    private static func rollHash(
-        _ hash: UInt64,
-        removing removedByte: UInt8,
-        adding addedByte: UInt8,
-        leadingPower: UInt64
-    ) -> UInt64 {
-        (hash &- UInt64(removedByte) &* leadingPower) &* rollingHashBase &+ UInt64(addedByte)
-    }
-
-    private static func bytesEqual(_ target: [UInt8], _ read: [UInt8], offset: Int) -> Bool {
-        guard offset + target.count <= read.count else { return false }
-        for index in target.indices where target[index] != read[offset + index] {
-            return false
-        }
-        return true
     }
 
     private func indelOnlyDistance(
