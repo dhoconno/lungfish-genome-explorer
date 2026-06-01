@@ -7,6 +7,7 @@
 
 import AppKit
 import LungfishCore
+import LungfishEsVirituUI
 import LungfishIO
 import LungfishWorkflow
 import SwiftUI

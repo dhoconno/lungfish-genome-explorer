@@ -238,7 +238,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     public var strippedPrefix: String = ""
 
     /// Sample metadata for dynamic column display in the detection table.
-    var sampleMetadataStore: SampleMetadataStore? {
+    public var sampleMetadataStore: SampleMetadataStore? {
         didSet {
             let selected = samplePickerState?.selectedSamples.sorted() ?? []
             let sampleId = selected.count == 1 ? selected.first : nil
@@ -267,12 +267,6 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     /// dependency on the App-internal extraction/operation pipeline.
     public var onExtractReadsRequested: (@MainActor (ClassifierTool, URL, [ClassifierRowSelector], String) -> Void)?
 
-    /// Unified metagenomics drawer (available for views that adopt it).
-    /// Provides Samples, Collections, and BLAST Results tabs.
-    private(set) lazy var metagenomicsDrawer: MetagenomicsDrawerView = {
-        MetagenomicsDrawerView()
-    }()
-
     /// The BLAST results drawer embedded at the bottom of the view.
     private var blastDrawerContainer: BlastResultsDrawerContainerView?
     private var blastDrawerHeightConstraint: NSLayoutConstraint?
@@ -285,7 +279,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
 
     /// Whether the last `configureFromDatabase` call loaded data from a pre-built aggregated manifest
     /// rather than parsing per-sample files. Used to populate the Inspector manifest status.
-    private(set) var didLoadFromManifestCache: Bool = false
+    public private(set) var didLoadFromManifestCache: Bool = false
 
     /// All flat rows loaded from each sample's EsViritu detection file in batch mode.
     var allBatchRows: [BatchEsVirituRow] = []

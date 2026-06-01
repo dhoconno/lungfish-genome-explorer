@@ -4,6 +4,7 @@
 
 import AppKit
 import LungfishAssemblyUI
+import LungfishEsVirituUI
 import LungfishTaxTriageUI
 import LungfishTwelveSUI
 import SwiftUI

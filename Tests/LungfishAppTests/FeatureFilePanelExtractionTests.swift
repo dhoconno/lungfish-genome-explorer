@@ -20,7 +20,7 @@ final class FeatureFilePanelExtractionTests: XCTestCase {
             "Sources/LungfishNaoMgsUI/NaoMgsResultViewController.swift",
             "Sources/LungfishNvdUI/NvdResultViewController.swift",
             "Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift",
-            "Sources/LungfishApp/Views/Metagenomics/EsVirituResultViewController.swift",
+            "Sources/LungfishEsVirituUI/EsVirituResultViewController.swift",
             "Sources/LungfishApp/Views/Metagenomics/TaxonomyViewController.swift",
             "Sources/LungfishKit/BlastResultsDrawerTab.swift",
             "Sources/LungfishApp/Views/Metagenomics/TaxonomyReadExtractionAction.swift",

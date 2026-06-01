@@ -7,6 +7,7 @@ import Testing
 import AppKit
 @testable import LungfishApp
 @testable import LungfishCore
+@testable import LungfishEsVirituUI
 @testable import LungfishIO
 @testable import LungfishNaoMgsUI
 @testable import LungfishTaxTriageUI
@@ -416,7 +417,7 @@ struct KrakenTaxonomyRegressionTests {
             .deletingLastPathComponent()
         for relativePath in [
             "Sources/LungfishApp/Views/Metagenomics/TaxonomyTableView.swift",
-            "Sources/LungfishApp/Views/Metagenomics/ViralDetectionTableView.swift",
+            "Sources/LungfishEsVirituUI/ViralDetectionTableView.swift",
             "Sources/LungfishNaoMgsUI/NaoMgsResultViewController.swift",
         ] {
             let source = try String(contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)

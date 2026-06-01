@@ -74,6 +74,11 @@ let package = Package(
             name: "LungfishTaxTriageUI",
             targets: ["LungfishTaxTriageUI"]
         ),
+        // EsViritu metagenomics results UI leaf module extracted from LungfishApp
+        .library(
+            name: "LungfishEsVirituUI",
+            targets: ["LungfishEsVirituUI"]
+        ),
     ],
     dependencies: [
         // Swift Argument Parser for CLI tools
@@ -284,6 +289,23 @@ let package = Package(
             path: "Tests/LungfishTaxTriageUITests"
         ),
 
+        // MARK: - LungfishEsVirituUI (EsViritu metagenomics results UI leaf)
+        .target(
+            name: "LungfishEsVirituUI",
+            dependencies: [
+                "LungfishCore",
+                "LungfishIO",
+                "LungfishWorkflow",
+                "LungfishKit",
+            ],
+            path: "Sources/LungfishEsVirituUI"
+        ),
+        .testTarget(
+            name: "LungfishEsVirituUITests",
+            dependencies: ["LungfishEsVirituUI", "LungfishKit"],
+            path: "Tests/LungfishEsVirituUITests"
+        ),
+
         // MARK: - LungfishApp
         .target(
             name: "LungfishApp",
@@ -298,6 +320,7 @@ let package = Package(
                 "LungfishNvdUI",
                 "LungfishNaoMgsUI",
                 "LungfishTaxTriageUI",
+                "LungfishEsVirituUI",
             ],
             path: "Sources/LungfishApp",
             resources: [
@@ -310,7 +333,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LungfishAppTests",
-            dependencies: ["LungfishApp", "LungfishCLI", "LungfishNvdUI", "LungfishNaoMgsUI", "LungfishTaxTriageUI"],
+            dependencies: ["LungfishApp", "LungfishCLI", "LungfishNvdUI", "LungfishNaoMgsUI", "LungfishTaxTriageUI", "LungfishEsVirituUI"],
             path: "Tests/LungfishAppTests",
             resources: [
                 .copy("Fixtures")

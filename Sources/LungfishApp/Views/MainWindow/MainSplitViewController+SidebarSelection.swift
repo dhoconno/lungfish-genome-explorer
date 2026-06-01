@@ -5,6 +5,7 @@
 import AppKit
 import LungfishKit
 import LungfishCore
+import LungfishEsVirituUI
 import LungfishIO
 import LungfishWorkflow
 import os.log

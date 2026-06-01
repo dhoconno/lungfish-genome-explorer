@@ -1,5 +1,6 @@
 import XCTest
 @testable import LungfishApp
+@testable import LungfishEsVirituUI
 @testable import LungfishIO
 @testable import LungfishNaoMgsUI
 @testable import LungfishNvdUI

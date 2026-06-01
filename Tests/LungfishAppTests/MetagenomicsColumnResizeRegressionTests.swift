@@ -2,6 +2,7 @@ import AppKit
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
+@testable import LungfishEsVirituUI
 @testable import LungfishIO
 @testable import LungfishKit
 
