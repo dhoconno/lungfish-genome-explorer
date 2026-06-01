@@ -1,6 +1,7 @@
 import AppKit
 import XCTest
 @testable import LungfishApp
+import LungfishAppKit
 
 @MainActor
 final class LayoutFoundationTests: XCTestCase {

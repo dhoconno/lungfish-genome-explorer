@@ -11,8 +11,8 @@ public struct AppUITestConfiguration: Equatable, Sendable {
     public let projectPath: URL?
     public let welcomeOpenProjectPath: URL?
     public let welcomeCreateProjectPath: URL?
-    let eventLogPath: URL?
-    let fixtureRootPath: URL?
+    public let eventLogPath: URL?
+    public let fixtureRootPath: URL?
     public let backendMode: AppUITestBackendMode
 
     public init(arguments: [String], environment: [String: String]) {

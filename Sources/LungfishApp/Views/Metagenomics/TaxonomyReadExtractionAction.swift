@@ -24,12 +24,6 @@ public protocol AlertPresenting {
     func present(_ alert: NSAlert, on window: NSWindow) async -> NSApplication.ModalResponse
 }
 
-/// Test seam for presenting an `NSSavePanel`.
-@MainActor
-public protocol SavePanelPresenting {
-    func present(suggestedName: String, on window: NSWindow) async -> URL?
-}
-
 /// Test seam for presenting an `NSSharingServicePicker`.
 @MainActor
 public protocol SharingServicePresenting {
@@ -51,31 +45,10 @@ struct DefaultAlertPresenter: AlertPresenting {
 }
 
 @MainActor
-struct DefaultSavePanelPresenter: SavePanelPresenting {
-    func present(suggestedName: String, on window: NSWindow) async -> URL? {
-        let panel = MetagenomicsFilePanelFactory.readExtractionSavePanel(suggestedName: suggestedName)
-        return await withCheckedContinuation { continuation in
-            panel.beginSheetModal(for: window) { response in
-                continuation.resume(returning: response == .OK ? panel.url : nil)
-            }
-        }
-    }
-}
-
-@MainActor
 struct DefaultSharingServicePresenter: SharingServicePresenting {
     func present(items: [Any], relativeTo view: NSView, preferredEdge: NSRectEdge) {
         let picker = NSSharingServicePicker(items: items)
         picker.show(relativeTo: view.bounds, of: view, preferredEdge: preferredEdge)
-    }
-}
-
-@MainActor
-struct DefaultPasteboard: PasteboardWriting {
-    func setString(_ string: String) {
-        let pb = NSPasteboard.general
-        pb.clearContents()
-        pb.setString(string, forType: .string)
     }
 }
 

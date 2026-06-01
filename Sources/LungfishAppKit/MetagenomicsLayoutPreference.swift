@@ -11,8 +11,8 @@ public enum MetagenomicsPanelLayout: String, CaseIterable, Sendable {
     case listLeading
     case stacked
 
-    nonisolated static let defaultsKey = "metagenomicsPanelLayout"
-    nonisolated static let legacyTableOnLeftKey = "metagenomicsTableOnLeft"
+    public nonisolated static let defaultsKey = "metagenomicsPanelLayout"
+    public nonisolated static let legacyTableOnLeftKey = "metagenomicsTableOnLeft"
 
     public static func current(defaults: UserDefaults = .standard) -> Self {
         if let raw = defaults.string(forKey: defaultsKey),

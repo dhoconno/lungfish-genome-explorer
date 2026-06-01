@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 @testable import LungfishApp
+import LungfishAppKit
 
 @MainActor
 final class ViewerZoomShortcutHandlerTests: XCTestCase {
