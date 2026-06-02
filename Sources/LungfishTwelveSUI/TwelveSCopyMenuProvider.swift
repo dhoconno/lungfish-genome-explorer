@@ -97,11 +97,14 @@ enum TwelveSCopyMenuProvider {
     }
 
     /// Populates `menu` with copy items for the current target-mode selection,
-    /// each writing to `pasteboard` when chosen.
+    /// each writing to `pasteboard` when chosen. For a single-row selection, also
+    /// appends "Learn More About <species>" (NCBI) and "View Photo of <species>"
+    /// (Wikipedia), which invoke `onOpenURL`.
     static func populateTargetMenu(
         _ menu: NSMenu,
         rows: [TwelveSScientificNameCountRow],
-        pasteboard: PasteboardWriting
+        pasteboard: PasteboardWriting,
+        onOpenURL: @escaping (URL) -> Void
     ) {
         menu.removeAllItems()
         guard !rows.isEmpty else { return }
@@ -114,6 +117,19 @@ enum TwelveSCopyMenuProvider {
                 addItem(menu, title: title) { pasteboard.setString(TwelveSCopyFormatting.targetRowsTSV(rows)) }
             default:
                 break
+            }
+        }
+
+        // Single-species lookups.
+        if rows.count == 1, let row = rows.first {
+            let name = row.scientificName
+            let taxid = row.taxids.first
+            menu.addItem(NSMenuItem.separator())
+            addItem(menu, title: "Learn More About \(name)") {
+                onOpenURL(TwelveSSpeciesLinks.ncbiTaxonomyURL(taxid: taxid, scientificName: name))
+            }
+            addItem(menu, title: "View Photo of \(name)") {
+                onOpenURL(TwelveSSpeciesLinks.wikipediaURL(scientificName: name))
             }
         }
     }

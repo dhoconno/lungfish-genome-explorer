@@ -80,6 +80,11 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     /// shared CSV/TSV import panel and calls ``applyMetadataStore(_:)``.
     public var onMetadataImportRequested: (() -> Void)?
 
+    /// Fired when the user chooses a species lookup ("Learn More" / "View
+    /// Photo"). Defaults to opening the URL in the browser; the App may override
+    /// to log or intercept.
+    public var onOpenURLRequested: ((URL) -> Void)?
+
     /// The most recent detail payload, retained so the legacy `testing*`
     /// accessors keep reporting the selected row's evidence after the split
     /// detail pane was removed.
@@ -588,7 +593,18 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
                 targetTable.selectDisplayedRowForContextMenuIfNeeded(clicked)
             }
             let rows = resolvedTargetSelection()
-            TwelveSCopyMenuProvider.populateTargetMenu(copyContextMenu, rows: rows, pasteboard: pasteboard)
+            TwelveSCopyMenuProvider.populateTargetMenu(
+                copyContextMenu,
+                rows: rows,
+                pasteboard: pasteboard,
+                onOpenURL: { [weak self] url in
+                    if let handler = self?.onOpenURLRequested {
+                        handler(url)
+                    } else {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+            )
         case .unresolved:
             let clicked = unresolvedTable.tableView.clickedRow
             if clicked >= 0, !unresolvedTable.tableView.selectedRowIndexes.contains(clicked) {

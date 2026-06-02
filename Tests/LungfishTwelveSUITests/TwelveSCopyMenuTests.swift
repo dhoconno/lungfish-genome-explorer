@@ -7,6 +7,12 @@ import LungfishKit
 @MainActor
 final class TwelveSCopyMenuTests: XCTestCase {
 
+    /// Synchronously fires a menu item's action on its target (deterministic in
+    /// a headless test, unlike `NSMenu.performActionForItem`).
+    private func fire(_ item: NSMenuItem) {
+        _ = NSApplication.shared.sendAction(item.action!, to: item.target, from: item)
+    }
+
     private func target(_ name: String, taxid: String, reads: Int) -> TwelveSScientificNameCountRow {
         TwelveSScientificNameCountRow(scientificName: name, targetIDs: ["t"],
             sampleCounts: ["s1": reads], sampleExactReadTotals: ["s1": 100], taxids: [taxid])
@@ -53,10 +59,10 @@ final class TwelveSCopyMenuTests: XCTestCase {
         let spy = SpyPasteboard()
         let menu = NSMenu()
         let rows = [target("Homo sapiens", taxid: "9606", reads: 5)]
-        TwelveSCopyMenuProvider.populateTargetMenu(menu, rows: rows, pasteboard: spy)
-        XCTAssertEqual(menu.items.map(\.title), ["Copy Name"])
-        // fire the single item through NSMenu's action machinery
-        menu.performActionForItem(at: 0)
+        TwelveSCopyMenuProvider.populateTargetMenu(menu, rows: rows, pasteboard: spy, onOpenURL: { _ in })
+        // Single-row target menu: Copy Name + separator + the two species links.
+        XCTAssertEqual(menu.items.first?.title, "Copy Name")
+        fire(menu.items[0])
         XCTAssertEqual(spy.last, "Homo sapiens")
     }
 
@@ -66,7 +72,7 @@ final class TwelveSCopyMenuTests: XCTestCase {
         let rows = [unresolved("c1", seq: "ACGT"), unresolved("c2", seq: "TTTT")]
         TwelveSCopyMenuProvider.populateUnresolvedMenu(menu, rows: rows, pasteboard: spy)
         XCTAssertEqual(menu.items.map(\.title), ["Copy Names", "Copy Sequences", "Copy Rows"])
-        menu.performActionForItem(at: 1) // Copy Sequences
+        fire(menu.items[1]) // Copy Sequences
         XCTAssertEqual(spy.last, ">c1\nACGT\n>c2\nTTTT")
     }
 
@@ -79,6 +85,29 @@ final class TwelveSCopyMenuTests: XCTestCase {
         vc.testingCopyNameForSelectedRow(0)
         XCTAssertNotNil(spy.last)
         XCTAssertFalse(spy.last!.isEmpty)
+    }
+
+    func testTargetMenuIncludesSpeciesLinksForSingleSelection() {
+        var opened: [URL] = []
+        let menu = NSMenu()
+        let row = target("Homo sapiens", taxid: "9606", reads: 5)
+        TwelveSCopyMenuProvider.populateTargetMenu(menu, rows: [row], pasteboard: SpyPasteboard(),
+                                                   onOpenURL: { opened.append($0) })
+        let titles = menu.items.map(\.title)
+        XCTAssertTrue(titles.contains("Learn More About Homo sapiens"))
+        XCTAssertTrue(titles.contains("View Photo of Homo sapiens"))
+        fire(menu.items[titles.firstIndex(of: "Learn More About Homo sapiens")!])
+        XCTAssertEqual(opened.first?.absoluteString, "https://www.ncbi.nlm.nih.gov/datasets/taxonomy/9606/")
+        fire(menu.items[titles.firstIndex(of: "View Photo of Homo sapiens")!])
+        XCTAssertEqual(opened.last?.absoluteString, "https://en.wikipedia.org/wiki/Homo_sapiens")
+    }
+
+    func testSpeciesLinksOmittedForMultiSelection() {
+        let menu = NSMenu()
+        let rows = [target("Homo sapiens", taxid: "9606", reads: 5), target("Gallus gallus", taxid: "9031", reads: 4)]
+        TwelveSCopyMenuProvider.populateTargetMenu(menu, rows: rows, pasteboard: SpyPasteboard(), onOpenURL: { _ in })
+        XCTAssertFalse(menu.items.map(\.title).contains { $0.hasPrefix("Learn More") })
+        XCTAssertFalse(menu.items.map(\.title).contains { $0.hasPrefix("View Photo") })
     }
 
     func testMenuItemsGatedBySelectionAndMode() {
