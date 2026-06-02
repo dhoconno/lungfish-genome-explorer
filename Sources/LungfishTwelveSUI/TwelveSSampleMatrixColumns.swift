@@ -17,6 +17,7 @@ enum TwelveSSampleMatrixColumns {
 
     enum Parsed: Equatable {
         case reads(sampleID: String)
+        case pct(sampleID: String)
         case meta(sampleID: String, field: String)
     }
 
@@ -25,6 +26,10 @@ enum TwelveSSampleMatrixColumns {
 
     static func readsColumnID(sampleID: String) -> String {
         [prefix, sampleID, "reads"].joined(separator: separator)
+    }
+
+    static func pctColumnID(sampleID: String) -> String {
+        [prefix, sampleID, "pct"].joined(separator: separator)
     }
 
     static func metaColumnID(sampleID: String, field: String) -> String {
@@ -41,6 +46,9 @@ enum TwelveSSampleMatrixColumns {
         case "reads":
             guard parts.count == 3 else { return nil }
             return .reads(sampleID: sampleID)
+        case "pct":
+            guard parts.count == 3 else { return nil }
+            return .pct(sampleID: sampleID)
         case "meta":
             guard parts.count >= 4 else { return nil }
             // Re-join the remainder so fields containing "::" survive.
@@ -53,6 +61,18 @@ enum TwelveSSampleMatrixColumns {
 
     static func readsValue(_ row: TwelveSScientificNameCountRow, sampleID: String) -> String {
         String(row.count(forSample: sampleID))
+    }
+
+    /// This species' reads in `sampleID` as a fraction of all exact-match reads
+    /// across all 12S species in that sample (0 when the denominator is 0).
+    static func pctFraction(_ row: TwelveSScientificNameCountRow, sampleID: String) -> Double {
+        let denominator = row.sampleExactReadTotals[sampleID, default: 0]
+        guard denominator > 0 else { return 0 }
+        return Double(row.count(forSample: sampleID)) / Double(denominator) * 100
+    }
+
+    static func pctValue(_ row: TwelveSScientificNameCountRow, sampleID: String) -> String {
+        String(format: "%.1f%%", pctFraction(row, sampleID: sampleID))
     }
 
     static func metaValue(store: SampleMetadataStore?, sampleID: String, field: String) -> String {

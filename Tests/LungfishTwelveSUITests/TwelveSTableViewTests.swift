@@ -90,7 +90,7 @@ final class TwelveSTableViewTests: XCTestCase {
         let table = TwelveSTargetTableView()
         table.setSampleColumns(sampleIDs: ["SampleA", "SampleB"],
                                displayNames: ["SampleA": "Sample A", "SampleB": "Sample B"],
-                               showReads: true, store: nil, metadataFields: [])
+                               showReads: true, showPercent: false, store: nil, metadataFields: [])
         let ids = table.tableView.tableColumns.map { $0.identifier.rawValue }
         XCTAssertTrue(ids.contains("sample::SampleA::reads"))
         XCTAssertTrue(ids.contains("sample::SampleB::reads"))
@@ -103,12 +103,26 @@ final class TwelveSTableViewTests: XCTestCase {
         XCTAssertTrue(table.compareRows(hi, lo, by: "sample::SampleA::reads", ascending: false))
     }
 
+    func testPerSamplePercentColumnPresentAndNumeric() {
+        let table = TwelveSTargetTableView()
+        table.setSampleColumns(sampleIDs: ["SampleA"], displayNames: ["SampleA": "Sample A"],
+                               showReads: true, showPercent: true, store: nil, metadataFields: [])
+        XCTAssertTrue(table.tableView.tableColumns.map { $0.identifier.rawValue }.contains("sample::SampleA::pct"))
+        XCTAssertEqual(table.columnTypeHints["sample::SampleA::pct"], true)
+        let row = makeTargetRow(name: "X", sampleCounts: ["SampleA": 25], totals: ["SampleA": 100])
+        XCTAssertEqual(table.cellContent(for: .init("sample::SampleA::pct"), row: row).text, "25.0%")
+        // percent compare is numeric
+        let hi = makeTargetRow(name: "Hi", sampleCounts: ["SampleA": 80], totals: ["SampleA": 100])
+        let lo = makeTargetRow(name: "Lo", sampleCounts: ["SampleA": 10], totals: ["SampleA": 100])
+        XCTAssertTrue(table.compareRows(hi, lo, by: "sample::SampleA::pct", ascending: false))
+    }
+
     func testSettingSampleColumnsReplacesPreviousMatrixColumns() {
         let table = TwelveSTargetTableView()
-        table.setSampleColumns(sampleIDs: ["SampleA"], displayNames: [:], showReads: true, store: nil, metadataFields: [])
+        table.setSampleColumns(sampleIDs: ["SampleA"], displayNames: [:], showReads: true, showPercent: false, store: nil, metadataFields: [])
         XCTAssertEqual(table.tableView.tableColumns.filter { $0.identifier.rawValue.hasPrefix("sample::") }.count, 1)
         // Switching to a different sample set replaces, not appends.
-        table.setSampleColumns(sampleIDs: ["SampleB", "SampleC"], displayNames: [:], showReads: true, store: nil, metadataFields: [])
+        table.setSampleColumns(sampleIDs: ["SampleB", "SampleC"], displayNames: [:], showReads: true, showPercent: false, store: nil, metadataFields: [])
         let matrixIDs = table.tableView.tableColumns.map { $0.identifier.rawValue }.filter { $0.hasPrefix("sample::") }
         XCTAssertEqual(Set(matrixIDs), ["sample::SampleB::reads", "sample::SampleC::reads"])
     }
@@ -177,9 +191,10 @@ final class TwelveSTableViewTests: XCTestCase {
         XCTAssertTrue(vc.testingTargetColumnIDs.contains("sample::SampleA::reads"))
         XCTAssertTrue(vc.testingTargetColumnIDs.contains("sample::SampleB::reads"))
 
-        // Force off.
+        // Forcing reads off removes the reads columns (per-sample % columns,
+        // controlled separately, may remain).
         vc.testingSetSampleColumnsForced(showReads: false)
-        XCTAssertFalse(vc.testingTargetColumnIDs.contains { $0.hasPrefix("sample::") })
+        XCTAssertFalse(vc.testingTargetColumnIDs.contains { $0.hasSuffix("::reads") })
     }
 
     func testApplyMetadataStoreAddsPerSampleMetadataColumns() throws {

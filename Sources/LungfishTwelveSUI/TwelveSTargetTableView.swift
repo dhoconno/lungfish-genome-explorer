@@ -32,6 +32,7 @@ final class TwelveSTargetTableView: BatchTableView<TwelveSScientificNameCountRow
         sampleIDs: [String],
         displayNames: [String: String],
         showReads: Bool,
+        showPercent: Bool,
         store: SampleMetadataStore?,
         metadataFields: [String]
     ) {
@@ -49,6 +50,11 @@ final class TwelveSTargetTableView: BatchTableView<TwelveSScientificNameCountRow
             if showReads {
                 let id = TwelveSSampleMatrixColumns.readsColumnID(sampleID: sampleID)
                 addMatrixColumn(id: id, title: "\(name) reads", width: 80, ascending: false)
+                newIDs.append(id)
+            }
+            if showPercent {
+                let id = TwelveSSampleMatrixColumns.pctColumnID(sampleID: sampleID)
+                addMatrixColumn(id: id, title: "\(name) % of sample", width: 95, ascending: false)
                 newIDs.append(id)
             }
             for field in metadataFields {
@@ -107,8 +113,9 @@ final class TwelveSTargetTableView: BatchTableView<TwelveSScientificNameCountRow
         // text (the kernel falls back to string compare when a value doesn't
         // parse as a number anyway).
         for id in sampleColumnIDs {
-            if case .reads = TwelveSSampleMatrixColumns.parse(id) {
-                hints[id] = true
+            switch TwelveSSampleMatrixColumns.parse(id) {
+            case .reads, .pct: hints[id] = true
+            default: break
             }
         }
         return hints
@@ -131,6 +138,8 @@ final class TwelveSTargetTableView: BatchTableView<TwelveSScientificNameCountRow
             switch TwelveSSampleMatrixColumns.parse(column.rawValue) {
             case .reads(let sampleID):
                 return (TwelveSSampleMatrixColumns.readsValue(row, sampleID: sampleID), .right, nil)
+            case .pct(let sampleID):
+                return (TwelveSSampleMatrixColumns.pctValue(row, sampleID: sampleID), .right, nil)
             case .meta(let sampleID, let field):
                 return (TwelveSSampleMatrixColumns.metaValue(store: matrixMetadataStore, sampleID: sampleID, field: field), .left, nil)
             case nil:
@@ -168,6 +177,11 @@ final class TwelveSTargetTableView: BatchTableView<TwelveSScientificNameCountRow
         default:
             if case .reads(let sampleID) = TwelveSSampleMatrixColumns.parse(key) {
                 let l = lhs.count(forSample: sampleID), r = rhs.count(forSample: sampleID)
+                return ascending ? l < r : l > r
+            }
+            if case .pct(let sampleID) = TwelveSSampleMatrixColumns.parse(key) {
+                let l = TwelveSSampleMatrixColumns.pctFraction(lhs, sampleID: sampleID)
+                let r = TwelveSSampleMatrixColumns.pctFraction(rhs, sampleID: sampleID)
                 return ascending ? l < r : l > r
             }
             let l = cellContent(for: .init(key), row: lhs).text

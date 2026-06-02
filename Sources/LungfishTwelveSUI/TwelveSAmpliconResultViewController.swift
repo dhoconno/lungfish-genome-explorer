@@ -60,6 +60,8 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     /// User override for showing per-sample reads columns. `nil` = follow the
     /// ≤8-selected-samples auto rule.
     private var showReadsColumnsOverride: Bool?
+    /// User override for showing per-sample "% of sample" columns.
+    private var showPercentColumnsOverride: Bool?
     /// Threshold above which per-sample reads columns are auto-suppressed.
     private let autoReadsColumnSampleLimit = 8
     private let sampleColumnsButton = NSButton(title: "Sample Columns", target: nil, action: nil)
@@ -245,6 +247,11 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         showReadsColumnsOverride ?? (orderedSelectedSampleIDs.count <= autoReadsColumnSampleLimit)
     }
 
+    /// Whether per-sample "% of sample" columns should show (same auto rule as reads).
+    private var shouldShowPercentColumns: Bool {
+        showPercentColumnsOverride ?? (orderedSelectedSampleIDs.count <= autoReadsColumnSampleLimit)
+    }
+
     /// Rebuilds the per-sample matrix columns on the target table and updates
     /// the suppressed-columns note.
     private func rebuildSampleColumns() {
@@ -254,6 +261,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
             sampleIDs: ids,
             displayNames: names,
             showReads: shouldShowReadsColumns,
+            showPercent: shouldShowPercentColumns,
             store: metadataStore,
             metadataFields: visibleMetadataFields
         )
@@ -326,6 +334,11 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         readsItem.state = shouldShowReadsColumns ? .on : .off
         menu.addItem(readsItem)
 
+        let pctItem = NSMenuItem(title: "Show Per-Sample % of Sample", action: #selector(togglePercentColumns(_:)), keyEquivalent: "")
+        pctItem.target = self
+        pctItem.state = shouldShowPercentColumns ? .on : .off
+        menu.addItem(pctItem)
+
         if let store = metadataStore, !store.columnNames.isEmpty {
             menu.addItem(NSMenuItem.separator())
             let header = NSMenuItem(title: "Metadata Columns", action: nil, keyEquivalent: "")
@@ -351,6 +364,11 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
 
     @objc private func toggleReadsColumns(_ sender: NSMenuItem) {
         showReadsColumnsOverride = !(shouldShowReadsColumns)
+        rebuildSampleColumns()
+    }
+
+    @objc private func togglePercentColumns(_ sender: NSMenuItem) {
+        showPercentColumnsOverride = !(shouldShowPercentColumns)
         rebuildSampleColumns()
     }
 

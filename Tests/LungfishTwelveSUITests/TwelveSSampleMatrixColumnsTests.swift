@@ -26,6 +26,20 @@ final class TwelveSSampleMatrixColumnsTests: XCTestCase {
         XCTAssertNil(TwelveSSampleMatrixColumns.parse("sample::only"))
     }
 
+    func testPctColumnIDRoundTripAndValue() {
+        let id = TwelveSSampleMatrixColumns.pctColumnID(sampleID: "SampleA")
+        XCTAssertEqual(id, "sample::SampleA::pct")
+        XCTAssertEqual(TwelveSSampleMatrixColumns.parse(id), .pct(sampleID: "SampleA"))
+        let row = TwelveSScientificNameCountRow(scientificName: "X", targetIDs: ["t"],
+            sampleCounts: ["SampleA": 25], sampleExactReadTotals: ["SampleA": 100], taxids: [])
+        XCTAssertEqual(TwelveSSampleMatrixColumns.pctValue(row, sampleID: "SampleA"), "25.0%")
+        XCTAssertEqual(TwelveSSampleMatrixColumns.pctFraction(row, sampleID: "SampleA"), 25, accuracy: 0.001)
+        // zero denominator → 0.0%
+        let z = TwelveSScientificNameCountRow(scientificName: "Y", targetIDs: ["t"],
+            sampleCounts: ["SampleA": 0], sampleExactReadTotals: ["SampleA": 0], taxids: [])
+        XCTAssertEqual(TwelveSSampleMatrixColumns.pctValue(z, sampleID: "SampleA"), "0.0%")
+    }
+
     func testReadsValue() {
         let row = TwelveSScientificNameCountRow(scientificName: "X", targetIDs: ["t"],
             sampleCounts: ["SampleA": 12, "SampleB": 3], sampleExactReadTotals: ["SampleA": 100, "SampleB": 50], taxids: [])
