@@ -21,6 +21,17 @@ final class TwelveSSampleMatrixColumnsTests: XCTestCase {
         XCTAssertEqual(TwelveSSampleMatrixColumns.parse(id), .meta(sampleID: "S1", field: "lat::lon"))
     }
 
+    func testSampleIDContainingSeparatorRoundTrips() {
+        // A sample ID literally containing "::" must survive the column-id scheme.
+        let id = TwelveSSampleMatrixColumns.readsColumnID(sampleID: "plate::A1")
+        XCTAssertEqual(TwelveSSampleMatrixColumns.parse(id), .reads(sampleID: "plate::A1"))
+        let metaID = TwelveSSampleMatrixColumns.metaColumnID(sampleID: "plate::A1", field: "site")
+        XCTAssertEqual(TwelveSSampleMatrixColumns.parse(metaID), .meta(sampleID: "plate::A1", field: "site"))
+        // A percent sign in the sample ID also round-trips.
+        let pctID = TwelveSSampleMatrixColumns.pctColumnID(sampleID: "a%b")
+        XCTAssertEqual(TwelveSSampleMatrixColumns.parse(pctID), .pct(sampleID: "a%b"))
+    }
+
     func testNonMatrixIDParsesNil() {
         XCTAssertNil(TwelveSSampleMatrixColumns.parse("scientificName"))
         XCTAssertNil(TwelveSSampleMatrixColumns.parse("sample::only"))

@@ -28,7 +28,11 @@ enum TwelveSSpeciesLinks {
     /// Wikipedia article for the species (carries the lead image).
     static func wikipediaURL(scientificName: String) -> URL {
         let underscored = scientificName.replacingOccurrences(of: " ", with: "_")
-        let path = underscored.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? underscored
+        // `.urlPathAllowed` leaves "/" unescaped, which would create a spurious
+        // path segment for names like "X/Y"; encode it explicitly.
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "/")
+        let path = underscored.addingPercentEncoding(withAllowedCharacters: allowed) ?? underscored
         return URL(string: "https://en.wikipedia.org/wiki/\(path)") ?? fallbackSearch(scientificName)
     }
 

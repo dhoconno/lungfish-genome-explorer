@@ -257,6 +257,36 @@ final class TwelveSTableViewTests: XCTestCase {
         XCTAssertEqual(vc.testingActiveTableRowCount, 2)
     }
 
+    func testReassignmentDonorSpeciesNotHiddenDespiteZeroReads() {
+        // Build a bundle where "Pan troglodytes" has 0 reads but is a
+        // reassignment donor (a candidate that lost to Homo sapiens).
+        let base = TwelveSFixtures.twoSampleResult()
+        let panTarget = TwelveSAmpliconTarget(
+            targetID: "pan", displayName: "chimpanzee (Pan troglodytes)",
+            scientificName: "Pan troglodytes", commonName: "chimpanzee",
+            taxid: "9598", taxonGroup: "Mammal")
+        let bundle = TwelveSAmpliconResultBundleData(
+            bundleURL: base.bundleURL, manifest: base.manifest, artifacts: base.artifacts,
+            samples: base.samples,
+            targets: base.targets + [panTarget],
+            countRows: base.countRows.merging(["pan": ["SampleA": 0, "SampleB": 0]]) { a, _ in a },
+            readFate: base.readFate,
+            unresolvedSequences: base.unresolvedSequences,
+            reassignments: [
+                TwelveSReassignmentRecord(
+                    sequenceID: "seq1", sampleID: "SampleA", toSpecies: "Homo sapiens",
+                    toTargetID: "human", reads: 1000, decidedBy: "perSample",
+                    candidateSpecies: ["Homo sapiens", "Pan troglodytes"])
+            ])
+
+        let vc = TwelveSAmpliconResultViewController()
+        vc.loadViewIfNeeded()
+        vc.configure(result: bundle)
+        // Pan (0 reads) is a donor → still present despite the hide-zero rule.
+        let names = (0..<vc.testingActiveTableRowCount).map { vc.testingTargetText(row: $0, column: "scientificName") }
+        XCTAssertTrue(names.contains("Pan troglodytes"), "donor species should remain visible; got \(names)")
+    }
+
     func testSingleSampleBundleHidesSampleFilterButton() {
         let vc = TwelveSAmpliconResultViewController()
         vc.loadViewIfNeeded()

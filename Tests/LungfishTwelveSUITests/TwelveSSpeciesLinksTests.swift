@@ -25,4 +25,10 @@ final class TwelveSSpeciesLinksTests: XCTestCase {
             TwelveSSpeciesLinks.wikipediaURL(scientificName: "Homo sapiens").absoluteString,
             "https://en.wikipedia.org/wiki/Homo_sapiens")
     }
+
+    func testWikipediaEncodesSlashInName() {
+        // "/" must not create a spurious path segment.
+        let url = TwelveSSpeciesLinks.wikipediaURL(scientificName: "X/Y complex")
+        XCTAssertEqual(url.absoluteString, "https://en.wikipedia.org/wiki/X%2FY_complex")
+    }
 }

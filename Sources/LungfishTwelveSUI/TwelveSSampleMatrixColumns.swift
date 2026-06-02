@@ -24,16 +24,29 @@ enum TwelveSSampleMatrixColumns {
     private static let prefix = "sample"
     private static let separator = "::"
 
+    // Encode `%` then `:` in the sampleID component so a sample ID containing
+    // the `::` separator (e.g. "plate::A1") round-trips. Decode reverses it.
+    private static func encode(_ sampleID: String) -> String {
+        sampleID
+            .replacingOccurrences(of: "%", with: "%25")
+            .replacingOccurrences(of: ":", with: "%3A")
+    }
+    private static func decode(_ component: String) -> String {
+        component
+            .replacingOccurrences(of: "%3A", with: ":")
+            .replacingOccurrences(of: "%25", with: "%")
+    }
+
     static func readsColumnID(sampleID: String) -> String {
-        [prefix, sampleID, "reads"].joined(separator: separator)
+        [prefix, encode(sampleID), "reads"].joined(separator: separator)
     }
 
     static func pctColumnID(sampleID: String) -> String {
-        [prefix, sampleID, "pct"].joined(separator: separator)
+        [prefix, encode(sampleID), "pct"].joined(separator: separator)
     }
 
     static func metaColumnID(sampleID: String, field: String) -> String {
-        [prefix, sampleID, "meta", field].joined(separator: separator)
+        [prefix, encode(sampleID), "meta", field].joined(separator: separator)
     }
 
     /// Parses a column identifier into its matrix kind, or `nil` for a
@@ -41,7 +54,7 @@ enum TwelveSSampleMatrixColumns {
     static func parse(_ id: String) -> Parsed? {
         let parts = id.components(separatedBy: separator)
         guard parts.count >= 3, parts[0] == prefix else { return nil }
-        let sampleID = parts[1]
+        let sampleID = decode(parts[1])
         switch parts[2] {
         case "reads":
             guard parts.count == 3 else { return nil }

@@ -94,6 +94,12 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     /// FASTA, populated lazily into the detail payload after selection.
     private var referenceProvider: TwelveSReferenceSequenceProvider?
 
+    /// Scientific names that donated reads to a more-abundant species via
+    /// abundance reassignment (appear as a candidate but never the winner).
+    /// These are exempt from the hide-zero rule so a fully-absorbed rare species
+    /// stays visible (with 0 reads) rather than vanishing.
+    private var reassignmentDonorSpecies: Set<String> = []
+
     /// The currently visible table, switched by ``mode``.
     private var activeTableView: NSTableView {
         mode == .targets ? targetTable.tableView : unresolvedTable.tableView
@@ -203,6 +209,10 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         targetTable.resultIdentity = result.manifest.outputName
         unresolvedTable.resultIdentity = result.manifest.outputName
         referenceProvider = TwelveSReferenceSequenceProvider(referenceURL: result.artifacts.referenceURL)
+        let winners = Set(result.reassignments.map(\.toSpecies))
+        reassignmentDonorSpecies = Set(
+            result.reassignments.flatMap(\.candidateSpecies)
+        ).subtracting(winners)
         titleLabel.stringValue = "\(result.manifest.outputName) 12S Matches"
         summaryLabel.stringValue = Self.summaryText(for: result)
         applyFilters(notify: false)
@@ -740,9 +750,12 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         }
         // Hide species rows with zero reads across the currently-shown samples
         // (unconditional). Shown = the selected subset if active, else all.
+        // Exception: a reassignment donor stays visible (with 0 reads) so a
+        // fully-absorbed rare species does not silently disappear.
         let shownSamples = isSampleSubset ? selectedSamples : allSampleIDs
         targetRows = targetRows.filter { row in
-            shownSamples.isEmpty
+            if reassignmentDonorSpecies.contains(row.scientificName) { return true }
+            return shownSamples.isEmpty
                 ? row.totalExactReads > 0
                 : TwelveSRowAggregator.totalExactReads(row, selected: shownSamples) > 0
         }
