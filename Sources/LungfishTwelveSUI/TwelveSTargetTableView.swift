@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishCore
 import LungfishIO
 import LungfishKit
 
@@ -13,6 +14,62 @@ import LungfishKit
 /// metadata columns all come from the kernel.
 @MainActor
 final class TwelveSTargetTableView: BatchTableView<TwelveSScientificNameCountRow> {
+
+    // MARK: - Per-sample comparison-matrix columns
+
+    /// Active per-sample column IDs (reads + metadata), in display order.
+    private var sampleColumnIDs: [String] = []
+    /// Sample display names for column titles.
+    private var sampleColumnDisplayNames: [String: String] = [:]
+    /// Imported sample metadata backing the metadata columns (if any).
+    private var matrixMetadataStore: SampleMetadataStore?
+
+    /// Rebuilds the per-sample column block. Pass the selected sample IDs in the
+    /// desired display order, their display names, whether to show reads
+    /// columns, the optional imported metadata store, and which metadata fields
+    /// to show.
+    func setSampleColumns(
+        sampleIDs: [String],
+        displayNames: [String: String],
+        showReads: Bool,
+        store: SampleMetadataStore?,
+        metadataFields: [String]
+    ) {
+        // Remove existing matrix columns.
+        for column in tableView.tableColumns where TwelveSSampleMatrixColumns.parse(column.identifier.rawValue) != nil {
+            tableView.removeTableColumn(column)
+        }
+
+        matrixMetadataStore = store
+        sampleColumnDisplayNames = displayNames
+        var newIDs: [String] = []
+
+        for sampleID in sampleIDs {
+            let name = displayNames[sampleID] ?? sampleID
+            if showReads {
+                let id = TwelveSSampleMatrixColumns.readsColumnID(sampleID: sampleID)
+                addMatrixColumn(id: id, title: "\(name) reads", width: 80, ascending: false)
+                newIDs.append(id)
+            }
+            for field in metadataFields {
+                let id = TwelveSSampleMatrixColumns.metaColumnID(sampleID: sampleID, field: field)
+                addMatrixColumn(id: id, title: "\(name) · \(field)", width: 110, ascending: true)
+                newIDs.append(id)
+            }
+        }
+
+        sampleColumnIDs = newIDs
+        tableView.reloadData()
+    }
+
+    private func addMatrixColumn(id: String, title: String, width: CGFloat, ascending: Bool) {
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id))
+        column.title = title
+        column.width = width
+        column.minWidth = 60
+        column.sortDescriptorPrototype = NSSortDescriptor(key: id, ascending: ascending)
+        tableView.addTableColumn(column)
+    }
 
     /// Returns the alternate-match display texts for a row (alternate matches,
     /// else potential matches) — used by the Alternates column and detail.
@@ -40,12 +97,21 @@ final class TwelveSTargetTableView: BatchTableView<TwelveSScientificNameCountRow
     override var tableAccessibilityIdentifier: String? { "twelve-s-result-table" }
 
     override var columnTypeHints: [String: Bool] {
-        [
+        var hints: [String: Bool] = [
             "totalExactReads": true,
             "referenceTargets": true,
             "maxSamplePercent": true,
             "alternateMatchCount": true,
         ]
+        // Per-sample reads columns are numeric; metadata columns are treated as
+        // text (the kernel falls back to string compare when a value doesn't
+        // parse as a number anyway).
+        for id in sampleColumnIDs {
+            if case .reads = TwelveSSampleMatrixColumns.parse(id) {
+                hints[id] = true
+            }
+        }
+        return hints
     }
 
     override func cellContent(
@@ -61,7 +127,15 @@ final class TwelveSTargetTableView: BatchTableView<TwelveSScientificNameCountRow
         case "referenceTargets":    return (String(row.referenceTargetCount), .right, nil)
         case "maxSamplePercent":    return (String(format: "%.1f%%", row.maxSamplePercent), .right, nil)
         case "alternateMatchCount": return (String(Self.alternateTexts(for: row).count), .right, nil)
-        default:                    return ("", .left, nil)
+        default:
+            switch TwelveSSampleMatrixColumns.parse(column.rawValue) {
+            case .reads(let sampleID):
+                return (TwelveSSampleMatrixColumns.readsValue(row, sampleID: sampleID), .right, nil)
+            case .meta(let sampleID, let field):
+                return (TwelveSSampleMatrixColumns.metaValue(store: matrixMetadataStore, sampleID: sampleID, field: field), .left, nil)
+            case nil:
+                return ("", .left, nil)
+            }
         }
     }
 
@@ -92,6 +166,10 @@ final class TwelveSTargetTableView: BatchTableView<TwelveSScientificNameCountRow
             let l = Self.alternateTexts(for: lhs).count, r = Self.alternateTexts(for: rhs).count
             return ascending ? l < r : l > r
         default:
+            if case .reads(let sampleID) = TwelveSSampleMatrixColumns.parse(key) {
+                let l = lhs.count(forSample: sampleID), r = rhs.count(forSample: sampleID)
+                return ascending ? l < r : l > r
+            }
             let l = cellContent(for: .init(key), row: lhs).text
             let r = cellContent(for: .init(key), row: rhs).text
             let cmp = l.localizedStandardCompare(r)

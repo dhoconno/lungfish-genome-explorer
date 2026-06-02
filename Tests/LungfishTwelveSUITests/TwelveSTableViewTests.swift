@@ -86,6 +86,33 @@ final class TwelveSTableViewTests: XCTestCase {
         XCTAssertTrue(table.compareRows(b, a, by: "readCount", ascending: false))
     }
 
+    func testTargetTableAddsPerSampleReadsColumns() {
+        let table = TwelveSTargetTableView()
+        table.setSampleColumns(sampleIDs: ["SampleA", "SampleB"],
+                               displayNames: ["SampleA": "Sample A", "SampleB": "Sample B"],
+                               showReads: true, store: nil, metadataFields: [])
+        let ids = table.tableView.tableColumns.map { $0.identifier.rawValue }
+        XCTAssertTrue(ids.contains("sample::SampleA::reads"))
+        XCTAssertTrue(ids.contains("sample::SampleB::reads"))
+        let row = makeTargetRow(name: "X", sampleCounts: ["SampleA": 9], totals: ["SampleA": 100])
+        XCTAssertEqual(table.cellContent(for: .init("sample::SampleA::reads"), row: row).text, "9")
+        XCTAssertEqual(table.columnTypeHints["sample::SampleA::reads"], true)
+        // reads column compare is numeric/descending
+        let hi = makeTargetRow(name: "Hi", sampleCounts: ["SampleA": 50], totals: ["SampleA": 100])
+        let lo = makeTargetRow(name: "Lo", sampleCounts: ["SampleA": 5], totals: ["SampleA": 100])
+        XCTAssertTrue(table.compareRows(hi, lo, by: "sample::SampleA::reads", ascending: false))
+    }
+
+    func testSettingSampleColumnsReplacesPreviousMatrixColumns() {
+        let table = TwelveSTargetTableView()
+        table.setSampleColumns(sampleIDs: ["SampleA"], displayNames: [:], showReads: true, store: nil, metadataFields: [])
+        XCTAssertEqual(table.tableView.tableColumns.filter { $0.identifier.rawValue.hasPrefix("sample::") }.count, 1)
+        // Switching to a different sample set replaces, not appends.
+        table.setSampleColumns(sampleIDs: ["SampleB", "SampleC"], displayNames: [:], showReads: true, store: nil, metadataFields: [])
+        let matrixIDs = table.tableView.tableColumns.map { $0.identifier.rawValue }.filter { $0.hasPrefix("sample::") }
+        XCTAssertEqual(Set(matrixIDs), ["sample::SampleB::reads", "sample::SampleC::reads"])
+    }
+
     // MARK: - Multi-sample comparison
 
     func testSelectingSampleSubsetReaggregatesTargetRows() {
