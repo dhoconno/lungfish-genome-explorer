@@ -53,6 +53,17 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     private var samplePopover: NSPopover?
     private var sampleNameStrippedPrefix = ""
 
+    /// Imported per-sample metadata (CSV/TSV), shown as matrix columns.
+    private var metadataStore: SampleMetadataStore?
+    /// Which imported metadata fields are currently shown as columns.
+    private var visibleMetadataFields: [String] = []
+    /// User override for showing per-sample reads columns. `nil` = follow the
+    /// ≤8-selected-samples auto rule.
+    private var showReadsColumnsOverride: Bool?
+    /// Threshold above which per-sample reads columns are auto-suppressed.
+    private let autoReadsColumnSampleLimit = 8
+    private let sampleColumnsButton = NSButton(title: "Sample Columns", target: nil, action: nil)
+
     public var onDisplaySummaryChanged: ((TwelveSResultDisplaySummary) -> Void)?
     public var onDisplayStateChanged: ((TwelveSResultDisplayState) -> Void)?
     public var onUnresolvedBlastRequested: ((TwelveSUnresolvedBlastRequest) -> Void)?
@@ -62,6 +73,10 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     /// produces a populated payload; a multi/empty selection produces `nil`.
     /// The App wires this to the Inspector's 12S Detail tab.
     public var onSelectedRowDetailChanged: ((TwelveSDetailPayload?) -> Void)?
+
+    /// Fired when the user chooses "Import Metadata…". The App presents the
+    /// shared CSV/TSV import panel and calls ``applyMetadataStore(_:)``.
+    public var onMetadataImportRequested: (() -> Void)?
 
     /// The most recent detail payload, retained so the legacy `testing*`
     /// accessors keep reporting the selected row's evidence after the split
@@ -132,6 +147,22 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     /// Test-only visibility of the sample filter button.
     var testingSampleFilterButtonHidden: Bool { sampleFilterButton.isHidden }
 
+    /// Test-only: all column identifiers on the target table (incl. matrix).
+    var testingTargetColumnIDs: [String] {
+        targetTable.tableView.tableColumns.map { $0.identifier.rawValue }
+    }
+
+    /// Test-only: force reads-column visibility and rebuild.
+    func testingSetSampleColumnsForced(showReads: Bool) {
+        showReadsColumnsOverride = showReads
+        rebuildSampleColumns()
+    }
+
+    /// Test-only: fire the metadata-import callback.
+    func testingTriggerMetadataImport() {
+        onMetadataImportRequested?()
+    }
+
     public override func loadView() {
         let root = NSView()
         root.translatesAutoresizingMaskIntoConstraints = false
@@ -179,9 +210,45 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         selectedSamples = state.selectedSamples
         sampleNameStrippedPrefix = ClassifierSamplePickerView.commonPrefix(of: entries.map(\.displayName))
         sampleFilterButton.isHidden = entries.count <= 1
+        sampleColumnsButton.isHidden = entries.count <= 1
         updateSampleFilterButtonTitle()
         startObservingSampleSelection()
         applyFilters(notify: false)
+        rebuildSampleColumns()
+    }
+
+    /// Applies imported per-sample metadata as matrix columns. New fields are
+    /// shown by default; pass `nil` to clear.
+    public func applyMetadataStore(_ store: SampleMetadataStore?) {
+        metadataStore = store
+        visibleMetadataFields = store?.columnNames ?? []
+        rebuildSampleColumns()
+    }
+
+    /// The currently-selected sample IDs in display (picker/sample-table) order.
+    private var orderedSelectedSampleIDs: [String] {
+        sampleEntries.map(\.id).filter { selectedSamples.contains($0) }
+    }
+
+    /// Whether per-sample reads columns should be shown: the user override if
+    /// set, else the ≤8-selected-samples auto rule.
+    private var shouldShowReadsColumns: Bool {
+        showReadsColumnsOverride ?? (orderedSelectedSampleIDs.count <= autoReadsColumnSampleLimit)
+    }
+
+    /// Rebuilds the per-sample matrix columns on the target table and updates
+    /// the suppressed-columns note.
+    private func rebuildSampleColumns() {
+        let ids = orderedSelectedSampleIDs
+        let names = Dictionary(uniqueKeysWithValues: sampleEntries.map { ($0.id, $0.displayName) })
+        targetTable.setSampleColumns(
+            sampleIDs: ids,
+            displayNames: names,
+            showReads: shouldShowReadsColumns,
+            store: metadataStore,
+            metadataFields: visibleMetadataFields
+        )
+        updateActionBar()
     }
 
     private func updateSampleFilterButtonTitle() {
@@ -212,6 +279,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
                     self.selectedSamples = newSelection
                     self.updateSampleFilterButtonTitle()
                     self.applyFilters(notify: false)
+                    self.rebuildSampleColumns()
                     self.startObservingSampleSelection()
                 }
             }
@@ -239,6 +307,56 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         popover.delegate = self
         popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .maxY)
         samplePopover = popover
+    }
+
+    @objc private func sampleColumnsButtonClicked(_ sender: NSButton) {
+        let menu = NSMenu()
+
+        let readsItem = NSMenuItem(title: "Show Per-Sample Reads", action: #selector(toggleReadsColumns(_:)), keyEquivalent: "")
+        readsItem.target = self
+        readsItem.state = shouldShowReadsColumns ? .on : .off
+        menu.addItem(readsItem)
+
+        if let store = metadataStore, !store.columnNames.isEmpty {
+            menu.addItem(NSMenuItem.separator())
+            let header = NSMenuItem(title: "Metadata Columns", action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            menu.addItem(header)
+            for field in store.columnNames {
+                let item = NSMenuItem(title: field, action: #selector(toggleMetadataField(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = field
+                item.state = visibleMetadataFields.contains(field) ? .on : .off
+                menu.addItem(item)
+            }
+        }
+
+        menu.addItem(NSMenuItem.separator())
+        let importItem = NSMenuItem(title: "Import Metadata\u{2026}", action: #selector(importMetadataMenuItem(_:)), keyEquivalent: "")
+        importItem.target = self
+        menu.addItem(importItem)
+
+        let point = NSPoint(x: sender.bounds.minX, y: sender.bounds.maxY)
+        menu.popUp(positioning: nil, at: point, in: sender)
+    }
+
+    @objc private func toggleReadsColumns(_ sender: NSMenuItem) {
+        showReadsColumnsOverride = !(shouldShowReadsColumns)
+        rebuildSampleColumns()
+    }
+
+    @objc private func toggleMetadataField(_ sender: NSMenuItem) {
+        guard let field = sender.representedObject as? String else { return }
+        if let idx = visibleMetadataFields.firstIndex(of: field) {
+            visibleMetadataFields.remove(at: idx)
+        } else {
+            visibleMetadataFields.append(field)
+        }
+        rebuildSampleColumns()
+    }
+
+    @objc private func importMetadataMenuItem(_ sender: NSMenuItem) {
+        onMetadataImportRequested?()
     }
 
     /// Whether the current selection is a strict subset of all samples
@@ -384,6 +502,15 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         sampleFilterButton.setAccessibilityIdentifier("twelve-s-sample-filter-button")
         sampleFilterButton.setAccessibilityLabel("12S Sample Filter")
         sampleFilterButton.isHidden = true // shown once samples are wired
+
+        sampleColumnsButton.bezelStyle = .push
+        sampleColumnsButton.controlSize = .small
+        sampleColumnsButton.font = .systemFont(ofSize: 11)
+        sampleColumnsButton.target = self
+        sampleColumnsButton.action = #selector(sampleColumnsButtonClicked(_:))
+        sampleColumnsButton.setAccessibilityIdentifier("twelve-s-sample-columns-button")
+        sampleColumnsButton.setAccessibilityLabel("12S Sample Columns")
+        sampleColumnsButton.isHidden = true // shown once samples are wired
     }
 
     private func configureTables() {
@@ -488,7 +615,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     }
 
     private func layout() {
-        let headerRow = NSStackView(views: [titleLabel, modeControl, sampleFilterButton, searchField])
+        let headerRow = NSStackView(views: [titleLabel, modeControl, sampleFilterButton, sampleColumnsButton, searchField])
         headerRow.orientation = .horizontal
         headerRow.alignment = .centerY
         headerRow.spacing = 12
@@ -723,7 +850,13 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     private func updateActionBar() {
         switch mode {
         case .targets:
-            actionBar.updateInfoText("\(targetRows.count) of \(allTargetRows.count) target rows")
+            var info = "\(targetRows.count) of \(allTargetRows.count) target rows"
+            // Note when per-sample reads columns are auto-suppressed for a large cohort.
+            if showReadsColumnsOverride == nil,
+               orderedSelectedSampleIDs.count > autoReadsColumnSampleLimit {
+                info += " · per-sample columns hidden for \(orderedSelectedSampleIDs.count) samples (use Sample Columns)"
+            }
+            actionBar.updateInfoText(info)
             actionBar.setBlastEnabled(false, reason: "Switch to Unresolved to BLAST unmatched sequences")
         case .unresolved:
             let count = selectedUnresolvedRows().count
@@ -890,6 +1023,7 @@ extension TwelveSAmpliconResultViewController: NSPopoverDelegate {
         selectedSamples = newSelection
         updateSampleFilterButtonTitle()
         applyFilters(notify: false)
+        rebuildSampleColumns()
     }
 }
 

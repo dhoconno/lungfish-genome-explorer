@@ -164,6 +164,24 @@ final class TwelveSTableViewTests: XCTestCase {
         wait(for: [gotSequences], timeout: 2.0)
     }
 
+    func testReadsColumnsAutoShowForSmallCohortAndToggle() {
+        let vc = TwelveSAmpliconResultViewController()
+        vc.loadViewIfNeeded()
+        let bundle = TwelveSFixtures.twoSampleResult()
+        vc.configure(result: bundle)
+        let entries = bundle.samples.map {
+            TwelveSSampleEntry(id: $0.sampleID, displayName: $0.displayName, exactReads: $0.exactMatchReads)
+        }
+        vc.configureSamples(entries, state: ClassifierSamplePickerState(allSamples: Set(entries.map(\.id))))
+        // 2 samples ≤ 8 → reads columns auto-shown.
+        XCTAssertTrue(vc.testingTargetColumnIDs.contains("sample::SampleA::reads"))
+        XCTAssertTrue(vc.testingTargetColumnIDs.contains("sample::SampleB::reads"))
+
+        // Force off.
+        vc.testingSetSampleColumnsForced(showReads: false)
+        XCTAssertFalse(vc.testingTargetColumnIDs.contains { $0.hasPrefix("sample::") })
+    }
+
     func testSingleSampleBundleHidesSampleFilterButton() {
         let vc = TwelveSAmpliconResultViewController()
         vc.loadViewIfNeeded()
