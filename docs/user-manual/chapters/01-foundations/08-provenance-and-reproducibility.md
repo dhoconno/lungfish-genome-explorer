@@ -82,7 +82,7 @@ Each export is a folder containing the chosen primary artifact (the script, the 
 
 If your collaborator is also running LGE, you do not have to export at all. A project is a folder on disk, so you can hand them the project folder directly (or share it on lab storage) and they will see the same sidebar, the same Inspector tabs, and the same run records you do. For the conventions around handing a project to another LGE user (especially on shared lab storage where two people might open it at once), see [Shared Projects and Bundle Migration](../appendices/shared-projects.md) in the appendices.
 
-For a deeper look at the runnable-script and pipeline formats, see [Exporting workflows for collaborators](../../README.md) (coming in a later part of the manual).
+For a deeper look at the runnable-script and pipeline formats, see [Exporting as Nextflow or Snakemake](../08-workflows/02-exporting-as-nextflow-or-snakemake.md).
 
 ## What provenance does not promise
 

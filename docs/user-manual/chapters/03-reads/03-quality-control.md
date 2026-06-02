@@ -4,12 +4,13 @@ chapter_id: 03-reads/03-quality-control
 audience: bench-scientist
 prereqs: [01-foundations/02-sequencing-reads, 03-reads/01-importing-fastq]
 estimated_reading_min: 8
-task: Run a fastp QC summary on a FASTQ bundle and read the resulting charts.
-tags: [reads, qc, fastp, quality, phred]
-tools: [fastp]
+task: Run a QC summary on a FASTQ bundle and read the resulting charts.
+tags: [reads, qc, quality, phred]
+tools: []
 entry_points:
-  - "Tools > FASTQ/FASTA Operations > QC & Reporting > Refresh QC Summary"
+  - "Tools > FASTQ/FASTA Operations > QC & Reporting… (then Refresh QC Summary)"
   - "FASTQ viewport > QC tab"
+  - "CLI: lungfish fastq qc-summary"
 shots: []
 planned_shots:
   - id: fastq-qc-charts
@@ -24,6 +25,8 @@ lead_approved: false
 
 ## What it is
 
+This chapter covers inspecting read quality. To act on what QC shows you (trimming, adapter and primer removal, length filtering) see [Trimming and Filtering](04-trimming-and-filtering.md).
+
 Quality control is the step where you decide whether a FASTQ bundle is fit
 to analyse. Bad reads produce bad alignments, and bad alignments produce
 bad variant calls. The cost of catching a problem now is a few minutes of
@@ -31,21 +34,23 @@ inspection; the cost of catching it later is a re-run of every downstream
 step and, sometimes, a retracted result. QC pays for itself the first time
 it stops you from chasing an artefact.
 
-Lungfish runs `fastp` to compute a per-bundle QC summary. The summary
-includes per-base quality (Phred scores across the read length), the read
-length distribution, GC content, and adapter contamination indicators.
-The operation lives at `Tools > FASTQ/FASTA Operations > QC & Reporting >
-Refresh QC Summary`. The result lands in the FASTQ viewport's QC tab as a
-set of charts and a structured report.
+Lungfish computes a per-bundle QC summary by scanning the reads directly
+(no external tool is required). The summary covers per-base quality (Phred
+scores, the standard log scale for base-call confidence, across the read
+length), the read length distribution, GC content, and adapter contamination
+indicators. To run it, choose `Tools > FASTQ/FASTA Operations > QC &
+Reporting…`, then pick `Refresh QC Summary` from the operations list in the
+dialog that opens. The result lands in the FASTQ viewport's QC tab as a set
+of charts and a structured report.
 
 Reading the charts is mostly pattern recognition. A clean Illumina run
 holds Phred scores above Q30 across most of the read length and dips at
 the 3' end. A clean run shows a tight length distribution at the expected
 read length, often 150 bp for paired-end Illumina. A clean run shows GC
 content matching the source organism. Departures from these patterns
-suggest adapter contamination, a tired flow cell, or a sample mix-up.
-**So what should you do with this?** Run `Refresh QC Summary` on every
-new bundle before you align it.
+suggest adapter contamination, a tired flow cell (the consumable chip that
+holds the sequencing lanes), or a sample mix-up. Run `Refresh QC Summary` on
+every new bundle, and read it before you commit compute to aligning it.
 
 ## What you will learn
 
@@ -60,17 +65,20 @@ clean enough to proceed or needs trimming.
 1. Select the FASTQ bundle in the project sidebar under `Imports/` or
    `Downloads/`.
 2. From the menu bar choose `Tools > FASTQ/FASTA Operations > QC &
-   Reporting > Refresh QC Summary`. The Operations Panel shows a new
-   `fastp` row that progresses through `running` to `complete` in a few
-   seconds for a typical 100 MB bundle.
-3. With the same bundle still selected, click the `QC` tab at the top of
+   Reporting…`. A dialog opens with the QC & Reporting operations listed
+   inside it.
+3. Select `Refresh QC Summary` in the dialog and click `Run`. The Operations
+   Panel shows a new row that progresses through `running` to `complete` in a
+   few seconds for a typical 100 MB bundle.
+4. With the same bundle still selected, click the `QC` tab at the top of
    the FASTQ viewport. <!-- planned: fastq-qc-charts -->
-4. Read the four panels in this order: per-base quality, length
-   distribution, GC content, adapter contamination. Each panel has a
-   one-line headline summary above the chart.
-5. If any panel reports a flag (Warning or Fail), make a note of it and
-   continue to the Interpretation section below before deciding what to
-   do.
+5. Read the panels in this order: per-base quality, length distribution, GC
+   content, adapter contamination. If a panel reports a flag, note it and
+   continue to the Interpretation section below before deciding what to do.
+
+To produce the same summary as a standalone JSON file (for a pipeline log or
+an external dashboard), run `lungfish fastq qc-summary <reads.fastq> -o
+qc.json`. It accepts several inputs at once and writes one report.
 
 ## Interpretation
 
@@ -102,10 +110,11 @@ or NextSeq run, the QC charts on a healthy bundle show a recognisable
 shape. The per-base quality chart sits above Q30 from base 1 through
 roughly base 140, then dips toward Q25 at the 3' end of the read. The
 length distribution is a single sharp spike at 150 bp on each of read 1
-and read 2, with at most a small shoulder of shorter reads from
-adapter-read-through. GC content sits at 38 percent, plus or minus 2
-percent, matching the SARS-CoV-2 genome. Adapter contamination sits below
-1 percent.
+and read 2, with at most a small shoulder of shorter reads from adapter
+read-through (where the insert was shorter than the read, so sequencing ran
+off the end of the fragment and into the adapter). GC content sits at 38
+percent, plus or minus 2 percent, matching the SARS-CoV-2 genome. Adapter
+contamination sits below 1 percent.
 
 A useful rule of thumb: if the bundle's median Phred is at least Q30, the
 length spike is at the expected read length, and the GC content is within
@@ -121,19 +130,18 @@ Each has a recognisable signature and a known fix.
 Q20 well before the end of the read, sometimes as early as base 60. This
 typically means the flow cell was overloaded, the run was extended past
 its rated cycle count, or the reagents were near expiry. The fix is
-quality trimming: in Lungfish, run `Tools > FASTQ/FASTA Operations >
-Trim & Filter` with a minimum quality of Q20 and a sliding window. After
-trimming, re-run `Refresh QC Summary` and confirm the chart sits above
-Q20 across the retained read length. Trimming is covered in
+quality trimming: in Lungfish, choose `Tools > FASTQ/FASTA Operations >
+Trimming & Filtering…` and run a quality trim with a Q20 floor and a sliding
+window. After trimming, re-run `Refresh QC Summary` and confirm the chart
+sits above Q20 across the retained read length. Trimming is covered in
 [Trimming and Filtering](04-trimming-and-filtering.md).
 
 **Length truncation.** The length distribution chart shows a long tail of
 short reads instead of (or in addition to) a tight spike at 150 bp. This
-is the signature of adapter read-through: the insert was shorter than the
-read length, so sequencing ran off the end of the insert and into the
-adapter. The fix is adapter trimming, also handled by `Trim & Filter`.
-After trimming, the length distribution spreads slightly to the left of
-150 bp, which is expected and harmless.
+is the signature of adapter read-through. The fix is adapter trimming, also
+handled from `Trimming & Filtering…`. After trimming, the length
+distribution spreads slightly to the left of 150 bp, which is expected and
+harmless.
 
 **GC content departure.** The GC content chart is centred at a value far
 from the source organism's known GC. For SARS-CoV-2 (38 percent), a peak
@@ -170,8 +178,8 @@ above Q30 across most of the retained read length, the length
 distribution is at or near the expected length, the GC content matches
 the source organism within a few percent, and adapter contamination is
 below a few percent. A bundle that fails on any of these axes goes
-through `Trim & Filter` first, then through QC again to confirm the fix
-took. Only then do you align.
+through `Trimming & Filtering…` first, then through QC again to confirm the
+fix took. Only then do you align.
 
 ## Next
 

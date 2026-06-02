@@ -75,7 +75,7 @@ Very low mapping rate almost always means the wrong reference. Check that the re
 
 When paired-end pairing fails, Lungfish surfaces an error early in the operation. Both files must have the same read count and the same per-read order. If one file has been re-sorted or a subset of reads dropped, re-pair the FASTQs from the original source.
 
-When mapping completes but no track appears, the `bam adopt-mapping` step did not run. Re-run it manually: `lungfish bam adopt-mapping --bundle <bundle> --mapping-result <dir>`. The mapping output directory is preserved on disk after the failure, so re-adoption recovers the work without re-mapping.
+When mapping completes but no track appears, the `bam adopt-mapping` step did not run. Re-run it manually: `lungfish bam adopt-mapping --bundle <bundle> --mapping-result <dir> --name <track-name>`. The `--name` option is required. The mapping output directory is preserved on disk after the failure, so re-adoption recovers the work without re-mapping.
 
 ## Variant calling failures
 
@@ -139,7 +139,7 @@ For team workflows, the right answer is currently: one project per researcher pe
 
 Bundle formats are versioned. The bundle's `manifest.json` declares its `version` field. Lungfish reads older bundle versions transparently but will refuse to write to a bundle version older than the current.
 
-If you need to migrate an old project: open the project in the latest Lungfish, run `Project > Migrate Bundles to Current Version` from the menu (when available), or re-create the bundles from their source FASTAs by re-importing. The provenance in the original bundles is preserved if you copy the `provenance/` subdirectory into the new bundles by hand.
+If you need to migrate an old project, run the migration report from the command line: `lungfish project migrate <project>` scans bundles, reports the schema versions it can see, and synthesizes the current reference-bundle fields where it safely can. Add `--dry-run` to scan without writing. See [Shared Projects](shared-projects.md) for the full migration behavior. Bundles whose legacy schema has no transformer are reported, not rewritten; for those, re-create the bundles from their source FASTAs by re-importing. The provenance in the original bundles is preserved if you copy the `provenance/` subdirectory into the new bundles by hand.
 
 ## Collecting diagnostics for a bug report
 

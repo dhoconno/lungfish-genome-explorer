@@ -9,7 +9,8 @@ tags: [alignments, qc, coverage, duplicates, samtools]
 tools: [samtools]
 entry_points:
   - "Inspector > alignment track stats"
-  - "CLI: lungfish markdup"
+  - "Inspector > Analysis > Mark Duplicates in Bundle Tracks"
+  - "CLI: lungfish markdup, lungfish bam filter"
 shots: []
 planned_shots:
   - id: inspector-alignment-stats
@@ -19,9 +20,9 @@ planned_shots:
   - id: coverage-histogram-dropout
     caption: "BAM viewport coverage histogram with two amplicon-edge dropouts visible as gaps in the histogram."
   - id: markdup-dialog
-    caption: "The Mark Duplicates dialog launched from the Inspector's Analysis section."
+    caption: "The Inspector's Analysis section showing the Mark Duplicates in Bundle Tracks and Create Deduplicated Bundle buttons."
 illustrations: []
-glossary_refs: [BAM, coverage, pileup, soft-clip, amplicon]
+glossary_refs: [BAM, coverage, pileup, soft-clip, amplicon, mapq, percent-identity, supplementary-alignment]
 features_refs: []
 fixtures_refs: []
 brand_reviewed: false
@@ -38,11 +39,11 @@ Coverage uniformity matters more for amplicon data than for shotgun. An amplicon
 
 Duplicate handling is the inverse story. A duplicate is a read whose start position and orientation match another read so closely that they are probably PCR copies of the same original molecule. For shotgun data, two reads at the exact same position are suspicious and should be collapsed (marked) so that a single starting molecule does not vote twice in a pileup. For amplicon data, every read from a given amplicon starts at the same primer position by design, so most reads look like duplicates of each other and marking them throws away most of your data. The rule of thumb: mark duplicates for shotgun, skip for amplicon.
 
-So what should you do with this? Before calling variants, open the alignment in the Inspector, check coverage and uniformity, and mark duplicates only if your data is shotgun.
+The practical takeaway: before calling variants, open the alignment in the Inspector, check coverage and uniformity, and mark duplicates only if your data is shotgun.
 
 ## What you will learn
 
-By the end of this chapter you will be able to read mean and minimum coverage from the Inspector, identify under-covered regions in the BAM viewport, decide whether to mark duplicates for your workflow, run `lungfish markdup` when needed, and recognize when an alignment is too poor for reliable variant calling and the reads need re-trimming or re-mapping.
+By the end of this chapter you will be able to read mean and minimum coverage from the Inspector, identify under-covered regions in the BAM viewport, decide whether to mark duplicates for your workflow, run `lungfish markdup` (in place) and `lungfish bam filter` (to a new track) when needed, and recognize when an alignment is too poor for reliable variant calling and the reads need re-trimming or re-mapping.
 
 ## Procedure
 
@@ -50,7 +51,7 @@ By the end of this chapter you will be able to read mean and minimum coverage fr
 
 1. Click the alignment track in the sidebar. The BAM viewport opens and the Inspector populates with track-level stats. <!-- planned: inspector-alignment-stats -->
 2. Read the **Mean coverage** field. This is the average depth across the entire reference, including any zero-coverage stretches.
-3. Read the **Mapped reads** and **Properly paired** counts. These match the equivalent rows of `samtools flagstat`. A healthy paired-end run shows >95% mapped and (for shotgun) >90% properly paired; amplicon data often shows lower properly-paired numbers because primer trimming alters insert geometry.
+3. Read the **Mapped reads** and **Properly paired** counts. Lungfish computes these from the BAM directly; they correspond to the equivalent rows of `samtools flagstat`. A healthy paired-end run shows >95% mapped and (for shotgun) >90% properly paired; amplicon data often shows lower properly-paired numbers because primer trimming alters insert geometry.
 4. Note the **Primary alignments** count. Supplementary and secondary alignments do not count toward coverage in the variant caller.
 
 ### Scan the coverage histogram
@@ -62,13 +63,23 @@ By the end of this chapter you will be able to read mean and minimum coverage fr
 
 ### Decide on duplicate marking
 
-Use the table in [Thresholds](#thresholds-by-workflow) below to decide. If the answer is "skip", do nothing. If the answer is "mark", run `lungfish markdup` from the CLI or launch Mark Duplicates from the Inspector's Analysis section. <!-- planned: markdup-dialog -->
+Use the table in [Thresholds](#thresholds-by-workflow) below to decide. If the answer is "skip", do nothing. If the answer is "mark", run `lungfish markdup` from the CLI or click **Mark Duplicates in Bundle Tracks** in the Inspector's Analysis section. <!-- planned: markdup-dialog -->
+
+The CLI command takes a single positional path. It is a BAM file, or a directory of BAMs to mark in bulk:
 
 ```
-lungfish markdup --in path/to/alignment.bam --out path/to/alignment.markdup.bam
+lungfish markdup path/to/alignment.bam
 ```
 
-The command wraps `samtools markdup` with sensible defaults (the input is name-sorted, fixmate'd, position-sorted, then marked, then indexed). The output is a new BAM track adopted onto the same reference; the original is preserved.
+The command wraps a `samtools markdup` pipeline (name-sort, fixmate, coordinate-sort, mark, index; fixmate is what lets `markdup` reason about read pairs) and marks duplicates **in place**: it replaces the input BAM with the marked version and does not write a separate output file. There is no `--in` or `--out` flag. This matters for scripting: if you wrap `markdup` in a loop over a cohort, it overwrites every source BAM, so copy the originals first if you need to keep them.
+
+Mark and remove are two different verbs, and the plain command only marks. In-place `markdup` keeps every read and sets the duplicate flag on the copies; nothing is deleted, and a downstream tool can still see (or ignore) the flagged reads. To instead *drop* the flagged reads into a fresh bundle and leave the source untouched, use the escape hatch:
+
+```
+lungfish markdup path/to/alignment.bam --deduplicated-bundle path/to/dedup.lungfishref
+```
+
+`--deduplicated-bundle` writes a sibling `.lungfishref` with the flagged duplicate reads removed and leaves the input untouched. The GUI equivalent is **Create Deduplicated Bundle** in the same Analysis section. Note that the Inspector's **Mark Duplicates in Bundle Tracks** button marks every alignment track in the bundle, not just the one you selected.
 
 ## Thresholds by workflow
 
@@ -84,6 +95,34 @@ The numbers below are working defaults, not regulatory minima. Tighten them for 
 | Metagenomic variant calling | 30x at organism of interest | 10x | Mark | Yes |
 
 For mixed-population samples (wastewater, co-infections), raise the minimum-coverage floor: minor-variant detection at 1% allele frequency requires roughly 300x to clear the binomial sampling noise.
+
+## Filtering a BAM before variant calling
+
+Sometimes the right response to a QC problem is not to re-map but to subset the alignment: keep only the reads you trust and call variants on those. `lungfish bam filter` derives a new, filtered alignment track from a bundle track or a mapping-result directory, leaving the source track in place. It is the command form of the QC checks this chapter describes. The GUI equivalent is **Create Filtered Alignment** in the Inspector's Analysis section.
+
+Because it produces a bundle track, `bam filter` needs to know which bundle, which source track, and what to name the result, alongside the filter flags:
+
+```
+lungfish bam filter \
+  --bundle "Reference Sequences/MN908947.3.lungfishref" \
+  --alignment-track <source-track-id> \
+  --output-track-name "filtered (MAPQ 20, primary)" \
+  --min-mapq 20 --primary-only --mapped-only
+```
+
+The filter flags map onto the QC concepts above:
+
+| Flag | Keeps |
+|---|---|
+| `--mapped-only` | Drops unmapped reads. |
+| `--primary-only` | Keeps only primary alignments (no secondary or supplementary). |
+| `--min-mapq <n>` | Drops reads below the MAPQ floor. |
+| `--exclude-marked-duplicates` | Drops reads already flagged as duplicates. |
+| `--remove-duplicates` | Marks duplicates first, then drops them. |
+| `--exact-match` | Keeps only perfect matches (edit distance `NM == 0`). |
+| `--min-percent-identity <p>` | Keeps reads at or above a percent-identity threshold. |
+
+`--exclude-marked-duplicates` and `--remove-duplicates` are mutually exclusive, as are `--exact-match` and `--min-percent-identity`. A common pre-variant-calling filter for shotgun data is `--mapped-only --primary-only --min-mapq 20 --exclude-marked-duplicates`, which keeps confidently-placed, non-duplicate primary reads and nothing else.
 
 ## Interpretation
 
@@ -113,9 +152,9 @@ If shotgun marking flags much more than ~20% of reads, the library was over-ampl
 
 ## Worked example: SRR36291587 primer-trimmed BAM
 
-The fixture run `SRR36291587` is a SARS-CoV-2 ARTIC v3 amplicon library, primer-trimmed against the matching scheme as described in [Primer Trimming](03-primer-trimming.md). The Inspector for the trimmed BAM reports mean coverage near 800x and >99% mapped. The coverage histogram shows the characteristic ARTIC sawtooth (every amplicon is a small bump and the bumps overlap at amplicon junctions) with no zero-coverage gaps in the spike gene or the rest of the called region. Because the protocol is amplicon, duplicate marking is skipped. The BAM passes all three checks and is ready for iVar variant calling in the next chapter.
+The fixture run `SRR36291587` is a SARS-CoV-2 amplicon library, primer-trimmed against the built-in QIAseq Direct SARS-CoV-2 scheme as described in [Primer Trimming](03-primer-trimming.md). The Inspector for the trimmed BAM reports mean coverage near 800x and >99% mapped. The coverage histogram shows the characteristic amplicon sawtooth (every amplicon is a small bump and the bumps overlap at amplicon junctions) with no zero-coverage gaps in the spike gene or the rest of the called region. Because the protocol is amplicon, duplicate marking is skipped. The BAM passes all three checks and is ready for iVar variant calling in the next chapter.
 
-If the same fixture had shown a 1.5 kb dropout straddling amplicon 76, the correct response would be to note the gap in the methods record, restrict variant calling to the rest of the genome, and flag any reported lineage assignment that depends on a position inside the gap as inconclusive.
+If the same fixture had shown a 1.5 kb dropout straddling one amplicon, the correct response would be to note the gap in the methods record, restrict variant calling to the rest of the genome, and flag any reported lineage assignment that depends on a position inside the gap as inconclusive.
 
 ## Next
 

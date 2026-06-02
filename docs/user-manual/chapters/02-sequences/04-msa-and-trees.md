@@ -8,9 +8,9 @@ task: Build a multiple sequence alignment with MAFFT and infer a phylogenetic tr
 tags: [sequences, msa, mafft, phylogenetics, iqtree, tree]
 tools: [mafft, iqtree]
 entry_points:
-  - "Tools > FASTQ/FASTA Operations > Multiple Sequence Alignment"
-  - "Open an MSA bundle, then Tools > Infer Tree"
-  - "CLI: lungfish msa, lungfish tree"
+  - "Tools > FASTQ/FASTA Operations > Multiple Sequence Alignment…"
+  - "Open an MSA bundle, right-click, Build Tree with IQ-TREE…"
+  - "CLI: lungfish align mafft, lungfish tree infer iqtree"
 shots:
   - id: msa-viewport
     caption: "An MSA viewport showing aligned sequences with a column ruler."
@@ -33,7 +33,7 @@ lead_approved: false
 
 A multiple sequence alignment (MSA) takes a set of related sequences and arranges them so homologous positions sit in the same column. Where one sequence has an insertion that the others lack, MAFFT pads the others with `-` gap characters. The result is a rectangular block: rows are sequences, columns are inferred homologous sites, and conservation at any column is a column-wise count of how many rows agree.
 
-Lungfish runs MAFFT under `Tools > FASTQ/FASTA Operations > Multiple Sequence Alignment` and writes the result as a `.lungfishmsa` bundle that opens in the MSA viewport. From that bundle, `Tools > Infer Tree` runs IQ-TREE to estimate a maximum-likelihood phylogenetic tree, written as a `.lungfishtree` bundle that opens in the tree viewport. Both bundles carry a provenance sidecar recording the exact tool version and command line.
+Lungfish runs MAFFT under `Tools > FASTQ/FASTA Operations > Multiple Sequence Alignment…` and writes the result as a `.lungfishmsa` bundle that opens in the MSA viewport. From that open bundle, right-clicking and choosing **Build Tree with IQ-TREE…** runs IQ-TREE to estimate a maximum-likelihood phylogenetic tree, written as a `.lungfishtree` bundle that opens in the tree viewport. Both bundles carry a provenance sidecar recording the exact tool version and command line.
 
 This chapter is more advanced than the rest of Part II because it assumes you already have a reason to align: comparing related viral isolates, tracing transmission, or designing diagnostic primers across variants. MAFFT and IQ-TREE are well-documented academic standards, and this chapter teaches the Lungfish workflow around them, not the algorithm internals.
 
@@ -47,24 +47,24 @@ By the end of this chapter you will assemble a set of related sequences into a s
 
 ## Why MAFFT
 
-Lungfish defaults to MAFFT because for the inputs this manual targets (tens to a few hundred viral or bacterial sequences of comparable length), MAFFT's default `--auto` mode picks a sensible algorithm, runs in seconds, and produces alignments that downstream tools agree with. The other common choices are MUSCLE and Clustal Omega.
+Lungfish uses MAFFT because for the inputs this manual targets (tens to a few hundred viral or bacterial sequences of comparable length), MAFFT's `--auto` strategy picks a sensible algorithm, runs in seconds, and produces alignments that downstream tools agree with. MAFFT is the only aligner wired into Lungfish, in both the GUI and the CLI; there is no aligner picker to choose among.
 
-| Tool | Speed on ~100 viral genomes | Default in Lungfish | Strengths | Weaker on |
+The table below lists MUSCLE and Clustal Omega for context, in case a published methods section used one of them. They are not selectable in Lungfish. To reproduce a paper that used MUSCLE or Clustal Omega exactly, run that tool outside Lungfish and import the resulting alignment as a bundle (see "Importing a pre-built alignment or tree", below).
+
+| Tool | Speed on ~100 viral genomes | In Lungfish | Strengths | Weaker on |
 |---|---|---|---|---|
 | MAFFT | Seconds | Yes | Auto-selects algorithm by input size, handles ragged ends well | Very large (>10k) divergent inputs without `--parttree` |
 | MUSCLE | Seconds to minutes | No | Often slightly higher accuracy on small protein sets | Slower than MAFFT at scale |
 | Clustal Omega | Minutes | No | Scales to thousands of sequences via HMM seeding | Less accurate than MAFFT on closely related nucleotide sets |
 
-If you need MUSCLE or Clustal Omega specifically (for example, to reproduce a published methods section), install the plugin pack that provides them and select the tool in the MSA wizard's `Aligner` dropdown. Provenance records the actual tool used, so later readers can tell which engine produced the bundle.
-
 ## Procedure: build an MSA with MAFFT
 
 The worked example assumes you have ten SARS-CoV-2 S-gene FASTAs in one folder, each from a different lineage (a mix of Alpha, Delta, and Omicron). The exact accessions do not matter; what matters is that each FASTA contains a single S-gene sequence with a header line that names the lineage, for example `>BA.2_OQ123456`.
 
-1. Drop the ten FASTAs into your project's `Imports/` folder, or use `File > Import` and select them together. Each lands as its own item in the sidebar.
-2. Choose `Tools > FASTQ/FASTA Operations > Multiple Sequence Alignment`. The MSA wizard opens.
-3. In the wizard's `Inputs` list, add all ten FASTAs. Lungfish concatenates them into a single multi-FASTA before passing to MAFFT.
-4. Leave `Aligner` set to MAFFT and `Mode` set to Auto. For inputs under a few hundred viral-scale sequences, the auto mode is what you want.
+1. Drop the ten FASTAs into your project's `Imports/` folder, or use `File > Import Center…` (Cmd-Shift-I) and add them there. Each lands as its own item in the sidebar.
+2. Choose `Tools > FASTQ/FASTA Operations > Multiple Sequence Alignment…`. The MSA wizard opens on the MAFFT pane.
+3. In the wizard's inputs list, add all ten FASTAs. Lungfish concatenates them into a single multi-FASTA before passing to MAFFT.
+4. Leave **Strategy** on **Auto** (MAFFT is the only aligner, so there is nothing else to select). The pane also has **Sequence Type** and **Output Order** pickers; their defaults are fine for this input. For inputs under a few hundred viral-scale sequences, Auto is what you want.
 5. Name the output bundle (for example, `S-gene-10-isolates.lungfishmsa`) and click `Run`.
 
 MAFFT typically finishes in under a minute on this input size. The new bundle appears in the sidebar; double-click to open the MSA viewport.
@@ -81,17 +81,44 @@ If you have a reference annotation already loaded (for example, the SARS-CoV-2 G
 
 For the ten-isolate worked example, you should see a strongly conserved 5' block (the S1 signal region), a band of lineage-defining columns clustered in the receptor-binding domain (positions roughly 319 to 541 in the S-gene reference frame), and a shorter conserved 3' block. Omicron rows will carry a visible insertion near position 214 that Alpha and Delta rows lack; that insertion appears in the MSA as a column block where eight of ten rows are gap characters.
 
+## Working with an alignment after you build it
+
+An alignment is often the input to more than a tree. The `lungfish msa` command transforms and inspects an existing `.lungfishmsa` bundle (it does not build one; that is `lungfish align mafft`). A bench reader can skip this subsection.
+
+Two transforms come up constantly. `lungfish msa consensus` collapses the alignment into a single consensus FASTA, and `lungfish msa distance` writes a pairwise distance matrix as a TSV, either percent identity or p-distance, which is the quickest way to ask "how different are these sequences from each other" without a tree:
+
+```bash
+lungfish msa distance S-gene-10-isolates.lungfishmsa \
+  --output S-gene-10-isolates-distances.tsv
+```
+
+The same command family also extracts a sub-alignment, masks or trims columns, edits annotations, and exports to other formats. `lungfish msa export` writes aligned FASTA, PHYLIP, NEXUS, Clustal, Stockholm, and the a2m/a3m HMMER formats through `--output-format`, for handing the alignment to a tool that expects one of those.
+
 ## Procedure: infer a tree with IQ-TREE
 
-With the MSA bundle still open, run `Tools > Infer Tree`. The tree wizard opens, pre-populated with the current MSA bundle as input.
+Tree inference is launched from inside the open alignment, not from the Tools menu. With the MSA bundle open in the MSA viewport, right-click and choose **Build Tree with IQ-TREE…**. The **Phylogenetic Tree Operations** dialog opens (subtitle "Configure IQ-TREE for the selected multiple sequence alignment"), pre-populated with the current MSA bundle.
 
-1. Confirm the MSA bundle is selected as the input alignment.
-2. Leave `Method` set to IQ-TREE and `Substitution model` set to `MFP` (ModelFinder Plus). IQ-TREE will pick the best-fitting model from the data.
-3. Set `Bootstrap replicates` to `1000` for ultrafast bootstrap support values. Lower values run faster; higher values rarely change conclusions for inputs this size.
-4. Optionally set an outgroup tip from the dropdown. For SARS-CoV-2 lineage trees, the earliest available isolate (often a Wuhan-Hu-1 reference) makes a sensible outgroup.
-5. Name the output bundle (for example, `S-gene-10-isolates.lungfishtree`) and click `Run`.
+1. Set **Output Name** for the tree bundle (for example, `S-gene-10-isolates`).
+2. Leave **Model** on **MFP**. MFP is ModelFinder Plus: it tests a set of substitution models and picks the best-fitting one from your data before inferring the tree.
+3. Tick **Ultrafast Bootstrap** to turn on support values, then set the replicate count to `1000`. This step is easy to miss: bootstrap is off by default, so if you skip it the tree has no support values, and the next section's "read the support values" advice will have nothing to read. Tick **SH-aLRT** as well if you want a second, faster support measure alongside.
+4. The remaining fields (Sequence Type, Seed, Threads, Safe numerical mode, Keep identical sequences) have sensible defaults; leave them unless you have a reason to change them. There is no outgroup field here. Rooting on an outgroup is a separate step you do after the tree exists (see "Procedure: re-root a tree", below).
+5. Click `Run`.
+
+To build a tree from part of the alignment rather than all of it, select the rows or columns you want in the MSA viewport before choosing **Build Tree with IQ-TREE…**; the selection is carried into the inference. The CLI exposes the same scoping through `--rows` and `--columns`.
 
 IQ-TREE on ten sequences finishes in seconds to a minute. The new bundle appears in the sidebar; double-click to open the tree viewport.
+
+The same inference runs from the command line. Unlike the post-inference commands later in this chapter, it requires both `--project` (for staging) and `--output`:
+
+```bash
+lungfish tree infer iqtree S-gene-10-isolates.lungfishmsa \
+  --project . \
+  --output S-gene-10-isolates.lungfishtree \
+  --model MFP \
+  --bootstrap 1000
+```
+
+Drop `--bootstrap` and the tree is built without support values, the CLI equivalent of leaving the Ultrafast Bootstrap box unticked. The builder command for the alignment itself is `lungfish align mafft <inputs> --project <dir>`; note that `lungfish msa` is a different command that transforms an existing alignment and cannot build one from unaligned FASTA.
 
 <!-- SHOT: tree-viewport -->
 
@@ -101,7 +128,7 @@ IQ-TREE on ten sequences finishes in seconds to a minute. The new bundle appears
 
 The tree viewport renders a rectangular phylogram by default. Branch length encodes inferred substitutions per site, so longer horizontal branches mean more accumulated change. Tip labels come straight from the FASTA header lines; if you named your inputs with lineage prefixes, the lineage groupings are visible at a glance.
 
-Three things to read off the tree. First, the topology: which tips group with which other tips. For the worked example, you should see Alpha tips form one clade, Delta tips form a separate clade, and Omicron tips form a third clade well separated from the other two by a long internal branch. Second, the support values: numbers at each internal node give the percentage of bootstrap replicates that recovered that exact split. Values above 95 are strong; values below 70 mean the split is uncertain and you should not draw fine-grained conclusions from it. Third, the root: if you set an outgroup, the tree is rooted there; if not, the tree is unrooted and the apparent root position is a display convention only.
+Three things to read off the tree. First, the topology: which tips group with which other tips. For the worked example, you should see Alpha tips form one clade, Delta tips form a separate clade, and Omicron tips form a third clade well separated from the other two by a long internal branch. Second, the support values: if you ticked Ultrafast Bootstrap, numbers at each internal node give the percentage of bootstrap replicates that recovered that exact split, and values above 95 are strong while values below 70 mean the split is uncertain. If you did not enable bootstrap, there are no numbers to read, and a tree with no support values is the usual sign you forgot to tick the box. Third, the root: IQ-TREE produces an unrooted tree, so the apparent root position is a display convention until you re-root the bundle on a chosen outgroup (next).
 
 The tree viewport's toolbar offers a few controls. `Layout` switches between a branch-length phylogram and an equal-depth cladogram. `Color` can highlight support values or branch lengths. `Tip labels` can be switched from the original tree labels to a column in `metadata.tsv` when the bundle includes one. Right-click a node or tip to copy labels, copy Newick for a subtree, center the view, reveal provenance, re-root, collapse, or extract a subtree as a new bundle.
 
@@ -162,6 +189,17 @@ lungfish tree extract-subtree \
 
 For compatibility with older workflows, `lungfish tree export subtree` still writes a plain Newick export plus sidecar provenance. Prefer `extract-subtree` when the result should remain a Lungfish bundle.
 
+## Importing a pre-built alignment or tree
+
+You do not have to build everything in Lungfish. If an external pipeline already produced an alignment or a tree, import it as a native bundle and use the same viewports and operations as for an in-app result. `lungfish import msa` reads aligned FASTA, Clustal, PHYLIP, NEXUS, Stockholm, and a2m/a3m and writes a `.lungfishmsa` bundle; `lungfish import tree` reads Newick or Nexus and writes a `.lungfishtree` bundle. Both take a `--project` directory:
+
+```bash
+lungfish import msa my-alignment.fasta --project .
+lungfish import tree my-tree.nwk --project .
+```
+
+This is the route for reproducing a published MUSCLE or Clustal Omega alignment, or for bringing in a tree from a tool Lungfish does not run.
+
 ## What this chapter does not cover
 
 Phylogenetics is a deep field and Lungfish ships only the inference workflow most viral-genomics analysts need day to day. The following are deliberately out of scope and are not in the app today.
@@ -176,7 +214,7 @@ If your question requires any of those, export the Newick or the MSA FASTA from 
 
 ## Troubleshooting
 
-When MAFFT produces a poor alignment, the cause is almost always the input. Sequences in mixed orientation (some forward strand, some reverse complement) align as if they were unrelated; reorient them with `Tools > Orient` against a shared reference before aligning. Sequences from different genes or wildly different lengths produce mostly-gap alignments; check that every input is what you think it is by spot-reading a few headers and lengths in the sidebar inspector. Very divergent sequences (below ~50% pairwise identity) are at the edge of MAFFT's default settings; switch the wizard's `Mode` from Auto to `L-INS-i` for higher accuracy at the cost of runtime, or accept that an MSA is not the right tool for that data.
+When MAFFT produces a poor alignment, the cause is almost always the input. Sequences in mixed orientation (some forward strand, some reverse complement) align as if they were unrelated. There is no `Tools > Orient` for reference FASTA; the FASTQ "Orient Reads" operation handles reads, not the records going into an MSA. Instead, let MAFFT flip them: run the alignment from the CLI with `lungfish align mafft --adjust-direction fast`, which reverse-complements records as needed during alignment. Sequences from different genes or wildly different lengths produce mostly-gap alignments; check that every input is what you think it is by spot-reading a few headers and lengths in the sidebar inspector. Very divergent sequences (below ~50% pairwise identity) are at the edge of MAFFT's default settings; switch **Strategy** from Auto to **L-INS-i** for higher accuracy at the cost of runtime (the CLI spelling is `--strategy linsi`), or accept that an MSA is not the right tool for that data.
 
 When IQ-TREE struggles, it usually says so in its log. Identical or near-identical sequences collapse into zero-length branches and produce trees with low support across the board; deduplicate the input FASTA first if that is the case. Very short alignments (under a few hundred informative columns) carry too little signal for confident bootstrap support; expect support values in the 50s to 70s and do not over-interpret them. If IQ-TREE warns that ModelFinder selected a model with very few parameters, your data is probably too uniform for the question you are asking; consider whether a tree is the right summary at all.
 

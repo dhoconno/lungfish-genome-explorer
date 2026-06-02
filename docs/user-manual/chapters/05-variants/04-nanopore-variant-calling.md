@@ -15,9 +15,9 @@ entry_points:
 shots: []
 planned_shots:
   - id: variant-call-dialog-medaka
-    caption: "The Variant Calling dialog with Medaka selected on the tool sidebar."
-  - id: medaka-model-picker
-    caption: "The Medaka model picker, showing common R10.4.1 and R9.4.1 entries."
+    caption: "The Variant Calling dialog with Medaka selected on the tool sidebar and the empty model field showing its placeholder."
+  - id: medaka-model-field
+    caption: "The free-text Medaka model field with a basecaller model string typed in and the Run button enabled."
 illustrations: []
 glossary_refs: [variant-caller, basecaller, simplex-read, duplex-read]
 features_refs: [variants.call]
@@ -34,7 +34,7 @@ Generic variant callers struggle with this. iVar and LoFreq both assume Illumina
 
 The catch is that the model has to match. A Medaka model trained against Dorado v4.2.0 simplex output will give silently worse results on reads basecalled by Guppy v6, and vice versa. Before you call variants you need to know which basecaller produced the FASTQ.
 
-So what should you do with this? Confirm the basecaller version that produced your ONT reads, choose the matching Medaka model or Clair3 model path in the Variant Calling dialog, and treat any "unknown" answer as a flag to stop and investigate before calling variants.
+So what should you do with this? Confirm the basecaller version that produced your ONT reads, type the matching Medaka model string or Clair3 model path into the Variant Calling dialog's model field, and treat any "unknown" answer as a flag to stop and investigate before calling variants.
 
 ## What you will learn
 
@@ -48,7 +48,7 @@ This chapter is partially aspirational. The Lungfish test fixture set does not y
 
 Medaka model names encode the pore chemistry, the basecaller chemistry preset, the speed mode, the basecaller accuracy mode, and the basecaller version. The string `r1041_e82_400bps_sup_v4.2.0` decodes as: R10.4.1 pore, E8.2 chemistry preset, 400 base-per-second sampling, super-accuracy basecalling, Dorado v4.2.0. If any of those five tokens disagree with how your reads were produced, the model is wrong for your data.
 
-The table below lists the models you are most likely to need. The dialog's model picker carries the full list shipped with the bundled Medaka build; consult it for the exact strings.
+The table below lists the models you are most likely to need. The dialog does not list them for you: you type the exact string into the model field, so confirm it against your basecaller output (the next section shows how) rather than relying on the app to offer it.
 
 | Medaka model | Pore | Basecaller | Mode | Use when |
 |---|---|---|---|---|
@@ -84,11 +84,11 @@ The procedure assumes you have already imported the ONT run as described in [ONT
 
 ### Step 1. Map ONT reads with the map-ont preset
 
-Click the reference bundle in the sidebar. Choose `Tools > FASTQ/FASTA Operations > Mapping…` to open the Mapping dialog. In the `Reads` section, choose the ONT FASTQ. ONT runs are single-end, so the dialog will not look for an `_1` / `_2` pair.
+Mapping in the GUI is a two-step selection. You do not pick the reads or the mapper inside the wizard. First, in the sidebar, click the ONT FASTQ bundle so it is the selected item. ONT runs are single-end, so the run will not look for an `_1` / `_2` pair. Then choose `Tools > FASTQ/FASTA Operations > Mapping…` and click the `minimap2` tool row. The wizard opens already knowing the reads (your sidebar selection) and the mapper (the row you clicked).
 
-In the `Tool` section, set `Mapper` to `minimap2` and `Preset` to `Map ONT (map-ont)`. The `map-ont` preset configures minimap2 for noisy long reads. Do not pick `Short read (sr)` for ONT data; the preset is wrong and the resulting alignment will be unusable for variant calling. Click `Run`.
+The wizard has five sections: `Reference`, `Preset`, `Read Group`, `Input Compatibility`, and `Advanced Settings`. Under `Reference`, choose the target bundle. Under `Preset`, choose `Map ONT (map-ont)`, which configures minimap2 for noisy long reads. Do not pick `Short-read` for ONT data; the preset is wrong and the resulting alignment will be unusable for variant calling. Click `Run`.
 
-When the operation finishes, a fresh alignment track named `ONT-SAMPLE-01 (minimap2 map-ont)` appears under `Alignments` in the sidebar.
+When the operation finishes, a fresh alignment track named `minimap2 Mapping` (the mapper name plus "Mapping") appears under `Alignments` in the sidebar. You can rename it.
 
 ### Step 2. Primer-trim if the data is amplicon
 
@@ -98,21 +98,21 @@ The output is a new track suffixed `Primer-trimmed (<scheme>)`, with primer-trim
 
 ### Step 3. Open the Variant Calling dialog and choose an ONT caller
 
-Click the primer-trimmed alignment track. In the Inspector's `Analysis` section, select `Variant Calling` and click `Call Variants…`. The dialog opens with three columns: a tool sidebar on the left, an `Inputs` section in the middle, and an `Output` section on the right.
+Click the primer-trimmed alignment track. In the Inspector's `Analysis` section, select `Variant Calling` and click `Call Variants…`. The dialog opens with three columns: a tool sidebar on the left, an `Inputs` section in the middle, and an `Output` section on the right. The sidebar lists seven entries (`LoFreq`, `iVar`, `Medaka`, `bcftools`, `Clair3`, `GATK HaplotypeCaller`, and `GATK + WhatsHap Phased`), with `LoFreq` selected by default.
 
-On the left sidebar, choose `Medaka` or `Clair3`. The middle column updates: instead of iVar's allele-frequency tunables, you see ONT caller options. Medaka asks for a basecaller model name. Clair3 asks for a model path or model identifier that `run_clair3.sh` can resolve in the installed environment.
+On the sidebar, click `Medaka` or `Clair3`. The middle column updates to show a single caller-specific control: a model field. Both Medaka and Clair3 read from the same model field, so there is one field to fill regardless of which of the two you picked. For Medaka you type a basecaller model name; for Clair3 you type a model path or identifier. The field starts empty, and the `Run` button stays disabled until you type a value into it.
 
 <!-- planned: variant-call-dialog-medaka -->
 
-### Step 4. Pick the model and run
+### Step 4. Type the model and run
 
-Open the `Basecaller model` dropdown. The picker lists the models bundled with the current Medaka build, grouped by pore chemistry, with the most recent R10.4.1 super-accuracy model selected by default.
+The model field is a free-text box, not a dropdown. It shows a placeholder string (`r1041_e82_400bps_sup_v5.0.0`) to illustrate the format, but nothing is selected for you and the placeholder is not used unless you type it. There is no curated list grouped by pore chemistry; you supply the exact model string yourself.
 
-<!-- planned: medaka-model-picker -->
+<!-- planned: medaka-model-field -->
 
-If you confirmed the basecaller version in the previous section, choose the matching entry. If you did not, see "What to do when the basecaller is unknown" above. Leave the rest of the Medaka options at their defaults for a first pass: `Minimum mapping quality 20`, `Minimum depth 20`, `Region` blank (call across the whole reference). Name the output track `Medaka variants` and click `Run`.
+If you confirmed the basecaller version in the previous section, type the matching Medaka model string (or, for Clair3, the model path). If you did not, see "What to do when the basecaller is unknown" above. The model is the only caller-specific control; depth comes from the shared `Minimum Depth` threshold, which defaults to `10`. Name the output track `Medaka variants` and click `Run`. If you leave the model field empty, the run stays disabled, and the Medaka pipeline will refuse to start without model metadata.
 
-Behind the dialog Lungfish runs the selected caller against the primer-trimmed BAM and the reference FASTA, then bgzips and tabix-indexes the resulting VCF. Medaka uses `medaka_haploid_variant` or the equivalent Medaka inference pipeline. Clair3 uses `run_clair3.sh` with `--bam_fn`, `--ref_fn`, `--model_path`, `--platform=ont`, and `--threads`. A new variant track appears under `Variants` in the sidebar when the operation finishes.
+Behind the dialog Lungfish reconstructs a FASTQ from the primer-trimmed alignment, then runs Medaka against that FASTQ and the reference FASTA, and bgzips and tabix-indexes the resulting VCF. The Medaka command is `medaka variant -i <fastq> -r <reference> -o <out> -m <model> -t <threads>`; Medaka reads the reconstructed FASTQ through `-i`, not the BAM. Clair3 runs against the BAM directly, with `--bam_fn`, `--ref_fn`, `--model_path`, `--platform=ont`, and `--threads`, and Lungfish reads back its `merge_output.vcf.gz`. A new variant track appears under `Variants` in the sidebar when the operation finishes.
 
 The CLI equivalent is one command:
 
@@ -140,20 +140,22 @@ lungfish variants call \
 
 The hypothetical fixture `ONT-SAMPLE-01` is a SARS-CoV-2 ARTIC v3 amplicon run, basecalled with Dorado v4.2.0 in super-accuracy mode against R10.4.1 chemistry at 400 bps. Reads are roughly 400 bp long, single-end, with the model identifier `dna_r10.4.1_e8.2_400bps_sup@v4.2.0` in the FASTQ header.
 
-The sequence of decisions for this run is: map with `Map ONT (map-ont)`, primer-trim with the bundled `ARTIC-v3-SARS2` scheme, choose Medaka in the Variant Calling dialog, pick `r1041_e82_400bps_sup_v4.2.0` from the model picker, leave the other defaults, click `Run`.
+The sequence of decisions for this run is: map with `Map ONT (map-ont)`, primer-trim with the bundled `ARTIC-v3-SARS2` scheme, choose Medaka in the Variant Calling dialog, type `r1041_e82_400bps_sup_v4.2.0` into the model field, leave the shared depth threshold at its default, click `Run`.
 
 The expected output for an Omicron-lineage isolate at this read depth is roughly 60 to 90 PASS variants. Medaka calls fewer rows than iVar on the same biological sample because it filters more aggressively at the low-allele-frequency end, which is the right behaviour for ONT data where low-frequency rows are dominated by basecall error.
 
-When the real fixture lands, this section will be re-run against it. The numbers above are the order of magnitude to expect, not exact.
+When the real fixture lands, this section will be re-run against it. The numbers above are the order of magnitude to expect for this isolate, not exact counts and not a guarantee.
 
 ## Choosing between Medaka and Clair3
 
 Clair3 is a separate neural-network ONT variant caller that has gained ground for human germline variant calling and for some viral applications. Like Medaka, Clair3 is model-specific and the same basecaller-version-matching rule applies; the model file extensions and naming conventions differ. For SARS-CoV-2 amplicon work, Medaka remains the conservative choice when you need compatibility with established viral consensus pipelines, while Clair3 is useful when your lab has validated Clair3 models or wants an orthogonal ONT call set for comparison.
 
+Both callers share the same model field in the dialog and the same `--medaka-model` CLI flag; the value you put in differs.
+
 | Caller | Use it when | Model input | Lungfish surface |
 |---|---|---|---|
-| Medaka | You want the established viral ONT caller used by common consensus workflows. | Medaka model name such as `r1041_e82_400bps_sup_v4.2.0`. | Variant Calling dialog and `lungfish variants call --caller medaka`. |
-| Clair3 | You have validated Clair3 for the run type or want an independent ONT call set. | Clair3 model path or identifier passed to `run_clair3.sh --model_path`. | Variant Calling dialog and `lungfish variants call --caller clair3`. |
+| Medaka | You want the established viral ONT caller used by common consensus workflows. | Medaka model name such as `r1041_e82_400bps_sup_v4.2.0`. | Variant Calling dialog model field and `lungfish variants call --caller medaka --medaka-model`. |
+| Clair3 | You have validated Clair3 for the run type or want an independent ONT call set. | Clair3 model path or identifier (passed to Clair3 as `--model_path`). | Variant Calling dialog model field and `lungfish variants call --caller clair3 --medaka-model`. |
 
 ## Interpretation
 

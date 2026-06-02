@@ -23,9 +23,63 @@ The Lungfish command-line interface is a single binary, `lungfish`, that mirrors
 
 The CLI is the right surface when you want to script a workflow, run a pipeline on a remote server without forwarding a display, integrate Lungfish into a Snakemake or Nextflow rule, or audit exactly which flags a GUI run passed through. Every command writes the same provenance sidecars and creates the same on-disk artifacts as the GUI.
 
-This appendix groups commands by domain. Examples use realistic paths and accessions so they can be copied and adapted. All commands accept the global flags listed at the bottom; per-command flags are only those specific to the command.
+Installed releases expose the binary on `PATH` as `lungfish`. If you build from source, the SwiftPM product is `lungfish-cli`, so invoke `.build/debug/lungfish-cli ...`; the application bundle ships the same program at `Lungfish.app/Contents/MacOS/lungfish-cli`. All three names refer to the same binary.
+
+This appendix groups the most-used commands by domain. Examples use realistic paths and accessions so they can be copied and adapted. The flat command index below lists every top-level command so you can confirm whether a command exists and what it is named. All commands accept the global flags listed at the bottom; per-command flags are only those specific to the command. When in doubt, run `lungfish <command> --help` for the authoritative flag list.
 
 For release-level tool versions, see [Tool Versions](tool-versions.md#appendix-tool-versions). For upstream citations, see [Tool Bibliography](bibliography.md#appendix-bibliography).
+
+## Command index
+
+The binary exposes 43 top-level commands. Each row gives the real command name and a one-line description; the sections below document the most common flags. Run `lungfish <command> --help` to recurse into subcommands.
+
+| Command | What it does |
+|---|---|
+| `align` | Create a native MSA bundle from FASTA (MAFFT). |
+| `analyze` | Sequence statistics (count, length, GC, N50). |
+| `assemble` | Run a de novo assembler (SPAdes, MEGAHIT, SKESA, Flye, Hifiasm). |
+| `bam` | Operate on bundle-owned BAM tracks (`filter`, `annotate`, `markdup`, `primer-trim`, `adopt-mapping`). |
+| `blast` | BLAST-verify classified reads against NCBI (`blast verify`). |
+| `build-db` | Build TaxTriage / EsViritu / Kraken2 SQLite databases. |
+| `bundle` | Create, inspect, and export reference bundles. |
+| `conda` | Manage plugin packs and run Kraken2 (`conda classify`). |
+| `convert` | Convert between sequence formats. |
+| `cz-id` | Import and view CZ-ID classification results. |
+| `debug` | Diagnostic commands (env check, container diagnostics, log parser). |
+| `esviritu` | EsViritu viral detection (`esviritu detect`). |
+| `extract` | Extract subsequences, reads, or contigs (`extract sequence`/`reads`/`contigs`). |
+| `fastq` | FASTQ operations (subsample, filter, scrub, orient, and more). |
+| `fetch` | Download from NCBI, SRA, ENA, and NCBI Datasets. |
+| `freyja` | Wastewater lineage demixing (`freyja demix`). |
+| `gatk` | Build or run GATK4 germline-variant commands (10 subcommands). |
+| `genotype` | Inspect and export ONT genotype result bundles (7 subcommands). |
+| `haplotypes` | Manage ONT genotyping haplotype definition sets (10 subcommands). |
+| `import` | Import local files into a project (FASTA, VCF, BAM, classifier output, and more). |
+| `import-fastq` | Alias for `import fastq`. |
+| `map` | Map reads to a reference (minimap2 by default). |
+| `markdup` | Mark PCR duplicates in a BAM, in place. |
+| `metadata` | Manage FASTQ sample metadata. |
+| `msa` | Inspect and act on MSA bundles (`actions`, `annotate`, `consensus`, and more). |
+| `nao-mgs` | Import and view NAO-MGS surveillance results. |
+| `nvd` | Import and view Novel Virus Diagnostics results. |
+| `ops` | Summarize runtime and peak RAM from provenance sidecars (`ops stats`). |
+| `orient` | Orient FASTQ reads against a reference (vsearch). |
+| `primers` | Import primer schemes (`primers import`). |
+| `project` | Lock, unlock, and migrate shared projects. |
+| `provenance` | Read, export, and verify provenance (`bibliography`, `export`, `verify`). |
+| `provision-tools` | Provision managed tools ahead of first use. |
+| `run-headless` | CI alias for `workflow run --quiet`. |
+| `search` | Search a FASTA or FASTQ for sequence patterns. |
+| `sequence` | Annotate ORFs and delete annotation tracks on a bundle. |
+| `taxtriage` | Run the TaxTriage classification pipeline (`taxtriage run`). |
+| `translate` | Translate DNA/RNA to protein. |
+| `tree` | Infer a phylogenetic tree (IQ-TREE). |
+| `universal-search` | Search datasets and analyses within one project. |
+| `variants` | Call and phase variants (`variants call`). |
+| `version` | Print the Lungfish version and tool table. |
+| `workflow` | Run, list, validate, and diff Lungfish workflows. |
+
+The `project`, `ops`, and `primers` commands are documented in detail in [Shared Projects](shared-projects.md), [Power User Notes](power-user-notes.md), and [Primer Scheme Bundles](primer-schemes.md) respectively.
 
 ## Version and tool reference
 
@@ -66,13 +120,17 @@ lungfish fetch sra download SRR36291587 --output-dir Downloads
 
 Downloads a full genome assembly from NCBI Datasets. Accepts assembly accessions like `GCF_009858895.2`. Includes FASTA plus GFF3 by default; pass `--fasta-only` to skip annotations.
 
+`lungfish fetch ena <subcommand>`
+
+Queries the European Nucleotide Archive directly with `search`, `reads`, and `fasta` subcommands. The SRA path (`fetch sra download`) already tries ENA first; use `fetch ena` when you want to target ENA explicitly.
+
 ## Import
 
 Bring local files into a project.
 
-`lungfish import <path>`
+`lungfish import fasta <path>`
 
-Imports a FASTA, GenBank, or GFF3+FASTA pair as a reference bundle.
+Imports a FASTA, GenBank, or EMBL reference as a `.lungfishref` bundle. `import` requires a subcommand; the `fasta` subcommand handles FASTA, GenBank, and EMBL. A bare `lungfish import <path>` with no subcommand errors.
 
 `lungfish import fastq <fastq-or-folder...> --project <path>`
 
@@ -95,13 +153,13 @@ FASTQ paths.
 `lungfish import-fastq --samplesheet <csv> --project <path>` is an alias for
 the same command.
 
-`lungfish import vcf <path> [--reference <bundle>]`
+`lungfish import vcf <input-file> [--output-dir <dir>]`
 
-Imports a VCF as a variant track. Reference inference matches the VCF's `CHROM` against project bundles; `--reference` forces a specific bundle.
+Imports a VCF as a variant track. Reference inference matches the VCF's `CHROM` against project bundles. There is no `--reference` flag; the bundle is resolved internally. `-o`/`--output-dir` names the destination project directory.
 
-`lungfish import application <path>`
+`lungfish import application-export <kind> <source-path> --project <path>`
 
-Imports an external project (Geneious-style) into Lungfish.
+Imports an external application export (such as a Geneious-style project) into a Lungfish project. `<kind>` names the source format and `<source-path>` is the export to read. `lungfish import nao-mgs <path>`, `lungfish import cz-id <path>`, and `lungfish import nvd <path>` import classifier results from those pipelines into the project's `Imports/` folder.
 
 ## Bundles
 
@@ -138,9 +196,9 @@ lungfish bundle export MN908947.3.lungfishref \
     --plugin-pack variant-calling
 ```
 
-`lungfish extract-annotations --bundle <bundle> --track <id> --output <path>`
+`lungfish bundle extract-annotations <bundle> [--output <path>]`
 
-Extracts annotation features from a bundle as a new FASTA bundle.
+Extracts annotation features from a reference bundle as standalone files. The full `bundle` group also includes `info`, `validate`, `deduplicate-alignments`, and `create`/`list`/`export` shown above; run `lungfish bundle --help` for the complete set.
 
 ## Mapping and alignment
 
@@ -148,7 +206,7 @@ Map reads to a reference and prepare alignments for variant calling.
 
 `lungfish map <fastq...> --reference <path> [--paired] [--preset <preset>] [--sample-name <name>] [--rg-id <id>] [--rg-sm <sample>] [--rg-lb <library>] [--rg-pl <platform>] [--rg-pu <unit>] [--extra-args <args>] [-o <dir>]`
 
-Runs the configured mapper (default minimap2). `--preset` accepts `sr` (Illumina short reads), `map-ont` (Nanopore), `map-hifi` (PacBio HiFi). Read-group fields default to the sample name, except `--rg-pl`, which defaults from the selected preset. `--extra-args` passes additional mapper arguments through verbatim. `-o` names the output directory.
+Runs the configured mapper (default minimap2). The common `--preset` values are `sr` (Illumina short reads), `map-ont` (Nanopore), `map-hifi` (PacBio HiFi), and `map-pb` (PacBio CLR); minimap2 also accepts `asm5` and `splice`, and the BBMap path adds `bbmap-standard` and `bbmap-pacbio`. Run `lungfish map --help` for the complete preset list. Read-group fields default to the sample name, except `--rg-pl`, which defaults from the selected preset. `--extra-args` passes additional mapper arguments through verbatim. `-o` names the output directory.
 
 ```bash
 lungfish map SRR36291587_1.fastq.gz SRR36291587_2.fastq.gz \
@@ -158,21 +216,21 @@ lungfish map SRR36291587_1.fastq.gz SRR36291587_2.fastq.gz \
     -o mapping/
 ```
 
-`lungfish bam adopt-mapping --bundle <bundle> --mapping-result <dir> [--name <name>]`
+`lungfish bam adopt-mapping --bundle <bundle> --mapping-result <dir> --name <name> [--track-id <id>]`
 
-Attaches a `lungfish map` result as an alignment track on a reference bundle.
+Attaches a `lungfish map` result as an alignment track on a reference bundle. `--name` is required; `--track-id` overrides the auto-generated track identifier.
 
 `lungfish bam primer-trim --bundle <bundle> --alignment-track <id> --scheme <path> [--name <name>]`
 
 Soft-clips amplicon primers from a BAM using a `.lungfishprimers` scheme.
 
-`lungfish bam annotations --bundle <bundle> --alignment-track <id>`
+`lungfish bam annotate --bundle <bundle> --alignment-track <id> --output-track-name <name>`
 
-Converts mapped reads to bundle annotations.
+Converts mapped reads in an alignment track to a bundle annotation track.
 
-`lungfish markdup --in <path> --out <path>`
+`lungfish markdup <path> [--force] [--sort-threads <n>] [--deduplicated-bundle <path>]`
 
-Marks duplicates with samtools markdup.
+Marks PCR duplicates with samtools markdup. The argument is a single positional path to a BAM file or a directory of BAMs; the file is rewritten in place (sorted, marked, and re-indexed). There is no `--in`/`--out`. Pass `--deduplicated-bundle <path>` to also write a sibling `.lungfishref` bundle with duplicate reads removed. The same core operation is available as `lungfish bam markdup`, which takes `<path>` plus `--force` and `--sort-threads` but does not offer `--deduplicated-bundle`.
 
 ## Variant calling
 
@@ -210,33 +268,52 @@ lungfish variants call \
     --name "bcftools variants"
 ```
 
+The `variants` group also includes `phase` (build a GATK HaplotypeCaller plus WhatsHap phasing plan), `extract-sample`, and `query`. For the full germline GATK lane, see [GATK germline variant lane](#gatk-germline-variant-lane).
+
 ## Classification
 
 Run taxonomic classifiers and import their results.
 
-`lungfish classify --tool kraken2 --database <name> --reads <fastq...>`
+`lungfish conda classify <fastq...> --db <name> [--preset <preset>] [--paired] [--profile] [-o <dir>]`
 
-Runs Kraken2 against the named database.
+Runs Kraken2 against the named database. The FASTQ inputs are positional (two files for paired-end). `--db` selects an installed database (for example `Viral`, `Standard-8`, `PlusPF`). `--preset` accepts `sensitive`, `balanced` (default), or `precise`. `--profile` chains Bracken abundance profiling. `-o` names the output directory.
 
-`lungfish esviritu run --reads <fastq...> [--database <path>]`
+```bash
+lungfish conda classify SRR36291587_1.fastq.gz SRR36291587_2.fastq.gz \
+    --db Viral --paired --preset balanced -o classification/
+```
 
-Runs EsViritu for viral identification.
+`lungfish esviritu detect -i <fastq...> -s <sample> [--paired] [--db <path>] [--no-qc] [--min-read-length <int>] [-o <dir>]`
 
-`lungfish taxtriage run --reads <fastq...> [--profile clinical]`
+Runs EsViritu for viral identification. `-i`/`--input` takes one or two FASTQ files; `-s`/`--sample` names the sample (required). `--db` points at the EsViritu database directory; without it Lungfish auto-detects the installed database. There is no `esviritu run`.
 
-Runs the TaxTriage clinical-surveillance pipeline.
+`lungfish taxtriage run {--input <fastq> [--input2 <fastq>] --sample <name> | --samplesheet <csv>} --output <dir> [--platform <illumina|oxford|pacbio>] [--db <path>] [--confidence <float>]`
 
-`lungfish nao-mgs import --run-dir <path>`
+Runs the TaxTriage classification pipeline through Nextflow. Provide a single sample with `--input`/`--input2`/`--sample`, or a batch with `--samplesheet`. `--output` is required. `--platform` defaults to `illumina`; `--confidence` defaults to `0.2`. There is no `--reads` or `--profile` flag.
 
-Imports an NAO-MGS run produced externally.
+`lungfish nao-mgs summary <input-path>`
 
-`lungfish blast <sequence> [--database nt]`
+Prints a quick summary of a NAO-MGS surveillance result (a directory or a `virus_hits_final.tsv.gz`). Use `lungfish nao-mgs import <input-path> [-o <dir>] [--sample-name <name>] [--sam]` to import the result and convert alignments for the viewport, or `lungfish import nao-mgs <path>` to import into a project's `Imports/` folder.
 
-BLASTs a sequence against an NCBI database from a classification result.
+`lungfish blast verify --kreport <report> --kraken-output <kraken> --source <fastq> --taxid <id> [--reads <n>]`
 
-`lungfish extract reads --bundle <taxonomy-bundle> --taxon <id> --output <path>`
+Submits a subsample of reads classified to a target taxon to NCBI BLAST and reports how many are independently verified. All four of `--kreport`, `--kraken-output`, `--source`, and `--taxid` are required; `--reads` sets the subsample size (default 20). This is not a free-form `blast <sequence>` and does not take `--database`.
 
-Extracts reads assigned to a taxon as a new FASTQ bundle.
+`lungfish extract reads {--by-id | --by-region | --by-db | --by-classifier} ... -o <path>`
+
+Extracts reads from a source into a new FASTQ. You must pick exactly one mode; omitting it fails with `Error: Validation failed: Exactly one of --by-id, --by-region, --by-db, or --by-classifier must be specified`. There is no `--bundle <path>` input. `--bundle` here is a boolean flag that wraps the output in a `.lungfishfastq` bundle, not a way to point at a taxonomy bundle.
+
+To pull the reads a classifier assigned to a taxon, use `--by-classifier` with the classifier result:
+
+```bash
+lungfish extract reads --by-classifier --tool kraken2 \
+    --result classification/ --taxon 2697049 \
+    -o sars2_reads.fastq
+```
+
+The `--taxon` flag applies to `--by-classifier --tool kraken2`; for the other tools (`esviritu`, `taxtriage`, `naomgs`, `nvd`) select reads with `--accession` instead. To pull reads straight from an NAO-MGS SQLite database, use `--by-db --database <db> --db-taxid <id> -o <path>`. The two other modes are `--by-id` (a read-ID list against source FASTQs) and `--by-region` (a genomic region against a sorted, indexed BAM). Add `--bundle` to any mode to emit a `.lungfishfastq` bundle.
+
+For results produced outside Lungfish, `lungfish nvd` and `lungfish cz-id` import Novel Virus Diagnostics and CZ-ID outputs; see the [Other classifiers and importers](#other-classifiers-and-importers) section.
 
 ## Assembly
 
@@ -258,37 +335,37 @@ lungfish assemble SRR36291587_1.fastq.gz SRR36291587_2.fastq.gz \
     --output Assemblies/
 ```
 
-`lungfish extract-contigs --assembly <path> --contig <id> [--contig <id>...] --output <path>`
+`lungfish extract contigs {--assembly <dir> | --contigs <fasta>} --contig <id> [--contig <id>...] -o <path>`
 
-Derives a new reference bundle from selected contigs in an assembly.
+Pulls selected contigs out of an assembly and writes them to a FASTA. The input is a flag, not a positional: pass `--assembly <dir>` for a managed assembly output directory (one containing `assembly-result.json`) or `--contigs <fasta>` for a plain contigs FASTA. Exactly one of the two is required; supplying a bare path like `extract contigs my-assembly/` fails with `Error: Specify exactly one of --assembly or --contigs`. Name each contig with a repeatable `--contig` flag, and write the result to `-o`/`--output`. To derive a `.lungfishref` bundle in place instead of a loose FASTA, add `--bundle` with `--project-root <dir>` (and an optional `--bundle-name`). `contigs` is a subcommand of `extract`, alongside `extract sequence` and `extract reads`.
 
 ## FASTQ operations
 
-Trim, filter, decontaminate, subsample, and search reads.
+Trim, filter, decontaminate, subsample, and search reads. These subcommands take a positional input FASTQ and write to `-o`/`--output`; there is no `--in`/`--out`. The `fastq` group has 30-plus subcommands in total; run `lungfish fastq --help` for the full list.
 
-`lungfish fastq subsample --in <path> --out <path> {--proportion <p> | --count <n>} [--seed <int>]`
+`lungfish fastq subsample <input> -o <path> {--proportion <p> | --count <n>}`
 
-Subsamples reads by proportion or by exact count.
+Subsamples reads by proportion (`--proportion`, a fraction in 0 to 1) or by exact count (`--count`). The only other options are `-o`/`--output`, `--force`, and `--compress`; there is no `--seed` flag. The `--count` path draws an exact number of reads with a deterministic two-pass selection, so the same input and count yield the same reads on every run.
 
-`lungfish fastq length-filter --in <path> --out <path> --min <int>`
+`lungfish fastq length-filter <input> -o <path> --min <int> [--max <int>]`
 
-Drops reads shorter than the minimum length.
+Drops reads outside the length window.
 
-`lungfish fastq qc-summary --in <path>`
+`lungfish fastq qc-summary <input...> -o <path>`
 
-Runs fastp QC summary; result lands in the FASTQ viewport's QC tab.
+Computes a JSON QC summary for one or more FASTQ files and writes it to the output path.
 
-`lungfish fastq scrub-human --in <path> --out <path> --database <path>`
+`lungfish fastq scrub-human <input> -o <path> --database-id <id>`
 
-Removes reads matching a human-genome k-mer database (Deacon).
+Removes reads matching a human-read-removal database (Deacon). The database is selected by identifier with `--database-id`, not a path.
 
-`lungfish fastq orient --in <path> --reference <path> --out <path>`
+`lungfish fastq orient <input> -o <path> --reference <path>`
 
-Orients reads against a reference (useful for Nanopore amplicon data).
+Orients reads against a reference with vsearch (useful for Nanopore amplicon data). The standalone top-level `lungfish orient <input> --reference <path>` runs the same operation outside the `fastq` group.
 
-`lungfish fastq materialize --bundle <bundle>`
+`lungfish fastq materialize <bundle> -o <path>`
 
-Forces a virtual FASTQ subset bundle to materialize its full reads on disk.
+Materializes a virtual `.lungfishfastq` subset, trim, or demux bundle into a full FASTQ file on disk.
 
 ## Workflows
 
@@ -329,9 +406,9 @@ connection changes.
 
 Manage tool dependencies through Lungfish's conda wrapper.
 
-`lungfish conda install --pack <name>...`
+`lungfish conda install --pack <packages...>`
 
-Installs one or more plugin packs into `~/.lungfish/conda`.
+Installs one or more plugin packs into `~/.lungfish/conda`. `--pack` is a boolean mode toggle; the pack names are positional arguments after it (for example `lungfish conda install --pack read-mapping variant-calling`). Without `--pack`, the positional arguments are treated as individual bioconda packages.
 
 `lungfish conda lock --pack <name> --output <lockfile.yml>`
 
@@ -354,6 +431,84 @@ Removes a pack.
 
 Searches the bioconda index for available packs.
 
+## Sequence utilities
+
+Sequence-level operations that read a file or a bundle directly.
+
+`lungfish analyze stats <input> [--per-sequence]`
+
+Computes sequence statistics: count, total length, GC content, and N50/N90. `analyze` also exposes `composition` and `file-validate`; `stats` is the default subcommand, so `lungfish analyze <input>` runs it.
+
+`lungfish translate <input> [--frame <1-6>] [--table <id>] [-o <path>]`
+
+Translates a nucleotide FASTA to protein. Frames 1 to 3 are forward, 4 to 6 are reverse complement; all six frames are translated by default. `--table` selects an NCBI genetic-code table (default 1). This is the CLI counterpart of the `Cmd-Shift-T` GUI verb.
+
+`lungfish sequence annotate-orfs <bundle> [--frames <list>] [--table <id>]`
+
+Finds open reading frames and adds them as a new annotation track on a reference bundle. The `sequence` group also includes `delete-annotations` and `delete-annotation-track` for removing tracks from a bundle.
+
+`lungfish universal-search <project-path> --query <text> [--limit <n>] [--reindex] [--stats]`
+
+Searches datasets and analysis artifacts within a single project: FASTQ datasets, reference and VCF metadata, classification results, and flattened JSON manifests. The query supports field filters such as `type:fastq_dataset`, `virus:HKU1`, or `date>=2025-01-01`.
+
+```bash
+lungfish universal-search ./MyProject.lungfish --query "virus:HKU1" --stats
+```
+
+## Alignment and phylogenetics
+
+`lungfish align mafft <fasta...> --project <path> [--output <path>] [--name <name>] [--strategy <strategy>]`
+
+Aligns unaligned FASTA sequences with MAFFT and writes a native `.lungfishmsa` bundle into the project. `mafft` is the default subcommand, so `lungfish align <fasta...> --project <path>` runs it. `--strategy` accepts `auto`, `linsi`, `ginsi`, `einsi`, `fftns2`, or `parttree`.
+
+## GATK germline variant lane
+
+`lungfish gatk <subcommand> [--execute]`
+
+Builds reproducible GATK4 command lines by default; pass `--execute` on a subcommand to run GATK through the managed `gatk-core` environment and write final-location provenance. The ten subcommands are `haplotype-caller`, `joint-genotype`, `filter`, `select`, `variants-to-table`, `bqsr`, `markdup`, `validate-sam`, `leftalign`, and `collect-metrics`. With no `--execute`, each subcommand prints the GATK invocation it would run, which is useful for inspection and for piping into an external scheduler.
+
+## Wastewater lineage demixing
+
+`lungfish freyja demix --variants <tsv> --depths <tsv> --output-dir <dir> [--execute] [--sample <name>]`
+
+Constructs a Freyja `demix` command plan from a variants table and a depths table (both produced by `freyja variants`). By default it writes and prints the plan without running Freyja; `--execute` runs it through the wastewater-surveillance tool pack.
+
+## Other classifiers and importers
+
+These commands import results produced by external pipelines and render them in the taxonomy viewport.
+
+`lungfish nvd summary <path>` / `lungfish nvd import <path> [-o <dir>]`
+
+Summarizes or imports Novel Virus Diagnostics (NVD) Snakemake output (`*_blast_concatenated.csv(.gz)`). `summary` is the default subcommand.
+
+`lungfish cz-id summary <path>` / `lungfish cz-id import <path> [-o <dir>]`
+
+Summarizes or imports a CZ-ID taxon report (a TSV, a ZIP export, or an extracted export folder). These commands read existing CZ-ID outputs; they do not submit data to CZ-ID.
+
+## Sample metadata
+
+`lungfish metadata <subcommand> <bundle-or-folder>`
+
+Manages PHA4GE-aligned metadata for `.lungfishfastq` dataset bundles and folders of them. Subcommands are `get` (default), `set`, `import`, `export`, and `export-biosample`. Per-bundle metadata lives in `metadata.csv` inside each bundle; folder-level metadata lives in `samples.csv` at the folder root.
+
+```bash
+lungfish metadata set SampleA.lungfishfastq --field sample_type --value "Nasopharyngeal swab"
+```
+
+## ONT genotyping
+
+`lungfish haplotypes <subcommand>`
+
+Manages ONT genotyping haplotype definition sets before running genotyping workflows. The ten subcommands cover `list`, `validate`, `import`, `save`, `export`, `duplicate`, `delete`, and three bundle-management subcommands; definitions are project-scoped and sourced from the project's `.lungfishmhcref` bundles.
+
+`lungfish build-db <taxtriage|esviritu|kraken2> <results-path> [--force]`
+
+Builds a SQLite database from classifier pipeline output for fast random-access queries in the taxonomy browser.
+
+`lungfish genotype <subcommand> --bundle <path>`
+
+Inspects and exports `.lungfishgenotype` result bundles. The seven subcommands are `list-samples`, `list-cohorts`, `apply-annotations`, `export`, `export-xlsx`, `export-pivot-xlsx`, and `export-labkey`. Read-only subcommands print to stdout; the rest merge into the annotation sidecar beside the bundle's `genotype-result.json` without modifying pipeline output.
+
 ## Provenance and export
 
 Inspect and export provenance.
@@ -366,12 +521,12 @@ Reads Lungfish provenance from a bundle or output directory, preferring the root
 lungfish provenance bibliography MN908947.3.lungfishref
 ```
 
-`lungfish provenance export <input> --format shell|nextflow|snakemake|methods|json --output <dir>`
+`lungfish provenance export <input> --format shell|python|nextflow|snakemake|methods|json --output <dir>`
 
 Exports a reproducibility bundle from a provenance sidecar, Lungfish bundle, or
-output directory. Shell, Nextflow, and Snakemake exports include runnable command
-material when the recorded provenance has enough argv detail. Methods and JSON
-exports produce audit-ready reports. Export bundles copy the source provenance
+output directory. Shell, Python, Nextflow, and Snakemake exports include runnable
+command material when the recorded provenance has enough argv detail. Methods and
+JSON exports produce audit-ready reports. Export bundles copy the source provenance
 artifacts, write provenance for the export operation itself, and sign report
 artifacts when signing is configured.
 
@@ -397,21 +552,21 @@ when you need citations.
 
 Sequence-level utilities that do not need a project.
 
-`lungfish convert --in <path> --out <path>`
+`lungfish convert <input> --to <path> [--to-format <format>]`
 
-Converts between supported sequence formats.
+Converts between supported sequence formats. The input is positional and the output file is named by `--to` (required); there is no `--in`/`--out`. `--to-format` accepts `fasta` (default), `genbank`, `gff3`, or `fastq`; the input format is auto-detected from its extension.
 
 `lungfish search <pattern> --in <path>`
 
 Searches a FASTA or FASTQ for sequence patterns.
 
-`lungfish msa <command>`
+`lungfish msa <subcommand> <bundle>`
 
-Multiple sequence alignment subcommands (`add`, `edit`, `consensus`, `extract`, `mask`, `trim`).
+Acts on a `.lungfishmsa` bundle. Subcommands are `actions`, `describe`, `annotate`, `export`, `consensus`, `extract`, `mask`, `trim`, and `distance`. Annotation editing lives one level deeper: `lungfish msa annotate add`, `msa annotate edit`, `msa annotate delete`, and `msa annotate project`.
 
-`lungfish tree infer --msa <path> --out <path>`
+`lungfish tree infer iqtree <msa-bundle> --project <project> --output <name>`
 
-Infers a phylogenetic tree with IQ-TREE.
+Infers a phylogenetic tree with IQ-TREE. The `iqtree` subcommand is required, the MSA bundle path is positional, and `--project` and `--output` are both mandatory. There is no `--msa` or `--out` flag. Tune the run with `--model` (default `MFP`), `--bootstrap`, and `--alrt`.
 
 `lungfish debug <subcommand>`
 

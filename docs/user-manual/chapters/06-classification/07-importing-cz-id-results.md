@@ -22,9 +22,13 @@ lead_approved: false
 
 ## What it is
 
+This chapter covers importing an existing CZ-ID result into Lungfish; it does not make CZ-ID a runnable option under `Tools > FASTQ/FASTA Operations > Classification`. To run a classifier on a FASTQ bundle instead, see [What Is Read Classification](01-what-is-classification.md).
+
 CZ-ID is a hosted metagenomics platform. Lungfish does not run CZ-ID locally, submit reads to CZ-ID, or sync with a CZ-ID account. The supported path is import-only: take a CZ-ID taxon report TSV, ZIP archive, or extracted export folder that your lab already produced, convert it into Lungfish's classification result schema, and keep the upstream pipeline and database metadata with the imported result.
 
 The importer writes a project classification bundle at `Classifications/<sample>.lungfishtax`. It preserves NT and NR read metrics when present, writes a Kraken-compatible taxonomy report for the shared taxonomy viewer stack, writes `classification-result.json`, and writes `.lungfish-provenance.json` with the source path, SHA-256, file size, argv, tool/workflow name, CZ-ID pipeline/database metadata, output paths and sizes, exit status, and wall time.
+
+In practice, export the result from CZ-ID first, then bring it into your project through the Import Center (or `lungfish import cz-id`) so the upstream pipeline and database versions travel with it in provenance.
 
 ## Procedure
 
@@ -57,9 +61,15 @@ For a quick look before importing, run:
 lungfish cz-id summary /path/to/cz-id-taxon-report.tsv --top 20
 ```
 
+A second CLI form exists for a standalone import outside a project. `lungfish
+cz-id import <input> --output-dir <dir>` writes a self-contained `cz-id-<sample>`
+directory at the chosen location and takes no `--project`. Use the
+`import cz-id` form above when you want the result inside a project; use this
+`cz-id import` form when you just want a converted result on disk.
+
 ## Scope
 
-This chapter describes imported CZ-ID results only. It does not make CZ-ID a runnable option in `Tools > FASTQ/FASTA Operations > Classification`. CZ-ID remains a hosted upstream analysis; Lungfish stores and views the result after export.
+CZ-ID remains a hosted upstream analysis; Lungfish stores and views the result after export, and does not run, submit, or sync it. The scope-and-redirect at the top of this chapter has the full framing.
 
 ## Next
 

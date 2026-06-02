@@ -8,20 +8,18 @@ task: Classify reads with EsViritu for viral identification and read the result 
 tags: [classification, esviritu, viral, strain]
 tools: [esviritu]
 entry_points:
-  - "Tools > FASTQ/FASTA Operations > Classification > EsViritu"
-  - "CLI: lungfish esviritu run"
+  - "Tools > FASTQ/FASTA Operations > Classification…"
+  - "CLI: lungfish esviritu detect"
 shots: []
 planned_shots:
   - id: esviritu-wizard-tool-step
-    caption: "The Classification wizard with EsViritu chosen as the tool."
+    caption: "The run wizard with EsViritu chosen as the tool."
   - id: esviritu-database-missing
     caption: "The wizard's inline notice when the EsViritu database has not yet been installed."
   - id: esviritu-result-viewport
-    caption: "The EsViritu result viewport showing per-strain coverage sparklines for SRR36291587."
-  - id: esviritu-strain-comparison
-    caption: "The strain comparison view with two SARS-CoV-2 lineages selected."
+    caption: "The EsViritu result viewport showing per-virus coverage sparklines for SRR36291587."
   - id: esviritu-mini-bam
-    caption: "The mini-BAM preview docked under a selected strain row."
+    caption: "The mini-BAM preview that appears in the detail pane for a selected virus row."
 illustrations: []
 glossary_refs: [coverage, mapping, BAM, plugin pack]
 features_refs: []
@@ -59,17 +57,16 @@ sample?" survey work that ranges across bacteria, archaea, eukaryotes, and
 viruses simultaneously. For that, run Kraken2 first and bring suspicious
 viral hits to EsViritu afterwards.
 
-So what should you do with this? Treat EsViritu as the second-pass
-classifier you reach for once a virus is on the table, not as your first
-look at an unknown sample.
+The practical takeaway: treat EsViritu as the second-pass classifier you
+reach for once a virus is on the table, not as your first look at an unknown
+sample.
 
 ## What you will learn
 
 By the end of this chapter you will be able to install the EsViritu
-database, run the Classification wizard with EsViritu selected, read the
-EsViritu result viewport's coverage sparklines, compare two suspected
-strains in the strain comparison view, and inspect the underlying
-mini-BAM to verify a hit.
+database, run the wizard with EsViritu selected, read the EsViritu result
+viewport's coverage sparklines, and inspect the underlying mini-BAM to
+verify a hit.
 
 ## EsViritu compared with Kraken2
 
@@ -83,15 +80,14 @@ quick decision aid before running either.
 | Is virus X here, and which strain or lineage? | EsViritu |
 | Did the reads cover the whole viral genome, or just a few hot spots? | EsViritu (coverage sparkline) |
 | How many reads classify per minute on a laptop? | Kraken2 |
-| Can I distinguish two co-circulating SARS-CoV-2 lineages? | EsViritu (strain comparison view) |
+| Are the reads spread across the genome or piled on one window? | EsViritu (mini-BAM) |
 
 The two tools complement each other. A common workflow is to screen with
 Kraken2, note the viral species that show up, then re-run those samples
-through EsViritu against the matching genus or family slice of its
-database. EsViritu calls a strain "supported" when both a minimum read
-count and a minimum breadth-of-coverage threshold are met (defaults: 50
-reads and 10% breadth at 1x, configurable in the wizard); a Kraken2 hit
-has no analogous breadth check.
+through EsViritu against its viral database. The advantage EsViritu adds is
+the coverage evidence: because it aligns reads to each reference, you see
+breadth of coverage across the genome as a sparkline, a check a Kraken2
+hit does not give you.
 
 ## Installing the EsViritu database
 
@@ -106,7 +102,7 @@ references included.
 
 Install the database before your first EsViritu run.
 
-1. Open **Lungfish > Settings > Plugin Manager**.
+1. Open the Plugin Manager from `Tools > Plugin Manager…` (Cmd-Shift-B).
    <!-- planned: esviritu-database-missing -->
 2. Find the **EsViritu** row under the Classification group.
 3. Click **Install Database**. The download runs in the background and
@@ -118,11 +114,10 @@ Install the database before your first EsViritu run.
    which reports the database version, install date, available update,
    disk path, disk size, and RAM requirement.
 
-If you skip this step, the Classification wizard still lets you choose
-EsViritu, but the **Run** button stays disabled and an inline notice
-points you back to the Plugin Manager. Power users who prefer the
-command line can install with `lungfish esviritu db install`; the result
-is identical.
+If you skip this step, the wizard still lets you choose EsViritu, but the
+**Run** button stays disabled and an inline notice points you back to the
+Plugin Manager. The database install is always a Plugin Manager (conda)
+operation; there is no separate `esviritu` install subcommand.
 
 ## Procedure
 
@@ -133,8 +128,8 @@ NCBI/SRA** as in Chapter 3.4.
 
 1. In the project sidebar, select the FASTQ pair for SRR36291587 under
    `Imports/`.
-2. Choose **Tools > FASTQ/FASTA Operations > Classification > EsViritu**.
-   The Classification wizard opens with EsViritu pre-selected.
+2. Open **Tools > FASTQ/FASTA Operations > Classification…** and choose
+   **EsViritu** in the wizard's tool picker.
    <!-- planned: esviritu-wizard-tool-step -->
 3. Confirm that the **Inputs** step lists the two paired reads and that
    their total size matches what the sidebar shows. If only one of the
@@ -143,30 +138,41 @@ NCBI/SRA** as in Chapter 3.4.
    **EsViritu (installed)** with a version string and an install date. If
    it shows **Not installed**, follow the database-install procedure
    above before continuing.
-5. On the **Options** step, leave the defaults for a first run:
-   minimum read length 100 nt, minimum breadth 10%, minimum read count
-   50. Click **Run**.
+5. On the **Options** step, leave the defaults for a first run. EsViritu
+   exposes two controls here: **Min Read Length** (default 100 nt), which
+   drops reads shorter than the threshold before alignment, and a
+   quality-filter toggle, which runs the built-in read-quality screen.
+   There is no minimum-breadth or minimum-read-count field. Click **Run**.
 
 The wizard closes and an EsViritu row appears in the Operations Panel.
 For SRR36291587 on an M-series laptop the run takes roughly 4 to 8
 minutes; the Panel reports each phase (database load, mapping, coverage
 summarisation, report rendering) as it completes.
 
+The same run is available headless as `lungfish esviritu detect --input
+<fastq> --sample <name>`, with `--paired` for paired reads, `--db` to point
+at a specific database, `--min-read-length` (default 100), `--no-qc` to skip
+the quality screen, and `--extra-args` to pass options straight through to
+EsViritu. The FASTQ goes behind `--input` (or `-i`), not as a bare
+positional argument.
+
 ## Interpretation
 
 When the run finishes, double-click the new classification result in the
 sidebar to open the EsViritu viewport.
 
-### The strain table and coverage sparklines
+### The virus table and coverage sparklines
 
-The viewport's left pane is a sortable strain table. Each row is one
-reference genome from the EsViritu database that attracted enough reads
-and coverage breadth to clear thresholds, with columns for accession,
-organism, lineage label (when the database carries one), read count,
-mean depth, and percent breadth at 1x. The rightmost column of the
-table is a coverage sparkline: a small horizontal track, the width of
-the column, that plots depth across the reference from left (5' end of
-the genome) to right (3' end).
+The viewport's main pane is a sortable virus table. Each row is one
+reference genome from the EsViritu database that attracted reads, with
+columns including accession, organism, read count, unique read count,
+RPKMF (reads per kilobase of reference per million reads, a
+length-normalised abundance measure), and coverage, meaning the percent
+breadth of the reference covered. A coverage sparkline accompanies the
+row: a small horizontal track that plots depth across the reference from
+left (5' end of the genome) to right (3' end). Segmented viruses also get a
+segment-completeness grid that shows how many of the expected segments were
+detected.
 
 <!-- planned: esviritu-result-viewport -->
 
@@ -176,62 +182,47 @@ real, abundant infection looks like. A sparkline with two or three tall
 spikes and long flat valleys means the reads cluster on a few short
 windows, which often signals one of three things: an off-target amplicon,
 a conserved region shared with a related virus, or a host sequence that
-happens to share homology with the reference. The numeric "percent
-breadth at 1x" column quantifies the same intuition: 95% breadth on a
-30 kb genome leaves only 1.5 kb uncovered, and is a strong call;
-12% breadth across scattered windows is not.
+happens to share homology with the reference. The numeric coverage
+column quantifies the same intuition: 95% breadth on a 30 kb genome
+leaves only 1.5 kb uncovered, and is a strong call; 12% breadth across
+scattered windows is not.
 
 For SRR36291587 the top row should report the SARS-CoV-2 reference
 (NC_045512.2 or a close MT-prefixed accession, depending on database
 build), with a mostly-flat sparkline, several thousand reads mapped, and
 breadth in the high 90s. Rows below it usually carry a few low-confidence
-hits to related betacoronaviruses, which the breadth column shows as
+hits to related betacoronaviruses, which the coverage column shows as
 single-digit percentages and the sparkline shows as a single thin spike.
 
-### The strain comparison view
+### Looking up and verifying a row
 
-Two co-circulating viral lineages, for example two SARS-CoV-2 sub-variants
-in a wastewater sample, can produce overlapping strain-table rows whose
-sparklines look superficially identical. The strain comparison view lets
-you check whether the reads supporting each row are genuinely different
-reads, or just the same reads claimed twice.
-
-Select two rows in the strain table by Cmd-clicking, then click
-**Compare** in the viewport toolbar. The comparison view stacks the two
-coverage tracks against a shared genomic axis and shades, in Lungfish
-Creamsicle, the regions where one strain's coverage exceeds the other's
-by a configurable margin. Underneath the tracks, a small bar chart
-breaks down how many reads aligned uniquely to one reference, how many
-to the other, and how many were assigned ambiguously and split between
-them by EsViritu's tie-breaker.
-
-<!-- planned: esviritu-strain-comparison -->
-
-A genuine co-infection produces non-trivial unique-read bars on both
-sides and shaded windows where one lineage's defining mutations fall.
-A spurious "second strain" produces near-zero unique reads on the second
-side; almost every read is shared, and the second row is just the
-database carrying two near-identical references for the same lineage.
+Right-click a virus row to act on it. The context menu offers
+**Extract Reads…** (writes the reads that aligned to that reference as a
+new FASTQ bundle), **BLAST Verify…** (submits a sample of those reads to
+NCBI BLAST for an independent second opinion, covered in
+[BLAST Verification](06-blast-verification.md)), and a **Look Up on NCBI**
+submenu that opens the matching GenBank accession, assembly record, PubMed
+literature, or Taxonomy Browser page in your web browser. These are the
+fastest paths from a coverage call to a confirmation.
 
 ### Mini-BAM preview
 
-To audit a single sparkline directly, click any strain row and then
-click **Show reads** in the inspector. A mini-BAM preview docks under
-the strain table, showing the top of the mapped reads pile against
-that reference. This is a real, indexed BAM saved alongside the
-classification result; you can scroll the genomic axis, zoom into a
-region, and see read sequences, CIGAR strings, and base qualities the
-same way the alignment viewport does (Chapter 5).
+To audit a single sparkline directly, click a virus row that has alignment
+data. The mini-BAM appears automatically in the detail pane, showing the
+top of the mapped reads pile against that reference. There is no separate
+"Show reads" button; selecting the row is enough. This is a real, indexed
+BAM saved alongside the classification result, so you can scroll the
+genomic axis, zoom into a region, and see read sequences, CIGAR strings,
+and base qualities the same way the alignment viewport does (Chapter 5).
 
 <!-- planned: esviritu-mini-bam -->
 
 The mini-BAM is the source of truth for everything in the viewport
-above it. If the strain row claims 2,400 reads and the BAM viewer shows
-a thick, evenly-spread pile, the call is real. If it claims 2,400 reads
-and the BAM viewer shows a single tall stack at one position, you are
-looking at PCR duplicates of one fragment, and the apparent depth is
-inflated; flag the row as low-confidence regardless of what the
-breadth column says.
+above it. If the row claims 2,400 reads and the BAM viewer shows a thick,
+evenly-spread pile, the call is real. If it claims 2,400 reads and the BAM
+viewer shows a single tall stack at one position, you are looking at PCR
+duplicates of one fragment, and the apparent depth is inflated; flag the
+row as low-confidence regardless of what the coverage column says.
 
 ## What to do next
 

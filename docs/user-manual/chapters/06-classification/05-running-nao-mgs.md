@@ -1,25 +1,23 @@
 ---
-title: Running NAO-MGS
+title: Importing NAO-MGS Results
 chapter_id: 06-classification/05-running-nao-mgs
 audience: analyst
 prereqs: [06-classification/01-what-is-classification]
-estimated_reading_min: 9
-task: Run NAO-MGS against wastewater metagenomics samples and read the surveillance result view.
-tags: [classification, nao-mgs, wastewater, surveillance]
+estimated_reading_min: 6
+task: Import externally produced NAO-MGS wastewater-surveillance results and read the taxon viewport.
+tags: [classification, nao-mgs, wastewater, surveillance, import]
 tools: [nao-mgs]
 entry_points:
-  - "Tools > FASTQ/FASTA Operations > Classification > NAO-MGS"
+  - "Import Center: Classification Results > NAO-MGS Results"
   - "CLI: lungfish nao-mgs import, lungfish nao-mgs summary"
 shots: []
 planned_shots:
-  - id: nao-mgs-wizard-page-1
-    caption: "The NAO-MGS Classification wizard with database picker and sample-date field."
-  - id: nao-mgs-import-dialog
-    caption: "The Import NAO-MGS Results dialog accepting an existing run directory."
+  - id: nao-mgs-import-card
+    caption: "The Import Center card for NAO-MGS Results under Classification Results."
   - id: nao-mgs-result-viewport
-    caption: "The longitudinal surveillance viewport with per-pathogen abundance over twelve weeks."
+    caption: "The NAO-MGS taxon viewport: detail pane on the left, taxon table on the right."
 illustrations: []
-glossary_refs: [NAO-MGS, sample date, surveillance series]
+glossary_refs: [NAO-MGS]
 features_refs: []
 fixtures_refs: []
 brand_reviewed: false
@@ -28,95 +26,139 @@ lead_approved: false
 
 ## What it is
 
-NAO-MGS is a metagenomic surveillance pipeline tuned for wastewater pathogen monitoring. It classifies reads against a surveillance-targeted database, produces per-pathogen abundance estimates, and reports those estimates in a way that aligns with the Nucleic Acid Observatory's published surveillance outputs. Lungfish runs NAO-MGS through the Classification wizard for fresh data, or imports existing NAO-MGS output through `lungfish nao-mgs import` when a colleague has already produced results outside Lungfish.
+NAO-MGS is a metagenomic surveillance pipeline for wastewater pathogen
+monitoring, built by SecureBio. It is a heavy, cloud-scale workflow: it runs on
+large machines, screens reads against a broad reference set, and writes a table
+of viral hits as its main output. Lungfish does not run that pipeline. It
+imports the output, so you can review a run's viral taxa, read the coverage
+behind each one, and verify a candidate signal, all inside the same project as
+your other analyses.
 
-The classifier itself works on one sample at a time. The thing that makes NAO-MGS distinct from Kraken2, EsViritu, or TaxTriage is what happens after classification: results from many samples are bound together along a time axis, and the result viewport draws each pathogen's relative abundance as a line over weeks or months. That line is the surveillance signal. A spike on it is a candidate event worth investigating.
+This is an import-only tool. There is no NAO-MGS option in the run wizard and
+no "run NAO-MGS" surface anywhere in the app. You produce the results with an
+external `securebio/nao-mgs-workflow` run, then bring the output into Lungfish.
+What Lungfish adds on top of the raw TSV is a full viewport: a sortable
+taxon table, per-accession coverage, and the same BLAST verification and read
+extraction you use for the runnable classifiers.
 
-NAO-MGS is the right tool when the workflow is longitudinal. Same wastewater site, sampled repeatedly, with the question being how the pathogen mix is changing over time. It is the wrong tool for single-sample diagnostics. If you have one swab from one patient and want to know what is in it, run Kraken2 or EsViritu instead.
+The primary file Lungfish reads is `virus_hits_final.tsv.gz` (the pipeline also
+writes `_virus_hits.tsv.gz` per-sample files). If you point the importer at a
+directory, it finds that file for you; if you point it at the file directly,
+that works too. Nothing else from the pipeline output is required.
 
-So what should you do with this? If you are running a wastewater surveillance program, set up an NAO-MGS series in your project before you classify your first sample, and then add each new week's reads to the same series so the time axis builds correctly.
+Where this matters: when a colleague or a scheduled cluster job produces
+NAO-MGS output, import the `virus_hits_final.tsv.gz` into your project and
+read it here rather than parsing the TSV by hand.
 
 ## What you will learn
 
-By the end of this chapter you will be able to install the NAO-MGS database, run the Classification wizard with NAO-MGS selected, attach a sample date so the result enters the time series at the right point, import existing NAO-MGS results from a previous external run, and read the longitudinal surveillance charts the result viewport draws.
+By the end of this chapter you will be able to import NAO-MGS results from the
+Import Center or the command line, read the taxon table and its coverage
+sparkline, and verify a candidate hit with BLAST.
 
-## How NAO-MGS compares to the other classifiers
+## How NAO-MGS fits next to the runnable classifiers
 
-Lungfish ships four classifiers, and the choice between them is mostly a question of what you are trying to answer. The table below is the short version. Chapters 02, 03, and 04 cover the others in detail.
+The other three classifiers in this part run inside Lungfish on a FASTQ bundle.
+NAO-MGS does not: it is the output of an external pipeline you import. The table
+below places it in context.
 
-| Classifier | Best for | Database | RAM to plan | Output unit | Time-series aware |
-|---|---|---|---|---|---|
-| Kraken2 | Broad survey of one sample | k-mer index, 8 to 64 GB | Database-sized; Viral fits in 16 GB, Standard/PlusPF need more | Per-taxon read count | No |
-| EsViritu | Viral content of one sample | Curated viral genomes, ~5 GB installed | 8 GB for default viral runs | Per-virus coverage | No |
-| TaxTriage | Clinical triage of one sample | Pathogen-focused | 16 to 32 GB for the default clinical profile | Ranked candidate hits | No |
-| NAO-MGS | Wastewater surveillance over time | Surveillance-targeted | 16 to 32 GB for default wastewater runs | Per-pathogen relative abundance | Yes |
+| Tool | Runs in Lungfish? | Output unit | Viewport |
+|---|---|---|---|
+| Kraken2 | Yes, in the run wizard | Per-taxon read count | Sunburst plus table |
+| EsViritu | Yes, in the run wizard | Per-virus coverage | Table plus sparkline |
+| TaxTriage | Yes, in the run wizard | TASS confidence per organism | Confidence chart |
+| NAO-MGS | No, import only | Per-taxon virus-hit counts | Detail pane plus taxon table |
 
-The "time-series aware" column is the load-bearing distinction. The other three classifiers do not know that today's sample is the next point in a sequence; NAO-MGS does, because Lungfish stores its outputs as a series keyed by sample date and site.
+The load-bearing distinction is the first column. Because NAO-MGS is imported,
+the question this chapter answers is not "how do I run it?" but "how do I bring
+a finished run in and read it?"
 
-## Procedure: running NAO-MGS on a fresh sample
+## Procedure: import an NAO-MGS run
 
-1. Choose **Tools > FASTQ/FASTA Operations > Classification > NAO-MGS**. The Classification wizard opens with NAO-MGS preselected.
+1. Choose **File > Import Center…**, open the **Classification Results** tab,
+   and pick the **NAO-MGS Results** card. (The same import is reachable from
+   the standalone NAO-MGS import sheet.)
+   <!-- planned: nao-mgs-import-card -->
 
-   <!-- planned: nao-mgs-wizard-page-1 -->
+2. Click **Choose** and select either the pipeline output directory or the
+   `virus_hits_final.tsv(.gz)` file directly. The importer accepts both. There
+   is no `samples/`, `metadata.tsv`, or `manifest.json` structure to assemble;
+   the importer validates only that it can find the virus-hits TSV.
 
-2. On the first page, pick the FASTQ bundle for the sample you are classifying. Paired reads are supported. Single-end reads are supported. Mixed runs in the same series are not, so pick one read configuration when you set the series up and stay with it.
+3. Click **Import**. Lungfish parses the hits, aggregates them by taxon, copies
+   the result into the project, and writes a provenance record. When it
+   finishes, an NAO-MGS result appears in the sidebar under your project's
+   classification results.
 
-3. In the **Database** dropdown, choose your installed NAO-MGS database. If no database is listed, click **Install database** and pick the release you want from the bioconda-hosted index. The first install takes several minutes and writes to `~/.lungfish/conda/nao-mgs/`. The database row records the installed version, install date, and update status; use `lungfish conda db list` for the same inventory from the CLI. Plan for 16 to 32 GB of RAM for default wastewater runs, with larger site panels scaling upward.
+4. Double-click the result to open the NAO-MGS viewport.
 
-4. In the **Sample date** field, enter the date the wastewater sample was collected, not the date you are running the analysis. This date is the x-axis position for the result. If you leave it blank, Lungfish uses the FASTQ file's modification date and warns you, which is almost never what you want for archived samples.
+The same import is available headless, which is the form to use from a
+scheduled job that drops new results into a project:
 
-5. In the **Series** dropdown, choose an existing surveillance series to append this sample to, or click **New series** to start one. A series is identified by site name and matrix (for example, "Madison MMSD influent"). Two samples with the same series and the same date are flagged as a conflict; resolve by editing one date or merging the runs.
+```bash
+lungfish nao-mgs import /path/to/nao-mgs-output/
+```
 
-6. Click **Run**. Lungfish materializes the FASTQ if it is virtual (a subset, trimmed, or demultiplexed bundle has only a 1000-read preview on disk; see Chapter 05.02), runs the pipeline, and writes the per-pathogen abundance table into the series's storage area under `Imports/NAO-MGS/<series-name>/<sample-date>.parquet`.
+The argument is positional: it is the results directory or the
+`virus_hits_final.tsv(.gz)` file. Useful options are `--sample-name` to label
+the sample, `--output-dir` (`-o`) to choose where the converted files land, and
+`--min-bitscore` to drop weak hits. The import converts the pipeline's
+alignments to SAM so the viewport can show coverage. The Import-command family
+also offers `lungfish import nao-mgs`, which behaves the same way.
 
-## Procedure: importing existing NAO-MGS results
+For a quick look before importing, summarise the top taxa without writing
+anything:
 
-If your lab already runs NAO-MGS outside Lungfish (for example, on a shared cluster), you do not need to re-run anything. You import the existing output directory and Lungfish indexes it into a series.
+```bash
+lungfish nao-mgs summary /path/to/virus_hits_final.tsv.gz --top 20
+```
 
-1. Choose **File > Import > NAO-MGS Results**. The import dialog opens.
+## Interpretation: reading the taxon viewport
 
-   <!-- planned: nao-mgs-import-dialog -->
-
-2. Click **Choose** and navigate to the run directory. Lungfish expects the standard NAO-MGS output layout: a `samples/` subfolder with one file per sample, a `metadata.tsv` listing each sample's collection date and site, and a `manifest.json` listing the database version that produced the results. Missing fields are reported in red and the import is blocked until they are filled in.
-
-3. In the **Series mapping** section, decide whether each distinct site in `metadata.tsv` becomes its own series, or whether sites are merged. The default is one series per site. For a single-site, multi-week run, leave the default.
-
-4. Click **Import**. Lungfish copies (or, if you tick **Reference in place**, symlinks) the result files into the project, validates that every sample in `metadata.tsv` has a corresponding result, and writes a provenance record naming the importing user, the source directory, and the database version reported in `manifest.json`.
-
-5. The same import is available from the command line as `lungfish nao-mgs import --run-dir <path> --project <path>`. The CLI form is what you would use from a scheduled job that drops new weekly results into a project automatically.
-
-## How Lungfish stores time-series
-
-A series is a folder under `Imports/NAO-MGS/` named after the series identifier. Inside it, each sample is one Parquet file named for its collection date in `YYYY-MM-DD` format. The series's `series.json` manifest lists the site, the matrix, the database version, and the schema version of the abundance table. Lungfish reads every file in the series at viewport open time and concatenates them on the date axis.
-
-Sample dates come from one of three places, in priority order. First, an explicit date typed into the wizard or carried in `metadata.tsv` during import. Second, a date encoded in the FASTQ filename when the filename matches a recognised pattern (for example, `MMSD_influent_2026-01-15_R1.fastq.gz`). Third, the FASTQ file's modification date, which is a fallback Lungfish warns about because filesystem dates are easily lost in transit.
-
-If you need to correct a date after the fact, right-click the sample in the result viewport and choose **Edit sample date**. The series rewrites its manifest, the sample's filename changes on disk, and the viewport redraws. The original date is preserved in the provenance record so the correction is auditable.
-
-## Interpretation: reading the surveillance viewport
-
-The result viewport opens with a stacked-line chart, one line per pathogen the database tracks, with weeks along the horizontal axis and relative abundance on the vertical. Lines are drawn in Deep Ink at varying weights; severity is encoded by weight and label, not by red-amber-green. Hovering a point shows the exact abundance value, the underlying read count, and a link to the provenance record for that sample.
+The viewport is a single-import split view: a detail pane on the left and a
+sortable taxon table on the right. It is not a time series. One import shows one
+run's taxa; there is no multi-week chart, no series, and no per-week abundance
+line.
 
 <!-- planned: nao-mgs-result-viewport -->
 
-A flat line near the floor means the pathogen is present at background level for every week in the series. That is the expected pattern for most tracked pathogens most of the time. A line that rises above its prior baseline for two or more consecutive weeks is the pattern NAO-MGS is built to surface; you would normally follow up by pulling the underlying reads for those weeks and confirming the hit (Chapter 06.06 covers BLAST verification of a candidate signal).
+The taxon table has columns for **Sample**, **Taxon**, **Hits** (the number of
+hit reads assigned to that taxon), **Unique Reads**, and **Refs** (how many
+reference accessions the taxon's hits spread across). If you imported per-sample
+metadata, that travels as extra columns. Sort by Hits to bring the strongest
+signals to the top, and read Unique Reads beside Hits: a taxon with many hits
+but few unique reads is leaning on a small number of fragments and deserves
+more scrutiny than its hit count alone suggests.
 
-Three things are worth checking before treating a rise as real. First, the read count for the spike weeks: a small rise driven by ten reads in a low-yield sample is not the same as a large rise driven by ten thousand reads. Second, whether the database version changed mid-series; the result viewport draws a vertical guideline at any week where `manifest.json` reports a different database, because abundance values across a database change are not directly comparable. Third, whether the spike is confined to one site or appears across every site in the project; cross-site spikes that share an exact onset week are sometimes a reagent contamination event rather than a genuine community signal.
+Select a taxon to populate the detail pane. For an accession with alignment
+data, the pane draws a **coverage sparkline**, a small depth track across the
+reference, the same kind of plot the EsViritu viewport uses. Read it the same
+way: a track that spreads across the reference is stronger evidence than one
+that spikes on a single window, which often means an off-target or conserved
+fragment rather than the whole organism.
 
-The provenance record for each sample is reachable from the right-hand Inspector and lists the database version, the exact `nao-mgs` command line, the input FASTQ checksums, and the output table checksum. That record is what you would cite in a methods section, and the standard methods export (Chapter 09) emits it as a paragraph of plain prose.
+When a taxon looks like a candidate worth confirming, verify it. The viewport's
+action bar has a **BLAST Verify** button, and the verification flow selects a
+coverage-stratified sample of the taxon's reads and submits them to NCBI BLAST,
+exactly as it does for the runnable classifiers. See
+[BLAST Verification](06-blast-verification.md) for how to read the verdict it
+returns.
 
-## About the Nucleic Acid Observatory
+The provenance record for the import is reachable from the Inspector and names
+the source path, the importing command, and the input checksums. That record is
+what a methods export cites, so the review you do here stays auditable back to
+the external run that produced the data.
 
-The Nucleic Acid Observatory (NAO) is a research effort that argues for routine, broad metagenomic sequencing of wastewater and other environmental matrices as an early-warning system for novel pathogens. Their public materials describe the analytical approach the NAO-MGS pipeline implements, including the reference set they curate and the abundance reporting conventions Lungfish's viewport follows.
+## Crediting the pipeline
 
-You do not need to read the NAO's papers to use NAO-MGS in Lungfish, but if you are setting up a surveillance program from scratch, their site is the right starting point for design decisions about sampling cadence, matrix choice, and depth targets. See `https://naobservatory.org/` for the program overview and `https://github.com/naobservatory` for the open-source pipeline code Lungfish wraps.
-
-## A worked example: twelve weeks of MMSD influent
-
-Suppose you have twelve weeks of paired-end Illumina reads from the Madison MMSD influent site, one sample per week, and you want to see whether anything trended up across the quarter. You would run the wizard once for week 1, choosing **New series** and naming it "MMSD influent". For weeks 2 through 12, you would re-open the wizard, pick the existing series, and only the FASTQ bundle and sample date would change between runs. After week 12, the result viewport would show twelve points per pathogen line.
-
-If the same twelve weeks had already been processed on a cluster, the equivalent path is one `lungfish nao-mgs import` call against the run directory. The resulting viewport is identical, and a provenance record at each point identifies which path produced it.
+NAO-MGS is the SecureBio metagenomic surveillance workflow. If you publish or
+report results that pass through this import, cite the upstream pipeline at
+`https://github.com/securebio/nao-mgs-workflow`. Lungfish's role is to import,
+display, and verify the workflow's output, not to run it, so your methods should
+describe the external run and then the Lungfish import as two steps.
 
 ## Next
 
-Continue to [BLAST Verification](06-blast-verification.md) to confirm specific organism hits against NCBI.
+Continue to [BLAST Verification](06-blast-verification.md) to confirm a specific
+taxon against NCBI, or to [Novel Virus Diagnostics](08-novel-virus-detection.md)
+for the other wastewater-surveillance import path.

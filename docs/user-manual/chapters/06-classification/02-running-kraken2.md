@@ -8,8 +8,8 @@ task: Classify reads with Kraken2 and read the resulting taxonomy viewport.
 tags: [classification, kraken2, taxonomy, sunburst]
 tools: [kraken2]
 entry_points:
-  - "Tools > FASTQ/FASTA Operations > Classification > Kraken2"
-  - "CLI: lungfish classify"
+  - "Tools > FASTQ/FASTA Operations > Classification…"
+  - "CLI: lungfish conda classify"
 shots: []
 planned_shots:
   - id: kraken2-wizard
@@ -33,11 +33,14 @@ lead_approved: false
 ## What it is
 
 Kraken2 is a fast k-mer-based classifier that assigns each read to a
-taxonomic node by exact k-mer matching against a database. Lungfish runs it
-through the Classification wizard, accepting a FASTQ bundle and a Kraken2
-database. The result lands as a taxonomy bundle in the project, opening in
-the taxonomy viewport with a sunburst at the top, a sortable table below,
-and a breadcrumb bar showing the currently selected taxon.
+taxonomic node by exact k-mer matching against a database. In Lungfish the
+tool is labelled "Classify & Profile (Kraken2)" because it runs Kraken2 to
+assign reads and then Bracken to estimate community abundance from those
+assignments. You launch it from the run wizard, choosing a FASTQ bundle and
+a Kraken2 database. The result lands as a taxonomy bundle in the project,
+opening in the taxonomy viewport: a sunburst on the left and a sortable
+table on the right, with a breadcrumb bar showing the currently selected
+taxon.
 
 The k-mer in "k-mer-based" is a short fixed-length substring of a read, by
 default 35 bases for Kraken2. The classifier slides a window across each
@@ -49,9 +52,9 @@ sees what is in its database. Reads from a virus the database has never
 seen will either land at a higher (less specific) taxonomic node or fail
 to classify at all.
 
-So what should you do with this? Pick a database that matches your
-question, run it, and treat any single hit as a hypothesis to verify
-rather than a final identification.
+In practice, pick a database that matches your question, run it, read both
+the per-read assignments and the Bracken abundance estimates, and treat any
+single hit as a hypothesis to verify rather than a final identification.
 
 ### Database choices
 
@@ -73,11 +76,12 @@ with the Classification wizard.
 | Custom | varies | At least the uncompressed index size plus working headroom | User-built from selected RefSeq taxa | None of the above match your sample and you have built (or imported) your own index |
 
 Kraken2 loads the entire database into memory at run time, so RAM is the
-binding constraint, not disk. Standard and PlusPF will not run on a laptop
-with 16 GB of memory. Viral fits comfortably on any modern Mac.
-If RAM is below the database requirement, Lungfish can use Kraken2 memory
-mapping where supported, but the run will be much slower than an in-RAM
-classification.
+binding constraint, not disk. The full Standard and PlusPF builds will not
+run on a laptop with 16 GB of memory; on a 16 GB Mac the capped Standard-8,
+Standard-16, and PlusPF builds are the broader-than-Viral path, and Viral
+itself fits comfortably on any modern Mac. If RAM is below the database
+requirement, Lungfish can use Kraken2 memory mapping where supported, but
+the run will be much slower than an in-RAM classification.
 
 ### What "hit confidence" means in Kraken2
 
@@ -96,45 +100,55 @@ Verification](06-blast-verification.md).
 ## What you will learn
 
 By the end of this chapter you will be able to install a Kraken2 database,
-run the Classification wizard with Kraken2 selected, navigate the
-resulting taxonomy viewport, drill into a taxon by clicking the sunburst,
-and extract reads assigned to a specific taxon as a new FASTQ bundle.
+run the wizard with Kraken2 selected, set the Sensitivity preset, navigate
+the resulting taxonomy viewport, drill into a taxon by clicking the
+sunburst, and extract reads assigned to a specific taxon as a new FASTQ
+bundle. You will also know the headless CLI form and when to build a custom
+database.
 
 ## Procedure
 
 ### 1. Install a Kraken2 database
 
-The first time you run Kraken2 in Lungfish, the Classification wizard's
-database picker is empty. Open `Lungfish > Settings > Plugin Manager`,
-find the Kraken2 row, and click **Install** next to the database scope you
-want. For a worked example with a viral sample, the Viral database is the
-right starting point because it downloads in under a minute on a typical
-home connection and runs on any Mac.
+The first time you run Kraken2 in Lungfish, the run wizard's
+database picker is empty. Open the Plugin Manager from
+`Tools > Plugin Manager…` (Cmd-Shift-B), find the Kraken2 row, and click
+**Install** next to the database scope you want. For a worked example with
+a viral sample, the Viral database is the right starting point because it
+downloads in under a minute on a typical home connection and runs on any
+Mac.
 
 The Plugin Manager fetches the index from the Kraken2 maintainers' public
-mirror, verifies its checksum, and installs it under
-`~/.lungfish/conda/databases/kraken2/<scope>/`. When the row turns green
-and the size is shown, the database is ready. The row also shows the
-install date and update status. From the CLI, use
-`lungfish conda db info Viral` or replace `Viral` with the database name
-you installed to see the local version, install date, available update,
-disk path, and RAM requirement.
+mirror, verifies its checksum, and installs it under the Lungfish conda
+root at `~/.lungfish/conda`. When the row turns green and the size is
+shown, the database is ready. The row also shows the install date and
+update status. From the CLI, use `lungfish conda db info Viral` or replace
+`Viral` with the database name you installed to see the local version,
+install date, available update, disk path, and RAM requirement.
 
 <!-- planned: kraken2-plugin-manager -->
 
-### 2. Open the Classification wizard
+### 2. Open the run wizard
 
 With a FASTQ bundle selected in the project sidebar, open
-`Tools > FASTQ/FASTA Operations > Classification`. The Unified
-Metagenomics Wizard appears. In the **Classifier** picker, choose
-**Kraken2**. The wizard reshapes itself to show Kraken2-specific options:
-a **Database** dropdown listing every Kraken2 database registered through
-the Plugin Manager, a **Confidence threshold** slider (default 0.0, which
-keeps every hit), and a **Minimum hit groups** field (default 2).
+`Tools > FASTQ/FASTA Operations > Classification…`. This is one menu item,
+not a submenu. The run wizard appears. In the **Classifier** picker, choose
+**Kraken2**. The wizard reshapes itself to show Kraken2-specific options: a
+**Sensitivity** preset picker (Sensitive, Balanced, or Precise; default
+Balanced), a **Database** dropdown listing every Kraken2 database
+registered through the Plugin Manager, and an Advanced section holding a
+**Confidence** threshold (default 0.2) and a **Minimum hit groups** field
+(default 2).
 
-For a first run, leave the thresholds at their defaults. They filter the
-output rather than shape the search, and you can re-filter the table
-inside the viewport without rerunning the classifier.
+The Sensitivity preset is the simple control. Balanced suits most samples.
+Sensitive recovers more low-abundance hits at the cost of more false
+positives; Precise does the reverse. The Advanced thresholds are the
+underlying knobs the presets set, exposed for fine control. Confidence
+asks what fraction of a read's k-mers must agree before Kraken2 keeps the
+assignment, so a higher value is stricter. For a first run, leave the
+preset on Balanced and the thresholds at their defaults; they filter the
+output rather than shape the search, and you can re-filter the table inside
+the viewport without rerunning the classifier.
 
 <!-- planned: kraken2-wizard -->
 
@@ -173,18 +187,18 @@ Double-click the new bundle. The taxonomy viewport opens.
 
 <!-- planned: kraken2-taxonomy-viewport -->
 
-The sunburst at the top is centred on the root of the tree of life. The
+The sunburst on the left is centred on the root of the tree of life. The
 largest wedge is **Riboviria**, the realm that holds RNA viruses. Inside
 Riboviria, the dominant child wedge is **Orthornavirae**, and inside that,
 **Pisuviricota**, **Pisoniviricetes**, **Nidovirales**, **Coronaviridae**,
 **Orthocoronavirinae**, **Betacoronavirus**, and finally **Severe acute
-respiratory syndrome-related coronavirus**. The table below mirrors the
-sunburst: each row is one taxon, with columns for taxon name, rank, read
-count, and percentage of total classified reads.
+respiratory syndrome-related coronavirus**. The table on the right mirrors
+the sunburst: each row is one taxon, with columns for taxon name, rank,
+read count, and percentage of total classified reads.
 
 Click the **Coronaviridae** wedge. The sunburst re-centres on
 Coronaviridae and the breadcrumb bar at the top of the viewport updates
-to read `root > Riboviria > ... > Coronaviridae`. The table below filters
+to read `root > Riboviria > ... > Coronaviridae`. The table filters
 to taxa under Coronaviridae. You can now see the per-genus breakdown
 inside the family.
 
@@ -251,6 +265,32 @@ In every case, the move is the same: look at the rank where the signal
 peaks, extract those reads, and verify with BLAST or a focused mapper
 against a candidate reference. Kraken2 is a screening step, not a final
 identification.
+
+## Running Kraken2 from the command line
+
+The same classification is available headless for scripting and pipeline
+integration. The runnable command lives under `conda`, not as a top-level
+verb:
+
+```bash
+lungfish conda classify reads.fastq.gz --db Viral
+```
+
+Useful options mirror the wizard and add the abundance step:
+`--preset sensitive|balanced|precise` sets the Sensitivity preset,
+`--confidence` and `--min-hit-groups` set the Advanced thresholds,
+`--profile` turns on Bracken abundance estimation (with
+`--bracken-read-length`, `--bracken-level`, and `--bracken-threshold` to
+tune it), `--memory-mapping` runs the database from disk when it does not
+fit in RAM, and `--quick` stops at the first hit group for a faster, less
+precise pass.
+
+Two adjacent commands round out the headless path. `lungfish import kraken2
+<kreport-file>` brings a Kraken2 report you generated elsewhere into a
+project. `lungfish build-db kraken2 <result-dir>` builds a SQLite database
+from a Kraken2 result directory (with `--force` to overwrite and
+`--no-cleanup` to keep intermediates), which is the power-user path when
+you need a custom database the Plugin Manager does not offer.
 
 ## Next
 

@@ -8,11 +8,11 @@ task: Decide when to assemble reads de novo and choose between SPAdes, MEGAHIT, 
 tags: [assembly, spades, megahit, skesa, flye, hifiasm, de-novo]
 tools: []
 entry_points:
-  - "Tools > FASTQ/FASTA Operations > Assembly"
+  - "Tools > FASTQ/FASTA Operations > Assembly…"
 shots: []
 planned_shots:
-  - id: assembly-wizard-tool-picker
-    caption: "The Assembly wizard's tool picker showing the five assemblers grouped by read type."
+  - id: assembly-wizard-assembler-picker
+    caption: "The Assembly wizard's segmented Assembler picker (SPAdes, MEGAHIT, SKESA, Flye, Hifiasm) above the separate Read Type control."
   - id: assembly-bundle-in-sidebar
     caption: "An assembly bundle in the Assemblies/ folder, with contigs listed in the Inspector."
 illustrations:
@@ -52,14 +52,16 @@ contigs.
 Lungfish runs five assemblers through one wizard and packages every result
 the same way: a `.lungfishref` assembly bundle in the project's
 `Assemblies/` folder, with each contig as a navigable sequence and assembly
-statistics (N50, total length, contig count) in the Inspector. The bundle
+statistics (N50, total length, contig count) in the Inspector. There is one
+menu item, `Tools > FASTQ/FASTA Operations > Assembly…`, and you pick the
+assembler from a segmented Assembler control inside the wizard. The bundle
 format is identical to a reference bundle, so any contig you produce can be
 used downstream as a mapping target, an annotation target, or a phylogeny
 input.
 
-So what should you do with this? Before you click Assembly, work through
-the decision walkthrough in the next section. Most short-read viral and
-bacterial work belongs on SPAdes; metagenomic work belongs on MEGAHIT;
+In practice, before you open the Assembly wizard, work through the decision
+walkthrough in the next section. Most short-read viral
+and bacterial work belongs on SPAdes; metagenomic work belongs on MEGAHIT;
 long-read work belongs on Flye or Hifiasm; and a meaningful fraction of
 projects do not need assembly at all.
 
@@ -79,16 +81,23 @@ The table below summarises the niches.
 
 | Assembler | Read type | Best for | Genome size | Notes |
 |---|---|---|---|---|
-| SPAdes | Illumina paired short reads | Viral and bacterial isolates | up to ~10 Mb | Has a `--viral` mode tuned for viral coverage profiles. Default for SARS-CoV-2 and similar amplicon work. |
+| SPAdes | Illumina paired short reads | Viral and bacterial isolates | up to ~10 Mb | The first-reach assembler for single-virus and single-bacterium short reads. Profiles: Isolate (default), Meta, Plasmid. |
 | MEGAHIT | Illumina short reads | Shotgun metagenomes | unbounded | Lower memory than SPAdes on complex mixtures. Use when one sample contains many organisms. |
 | SKESA | Illumina short reads | Bacterial isolates | up to ~10 Mb | NCBI's preferred isolate assembler. Conservative; emits fewer mis-joins than SPAdes at the cost of slightly more contigs. |
-| Flye | Oxford Nanopore long reads | Anything from viral to bacterial chromosomes | up to ~100 Mb | Handles repeats well because long reads span them. Polish with short reads afterwards if available. |
-| Hifiasm | PacBio HiFi long reads | High-accuracy long-read assembly | unbounded | Designed for HiFi's <1% error rate. Produces near reference-grade contigs from a single technology. |
+| Flye | Oxford Nanopore long reads | Anything from viral to bacterial chromosomes | up to ~100 Mb | Handles repeats well because long reads span them. In this version Flye accepts ONT reads only. |
+| Hifiasm | PacBio HiFi long reads | High-accuracy long-read assembly | unbounded | Designed for HiFi's <1% error rate. Produces near reference-grade contigs. Also accepts ONT reads. |
 
 Two assemblers are not in this table because Lungfish does not ship them:
 Canu and Trinity. Canu has been superseded by Flye for Nanopore work in
 most published comparisons. Trinity targets transcriptome assembly, which
 Lungfish does not currently expose.
+
+The wizard reads the FASTQ headers and detects the read class for you, then
+shows only the assemblers that match. If you select a paired Illumina
+bundle, the Assembler picker offers SPAdes, MEGAHIT, and SKESA; an ONT
+bundle offers Flye and Hifiasm. A tool you expect may therefore be absent
+because it does not accept your detected read type, not because it is
+missing.
 
 ## A decision walkthrough
 
@@ -115,10 +124,10 @@ many organisms in one pass without exhausting memory.
 **Are the reads short or long?** Illumina is short (50–300 bp), and SPAdes,
 MEGAHIT, or SKESA apply. Oxford Nanopore is long (1–100 kb) with ~5–10%
 per-base error, and Flye applies. PacBio HiFi is long (10–25 kb) with <1%
-error, and Hifiasm applies. Mixing read types in one assembly is possible
-(SPAdes accepts a Nanopore long-read pool alongside Illumina pairs) but
-out of scope for this chapter; the wizard exposes single-technology runs
-only.
+error, and Hifiasm applies. Hybrid assembly that mixes read types in one
+run exists in some assemblers, but it is out of scope here: the Lungfish
+wizard detects one read class per bundle and runs a single technology at a
+time.
 
 A worked example. Suppose you have a wastewater sample sequenced with
 Illumina paired-end shotgun and you want to recover any viral genomes
@@ -136,18 +145,24 @@ sequencing and no Illumina backup. The first question sends you to
 assembly because there may be a closer reference but you want a
 chromosome-level genome with the structural variation intact. The second
 question is bacterial-isolate territory but the third question (long
-reads) overrides it: Flye, not SKESA. After Flye, polish with Medaka if
-you have it, or accept the assembly as-is for a draft genome.
+reads) overrides it: Flye, not SKESA. Flye runs its own internal polishing,
+so its output is usable as a draft genome straight from the wizard.
 
 ## Comparing SPAdes and MEGAHIT on the same sample
 
+If you have not assembled before, you can skip this comparison and return
+to it after your first run; it goes a step deeper than the decision
+walkthrough above.
+
 SPAdes and MEGAHIT both accept Illumina paired short reads, and both
-appear in the wizard's tool picker for that input type. The difference
+appear in the wizard's Assembler picker for that input type. The difference
 shows up in the output. Consider SRR36291587, a SARS-CoV-2 amplicon
 Illumina run.
 
-Run SPAdes in viral mode against the paired FASTQ. The expected output is
-one or a small number of contigs, with the longest near 29.9 kb (the full
+Run SPAdes with its default Isolate profile against the paired FASTQ.
+There is no viral profile in Lungfish; for a single-organism amplicon run
+the Isolate profile is the right default. The expected output is one or a
+small number of contigs, with the longest near 29.9 kb (the full
 SARS-CoV-2 genome) when amplicon coverage is uniform, plus one or two
 shorter fragments where amplicon dropouts forced a graph break. The N50
 is essentially the longest contig length. Total assembly length is close
@@ -183,5 +198,6 @@ GFF3.
 ## Next
 
 Continue to [Running SPAdes](02-running-spades.md) for short-read viral or
-bacterial assembly, or [Running Flye or Hifiasm](03-running-flye-or-hifiasm.md)
-for long-read assembly.
+bacterial assembly, which also covers MEGAHIT and SKESA in the same wizard,
+or [Running Flye or Hifiasm](03-running-flye-or-hifiasm.md) for long-read
+assembly.

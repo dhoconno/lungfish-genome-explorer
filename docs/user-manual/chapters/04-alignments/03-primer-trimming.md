@@ -8,8 +8,7 @@ task: Soft-clip amplicon primers from a BAM using a primer scheme.
 tags: [alignments, primer-trim, amplicon, ivar, primer-scheme, qiaseq, artic]
 tools: [ivar, samtools]
 entry_points:
-  - "Inspector > Analysis > Primer-trim BAM"
-  - "Tools > FASTQ/FASTA Operations > Trimming & Filtering > Primer Trimming"
+  - "Inspector > Analysis > Primer-trim BAM…"
   - "CLI: lungfish bam primer-trim"
 shots: []
 planned_shots:
@@ -32,8 +31,8 @@ sequences off the ends of every aligned read in a BAM, so the variant
 caller does not mistake primer bases for sample bases. Lungfish runs
 `ivar trim` against a primer scheme bundle (a `.lungfishprimers` file that
 lists where each forward and reverse primer binds on the reference) and
-writes a new alignment track whose name carries a `(Primer-trimmed)`
-suffix.
+writes a new, separately-named alignment track, leaving the source track in
+place.
 
 The trim does not delete bases from the BAM. It changes their CIGAR
 flag from `M` (aligned, analysable) to `S` (soft-clipped, present but
@@ -89,14 +88,17 @@ a credible amplicon variant call and one that needs a footnote.
 ## Primer schemes
 
 The Primer Trim dialog lists every scheme it can find, bundled or
-project-local, in the picker. The current release ships the
-`QIASeqDIRECT-SARS2` built-in scheme. ARTIC, midnight, and other lab or
-vendor schemes should be imported into the project's `Primer Schemes/`
-folder as `.lungfishprimers` bundles.
+project-local, in the picker. The current release ships one built-in scheme.
+In the picker it appears as **QIAseq Direct SARS-CoV-2 with Booster A
+(Built-in)**; its internal manifest name is `QIASeqDIRECT-SARS2`, so the bundle
+folder and the CLI `--scheme` path use the short name, but the picker label you
+click is the long one. ARTIC, midnight, and other lab or vendor schemes should
+be imported into the project's `Primer Schemes/` folder as `.lungfishprimers`
+bundles.
 
-| Scheme | Target | Amplicons | Typical insert | When to choose |
+| Picker label | Target | Amplicons | Primers | When to choose |
 |---|---|---|---|---|
-| QIASeqDIRECT-SARS2 | SARS-CoV-2 | 422 | ~250 bp | QIAGEN QIAseqDIRECT SARS-CoV-2 Kit; default for the Lungfish Wastewater Kit |
+| QIAseq Direct SARS-CoV-2 with Booster A (Built-in) | SARS-CoV-2 | 223 | 563 | QIAGEN QIAseq Direct SARS-CoV-2 Kit with Booster A; default for the Lungfish Wastewater Kit |
 
 The reference each scheme is built against is recorded inside the
 `.lungfishprimers` bundle and shown in the dialog when you select it.
@@ -122,19 +124,19 @@ for the layout and import procedure.
 ## Procedure
 
 The worked example trims the SRR36291587 minimap2 alignment from the
-[Mapping Reads](01-mapping-reads-to-a-reference.md) chapter using the
-QIASeqDIRECT-SARS2 scheme.
+[Mapping Reads](01-mapping-reads-to-a-reference.md) chapter using the built-in
+QIAseq Direct SARS-CoV-2 scheme.
 
-1. In the sidebar, select the `SRR36291587 vs MN908947.3.bam`
-   alignment track produced by minimap2 in the previous chapter. The
-   Inspector on the right populates with the alignment's metadata.
+1. In the sidebar, select the alignment track produced by minimap2 in the
+   previous chapter ("minimap2 Mapping" by default). The Inspector on the
+   right populates with the alignment's metadata.
 2. In the Inspector, expand the **Analysis** section and click
-   **Primer-trim BAM...**. The Primer Trim dialog opens.
+   **Primer-trim BAM…**. The Primer Trim dialog opens.
    <!-- planned: primer-trim-dialog-overview -->
 3. In the **Primer Scheme** picker at the top of the dialog, choose
-   **QIASeqDIRECT-SARS2**. The dialog shows the scheme's reference
-   (MN908947.3) and amplicon count (422) below the picker. Confirm
-   the reference matches the alignment's reference.
+   **QIAseq Direct SARS-CoV-2 with Booster A (Built-in)**. The dialog shows the
+   scheme's reference (MN908947.3) and amplicon count (223) below the picker.
+   Confirm the reference matches the alignment's reference.
 4. Leave **Advanced Options** collapsed. The defaults match the iVar
    recommendations for amplicon variant calling: minimum read length
    30 bases, minimum quality 20, sliding window 4, primer offset 0.
@@ -143,13 +145,39 @@ QIASeqDIRECT-SARS2 scheme.
 5. Click **Run**. The dialog closes and a new entry appears in the
    Operations Panel labelled `bam primer-trim`. When it completes
    (typically under a minute for a SARS-CoV-2 BAM), a new alignment
-   track appears in the sidebar named
-   `SRR36291587 vs MN908947.3 (Primer-trimmed).bam`.
+   track appears in the sidebar. It carries a name marking it as
+   primer-trimmed (the GUI pre-fills one for you and you can edit it; a CLI
+   run uses whatever you pass to `--name`), and it lands in the bundle's
+   `alignments/primer-trimmed` directory, leaving the source track untouched.
    <!-- planned: primer-trim-track-result -->
+
+## Equivalent CLI
+
+The same trim runs from the command line against a bundle alignment track.
+`bam primer-trim` works on a track inside a `.lungfishref` bundle, so you pass
+the bundle, the source track identifier, the scheme, and a name for the new
+track:
+
+```text
+lungfish bam primer-trim \
+  --bundle "Reference Sequences/MN908947.3.lungfishref" \
+  --alignment-track <source-track-id> \
+  --scheme "Primer Schemes/QIASeqDIRECT-SARS2.lungfishprimers" \
+  --name "SRR36291587 primer-trimmed"
+```
+
+The iVar defaults are exposed as `--ivar-min-length` (30), `--ivar-min-quality`
+(20), `--ivar-sliding-window` (4), and `--ivar-primer-offset` (0). One extra
+flag has no dialog equivalent and is worth knowing: `--target-reference`
+overrides the contig name (`@SQ SN`) used to resolve the scheme against the
+BAM. By default the scheme resolves against its own canonical accession
+(here `MN908947.3`); if you mapped to a reference whose contig is named
+differently from the scheme accession, pass the BAM's contig name to
+`--target-reference` so the primer coordinates line up.
 
 ## Interpretation
 
-Select the new `(Primer-trimmed)` track and open it in the alignment
+Select the new primer-trimmed track and open it in the alignment
 viewport. The reads map at the same positions as before. What
 changed is the appearance of the read ends: where the previous track
 showed solid `M`-bases running flush to the read edge, the trimmed

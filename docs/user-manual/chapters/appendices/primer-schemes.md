@@ -25,7 +25,7 @@ lead_approved: false
 
 Lungfish stores amplicon primer schemes as `.lungfishprimers` bundles in a project's `Primer Schemes/` folder. Primer trim dialogs and the Viral Recon wizard read those bundles instead of loose BED files so the coordinates, reference accession, display name, and provenance travel together.
 
-The current release ships one built-in scheme, `QIASeqDIRECT-SARS2`, under the app resources. Custom schemes are project-local and can be imported through the Import Center or the `lungfish primers import` CLI. Both paths copy the source files into a bundle, write a manifest, compute checksums and file sizes, and record reproducibility provenance.
+The current release ships one built-in scheme under the app resources. Its `name` is `QIASeqDIRECT-SARS2` and its `display_name` is "QIAseq Direct SARS-CoV-2 with Booster A". It declares `primer_count` 563 and `amplicon_count` 223, with canonical accession `MN908947.3` and equivalent accession `NC_045512.2`, and its `source` is `built-in`. Use those counts to confirm the bundle loaded correctly. Custom schemes are project-local and can be imported through the Import Center or the `lungfish primers import` CLI. Both paths copy the source files into a bundle, write a manifest, compute checksums and file sizes, and record reproducibility provenance.
 
 ## Bundle Layout
 
@@ -43,18 +43,33 @@ MyScheme.lungfishprimers/
 
 `primers.bed` is required. `primers.fasta` is optional because some schemes can derive primer sequences from the reference accession and BED coordinates. Attachments are for vendor PDFs, source spreadsheets, or lab notes that need to travel with the scheme.
 
-The manifest records:
+Manifest keys are snake_case. The manifest records:
 
 | Field | Meaning |
 |---|---|
+| `schema_version` | Manifest schema version (currently `1`). |
 | `name` | File-safe bundle name. |
-| `displayName` | Label shown in pickers. |
-| `referenceAccessions` | Canonical accession plus equivalent accessions accepted by the resolver. |
-| `primerCount` | Number of non-comment BED rows. |
-| `ampliconCount` | Distinct amplicon names inferred from BED column 4 after stripping `_LEFT` and `_RIGHT`. |
-| `source` | Usually `imported` for project schemes. |
-| `created` and `imported` | Timestamps written by the importer. |
-| `attachments` | Relative paths for optional extra files. |
+| `display_name` | Label shown in pickers. |
+| `description` | Free-text description of the scheme. |
+| `organism` | Target organism name. |
+| `reference_accessions` | Array of accession objects; see below. |
+| `primer_count` | Number of non-comment BED rows. |
+| `amplicon_count` | Distinct amplicon names inferred from BED column 4 after stripping `_LEFT` and `_RIGHT`. |
+| `source` | Provenance of the scheme: `built-in` for the shipped scheme. |
+| `source_url` | Link to the scheme's upstream source. |
+| `version` | Scheme version string. |
+| `created` | Timestamp written when the bundle was authored. |
+
+`reference_accessions` is an array of objects rather than a list of strings. Each object carries an `accession` and a boolean role flag:
+
+```json
+"reference_accessions": [
+  { "accession": "MN908947.3", "canonical": true },
+  { "accession": "NC_045512.2", "equivalent": true }
+]
+```
+
+The canonical accession is the one the BED coordinates are defined against; equivalent accessions let the resolver match an alignment reference that uses a different name for the same sequence.
 
 ## BED Expectations
 

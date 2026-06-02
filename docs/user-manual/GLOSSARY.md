@@ -30,6 +30,8 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 **BLAST (Basic Local Alignment Search Tool)**{#blast}. NCBI's nucleotide and protein sequence search service that ranks database entries by local-alignment score against a query, used in Lungfish to verify a classifier's hit by sending a representative read to NCBI's `nt` database. See also: e-value, percent identity, query coverage.
 
+**BQSR (Base Quality Score Recalibration)**{#bqsr}. The GATK preprocessing step that corrects systematic errors in a sequencer's per-base quality scores by modelling them against a set of known-variant sites, run in Lungfish through `lungfish gatk bqsr` ahead of germline calling. See also: VCF, HaplotypeCaller.
+
 **Bundle**{#bundle}. A folder that the macOS Finder shows as a single icon with an extension and that Lungfish treats as one logical object, with a manifest, primary data files, optional indexes and annotations, and a `provenance/` subfolder. Lungfish bundle types include `.lungfishref` for references and assemblies and `.lungfishprimers` for primer schemes. See also: reference bundle, assembly bundle, primer scheme.
 
 ## C
@@ -51,6 +53,8 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 **Coordinate**{#coordinate}. A 1-based position on a reference, named as `chrom:position` (for example, `MN908947.3:21618`). Lungfish presents 1-based inclusive coordinates to the user everywhere; underlying file formats may use 0-based half-open (BED) or 1-based inclusive (VCF, GFF3, SAM/BAM displayed). See also: chromosome.
 
 **Coverage**{#coverage}. The number of reads that align across a given reference position; used interchangeably with depth in this manual. See also: pileup.
+
+**Ct (cycle threshold)**{#ct}. The qPCR cycle number at which a sample's amplification signal crosses the detection threshold; a lower Ct means more starting template, so for a viral diagnostic a low Ct predicts a higher viral fraction in the sequencing reads and a smaller host-removal rate.
 
 ## D
 
@@ -78,11 +82,17 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 **FORMAT (in a VCF)**{#format}. The ninth standard VCF column, declaring a colon-separated list of keys (such as `GT:DP:AF`) that describe the per-sample payload columns following it. See also: VCF, INFO.
 
+**Freyja**{#freyja}. A tool that estimates the relative abundance of each viral lineage in a mixed sample (typically wastewater) by demixing the sample's variant and depth profiles against known lineage definitions, run in Lungfish through `lungfish freyja demix`. See also: lineage, consensus FASTA.
+
 ## G
+
+**GenomicsDB**{#genomicsdb}. GATK's on-disk multi-sample variant store that scales joint genotyping to large cohorts better than a single combined GVCF; Lungfish builds one with `GenomicsDBImport` when a cohort exceeds 50 samples. See also: GVCF, joint genotyping.
 
 **Genotype**{#genotype}. A compact notation for which alleles are observed at a variant position, conventionally diploid-style `0/1` (heterozygous) or `1/1` (homozygous alternate). For a single-organism viral isolate, confidently-called variants are nearly always `1/1`.
 
 **GFF (General Feature Format)**{#gff}. A tab-separated table format for genomic features (genes, CDS, mature peptides, regulatory elements). GFF3 is the current spec; Lungfish accepts GFF3 paired with a FASTA at bundle creation. See also: FASTA, reference bundle.
+
+**GVCF (genomic VCF)**{#gvcf}. A VCF variant that records, at every position rather than only at variant sites, the confidence that the sample matches the reference, so per-sample GVCFs can later be combined and genotyped together; the form GATK HaplotypeCaller emits by default in Lungfish. See also: VCF, joint genotyping, GenomicsDB.
 
 ## I
 
@@ -93,6 +103,10 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 **Inspector**{#inspector}. The right-hand pane of a Lungfish project window that shows context-sensitive metadata and analysis actions for whatever is selected in the sidebar or main viewport. Toggle with `Cmd-Opt-I`. See also: sidebar, project.
 
 **IQ-TREE**{#iqtree}. A maximum-likelihood phylogenetic inference program with a built-in ModelFinder step and ultrafast bootstrap support estimation, used by Lungfish to produce `.lungfishtree` bundles from MSA bundles. See also: MSA, phylogram, support value.
+
+## J
+
+**Joint genotyping**{#joint-genotyping}. The GATK step that calls genotypes across a whole cohort at once by combining per-sample GVCFs and running `GenotypeGVCFs`, rather than genotyping each sample in isolation; run in Lungfish through `lungfish gatk joint-genotype`. See also: GVCF, GenomicsDB.
 
 ## L
 
@@ -118,13 +132,17 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 **N50**{#n50}. A summary statistic for a set of assembled contigs: the length such that contigs of at least that length together hold half of the assembly's total bases; a higher N50 indicates a less fragmented assembly. See also: contig, assembly bundle.
 
-**NAO-MGS**{#nao-mgs}. A metagenomic surveillance pipeline tuned for wastewater pathogen monitoring, distributed by the Nucleic Acid Observatory and run inside Lungfish through the Classification wizard or imported through `lungfish nao-mgs import`; results are stored as a time-series keyed by sample date and site. See also: surveillance series, sample date.
+**NAO-MGS**{#nao-mgs}. A wastewater metagenomic surveillance pipeline from SecureBio that runs externally and whose `virus_hits_final.tsv(.gz)` output Lungfish imports (it does not run the pipeline) through `lungfish nao-mgs import` or the Import Center, presenting one run's viral taxa in a table with a per-accession coverage sparkline. See also: coverage, BLAST.
 
 **Newick**{#newick}. A compact parenthesised text format for phylogenetic trees, with branch lengths after colons and optional support values at internal nodes; the lingua franca for moving trees between FigTree, iTOL, ete3, and Lungfish. See also: phylogram.
+
+**NVD (Novel Virus Diagnostics)**{#nvd}. An external Snakemake wastewater-surveillance pipeline that assembles reads into contigs and BLASTs each contig, whose `*_blast_concatenated.csv(.gz)` output Lungfish imports (it does not run the pipeline) through `lungfish nvd import` or the Import Center and presents as a contig-keyed browser of best and secondary BLAST hits. See also: contig, BLAST.
 
 ## O
 
 **Operations Panel**{#operations-panel}. The bottom pane of a Lungfish project window that lists every long-running operation with a status, timestamp, log link, and provenance disclosure, and that serves as the project's audit trail. Toggle with `Cmd-Shift-P` or by clicking the footer status chip. See also: provenance, project.
+
+**ORF (open reading frame)**{#orf}. A stretch of sequence running from a start codon to an in-frame stop codon without interruption, so it could in principle encode a protein; Lungfish finds ORFs and stores them as an annotation track, but ORF length is only a weak proxy for a real gene. See also: codon.
 
 **Orient Reads**{#orient-reads}. A Lungfish operation that aligns ONT reads against a reference and flips reverse-strand reads so every read in the bundle ends up in the same orientation, useful for amplicon protocols and consensus building. See also: basecaller, simplex read.
 
@@ -168,13 +186,11 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 **REF, ALT**{#ref-alt}. REF is the base or bases present in the reference genome at a variant position; ALT is the base or bases observed in the sample. A one-base REF and one-base ALT describe a SNP; longer REF or ALT describe insertions and deletions.
 
-**Representative read**{#representative-read}. A single sequencing read selected from the set of reads a classifier assigned to a particular taxon, used as the BLAST query when verifying that taxon assignment; Lungfish lists candidates longest first because longer reads carry more BLAST signal. See also: BLAST.
+**Representative reads**{#representative-read}. The coverage-stratified sample of reads (default 20, up to 50) that Lungfish automatically selects from a taxon's assigned reads and submits to NCBI BLAST during verification, chosen to span the taxon's coverage rather than picked one at a time by the user. See also: BLAST.
 
 **Reproducibility**{#reproducibility}. The property that a workflow re-run with the same inputs, the same plugin pack version, and the same Lungfish build produces output that matches the original by checksum (bit-identical) or by content (logically equivalent); the provenance sidecar carries every field needed to verify this. See also: provenance sidecar.
 
 ## S
-
-**Sample date**{#sample-date}. The collection date Lungfish uses to position a classification result on a surveillance series's time axis, sourced in priority order from an explicit wizard or metadata entry, then a recognised date pattern in the FASTQ filename, then the FASTQ file's modification timestamp. See also: NAO-MGS, surveillance series.
 
 **Shotgun sequencing**{#shotgun}. A library preparation strategy in which sample nucleic acid is fragmented at random and sequenced without targeted amplification; each read lands at an essentially arbitrary position on the genome. Shotgun data does not require primer trimming. See also: amplicon.
 
@@ -196,14 +212,12 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 **Support value**{#support-value}. A number annotated at an internal node of a phylogenetic tree giving the percentage of bootstrap or replicate trees that recovered that exact split; values above 95 indicate a well-supported clade and values below 70 should not be relied on. See also: IQ-TREE, phylogram.
 
-**Surveillance series**{#surveillance-series}. A folder under a project's `Imports/NAO-MGS/` directory that gathers classification results from one wastewater site over time, identified by site and matrix and storing one Parquet file per sample keyed by collection date. See also: NAO-MGS, sample date.
-
 ## T
 
 **Tabix**{#tabix}. A position-aware index for a bgzipped tab-delimited genomic file (typically `.vcf.gz` or `.bed.gz`), conventionally named with a `.tbi` suffix and kept beside the data file, that lets viewers and callers fetch records for a region without scanning the whole file. See also: VCF.
 
 ## V
 
-**Variant-caller**{#variant-caller}. The program that compares aligned reads to a reference and emits a VCF describing positions where the sample differs. Lungfish ships three viral-focused callers: LoFreq for short-read viral data, iVar for primer-trimmed amplicon data, and Medaka for Oxford Nanopore data.
+**Variant-caller**{#variant-caller}. The program that compares aligned reads to a reference and emits a VCF describing positions where the sample differs. Lungfish offers five viral callers (LoFreq for short-read viral data, iVar for primer-trimmed amplicon data, Medaka and Clair3 for Oxford Nanopore data, and bcftools as a general cross-check) plus two GATK germline options for human work. See also: pileup, VCF.
 
 **VCF (Variant Call Format)**{#vcf}. A tab-separated file format that lists positions in a reference genome where a sample differs, with per-call confidence and metadata. See also: REF, ALT, genotype, allele frequency.

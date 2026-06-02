@@ -8,12 +8,12 @@ task: Assemble Oxford Nanopore reads with Flye or PacBio HiFi reads with Hifiasm
 tags: [assembly, flye, hifiasm, nanopore, pacbio, long-read]
 tools: [flye, hifiasm]
 entry_points:
-  - "Tools > FASTQ/FASTA Operations > Assembly > Flye"
-  - "Tools > FASTQ/FASTA Operations > Assembly > Hifiasm"
+  - "Tools > FASTQ/FASTA Operations > Assembly…"
+  - "CLI: lungfish assemble"
 shots: []
 planned_shots:
   - id: assembly-wizard-flye
-    caption: Assembly wizard with Flye selected and an ONT FASTQ chosen as input.
+    caption: Assembly wizard with Flye selected, an ONT FASTQ chosen as input, and the Nano HQ profile in the Profile picker.
   - id: assembly-wizard-hifiasm
     caption: Assembly wizard with Hifiasm selected and a PacBio HiFi FASTQ chosen as input.
   - id: flye-single-contig-result
@@ -49,7 +49,7 @@ exact repeats, low-coverage regions, and chimeric reads. The point is that
 the contig count for a viral or small bacterial genome is usually one or a
 handful, not hundreds.
 
-So what should you do with this? If your reads came off a MinION, GridION,
+The practical takeaway: if your reads came off a MinION, GridION,
 PromethION, or a Sequel II in HiFi mode, run Flye or Hifiasm instead of
 SPAdes. The wizard pages are nearly identical; the assembler-specific
 options are few.
@@ -71,7 +71,7 @@ different jobs and assume different error profiles.
 
 | Aspect | Flye | Hifiasm |
 | --- | --- | --- |
-| Input platform | Oxford Nanopore (R9, R10) or PacBio CLR | PacBio HiFi (CCS) only |
+| Input platform | Oxford Nanopore (R9, R10) | PacBio HiFi (CCS), and also ONT |
 | Read accuracy assumption | Noisy (5 to 15 percent error, R9 to R10) | High accuracy (Q20+, ~0.1 percent error) |
 | Typical use case | Viral, bacterial, fungal, small eukaryote | Vertebrate-scale diploid and polyploid genomes |
 | Output style | Single primary assembly | Primary plus haplotype-resolved contigs |
@@ -81,31 +81,35 @@ different jobs and assume different error profiles.
 Hifiasm is overkill for viral genomes. It was designed and tuned for
 vertebrate-scale HiFi assembly with heterozygosity-aware haplotype
 resolution, and applying it to a 30 kb virus uses a sledgehammer where Flye
-already does the job. If your HiFi reads are from a microbe, Flye in HiFi
-mode (or a different microbial-focused tool) is often a better fit, but
-Hifiasm will still produce a usable assembly.
+already does the job. Hifiasm will still produce a usable assembly, and in
+this version it also accepts ONT reads (it adds the `--ont` flag when the
+detected read type is Nanopore), so it is not strictly HiFi-only. For a
+microbe in HiFi, though, Flye is usually the lighter choice.
 
-Other long-read assemblers exist (Canu, NextDenovo, Raven, Shasta, wtdbg2,
-miniasm) and each has its own niche. Lungfish currently ships only Flye and
-Hifiasm; if you need one of the others, run it externally and import the
-contigs FASTA through the standard FASTA import path.
+Two read-type limits matter here. In this version Flye accepts ONT reads
+only: PacBio CLR is not an accepted Flye input, and the wizard will not
+offer Flye for a CLR bundle. Other long-read assemblers exist (Canu,
+NextDenovo, Raven, Shasta, wtdbg2, miniasm) and each has its own niche.
+Lungfish currently ships only Flye and Hifiasm; if you have CLR data or need
+one of the others, run it externally and import the contigs FASTA through
+the standard FASTA import path.
 
 ### Running Flye on Oxford Nanopore reads
 
 1. Open your project and select the FASTQ bundle that holds your ONT reads.
-2. Choose **Tools > FASTQ/FASTA Operations > Assembly > Flye**.
-3. In the Assembly wizard, confirm the input FASTQ is the ONT bundle. If
-   your reads have been basecalled with a recent (Q20+) model, you can set
-   the read-type option accordingly; otherwise leave it on the standard ONT
-   raw setting.
-4. Set the expected genome size if you know it. For SARS-CoV-2 use `30k`;
-   for a small bacterial genome use something like `5m`. Flye uses this
-   only as a hint for coverage estimation; an order-of-magnitude guess is
-   fine.
-5. Leave the metagenome and polishing toggles at their defaults unless you
-   have a specific reason to change them. The default polishing pass is
-   one round, which is sufficient for amplicon data.
-6. Click **Run**.
+2. Choose **Tools > FASTQ/FASTA Operations > Assembly…**. The Assembly
+   wizard opens. Set the Assembler picker to **Flye** and confirm the input
+   FASTQ is your ONT bundle.
+3. Choose the Flye read-quality profile in the Profile picker. The default
+   is **Nano HQ**, for reads basecalled with a recent (Q20+) model. Use
+   **Nano Raw** for older or noisier ONT chemistries, or **Nano Corrected**
+   if your reads were error-corrected upstream.
+4. Leave the **Metagenome mode** toggle (under Advanced Settings) off unless
+   your sample is a mixed community. There is no genome-size field and no
+   polishing control in the wizard: Flye estimates coverage and polishes
+   internally. If you must pass a genome-size hint, type it into the
+   advanced options text field as `--genome-size 30k`.
+5. Click **Run**.
 
 <!-- planned: assembly-wizard-flye -->
 
@@ -114,19 +118,23 @@ contigs FASTA through the standard FASTA import path.
 1. Open your project and select the FASTQ bundle that holds your HiFi
    reads. HiFi FASTQ files are usually named with `.hifi_reads.fastq.gz`
    or similar; do not feed CLR reads to Hifiasm.
-2. Choose **Tools > FASTQ/FASTA Operations > Assembly > Hifiasm**.
-3. In the Assembly wizard, confirm the input FASTQ. Hifiasm has no
-   genome-size parameter; it infers structure from the reads themselves.
-4. If you have parental short reads for trio binning, add them on the
-   options page; otherwise leave the trio fields empty for a standard
-   primary-plus-alternate assembly.
+2. Choose **Tools > FASTQ/FASTA Operations > Assembly…**. The Assembly
+   wizard opens. Set the Assembler picker to **Hifiasm** and confirm the
+   input FASTQ.
+3. Choose the Hifiasm profile in the Profile picker: **Diploid** (the
+   default) for a heterozygous genome where you want haplotype-resolved
+   output, or **Haploid/Viral** for a haploid or viral target. Hifiasm has
+   no genome-size parameter; it infers structure from the reads themselves.
+4. To get just the primary assembly without the alternate haplotigs, turn on
+   **Primary contigs only** under Advanced Settings. There are no trio-binning
+   fields in the wizard.
 5. Click **Run**.
 
 <!-- planned: assembly-wizard-hifiasm -->
 
-The wizard hands the run to the OperationCenter, exactly as SPAdes did in
+The wizard hands the run to the Operations Panel, exactly as SPAdes did in
 the previous chapter. You can close the wizard and watch progress in the
-Operations panel.
+Operations Panel.
 
 ## Worked example: ONT amplicon SARS-CoV-2 with Flye
 
@@ -143,10 +151,11 @@ project's `Imports/` folder. Mean read length is ~400 bp because the
 amplicons are short; a whole-genome ligation library would have a longer
 mean.
 
-Run. Open the Assembly wizard, choose Flye, set the genome size to `30k`,
-and click Run. On a recent Apple silicon laptop the assembly finishes in
-a few minutes. The Operations panel logs each Flye stage: read overlap,
-graph construction, contig extraction, and polishing.
+Run. Open the Assembly wizard, set the Assembler picker to Flye, leave the
+Profile picker on Nano HQ (the reads are recent-model ONT), and click Run.
+On a recent Apple silicon laptop the assembly finishes in a few minutes. The
+Operations Panel logs each Flye stage: read overlap, graph construction,
+contig extraction, and polishing.
 
 Result. The new bundle in `Assemblies/` contains a single contig of about
 29.8 kb. That contig is the assembly's reconstruction of the SARS-CoV-2

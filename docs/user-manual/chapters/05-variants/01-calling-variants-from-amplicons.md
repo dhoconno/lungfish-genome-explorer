@@ -11,7 +11,7 @@ shots:
   - id: ncbi-search-fasta
     caption: "Searching NCBI for the SARS-CoV-2 reference sequence."
   - id: ncbi-search-gff3
-    caption: "Downloading the matching GFF3 annotations from NCBI."
+    caption: "Toggling Include GFF3 Annotations so the matching GFF3 is fetched and attached."
   - id: sra-search-dialog
     caption: "Downloading SRR36291587 reads from the SRA."
   - id: mapping-dialog
@@ -66,15 +66,16 @@ Three more terms come up in the procedure. **Allele frequency** is the fraction 
 
 ## Choosing iVar
 
-Three variant callers ship with Lungfish. They are designed for different sequencing regimes, and the right tool depends on what kind of data you have.
+The Variant Calling dialog offers five viral callers (LoFreq, iVar, Medaka, bcftools, and Clair3) plus two GATK germline options. They are designed for different sequencing regimes, and the right tool depends on what kind of data you have. The dialog opens with LoFreq selected, so for this chapter you will click iVar to select it yourself. The table below shows which of the available callers fits which data; the GATK options belong to human germline work and are introduced separately in the Part 06 chapters.
 
-| If your data is | Use | Why |
+| If your data is | Choose | Why |
 |---|---|---|
 | Illumina amplicon (this chapter) | **iVar** | Designed for primer-trimmed amplicon data; reports allele frequencies above a fixed threshold; codon-aware when given a GFF |
 | Illumina shotgun viral or bacterial | LoFreq | Per-base error model with multiple-testing correction; assumes random read-start distribution |
-| Oxford Nanopore amplicon or shotgun | Medaka | Long-read aware; trained against the Nanopore base-call error profile |
+| Oxford Nanopore amplicon or shotgun | Medaka or Clair3 | Long-read aware; keyed to the Nanopore base-call error profile |
+| A general orthogonal cross-check | bcftools | Genotype-likelihood model from `mpileup`; useful as a second opinion |
 
-This chapter uses iVar because the reads come from an amplicon protocol (QIAseq Direct), they are paired-end Illumina, and we want every variant above 5% allele frequency reported in a single annotated VCF. The other two callers have their own chapters; iVar is the right starting point for amplicon Illumina viral data.
+This chapter uses iVar because the reads come from an amplicon protocol (QIAseq Direct), they are paired-end Illumina, and we want every variant above 5% allele frequency reported in a single annotated VCF. The other callers have their own treatment: Medaka and Clair3 in [Nanopore Variant Calling](04-nanopore-variant-calling.md), and LoFreq plus bcftools as cross-checks in [Reading Two Callers in One Table](03-cross-caller-comparison.md). iVar is the right starting point for amplicon Illumina viral data.
 
 ## Before you start
 
@@ -100,15 +101,15 @@ From the Welcome window choose `Create Project`, or from the menu bar choose `Fi
 
 ### Step 2. Download the reference and its annotations
 
-Choose `Tools > Search Online Databases > Search NCBI…` to open the NCBI search dialog. Type `MN908947.3` into the accession field. Leave `Format` set to `FASTA` and click `Download`. The dialog closes when the FASTA file lands in the project's `Downloads/` folder. Lungfish then prompts you to make a reference bundle out of it.
+Choose `Tools > Search Online Databases > Search NCBI…` to open the database search dialog. Set `Mode` to `Nucleotide` and leave `Include GFF3 Annotations` on so the bundle carries the gene features the variant caller needs later. There is no file-format menu in the GUI: FASTA, GenBank, GFF3, and XML are a command-line concept, exposed through `lungfish fetch ncbi --fetch-format`. In the GUI you pick a Mode and decide whether to include annotations, and Lungfish assembles the bundle for you.
 
-Before you accept the bundle prompt, fetch the matching annotations. Open the NCBI search dialog again with `Tools > Search Online Databases > Search NCBI…`. Type `MN908947.3` again, this time set `Format` to `GFF3`, and click `Download`. The annotations file appears in `Downloads/` alongside the FASTA.
+Type `MN908947.3` into the search field and click `Search`. Select the matching record in the results list; the primary button changes from `Search` to `Download Selected`.
 
 <!-- SHOT: ncbi-search-fasta -->
 
 <!-- SHOT: ncbi-search-gff3 -->
 
-Now accept the bundle prompt: name the bundle `MN908947.3` and check the box that says `Attach annotations`, which Lungfish auto-detects from the matching GFF3 in `Downloads/`. Click `Create Bundle`. The reference appears in the left sidebar under `Reference Sequences > MN908947.3`, and the Inspector shows `1 annotation track` next to the bundle metadata.
+Click `Download Selected`. Lungfish downloads the record and builds a `.lungfishref` reference bundle in one action, with the sequence, the annotation track, and a provenance sidecar already inside it. There is no separate import step and no "Create Bundle" prompt. When the Operations Panel row turns green, the reference appears in the left sidebar under `Reference Sequences > MN908947.3`, and the Inspector shows `1 annotation track` next to the bundle metadata.
 
 A General Feature Format (GFF) file is a tab-separated table that lists where genes and other functional elements live on a reference. The SARS-CoV-2 GFF3 from NCBI lists 24 features: each gene (`ORF1ab`, `S`, `E`, `M`, `N`, `ORF3a`, `ORF6`, `ORF7a`, `ORF7b`, `ORF8`, `ORF10`), each coding sequence inside those genes, the mature peptides cleaved out of `ORF1ab`, and a few stem-loop structures. The variant caller will use this file later to group adjacent SNPs that fall inside one codon.
 
@@ -132,23 +133,23 @@ The CLI equivalent is `lungfish fetch sra download SRR36291587 --output-dir Down
 
 ### Step 4. Map the reads to the reference
 
-Click the `MN908947.3` reference in the sidebar so it becomes the active bundle. Choose `Tools > FASTQ/FASTA Operations > Mapping…` to open the Mapping dialog. The dialog has three sections: `Reads`, `Reference`, and `Tool`.
+Mapping in the GUI is a two-step selection. You do not pick the reads or the mapper inside the wizard. First, in the sidebar, click the `SRR36291587` FASTQ bundle so it is the selected item; the bundle already pairs `_1` and `_2`, so the run will be paired-end. Then choose `Tools > FASTQ/FASTA Operations > Mapping…` and click the `minimap2` tool row. The mapping wizard opens already knowing the reads (your sidebar selection) and the mapper (the row you clicked).
 
-In the `Reads` section, click `Choose…` and select both FASTQ files from `Downloads/`. Lungfish recognizes the `_1` / `_2` suffix convention and pairs them. The reference is already filled in. In the `Tool` section, set `Mapper` to `minimap2` and `Preset` to `Short read (sr)`, the right preset for paired Illumina data. Leave the sample name as the run accession. Click `Run`.
+The wizard has five sections: `Reference`, `Preset`, `Read Group`, `Input Compatibility`, and `Advanced Settings`. Under `Reference`, choose `MN908947.3`. Under `Preset`, leave it at `Short-read`, the right preset for paired Illumina data; the `Input Compatibility` readout below it should agree. Click `Run`.
 
 <!-- SHOT: mapping-dialog -->
 
-Behind the dialog, Lungfish runs `minimap2 -ax sr` piped into `samtools sort` and `samtools index`. When the operation finishes, a fresh alignment track named `SRR36291587 (minimap2)` appears in the sidebar under `MN908947.3 > Alignments`.
+Behind the dialog, Lungfish runs `minimap2 -ax sr` piped into `samtools sort` and `samtools index`. When the operation finishes, a fresh alignment track named `minimap2 Mapping` (the mapper name plus "Mapping") appears in the sidebar under `MN908947.3 > Alignments`. You can rename it.
 
-Other mappers are available if your data calls for them. The Mapping dialog's `Mapper` dropdown also lists `BWA-MEM2`, `Bowtie2`, and `BBMap`. minimap2 is the default for short-read viral data because it is fast, well-supported on Apple Silicon, and produces alignments equivalent to BWA-MEM in benchmark comparisons. For long-read Nanopore data, choose `minimap2` with the `Map ONT (map-ont)` preset.
+Other mappers are available if your data calls for them. The Mapping dialog also lists `BWA-MEM2`, `Bowtie2`, and `BBMap` tool rows. minimap2 is the default for short-read viral data because it is fast, well-supported on Apple Silicon, and produces alignments equivalent to BWA-MEM in benchmark comparisons. For long-read Nanopore data, click the `minimap2` row and choose the `Map ONT (map-ont)` preset.
 
-The CLI equivalent of step 4 is two commands: `lungfish map ... --paired --preset sr -o mapping/` followed by `lungfish bam adopt-mapping --bundle ... --mapping-result mapping/`.
+The CLI equivalent of step 4 is two commands: `lungfish map ... --paired --preset sr -o mapping/` followed by `lungfish bam adopt-mapping --bundle ... --mapping-result mapping/ --name "minimap2 mapping"` (the `--name` option is required).
 
 ### Step 5. Primer-trim the alignment
 
-Click the new `SRR36291587 (minimap2)` alignment track in the sidebar so its Inspector fills the right pane. Find the Inspector's `Analysis` section and click `Primer-trim BAM…`. The Primer Trim dialog opens.
+Click the new `minimap2 Mapping` alignment track in the sidebar so its Inspector fills the right pane. Find the Inspector's `Analysis` section and click `Primer-trim BAM…`. The Primer Trim dialog opens.
 
-In the `Primer scheme` picker, choose the bundled `QIASeqDIRECT-SARS2` scheme. The scheme picker also lists any custom schemes you have imported into the project's `Primer Schemes/` folder; QIASeqDIRECT-SARS2 ships with Lungfish. Leave `Advanced Options` collapsed: the iVar trim defaults (`Minimum read length after trim 30`, `Minimum quality 20`, `Sliding window width 4`, `Primer offset 0`) are tuned for SARS-CoV-2 amplicon data and rarely need adjustment. The output track name auto-populates as `SRR36291587 (minimap2) - Primer-trimmed (QIASeqDIRECT-SARS2)`. Click `Run`.
+In the `Primer scheme` picker, choose the bundled `QIASeqDIRECT-SARS2` scheme. The scheme picker also lists any custom schemes you have imported into the project's `Primer Schemes/` folder; QIASeqDIRECT-SARS2 ships with Lungfish. Leave `Advanced Options` collapsed: the iVar trim defaults (`Minimum read length after trim 30`, `Minimum quality 20`, `Sliding window width 4`, `Primer offset 0`) are tuned for SARS-CoV-2 amplicon data and rarely need adjustment. The output track name auto-populates as `minimap2 Mapping - Primer-trimmed (QIASeqDIRECT-SARS2)`. Click `Run`.
 
 <!-- SHOT: primer-trim-dialog -->
 
@@ -160,13 +161,13 @@ The CLI equivalent is `lungfish bam primer-trim --bundle ... --alignment-track .
 
 ### Step 6. Call variants with iVar
 
-Click the primer-trimmed alignment track in the sidebar. In the Inspector's `Analysis` section, select `Variant Calling` and click `Call Variants…`. The Variant Calling dialog opens with three columns: a tool sidebar on the left, an `Inputs` section in the middle, and an `Output` section on the right. The left tool sidebar has `iVar`, `LoFreq`, and `Medaka` entries; choose `iVar`.
+Click the primer-trimmed alignment track in the sidebar. In the Inspector's `Analysis` section, select `Variant Calling` and click `Call Variants…`. The Variant Calling dialog opens with three columns: a tool sidebar on the left, an `Inputs` section in the middle, and an `Output` section on the right. The tool sidebar lists seven entries (`LoFreq`, `iVar`, `Medaka`, `bcftools`, `Clair3`, `GATK HaplotypeCaller`, and `GATK + WhatsHap Phased`), with `LoFreq` selected by default. Click `iVar` to switch to it.
 
-The `Inputs` section shows the primer-trimmed alignment track. Because Lungfish recognizes the track's primer-trim provenance sidecar, the `This BAM has already been primer-trimmed for iVar` acknowledgement is auto-checked and disabled, with a caption that reads `Primer-trimmed by Lungfish on <date> using QIASeqDIRECT-SARS2`. Expand `iVar Options` to inspect the tunables: minimum allele frequency `0.05`, consensus allele frequency `0.75`, merge AF distance `0.25`, minimum ALT quality `20`, ignore strand bias on. Leave them at their defaults for this chapter. Name the output track `iVar variants` and click `Run`.
+The `Inputs` section shows the primer-trimmed alignment track. Because Lungfish recognizes the track's primer-trim provenance sidecar, the `This BAM has already been primer-trimmed for iVar` acknowledgement is auto-checked and disabled, with a caption that reads `Primer-trimmed by Lungfish on <date> using QIASeqDIRECT-SARS2`. Two controls live in a shared `Thresholds` section that applies to whichever caller is selected: `Minimum Allele Frequency` (default `0.05`) and `Minimum Depth` (default `10`). The iVar-specific `iVar Options` section holds the rest: consensus allele frequency `0.75`, merge AF distance `0.25`, minimum ALT quality `20`, and `Ignore strand bias (recommended for amplicons)` on. Leave all of these at their defaults for this chapter. Name the output track `iVar variants` and click `Run`.
 
 <!-- SHOT: variant-call-dialog-ivar -->
 
-Behind the dialog, Lungfish exports the bundle's GFF3 annotations into the working directory as `ivar-annotations.gff3`, then runs `samtools mpileup` piped into `ivar variants` with that GFF3 as the `-g` argument. iVar emits a TSV; the Lungfish converter reads that TSV and, because the GFF3 was passed, groups three adjacent SNPs that fall inside one codon into a single VCF row when the codon collapses into a single amino acid change. The pipeline finishes with `bcftools sort`, `bgzip`, and `tabix`. A new variant track named `iVar variants` appears under `MN908947.3 > Variants`.
+Behind the dialog, Lungfish exports the bundle's GFF3 annotations into the working directory as `ivar-annotations.gff3`, then runs `samtools mpileup` piped into `ivar variants`, passing the minimum depth as `-m 10` and that GFF3 as the `-g` argument. iVar emits a TSV; the Lungfish converter reads that TSV and, because the GFF3 was passed, groups adjacent SNPs that fall inside one codon into a single VCF row when the codon collapses into a single amino acid change. The pipeline finishes by sorting the records, then bgzipping and tabix-indexing the VCF. A new variant track named `iVar variants` appears under `MN908947.3 > Variants`.
 
 The CLI equivalent is `lungfish variants call --bundle ... --alignment-track ... --caller ivar --ivar-primer-trimmed --min-af 0.05 --name "iVar variants"`.
 
@@ -176,13 +177,15 @@ Click the `iVar variants` track in the sidebar to open the variant browser. The 
 
 <!-- SHOT: variant-browser-overview -->
 
-The variant table starts unfiltered, showing every row in the VCF. The columns include `Chrom`, `Pos`, `Ref`, `Alt`, `Qual`, `Filter`, `Source` (which caller produced the row, useful when you have multiple variant tracks open), and the per-row `INFO` and `FORMAT` fields. Sort the table by `Pos` ascending so positions in the same neighborhood line up. To focus on confident calls only, click the `Presets` toggle in the filter bar and select the `PASS` chip. Doing so hides any iVar rows that carry `ft` (failed threshold) filter flags.
+The variant table starts unfiltered, showing every row in the VCF. The columns are `ID`, `Chrom`, `Position`, `Ref`, `Alt`, `Quality`, `Filter`, and `Source` (the staged VCF file each row came from, which lets you tell tracks apart when you have more than one variant track on the reference). The table also promotes whatever per-row `INFO` keys the VCF defines into their own columns. Sort the table by `Position` ascending so positions in the same neighborhood line up. To focus on confident calls only, click the `Presets` toggle in the filter bar and select the `PASS` chip. Doing so hides any iVar rows that carry the `ft` filter flag, which iVar applies when a Fisher's exact test cannot separate the variant frequency from the local error rate.
 
 The variant browser is the primary surface for reading and exporting variants. Selecting a row centers the genome track on that position and fills the Inspector with the per-variant detail, including INFO fields and any annotation context.
 
 ### Step 8. Read the codon-merged row at position 28881
 
-Scroll the variant table to position `28881`. The SARS-CoV-2 N gene reading frame puts positions 28881 and 28882 inside the codon that encodes amino acid 203 of the nucleocapsid protein (`AGG > AAA`, an `R203K` substitution). Position 28883 is the first base of the next codon, the codon for amino acid 204 (`GGA > CGA`, a `G204R` substitution). With the GFF3 attached, iVar reports the within-codon pair at 28881-28882 as a single row with `REF GG`, `ALT AA`, and the protein consequence in the `INFO` field. Position 28883 appears on its own row with `REF G`, `ALT C`, because it lives in a different codon.
+Scroll the variant table to position `28881`. The SARS-CoV-2 N gene reading frame puts positions 28881 and 28882 inside the codon that encodes amino acid 203 of the nucleocapsid protein (`AGG > AAA`, an `R203K` substitution). Position 28883 is the first base of the next codon, the codon for amino acid 204 (`GGA > CGA`, a `G204R` substitution). With the GFF3 attached, iVar reports the within-codon pair at 28881-28882 as a single row with `REF GG` and `ALT AA`. Position 28883 appears on its own row with `REF G`, `ALT C`, because it lives in a different codon.
+
+The amino-acid label is not stored in the VCF row itself. The iVar VCF carries only `TYPE=SNP` in its `INFO` column, and puts depth and allele frequency in the per-sample `FORMAT` fields (`ALT_FREQ`, and `MERGED_AF`/`MERGED_DP` on a merged row), not in `INFO`. The `R203K` and `G204R` consequences you see come from the Inspector re-deriving them against the bundle's GFF3 when you select the row, not from a field in the file. If you hand this VCF to an external tool, it will not find an amino-acid annotation inside it.
 
 <!-- SHOT: variant-browser-codon-merge -->
 
@@ -194,23 +197,21 @@ The codon-merge is the most useful lesson in this chapter. A VCF row's correspon
 
 Before trusting the call set, check three things.
 
-First, in the variant browser, count the rows with `Filter PASS`. For SRR36291587 with the defaults this chapter uses, expect roughly 80-90 PASS rows in the iVar VCF. A PASS-row count of zero or in the low single digits means the alignment is broken (no reads mapped, the wrong reference, or coverage too low). A count above 200 usually means the minimum allele frequency is set too low and the table is full of sequencing-error noise.
+First, in the variant browser, count the rows with `Filter PASS`. For SRR36291587 with the defaults this chapter uses, expect roughly 80-90 PASS rows in the iVar VCF. That figure is an expected range for this particular isolate, not a guaranteed output; your exact count depends on depth and the allele-frequency distribution. A PASS-row count of zero or in the low single digits means the alignment is broken (no reads mapped, the wrong reference, or coverage too low). A count above 200 usually means the minimum allele frequency is set too low and the table is full of sequencing-error noise.
 
 Second, click the iVar variants track in the sidebar and look at the Inspector's `Analysis` section. The provenance sidecar should show the primer-trim provenance (`QIASeqDIRECT-SARS2`, the trim date, the input alignment checksum) and the variant-calling provenance (the iVar version, the mpileup flags, the GFF3 input checksum). Provenance is your audit trail for everything the call set depends on.
 
-Third, sample-check a few high-confidence PASS rows against a published SARS-CoV-2 lineage definition. Position `21618 C>T` (spike T19I), the cluster around `21632-22688` in the receptor-binding domain, and the synonymous run in `nsp3` at `1931, 2790, 2954, 3037` are all expected for an Omicron isolate. If those rows appear with allele frequencies near 1.0, the workflow worked.
+Third, sample-check a few high-confidence PASS rows against a published SARS-CoV-2 lineage definition. Position `21618 C>T` (spike T19I), the deletion at `21632`, and the cluster in the `nsp3` region at `1931, 2790, 2954, 3037` are all expected for an Omicron isolate. These positions are biological landmarks for this sample, not values the app guarantees. If those rows appear with allele frequencies near 1.0, the workflow worked.
 
 ## What this chapter did not cover
 
-The pilot chapter focuses on iVar against amplicon Illumina data with the bundled QIASeqDIRECT-SARS2 primer scheme. Several adjacent topics need their own chapters and are not yet documented:
+This chapter focuses on iVar against amplicon Illumina data with the bundled QIASeqDIRECT-SARS2 primer scheme. Several adjacent topics are covered elsewhere:
 
-- **Cross-caller comparison.** Running iVar and LoFreq on the same sample and reading their disagreements is a separate exercise. It teaches more about caller statistics than this chapter has room for.
-- **Long-read variant calling.** Medaka against Oxford Nanopore amplicon data uses a different model and needs different inputs. Same Lungfish dialog, different tool selection on the left sidebar.
+- **Reading two callers together.** Running LoFreq or bcftools alongside iVar and reading their disagreements in one table is covered in [Reading Two Callers in One Table](03-cross-caller-comparison.md).
+- **Long-read variant calling.** Medaka and Clair3 against Oxford Nanopore data use a model keyed to the basecaller and take different inputs. Same Lungfish dialog, different tool selection on the left sidebar. See [Nanopore Variant Calling](04-nanopore-variant-calling.md).
 - **Bringing your own primer scheme.** ARTIC and custom schemes are imported through the `Primer Schemes/` folder. The Primer Scheme Picker in the trim dialog automatically lists every scheme in that folder.
-- **From VCF to consensus.** Producing a consensus FASTA, attaching it to the project, and submitting it for Pango lineage assignment with external tools is a downstream workflow.
+- **From reads to consensus.** Producing a consensus FASTA and submitting it for Pango lineage assignment with external tools is covered in [Consensus and Lineage](05-consensus-and-lineage.md). The iVar step here produces a VCF, not a consensus.
 - **Read quality control.** This chapter assumes the reads are clean. For real samples, run the FASTQ Quality Trim and Adapter Removal operations before mapping.
-
-These chapters will land in the same `04-alignments/`, `05-variants/`, and `03-reads/` parts of the manual.
 
 ## Everything you just clicked, as a shell script
 

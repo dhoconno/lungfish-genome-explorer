@@ -21,11 +21,17 @@ brand_reviewed: false
 lead_approved: false
 ---
 
+## What it is
+
+This appendix covers coordinating a project that more than one person or process touches, through the `lungfish project lock`, `unlock`, and `migrate` commands. For the project-folder layout these commands operate on, see [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md); for the provenance records migration preserves, see [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md).
+
 A shared Lungfish Genome Explorer (LGE) [project](../../GLOSSARY.md#project) is still just a project folder. The difference is operational: more than one person or process can see the folder, usually through shared storage, a lab workstation, or a scripted batch workflow. That makes coordination visible. If one analyst is running a migration or a long manual repair while another analyst opens the same project, the second analyst needs a reliable signal before changing files.
 
 LGE now provides that signal through project-local lock records. The advanced CLI commands write a machine-readable file at `.lungfish/project.lock` inside the project. The GUI reads the same metadata on project open so teams get a consistent warning surface across CLI and app workflows.
 
 [Bundle](../../GLOSSARY.md#bundle) migration is also exposed through the same `project` command group. The current implementation is conservative: it scans bundles, reports the schema versions it can see, leaves bundles whose manifests are already current untouched, and refuses to rewrite unsupported legacy schemas until a real transformer exists.
+
+In practice, lock a project before any scripted maintenance, unlock it when you are done, and run `migrate` in dry-run mode first when you inherit an older project so you can see the report before anything is rewritten.
 
 A note on the executable name before the examples: the commands below invoke the CLI as `lungfish`, matching the command name the help text uses. Installed releases expose the binary on `PATH` as `lungfish`. If you are building from source, the SwiftPM product is `lungfish-cli`, so invoke `.build/debug/lungfish-cli project ...` (or the release variant) instead. The application bundle ships the same binary at `Lungfish.app/Contents/MacOS/lungfish-cli`. The two names refer to the same program.
 
@@ -41,7 +47,7 @@ The command creates `.lungfish/project.lock` using an atomic write. The record c
 
 ```json
 {
-  "appVersion": "lungfish-cli 0.5.0-alpha6",
+  "appVersion": "lungfish-cli 0.5.0-alpha11",
   "createdAt": "2026-05-09T19:34:43Z",
   "cwd": "/Users/diana/Projects",
   "host": "lab-mac-01.local",

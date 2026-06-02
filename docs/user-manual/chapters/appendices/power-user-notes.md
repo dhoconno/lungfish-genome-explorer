@@ -21,7 +21,7 @@ lead_approved: false
 
 This appendix collects the tool-internals and reproducibility caveats that were intentionally removed from the bench-scientist workflow chapters to keep them readable. The content here is correct and load-bearing for power users who script Lungfish, build Snakemake or Nextflow pipelines around it, or validate Lungfish output for clinical or regulatory use. Everything in this appendix is also implicit in the provenance sidecars that Lungfish writes for every operation, but having it documented in one place is faster than reverse-engineering from a sidecar.
 
-The conventions: this appendix uses `bash` code blocks for canonical commands, `json` blocks for sidecar excerpts, and tables for flag references. Numbers and flag values match the current Lungfish build (0.5.0-alpha6); future versions may adjust defaults, and the truth is whatever the provenance sidecar records for a specific run.
+The conventions: this appendix uses `bash` code blocks for canonical commands, `json` blocks for sidecar excerpts, and tables for flag references. Numbers and flag values match the current Lungfish build (0.5.0-alpha11); future versions may adjust defaults, and the truth is whatever the provenance sidecar records for a specific run.
 
 ## iVar variant calling internals
 
@@ -130,7 +130,7 @@ Every operation that produces a file writes a `*.lungfish-provenance.json` sidec
 {
   "schema_version": 2,
   "workflow": "variants.call.ivar",
-  "version": "0.5.0-alpha6",
+  "version": "0.5.0-alpha11",
   "command": "ivar variants -p variants -q 20 -t 0.05 -m 10 -r ref.fasta -g annotations.gff3",
   "inputs": [
     {
@@ -279,9 +279,9 @@ The `lungfish bundle export <bundle> --format container --output <image>.oci.tar
 
 The global `--threads <n>` flag sets the default thread count for parallel operations. Per-command flags override the global. For deterministic re-runs, fix threads to a specific number; multi-threaded callers are not bit-identical across thread counts on every input.
 
-Operations that benefit from threading: `lungfish map` (minimap2/BWA-MEM2), `lungfish bam primer-trim` (samtools sort+index), `lungfish variants call --caller lofreq` (`lofreq call-parallel`), `lungfish assemble` (SPAdes, MEGAHIT, Flye, Hifiasm), `lungfish classify` (Kraken2). Operations that are single-threaded: `lungfish bundle create`, `lungfish import-fastq`, `lungfish variants call --caller ivar` (the iVar call itself, though mpileup upstream is multi-threadable).
+Operations that benefit from threading: `lungfish map` (minimap2/BWA-MEM2), `lungfish bam primer-trim` (samtools sort+index), `lungfish variants call --caller lofreq` (`lofreq call-parallel`), `lungfish assemble` (SPAdes, MEGAHIT, Flye, Hifiasm), `lungfish conda classify` (Kraken2). Operations that are single-threaded: `lungfish bundle create`, `lungfish import-fastq`, `lungfish variants call --caller ivar` (the iVar call itself, though mpileup upstream is multi-threadable).
 
-For reservoir-sampling subset operations (`lungfish fastq subsample --count`), pass `--seed <int>` to make the draw reproducible.
+`lungfish fastq subsample` exposes no `--seed` flag. The `--count` path draws an exact number of reads with a deterministic two-pass selection, so a given input and count return the same reads on every run without one. The only options are `--proportion`, `--count`, `-o`/`--output`, `--force`, and `--compress`.
 
 ## The Operations Panel as a debug tool
 

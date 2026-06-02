@@ -8,14 +8,16 @@ task: Map FASTQ reads to a reference genome and attach the resulting BAM as a tr
 tags: [alignments, mapping, minimap2, bwa, bowtie2, bbmap, illumina, nanopore]
 tools: [minimap2, bwa-mem2, bowtie2, bbmap, samtools]
 entry_points:
-  - "Tools > FASTQ/FASTA Operations > Mapping"
+  - "Tools > FASTQ/FASTA Operations > Mapping…, then a mapper tool row"
   - "CLI: lungfish map, lungfish bam adopt-mapping"
 shots: []
 planned_shots:
-  - id: mapping-dialog-overview
-    caption: "The Mapping dialog with mapper, preset, and reference selected."
+  - id: mapping-tool-picker
+    caption: "The FASTQ/FASTA Operations dialog, Mapping category, with the minimap2 tool row selected."
+  - id: mapping-wizard-overview
+    caption: "The mapping wizard with Reference and Preset filled in and the Input Compatibility readout reporting a compatible match."
 illustrations: []
-glossary_refs: [BAM, mapping, alignment, soft-clip]
+glossary_refs: [BAM, mapping, alignment, mapper, soft-clip, supplementary-alignment, mapq]
 features_refs: [map]
 fixtures_refs: []
 brand_reviewed: false
@@ -27,33 +29,43 @@ lead_approved: false
 Mapping takes FASTQ reads and a reference genome and produces a BAM file
 that records, for each read, where on the reference it best matched. The
 output BAM is sorted by position and indexed, so a viewer can jump to any
-coordinate without rereading the whole file. Lungfish runs the mapper
-through `Tools > FASTQ/FASTA Operations > Mapping` and ships four mappers:
+coordinate without rereading the whole file. Lungfish ships four mappers:
 minimap2 (the default), BWA-MEM2, Bowtie2, and BBMap.
 
-The dialog asks for three things: which reads to map (a FASTQ bundle, or
-both halves of a paired pair), which reference to map them against (a
-reference bundle already imported into the project), and which tool plus
-preset to use. The preset is the part bench scientists most often get wrong,
-because it is named for the *data type* (Illumina short reads, ONT long
-reads, PacBio HiFi) rather than for any biological choice. The right preset
-is determined entirely by which sequencer produced the FASTQ.
+Mapping in the GUI is a two-step selection that often trips up first-time
+users. You do not pick the reads or the mapper inside the mapping wizard.
+Instead you select the FASTQ bundle in the sidebar first, then open
+`Tools > FASTQ/FASTA Operations > Mapping…` and click the row for the mapper
+you want (minimap2, BWA-MEM2, Bowtie2, or BBMap). The wizard that opens
+already knows the reads (your sidebar selection) and the mapper (the row you
+clicked); it asks you only for the reference and the preset.
 
-This chapter is a procedure. Pick the mapper, pick the preset, point at
-your FASTQ and your reference, and run. The pipeline that runs underneath
+The preset is the part bench scientists most often get wrong, because it is
+named for the *data type* (Illumina short reads, Oxford Nanopore long reads,
+PacBio HiFi) rather than for any biological choice. The right preset is
+determined entirely by which sequencer produced the FASTQ, not by the
+organism. Before you run, the wizard inspects your reads and shows an Input
+Compatibility readout; if the preset does not match the detected read type it
+can block Run until you fix it.
+
+This chapter is a procedure. Select the reads, choose the mapper, set the
+reference and preset, and run. For minimap2 the pipeline that runs underneath
 is `minimap2 -ax <preset> | samtools sort | samtools index`, the same
-three-step recipe a bioinformatician would type by hand.
+three-step recipe a bioinformatician would type by hand; the other three
+mappers build an equivalent per-tool command with the same sort-and-index
+finish.
 
 So what should you do with this? When you have FASTQ reads and a reference,
-open the Mapping dialog, pick the preset matching your sequencer, and run.
+select the reads, open the Mapping dialog, pick the mapper and the preset
+that matches your sequencer, and run.
 
 ## What you will learn
 
 By the end of this chapter you will be able to choose the right mapper and
-preset for your data type, run the Mapping dialog with paired or single
-FASTQs, watch the operation progress in the Operations Panel, find the
-resulting alignment track in the sidebar, and read the per-track stats in
-the Inspector.
+preset for your data type, select reads and run the Mapping dialog with
+paired or single FASTQs, read the Input Compatibility check, watch the
+operation progress in the Operations Panel, find the resulting alignment
+track in the sidebar, and read the per-track stats in the Inspector.
 
 ## Choosing a mapper
 
@@ -69,9 +81,10 @@ non-default choice when a reviewer asks.
 | Bowtie2   | Legacy short-read pipelines that hard-code Bowtie2 | Pick this only when reproducing a published pipeline that names Bowtie2 explicitly. |
 | BBMap     | Recovering reads with high error rates or adapter contamination | More forgiving alignment scoring; useful when minimap2 reports a suspiciously low mapping rate. |
 
-For short-read viral data, `minimap2 -ax sr` is the right default and there
-is no practical reason to switch. For human germline shotgun data, BWA-MEM2
-is often preferred and is what production human-genomics pipelines call.
+For short-read viral data, minimap2 with the Short-read preset is the right
+default and there is no practical reason to switch. For human germline shotgun
+data, BWA-MEM2 is often preferred and is what production human-genomics
+pipelines call.
 
 ## Choosing a preset
 
@@ -79,21 +92,39 @@ A preset tells the mapper what the reads look like (length distribution,
 expected error profile, whether they are paired). Pick the preset that
 matches the sequencer that produced the FASTQ, not the organism.
 
-| Data type                          | Preset            | Mapper flag        |
-|------------------------------------|-------------------|--------------------|
-| Illumina paired-end short reads    | Short read (sr)   | `minimap2 -ax sr`  |
-| Illumina single-end short reads    | Short read (sr)   | `minimap2 -ax sr`  |
-| Oxford Nanopore long reads         | Map ONT (map-ont) | `minimap2 -ax map-ont` |
-| PacBio HiFi (CCS) long reads       | Map HiFi (map-hifi) | `minimap2 -ax map-hifi` |
-| Sanger or assembled contigs        | (use a different tool) | n/a            |
+The label you click in the GUI and the token you type on the command line
+are not the same string. The wizard shows readable names like "Short-read"
+and "Oxford Nanopore" (drawn from the mapper's mode list); the CLI `--preset`
+flag takes short tokens like `sr` and `map-ont`. The table below pairs them
+so you can find either one.
 
-Pairing happens automatically. If you point the dialog at a single FASTQ
-bundle, the run is single-end. If you point it at two FASTQ bundles (or one
-bundle that already carries an R1 and an R2 file), the run is paired-end
-and the BAM records FLAG bits that mark each read as first-of-pair or
-second-of-pair.
+| Data type                       | GUI preset label     | CLI `--preset` token |
+|---------------------------------|----------------------|----------------------|
+| Illumina short reads (paired or single) | Short-read   | `sr`                 |
+| Oxford Nanopore long reads      | Oxford Nanopore      | `map-ont`            |
+| PacBio HiFi (CCS) long reads    | PacBio HiFi          | `map-hifi`           |
+| PacBio CLR (older long reads)   | PacBio CLR           | `map-pb`             |
+| Assembly or assembled contigs   | Assembly-to-assembly | `asm5`               |
+| Spliced transcripts (cDNA)      | Spliced CDS/cDNA     | `splice`             |
+
+The GUI label list depends on the mapper: the assembly, splice, and PacBio
+CLR presets above are minimap2 modes. BBMap presents its own modes ("Standard"
+and "PacBio") rather than these tokens. For ordinary viral and bacterial work
+you will use "Short-read", "Oxford Nanopore", or "PacBio HiFi" and never touch
+the rest.
+
+Pairing happens automatically from the reads you selected. If the sidebar
+selection is a single FASTQ bundle, the run is single-end. If it is a bundle
+that already carries an R1 and an R2 file (or both halves selected together),
+the run is paired-end and the BAM records FLAG bits (per-read markers in the
+BAM record) that mark each read as first-of-pair or second-of-pair. There is no pairing control in the wizard.
 
 ## Read groups
+
+If you are not feeding the BAM to GATK or a joint-genotyping workflow, you can
+skip this section: Lungfish fills in a sensible read group for you, and the
+defaults are fine for mapping, viewing, and single-sample variant calling. Read
+on only when a downstream tool requires specific read-group fields.
 
 Every BAM that will feed variant calling should carry a read group. A read
 group is the `@RG` header line that tells downstream tools which sample,
@@ -126,31 +157,58 @@ and records it in the mapping provenance and analysis summary. `ID`, `SM`,
 `map-ont`, `PACBIO` for PacBio/HiFi modes, `CDNA` for splice mode, and
 `ASSEMBLY` for assembly alignment mode.
 
+## Advanced filters
+
+The wizard's **Advanced Settings** disclosure (collapsed by default) controls
+which alignments survive into the BAM and lets you pass raw mapper flags. The
+defaults are correct for almost everyone; open it only when you have a
+specific reason. The same controls exist on the CLI.
+
+| Wizard control       | CLI flag             | Effect                                                   |
+|----------------------|----------------------|----------------------------------------------------------|
+| Threads              | (uses host cores)    | How many CPU threads the mapper uses.                    |
+| Secondary alignments | `--secondary`        | Keep secondary (alternate-placement) alignment records.  |
+| Supplementary        | `--no-supplementary` | Exclude supplementary (split-read) alignment records.    |
+| Min mapping quality  | `--min-mapq`         | Drop reads whose MAPQ falls below this floor.            |
+| Extra arguments      | `--extra-args`       | Inject raw flags into the mapper command (for example `--eqx`). |
+
+MAPQ is the mapper's confidence that a read sits where it was placed: 0 means
+the read fits several positions equally well, 60 is the practical maximum.
+Raising the minimum-MAPQ floor discards ambiguously-placed reads before they
+reach the pileup.
+
 ## Procedure
 
-The wizard has three sections (Reads, Reference, Tool), all visible at
-once. Filling them top to bottom is the fastest path.
+The wizard you reach has five sections, top to bottom: **Reference**,
+**Preset** (titled "Mode" for non-minimap2 mappers), **Read Group**, **Input
+Compatibility**, and **Advanced Settings**. There is no Reads picker and no
+mapper picker inside the wizard. The reads come from your sidebar selection
+and the mapper comes from the tool row you clicked to open the wizard.
 
-<!-- planned: mapping-dialog-overview -->
+<!-- planned: mapping-tool-picker -->
 
-1. Choose `Tools > FASTQ/FASTA Operations > Mapping` from the menu bar.
-2. Under **Reads**, click the picker and choose your FASTQ bundle. If your
-   bundle holds an R1 and an R2 the wizard treats the run as paired
-   automatically. To map two separately-imported bundles as a pair, choose
-   the R1 bundle in the first slot and the R2 bundle in the second.
-3. Under **Reference**, click the picker and choose the reference bundle
-   you want to map against. The picker lists every `.lungfishref` already
-   imported into the project (see chapter 02-01).
-4. Under **Tool**, leave the mapper at minimap2 unless the table above
-   gives you a reason to switch. Choose the preset matching your data type
-   from the table above.
+1. In the sidebar, click the FASTQ bundle you want to map so it is the
+   selected item. If the bundle holds an R1 and an R2, the run will be
+   paired-end automatically.
+2. Choose `Tools > FASTQ/FASTA Operations > Mapping…` from the menu bar, then
+   click the tool row for the mapper you want: **minimap2** (the default),
+   **BWA-MEM2**, **Bowtie2**, or **BBMap**. The mapping wizard opens, titled
+   "Map Reads (<mapper>)".
+   <!-- planned: mapping-wizard-overview -->
+3. Under **Reference**, click the picker and choose the reference bundle you
+   want to map against. The picker lists every `.lungfishref` already imported
+   into the project (see chapter 02-01).
+4. Under **Preset**, choose the label matching your data type from the table
+   above. Check the **Input Compatibility** readout below it: it reports the
+   detected format, read class, and longest observed read, and warns (or
+   blocks Run) if the preset does not fit the reads.
 5. Click **Run**. The wizard closes and the operation appears in the
    Operations Panel at the bottom of the project window.
 
 While the operation runs, the Operations Panel shows a status row labelled
-`map`. Expanding the row reveals the three-step pipeline (minimap2,
-samtools sort, samtools index) and the resolved command line for each
-step. When all three steps turn green the alignment track has been adopted
+`map`. Expanding the row reveals the underlying pipeline (for minimap2:
+minimap2, samtools sort, samtools index) and the resolved command line for
+each step. When every step turns green the alignment track has been adopted
 onto the reference bundle.
 
 ## Worked example: SRR36291587 against MN908947.3
@@ -159,24 +217,26 @@ This walkthrough uses the SRR36291587 paired Illumina FASTQ pair and the
 MN908947.3 SARS-CoV-2 reference, both already in the project from earlier
 chapters.
 
-1. Open `Tools > FASTQ/FASTA Operations > Mapping`.
-2. In **Reads**, choose `SRR36291587` from the FASTQ bundle picker. The
-   bundle already pairs R1 and R2, so the wizard sets the run to paired-end.
-3. In **Reference**, choose `MN908947.3`.
-4. In **Tool**, leave the mapper at minimap2 and the preset at
-   `Short read (sr)`. The data is paired Illumina, which is exactly what
-   the `sr` preset is tuned for.
+1. In the sidebar, click the `SRR36291587` FASTQ bundle. The bundle already
+   pairs R1 and R2, so the run will be paired-end.
+2. Open `Tools > FASTQ/FASTA Operations > Mapping…` and click the **minimap2**
+   tool row. The mapping wizard opens.
+3. Under **Reference**, choose `MN908947.3`.
+4. Under **Preset**, leave it at **Short-read**. The data is paired Illumina,
+   which is exactly what the Short-read preset is tuned for, and the Input
+   Compatibility readout should agree.
 5. Click **Run**.
 
 The operation takes well under a minute on a typical Apple Silicon laptop
-for a viral-scale dataset of this size. When it finishes, expand
-`Reference Sequences > MN908947.3 > Alignments` in the sidebar. A new
-track named `SRR36291587 (minimap2 sr)` will be present. Selecting the
-track opens the alignment viewport and populates the Inspector with
-mapping statistics: total reads, mapped reads, mapping rate, mean
-coverage, and primary-alignment count. For SARS-CoV-2 amplicon data of
-this depth, expect a mapping rate above 95% and mean coverage in the
-hundreds or thousands.
+for a viral-scale dataset of this size. When it finishes, expand the
+reference bundle's alignment tracks in the sidebar. A managed run adopts the
+track under the default display name "minimap2 Mapping" (the mapper name plus
+"Mapping"); you can rename it, and a CLI run uses whatever you pass to
+`--name`. Selecting the track opens the alignment viewport and populates the
+Inspector with mapping statistics: total reads, mapped reads, mapping rate,
+mean coverage, and primary-alignment count. For SARS-CoV-2 amplicon data of
+this depth, expect a mapping rate above 95% and mean coverage in the hundreds
+or thousands.
 
 ## Equivalent CLI
 
@@ -193,8 +253,14 @@ lungfish map Imports/SRR36291587_1.fastq.gz Imports/SRR36291587_2.fastq.gz \
 
 lungfish bam adopt-mapping \
   --bundle "Reference Sequences/MN908947.3.lungfishref" \
-  --mapping-result mapping/
+  --mapping-result mapping/ \
+  --name "minimap2 Mapping"
 ```
+
+`lungfish map --reference` resolves the primary FASTA from whatever you point
+it at. A plain `.fasta` always works; pointing it at a `.lungfishref` bundle
+works only when Lungfish can extract the bundle's primary FASTA, so if a
+bundle path is rejected, pass the FASTA inside it instead.
 
 Both forms write the same provenance sidecar, so a GUI run and a CLI run
 of identical inputs produce identical recorded methods.
@@ -248,13 +314,14 @@ matching FASTQs.
 
 ## A note on viral recon
 
-For a one-shot viral consensus workflow that runs mapping, primer trim,
-variant calling, and consensus generation in sequence, Lungfish also
-exposes a viral recon wizard wrapping the nf-core viralrecon pipeline.
-That wizard is a separate procedure covered in [Viral Recon
-Wizard](05-viral-recon-wizard.md) and is
-not the right tool for one-off mapping experiments where you want to
-inspect the alignment before deciding what to do next.
+For a one-shot SARS-CoV-2 amplicon consensus workflow that runs mapping,
+primer trim, variant calling, and consensus generation in sequence, Lungfish
+also exposes a Viral Recon wizard wrapping the nf-core/viralrecon pipeline. It
+lives alongside the mappers, as another tool row in the same
+`Tools > FASTQ/FASTA Operations > Mapping…` dialog. That wizard is a separate
+procedure covered in [Viral Recon Wizard](05-viral-recon-wizard.md) and is not
+the right tool for one-off mapping experiments where you want to inspect the
+alignment before deciding what to do next.
 
 ## Next
 

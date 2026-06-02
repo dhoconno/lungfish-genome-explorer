@@ -24,11 +24,13 @@ lead_approved: false
 
 This appendix is the release-level reference for tools that Lungfish ships or manages directly. User-facing chapters link here instead of hard-coding tool versions. For a specific analysis, the provenance sidecar remains the authority because it records the executable actually used, the argv, input and output checksums, exit status, and runtime details.
 
-The same table is available from the command line:
+The bundled and managed tool set is also printed from the command line:
 
 ```bash
 lungfish version --tools
 ```
+
+The live `version --tools` table has five columns: Tool, Version, Source, Environment, and Executables. The License and Source URL values shown in this appendix come from the managed-tool lock file's per-tool metadata, which the command reads but does not print. When the two ever disagree, the lock file is the authority for what shipped.
 
 ## Bundled Tools
 
@@ -47,20 +49,21 @@ Managed tools are installed from the Lungfish managed-tool lock through the cond
 | Nextflow | 25.10.4 | managed | `nextflow` | Apache-2.0 | `nextflow` |
 | Snakemake | 9.19.0 | managed | `snakemake` | MIT | `snakemake` |
 | BBTools | 39.80 | managed | `bbtools` | BSD-3-Clause-LBNL | `clumpify.sh`, `bbduk.sh`, `bbmerge.sh`, `repair.sh`, `tadpole.sh`, `reformat.sh`, `bbmap.sh`, `mapPacBio.sh`, `java` |
-| fastp | 1.3.2 | managed | `fastp` | MIT | `fastp` |
+| Fastp | 1.3.2 | managed | `fastp` | MIT | `fastp` |
 | Deacon | 0.15.0 | managed | `deacon` | MIT | `deacon` |
-| SAMtools | 1.23.1 | managed | `samtools` | MIT | `samtools` |
+| Samtools | 1.23.1 | managed | `samtools` | MIT | `samtools` |
 | BCFtools | 1.23.1 | managed | `bcftools` | GPL | `bcftools` |
 | HTSlib | 1.23.1 | managed | `htslib` | MIT | `bgzip`, `tabix` |
-| Clair3 | 1.0.10 | managed | `clair3` | BSD-3-Clause | `run_clair3.sh` |
-| WhatsHap | 2.3 | managed | `phasing` | MIT | `whatshap` |
-| Freyja | 2.0.0 | managed | `freyja` | BSD-2-Clause | `freyja` |
 | SeqKit | 2.13.0 | managed | `seqkit` | MIT | `seqkit` |
 | Cutadapt | 5.2 | managed | `cutadapt` | MIT | `cutadapt` |
 | VSEARCH | 2.30.5 | managed | `vsearch` | GPL-3.0-or-later OR BSD-2-Clause | `vsearch` |
 | pigz | 2.8 | managed | `pigz` | Zlib | `pigz` |
 | SRA Tools | 3.4.1 | managed | `sra-tools` | Public Domain | `prefetch`, `fasterq-dump` |
-| UCSC bedGraphToBigWig | 482 | managed | `ucsc-bedgraphtobigwig` | UCSC license | `bedGraphToBigWig` |
+| UCSC bedGraphToBigWig | 482 | managed | `ucsc-bedgraphtobigwig` | UCSC (see genome.ucsc.edu/license) | `bedGraphToBigWig` |
+| pysam | 0.24.0 | managed | `pysam` | MIT | `python` |
+| openpyxl | 3.1.5 | managed | `openpyxl` | MIT | `python` |
+
+Tools such as Clair3, WhatsHap, and Freyja are not in the bundled managed-tool lock and do not appear in `lungfish version --tools`. They are provided by separate plugin packs (for example the GATK, phasing, and wastewater-surveillance packs) and are installed on demand with `lungfish conda install`. Check a specific analysis's provenance sidecar for the exact version of any plugin-pack tool it used.
 
 ## Supported Workflow Pins
 

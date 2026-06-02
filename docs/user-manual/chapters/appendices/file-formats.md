@@ -102,7 +102,7 @@ MN908947.3	241	.	C	T	.	PASS	DP=523
 MN908947.3	3037	.	C	T	.	PASS	DP=611
 ```
 
-Lungfish consumes VCF from `bcftools`, `lofreq`, and `ivar variants` (after converter). It produces VCF when materializing a `.lungfishvcf` bundle for export.
+Lungfish consumes VCF from `bcftools`, `lofreq`, and `ivar variants` (after converter). Variants produced inside Lungfish are stored in the reference bundle's `variants/` subdirectory (see `.lungfishref` below), not as a standalone bundle.
 
 ## Standard tree format
 
@@ -124,13 +124,16 @@ A Lungfish bundle is a folder with a fixed extension. Finder presents a bundle a
 
 | Bundle type | Extension | Holds |
 |---|---|---|
-| Reference | `.lungfishref` | A FASTA, its index, optional annotations, attached tracks |
+| Reference | `.lungfishref` | A FASTA, its index, optional annotations, attached tracks, variants |
 | Assembly | `.lungfishref` (in `Assemblies/`) | Same structure as a reference; distinguished by folder location |
+| FASTQ dataset | `.lungfishfastq` | Reads (or a virtual subset), metadata, manifest |
 | Primer scheme | `.lungfishprimers` | Primer BED, primer FASTA, manifest |
-| Taxonomy | `.lungfishtax` | Classifier output, sunburst payload, raw tool output |
 | MSA | `.lungfishmsa` | Aligned FASTA, FAI, optional metadata |
 | Tree | `.lungfishtree` | Newick, optional metadata, optional source MSA |
-| Variant track | `.lungfishvcf` | VCF, tabix index, provenance, optional consensus |
+| 12S reference | `.lungfish12sref` | 12S amplicon reference sequences plus taxonomy metadata |
+| MHC reference | `.lungfishmhcref` | MHC amplicon reference sequences plus allele metadata |
+| Haplotype definitions | `.lungfishhaplotypedef` | ONT genotyping haplotype definition set |
+| CZ-ID taxonomy | `.lungfishtax` | A CZ-ID taxon report normalized into Lungfish's classifier schema |
 
 Common conventions across bundles: the folder uses a fixed extension; `manifest.json` at the root declares `kind`, `version`, and `files`; an optional `provenance/` subdirectory records how the bundle was produced; companion indices live next to their primary files; UTF-8 text, LF line endings, JSON pretty-printed at two-space indent.
 
@@ -204,23 +207,27 @@ MN908947.3	385	410	SARS-CoV-2_1_RIGHT	1	-
 
 The current release ships the `QIASeqDIRECT-SARS2` built-in scheme. Import ARTIC, midnight, vendor, or lab schemes through `File > Import Center > Primer Scheme`; the resulting `.lungfishprimers` bundle lands in the project's `Primer Schemes/` folder and becomes available to the Primer Trim dialog. See [Primer Scheme Bundles](primer-schemes.md#appendix-primer-schemes).
 
-### `.lungfishtax`: taxonomy classification bundle
+### `.lungfishfastq`: FASTQ dataset bundle
 
-Stores classifier output (Kraken2, EsViritu, TaxTriage, NAO-MGS) in a normalized form so the taxonomy viewport renders results regardless of source.
+Wraps imported reads (or a virtual subset of them) with sample metadata and a manifest. This is the central read container for the import and 12S workflows. Created when you import FASTQ files, or derived when you subset, trim, or demultiplex an existing dataset.
 
-```text
-SRR36291587.kraken2.lungfishtax/
-  manifest.json
-  provenance/
-  classifications.tsv
-  abundance.tsv
-  tree.json
-  raw/
-    kraken2.report
-    kraken2.output
-```
+Virtual bundles (subset, trim, demux) keep only a small `preview.fastq` on disk and reconstruct the full reads on demand. Use `lungfish fastq materialize <bundle> -o <path>` to write the full FASTQ. Per-bundle PHA4GE-aligned metadata lives in `metadata.csv` inside the bundle and is managed with `lungfish metadata`.
 
-The manifest names the source tool, the database used, and the read count. `classifications.tsv` is a normalized per-read assignment table. `abundance.tsv` holds per-taxon counts and percentages. `tree.json` is a precomputed sunburst payload. The `raw/` directory keeps the unmodified tool output for audit.
+### `.lungfish12sref`: 12S amplicon reference bundle
+
+Holds 12S amplicon reference sequences and their taxonomy metadata for the 12S metabarcoding workflow. Produced by `lungfish fastq 12s-reference-bundle`.
+
+### `.lungfishmhcref`: MHC amplicon reference bundle
+
+Holds MHC amplicon reference sequences and allele metadata for ONT genotyping. Produced by `lungfish fastq mhc-reference-bundle`, and consumed by the `haplotypes` command when building haplotype definition sets.
+
+### `.lungfishhaplotypedef`: haplotype definition bundle
+
+Holds an ONT genotyping haplotype definition set. Managed with the `lungfish haplotypes` command; definitions are sourced from a project's `.lungfishmhcref` bundles and consumed by the ONT genotyping workflow.
+
+### `.lungfishtax`: CZ-ID taxonomy bundle
+
+Stores a CZ-ID taxon report normalized into Lungfish's classifier-result schema so the taxonomy viewport can render it. This bundle is produced only by the CZ-ID import path (`lungfish cz-id import` or `File > Import Center > CZ-ID`). It is not the storage format for Kraken2, EsViritu, TaxTriage, or NAO-MGS results, which the taxonomy viewport reads from their own result directories and SQLite databases. The manifest records the imported sample and the source report.
 
 ### `.lungfishmsa`: multiple sequence alignment bundle
 
@@ -252,20 +259,9 @@ spike-isolates.lungfishtree/
 
 The `tree.nwk` is the canonical Newick file. `metadata.tsv` shares the same per-sample schema as the MSA bundle so coloring and tip labels stay consistent across viewports. The optional `alignment.fasta` lets Lungfish jump from a tree node back to the underlying alignment column.
 
-### `.lungfishvcf`: variant track bundle
+Variants do not have a standalone bundle format. They live inside the reference bundle's `variants/` subdirectory as a bgzipped VCF plus tabix index, alongside their provenance sidecar. To export variants on their own, copy that subdirectory or use `lungfish provenance export` to produce an audit-ready report.
 
-Wraps a bgzipped VCF, its tabix index, and provenance so a variant track exports as a single document.
-
-```text
-SRR36291587.iVar.lungfishvcf/
-  manifest.json
-  provenance/
-  variants.vcf.gz
-  variants.vcf.gz.tbi
-  consensus.fasta
-```
-
-The `variants.vcf.gz` and `.tbi` are the canonical files. The optional `consensus.fasta` is included when the variants were derived from a consensus-calling pipeline so reviewers can see the resulting sequence without rerunning the pipeline.
+The `.lungfishflow` workflow bundle, referenced by `lungfish workflow diff`, stores a saved Lungfish workflow graph (its nodes, parameters, and connections) as JSON. It is a workflow definition, not a data bundle, and is not inspected by the standard sequence tools.
 
 ## Manifest schema
 
@@ -281,7 +277,7 @@ Every manifest declares at minimum:
 }
 ```
 
-Additional fields depend on `kind`. Reference manifests add a `genome` block with assembly accession and length. Primer manifests add `scheme`, `pool_count`, and `amplicon_count`. Taxonomy manifests add `tool`, `database`, and `read_count`. MSA and tree manifests add `aligner` or `method` plus `sample_count`. Variant manifests add `caller`, `reference`, and `variant_count`.
+Additional fields depend on `kind`, and manifests use snake_case keys. Reference manifests add a `genome` block with assembly accession and length. Primer manifests add `primer_count` and `amplicon_count` (see [Primer Scheme Bundles](primer-schemes.md#appendix-primer-schemes) for the full primer manifest). The remaining per-kind fields below are described at a high level and may differ in detail from the on-disk manifest; the manifest itself is the authority. MSA and tree manifests carry the aligner or inference method plus a sample count. The CZ-ID `.lungfishtax` manifest records the imported sample and source report.
 
 ## Provenance schema
 
@@ -290,7 +286,7 @@ Provenance sidecars share a common shape:
 ```json
 {
   "workflow": "variants.call.ivar",
-  "version": "0.5.0-alpha6",
+  "version": "0.5.0-alpha11",
   "command": "ivar variants -p variants -q 20 -t 0.05 -m 10 -r ref.fasta -g annotations.gff3",
   "inputs": [
     {"path": "alignments/trimmed.bam", "sha256": "...", "bytes": 16742391, "role": "alignment"}
@@ -338,8 +334,8 @@ Because bundles are folders, every standard CLI tool works without unpacking:
 
 ```bash
 samtools faidx ref.lungfishref/genome/reference.fasta MN908947.3:1-100
-bcftools view variants.lungfishvcf/variants.vcf.gz
-bedtools intersect -a primers.lungfishprimers/primer.bed -b regions.bed
+bcftools view ref.lungfishref/variants/iVar\ variants.vcf.gz
+bedtools intersect -a primers.lungfishprimers/primers.bed -b regions.bed
 jq . any.lungfishref/manifest.json
 ```
 

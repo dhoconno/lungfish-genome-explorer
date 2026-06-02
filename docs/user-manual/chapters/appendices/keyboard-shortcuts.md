@@ -43,12 +43,25 @@ The four panels that frame the main viewport. The sidebar lists project items, t
 
 | Action | Shortcut |
 |---|---|
-| Show or Hide Sidebar | Cmd-Shift-S |
+| Show or Hide Sidebar | Cmd-Ctrl-S |
 | Show or Hide Inspector | Cmd-Opt-I |
 | Operations Panel | Cmd-Shift-P |
 | Document Inspector | Cmd-Opt-D |
 | AI Assistant Panel | Cmd-Shift-A |
 | Enter Full Screen | Cmd-Ctrl-F |
+
+The Sidebar uses Control, not Shift, following the macOS standard chord. Additional View commands:
+
+| Action | Shortcut |
+|---|---|
+| Focus Viewer | Cmd-Opt-F |
+| Restore Side Panes | Cmd-Ctrl-Opt-F |
+| Zoom In | Cmd-+ |
+| Zoom Out | Cmd-- |
+| Zoom to Fit | Cmd-0 |
+| Zoom Reset (10kb) | Cmd-1 |
+
+In a sequence view, Show as RNA is Cmd-Shift-U. In the taxonomy viewport, Cmd-Shift-Right Arrow expands all nodes and Cmd-Shift-Left Arrow collapses them.
 
 ## Import and tools
 
@@ -98,7 +111,7 @@ Standard Mac editing shortcuts work in every text field, table, and viewport sel
 | Select All | Cmd-A |
 | Find | Cmd-F |
 
-`Cmd-Shift-G` is overloaded: in a sequence viewport it triggers `Go to Gene`; in a text-find context it steps to the previous match. Lungfish dispatches based on which view has focus.
+`Cmd-G` steps to the next find match. Find Previous has no default chord, because `Cmd-Shift-G` is reserved for `Go to Gene` in the sequence viewport. To step backward through matches, use the Find bar's previous-match control or remap Find Previous in System Settings.
 
 ## Help
 
@@ -114,7 +127,7 @@ Shortcuts are not the only way to drive Lungfish. The viewport responds to stand
 
 ## Memorizing chords
 
-A few patterns repeat across the menu structure. `Cmd-Shift-letter` usually opens or toggles a panel (Sidebar, Operations, AI Assistant, Plugin Manager, Import Center). On a sequence verb, `Cmd-Shift-letter` performs an action on the visible region (Extract, Copy, Translate, Reverse Complement). `Cmd-Opt-letter` targets inspectors (Inspector, Document Inspector). When in doubt, click the menu bar entry; the chord appears on the right side of the row.
+A few patterns repeat across the menu structure. `Cmd-Shift-letter` usually opens or toggles a panel (Operations, AI Assistant, Plugin Manager, Import Center). On a sequence verb, `Cmd-Shift-letter` performs an action on the visible region (Extract, Copy, Translate, Reverse Complement). `Cmd-Opt-letter` targets inspectors (Inspector, Document Inspector). The Sidebar is the exception: it toggles with `Cmd-Ctrl-S`, using Control rather than Shift to match the macOS standard. When in doubt, click the menu bar entry; the chord appears on the right side of the row.
 
 ## Customizing shortcuts
 

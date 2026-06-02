@@ -8,13 +8,13 @@ task: Import FASTQ files into a Lungfish project, including paired-end pairing a
 tags: [reads, fastq, import, paired-end, batch]
 tools: []
 entry_points:
-  - "File > Import Center (Cmd-Shift-I) > FASTQ"
+  - "Import Center (Cmd-Shift-I) > Sequencing Reads > FASTQ Files"
   - "Drag-drop into the sidebar"
   - "CLI: lungfish import-fastq"
 shots: []
 planned_shots:
   - id: import-center-fastq
-    caption: "The Import Center FASTQ tab with paired files auto-detected."
+    caption: "The Import Center Sequencing Reads tab with the FASTQ Files tile and paired files auto-detected."
   - id: sidebar-after-import
     caption: "The sidebar after a paired-end import, showing the new bundle under Imports."
   - id: fastq-viewport-sparklines
@@ -31,13 +31,15 @@ lead_approved: false
 
 ## What it is
 
+This chapter covers importing FASTQ files that already live on disk. To pull reads from a public archive instead, see [Downloading from SRA](02-downloading-from-sra.md); to import an Oxford Nanopore run directory, see [Oxford Nanopore Runs](07-ont-runs.md).
+
 Lungfish imports FASTQ files into a project so that every downstream step (QC, trimming, mapping, classification, assembly, variant calling) has a stable, named input to work from. An import is not a copy step alone. It is the moment Lungfish records where the file came from, computes a checksum, and creates a FASTQ bundle that the rest of the project can reference by name.
 
-There are three ways to import. You can drag one or more FASTQ files (or a folder of them) onto the project sidebar. You can open the Import Center with `Cmd-Shift-I`, choose the FASTQ tab, pick files, and click Import. Or, from a script or terminal, you can run `lungfish import-fastq --project <path> --files ...`. All three paths produce the same on-disk result and write the same provenance record, so you can mix them freely across one project.
+There are three ways to import. You can drag one or more FASTQ files (or a folder of them) onto the project sidebar. You can open the Import Center with `Cmd-Shift-I`, choose the `Sequencing Reads` tab, click the `FASTQ Files` tile, pick files, and import. Or, from a script or terminal, you can run `lungfish import-fastq --project <path> ...`. All three paths produce the same on-disk result and write the same provenance record, so you can mix them freely across one project.
 
 Lungfish recognizes paired-end Illumina data by filename. If two files share a sample stem and differ only in a `_1` / `_2` or `_R1` / `_R2` suffix, they are imported as one paired bundle. Single files (Nanopore reads, single-end Illumina, or one half of a pair whose mate is missing) are imported as single-end bundles. A folder containing many paired FASTQs is imported as one bundle per sample.
 
-So what should you do with this? Treat import as the first deliberate, recorded step of your analysis. Every later command you run will name the bundle that import produced; if you bypass import and reference loose files, you lose checksums and provenance for the rest of the run.
+Import is the first deliberate, recorded step of your analysis. Every later command you run will name the bundle that import produced; if you bypass import and reference loose files, you lose checksums and provenance for the rest of the run. Treat it as the gate the whole project hangs off.
 
 ## What you will learn
 
@@ -78,11 +80,11 @@ When the operation finishes, a new bundle named `SRR36291587` appears under `Imp
 
 If you prefer a dialog over drag-drop, or if your files live behind a network share that drag-drop does not handle, use the Import Center.
 
-1. Choose `File > Import Center` or press `Cmd-Shift-I`.
-2. Click the FASTQ tab.
-3. Click Add Files and select both `SRR36291587_1.fastq.gz` and `SRR36291587_2.fastq.gz`. The dialog detects the pair and shows them on one row with a "Paired" badge.
-4. Optionally edit the sample name in the row before clicking Import.
-5. Click Import. The dialog closes and the new bundle appears in the sidebar.
+1. Press `Cmd-Shift-I` to open the Import Center.
+2. Choose the `Sequencing Reads` tab and click the `FASTQ Files` tile.
+3. Select both `SRR36291587_1.fastq.gz` and `SRR36291587_2.fastq.gz` in the file picker. The dialog detects the pair and shows them on one row with a "Paired" badge.
+4. Optionally edit the sample name in the row before importing.
+5. Confirm the import. The dialog closes and the new bundle appears in the sidebar.
 
 The Import Center is also where you would import a single-end FASTQ (a Nanopore barcode, for example) or import several single-end files at once.
 
@@ -133,11 +135,13 @@ lungfish import fastq \
 
 For a folder of samples, pass the folder path; the CLI detects pairs the same way the GUI does. Run `lungfish import fastq --help` for the full option list.
 
+Two CLI defaults change the stored bytes, so name them in a methods record if bit-exact reproduction matters. `--quality-binning` defaults to `illumina4`, which re-quantises each base quality into one of four levels (the same scheme NovaSeq applies in hardware); pass `--quality-binning none` to keep the original per-base scores. Storage-optimized read reordering is on by default; pass `--no-optimize-storage` to keep the original read order. `--recipe` (one of `vsp2`, `wgs`, `amplicon`, `hifi`, `none`; default `none`) applies a packaged processing pass at import, and `--dry-run` lists the pairs the CLI detected without importing anything.
+
 ## What gets recorded at import
 
 An import is more than a copy. Lungfish does three things for every file you import.
 
-1. It computes a SHA-256 checksum of the source file before any copying, and a second checksum of the file as it lands inside the project. The two must match; if they do not, the import fails and reports which file mismatched.
+1. It computes a checksum of the imported file so corruption can be detected later. A mismatch between the recorded checksum and the file on disk is how a later step proves the bytes did not change.
 2. It writes a provenance record (file path, byte size, checksum, timestamp, host machine identity) into the bundle's `provenance/` subfolder. This is the import event itself, not a placeholder for QC.
 3. It creates the bundle's manifest, which names the primary FASTQ files, the read pairing, and the bundle type.
 
@@ -149,7 +153,7 @@ Click a FASTQ bundle in the sidebar. The main viewport switches to the FASTQ vie
 
 <!-- planned: fastq-viewport-sparklines -->
 
-The viewport shows one row per file in the bundle (one row for single-end, two rows for paired-end). Each row carries a small sparkline summarising read length and a second sparkline summarising mean per-base quality across the file. These sparklines are computed from a sample of reads at the time of import and are meant to give you a quick "does this look reasonable?" read; they are not a substitute for a full QC pass. A single-end Nanopore FASTQ will show a long-tailed length distribution; an Illumina FASTQ will show a near-vertical spike at the read length the run was configured for.
+The viewport shows one row per file in the bundle (one row for single-end, two rows for paired-end). Each row carries a small sparkline summarising read length and a second sparkline summarising mean per-base quality across the file. These sparklines are a quick "does this look reasonable?" read, not a substitute for a full QC pass. A single-end Nanopore FASTQ will show a long-tailed length distribution; an Illumina FASTQ will show a near-vertical spike at the read length the run was configured for.
 
 Below the sparklines, the metadata drawer shows the technical fields Lungfish read off the file: detected platform (Illumina vs Nanopore vs unknown, inferred from read header format), total read count, total base count, read length range, and the bundle's checksums.
 
@@ -163,7 +167,11 @@ Technical fields (read count, length, checksum) are computed from the file and a
 
 Edit one bundle at a time in the Inspector. Click a field, type the value, press Tab or click out to commit. Changes are saved into the bundle's manifest immediately and recorded as a metadata-edit event in provenance.
 
-For many samples at once, prepare a CSV with one row per sample and import it through `File > Import > Project Sample Metadata`. The CSV must have a `sample_name` column matching the bundle name; other columns map onto metadata fields by header name. Unrecognised columns are kept as free-text annotations rather than rejected, so you can carry through extra fields from your LIMS without restructuring the spreadsheet.
+For many samples at once, prepare a CSV with one row per sample and import it from the command line with `lungfish metadata import <folder> <csv>`. The CSV must have a `sample_name` column matching the bundle directory name; other columns map onto metadata fields by header name. Unrecognised columns are kept as free-text annotations rather than rejected, so you can carry through extra fields from your LIMS without restructuring the spreadsheet. Add `--sync-bundles` to also write a per-bundle `metadata.csv` into each matched bundle.
+
+```sh
+lungfish metadata import ~/Projects/SARS-CoV-2-WW.lungfish/Imports samples.csv --sync-bundles
+```
 
 ## Next
 

@@ -8,9 +8,9 @@ task: Import a FASTA or GenBank file into a Lungfish project and view it in the 
 tags: [sequences, import, fasta, genbank, viewport, annotations]
 tools: []
 entry_points:
-  - "File > Import Center"
+  - "File > Import Center… (Cmd-Shift-I)"
   - "Drag-drop into the sidebar"
-  - "CLI: lungfish import"
+  - "CLI: lungfish import fasta"
 shots: []
 planned_shots:
   - id: import-center-fasta
@@ -29,6 +29,8 @@ brand_reviewed: false
 lead_approved: false
 ---
 
+## What it is
+
 Lungfish keeps every genome you work with inside a **reference bundle**: a
 folder with the `.lungfishref` extension that the Finder shows as a single
 icon. Importing converts a loose `.fasta` or `.gb` on your Desktop into a
@@ -42,25 +44,38 @@ coloured blocks marking features when the source file carried them. Every
 downstream operation in Lungfish, from alignment to variant calling,
 points at a bundle rather than at a raw file.
 
+In practice, import each genome once, then point every later operation at the
+bundle rather than re-opening the loose file.
+
 ## Accepted formats
 
 The format you choose determines what shows up in the viewport. A FASTA
 gives you the sequence and nothing else. A GenBank gives you the sequence
-plus every feature the submitter recorded. A GFF3 carries features only
-and must be imported alongside the matching FASTA.
+plus every feature the submitter recorded. A GFF3 (or GTF or BED) carries
+features only, with no sequence, so it is not a way to create a bundle on
+its own. You attach a GFF3 to a reference bundle that already exists.
 
 ![Reference bundle folder connected to FASTA, FAI, manifest, and provenance files](../../assets/illustrations-imagegen/02-sequences/01-importing-and-viewing/reference-bundle-anatomy.png)
 
 | Format | Extension | Carries sequence | Carries annotations | Notes |
 |---|---|---|---|---|
 | FASTA | `.fasta`, `.fa`, `.fna` | Yes | No | Single or multi-record. Headers start with `>`. |
-| GenBank | `.gb`, `.gbk` | Yes | Yes | Annotations import as a feature track automatically. |
-| GFF3 | `.gff`, `.gff3` | No | Yes | Must be paired with a matching FASTA in the same import. |
-| Compressed FASTA | `.fasta.gz`, `.fa.gz` | Yes | No | Decompressed during import. |
+| GenBank | `.gb`, `.gbk`, `.gbff` | Yes | Yes | Annotations import as a feature track automatically. EMBL (`.embl`) is also accepted. |
+| Annotation track | `.gff`, `.gff3`, `.gtf`, `.bed` | No | Yes | Attached to an existing reference bundle, not imported on its own. |
+| Compressed FASTA or GenBank | `.gz`, `.bgz`, `.bz2`, `.xz`, `.zst` | Yes | No | Decompressed during import. |
+
+When a GenBank record imports, Lungfish converts its features into an
+annotation track named `imported_annotations`. Later chapters refer to
+this track by that name, for example when a variant caller reads gene
+coordinates to translate nucleotide changes into amino-acid changes.
 
 If you are pulling a record from NCBI, fetch it as GenBank. The
 annotations come along, and downstream operations like variant
 annotation and ORF translation pick them up without further setup.
+
+In short: import a FASTA or GenBank to create the bundle, and reach for
+the separate annotation-track importer only when you have a standalone
+GFF3, GTF, or BED to attach to a bundle you already made.
 
 ## Three ways to import
 
@@ -70,19 +85,22 @@ on disk; pick by habit.
 ### Drag-drop into the sidebar
 
 For most imports this is the fastest route. Open the project window,
-then drag the `.fasta`, `.gb`, or GFF3+FASTA pair from the Finder onto
-the **Reference Sequences** folder in the sidebar. Lungfish creates the
-bundle, indexes the FASTA if needed, and selects the new bundle so it
-opens in the viewport.
+then drag the `.fasta` or `.gb` from the Finder onto the **Reference
+Sequences** folder in the sidebar. Lungfish creates the bundle, indexes
+the FASTA if needed, and selects the new bundle so it opens in the
+viewport. A GFF3 attaches to a bundle as a separate step (see the Import
+Center, above), so drag the sequence first.
 
 ### The Import Center
 
 Reach for the Import Center when you want to see what is in a file
 before it becomes a bundle. Open it from the menu bar with
-**File > Import Center**. The sheet shows a drop zone and a format
-picker, and previews the file before you commit. Click **Import** when
-the preview looks right. The Operations Panel keeps a record of exactly
-what was imported.
+**File > Import Center…**, or press Cmd-Shift-I. The sheet shows a drop
+zone and a format picker, and previews the file before you commit. Click
+**Import** when the preview looks right. The Operations Panel keeps a
+record of exactly what was imported. The Import Center is also where you
+attach a standalone GFF3, GTF, or BED file as an annotation track to a
+bundle that already exists.
 
 ### The CLI
 
@@ -91,12 +109,14 @@ click through, run the importer from a terminal with the project folder
 as the working directory:
 
 ```bash
-lungfish import path/to/MN908947.3.gb
+lungfish import fasta path/to/MN908947.3.gb
 ```
 
-The CLI accepts the same formats as the GUI and produces the same
-bundle. A `--name` flag overrides the default bundle name, which
-otherwise comes from the source filename.
+The `fasta` subcommand handles FASTA, GenBank, and EMBL, plain or
+compressed. It produces the same bundle as the GUI. A `--name` flag
+overrides the default bundle name, which otherwise comes from the source
+filename, and `-o`/`--output-dir` points at the target project when you
+are not already inside it.
 
 ## Procedure: import the SARS-CoV-2 reference
 
@@ -113,8 +133,8 @@ no annotations.
    <!-- planned: import-center-fasta -->
 
 2. **Open the Import Center.** From the menu bar, choose
-   **File > Import Center**. A sheet drops down with a drop zone in the
-   centre.
+   **File > Import Center…** (or press Cmd-Shift-I). A sheet drops down
+   with a drop zone in the centre.
 
 3. **Drop the FASTA into the drop zone.** Drag `MN908947.3.fasta` from
    the Finder onto the drop zone. The format picker auto-detects FASTA
@@ -132,7 +152,9 @@ no annotations.
 To see the annotated case, repeat the procedure with `MN908947.3.gb`
 (GenBank flat file). The same bundle structure is produced, but the
 annotation lane now shows the spike (`S`), nucleocapsid (`N`),
-ORF1ab, and other coding regions as Creamsicle-coloured blocks.
+ORF1ab, and other coding regions as orange blocks. Those features land in
+a track named `imported_annotations`, the same track later chapters point
+to for variant annotation.
 
 ## What you see in the viewport
 
@@ -159,13 +181,16 @@ Finder, and move-to-trash actions.
 ## Navigating the sequence
 
 Three actions cover most navigation, all reached from the **Sequence**
-menu in the menu bar. **Sequence > Go to Location** opens a coordinate
-field; type a number, press Return, and the viewport centres on that
-base. A range like `21563-25384` zooms to fit. **Sequence > Go to Gene**
-opens a fuzzy-matched picker over the annotation names; on the
-SARS-CoV-2 reference, typing `spike` jumps to the `S` gene at position
-21563. To centre on a feature you can already see, click its block in
-the annotation track.
+menu in the menu bar. **Sequence > Go to Location…** (Cmd-L) opens a
+coordinate field; type a number, press Return, and the viewport centres
+on that base. The editable position field on the ruler accepts the same
+input, with placeholder `chr:start-end`. A single number jumps to that
+base. A range like `MN908947.3:21563-25384` zooms to fit (on a
+single-contig bundle the bare range `21563-25384` resolves to it).
+**Sequence > Go to Gene…** (Cmd-Shift-G) opens a fuzzy-matched picker
+over the annotation names; on the SARS-CoV-2 reference, typing `spike`
+jumps to the `S` gene at position 21563. To centre on a feature you can
+already see, click its block in the annotation track.
 
 ## When import fails
 
