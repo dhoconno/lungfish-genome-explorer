@@ -65,6 +65,22 @@ final class TwelveSAmpliconResultBundleTests: XCTestCase {
         )
     }
 
+    func testLoadsSampleAliasesAndDiscoversSampleIDsForMetadataImport() throws {
+        let bundleURL = try makeSyntheticBundle()
+        try """
+        sample\tsample_name\tinput_reads\texact_match_reads\tunresolved_reads\tambiguous_exact_reads\tchimera_candidate_reads\texact_match_percent\tunresolved_percent
+        HI_Hilo_F09\tHilo F09\t50\t18\t32\t0\t1\t36.0\t64.0
+        ExtractionBlank\tExtraction Blank\t18\t2\t16\t0\t0\t11.111111\t88.888889
+        """.write(to: bundleURL.appendingPathComponent("samples.tsv"), atomically: true, encoding: .utf8)
+
+        let result = try TwelveSAmpliconResultBundle.loadResult(from: bundleURL)
+        let knownIDs = try ResultBundleSampleMetadataResolver.knownSampleIDs(in: bundleURL)
+
+        XCTAssertEqual(result.samples.map(\.sampleID), ["HI_Hilo_F09", "ExtractionBlank"])
+        XCTAssertEqual(result.samples.first?.displayName, "Hilo F09")
+        XCTAssertEqual(knownIDs, Set(["HI_Hilo_F09", "ExtractionBlank"]))
+    }
+
     func testLoadsResolvedSampleMetadataWhenManifestReferencesIt() throws {
         let bundleURL = try makeSyntheticBundle()
         try FileManager.default.createDirectory(

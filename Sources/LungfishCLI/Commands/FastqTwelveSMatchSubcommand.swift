@@ -33,6 +33,12 @@ struct FastqTwelveSMatchSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("max-indels"), help: "Maximum insertion/deletion edit count allowed for exact no-substitution matching")
     var maximumIndelBases: Int = 3
 
+    @Option(
+        name: .customLong("matching-mode"),
+        help: "12S matching mode: 'illumina-exact' (exact embedded reference matches only; default) or 'ont-indel' (allow indel-only fallback)."
+    )
+    var matchingMode: String = TwelveSAmpliconMatchingMode.illuminaExact.rawValue
+
     @Flag(
         name: .customLong("chimera-review"),
         inversion: .prefixedNo,
@@ -69,6 +75,9 @@ struct FastqTwelveSMatchSubcommand: AsyncParsableCommand {
         guard maximumIndelBases >= 0 else {
             throw ValidationError("--max-indels must be greater than or equal to 0.")
         }
+        guard TwelveSAmpliconMatchingMode.cliValue(matchingMode) != nil else {
+            throw ValidationError("--matching-mode must be 'illumina-exact' or 'ont-indel'.")
+        }
         guard ["strict", "conservative"].contains(ambiguityResolution.lowercased()) else {
             throw ValidationError("--ambiguity-resolution must be 'strict' or 'conservative'.")
         }
@@ -103,6 +112,7 @@ struct FastqTwelveSMatchSubcommand: AsyncParsableCommand {
             outputName: outputName,
             minimumSoftClipBases: minimumSoftClipBases,
             maximumIndelBases: maximumIndelBases,
+            matchingMode: TwelveSAmpliconMatchingMode.cliValue(matchingMode) ?? .illuminaExact,
             threads: max(1, globalOptions.threads ?? ProcessInfo.processInfo.activeProcessorCount),
             runChimeraReview: chimeraReview,
             forceOverwrite: force,
@@ -142,6 +152,10 @@ struct FastqTwelveSMatchSubcommand: AsyncParsableCommand {
         }
         if maximumIndelBases != 3 {
             argv += ["--max-indels", String(maximumIndelBases)]
+        }
+        let resolvedMatchingMode = TwelveSAmpliconMatchingMode.cliValue(matchingMode) ?? .illuminaExact
+        if resolvedMatchingMode != .illuminaExact {
+            argv += ["--matching-mode", resolvedMatchingMode.rawValue]
         }
         if let threads = globalOptions.threads {
             argv += ["--threads", String(threads)]

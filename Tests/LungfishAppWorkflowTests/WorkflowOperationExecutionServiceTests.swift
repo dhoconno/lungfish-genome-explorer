@@ -167,6 +167,7 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(try testValue(after: "--output-name", in: invocation.arguments), "hilo-12s")
         XCTAssertEqual(try testValue(after: "--min-soft-clip", in: invocation.arguments), "2")
         XCTAssertEqual(try testValue(after: "--max-indels", in: invocation.arguments), "5")
+        XCTAssertEqual(try testValue(after: "--matching-mode", in: invocation.arguments), "illumina-exact")
         XCTAssertEqual(try testValue(after: "--threads", in: invocation.arguments), "6")
         XCTAssertTrue(invocation.arguments.contains(firstReadsURL.standardizedFileURL.path))
         XCTAssertTrue(invocation.arguments.contains(secondReadsURL.standardizedFileURL.path))

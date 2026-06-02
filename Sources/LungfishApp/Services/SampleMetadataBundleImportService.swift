@@ -1,5 +1,6 @@
 import Foundation
 import LungfishCore
+import LungfishIO
 import LungfishWorkflow
 
 struct SampleMetadataBundleImportResult {
@@ -77,8 +78,8 @@ struct SampleMetadataBundleImportService {
         .runtime(ProvenanceRuntimeIdentity())
 
         builder = try builder.input(sourceURL, format: .text, role: .input)
-        if let genotypeManifestURL = existingInputFile(in: bundleURL, candidates: ["genotype-result.json", "manifest.json"]) {
-            builder = try builder.input(genotypeManifestURL, format: .json, role: .input)
+        for contextURL in ResultBundleSampleMetadataResolver.sampleMetadataContextFiles(in: bundleURL) {
+            builder = try builder.input(contextURL, format: format(for: contextURL), role: .input)
         }
 
         try store.persist(originalData: data, to: bundleURL)
@@ -99,9 +100,14 @@ struct SampleMetadataBundleImportService {
         )
     }
 
-    private func existingInputFile(in bundleURL: URL, candidates: [String]) -> URL? {
-        candidates
-            .map { bundleURL.appendingPathComponent($0) }
-            .first { FileManager.default.fileExists(atPath: $0.path) }
+    private func format(for url: URL) -> FileFormat {
+        switch url.pathExtension.lowercased() {
+        case "json":
+            return .json
+        case "fa", "fasta", "fna":
+            return .fasta
+        default:
+            return .text
+        }
     }
 }

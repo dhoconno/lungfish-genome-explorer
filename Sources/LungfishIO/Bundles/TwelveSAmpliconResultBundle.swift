@@ -761,6 +761,15 @@ public enum TwelveSAmpliconResultBundle {
         return try loadResult(from: bundleURL, manifest: manifest)
     }
 
+    public static func loadSamples(from bundleURL: URL) throws -> [TwelveSAmpliconSampleResult] {
+        let manifest = try loadManifest(from: bundleURL)
+        return try loadSampleTable(from: resolvedURL(for: manifest.sampleTablePath, in: bundleURL))
+    }
+
+    public static func sampleIDs(in bundleURL: URL) throws -> Set<String> {
+        Set(try loadSamples(from: bundleURL).map(\.sampleID))
+    }
+
     public static func loadResult(
         from bundleURL: URL,
         manifest: TwelveSAmpliconResultBundleManifest
@@ -789,7 +798,7 @@ public enum TwelveSAmpliconResultBundle {
             }
         }
         let targetIDs = Set(targets.map(\.targetID))
-        let samples = try loadSamples(from: artifacts.sampleTableURL)
+        let samples = try loadSampleTable(from: artifacts.sampleTableURL)
         let countRows = try loadCountRows(from: artifacts.countMatrixURL, validTargetIDs: targetIDs)
         let readFate = try JSONDecoder().decode(
             TwelveSAmpliconReadFate.self,
@@ -927,9 +936,13 @@ public enum TwelveSAmpliconResultBundle {
         return records
     }
 
-    private static func loadSamples(from url: URL) throws -> [TwelveSAmpliconSampleResult] {
+    private static func loadSampleTable(from url: URL) throws -> [TwelveSAmpliconSampleResult] {
         try loadTSVRows(from: url).map { row in
-            let sampleID = try required(row["sample_id"], column: "sample_id", file: url.lastPathComponent)
+            let sampleID = try required(
+                row["sample_id"] ?? row["sample"],
+                column: "sample_id",
+                file: url.lastPathComponent
+            )
             let inputReads = try requiredInt(row["input_reads"], column: "input_reads", file: url.lastPathComponent)
             let exactMatchReads = try requiredInt(
                 row["exact_match_reads"],
@@ -958,7 +971,7 @@ public enum TwelveSAmpliconResultBundle {
             ) ?? 0
             return TwelveSAmpliconSampleResult(
                 sampleID: sampleID,
-                displayName: nonEmpty(row["display_name"]) ?? sampleID,
+                displayName: nonEmpty(row["display_name"]) ?? nonEmpty(row["sample_name"]) ?? sampleID,
                 inputReads: inputReads,
                 exactMatchReads: exactMatchReads,
                 unresolvedReads: unresolvedReads,

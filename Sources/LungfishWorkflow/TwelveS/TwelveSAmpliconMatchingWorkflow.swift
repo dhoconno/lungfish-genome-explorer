@@ -16,6 +16,7 @@ public struct TwelveSAmpliconMatchingConfiguration: Equatable, Sendable {
     public let outputName: String
     public let minimumSoftClipBases: Int
     public let maximumIndelBases: Int
+    public let matchingMode: TwelveSAmpliconMatchingMode
     public let threads: Int
     public let runChimeraReview: Bool
     public let forceOverwrite: Bool
@@ -33,6 +34,7 @@ public struct TwelveSAmpliconMatchingConfiguration: Equatable, Sendable {
         outputName: String,
         minimumSoftClipBases: Int = 1,
         maximumIndelBases: Int = 3,
+        matchingMode: TwelveSAmpliconMatchingMode = .illuminaExact,
         threads: Int = 1,
         runChimeraReview: Bool = true,
         forceOverwrite: Bool = false,
@@ -48,6 +50,7 @@ public struct TwelveSAmpliconMatchingConfiguration: Equatable, Sendable {
         self.outputName = outputName
         self.minimumSoftClipBases = minimumSoftClipBases
         self.maximumIndelBases = maximumIndelBases
+        self.matchingMode = matchingMode
         self.threads = max(1, threads)
         self.runChimeraReview = runChimeraReview
         self.forceOverwrite = forceOverwrite
@@ -128,7 +131,8 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
             let classifier = TwelveSAmpliconReadClassifier(
                 references: referenceIndex.records,
                 minimumSoftClipBases: config.minimumSoftClipBases,
-                maximumIndelBases: config.maximumIndelBases
+                maximumIndelBases: config.maximumIndelBases,
+                matchingMode: config.matchingMode
             )
             progressHandler?(0.40, "Matching reads to 12S references.")
             let classified = try await classifyInputs(
@@ -233,7 +237,7 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
     }
 
     private struct SampleMetadataSnapshot: Sendable {
-        let resolved: ResolvedSampleMetadata?
+        let resolved: ResolvedSampleMetadata
         let resolvedRelativePath: String?
         let manifestRelativePath: String?
         let analysisOriginalRelativePath: String?
@@ -477,11 +481,15 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
             countsByTarget: classified.countsByTarget,
             to: countMatrixURL
         )
-        let samples = makeSamples(classified: classified, unresolvedSequences: unresolvedSequences)
         let sampleMetadataSnapshot = try writeSampleMetadataSnapshot(
             config: config,
             bundleURL: bundleURL,
             sampleOrder: classified.sampleOrder
+        )
+        let samples = makeSamples(
+            classified: classified,
+            unresolvedSequences: unresolvedSequences,
+            sampleMetadata: sampleMetadataSnapshot.resolved
         )
         try writeSamples(samples, to: sampleTableURL)
         try writeReadFate(samples: samples, to: readFateURL)
@@ -519,7 +527,8 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
 
     private func makeSamples(
         classified: ClassifiedReads,
-        unresolvedSequences: [TwelveSUnresolvedSequence]
+        unresolvedSequences: [TwelveSUnresolvedSequence],
+        sampleMetadata: ResolvedSampleMetadata
     ) -> [TwelveSAmpliconSampleResult] {
         classified.sampleOrder.map { sampleID in
             let inputReads = classified.inputReadsBySample[sampleID, default: 0]
@@ -538,7 +547,7 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
             }
             return TwelveSAmpliconSampleResult(
                 sampleID: sampleID,
-                displayName: sampleID,
+                displayName: Self.displayName(forSampleID: sampleID, sampleMetadata: sampleMetadata),
                 inputReads: inputReads,
                 exactMatchReads: exactReads,
                 unresolvedReads: unresolvedReads,
@@ -549,6 +558,33 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
                 unresolvedPercent: percent(unresolvedReads, inputReads)
             )
         }
+    }
+
+    private static func displayName(forSampleID sampleID: String, sampleMetadata: ResolvedSampleMetadata) -> String {
+        guard let record = sampleMetadata.records[sampleID] else { return sampleID }
+        for preferredColumn in ["sample_name", "display_name", "name", "sample"] {
+            if let value = metadataValue(in: record, normalizedColumn: preferredColumn) {
+                return value
+            }
+        }
+        return sampleID
+    }
+
+    private static func metadataValue(in record: [String: String], normalizedColumn: String) -> String? {
+        for (key, value) in record
+        where normalizeMetadataColumn(key) == normalizedColumn {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        return nil
+    }
+
+    private static func normalizeMetadataColumn(_ column: String) -> String {
+        column.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: " ", with: "_")
     }
 
     private func writeTargets(_ references: [TwelveSReferenceRecord], to url: URL) throws {
@@ -616,10 +652,12 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
 
     private func writeSamples(_ samples: [TwelveSAmpliconSampleResult], to url: URL) throws {
         var lines = [
-            "sample_id\tdisplay_name\tinput_reads\texact_match_reads\tunresolved_reads\tambiguous_exact_reads\tchimera_candidate_reads\texact_match_percent\tunresolved_percent\treassigned_reads"
+            "sample\tsample_name\tsample_id\tdisplay_name\tinput_reads\texact_match_reads\tunresolved_reads\tambiguous_exact_reads\tchimera_candidate_reads\texact_match_percent\tunresolved_percent\treassigned_reads"
         ]
         for sample in samples {
             lines.append([
+                sample.sampleID,
+                sample.displayName,
                 sample.sampleID,
                 sample.displayName,
                 String(sample.inputReads),
@@ -823,6 +861,7 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
             "outputName": .string(config.outputName),
             "minimumSoftClipBases": .integer(config.minimumSoftClipBases),
             "maximumIndelBases": .integer(config.maximumIndelBases),
+            "matchingMode": .string(config.matchingMode.rawValue),
             "threads": .integer(config.threads),
             "runChimeraReview": .boolean(config.runChimeraReview),
             "forceOverwrite": .boolean(config.forceOverwrite),
@@ -830,6 +869,7 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
         var resolvedOptions: [String: ParameterValue] = [
             "minimumSoftClipBases": .integer(config.minimumSoftClipBases),
             "maximumIndelBases": .integer(config.maximumIndelBases),
+            "matchingMode": .string(config.matchingMode.rawValue),
             "threads": .integer(config.threads),
             "runChimeraReview": .boolean(config.runChimeraReview),
             "forceOverwrite": .boolean(config.forceOverwrite),
@@ -865,6 +905,7 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
             defaults: [
                 "minimumSoftClipBases": .integer(1),
                 "maximumIndelBases": .integer(3),
+                "matchingMode": .string(TwelveSAmpliconMatchingMode.illuminaExact.rawValue),
                 "threads": .integer(1),
                 "runChimeraReview": .boolean(true),
                 "forceOverwrite": .boolean(false),
@@ -1005,6 +1046,9 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
         }
         if config.maximumIndelBases != 3 {
             argv += ["--max-indels", String(config.maximumIndelBases)]
+        }
+        if config.matchingMode != .illuminaExact {
+            argv += ["--matching-mode", config.matchingMode.rawValue]
         }
         if config.threads != 1 {
             argv += ["--threads", String(config.threads)]

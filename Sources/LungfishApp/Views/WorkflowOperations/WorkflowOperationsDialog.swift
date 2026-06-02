@@ -237,6 +237,7 @@ private struct WorkflowOperationsDetailPane: View {
             }
         case .twelveSAmpliconMatching:
             VStack(alignment: .leading, spacing: 10) {
+                twelveSMatchingModePicker
                 labeledTextField("Result Name", text: $state.outputName)
                 labeledCompactTextField("Min Soft Clip", value: $state.twelveSMinimumSoftClipBases)
             }
@@ -251,6 +252,20 @@ private struct WorkflowOperationsDetailPane: View {
         case .none:
             Text("No runnable workflow selected.")
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    private var twelveSMatchingModePicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Read Platform")
+                .font(.subheadline.weight(.medium))
+            Picker("Read Platform", selection: twelveSMatchingModeBinding) {
+                ForEach(TwelveSAmpliconMatchingMode.allCases, id: \.rawValue) { mode in
+                    Text(mode.displayName).tag(mode.rawValue)
+                }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("workflow-operations-twelve-s-matching-mode")
         }
     }
 
@@ -349,6 +364,7 @@ private struct WorkflowOperationsDetailPane: View {
             DisclosureGroup("Advanced Options", isExpanded: $state.advancedOptionsExpanded) {
                 VStack(alignment: .leading, spacing: 8) {
                     labeledCompactTextField("Max Indels", value: $state.twelveSMaximumIndelBases)
+                        .disabled(state.twelveSMatchingMode != .ontIndel)
                     Toggle("Run vsearch chimera review", isOn: $state.twelveSRunChimeraReview)
                     Text("The 12S workflow expects merged FASTQ inputs; paired-read merging should be handled before import.")
                         .font(.caption)
@@ -434,6 +450,17 @@ private struct WorkflowOperationsDetailPane: View {
             set: { value in
                 if let readType = AmpliconGenotypingReadType(cliArgument: value) {
                     state.selectedGenotypingReadType = readType
+                }
+            }
+        )
+    }
+
+    private var twelveSMatchingModeBinding: Binding<String> {
+        Binding(
+            get: { state.twelveSMatchingMode.rawValue },
+            set: { value in
+                if let mode = TwelveSAmpliconMatchingMode.cliValue(value) {
+                    state.twelveSMatchingMode = mode
                 }
             }
         )

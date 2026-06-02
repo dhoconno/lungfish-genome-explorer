@@ -56,6 +56,7 @@ final class WorkflowOperationDialogState {
     var selectedGenotypingReadType: AmpliconGenotypingReadType
     var twelveSMinimumSoftClipBases: Int
     var twelveSMaximumIndelBases: Int
+    var twelveSMatchingMode: TwelveSAmpliconMatchingMode
     var twelveSRunChimeraReview: Bool
     var twelveSSampleMetadataURL: URL?
     var selectedHaplotypeAssayID: String?
@@ -89,6 +90,7 @@ final class WorkflowOperationDialogState {
         self.selectedGenotypingReadType = Self.defaultGenotypingReadType(for: standardizedReadURLs)
         self.twelveSMinimumSoftClipBases = 1
         self.twelveSMaximumIndelBases = 3
+        self.twelveSMatchingMode = .illuminaExact
         self.twelveSRunChimeraReview = true
         self.twelveSSampleMetadataURL = nil
         self.selectedHaplotypeAssayID = Self.defaultHaplotypeAssayID()
@@ -600,6 +602,7 @@ final class WorkflowOperationDialogState {
                 outputName: outputName,
                 minimumSoftClipBases: twelveSMinimumSoftClipBases,
                 maximumIndelBases: twelveSMaximumIndelBases,
+                matchingMode: twelveSMatchingMode,
                 threads: threads,
                 runChimeraReview: twelveSRunChimeraReview,
                 forceOverwrite: false

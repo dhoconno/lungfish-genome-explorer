@@ -432,6 +432,7 @@ final class WorkflowOperationExecutionService {
         if configuration.maximumIndelBases != 3 {
             arguments += ["--max-indels", String(configuration.maximumIndelBases)]
         }
+        arguments += ["--matching-mode", configuration.matchingMode.rawValue]
         if configuration.threads != 1 {
             arguments += ["--threads", String(configuration.threads)]
         }

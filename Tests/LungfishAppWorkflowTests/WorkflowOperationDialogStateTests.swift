@@ -351,6 +351,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertEqual(configuration.outputName, "hilo-12s")
         XCTAssertEqual(configuration.minimumSoftClipBases, 2)
         XCTAssertEqual(configuration.maximumIndelBases, 5)
+        XCTAssertEqual(configuration.matchingMode, .illuminaExact)
         XCTAssertEqual(configuration.threads, 6)
         XCTAssertFalse(configuration.runChimeraReview)
         XCTAssertFalse(configuration.forceOverwrite)
@@ -1057,6 +1058,29 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
 
         XCTAssertTrue(barcodePicker.contains("Picker(\"Project File\""))
         XCTAssertTrue(barcodePicker.contains("barcodeDefinitionProjectFileBinding"))
+    }
+
+    func testWorkflowOperationsDialogShowsTwelveSMatchingModeAsPrimaryGUIControl() throws {
+        let source = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationsDialog.swift"),
+            encoding: .utf8
+        )
+        let primarySettings = try sourceBlock(
+            startingAt: "    @ViewBuilder\n    private var primarySettings",
+            endingBefore: "    private var genotypingModePicker",
+            in: source
+        )
+        let matchingModePicker = try sourceBlock(
+            startingAt: "    private var twelveSMatchingModePicker: some View",
+            endingBefore: "    private var genotypingModePicker",
+            in: source
+        )
+
+        XCTAssertTrue(primarySettings.contains("twelveSMatchingModePicker"))
+        XCTAssertTrue(matchingModePicker.contains("Picker(\"Read Platform\""))
+        XCTAssertTrue(matchingModePicker.contains("TwelveSAmpliconMatchingMode.allCases"))
+        XCTAssertTrue(matchingModePicker.contains(".pickerStyle(.segmented)"))
     }
 
     func testWorkflowOperationsRunClosesWindowAsSoonAsLaunchIsAccepted() throws {

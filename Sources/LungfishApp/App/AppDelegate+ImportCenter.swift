@@ -792,7 +792,7 @@ extension AppDelegate {
               let bundleURL = viewerController.currentBundleURL else {
             showAlert(
                 title: "No Bundle Loaded",
-                message: "Please open a reference genome bundle before importing sample metadata.",
+                message: "Please open a reference or result bundle before importing sample metadata.",
                 presentingWindow: controller?.window
             )
             return
@@ -815,7 +815,7 @@ extension AppDelegate {
               let bundleURL = viewerController.currentBundleURL else {
             showAlert(
                 title: "No Bundle Loaded",
-                message: "Please open a reference genome bundle before importing sample metadata.",
+                message: "Please open a reference or result bundle before importing sample metadata.",
                 presentingWindow: controller?.window
             )
             return
@@ -887,6 +887,28 @@ extension AppDelegate {
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             do {
+                guard let self else { return }
+                if TwelveSAmpliconResultBundle.isBundleURL(bundleURL) {
+                    let result = try Self.importResultBundleSampleMetadata(
+                        metadataURL: metadataURL,
+                        bundleURL: bundleURL
+                    )
+                    scheduleOnMainRunLoop { [weak self] in
+                        guard let self else { return }
+                        let targetController = self.targetMainWindowController(routeContext: routeContext)
+                        if let viewerController = targetController?.mainSplitViewController?.viewerController,
+                           viewerController.currentBundleURL?.standardizedFileURL == bundleURL.standardizedFileURL {
+                            targetController?.mainSplitViewController?.displayTwelveSAmpliconResultBundleFromSidebar(at: bundleURL)
+                        }
+                        self.showAlert(
+                            title: "Metadata Imported",
+                            message: "Imported \(result.store.columnNames.count.formatted()) metadata columns for \(result.store.matchedSampleIds.count.formatted()) sample(s).",
+                            presentingWindow: targetController?.window ?? presentingWindow
+                        )
+                    }
+                    return
+                }
+
                 let manifest = try BundleManifest.load(from: bundleURL)
                 guard !manifest.variants.isEmpty else {
                     throw NSError(
@@ -941,6 +963,42 @@ extension AppDelegate {
                 }
             }
         }
+    }
+
+    nonisolated private static func importResultBundleSampleMetadata(
+        metadataURL: URL,
+        bundleURL: URL
+    ) throws -> SampleMetadataBundleImportResult {
+        let data = try Data(contentsOf: metadataURL)
+        let knownSampleIds = try ResultBundleSampleMetadataResolver.knownSampleIDs(in: bundleURL)
+        guard !knownSampleIds.isEmpty else {
+            throw NSError(
+                domain: "Lungfish",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "No sample IDs were found in this result bundle."]
+            )
+        }
+
+        let scanResult = try SampleMetadataStore.scanForSampleColumn(
+            csvData: data,
+            knownSampleIds: knownSampleIds
+        )
+        guard let best = scanResult.bestColumn else {
+            throw NSError(
+                domain: "Lungfish",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "No column in this file matched the bundle's sample IDs."]
+            )
+        }
+
+        return try SampleMetadataBundleImportService().importMetadata(
+            data: data,
+            sourceURL: metadataURL,
+            scanResult: scanResult,
+            sampleColumnIndex: best.index,
+            knownSampleIds: knownSampleIds,
+            bundleURL: bundleURL
+        )
     }
 
     internal func performVCFImport(vcfURL: URL, bundleURL: URL, routeContext explicitRouteContext: OperationRouteContext? = nil) {
