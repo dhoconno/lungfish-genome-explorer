@@ -6,88 +6,143 @@ final class TwelveSAbundanceReassignerTests: XCTestCase {
     private let speciesForTarget = ["tH": "human", "tP": "pan"]
     private let canonicalForSpecies = ["human": "tH", "pan": "tP"]
 
-    func testHumanWinsStrictPlurality() {
-        let result = TwelveSAbundanceReassigner.reassign(
-            ambiguousCandidates: ["S": ["tH", "tP"]],
-            unresolvedCounts: ["S": ["SampleA": 7]],
-            countsByTarget: ["tH": ["SampleA": 1000]],
-            speciesForTarget: speciesForTarget,
-            canonicalTargetForSpecies: canonicalForSpecies
+    private func reassign(
+        ambiguous: [String: [String]],
+        unresolved: [String: [String: Int]],
+        counts: [String: [String: Int]],
+        policy: TwelveSAbundanceReassigner.ResolutionPolicy = .anyNonzeroLead,
+        species: [String: String]? = nil,
+        canonical: [String: String]? = nil
+    ) -> TwelveSAbundanceReassigner.Result {
+        TwelveSAbundanceReassigner.reassign(
+            ambiguousCandidates: ambiguous,
+            unresolvedCounts: unresolved,
+            countsByTarget: counts,
+            speciesForTarget: species ?? speciesForTarget,
+            canonicalTargetForSpecies: canonical ?? canonicalForSpecies,
+            policy: policy
         )
-        XCTAssertEqual(result.countsByTarget["tH"]?["SampleA"], 1007)
+    }
+
+    // MARK: - Per-sample resolution (the key fix)
+
+    func testPerSampleWinnerDiffersFromGlobal() {
+        // X abundant in A, Y abundant in B. Ambiguous seq S in both samples.
+        // Per-sample: A's reads → X, B's reads → Y (global pooling would send both to X).
+        let result = reassign(
+            ambiguous: ["S": ["tX", "tY"]],
+            unresolved: ["S": ["A": 100, "B": 100]],
+            counts: ["tX": ["A": 5000], "tY": ["B": 800]],
+            species: ["tX": "x", "tY": "y"],
+            canonical: ["x": "tX", "y": "tY"]
+        )
+        XCTAssertEqual(result.countsByTarget["tX"]?["A"], 5100)
+        XCTAssertEqual(result.countsByTarget["tY"]?["B"], 900)
+        // S fully consumed across both samples
+        XCTAssertNil(result.unresolvedCounts["S"]?["A"])
+        XCTAssertNil(result.unresolvedCounts["S"]?["B"])
+        XCTAssertEqual(Set(result.moves.map(\.decidedBy)), [.perSample])
+    }
+
+    func testHumanWinsPerSampleAnyNonzeroLead() {
+        let result = reassign(
+            ambiguous: ["S": ["tH", "tP"]],
+            unresolved: ["S": ["A": 7]],
+            counts: ["tH": ["A": 1000]]
+        )
+        XCTAssertEqual(result.countsByTarget["tH"]?["A"], 1007)
         XCTAssertNil(result.unresolvedCounts["S"])
-        XCTAssertEqual(result.moves.count, 1)
         XCTAssertEqual(result.moves.first?.toSpecies, "human")
-        XCTAssertEqual(result.moves.first?.reads, 7)
+        XCTAssertEqual(result.moves.first?.sample, "A")
     }
 
-    func testNonzeroLeadWinsEvenWhenRunnerUpNonzero() {
-        // human 1000 vs pan 3 → human (any nonzero lead wins).
-        let result = TwelveSAbundanceReassigner.reassign(
-            ambiguousCandidates: ["S": ["tH", "tP"]],
-            unresolvedCounts: ["S": ["SampleA": 5]],
-            countsByTarget: ["tH": ["SampleA": 1000], "tP": ["SampleA": 3]],
-            speciesForTarget: speciesForTarget,
-            canonicalTargetForSpecies: canonicalForSpecies
+    func testPooledFallbackBlockedWhenGlobalWinnerAbsentLocally() {
+        // Sample B has no local unambiguous evidence for any candidate.
+        // Global winner is X (abundant in A). But X has 0 in B → do NOT import X into B.
+        let result = reassign(
+            ambiguous: ["S": ["tX", "tY"]],
+            unresolved: ["S": ["B": 50]],
+            counts: ["tX": ["A": 5000]], // nothing in B for either candidate
+            species: ["tX": "x", "tY": "y"],
+            canonical: ["x": "tX", "y": "tY"]
         )
-        XCTAssertEqual(result.countsByTarget["tH"]?["SampleA"], 1005)
+        // unchanged: stays unresolved in B
+        XCTAssertEqual(result.unresolvedCounts["S"]?["B"], 50)
+        XCTAssertTrue(result.moves.isEmpty)
+    }
+
+    func testExactTieStaysUnassigned() {
+        let result = reassign(
+            ambiguous: ["S": ["tH", "tP"]],
+            unresolved: ["S": ["A": 7]],
+            counts: ["tH": ["A": 500], "tP": ["A": 500]]
+        )
+        XCTAssertEqual(result.unresolvedCounts["S"]?["A"], 7)
+        XCTAssertTrue(result.moves.isEmpty)
+    }
+
+    func testAllZeroStaysUnassigned() {
+        let result = reassign(
+            ambiguous: ["S": ["tH", "tP"]],
+            unresolved: ["S": ["A": 7]],
+            counts: [:]
+        )
+        XCTAssertEqual(result.unresolvedCounts["S"]?["A"], 7)
+        XCTAssertTrue(result.moves.isEmpty)
+    }
+
+    func testSingleCandidateSpeciesNotTouched() {
+        let result = reassign(
+            ambiguous: ["S": ["tH", "tH2"]],
+            unresolved: ["S": ["A": 4]],
+            counts: ["tH": ["A": 10]],
+            species: ["tH": "human", "tH2": "human"],
+            canonical: ["human": "tH"]
+        )
+        XCTAssertEqual(result.unresolvedCounts["S"]?["A"], 4)
+        XCTAssertTrue(result.moves.isEmpty)
+    }
+
+    // MARK: - Conservative profile
+
+    func testConservativeLeavesLowMarginUnresolvedButAnyLeadResolves() {
+        let ambiguous = ["S": ["tH", "tP"]]
+        let unresolved = ["S": ["A": 5]]
+        let counts = ["tH": ["A": 4], "tP": ["A": 3]] // 4 vs 3: not 2x, below floor 10
+
+        let lenient = reassign(ambiguous: ambiguous, unresolved: unresolved, counts: counts,
+                               policy: .anyNonzeroLead)
+        XCTAssertEqual(lenient.countsByTarget["tH"]?["A"], 9) // 4 + 5 moved
+
+        let conservative = reassign(ambiguous: ambiguous, unresolved: unresolved, counts: counts,
+                                    policy: .conservative(minFoldRatio: 2.0, absoluteFloor: 10))
+        XCTAssertEqual(conservative.unresolvedCounts["S"]?["A"], 5) // unresolved: fails floor + ratio
+        XCTAssertTrue(conservative.moves.isEmpty)
+    }
+
+    func testConservativeResolvesClearWinner() {
+        // human 1000 vs pan 3: passes floor(>=10) and ratio(>=2x).
+        let result = reassign(
+            ambiguous: ["S": ["tH", "tP"]],
+            unresolved: ["S": ["A": 5]],
+            counts: ["tH": ["A": 1000], "tP": ["A": 3]],
+            policy: .conservative(minFoldRatio: 2.0, absoluteFloor: 10)
+        )
+        XCTAssertEqual(result.countsByTarget["tH"]?["A"], 1005)
         XCTAssertNil(result.unresolvedCounts["S"])
     }
 
-    func testExactTieStaysAmbiguous() {
-        let result = TwelveSAbundanceReassigner.reassign(
-            ambiguousCandidates: ["S": ["tH", "tP"]],
-            unresolvedCounts: ["S": ["SampleA": 7]],
-            countsByTarget: ["tH": ["SampleA": 500], "tP": ["SampleA": 500]],
-            speciesForTarget: speciesForTarget,
-            canonicalTargetForSpecies: canonicalForSpecies
-        )
-        XCTAssertEqual(result.unresolvedCounts["S"]?["SampleA"], 7)
-        XCTAssertTrue(result.moves.isEmpty)
-    }
+    // MARK: - Conservation
 
-    func testAllZeroStaysAmbiguous() {
-        let result = TwelveSAbundanceReassigner.reassign(
-            ambiguousCandidates: ["S": ["tH", "tP"]],
-            unresolvedCounts: ["S": ["SampleA": 7]],
-            countsByTarget: [:],
-            speciesForTarget: speciesForTarget,
-            canonicalTargetForSpecies: canonicalForSpecies
+    func testReadConservationAcrossSamples() {
+        let result = reassign(
+            ambiguous: ["S": ["tH", "tP"]],
+            unresolved: ["S": ["A": 7, "B": 3]],
+            counts: ["tH": ["A": 10, "B": 20]]
         )
-        XCTAssertEqual(result.unresolvedCounts["S"]?["SampleA"], 7)
-        XCTAssertTrue(result.moves.isEmpty)
-    }
-
-    func testReadConservation() {
-        let result = TwelveSAbundanceReassigner.reassign(
-            ambiguousCandidates: ["S": ["tH", "tP"]],
-            unresolvedCounts: ["S": ["SampleA": 7, "SampleB": 3]],
-            countsByTarget: ["tH": ["SampleA": 10]],
-            speciesForTarget: speciesForTarget,
-            canonicalTargetForSpecies: canonicalForSpecies
-        )
-        let totalIn = 7 + 3 + 10
+        let totalIn = 7 + 3 + 10 + 20
         let totalOut = result.countsByTarget.values.flatMap { $0.values }.reduce(0, +)
                      + result.unresolvedCounts.values.flatMap { $0.values }.reduce(0, +)
         XCTAssertEqual(totalIn, totalOut)
-        // reads landed per-sample on the winner
-        XCTAssertEqual(result.countsByTarget["tH"]?["SampleA"], 17)
-        XCTAssertEqual(result.countsByTarget["tH"]?["SampleB"], 3)
-    }
-
-    func testSingleCandidateSpeciesIsNotTouchedHere() {
-        // If both candidate targets are the same species, there is no cross-species
-        // decision to make; reassigner leaves it (same-species collapse is the
-        // classifier's job). With one species and a positive total, it still folds
-        // into that species (harmless), but with zero totals it stays.
-        let result = TwelveSAbundanceReassigner.reassign(
-            ambiguousCandidates: ["S": ["tH", "tH2"]],
-            unresolvedCounts: ["S": ["SampleA": 4]],
-            countsByTarget: [:],
-            speciesForTarget: ["tH": "human", "tH2": "human"],
-            canonicalTargetForSpecies: ["human": "tH"]
-        )
-        XCTAssertEqual(result.unresolvedCounts["S"]?["SampleA"], 4)
-        XCTAssertTrue(result.moves.isEmpty)
     }
 }
