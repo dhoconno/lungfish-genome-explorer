@@ -112,6 +112,31 @@ final class TwelveSTableViewTests: XCTestCase {
         XCTAssertEqual(vc.testingActiveTableRowCount, 2)
     }
 
+    func testSelectingSpeciesLoadsReferenceSequencesIntoPayload() throws {
+        // Write a reference FASTA with records for the fixture's target IDs.
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("twelve-s-vcref-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let refURL = dir.appendingPathComponent("reference.fasta")
+        try ">human\nACGTACGTAC\n>chicken\nTTTTGGGGCC\n".write(to: refURL, atomically: true, encoding: .utf8)
+
+        let vc = TwelveSAmpliconResultViewController()
+        vc.loadViewIfNeeded()
+        let bundle = TwelveSFixtures.twoSampleResult(referenceURL: refURL)
+
+        let gotSequences = expectation(description: "reference sequences populated")
+        gotSequences.assertForOverFulfill = false // selection may emit more than once
+        vc.onSelectedRowDetailChanged = { payload in
+            if case let .target(detail)? = payload?.kind, !detail.referenceSequences.isEmpty {
+                XCTAssertEqual(detail.referenceSequences.first?.sequence, "ACGTACGTAC")
+                gotSequences.fulfill()
+            }
+        }
+        vc.configure(result: bundle)
+        vc.selectTargetForTesting(row: 0) // Homo sapiens (targetID "human")
+        wait(for: [gotSequences], timeout: 2.0)
+    }
+
     func testSingleSampleBundleHidesSampleFilterButton() {
         let vc = TwelveSAmpliconResultViewController()
         vc.loadViewIfNeeded()

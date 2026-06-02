@@ -68,6 +68,10 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     /// detail pane was removed.
     private var lastDetailPayload: TwelveSDetailPayload?
 
+    /// Resolves per-target reference sequences from the bundle's reference
+    /// FASTA, populated lazily into the detail payload after selection.
+    private var referenceProvider: TwelveSReferenceSequenceProvider?
+
     /// The currently visible table, switched by ``mode``.
     private var activeTableView: NSTableView {
         mode == .targets ? targetTable.tableView : unresolvedTable.tableView
@@ -152,6 +156,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         }
         targetTable.resultIdentity = result.manifest.outputName
         unresolvedTable.resultIdentity = result.manifest.outputName
+        referenceProvider = TwelveSReferenceSequenceProvider(referenceURL: result.artifacts.referenceURL)
         titleLabel.stringValue = "\(result.manifest.outputName) 12S Matches"
         summaryLabel.stringValue = Self.summaryText(for: result)
         applyFilters(notify: false)
@@ -664,9 +669,35 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         guard mode == .targets else { return }
         updateActionBar()
         if rows.count == 1, let row = rows.first {
+            // Emit the base detail immediately; reference sequences (read from
+            // the bundle FASTA) fill in asynchronously so a high-target species
+            // like Homo sapiens doesn't block the selection.
             emitDetail(TwelveSDetailPayload(targetRow: row, sampleDisplayNames: sampleDisplayNames))
+            loadReferenceSequences(for: row)
         } else {
             emitDetail(nil)
+        }
+    }
+
+    /// Reads the species' reference sequences off the main actor, then re-emits
+    /// the detail payload with them attached — but only if the selection is
+    /// still on the same species.
+    private func loadReferenceSequences(for row: TwelveSScientificNameCountRow) {
+        guard let provider = referenceProvider else { return }
+        let targetIDs = row.targetIDs
+        let species = row.scientificName
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let sequences = provider.sequences(forTargetIDs: targetIDs)
+            guard !sequences.isEmpty else { return }
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self,
+                          case let .target(detail)? = self.lastDetailPayload?.kind,
+                          detail.scientificName == species
+                    else { return }
+                    self.emitDetail(TwelveSDetailPayload(kind: .target(detail.withReferenceSequences(sequences))))
+                }
+            }
         }
     }
 

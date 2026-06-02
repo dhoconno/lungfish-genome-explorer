@@ -7,7 +7,9 @@ import Foundation
 /// and two unresolved clusters. Distinct per-sample counts let multi-sample
 /// aggregation tests exercise sample-subset restriction.
 enum TwelveSFixtures {
-    static func twoSampleResult() -> TwelveSAmpliconResultBundleData {
+    /// - Parameter referenceURL: optional override for the reference FASTA
+    ///   artifact, so reference-sequence tests can point at a real file.
+    static func twoSampleResult(referenceURL: URL? = nil) -> TwelveSAmpliconResultBundleData {
         let bundleURL = URL(fileURLWithPath: "/tmp/fixture.lungfish12s")
         let manifest = TwelveSAmpliconResultBundleManifest(
             outputName: "fixture",
@@ -57,7 +59,7 @@ enum TwelveSFixtures {
             bundleURL: bundleURL,
             manifest: manifest,
             artifacts: TwelveSAmpliconResultArtifacts(
-                referenceURL: bundleURL.appendingPathComponent("reference.fa"),
+                referenceURL: referenceURL ?? bundleURL.appendingPathComponent("reference.fa"),
                 targetTableURL: bundleURL.appendingPathComponent("targets.tsv"),
                 countMatrixURL: bundleURL.appendingPathComponent("sample-target-counts.tsv"),
                 sampleTableURL: bundleURL.appendingPathComponent("samples.tsv"),
