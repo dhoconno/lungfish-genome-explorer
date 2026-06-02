@@ -19,19 +19,36 @@ public struct TwelveSDetailPayload: Equatable, Sendable {
         public let referenceTargetCount: Int
         public let sampleEvidence: [TwelveSDetailSampleEvidenceRow]
         public let alternateTexts: [String]
+        /// Reference sequences for the species' targets, filled in lazily after
+        /// selection (empty until the reference FASTA is read).
+        public let referenceSequences: [TwelveSReferenceSequence]
 
         public init(
             scientificName: String,
             totalExactReads: Int,
             referenceTargetCount: Int,
             sampleEvidence: [TwelveSDetailSampleEvidenceRow],
-            alternateTexts: [String]
+            alternateTexts: [String],
+            referenceSequences: [TwelveSReferenceSequence] = []
         ) {
             self.scientificName = scientificName
             self.totalExactReads = totalExactReads
             self.referenceTargetCount = referenceTargetCount
             self.sampleEvidence = sampleEvidence
             self.alternateTexts = alternateTexts
+            self.referenceSequences = referenceSequences
+        }
+
+        /// Returns a copy with the given reference sequences attached.
+        public func withReferenceSequences(_ sequences: [TwelveSReferenceSequence]) -> TargetDetail {
+            TargetDetail(
+                scientificName: scientificName,
+                totalExactReads: totalExactReads,
+                referenceTargetCount: referenceTargetCount,
+                sampleEvidence: sampleEvidence,
+                alternateTexts: alternateTexts,
+                referenceSequences: sequences
+            )
         }
     }
 

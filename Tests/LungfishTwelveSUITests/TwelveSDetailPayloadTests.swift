@@ -20,6 +20,30 @@ final class TwelveSDetailPayloadTests: XCTestCase {
         XCTAssertEqual(detail.alternateTexts, ["Homo heidelbergensis"])
     }
 
+    func testTargetDetailCarriesReferenceSequencesAndFASTA() {
+        let detail = TwelveSDetailPayload.TargetDetail(
+            scientificName: "Homo sapiens", totalExactReads: 1, referenceTargetCount: 2,
+            sampleEvidence: [], alternateTexts: [],
+            referenceSequences: [
+                .init(targetID: "human-a", sequence: "ACGT"),
+                .init(targetID: "human-b", sequence: "TTTT"),
+            ])
+        XCTAssertEqual(detail.referenceSequences.count, 2)
+        XCTAssertEqual(
+            TwelveSCopyFormatting.referenceFASTA(detail.referenceSequences),
+            ">human-a\nACGT\n>human-b\nTTTT")
+    }
+
+    func testWithReferenceSequencesReturnsCopy() {
+        let base = TwelveSDetailPayload.TargetDetail(
+            scientificName: "X", totalExactReads: 1, referenceTargetCount: 1,
+            sampleEvidence: [], alternateTexts: [])
+        XCTAssertTrue(base.referenceSequences.isEmpty)
+        let withSeqs = base.withReferenceSequences([.init(targetID: "t", sequence: "AC")])
+        XCTAssertEqual(withSeqs.referenceSequences.map(\.targetID), ["t"])
+        XCTAssertEqual(withSeqs.scientificName, "X") // other fields preserved
+    }
+
     func testDetailPayloadFromUnresolvedRow() {
         let row = TwelveSUnresolvedSequence(
             sequenceID: "cluster-1", sequence: "ACGTACGT", readCount: 21,

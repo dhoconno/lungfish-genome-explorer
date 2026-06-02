@@ -19,6 +19,11 @@ enum TwelveSCopyFormatting {
         rows.map { ">\($0.sequenceID)\n\($0.sequence)" }.joined(separator: "\n")
     }
 
+    /// FASTA for a species' matched reference sequences (Detail tab "Copy All").
+    static func referenceFASTA(_ sequences: [TwelveSReferenceSequence]) -> String {
+        sequences.map { ">\($0.targetID)\n\($0.sequence)" }.joined(separator: "\n")
+    }
+
     static let targetHeader = [
         "Scientific Name", "Common Names", "Group", "Tax ID",
         "Exact Reads", "Refs", "Max %", "Alternates",
