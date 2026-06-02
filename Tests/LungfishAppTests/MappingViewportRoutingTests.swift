@@ -138,6 +138,39 @@ final class MappingViewportRoutingTests: XCTestCase {
         )
     }
 
+    func testGenotypeResultBundleResolvesEditableCurrentWorkbookWhenPresent() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MappingViewportRoutingCurrentWorkbook-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("barcode08-mhc.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let originalWorkbookURL = bundleURL.appendingPathComponent("barcode08-mhc.xlsx")
+        let currentWorkbookURL = bundleURL
+            .appendingPathComponent("artifacts/workbooks/current.xlsx")
+        try FileManager.default.createDirectory(
+            at: currentWorkbookURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("original".utf8).write(to: originalWorkbookURL)
+        try Data("editable".utf8).write(to: currentWorkbookURL)
+        let manifest = ONTGenotypeResultBundleManifest(
+            outputName: "barcode08-mhc",
+            analysisName: "barcode08-mhc",
+            primaryWorkbookPath: originalWorkbookURL.lastPathComponent,
+            currentWorkbookPath: "artifacts/workbooks/current.xlsx",
+            longSummaryCSVPath: "barcode08-mhc.retained-demux-genotypes.csv",
+            sampleSummaryCSVPath: "barcode08-mhc.retained-demux-samples.csv",
+            statsJSONPath: "barcode08-mhc.retained-demux-stats.json",
+            provenancePath: "retained-demux-genotyping-provenance.json"
+        )
+        try ONTGenotypeResultBundle.writeManifest(manifest, to: bundleURL)
+
+        XCTAssertEqual(
+            MainSplitViewController.genotypeResultWorkbookURL(forBundle: bundleURL),
+            currentWorkbookURL.standardizedFileURL
+        )
+    }
+
     func testGenotypeResultWithoutHaplotypingDisplaysPrimaryWorkbookPreview() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeNoHapPreview-\(UUID().uuidString)", isDirectory: true)

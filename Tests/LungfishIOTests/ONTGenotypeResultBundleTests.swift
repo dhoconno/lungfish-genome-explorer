@@ -31,6 +31,87 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         )
     }
 
+    func testLoadsCurrentWorkbookWhenManifestHasEditableWorkbookPath() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ONTGenotypeResultBundleTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("cohort.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        let generatedWorkbookURL = bundleURL.appendingPathComponent("cohort.xlsx")
+        let currentWorkbookURL = bundleURL
+            .appendingPathComponent("artifacts/workbooks", isDirectory: true)
+            .appendingPathComponent("current.xlsx")
+        try FileManager.default.createDirectory(
+            at: currentWorkbookURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("generated".utf8).write(to: generatedWorkbookURL)
+        try Data("current".utf8).write(to: currentWorkbookURL)
+        let artifacts = try writeMinimalNativeArtifacts(in: bundleURL, outputName: "cohort")
+
+        let manifest = ONTGenotypeResultBundleManifest(
+            outputName: "cohort",
+            analysisName: "cohort",
+            primaryWorkbookPath: generatedWorkbookURL.lastPathComponent,
+            currentWorkbookPath: "artifacts/workbooks/current.xlsx",
+            longSummaryCSVPath: artifacts.genotypeCSV.lastPathComponent,
+            sampleSummaryCSVPath: artifacts.sampleCSV.lastPathComponent,
+            statsJSONPath: artifacts.statsJSON.lastPathComponent,
+            provenancePath: artifacts.provenance.lastPathComponent
+        )
+        try ONTGenotypeResultBundle.writeManifest(manifest, to: bundleURL)
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: bundleURL)
+
+        XCTAssertEqual(
+            try ONTGenotypeResultBundle.primaryWorkbookURL(for: bundleURL),
+            generatedWorkbookURL.standardizedFileURL
+        )
+        XCTAssertEqual(
+            try ONTGenotypeResultBundle.currentWorkbookURL(for: bundleURL),
+            currentWorkbookURL.standardizedFileURL
+        )
+        XCTAssertEqual(result.artifacts.primaryWorkbookURL, generatedWorkbookURL.standardizedFileURL)
+        XCTAssertEqual(result.artifacts.workbookURL, currentWorkbookURL.standardizedFileURL)
+    }
+
+    func testCurrentWorkbookURLFallsBackToPrimaryWorkbookForOldBundles() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ONTGenotypeResultBundleTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("legacy.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        let workbookURL = bundleURL.appendingPathComponent("legacy.xlsx")
+        try Data("legacy".utf8).write(to: workbookURL)
+        let artifacts = try writeMinimalNativeArtifacts(in: bundleURL, outputName: "legacy")
+
+        let manifest = ONTGenotypeResultBundleManifest(
+            outputName: "legacy",
+            analysisName: "legacy",
+            primaryWorkbookPath: workbookURL.lastPathComponent,
+            longSummaryCSVPath: artifacts.genotypeCSV.lastPathComponent,
+            sampleSummaryCSVPath: artifacts.sampleCSV.lastPathComponent,
+            statsJSONPath: artifacts.statsJSON.lastPathComponent,
+            provenancePath: artifacts.provenance.lastPathComponent
+        )
+        try ONTGenotypeResultBundle.writeManifest(manifest, to: bundleURL)
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: bundleURL)
+
+        XCTAssertEqual(
+            try ONTGenotypeResultBundle.primaryWorkbookURL(for: bundleURL),
+            workbookURL.standardizedFileURL
+        )
+        XCTAssertEqual(
+            try ONTGenotypeResultBundle.currentWorkbookURL(for: bundleURL),
+            workbookURL.standardizedFileURL
+        )
+        XCTAssertEqual(result.artifacts.primaryWorkbookURL, workbookURL.standardizedFileURL)
+        XCTAssertEqual(result.artifacts.workbookURL, workbookURL.standardizedFileURL)
+    }
+
     func testLoadsNativeResultSummariesFromBundleArtifacts() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("ONTGenotypeResultBundleTests-\(UUID().uuidString)", isDirectory: true)
@@ -589,5 +670,36 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
             calls: calls,
             samples: []
         )
+    }
+
+    private func writeMinimalNativeArtifacts(
+        in bundleURL: URL,
+        outputName: String
+    ) throws -> (genotypeCSV: URL, sampleCSV: URL, statsJSON: URL, provenance: URL) {
+        let genotypeCSVURL = bundleURL.appendingPathComponent("\(outputName).retained-demux-genotypes.csv")
+        let sampleCSVURL = bundleURL.appendingPathComponent("\(outputName).retained-demux-samples.csv")
+        let statsJSONURL = bundleURL.appendingPathComponent("\(outputName).retained-demux-stats.json")
+        let provenanceURL = bundleURL.appendingPathComponent("retained-demux-genotyping-provenance.json")
+        try Data("{}".utf8).write(to: provenanceURL)
+        try """
+        sample,genotype,passed_alignments,passed_unique_reads
+        SampleA,allele1,1,1
+        """.write(to: genotypeCSVURL, atomically: true, encoding: .utf8)
+        try """
+        sample,passed_alignments,passed_unique_reads
+        SampleA,1,1
+        """.write(to: sampleCSVURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "totalInputReads": 1,
+          "totalAlignments": 1,
+          "passedAlignments": 1,
+          "retainedUniqueReads": 1,
+          "retainedUniquePercentOfTotalReads": 100.0,
+          "assignedUniqueRetainedReads": 1,
+          "unassignedUniqueRetainedReads": 0
+        }
+        """.write(to: statsJSONURL, atomically: true, encoding: .utf8)
+        return (genotypeCSVURL, sampleCSVURL, statsJSONURL, provenanceURL)
     }
 }

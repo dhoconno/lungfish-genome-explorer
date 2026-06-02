@@ -1461,8 +1461,16 @@ public final class GenotypeResultViewController: NSViewController {
             addAuditSection(title: "Audit Timeline", contents: [makeAuditTimelineHost(entries: entries)])
         }
         addAuditSection(title: "Share View", contents: [exportViewButton()])
-        let artifactRows: [NSView] = [
+        var artifactRows: [NSView] = [
             artifactRow(label: "Workbook", url: result.artifacts.workbookURL),
+        ]
+        if result.artifacts.primaryWorkbookURL != result.artifacts.workbookURL {
+            artifactRows.append(artifactRow(
+                label: "Original Workbook",
+                url: result.artifacts.primaryWorkbookURL
+            ))
+        }
+        artifactRows += [
             artifactRow(label: "Long Summary CSV", url: result.artifacts.longSummaryCSVURL),
             artifactRow(label: "Sample Summary CSV", url: result.artifacts.sampleSummaryCSVURL),
             artifactRow(label: "Run Stats JSON", url: result.artifacts.statsJSONURL),

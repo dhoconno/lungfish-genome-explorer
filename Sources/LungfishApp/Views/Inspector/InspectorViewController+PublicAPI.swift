@@ -311,6 +311,18 @@ extension InspectorViewController {
             let count = subjects.filter { cohort.predicate.evaluate($0) }.count
             return GenotypeSmartCohortSection.DisplayedCohort(filter: cohort, count: count)
         }
+        let workbookArtifactRows: [GenotypeResultArtifactRow] = {
+            var rows = [
+                GenotypeResultArtifactRow(label: "Workbook", fileURL: result.artifacts.workbookURL),
+            ]
+            if result.artifacts.primaryWorkbookURL != result.artifacts.workbookURL {
+                rows.append(GenotypeResultArtifactRow(
+                    label: "Original Workbook",
+                    fileURL: result.artifacts.primaryWorkbookURL
+                ))
+            }
+            return rows
+        }()
         var state = GenotypeResultDocumentState(
             title: result.manifest.analysisName,
             subtitle: "\(result.manifest.kind) • \(result.manifest.outputName)",
@@ -324,8 +336,7 @@ extension InspectorViewController {
                 ("Low Support", "\(qcCounts[.lowSupport, default: 0])"),
                 ("Review", "\(qcCounts[.review, default: 0])"),
             ],
-            artifactRows: [
-                GenotypeResultArtifactRow(label: "Workbook", fileURL: result.artifacts.workbookURL),
+            artifactRows: workbookArtifactRows + [
                 GenotypeResultArtifactRow(label: "Long Summary CSV", fileURL: result.artifacts.longSummaryCSVURL),
                 GenotypeResultArtifactRow(label: "Sample Summary CSV", fileURL: result.artifacts.sampleSummaryCSVURL),
                 GenotypeResultArtifactRow(label: "Run Stats JSON", fileURL: result.artifacts.statsJSONURL),

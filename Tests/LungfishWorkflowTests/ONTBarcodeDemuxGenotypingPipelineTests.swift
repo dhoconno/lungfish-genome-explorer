@@ -261,6 +261,59 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertTrue(canonicalEnvelope.steps.allSatisfy { $0.wallTimeSeconds != nil }, "\(canonicalEnvelope.steps)")
     }
 
+    func testRunCreatesSeparateCurrentWorkbookAndManifestKeepsPrimaryImmutable() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let condaRoot = root.appendingPathComponent("conda", isDirectory: true)
+        let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(at: condaRoot)
+
+        let inputFASTQ = root.appendingPathComponent("barcode08.fastq")
+        let referenceFASTA = root.appendingPathComponent("reference.fa")
+        let barcodeDefinitions = root.appendingPathComponent("barcodes.csv")
+        let demuxManifest = root.appendingPathComponent("demux-manifest.json")
+        let outputDirectory = root.appendingPathComponent("barcode08.lungfishgenotype", isDirectory: true)
+        try "@r0\nACGT\n+\nIIII\n".write(to: inputFASTQ, atomically: true, encoding: .utf8)
+        try ">allele1\nACGT\n".write(to: referenceFASTA, atomically: true, encoding: .utf8)
+        try "sample,barcode\nDW472,ACGT\n".write(to: barcodeDefinitions, atomically: true, encoding: .utf8)
+        try #"{"sampleTotals":{"DW472":1},"totalInputReads":1}"#.write(to: demuxManifest, atomically: true, encoding: .utf8)
+
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURL: inputFASTQ,
+            referenceSourceURL: referenceFASTA,
+            barcodeDefinitionsURL: barcodeDefinitions,
+            outputDirectory: outputDirectory,
+            outputName: "barcode08-mhc",
+            demuxManifestURL: demuxManifest,
+            threads: 2,
+            sortThreads: 1
+        )
+
+        let result = try await ONTBarcodeDemuxGenotypingPipeline(
+            condaManager: CondaManager(
+                rootPrefix: condaRoot,
+                bundledMicromambaProvider: { bundledMicromamba },
+                bundledMicromambaVersionProvider: { "test-micromamba" }
+            )
+        ).run(request)
+
+        let manifest = try ONTGenotypeResultBundle.loadManifest(from: outputDirectory)
+        let primaryWorkbookURL = try ONTGenotypeResultBundle.primaryWorkbookURL(for: outputDirectory)
+        let currentWorkbookURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: outputDirectory)
+
+        XCTAssertEqual(manifest.primaryWorkbookPath, request.workbookURL.lastPathComponent)
+        XCTAssertEqual(manifest.currentWorkbookPath, "artifacts/workbooks/current.xlsx")
+        XCTAssertNotEqual(primaryWorkbookURL, currentWorkbookURL)
+        XCTAssertEqual(try Data(contentsOf: primaryWorkbookURL), try Data(contentsOf: currentWorkbookURL))
+        XCTAssertEqual(result.workbookURL, currentWorkbookURL)
+        XCTAssertEqual(manifest.workbookRevisions?.first?.role, .initialCurrentCopy)
+        XCTAssertEqual(manifest.workbookRevisions?.first?.path, "artifacts/workbooks/current.xlsx")
+
+        let loaded = try ONTGenotypeResultBundle.loadResult(from: outputDirectory)
+        XCTAssertEqual(loaded.artifacts.primaryWorkbookURL, primaryWorkbookURL)
+        XCTAssertEqual(loaded.artifacts.workbookURL, currentWorkbookURL)
+    }
+
     func testAutoModeWithBarcodesAndMultipleInputsUsesONTPresetAndAllInputs() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -362,7 +415,7 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         ).run(request)
 
         XCTAssertEqual(result.provenanceURL.lastPathComponent, ProvenanceRecorder.provenanceFilename)
-        XCTAssertTrue(request.argv.contains("genotype"))
+        XCTAssertEqual(Array(request.argv.prefix(3)), ["lungfish", "fastq", "genotype-cohort"])
         XCTAssertEqual(try testValue(after: "--mode", in: request.argv), "illumina-paired")
         XCTAssertEqual(try testValue(after: "--read-type", in: request.argv), "illumina")
         XCTAssertFalse(request.argv.contains("--barcodes"))
@@ -393,6 +446,60 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(canonicalEnvelope.options.explicit["illuminaMergeResults"], .null)
         XCTAssertTrue(canonicalEnvelope.files.contains { $0.path == sampleB.fastqURL.standardizedFileURL.path && $0.checksumSHA256 != nil })
         XCTAssertFalse(canonicalEnvelope.files.contains { $0.path.hasSuffix("merge-illumina-pairs.py") })
+    }
+
+    func testIlluminaCohortMapsEachSampleWithSeparateMinimap2Invocation() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let condaRoot = root.appendingPathComponent("conda", isDirectory: true)
+        let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(at: condaRoot)
+        let referenceFASTA = root.appendingPathComponent("reference.fa")
+        let outputDirectory = root.appendingPathComponent("miseq-cohort.lungfishgenotype", isDirectory: true)
+        let minimap2Log = root.appendingPathComponent("minimap2-invocations.log")
+        try ">allele1\nACGTACGT\n".write(to: referenceFASTA, atomically: true, encoding: .utf8)
+
+        let samples = try ["DW001", "DW002", "DW003"].map { name in
+            try makeMergedFASTQBundle(root: root, name: name, sequence: "ACGTACGT")
+        }
+        setenv("LUNGFISH_FAKE_MINIMAP2_LOG", minimap2Log.path, 1)
+        defer { unsetenv("LUNGFISH_FAKE_MINIMAP2_LOG") }
+
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURLs: samples.map(\.bundleURL),
+            referenceSourceURL: referenceFASTA,
+            outputDirectory: outputDirectory,
+            outputName: "miseq-cohort",
+            analysisName: "MiSeqCohort",
+            threads: 2,
+            sortThreads: 1,
+            minSupport: 1,
+            mode: .illuminaPaired,
+            readType: .illumina
+        )
+
+        _ = try await ONTBarcodeDemuxGenotypingPipeline(
+            condaManager: CondaManager(
+                rootPrefix: condaRoot,
+                bundledMicromambaProvider: { bundledMicromamba },
+                bundledMicromambaVersionProvider: { "test-micromamba" }
+            )
+        ).run(request)
+
+        let minimap2Invocations = try String(contentsOf: minimap2Log, encoding: .utf8)
+            .split(whereSeparator: \.isNewline)
+            .map(String.init)
+        XCTAssertEqual(minimap2Invocations.count, 3)
+        XCTAssertTrue(minimap2Invocations.allSatisfy { line in
+            line.components(separatedBy: ".sample-prefixed.fastq").count == 2
+        }, "\(minimap2Invocations)")
+
+        let provenance = try jsonObject(at: request.provenanceURL)
+        let steps = try XCTUnwrap(provenance["steps"] as? [[String: Any]])
+        XCTAssertEqual(steps.filter { $0["toolName"] as? String == "minimap2" }.count, 3)
+
+        let canonicalEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: outputDirectory))
+        XCTAssertEqual(canonicalEnvelope.steps.filter { $0.toolName == "minimap2" }.count, 3)
     }
 
     func testResolveIlluminaSampleInputsDisambiguatesCollidingSanitizedSampleIDs() async throws {
@@ -1013,6 +1120,42 @@ print(json.dumps(payload))
         try writeExecutable(
             #"""
             #!/bin/sh
+            set -eu
+            if [ -n "${LUNGFISH_FAKE_MINIMAP2_LOG:-}" ]; then
+              printf '%s\n' "$*" >> "$LUNGFISH_FAKE_MINIMAP2_LOG"
+            fi
+            preset=""
+            query_count=0
+            seen_reference=0
+            while [ "$#" -gt 0 ]; do
+              case "$1" in
+                -x)
+                  preset="$2"
+                  shift 2
+                  ;;
+                -t|-R)
+                  shift 2
+                  ;;
+                -a|--MD)
+                  shift
+                  ;;
+                -*)
+                  shift
+                  ;;
+                *)
+                  if [ "$seen_reference" -eq 0 ]; then
+                    seen_reference=1
+                  else
+                    query_count=$((query_count + 1))
+                  fi
+                  shift
+                  ;;
+              esac
+            done
+            if [ "$preset" = "sr" ] && [ "$query_count" -gt 1 ]; then
+              echo "fake minimap2 refuses multiple short-read query files: $query_count" >&2
+              exit 42
+            fi
             printf '@HD\tVN:1.6\n'
             """#,
             to: minimap2Bin.appendingPathComponent("minimap2")
@@ -1040,6 +1183,24 @@ print(json.dumps(payload))
                 esac
               done
               cat >/dev/null
+              printf 'BAM' > "$output"
+              exit 0
+            fi
+            if [ "$command" = "merge" ]; then
+              output=""
+              while [ "$#" -gt 0 ]; do
+                case "$1" in
+                  -f)
+                    shift
+                    ;;
+                  *)
+                    if [ -z "$output" ]; then
+                      output="$1"
+                    fi
+                    shift
+                    ;;
+                esac
+              done
               printf 'BAM' > "$output"
               exit 0
             fi

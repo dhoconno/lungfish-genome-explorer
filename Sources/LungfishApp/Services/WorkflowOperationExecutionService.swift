@@ -364,7 +364,7 @@ final class WorkflowOperationExecutionService {
     }
 
     func ontGenotypingArguments(for request: ONTBarcodeDemuxGenotypingRunRequest) -> [String] {
-        var arguments = ["fastq", "genotype"] + request.inputFASTQURLs.map(\.path)
+        var arguments = ["fastq", ontGenotypingSubcommand(for: request)] + request.inputFASTQURLs.map(\.path)
         arguments += [
             "--mode", request.mode.cliArgument,
             "--read-type", request.readType.cliArgument,
@@ -407,6 +407,13 @@ final class WorkflowOperationExecutionService {
             arguments += ["--extra-args", AdvancedCommandLineOptions.join(request.extraArguments)]
         }
         return arguments
+    }
+
+    private func ontGenotypingSubcommand(for request: ONTBarcodeDemuxGenotypingRunRequest) -> String {
+        let illuminaCohort = request.inputFASTQURLs.count > 1
+            && request.barcodeDefinitionsURL == nil
+            && (request.mode == .illuminaPaired || (request.mode == .auto && request.readType == .illumina))
+        return illuminaCohort ? "genotype-cohort" : "genotype"
     }
 
     func twelveSAmpliconMatchingArguments(for configuration: TwelveSAmpliconMatchingConfiguration) -> [String] {

@@ -128,7 +128,7 @@ extension MainSplitViewController {
 
     static func genotypeResultWorkbookURL(forBundle url: URL) -> URL? {
         guard ONTGenotypeResultBundle.isBundleURL(url),
-              let workbookURL = try? ONTGenotypeResultBundle.primaryWorkbookURL(for: url),
+              let workbookURL = try? ONTGenotypeResultBundle.currentWorkbookURL(for: url),
               FileManager.default.fileExists(atPath: workbookURL.path) else {
             return nil
         }

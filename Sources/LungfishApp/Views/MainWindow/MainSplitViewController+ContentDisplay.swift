@@ -249,7 +249,7 @@ extension MainSplitViewController {
             inspectorController.updateGenotypeResultDocument(result)
             if Self.shouldPreviewPrimaryWorkbook(for: result) {
                 mainSplitLogger.info(
-                    "displayGenotypeResultBundle: Previewing primary workbook for '\(url.lastPathComponent, privacy: .public)' because no haplotyping analysis is present"
+                    "displayGenotypeResultBundle: Previewing genotype workbook for '\(url.lastPathComponent, privacy: .public)' because no haplotyping analysis is present"
                 )
                 inspectorController.updateGenotypeResultSelection(nil)
                 viewerController.displayQuickLookPreview(url: result.artifacts.workbookURL)
@@ -290,7 +290,7 @@ extension MainSplitViewController {
                 "displayGenotypeResultBundle: Falling back to workbook preview for '\(url.lastPathComponent, privacy: .public)' after native load failed: \(error.localizedDescription, privacy: .public)"
             )
             guard let workbookURL = Self.genotypeResultWorkbookURL(forBundle: url) else {
-                mainSplitLogger.warning("displayGenotypeResultBundle: Missing primary workbook for '\(url.lastPathComponent, privacy: .public)'")
+                mainSplitLogger.warning("displayGenotypeResultBundle: Missing genotype workbook for '\(url.lastPathComponent, privacy: .public)'")
                 inspectorController.clearSelection()
                 viewerController.showNoSequenceSelected()
                 return
