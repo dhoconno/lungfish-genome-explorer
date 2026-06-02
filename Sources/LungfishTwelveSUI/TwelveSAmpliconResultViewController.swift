@@ -147,6 +147,14 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     /// Test-only visibility of the sample filter button.
     var testingSampleFilterButtonHidden: Bool { sampleFilterButton.isHidden }
 
+    /// Test-only: the active target-table primary sort descriptor.
+    var testingTargetSortDescriptor: NSSortDescriptor? { targetTable.tableView.sortDescriptors.first }
+
+    /// Test-only: set the target-table sort.
+    func testingSetTargetSort(key: String, ascending: Bool) {
+        targetTable.tableView.sortDescriptors = [NSSortDescriptor(key: key, ascending: ascending)]
+    }
+
     /// Test-only: all column identifiers on the target table (incl. matrix).
     var testingTargetColumnIDs: [String] {
         targetTable.tableView.tableColumns.map { $0.identifier.rawValue }
@@ -191,6 +199,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         titleLabel.stringValue = "\(result.manifest.outputName) 12S Matches"
         summaryLabel.stringValue = Self.summaryText(for: result)
         applyFilters(notify: false)
+        applyDefaultSort()
         showTargets()
     }
 
@@ -695,6 +704,14 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
             targetRows = targetRows.filter { TwelveSRowAggregator.includesTarget($0, selected: selectedSamples) }
             unresolvedRows = unresolvedRows.filter { TwelveSRowAggregator.includesUnresolved($0, selected: selectedSamples) }
         }
+        // Hide species rows with zero reads across the currently-shown samples
+        // (unconditional). Shown = the selected subset if active, else all.
+        let shownSamples = isSampleSubset ? selectedSamples : allSampleIDs
+        targetRows = targetRows.filter { row in
+            shownSamples.isEmpty
+                ? row.totalExactReads > 0
+                : TwelveSRowAggregator.totalExactReads(row, selected: shownSamples) > 0
+        }
         // Display-state filters narrow the row set; the kernel free-text filter
         // (driven by the header search field) narrows within. Apply the current
         // search text to both tables so the two filter layers compose.
@@ -710,8 +727,9 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         }
     }
 
-    /// Establishes the legacy default order (exact reads / read count descending)
-    /// the first time rows are shown, matching the pre-migration behavior.
+    /// Preserves an existing sort across filter changes, applying the default
+    /// order only when no sort is set yet (so a user's chosen sort survives
+    /// filtering/sample changes).
     private func applyDefaultSortIfNeeded() {
         if targetTable.tableView.sortDescriptors.isEmpty {
             targetTable.tableView.sortDescriptors = [NSSortDescriptor(key: "totalExactReads", ascending: false)]
@@ -719,6 +737,14 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         if unresolvedTable.tableView.sortDescriptors.isEmpty {
             unresolvedTable.tableView.sortDescriptors = [NSSortDescriptor(key: "readCount", ascending: false)]
         }
+    }
+
+    /// Unconditionally resets both tables to the default order (reads
+    /// descending). Called when a new result is configured so every bundle
+    /// starts sorted by abundance, regardless of any prior sort state.
+    private func applyDefaultSort() {
+        targetTable.tableView.sortDescriptors = [NSSortDescriptor(key: "totalExactReads", ascending: false)]
+        unresolvedTable.tableView.sortDescriptors = [NSSortDescriptor(key: "readCount", ascending: false)]
     }
 
     private func notifyDisplaySummaryChanged() {

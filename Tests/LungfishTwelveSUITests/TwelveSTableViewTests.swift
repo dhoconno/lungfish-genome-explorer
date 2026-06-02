@@ -211,6 +211,37 @@ final class TwelveSTableViewTests: XCTestCase {
         XCTAssertTrue(fired)
     }
 
+    func testDefaultSortAlwaysReadsDescendingOnConfigure() {
+        let vc = TwelveSAmpliconResultViewController()
+        vc.loadViewIfNeeded()
+        vc.configure(result: TwelveSFixtures.twoSampleResult())
+        vc.testingSetTargetSort(key: "scientificName", ascending: true)
+        // Re-configuring must re-assert the reads-descending default.
+        vc.configure(result: TwelveSFixtures.twoSampleResult())
+        XCTAssertEqual(vc.testingTargetSortDescriptor?.key, "totalExactReads")
+        XCTAssertEqual(vc.testingTargetSortDescriptor?.ascending, false)
+    }
+
+    func testRowsWithZeroReadsInShownSamplesAreHidden() {
+        let vc = TwelveSAmpliconResultViewController()
+        vc.loadViewIfNeeded()
+        let bundle = TwelveSFixtures.twoSampleResult() // human A40/B5, chicken A0/B15
+        vc.configure(result: bundle)
+        let entries = bundle.samples.map {
+            TwelveSSampleEntry(id: $0.sampleID, displayName: $0.displayName, exactReads: $0.exactMatchReads)
+        }
+        vc.configureSamples(entries, state: ClassifierSamplePickerState(allSamples: Set(entries.map(\.id))))
+
+        // Show only SampleA → chicken (A=0) hidden → 1 row.
+        vc.testingSetSelectedSamples(["SampleA"])
+        XCTAssertEqual(vc.testingActiveTableRowCount, 1)
+        XCTAssertEqual(vc.testingTargetText(row: 0, column: "scientificName"), "Homo sapiens")
+
+        // Show only SampleB → human(B5) and chicken(B15) both present → 2 rows.
+        vc.testingSetSelectedSamples(["SampleB"])
+        XCTAssertEqual(vc.testingActiveTableRowCount, 2)
+    }
+
     func testSingleSampleBundleHidesSampleFilterButton() {
         let vc = TwelveSAmpliconResultViewController()
         vc.loadViewIfNeeded()
