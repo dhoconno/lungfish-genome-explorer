@@ -528,6 +528,11 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
                 continue
             }
             FASTQMetadataStore.save(metadata, for: bundleURL)
+            if !FASTQBundle.isMultiFileBundle(bundleURL),
+               let payloadURL = FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL)?.standardizedFileURL,
+               payloadURL != bundleURL.standardizedFileURL {
+                FASTQMetadataStore.save(metadata, for: payloadURL)
+            }
         }
     }
 

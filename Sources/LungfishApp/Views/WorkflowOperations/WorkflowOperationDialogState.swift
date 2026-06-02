@@ -308,11 +308,6 @@ final class WorkflowOperationDialogState {
         guard !selectedReadURLs.isEmpty else {
             return "Select one or more FASTQ bundles."
         }
-        if selectedTool?.kind == .ontGenotyping,
-           selectedGenotypingMode == .ontBarcodeDemux,
-           selectedReadURLs.count != 1 {
-            return "Select one ONT barcode FASTQ bundle."
-        }
         guard outputDirectoryURL != nil else {
             return "Select an output directory."
         }

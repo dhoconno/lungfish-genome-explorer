@@ -262,6 +262,10 @@ final class ONTDirectoryImporterTests: XCTestCase {
         ))
         XCTAssertEqual(result.totalReadCount, 5)
         XCTAssertEqual(FASTQMetadataStore.load(for: bundleURL)?.computedStatistics?.readCount, 5)
+        let payloadMetadata = FASTQMetadataStore.load(for: payloadURL)
+        XCTAssertEqual(payloadMetadata?.computedStatistics?.readCount, 5)
+        XCTAssertEqual(payloadMetadata?.sequencingPlatform, .oxfordNanopore)
+        XCTAssertEqual(payloadMetadata?.assemblyReadType, .ontReads)
     }
 
     func testDemultiplexManifestProvidesDisplayMetadataForExistingONTBundleWithoutSidecar() async throws {

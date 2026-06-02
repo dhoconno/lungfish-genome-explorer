@@ -662,10 +662,16 @@ extension MainSplitViewController {
         let demuxSummaryMeta = FASTQBundle.isBundleURL(standardizedSourceURL)
             ? DemultiplexManifest.cachedFASTQMetadata(forBundle: standardizedSourceURL)
             : nil
+        let bundleDisplayMeta = FASTQBundle.isBundleURL(standardizedSourceURL)
+            ? FASTQMetadataStore.load(for: standardizedSourceURL)
+            : nil
         let cachedStatisticsMeta = statisticsCacheURL.flatMap {
             FASTQMetadataStore.load(for: $0)
-        } ?? demuxSummaryMeta
-        let displayMeta = cachedStatisticsMeta ?? FASTQMetadataStore.load(for: fastqURL) ?? demuxSummaryMeta
+        } ?? bundleDisplayMeta ?? demuxSummaryMeta
+        let displayMeta = cachedStatisticsMeta
+            ?? FASTQMetadataStore.load(for: fastqURL)
+            ?? bundleDisplayMeta
+            ?? demuxSummaryMeta
         if let cachedStats = cachedStatisticsMeta?.computedStatistics {
             mainSplitLogger.info("loadFASTQDatasetInBackground: Using cached statistics (\(cachedStats.readCount) reads)")
             viewerController.displayFASTQDataset(

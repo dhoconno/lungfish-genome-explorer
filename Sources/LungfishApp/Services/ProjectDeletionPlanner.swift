@@ -436,11 +436,12 @@ final class ProjectDeletionPlanner {
             || name == "cz-id-manifest.json"
             || name == "manifest.json"
             || name == ".lungfish-provenance.json"
+            || name.hasSuffix(".lungfish-meta.json")
             || name.hasSuffix(".lungfish-provenance.json")
             || name.hasSuffix("-provenance.json") {
             return true
         }
-        return ["json", "yaml", "yml", "toml", "csv", "tsv"].contains(ext)
+        return ext == "json"
     }
 
     private func isInternalSidecarFile(_ url: URL) -> Bool {

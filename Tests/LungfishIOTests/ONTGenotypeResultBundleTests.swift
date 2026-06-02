@@ -102,6 +102,50 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         XCTAssertEqual(result.calls[0].locusGroup, "MHC-A")
     }
 
+    func testLoadResultIgnoresRepeatedCSVHeaderRowsInSampleSummary() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ONTGenotypeResultBundleTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("barcode08-mhc.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        let workbookURL = bundleURL.appendingPathComponent("barcode08-mhc.xlsx")
+        let genotypeCSVURL = bundleURL.appendingPathComponent("barcode08-mhc.retained-demux-genotypes.csv")
+        let sampleCSVURL = bundleURL.appendingPathComponent("barcode08-mhc.retained-demux-samples.csv")
+        let statsJSONURL = bundleURL.appendingPathComponent("barcode08-mhc.retained-demux-stats.json")
+        let provenanceURL = bundleURL.appendingPathComponent("retained-demux-genotyping-provenance.json")
+
+        try Data("workbook".utf8).write(to: workbookURL)
+        try Data("{}".utf8).write(to: provenanceURL)
+        try """
+        sample,genotype,passed_alignments,passed_unique_reads
+        AnimalA,01_M1_A_01,42,39
+        """.write(to: genotypeCSVURL, atomically: true, encoding: .utf8)
+        try """
+        sample,passed_alignments,passed_unique_reads
+        AnimalA,42,39
+        sample,passed_alignments,passed_unique_reads
+        AnimalB,12,12
+        """.write(to: sampleCSVURL, atomically: true, encoding: .utf8)
+        try Data("{}".utf8).write(to: statsJSONURL)
+
+        let manifest = ONTGenotypeResultBundleManifest(
+            outputName: "barcode08-mhc",
+            analysisName: "barcode08-mhc",
+            primaryWorkbookPath: workbookURL.lastPathComponent,
+            longSummaryCSVPath: genotypeCSVURL.lastPathComponent,
+            sampleSummaryCSVPath: sampleCSVURL.lastPathComponent,
+            statsJSONPath: statsJSONURL.lastPathComponent,
+            provenancePath: provenanceURL.lastPathComponent
+        )
+        try ONTGenotypeResultBundle.writeManifest(manifest, to: bundleURL)
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: bundleURL)
+
+        XCTAssertEqual(result.samples.map(\.sample), ["AnimalA", "AnimalB"])
+        XCTAssertFalse(result.sampleNames.contains("sample"))
+    }
+
     func testSummarizesSharedCallsByInferredLocus() {
         let dqb1Primary = ONTGenotypeCall(
             sample: "LF2874",

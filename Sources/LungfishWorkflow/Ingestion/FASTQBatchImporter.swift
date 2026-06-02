@@ -61,6 +61,7 @@ public enum BatchImportError: Error, LocalizedError {
     case noFASTQFilesFound(URL)
     case unknownRecipe(String)
     case projectNotFound(URL)
+    case recipeNotApplicable(recipe: String, sample: String, reason: String)
 
     public var errorDescription: String? {
         switch self {
@@ -70,6 +71,8 @@ public enum BatchImportError: Error, LocalizedError {
             return "Unknown recipe '\(name)'. Valid names: vsp2, wgs, amplicon, hifi"
         case .projectNotFound(let url):
             return "No .lungfish project found at or above \(url.path)"
+        case .recipeNotApplicable(let recipe, let sample, let reason):
+            return "Recipe '\(recipe)' cannot be applied to sample '\(sample)': \(reason)"
         }
     }
 }
@@ -576,6 +579,8 @@ public enum FASTQBatchImporter {
         let originalBytes = fileSizeSum([pair.r1] + (pair.r2.map { [$0] } ?? []))
 
         do {
+            try validateRecipeApplicability(pair: pair, config: config)
+
             let outputDir = config.projectDirectory
                 .appendingPathComponent("Imports")
             try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
@@ -828,6 +833,73 @@ public enum FASTQBatchImporter {
 
         } catch {
             return .failure(error)
+        }
+    }
+
+    private static func validateRecipeApplicability(pair: SamplePair, config: ImportConfig) throws {
+        if let recipe = config.newRecipe {
+            try validateNewRecipeInputRequirement(recipe, pair: pair)
+        }
+
+        if let recipe = config.recipe {
+            try validateLegacyRecipeInputRequirement(recipe, pair: pair)
+        }
+    }
+
+    private static func validateNewRecipeInputRequirement(_ recipe: Recipe, pair: SamplePair) throws {
+        switch recipe.requiredInput {
+        case .any:
+            return
+        case .paired:
+            guard pair.r2 != nil else {
+                throw BatchImportError.recipeNotApplicable(
+                    recipe: recipe.name,
+                    sample: pair.sampleName,
+                    reason: "requires paired-end reads (R1 and R2), but only R1 was detected."
+                )
+            }
+        case .single:
+            guard pair.r2 == nil else {
+                throw BatchImportError.recipeNotApplicable(
+                    recipe: recipe.name,
+                    sample: pair.sampleName,
+                    reason: "requires single-end reads, but both R1 and R2 were detected."
+                )
+            }
+        }
+    }
+
+    private static func validateLegacyRecipeInputRequirement(_ recipe: ProcessingRecipe, pair: SamplePair) throws {
+        if recipe.requiredPairingMode == .singleEnd, pair.r2 != nil {
+            throw BatchImportError.recipeNotApplicable(
+                recipe: recipe.name,
+                sample: pair.sampleName,
+                reason: "requires single-end reads, but both R1 and R2 were detected."
+            )
+        }
+
+        guard legacyRecipeRequiresPairedReads(recipe) else { return }
+        guard pair.r2 != nil else {
+            throw BatchImportError.recipeNotApplicable(
+                recipe: recipe.name,
+                sample: pair.sampleName,
+                reason: "requires paired-end reads (R1 and R2), but only R1 was detected."
+            )
+        }
+    }
+
+    private static func legacyRecipeRequiresPairedReads(_ recipe: ProcessingRecipe) -> Bool {
+        switch recipe.requiredPairingMode {
+        case .pairedEnd, .interleaved:
+            return true
+        case .singleEnd:
+            return false
+        case nil:
+            break
+        }
+
+        return recipe.steps.contains { step in
+            OperationContract.input(for: step.kind).requiredPairing != nil
         }
     }
 

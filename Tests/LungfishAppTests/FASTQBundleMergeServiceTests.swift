@@ -24,14 +24,20 @@ final class FASTQBundleMergeServiceTests: XCTestCase {
             name: "A",
             fastqName: "reads.fastq",
             contents: "@r1\nACGT\n+\nIIII\n",
-            pairing: .singleEnd
+            pairing: .singleEnd,
+            statistics: .placeholder(readCount: 1, baseCount: 4),
+            sequencingPlatform: .oxfordNanopore,
+            assemblyReadType: .ontReads
         )
         let second = try makeBundle(
             root: root,
             name: "B",
             fastqName: "reads.fastq",
             contents: "@r2\nTTTT\n+\nIIII\n",
-            pairing: .singleEnd
+            pairing: .singleEnd,
+            statistics: .placeholder(readCount: 1, baseCount: 4),
+            sequencingPlatform: .oxfordNanopore,
+            assemblyReadType: .ontReads
         )
 
         let mergedURL = try await FASTQBundleMergeService.merge(
@@ -53,6 +59,12 @@ final class FASTQBundleMergeServiceTests: XCTestCase {
         let resolvedFASTQs = try XCTUnwrap(FASTQBundle.resolveAllFASTQURLs(for: mergedURL))
         XCTAssertEqual(resolvedFASTQs.count, 2)
 
+        let mergedMetadata = FASTQMetadataStore.load(for: mergedURL)
+        XCTAssertEqual(mergedMetadata?.computedStatistics?.readCount, 2)
+        XCTAssertEqual(mergedMetadata?.computedStatistics?.baseCount, 8)
+        XCTAssertEqual(mergedMetadata?.sequencingPlatform, .oxfordNanopore)
+        XCTAssertEqual(mergedMetadata?.assemblyReadType, .ontReads)
+
         let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: mergedURL))
         assertMergeProvenance(
             provenance,
@@ -63,6 +75,7 @@ final class FASTQBundleMergeServiceTests: XCTestCase {
                 FASTQSourceFileManifest.filename,
                 "preview.fastq",
                 FASTQBundleCSVMetadata.filename,
+                FASTQMetadataStore.metadataURL(for: mergedURL).lastPathComponent,
             ],
             disallowedPathFragments: ["fastq-merge-"]
         )
@@ -302,17 +315,26 @@ final class FASTQBundleMergeServiceTests: XCTestCase {
         )
 
         let outputPaths = provenance.outputs.map(\.path)
+        let adjacentMetadataURL = FASTQMetadataStore.metadataURL(for: expectedOutputBundle).standardizedFileURL
         for filename in expectedOutputFilenames {
             XCTAssertTrue(
-                outputPaths.contains { $0.hasPrefix(expectedOutputBundle.path) && $0.hasSuffix("/\(filename)") },
+                outputPaths.contains { path in
+                    (path.hasPrefix(expectedOutputBundle.path) && path.hasSuffix("/\(filename)"))
+                        || (
+                            filename == adjacentMetadataURL.lastPathComponent
+                                && path == adjacentMetadataURL.path
+                        )
+                },
                 "Missing provenance output for \(filename)",
                 file: file,
                 line: line
             )
         }
         XCTAssertTrue(
-            provenance.outputs.allSatisfy { $0.path.hasPrefix(expectedOutputBundle.path) },
-            "All output records must point inside the final bundle",
+            provenance.outputs.allSatisfy {
+                $0.path.hasPrefix(expectedOutputBundle.path) || $0.path == adjacentMetadataURL.path
+            },
+            "All output records must point at the final bundle or its adjacent metadata sidecar",
             file: file,
             line: line
         )
@@ -349,7 +371,10 @@ final class FASTQBundleMergeServiceTests: XCTestCase {
         name: String,
         fastqName: String,
         contents: String,
-        pairing: IngestionMetadata.PairingMode
+        pairing: IngestionMetadata.PairingMode,
+        statistics: FASTQDatasetStatistics? = nil,
+        sequencingPlatform: LungfishIO.SequencingPlatform? = nil,
+        assemblyReadType: FASTQAssemblyReadType? = nil
     ) throws -> URL {
         let bundleURL = root.appendingPathComponent(
             "\(name).\(FASTQBundle.directoryExtension)",
@@ -360,7 +385,12 @@ final class FASTQBundleMergeServiceTests: XCTestCase {
         let fastqURL = bundleURL.appendingPathComponent(fastqName)
         try contents.write(to: fastqURL, atomically: true, encoding: .utf8)
         FASTQMetadataStore.save(
-            PersistedFASTQMetadata(ingestion: IngestionMetadata(pairingMode: pairing)),
+            PersistedFASTQMetadata(
+                computedStatistics: statistics,
+                ingestion: IngestionMetadata(pairingMode: pairing),
+                sequencingPlatform: sequencingPlatform,
+                assemblyReadType: assemblyReadType
+            ),
             for: fastqURL
         )
 

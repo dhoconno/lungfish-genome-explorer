@@ -178,6 +178,40 @@ final class ProjectDeletionPlannerTests: XCTestCase {
         XCTAssertTrue(impact.dependentURLs.isEmpty)
     }
 
+    func testDeletionImpactDoesNotTreatResultTablesAsDependencyMetadata() throws {
+        let selectedURL = projectURL.appendingPathComponent("selected.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: selectedURL, withIntermediateDirectories: true)
+
+        let resultURL = projectURL
+            .appendingPathComponent("Analyses", isDirectory: true)
+            .appendingPathComponent("12S amplicon results", isDirectory: true)
+            .appendingPathComponent("run.lungfish12s", isDirectory: true)
+        try FileManager.default.createDirectory(at: resultURL, withIntermediateDirectories: true)
+        try """
+        {"workflow":"12s-result","inputs":[]}
+        """.write(
+            to: resultURL.appendingPathComponent("manifest.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        target_id\tbest_source
+        OTU-1\t\(selectedURL.path)
+        """.write(
+            to: resultURL.appendingPathComponent("targets.tsv"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let impact = ProjectDeletionPlanner(fileManager: .default)
+            .impact(ofDeleting: [selectedURL], in: projectURL)
+
+        XCTAssertTrue(
+            impact.dependentURLs.isEmpty,
+            "Result data tables are scientific payloads, not provenance dependency metadata."
+        )
+    }
+
     func testDependencyListPresentationTruncatesPreviewAndKeepsFullProjectRelativeList() throws {
         let dependentURLs = (1...5).map { index in
             projectURL

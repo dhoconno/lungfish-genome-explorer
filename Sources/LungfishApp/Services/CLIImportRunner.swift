@@ -296,6 +296,7 @@ public actor CLIImportRunner {
                 var stdoutBuffer = Data()
                 var stderrBuffer = Data()
                 var totalSamples = 1
+                var lastSampleFailure: String?
             }
             let state = StreamState()
 
@@ -411,6 +412,8 @@ public actor CLIImportRunner {
                                 }
 
                             case let .sampleFailed(sample, error):
+                                let failureSummary = "\(sample): \(error)"
+                                state.lastSampleFailure = failureSummary
                                 DispatchQueue.main.async {
                                     MainActor.assumeIsolated {
                                         OperationCenter.shared.log(
@@ -420,7 +423,7 @@ public actor CLIImportRunner {
                                         )
                                     }
                                 }
-                                onError("\(sample): \(error)")
+                                onError(failureSummary)
 
                             case let .importComplete(completed, skipped, failed, totalDurationSeconds):
                                 DispatchQueue.main.async {
@@ -446,20 +449,25 @@ public actor CLIImportRunner {
             // Handle non-zero exit
             let exitStatus = proc.terminationStatus
             if exitStatus != 0 {
-                let stderrOutput = String(data: state.stderrBuffer, encoding: .utf8) ?? "Unknown error"
-                let msg = "CLI exited with status \(exitStatus)"
-                logger.error("\(msg, privacy: .public): \(stderrOutput, privacy: .public)")
+                let stderrOutput = String(data: state.stderrBuffer, encoding: .utf8) ?? ""
+                let trimmedStderr = stderrOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+                let exitSummary = "CLI exited with status \(exitStatus)"
+                let msg = state.lastSampleFailure ?? exitSummary
+                let detailParts = [exitSummary, trimmedStderr]
+                    .filter { !$0.isEmpty }
+                let errorDetail = detailParts.isEmpty ? nil : detailParts.joined(separator: "\n\n")
+                logger.error("\(exitSummary, privacy: .public): \(stderrOutput, privacy: .public)")
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         OperationCenter.shared.fail(
                             id: opID,
                             detail: msg,
                             errorMessage: msg,
-                            errorDetail: stderrOutput
+                            errorDetail: errorDetail
                         )
                     }
                 }
-                onError("\(msg): \(stderrOutput)")
+                onError(msg)
             }
         } onCancel: {
             Task {

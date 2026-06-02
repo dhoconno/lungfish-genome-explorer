@@ -6,6 +6,21 @@ import XCTest
 @testable import LungfishWorkflow
 import LungfishIO
 
+private final class FASTQBatchImporterEventCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [ImportLogEvent] = []
+
+    func append(_ event: ImportLogEvent) {
+        lock.withLock {
+            storage.append(event)
+        }
+    }
+
+    var events: [ImportLogEvent] {
+        lock.withLock { storage }
+    }
+}
+
 final class FASTQBatchImporterTests: XCTestCase {
 
     // MARK: - Pair Detection
@@ -426,6 +441,116 @@ final class FASTQBatchImporterTests: XCTestCase {
         XCTAssertEqual(result.skipped, 0)
         XCTAssertEqual(result.failed, 0)
         XCTAssertTrue(result.errors.isEmpty)
+    }
+
+    func testRunBatchImportFailsPairedOnlyRecipeBeforeStartingStepsForSingleEndSample() async throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FASTQBatchImporterTests-pairing-preflight-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let r1 = tmpDir.appendingPathComponent("Solo_R1.fastq")
+        try """
+        @read1/1
+        ACGTACGT
+        +
+        IIIIIIII
+        """.appending("\n").write(to: r1, atomically: true, encoding: .utf8)
+
+        let recipe = Recipe(
+            id: "merge-only",
+            name: "Merge Only",
+            requiredInput: .paired,
+            steps: [
+                RecipeStep(type: "fastp-merge", label: "Merge overlapping pairs", params: nil),
+            ]
+        )
+        let projectURL = tmpDir.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let config = FASTQBatchImporter.ImportConfig(
+            projectDirectory: projectURL,
+            newRecipe: recipe,
+            qualityBinning: QualityBinningScheme.none,
+            optimizeStorage: false,
+            threads: 1
+        )
+        let pair = SamplePair(sampleName: "Solo", r1: r1, r2: nil)
+        let collector = FASTQBatchImporterEventCollector()
+
+        let result = await FASTQBatchImporter.runBatchImport(
+            pairs: [pair],
+            config: config,
+            log: { collector.append($0) }
+        )
+
+        XCTAssertEqual(result.completed, 0)
+        XCTAssertEqual(result.failed, 1)
+        XCTAssertEqual(result.errors.first?.sample, "Solo")
+        XCTAssertTrue(
+            result.errors.first?.error.contains("requires paired-end reads") == true,
+            "Expected a readable pairing preflight error, got \(String(describing: result.errors.first?.error))"
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: projectURL
+                    .appendingPathComponent("Imports/Solo.\(FASTQBundle.directoryExtension)", isDirectory: true)
+                    .path
+            ),
+            "Inapplicable recipes must not leave a partial FASTQ bundle"
+        )
+        XCTAssertFalse(
+            collector.events.contains {
+                if case .stepStart = $0 { return true }
+                return false
+            },
+            "Importer should fail during preflight before starting recipe or ingestion steps"
+        )
+    }
+
+    func testRunBatchImportFailsLegacyPairedRecipeBeforeStartingStepsForSingleEndSample() async throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FASTQBatchImporterTests-legacy-pairing-preflight-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let r1 = tmpDir.appendingPathComponent("LegacySolo_R1.fastq")
+        try """
+        @read1/1
+        ACGTACGT
+        +
+        IIIIIIII
+        """.appending("\n").write(to: r1, atomically: true, encoding: .utf8)
+
+        let projectURL = tmpDir.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let config = FASTQBatchImporter.ImportConfig(
+            projectDirectory: projectURL,
+            recipe: .illuminaWGS,
+            qualityBinning: QualityBinningScheme.none,
+            optimizeStorage: false,
+            threads: 1
+        )
+        let pair = SamplePair(sampleName: "LegacySolo", r1: r1, r2: nil)
+        let collector = FASTQBatchImporterEventCollector()
+
+        let result = await FASTQBatchImporter.runBatchImport(
+            pairs: [pair],
+            config: config,
+            log: { collector.append($0) }
+        )
+
+        XCTAssertEqual(result.completed, 0)
+        XCTAssertEqual(result.failed, 1)
+        XCTAssertEqual(result.errors.first?.sample, "LegacySolo")
+        XCTAssertTrue(
+            result.errors.first?.error.contains("requires paired-end reads") == true,
+            "Expected a readable pairing preflight error, got \(String(describing: result.errors.first?.error))"
+        )
+        XCTAssertFalse(
+            collector.events.contains {
+                if case .stepStart = $0 { return true }
+                return false
+            },
+            "Legacy recipes should fail during preflight before starting recipe or ingestion steps"
+        )
     }
 
     // MARK: - Helpers

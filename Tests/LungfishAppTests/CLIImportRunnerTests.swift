@@ -9,6 +9,21 @@ import LungfishWorkflow
 @testable import LungfishApp
 import LungfishKit
 
+private final class CLIImportRunnerStringCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [String] = []
+
+    func append(_ value: String) {
+        lock.withLock {
+            values.append(value)
+        }
+    }
+
+    func snapshot() -> [String] {
+        lock.withLock { values }
+    }
+}
+
 final class CLIImportRunnerTests: XCTestCase {
 
     // MARK: - Event Parsing Tests
@@ -313,6 +328,71 @@ final class CLIImportRunnerTests: XCTestCase {
             kill(childPID, SIGKILL)
         }
         _ = await runTask.value
+    }
+
+    func testRunUsesStructuredSampleFailureAsFinalOperationDetail() async throws {
+        let tempDir = try makeTemporaryDirectory()
+        let fakeCLI = tempDir.appendingPathComponent("lungfish-cli")
+        let structuredError = "Recipe 'Illumina Amplicon Merge' cannot be applied to sample 'Solo': requires paired-end reads (R1 and R2), but only R1 was detected."
+        let script = """
+        #!/bin/sh
+        echo '{"event":"importStart","sampleCount":1,"recipeName":"Illumina Amplicon Merge"}'
+        echo '{"event":"sampleStart","sample":"Solo","index":0,"total":1,"r1":"Solo_R1.fastq"}'
+        echo '{"event":"sampleFailed","sample":"Solo","error":"\(structuredError)"}'
+        echo '{"event":"importComplete","completed":0,"skipped":0,"failed":1,"totalDurationSeconds":0.01}'
+        exit 64
+        """
+        try script.write(to: fakeCLI, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCLI.path)
+
+        let priorCLIPath = ProcessInfo.processInfo.environment["LUNGFISH_CLI_PATH"]
+        setenv("LUNGFISH_CLI_PATH", fakeCLI.path, 1)
+        defer {
+            if let priorCLIPath {
+                setenv("LUNGFISH_CLI_PATH", priorCLIPath, 1)
+            } else {
+                unsetenv("LUNGFISH_CLI_PATH")
+            }
+        }
+
+        let operationID = await MainActor.run {
+            OperationCenter.shared.start(
+                title: "FASTQ Import: structured failure test",
+                detail: "Starting",
+                operationType: .ingestion
+            )
+        }
+        addTeardownBlock {
+            await MainActor.run {
+                OperationCenter.shared.clearItem(id: operationID)
+            }
+        }
+
+        let errors = CLIImportRunnerStringCollector()
+        let runner = CLIImportRunner()
+
+        await runner.run(
+            arguments: [],
+            operationID: operationID,
+            projectDirectory: tempDir,
+            onBundleCreated: { _ in },
+            onError: { errors.append($0) }
+        )
+
+        let item = await MainActor.run {
+            OperationCenter.shared.items.first { $0.id == operationID }
+        }
+        let failedItem = try XCTUnwrap(item)
+        XCTAssertEqual(failedItem.state, .failed)
+        XCTAssertTrue(
+            failedItem.detail.contains("requires paired-end reads"),
+            "Final operation detail should preserve the structured sample failure, got: \(failedItem.detail)"
+        )
+        XCTAssertTrue(
+            failedItem.errorMessage?.contains("requires paired-end reads") == true,
+            "Final operation error summary should preserve the structured sample failure, got: \(String(describing: failedItem.errorMessage))"
+        )
+        XCTAssertTrue(errors.snapshot().contains { $0.contains("requires paired-end reads") })
     }
 
     func testResolveCLIPathPrefersBundledSiblingExecutable() throws {

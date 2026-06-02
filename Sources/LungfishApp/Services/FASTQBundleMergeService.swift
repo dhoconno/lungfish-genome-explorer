@@ -155,6 +155,7 @@ enum FASTQBundleMergeService {
 
         var entries: [FASTQSourceFileManifest.SourceFileEntry] = []
         var previewInputs: [URL] = []
+        var originalFilenames: [String] = []
 
         for (index, sourceBundleURL) in sourceBundleURLs.enumerated() {
             guard let sourceFASTQ = physicalFASTQURLs(in: sourceBundleURL).first else {
@@ -181,6 +182,7 @@ enum FASTQBundleMergeService {
                 )
             )
             previewInputs.append(linkedURL)
+            originalFilenames.append(sourceFASTQ.lastPathComponent)
         }
 
         try FASTQSourceFileManifest(files: entries).save(to: bundleURL)
@@ -192,6 +194,13 @@ enum FASTQBundleMergeService {
             FASTQSampleMetadata(sampleName: bundleName).toLegacyCSV(),
             to: bundleURL
         )
+        if let metadata = mergedDisplayMetadata(
+            sourceBundleURLs: sourceBundleURLs,
+            pairingMode: .singleEnd,
+            originalFilenames: originalFilenames
+        ) {
+            FASTQMetadataStore.save(metadata, for: bundleURL)
+        }
     }
 
     private static func createPhysicalBundle(
@@ -246,21 +255,123 @@ enum FASTQBundleMergeService {
             throw error
         }
 
-        FASTQMetadataStore.save(
-            PersistedFASTQMetadata(
-                ingestion: IngestionMetadata(
-                    isCompressed: isCompressedFASTQ(firstInput),
-                    pairingMode: outputPairing,
-                    originalFilenames: resolvedInputs.flatMap(\.originalFilenames)
-                )
-            ),
-            for: outputFASTQ
+        var outputMetadata = PersistedFASTQMetadata(
+            downloadSource: "lungfish fastq merge",
+            ingestion: IngestionMetadata(
+                isCompressed: isCompressedFASTQ(firstInput),
+                pairingMode: outputPairing,
+                originalFilenames: resolvedInputs.flatMap(\.originalFilenames)
+            )
         )
+        if let displayMetadata = mergedDisplayMetadata(
+            sourceBundleURLs: sourceBundleURLs,
+            pairingMode: outputPairing,
+            originalFilenames: resolvedInputs.flatMap(\.originalFilenames)
+        ) {
+            outputMetadata.computedStatistics = displayMetadata.computedStatistics
+            outputMetadata.sequencingPlatform = displayMetadata.sequencingPlatform
+            outputMetadata.assemblyReadType = displayMetadata.assemblyReadType
+        }
+        FASTQMetadataStore.save(outputMetadata, for: outputFASTQ)
         try FASTQBundleCSVMetadata.save(
             FASTQSampleMetadata(sampleName: bundleName).toLegacyCSV(),
             to: bundleURL
         )
         return normalizeTransientNativeSteps(resolvedInputs.flatMap(\.provenanceSteps))
+    }
+
+    private static func mergedDisplayMetadata(
+        sourceBundleURLs: [URL],
+        pairingMode: IngestionMetadata.PairingMode,
+        originalFilenames: [String]
+    ) -> PersistedFASTQMetadata? {
+        let sourceMetadatas = sourceBundleURLs.map(sourceDisplayMetadata)
+        let concreteMetadatas = sourceMetadatas.compactMap { $0 }
+        guard !concreteMetadatas.isEmpty else { return nil }
+
+        let aggregateStatistics = aggregateStatistics(
+            sourceMetadatas.compactMap { $0?.computedStatistics },
+            requiredCount: sourceBundleURLs.count
+        )
+        let sequencingPlatform: LungfishIO.SequencingPlatform? = commonValue(
+            sourceMetadatas.map { $0?.sequencingPlatform },
+            requiredCount: sourceBundleURLs.count
+        )
+        let assemblyReadType: FASTQAssemblyReadType? = commonValue(
+            sourceMetadatas.map { $0?.assemblyReadType },
+            requiredCount: sourceBundleURLs.count
+        )
+
+        guard aggregateStatistics != nil || sequencingPlatform != nil || assemblyReadType != nil else {
+            return nil
+        }
+
+        return PersistedFASTQMetadata(
+            computedStatistics: aggregateStatistics,
+            downloadSource: "lungfish fastq merge",
+            ingestion: IngestionMetadata(
+                isCompressed: !originalFilenames.isEmpty && originalFilenames.allSatisfy {
+                    $0.lowercased().hasSuffix(".gz")
+                },
+                pairingMode: pairingMode,
+                originalFilenames: originalFilenames
+            ),
+            sequencingPlatform: sequencingPlatform,
+            assemblyReadType: assemblyReadType
+        )
+    }
+
+    private static func sourceDisplayMetadata(for bundleURL: URL) -> PersistedFASTQMetadata? {
+        if let bundleMetadata = FASTQMetadataStore.load(for: bundleURL) {
+            return bundleMetadata
+        }
+        if let demuxMetadata = DemultiplexManifest.cachedFASTQMetadata(forBundle: bundleURL) {
+            return demuxMetadata
+        }
+        if let derivedManifest = FASTQBundle.loadDerivedManifest(in: bundleURL) {
+            return PersistedFASTQMetadata(
+                computedStatistics: derivedManifest.cachedStatistics,
+                ingestion: derivedManifest.pairingMode.map {
+                    IngestionMetadata(pairingMode: $0)
+                }
+            )
+        }
+
+        let fastqURLs = physicalFASTQURLs(in: bundleURL)
+        let fastqMetadatas = fastqURLs.compactMap { FASTQMetadataStore.load(for: $0) }
+        if fastqMetadatas.count == 1 {
+            return fastqMetadatas[0]
+        }
+        if let aggregateStatistics = aggregateStatistics(
+            fastqMetadatas.compactMap(\.computedStatistics),
+            requiredCount: fastqURLs.count
+        ) {
+            return PersistedFASTQMetadata(computedStatistics: aggregateStatistics)
+        }
+        return nil
+    }
+
+    private static func aggregateStatistics(
+        _ statistics: [FASTQDatasetStatistics],
+        requiredCount: Int
+    ) -> FASTQDatasetStatistics? {
+        guard requiredCount > 0, statistics.count == requiredCount else { return nil }
+        let readCount = statistics.reduce(0) { $0 + $1.readCount }
+        let baseCount = statistics.reduce(Int64(0)) { $0 + $1.baseCount }
+        return FASTQDatasetStatistics.placeholder(readCount: readCount, baseCount: baseCount)
+    }
+
+    private static func commonValue<T: Equatable>(
+        _ values: [T?],
+        requiredCount: Int
+    ) -> T? {
+        let concreteValues = values.compactMap { $0 }
+        guard concreteValues.count == requiredCount,
+              let first = concreteValues.first,
+              concreteValues.allSatisfy({ $0 == first }) else {
+            return nil
+        }
+        return first
     }
 
     private static func resolvePhysicalMergeInput(
@@ -527,7 +638,11 @@ enum FASTQBundleMergeService {
         provenanceWriter: BundleMergeProvenanceSidecarWriter
     ) throws {
         let inputPayloadURLs = sourceBundleURLs.flatMap(provenanceInputURLs(in:))
-        let outputPayloadURLs = try BundleMergeProvenance.regularPayloadFileURLs(in: bundleURL)
+        var outputPayloadURLs = try BundleMergeProvenance.regularPayloadFileURLs(in: bundleURL)
+        let bundleMetadataURL = FASTQMetadataStore.metadataURL(for: bundleURL)
+        if FileManager.default.fileExists(atPath: bundleMetadataURL.path) {
+            outputPayloadURLs.append(bundleMetadataURL)
+        }
         try BundleMergeProvenance.write(
             request: BundleMergeProvenance.Request(
                 workflowName: "lungfish fastq merge",

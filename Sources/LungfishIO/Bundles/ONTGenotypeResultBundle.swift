@@ -1067,7 +1067,8 @@ public enum ONTGenotypeResultBundle {
             .replacingOccurrences(of: "\r", with: "\n")
         let rows = parseCSV(content)
         guard let headers = rows.first else { return [] }
-        return rows.dropFirst().map { row in
+        return rows.dropFirst().compactMap { row in
+            guard !isRepeatedCSVHeaderRow(row, headers: headers) else { return nil }
             var dict: [String: String] = [:]
             for index in headers.indices {
                 let header = headers[index].trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1076,6 +1077,16 @@ public enum ONTGenotypeResultBundle {
             }
             return dict
         }
+    }
+
+    private static func isRepeatedCSVHeaderRow(_ row: [String], headers: [String]) -> Bool {
+        guard !headers.isEmpty, row.count >= headers.count else { return false }
+        for index in headers.indices {
+            let header = headers[index].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let value = row[index].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard value == header else { return false }
+        }
+        return true
     }
 
     private static func parseCSV(_ content: String) -> [[String]] {

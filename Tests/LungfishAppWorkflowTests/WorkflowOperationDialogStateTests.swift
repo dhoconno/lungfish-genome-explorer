@@ -802,7 +802,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         })
     }
 
-    func testONTGenotypingRequiresExactlyOneSelectedReadBundle() throws {
+    func testONTGenotypingAllowsMultipleSelectedReadBundles() throws {
         let defaults = try makeDefaults()
         let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
         enablementStore.setWorkflow(.ontGenotyping, enabled: true)
@@ -835,10 +835,18 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             secondReadsURL.standardizedFileURL,
         ])
         XCTAssertEqual(state.datasetLabel, "2 read bundles selected")
-        XCTAssertFalse(state.isRunEnabled)
-        XCTAssertEqual(state.readinessText, "Select one ONT barcode FASTQ bundle.")
+        XCTAssertTrue(state.isRunEnabled)
+        XCTAssertEqual(state.readinessText, "Ready to run.")
 
-        XCTAssertThrowsError(try state.makeLaunchRequest())
+        let launchRequest = try state.makeLaunchRequest()
+        guard case .ontGenotyping(let request) = launchRequest else {
+            return XCTFail("Expected ONT genotyping request")
+        }
+        XCTAssertEqual(request.inputFASTQURLs, [
+            firstReadsURL.standardizedFileURL,
+            secondReadsURL.standardizedFileURL,
+        ])
+        XCTAssertEqual(request.mode, .ontBarcodeDemux)
     }
 
     func testAmpliconGenotypingIlluminaModeAllowsMultipleReadBundlesWithoutBarcodes() throws {
