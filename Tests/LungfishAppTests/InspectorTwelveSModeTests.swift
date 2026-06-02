@@ -83,6 +83,28 @@ final class InspectorTwelveSModeTests: XCTestCase {
         )
     }
 
+    func testTwelveSResultDocumentLoadsPersistedImportedMetadata() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("InspectorTwelveSModeTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("example.lungfish12s", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: bundleURL.appendingPathComponent("metadata", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try """
+        sample,site
+        hilo-f09,Hilo WWTP
+        """.write(to: bundleURL.appendingPathComponent("metadata/sample_metadata.tsv"), atomically: true, encoding: .utf8)
+
+        let inspector = InspectorViewController()
+        inspector.loadViewIfNeeded()
+        inspector.updateTwelveSAmpliconResultDocument(makeResult(bundleURL: bundleURL))
+
+        let metadataStore = inspector.twelveSResultDisplaySectionViewModel.sampleMetadataStore
+        XCTAssertEqual(metadataStore?.records["hilo-f09"]?["site"], "Hilo WWTP")
+    }
+
     func testTwelveSResultDocumentMakesDetailTabAvailable() {
         let inspector = InspectorViewController()
         inspector.loadViewIfNeeded()
@@ -137,10 +159,10 @@ final class InspectorTwelveSModeTests: XCTestCase {
     }
 
     private func makeResult(
+        bundleURL: URL = URL(fileURLWithPath: "/tmp/example.lungfish12s"),
         sampleMetadata: ResolvedSampleMetadata? = nil,
         sampleMetadataManifest: TwelveSSampleMetadataSnapshotManifest? = nil
     ) -> TwelveSAmpliconResultBundleData {
-        let bundleURL = URL(fileURLWithPath: "/tmp/example.lungfish12s")
         return TwelveSAmpliconResultBundleData(
             bundleURL: bundleURL,
             manifest: TwelveSAmpliconResultBundleManifest(

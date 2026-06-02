@@ -13,7 +13,8 @@ final class TwelveSAmpliconMatchingWorkflowTests: XCTestCase {
         let classifier = TwelveSAmpliconReadClassifier(
             references: [reference],
             minimumSoftClipBases: 2,
-            maximumIndelBases: 2
+            maximumIndelBases: 2,
+            matchingMode: .ontIndel
         )
 
         let result = classifier.classify(readSequence: "TTACGTACGTGG")
@@ -30,7 +31,8 @@ final class TwelveSAmpliconMatchingWorkflowTests: XCTestCase {
         let classifier = TwelveSAmpliconReadClassifier(
             references: [reference],
             minimumSoftClipBases: 2,
-            maximumIndelBases: 2
+            maximumIndelBases: 2,
+            matchingMode: .ontIndel
         )
 
         XCTAssertEqual(classifier.classify(readSequence: "ACGTACGTGG"), .unresolved)
@@ -46,11 +48,29 @@ final class TwelveSAmpliconMatchingWorkflowTests: XCTestCase {
         let classifier = TwelveSAmpliconReadClassifier(
             references: [reference],
             minimumSoftClipBases: 2,
-            maximumIndelBases: 2
+            maximumIndelBases: 2,
+            matchingMode: .ontIndel
         )
 
         XCTAssertEqual(classifier.classify(readSequence: "TTACGTTACGTGG"), .exact(targetID: "human", indelCount: 1))
         XCTAssertEqual(classifier.classify(readSequence: "TTACGTTCATGG"), .unresolved)
+    }
+
+    func testIlluminaExactModeRejectsIndelOnlyFallback() throws {
+        let reference = TwelveSReferenceRecord(
+            targetID: "human",
+            displayName: "human (Homo sapiens)",
+            sequence: "ACGTACGT"
+        )
+        let classifier = TwelveSAmpliconReadClassifier(
+            references: [reference],
+            minimumSoftClipBases: 2,
+            maximumIndelBases: 2,
+            matchingMode: .illuminaExact
+        )
+
+        XCTAssertEqual(classifier.classify(readSequence: "TTACGTACGTGG"), .exact(targetID: "human", indelCount: 0))
+        XCTAssertEqual(classifier.classify(readSequence: "TTACGTTACGTGG"), .unresolved)
     }
 
     func testIndelCandidateSearchDoesNotDropLowIndexTiesBeyondFirst128References() throws {
@@ -69,7 +89,8 @@ final class TwelveSAmpliconMatchingWorkflowTests: XCTestCase {
         let classifier = TwelveSAmpliconReadClassifier(
             references: decoys + [trueReference],
             minimumSoftClipBases: 2,
-            maximumIndelBases: 1
+            maximumIndelBases: 1,
+            matchingMode: .ontIndel
         )
 
         XCTAssertEqual(
@@ -137,6 +158,7 @@ final class TwelveSAmpliconMatchingWorkflowTests: XCTestCase {
                 outputName: "sampleA-12s",
                 minimumSoftClipBases: 2,
                 maximumIndelBases: 2,
+                matchingMode: .ontIndel,
                 threads: 2
             )
         )
@@ -157,6 +179,8 @@ final class TwelveSAmpliconMatchingWorkflowTests: XCTestCase {
         XCTAssertEqual(provenance.argv.prefix(3), ["lungfish-cli", "fastq", "12s-match"])
         XCTAssertTrue(provenance.argv.contains("--min-soft-clip"))
         XCTAssertTrue(provenance.argv.contains("--max-indels"))
+        XCTAssertTrue(provenance.argv.contains("--matching-mode"))
+        XCTAssertTrue(provenance.argv.contains("ont-indel"))
         XCTAssertTrue(provenance.argv.contains("--threads"))
         XCTAssertTrue(provenance.outputs.contains { $0.path == result.bundleURL.path })
         let outputBundleRecord = try XCTUnwrap(provenance.outputs.first { $0.path == result.bundleURL.path })
@@ -453,6 +477,7 @@ final class TwelveSAmpliconMatchingWorkflowTests: XCTestCase {
         )
 
         let loaded = try TwelveSAmpliconResultBundle.loadResult(from: result.bundleURL)
+        XCTAssertEqual(loaded.samples.first?.displayName, "Merged Sample")
         XCTAssertEqual(loaded.sampleMetadata?.records["MergedSample"]?["sample_name"], "Merged Sample")
         XCTAssertEqual(loaded.sampleMetadata?.records["MergedSample"]?["sample_type"], "wastewater")
         XCTAssertEqual(loaded.sampleMetadata?.records["MergedSample"]?["site"], "Hilo WWTP")
@@ -465,6 +490,9 @@ final class TwelveSAmpliconMatchingWorkflowTests: XCTestCase {
         XCTAssertEqual(loaded.sampleMetadataManifest?.sampleCount, 1)
         XCTAssertEqual(loaded.sampleMetadataManifest?.sources.map(\.kind), [.fastqBundle, .analysisOverride])
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.bundleURL.appendingPathComponent("metadata/resolved-sample-metadata.tsv").path))
+        let samplesTSV = try String(contentsOf: result.bundleURL.appendingPathComponent("samples.tsv"), encoding: .utf8)
+        XCTAssertTrue(samplesTSV.hasPrefix("sample\tsample_name\tsample_id\tdisplay_name"))
+        XCTAssertTrue(samplesTSV.contains("MergedSample\tMerged Sample\tMergedSample\tMerged Sample"))
 
         let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: result.bundleURL))
         XCTAssertTrue(provenance.argv.contains("--sample-metadata"))

@@ -1558,6 +1558,7 @@ private func formatBases(_ bases: Int64) -> String {
         @OptionGroup var globalOptions: GlobalOptions
 
         func run() throws {
+            let startedAt = Date()
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
             let fm = FileManager.default
 
@@ -1575,41 +1576,7 @@ private func formatBases(_ bases: Int64) -> String {
 
             let csvData = try Data(contentsOf: inputURL)
 
-            // Discover known sample IDs from the bundle's database.
-            // Supports NAO-MGS (hits.sqlite), Kraken2 (kraken2.sqlite),
-            // and other classifier types.
-            let knownSampleIds: Set<String>
-            let naoMgsDB = bundleURL.appendingPathComponent("hits.sqlite")
-            let kraken2DB = bundleURL.appendingPathComponent("kraken2.sqlite")
-            let esvirituDB = bundleURL.appendingPathComponent("esviritu.sqlite")
-            if fm.fileExists(atPath: naoMgsDB.path) {
-                let db = try NaoMgsDatabase(at: naoMgsDB)
-                let samples = try db.fetchSamples()
-                knownSampleIds = Set(samples.map(\.sample))
-            } else if fm.fileExists(atPath: kraken2DB.path) {
-                let db = try Kraken2Database(at: kraken2DB)
-                let samples = try db.fetchSamples()
-                knownSampleIds = Set(samples.map(\.sample))
-            } else if fm.fileExists(atPath: esvirituDB.path) {
-                let db = try EsVirituDatabase(at: esvirituDB)
-                let samples = try db.fetchSamples()
-                knownSampleIds = Set(samples.map(\.sample))
-            } else if fm.fileExists(atPath: bundleURL.appendingPathComponent("taxtriage.sqlite").path) {
-                let db = try TaxTriageDatabase(at: bundleURL.appendingPathComponent("taxtriage.sqlite"))
-                let samples = try db.fetchSamples()
-                knownSampleIds = Set(samples.map(\.sample))
-            } else {
-                // Fallback: scan for sample subdirectories
-                let contents = (try? fm.contentsOfDirectory(at: bundleURL, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
-                let subdirs = contents.filter {
-                    (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-                        && !$0.lastPathComponent.hasPrefix(".")
-                        && $0.lastPathComponent != "metadata"
-                        && $0.lastPathComponent != "references"
-                        && $0.lastPathComponent != "bams"
-                }
-                knownSampleIds = Set(subdirs.map(\.lastPathComponent))
-            }
+            let knownSampleIds = try ResultBundleSampleMetadataResolver.knownSampleIDs(in: bundleURL)
 
             if knownSampleIds.isEmpty {
                 print(formatter.warning("No sample IDs found in bundle — metadata will be stored but may not match"))
@@ -1637,6 +1604,17 @@ private func formatBases(_ bases: Int64) -> String {
 
             // Persist to bundle (pass original CSV data for storage)
             try store.persist(originalData: csvData, to: bundleURL)
+            try writeProvenance(
+                store: store,
+                inputURL: inputURL,
+                bundleURL: bundleURL,
+                metadataURL: bundleURL.appendingPathComponent("metadata/sample_metadata.tsv"),
+                sampleColumnIndex: bestColumn.index,
+                sampleColumnName: bestColumn.name,
+                knownSampleCount: knownSampleIds.count,
+                totalMetadataRows: scanResult.totalRows,
+                startedAt: startedAt
+            )
 
             print(formatter.header("Metadata Import"))
             print("")
@@ -1655,6 +1633,108 @@ private func formatBases(_ bases: Int64) -> String {
             } else {
                 print(formatter.warning("No sample IDs matched — metadata stored but not linked"))
             }
+        }
+
+        private func writeProvenance(
+            store: SampleMetadataStore,
+            inputURL: URL,
+            bundleURL: URL,
+            metadataURL: URL,
+            sampleColumnIndex: Int,
+            sampleColumnName: String,
+            knownSampleCount: Int,
+            totalMetadataRows: Int,
+            startedAt: Date
+        ) throws {
+            var builder = ProvenanceRunBuilder(
+                workflowName: "Sample metadata import",
+                workflowVersion: WorkflowRun.currentAppVersion,
+                toolName: "lungfish-cli",
+                toolVersion: WorkflowRun.currentAppVersion
+            )
+            .argv([
+                "lungfish-cli",
+                "import",
+                "metadata",
+            ] + replayableGlobalArguments() + [
+                inputURL.path,
+                "--bundle",
+                bundleURL.path,
+            ])
+            .options(
+                explicit: [
+                    "metadata": .file(inputURL),
+                    "bundle": .file(bundleURL),
+                    "sampleColumnIndex": .integer(sampleColumnIndex),
+                    "sampleColumnName": .string(sampleColumnName),
+                ],
+                defaults: [
+                    "destination": .string("metadata/sample_metadata.tsv"),
+                ],
+                resolved: [
+                    "knownSampleCount": .integer(knownSampleCount),
+                    "matchedSampleCount": .integer(store.matchedSampleIds.count),
+                    "unmatchedMetadataRowCount": .integer(store.unmatchedRecords.count),
+                    "totalMetadataRows": .integer(totalMetadataRows),
+                    "quiet": .boolean(globalOptions.quiet),
+                    "verbosity": .integer(globalOptions.verbosity),
+                    "outputFormat": .string(globalOptions.outputFormat.rawValue),
+                    "noColor": .boolean(globalOptions.noColor),
+                ]
+            )
+            .runtime(ProvenanceRuntimeIdentity())
+
+            builder = try builder.input(inputURL, format: .text, role: .input)
+            for contextURL in ResultBundleSampleMetadataResolver.sampleMetadataContextFiles(in: bundleURL) {
+                builder = try builder.input(contextURL, format: format(for: contextURL), role: .input)
+            }
+            builder = try builder.output(metadataURL, format: .text, role: .output)
+
+            let envelope = try builder.complete(exitStatus: 0, startedAt: startedAt, endedAt: Date())
+            _ = try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
+        }
+
+        private func format(for url: URL) -> FileFormat {
+            switch url.pathExtension.lowercased() {
+            case "json":
+                return .json
+            case "fa", "fasta", "fna":
+                return .fasta
+            default:
+                return .text
+            }
+        }
+
+        private func replayableGlobalArguments() -> [String] {
+            var argv: [String] = []
+            if globalOptions.outputFormat != .text {
+                argv += ["--format", globalOptions.outputFormat.rawValue]
+            }
+            if globalOptions.verbosity > 0 {
+                argv += Array(repeating: "--verbose", count: globalOptions.verbosity)
+            }
+            if globalOptions.quiet {
+                argv.append("--quiet")
+            }
+            if globalOptions.showProgress {
+                argv.append("--progress")
+            }
+            if globalOptions.noProgress {
+                argv.append("--no-progress")
+            }
+            if globalOptions.debug {
+                argv.append("--debug")
+            }
+            if let logFile = globalOptions.logFile {
+                argv += ["--log-file", logFile]
+            }
+            if globalOptions.noColor {
+                argv.append("--no-color")
+            }
+            if let threads = globalOptions.threads {
+                argv += ["--threads", String(threads)]
+            }
+            return argv
         }
     }
 

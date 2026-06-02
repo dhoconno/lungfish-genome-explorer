@@ -55,6 +55,7 @@ final class FastqTwelveSMatchSubcommandTests: XCTestCase {
             "--sample-metadata", "/tmp/samples.tsv",
             "--min-soft-clip", "2",
             "--max-indels", "4",
+            "--matching-mode", "ont-indel",
             "--threads", "4",
             "--no-chimera-review",
             "--force",
@@ -68,6 +69,7 @@ final class FastqTwelveSMatchSubcommandTests: XCTestCase {
         XCTAssertEqual(command.sampleMetadata, "/tmp/samples.tsv")
         XCTAssertEqual(command.minimumSoftClipBases, 2)
         XCTAssertEqual(command.maximumIndelBases, 4)
+        XCTAssertEqual(command.matchingMode, "ont-indel")
         XCTAssertEqual(command.globalOptions.threads, 4)
         XCTAssertFalse(command.chimeraReview)
         XCTAssertTrue(command.force)
@@ -83,6 +85,7 @@ final class FastqTwelveSMatchSubcommandTests: XCTestCase {
             "--sample-metadata", "/tmp/samples.tsv",
             "--min-soft-clip", "2",
             "--max-indels", "4",
+            "--matching-mode", "ont-indel",
             "--threads", "4",
             "--force",
         ])
@@ -97,6 +100,7 @@ final class FastqTwelveSMatchSubcommandTests: XCTestCase {
         XCTAssertEqual(config.outputName, "wwtp-12s")
         XCTAssertEqual(config.minimumSoftClipBases, 2)
         XCTAssertEqual(config.maximumIndelBases, 4)
+        XCTAssertEqual(config.matchingMode, .ontIndel)
         XCTAssertEqual(config.threads, 4)
         XCTAssertTrue(config.runChimeraReview)
         XCTAssertTrue(config.forceOverwrite)
@@ -104,7 +108,22 @@ final class FastqTwelveSMatchSubcommandTests: XCTestCase {
         XCTAssertTrue(config.argv.contains("12s-match"))
         XCTAssertTrue(config.argv.contains("--reference-metadata"))
         XCTAssertTrue(config.argv.contains("--sample-metadata"))
+        XCTAssertTrue(config.argv.contains("--matching-mode"))
+        XCTAssertTrue(config.argv.contains("ont-indel"))
         XCTAssertTrue(config.argv.contains("--threads"))
+    }
+
+    func testTwelveSMatchDefaultsToIlluminaExactMode() throws {
+        let command = try FastqTwelveSMatchSubcommand.parse([
+            "/tmp/a.fastq", "--reference", "/tmp/ref.fa",
+            "--output-dir", "/tmp/out", "--output-name", "x",
+        ])
+
+        let config = try command.configurationForTesting()
+
+        XCTAssertEqual(command.matchingMode, "illumina-exact")
+        XCTAssertEqual(config.matchingMode, .illuminaExact)
+        XCTAssertFalse(config.argv.contains("--matching-mode"))
     }
 
     func testAmbiguityResolutionDefaultsToStrict() throws {

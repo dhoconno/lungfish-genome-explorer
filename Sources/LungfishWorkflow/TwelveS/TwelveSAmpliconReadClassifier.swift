@@ -6,10 +6,33 @@ public enum TwelveSReadClassification: Equatable, Sendable {
     case unresolved
 }
 
+public enum TwelveSAmpliconMatchingMode: String, CaseIterable, Codable, Sendable {
+    case illuminaExact = "illumina-exact"
+    case ontIndel = "ont-indel"
+
+    public var displayName: String {
+        switch self {
+        case .illuminaExact:
+            return "Illumina exact"
+        case .ontIndel:
+            return "ONT indel-tolerant"
+        }
+    }
+
+    public var allowsIndelFallback: Bool {
+        self == .ontIndel
+    }
+
+    public static func cliValue(_ value: String) -> TwelveSAmpliconMatchingMode? {
+        Self(rawValue: value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+    }
+}
+
 public struct TwelveSAmpliconReadClassifier: Sendable {
     public let references: [TwelveSReferenceRecord]
     public let minimumSoftClipBases: Int
     public let maximumIndelBases: Int
+    public let matchingMode: TwelveSAmpliconMatchingMode
 
     private struct IndexedReference: Sendable {
         let targetID: String
@@ -27,6 +50,12 @@ public struct TwelveSAmpliconReadClassifier: Sendable {
         let sequence: [UInt8]
     }
 
+    private struct ExactLengthIndex: Sendable {
+        let length: Int
+        let removalPower: UInt64
+        let matchesByHash: [UInt64: [ExactMatch]]
+    }
+
     private struct SeedHit: Sendable {
         let referenceIndex: Int
         let offset: Int
@@ -38,6 +67,7 @@ public struct TwelveSAmpliconReadClassifier: Sendable {
     }
 
     private let indexedReferences: [IndexedReference]
+    private let exactLengthIndexes: [ExactLengthIndex]
     private let seedIndex: [String: [SeedHit]]
     private let indexedSeedLengths: [Int]
     private let minimumReferenceAlignedLengths: [Int]
@@ -45,11 +75,13 @@ public struct TwelveSAmpliconReadClassifier: Sendable {
     public init(
         references: [TwelveSReferenceRecord],
         minimumSoftClipBases: Int = 1,
-        maximumIndelBases: Int = 3
+        maximumIndelBases: Int = 3,
+        matchingMode: TwelveSAmpliconMatchingMode = .illuminaExact
     ) {
         self.references = references
         self.minimumSoftClipBases = max(0, minimumSoftClipBases)
         self.maximumIndelBases = max(0, maximumIndelBases)
+        self.matchingMode = matchingMode
         self.indexedReferences = references.map {
             IndexedReference(
                 targetID: $0.targetID,
@@ -57,23 +89,50 @@ public struct TwelveSAmpliconReadClassifier: Sendable {
                 target: Array($0.sequence.uppercased().utf8)
             )
         }
+        var exactMatchIndex: [Int: [UInt64: [ExactMatch]]] = [:]
+        for reference in indexedReferences where !reference.target.isEmpty {
+            let hash = Self.exactHash(
+                bytes: reference.target,
+                offset: 0,
+                length: reference.target.count
+            )
+            exactMatchIndex[reference.target.count, default: [:]][hash, default: []].append(
+                ExactMatch(
+                    targetID: reference.targetID,
+                    displayName: reference.displayName,
+                    sequence: reference.target
+                )
+            )
+        }
+        self.exactLengthIndexes = exactMatchIndex
+            .map { length, matchesByHash in
+                ExactLengthIndex(
+                    length: length,
+                    removalPower: Self.exactHashRemovalPower(forLength: length),
+                    matchesByHash: matchesByHash
+                )
+            }
+            .sorted { $0.length < $1.length }
+
         var seedIndex: [String: [SeedHit]] = [:]
         var seedLengths = Set<Int>()
-        for (referenceIndex, reference) in indexedReferences.enumerated() {
-            let seedLength = Self.seedLength(forTargetLength: reference.target.count)
-            guard seedLength > 0, reference.target.count >= seedLength else { continue }
-            seedLengths.insert(seedLength)
-            var seenSeeds = Set<String>()
-            for offset in 0...(reference.target.count - seedLength) {
-                let seed = Self.seedKey(
-                    bytes: reference.target,
-                    offset: offset,
-                    length: seedLength
-                )
-                guard seenSeeds.insert(seed).inserted else { continue }
-                seedIndex[seed, default: []].append(
-                    SeedHit(referenceIndex: referenceIndex, offset: offset)
-                )
+        if matchingMode.allowsIndelFallback {
+            for (referenceIndex, reference) in indexedReferences.enumerated() {
+                let seedLength = Self.seedLength(forTargetLength: reference.target.count)
+                guard seedLength > 0, reference.target.count >= seedLength else { continue }
+                seedLengths.insert(seedLength)
+                var seenSeeds = Set<String>()
+                for offset in 0...(reference.target.count - seedLength) {
+                    let seed = Self.seedKey(
+                        bytes: reference.target,
+                        offset: offset,
+                        length: seedLength
+                    )
+                    guard seenSeeds.insert(seed).inserted else { continue }
+                    seedIndex[seed, default: []].append(
+                        SeedHit(referenceIndex: referenceIndex, offset: offset)
+                    )
+                }
             }
         }
         self.seedIndex = seedIndex
@@ -91,6 +150,8 @@ public struct TwelveSAmpliconReadClassifier: Sendable {
         if let exactClassification = resolveExactMatches(exactMatchedReferences(in: read)) {
             return exactClassification
         }
+
+        guard matchingMode.allowsIndelFallback else { return .unresolved }
 
         for candidate in candidateReferences(for: read) {
             let reference = indexedReferences[candidate.referenceIndex]
@@ -120,38 +181,36 @@ public struct TwelveSAmpliconReadClassifier: Sendable {
     /// matched reference's sequence and display name so ``classify(readSequence:)`` can collapse
     /// nested-substring and same-species duplication artifacts.
     private func exactMatchedReferences(in read: [UInt8]) -> [ExactMatch] {
-        guard minimumSoftClipBases >= 0 else { return [] }
+        guard !exactLengthIndexes.isEmpty else { return [] }
         let lowerBound = minimumSoftClipBases
         let upperBound = read.count - minimumSoftClipBases
         guard upperBound > lowerBound else { return [] }
 
         var matches: [ExactMatch] = []
         var seenTargetIDs = Set<String>()
-        for reference in indexedReferences {
-            let pattern = reference.target
-            let m = pattern.count
-            guard m > 0, m <= upperBound - lowerBound else { continue }
+        let searchableLength = upperBound - lowerBound
+        for lengthIndex in exactLengthIndexes where lengthIndex.length <= searchableLength {
+            let length = lengthIndex.length
             let firstStart = lowerBound
-            let lastStart = upperBound - m
+            let lastStart = upperBound - length
             guard lastStart >= firstStart else { continue }
             var start = firstStart
-            scan: while start <= lastStart {
-                var k = 0
-                while k < m {
-                    if read[start + k] != pattern[k] { break }
-                    k += 1
-                }
-                if k == m {
-                    if seenTargetIDs.insert(reference.targetID).inserted {
-                        matches.append(
-                            ExactMatch(
-                                targetID: reference.targetID,
-                                displayName: reference.displayName,
-                                sequence: pattern
-                            )
-                        )
+            var hash = Self.exactHash(bytes: read, offset: start, length: length)
+            while start <= lastStart {
+                if let exactMatches = lengthIndex.matchesByHash[hash] {
+                    for match in exactMatches
+                    where Self.sequence(match.sequence, matches: read, at: start)
+                        && seenTargetIDs.insert(match.targetID).inserted {
+                        matches.append(match)
                     }
-                    break scan
+                }
+                if start < lastStart {
+                    hash = Self.rollExactHash(
+                        hash,
+                        outgoing: read[start],
+                        incoming: read[start + length],
+                        removalPower: lengthIndex.removalPower
+                    )
                 }
                 start += 1
             }
@@ -228,6 +287,48 @@ public struct TwelveSAmpliconReadClassifier: Sendable {
             start += 1
         }
         return false
+    }
+
+    private static let exactHashBase: UInt64 = 257
+
+    private static func exactHashToken(_ byte: UInt8) -> UInt64 {
+        UInt64(byte) &+ 1
+    }
+
+    private static func exactHash(bytes: [UInt8], offset: Int, length: Int) -> UInt64 {
+        var hash: UInt64 = 0
+        guard length > 0 else { return hash }
+        for index in offset..<(offset + length) {
+            hash = hash &* exactHashBase &+ exactHashToken(bytes[index])
+        }
+        return hash
+    }
+
+    private static func exactHashRemovalPower(forLength length: Int) -> UInt64 {
+        guard length > 1 else { return 1 }
+        var power: UInt64 = 1
+        for _ in 1..<length {
+            power = power &* exactHashBase
+        }
+        return power
+    }
+
+    private static func rollExactHash(
+        _ hash: UInt64,
+        outgoing: UInt8,
+        incoming: UInt8,
+        removalPower: UInt64
+    ) -> UInt64 {
+        let withoutOutgoing = hash &- (exactHashToken(outgoing) &* removalPower)
+        return withoutOutgoing &* exactHashBase &+ exactHashToken(incoming)
+    }
+
+    private static func sequence(_ sequence: [UInt8], matches read: [UInt8], at start: Int) -> Bool {
+        guard start >= 0, start + sequence.count <= read.count else { return false }
+        for offset in sequence.indices where sequence[offset] != read[start + offset] {
+            return false
+        }
+        return true
     }
 
     private func candidateReferences(for read: [UInt8]) -> [CandidateReference] {

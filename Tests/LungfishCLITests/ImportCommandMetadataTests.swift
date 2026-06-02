@@ -3,6 +3,7 @@ import ArgumentParser
 @testable import LungfishCLI
 @testable import LungfishCore
 @testable import LungfishIO
+@testable import LungfishWorkflow
 
 final class ImportCommandMetadataTests: XCTestCase {
 
@@ -52,6 +53,43 @@ final class ImportCommandMetadataTests: XCTestCase {
         let metadata = database.sampleMetadata(name: "test")
         XCTAssertEqual(metadata["lineage"], "B.1.1.7")
         XCTAssertEqual(metadata["status"], "confirmed")
+    }
+
+    func testMetadataSubcommandImportsIntoTwelveSBundleAndWritesProvenance() throws {
+        let bundleURL = try makeTwelveSBundle()
+        let metadataURL = tempDir.appendingPathComponent("twelve-s-metadata.csv")
+        try """
+        sample,site,cohort
+        SampleA,Hilo,batch-1
+        """.write(to: metadataURL, atomically: true, encoding: .utf8)
+
+        let command = try MetadataSubcommand.parse([
+            metadataURL.path,
+            "--bundle",
+            bundleURL.path,
+            "--quiet",
+        ])
+        try command.run()
+
+        let store = SampleMetadataStore.load(from: bundleURL, knownSampleIds: Set(["SampleA"]))
+        XCTAssertEqual(store?.records["SampleA"]?["site"], "Hilo")
+        XCTAssertEqual(store?.records["SampleA"]?["cohort"], "batch-1")
+
+        let provenanceURL = bundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        let provenance = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: provenanceURL)
+        )
+        XCTAssertEqual(provenance.workflowName, "Sample metadata import")
+        XCTAssertTrue(provenance.argv.contains("--quiet"))
+        XCTAssertTrue(provenance.files.contains { $0.path == metadataURL.path && $0.role == .input })
+        XCTAssertTrue(provenance.files.contains {
+            $0.path == bundleURL.appendingPathComponent(TwelveSAmpliconResultBundleManifest.filename).path
+                && $0.role == .input
+        })
+        XCTAssertTrue(provenance.outputs.contains {
+            $0.path == bundleURL.appendingPathComponent("metadata/sample_metadata.tsv").path && $0.role == .output
+        })
     }
 
     func testVCFSubcommandRejectsVCFv3BeforeCopying() async throws {
@@ -122,6 +160,28 @@ final class ImportCommandMetadataTests: XCTestCase {
             ]
         )
         try manifest.save(to: bundleURL)
+        return bundleURL
+    }
+
+    private func makeTwelveSBundle() throws -> URL {
+        let bundleURL = tempDir.appendingPathComponent("Run.lungfish12s", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        let manifest = TwelveSAmpliconResultBundleManifest(
+            outputName: "Run",
+            analysisName: "Run",
+            referencePath: "reference.fa",
+            targetTablePath: "targets.tsv",
+            countMatrixPath: "sample-target-counts.tsv",
+            sampleTablePath: "samples.tsv",
+            readFatePath: "read-fate.json",
+            provenancePath: ProvenanceWriter.provenanceFilename
+        )
+        try TwelveSAmpliconResultBundle.writeManifest(manifest, to: bundleURL)
+        try """
+        sample\tsample_name\tinput_reads\texact_match_reads\tunresolved_reads\tambiguous_exact_reads\tchimera_candidate_reads\texact_match_percent\tunresolved_percent
+        SampleA\tSample A\t10\t8\t2\t0\t0\t80.0\t20.0
+        """.write(to: bundleURL.appendingPathComponent("samples.tsv"), atomically: true, encoding: .utf8)
         return bundleURL
     }
 }

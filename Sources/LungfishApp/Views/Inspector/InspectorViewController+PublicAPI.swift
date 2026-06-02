@@ -377,6 +377,9 @@ extension InspectorViewController {
 
     func updateTwelveSAmpliconResultDocument(_ result: TwelveSAmpliconResultBundleData) {
         viewModel.readStyleSectionViewModel.clear()
+        let knownSampleIDs = Set(result.samples.map(\.sampleID))
+        let importedMetadataStore = SampleMetadataStore.load(from: result.bundleURL, knownSampleIds: knownSampleIDs)
+        importedMetadataStore?.wireAutosave(bundleURL: result.bundleURL)
         let currentDisplay = viewModel.twelveSResultDisplaySectionViewModel.displayState
         viewModel.twelveSResultDisplaySectionViewModel.update(isAvailable: true, state: currentDisplay)
         viewModel.twelveSResultDisplaySectionViewModel.updateSummary(
@@ -391,6 +394,9 @@ extension InspectorViewController {
             metadata: result.sampleMetadata,
             manifest: result.sampleMetadataManifest
         )
+        if let importedMetadataStore {
+            viewModel.twelveSResultDisplaySectionViewModel.sampleMetadataStore = importedMetadataStore
+        }
         viewModel.twelveSResultDisplaySectionViewModel.updateTaxonGroupOptions(
             result.scientificNameRows.flatMap(\.displayTaxonGroups)
         )
@@ -402,6 +408,10 @@ extension InspectorViewController {
             displayName: result.manifest.analysisName
         )
         viewModel.selectedTab = .resultSummary
+    }
+
+    func updateTwelveSImportedSampleMetadata(_ metadataStore: SampleMetadataStore?) {
+        viewModel.twelveSResultDisplaySectionViewModel.sampleMetadataStore = metadataStore
     }
 
     /// Updates the 12S Detail tab with the currently-selected row's payload, or

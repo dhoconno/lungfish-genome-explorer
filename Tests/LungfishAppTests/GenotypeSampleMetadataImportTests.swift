@@ -52,6 +52,66 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
         XCTAssertTrue(provenance.outputs.contains(where: { $0.path == finalMetadataURL.path && $0.role == .output }))
     }
 
+    func testImportPersistsTwelveSMetadataAndProvenanceWithResultPayload() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeSampleMetadataImportTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let bundleURL = root.appendingPathComponent("run.lungfish12s", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let manifest = TwelveSAmpliconResultBundleManifest(
+            outputName: "run",
+            analysisName: "run",
+            referencePath: "reference.fa",
+            targetTablePath: "targets.tsv",
+            countMatrixPath: "sample-target-counts.tsv",
+            sampleTablePath: "samples.tsv",
+            readFatePath: "read-fate.json",
+            provenancePath: ProvenanceWriter.provenanceFilename
+        )
+        try TwelveSAmpliconResultBundle.writeManifest(manifest, to: bundleURL)
+        try """
+        sample\tsample_name\tinput_reads\texact_match_reads\tunresolved_reads\tambiguous_exact_reads\tchimera_candidate_reads\texact_match_percent\tunresolved_percent
+        SampleA\tSample A\t10\t8\t2\t0\t0\t80.0\t20.0
+        """.write(to: bundleURL.appendingPathComponent("samples.tsv"), atomically: true, encoding: .utf8)
+
+        let sourceURL = root.appendingPathComponent("metadata.tsv")
+        let metadata = Data("""
+        sample\tsite
+        SampleA\tHilo
+        """.utf8)
+        try metadata.write(to: sourceURL)
+        let knownSampleIds = try ResultBundleSampleMetadataResolver.knownSampleIDs(in: bundleURL)
+        let scanResult = try SampleMetadataStore.scanForSampleColumn(
+            csvData: metadata,
+            knownSampleIds: knownSampleIds
+        )
+        let bestColumn = try XCTUnwrap(scanResult.bestColumn)
+
+        let result = try SampleMetadataBundleImportService().importMetadata(
+            data: metadata,
+            sourceURL: sourceURL,
+            scanResult: scanResult,
+            sampleColumnIndex: bestColumn.index,
+            knownSampleIds: knownSampleIds,
+            bundleURL: bundleURL
+        )
+
+        XCTAssertEqual(result.store.records["SampleA"]?["site"], "Hilo")
+        let provenanceURL = try XCTUnwrap(result.provenanceURL)
+        let provenance = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: provenanceURL)
+        )
+        XCTAssertTrue(provenance.files.contains {
+            $0.path == bundleURL.appendingPathComponent(TwelveSAmpliconResultBundleManifest.filename).path
+                && $0.role == .input
+        })
+        XCTAssertTrue(provenance.files.contains {
+            $0.path == bundleURL.appendingPathComponent("samples.tsv").path && $0.role == .input
+        })
+    }
+
     func testInspectorMetadataImportUsesGenotypeContextAndRefreshesViewportCallback() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeSampleMetadataImportTests-\(UUID().uuidString)", isDirectory: true)

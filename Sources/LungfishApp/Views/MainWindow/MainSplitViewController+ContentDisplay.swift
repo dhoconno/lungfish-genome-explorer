@@ -320,6 +320,11 @@ extension MainSplitViewController {
             inspectorController.clearSelection()
             inspectorController.updateTwelveSAmpliconResultDocument(result)
             let controller = viewerController.displayTwelveSAmpliconResult(result)
+            let knownSampleIDs = Set(result.samples.map(\.sampleID))
+            let metadataStore = SampleMetadataStore.load(from: result.bundleURL, knownSampleIds: knownSampleIDs)
+            metadataStore?.wireAutosave(bundleURL: result.bundleURL)
+            controller.applyMetadataStore(metadataStore)
+            inspectorController.updateTwelveSImportedSampleMetadata(metadataStore)
             controller.onDisplaySummaryChanged = { [weak self] summary in
                 self?.inspectorController.updateTwelveSResultDisplaySummary(summary)
             }
@@ -333,7 +338,7 @@ extension MainSplitViewController {
                 guard let self, let controller else { return }
                 self.presentTwelveSMetadataImport(
                     into: controller,
-                    knownSampleIDs: Set(result.samples.map(\.sampleID)),
+                    knownSampleIDs: knownSampleIDs,
                     bundleURL: result.bundleURL
                 )
             }
@@ -626,6 +631,7 @@ extension MainSplitViewController {
                 bundleURL: bundleURL
             )
             controller.applyMetadataStore(result.store)
+            inspectorController.updateTwelveSImportedSampleMetadata(result.store)
         } catch {
             alert("Metadata Import Failed", error.localizedDescription)
         }
