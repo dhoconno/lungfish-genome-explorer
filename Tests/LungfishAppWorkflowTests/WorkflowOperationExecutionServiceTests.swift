@@ -363,6 +363,31 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
         )
     }
 
+    func testONTGenotypingArgumentsUseCohortCommandForMultipleIlluminaInputs() throws {
+        let temp = try temporaryDirectory()
+        let first = temp.appendingPathComponent("DW001.lungfishfastq", isDirectory: true)
+        let second = temp.appendingPathComponent("DW002.lungfishfastq", isDirectory: true)
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURLs: [first, second],
+            referenceSourceURL: temp.appendingPathComponent("ref.lungfishref", isDirectory: true),
+            outputDirectory: temp.appendingPathComponent("out.lungfishgenotype", isDirectory: true),
+            outputName: "miseq-mhc",
+            threads: 4,
+            minSupport: 2,
+            mode: .illuminaPaired,
+            readType: .illumina
+        )
+
+        let service = WorkflowOperationExecutionService()
+        let arguments = service.ontGenotypingArguments(for: request)
+
+        XCTAssertEqual(Array(arguments.prefix(2)), ["fastq", "genotype-cohort"])
+        XCTAssertTrue(arguments.contains(first.standardizedFileURL.path))
+        XCTAssertTrue(arguments.contains(second.standardizedFileURL.path))
+        XCTAssertEqual(try testValue(after: "--mode", in: arguments), "illumina-paired")
+        XCTAssertEqual(try testValue(after: "--read-type", in: arguments), "illumina")
+    }
+
     private func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("WorkflowOperationExecutionServiceTests-\(UUID().uuidString)", isDirectory: true)

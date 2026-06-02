@@ -1,5 +1,55 @@
 import Foundation
 
+public enum ONTGenotypeWorkbookRevisionRole: String, Codable, CaseIterable, Equatable, Sendable {
+    case initialCurrentCopy = "initial-current-copy"
+    case imported
+    case restored
+    case externalEditSnapshot = "external-edit-snapshot"
+}
+
+public struct ONTGenotypeWorkbookRevision: Codable, Equatable, Sendable {
+    public let id: String
+    public let role: ONTGenotypeWorkbookRevisionRole
+    public let path: String
+    public let label: String
+    public let sourceFilename: String?
+    public let createdAt: String
+    public let user: String?
+    public let predecessorID: String?
+    public let predecessorPath: String?
+    public let sha256: String
+    public let sizeBytes: Int64
+    public let provenancePath: String?
+
+    public init(
+        id: String,
+        role: ONTGenotypeWorkbookRevisionRole,
+        path: String,
+        label: String,
+        sourceFilename: String? = nil,
+        createdAt: String,
+        user: String? = nil,
+        predecessorID: String? = nil,
+        predecessorPath: String? = nil,
+        sha256: String,
+        sizeBytes: Int64,
+        provenancePath: String? = nil
+    ) {
+        self.id = id
+        self.role = role
+        self.path = path
+        self.label = label
+        self.sourceFilename = sourceFilename
+        self.createdAt = createdAt
+        self.user = user
+        self.predecessorID = predecessorID
+        self.predecessorPath = predecessorPath
+        self.sha256 = sha256
+        self.sizeBytes = sizeBytes
+        self.provenancePath = provenancePath
+    }
+}
+
 public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
     public static let filename = "genotype-result.json"
 
@@ -8,6 +58,8 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
     public let outputName: String
     public let analysisName: String
     public let primaryWorkbookPath: String
+    public let currentWorkbookPath: String?
+    public let workbookRevisions: [ONTGenotypeWorkbookRevision]?
     public let longSummaryCSVPath: String
     public let sampleSummaryCSVPath: String
     public let statsJSONPath: String
@@ -16,6 +68,40 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
     public let haplotypeDefinitionSetID: String?
     public let haplotypeAssayID: String?
     public let createdAt: String?
+
+    public init(
+        schemaVersion: Int = 1,
+        kind: String = "ont-barcode-genotype",
+        outputName: String,
+        analysisName: String,
+        primaryWorkbookPath: String,
+        currentWorkbookPath: String? = nil,
+        workbookRevisions: [ONTGenotypeWorkbookRevision]? = nil,
+        longSummaryCSVPath: String,
+        sampleSummaryCSVPath: String,
+        statsJSONPath: String,
+        provenancePath: String,
+        haplotypeAnalysisPath: String? = nil,
+        haplotypeDefinitionSetID: String? = nil,
+        haplotypeAssayID: String? = nil,
+        createdAt: String? = nil
+    ) {
+        self.schemaVersion = schemaVersion
+        self.kind = kind
+        self.outputName = outputName
+        self.analysisName = analysisName
+        self.primaryWorkbookPath = primaryWorkbookPath
+        self.currentWorkbookPath = currentWorkbookPath
+        self.workbookRevisions = workbookRevisions
+        self.longSummaryCSVPath = longSummaryCSVPath
+        self.sampleSummaryCSVPath = sampleSummaryCSVPath
+        self.statsJSONPath = statsJSONPath
+        self.provenancePath = provenancePath
+        self.haplotypeAnalysisPath = haplotypeAnalysisPath
+        self.haplotypeDefinitionSetID = haplotypeDefinitionSetID
+        self.haplotypeAssayID = haplotypeAssayID
+        self.createdAt = createdAt
+    }
 
     public init(
         schemaVersion: Int = 1,
@@ -32,19 +118,23 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
         haplotypeAssayID: String? = nil,
         createdAt: String? = nil
     ) {
-        self.schemaVersion = schemaVersion
-        self.kind = kind
-        self.outputName = outputName
-        self.analysisName = analysisName
-        self.primaryWorkbookPath = primaryWorkbookPath
-        self.longSummaryCSVPath = longSummaryCSVPath
-        self.sampleSummaryCSVPath = sampleSummaryCSVPath
-        self.statsJSONPath = statsJSONPath
-        self.provenancePath = provenancePath
-        self.haplotypeAnalysisPath = haplotypeAnalysisPath
-        self.haplotypeDefinitionSetID = haplotypeDefinitionSetID
-        self.haplotypeAssayID = haplotypeAssayID
-        self.createdAt = createdAt
+        self.init(
+            schemaVersion: schemaVersion,
+            kind: kind,
+            outputName: outputName,
+            analysisName: analysisName,
+            primaryWorkbookPath: primaryWorkbookPath,
+            currentWorkbookPath: nil,
+            workbookRevisions: nil,
+            longSummaryCSVPath: longSummaryCSVPath,
+            sampleSummaryCSVPath: sampleSummaryCSVPath,
+            statsJSONPath: statsJSONPath,
+            provenancePath: provenancePath,
+            haplotypeAnalysisPath: haplotypeAnalysisPath,
+            haplotypeDefinitionSetID: haplotypeDefinitionSetID,
+            haplotypeAssayID: haplotypeAssayID,
+            createdAt: createdAt
+        )
     }
 }
 
@@ -549,11 +639,30 @@ public struct ONTGenotypeRunStats: Codable, Equatable, Sendable {
 
 public struct ONTGenotypeResultArtifacts: Codable, Equatable, Sendable {
     public let workbookURL: URL
+    public let primaryWorkbookURL: URL
     public let longSummaryCSVURL: URL
     public let sampleSummaryCSVURL: URL
     public let statsJSONURL: URL
     public let provenanceURL: URL
     public let haplotypeAnalysisURL: URL?
+
+    public init(
+        workbookURL: URL,
+        primaryWorkbookURL: URL? = nil,
+        longSummaryCSVURL: URL,
+        sampleSummaryCSVURL: URL,
+        statsJSONURL: URL,
+        provenanceURL: URL,
+        haplotypeAnalysisURL: URL? = nil
+    ) {
+        self.workbookURL = workbookURL.standardizedFileURL
+        self.primaryWorkbookURL = (primaryWorkbookURL ?? workbookURL).standardizedFileURL
+        self.longSummaryCSVURL = longSummaryCSVURL.standardizedFileURL
+        self.sampleSummaryCSVURL = sampleSummaryCSVURL.standardizedFileURL
+        self.statsJSONURL = statsJSONURL.standardizedFileURL
+        self.provenanceURL = provenanceURL.standardizedFileURL
+        self.haplotypeAnalysisURL = haplotypeAnalysisURL?.standardizedFileURL
+    }
 
     public init(
         workbookURL: URL,
@@ -563,12 +672,15 @@ public struct ONTGenotypeResultArtifacts: Codable, Equatable, Sendable {
         provenanceURL: URL,
         haplotypeAnalysisURL: URL? = nil
     ) {
-        self.workbookURL = workbookURL.standardizedFileURL
-        self.longSummaryCSVURL = longSummaryCSVURL.standardizedFileURL
-        self.sampleSummaryCSVURL = sampleSummaryCSVURL.standardizedFileURL
-        self.statsJSONURL = statsJSONURL.standardizedFileURL
-        self.provenanceURL = provenanceURL.standardizedFileURL
-        self.haplotypeAnalysisURL = haplotypeAnalysisURL?.standardizedFileURL
+        self.init(
+            workbookURL: workbookURL,
+            primaryWorkbookURL: workbookURL,
+            longSummaryCSVURL: longSummaryCSVURL,
+            sampleSummaryCSVURL: sampleSummaryCSVURL,
+            statsJSONURL: statsJSONURL,
+            provenanceURL: provenanceURL,
+            haplotypeAnalysisURL: haplotypeAnalysisURL
+        )
     }
 }
 
@@ -932,6 +1044,14 @@ public enum ONTGenotypeResultBundle {
         return resolvedURL(for: manifest.primaryWorkbookPath, in: bundleURL)
     }
 
+    public static func currentWorkbookURL(for bundleURL: URL) throws -> URL {
+        let manifest = try loadManifest(from: bundleURL)
+        return resolvedURL(
+            for: manifest.currentWorkbookPath ?? manifest.primaryWorkbookPath,
+            in: bundleURL
+        )
+    }
+
     public static func loadResult(from bundleURL: URL) throws -> ONTGenotypeResultBundleData {
         let manifest = try loadManifest(from: bundleURL)
         return try loadResult(from: bundleURL, manifest: manifest)
@@ -942,7 +1062,11 @@ public enum ONTGenotypeResultBundle {
         manifest: ONTGenotypeResultBundleManifest
     ) throws -> ONTGenotypeResultBundleData {
         let artifacts = ONTGenotypeResultArtifacts(
-            workbookURL: resolvedURL(for: manifest.primaryWorkbookPath, in: bundleURL),
+            workbookURL: resolvedURL(
+                for: manifest.currentWorkbookPath ?? manifest.primaryWorkbookPath,
+                in: bundleURL
+            ),
+            primaryWorkbookURL: resolvedURL(for: manifest.primaryWorkbookPath, in: bundleURL),
             longSummaryCSVURL: resolvedURL(for: manifest.longSummaryCSVPath, in: bundleURL),
             sampleSummaryCSVURL: resolvedURL(for: manifest.sampleSummaryCSVPath, in: bundleURL),
             statsJSONURL: resolvedURL(for: manifest.statsJSONPath, in: bundleURL),

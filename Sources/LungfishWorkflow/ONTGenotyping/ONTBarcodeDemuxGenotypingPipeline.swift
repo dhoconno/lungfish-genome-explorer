@@ -178,11 +178,24 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
         return outputDirectory.appendingPathComponent("\(outputName)\(analysisSuffix)\(comparisonSuffix).xlsx")
     }
 
+    public var currentWorkbookURL: URL {
+        outputDirectory
+            .appendingPathComponent("artifacts/workbooks", isDirectory: true)
+            .appendingPathComponent("current.xlsx")
+    }
+
+    public var cliSubcommand: String {
+        let illuminaCohort = inputFASTQURLs.count > 1
+            && barcodeDefinitionsURL == nil
+            && (mode == .illuminaPaired || (mode == .auto && readType == .illumina))
+        return illuminaCohort ? "genotype-cohort" : "genotype"
+    }
+
     public var argv: [String] {
         var values = [
             "lungfish",
             "fastq",
-            "genotype",
+            cliSubcommand,
         ] + inputFASTQURLs.map(\.path) + [
             "--mode", mode.cliArgument,
             "--read-type", readType.cliArgument,
@@ -468,6 +481,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             pythonURL: reportPythonURL
         )
 
+        let workbookCopy = try createInitialCurrentWorkbookCopy(for: request)
         let completedAt = Date()
         progressHandler?(0.93, "Writing reproducibility provenance and bundle manifest.")
         let provenanceURL = try writeProvenance(
@@ -489,6 +503,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             mapping: mapping,
             filter: filter,
             report: report,
+            workbookCopy: workbookCopy,
             haplotypeAnalysis: haplotypeAnalysis,
             startedAt: startedAt,
             completedAt: completedAt
@@ -497,10 +512,11 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             request: request,
             resolvedMode: resolvedMode,
             provenanceURL: provenanceURL,
+            workbookRevision: workbookCopy.revision,
             completedAt: completedAt
         )
         progressHandler?(0.97, "Removing regenerable alignment intermediates.")
-        try removeGeneratedAlignmentIntermediates(for: request)
+        try removeGeneratedAlignmentIntermediates(for: request, mapping: mapping)
         progressHandler?(0.98, "Finalizing amplicon genotyping outputs.")
 
         return ONTBarcodeDemuxGenotypingResult(
@@ -513,7 +529,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             sampleSummaryCSVURL: request.sampleSummaryCSVURL,
             statsJSONURL: request.statsJSONURL,
             haplotypeAnalysisURL: haplotypeAnalysis == nil ? nil : request.haplotypeAnalysisURL,
-            workbookURL: request.workbookURL,
+            workbookURL: request.currentWorkbookURL,
             reportProvenanceURL: request.reportProvenanceURL,
             provenanceURL: provenanceURL,
             referenceFASTAURL: reference.referenceFASTAURL,
@@ -626,10 +642,24 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
     private struct MappingStepResult {
         let minimap2Arguments: [String]
         let samtoolsSortArguments: [String]
+        let samtoolsMergeArguments: [String]?
         let samtoolsIndexArguments: [String]
         let minimap2Stderr: String
         let samtoolsSortStderr: String
+        let samtoolsMergeStderr: String
         let samtoolsIndexStderr: String
+        let wallClockSeconds: TimeInterval
+        let invocations: [MappingInvocationResult]
+        let transientBAMURLs: [URL]
+    }
+
+    private struct MappingInvocationResult {
+        let inputFASTQURLs: [URL]
+        let outputBAMURL: URL
+        let minimap2Arguments: [String]
+        let samtoolsSortArguments: [String]
+        let minimap2Stderr: String
+        let samtoolsSortStderr: String
         let wallClockSeconds: TimeInterval
     }
 
@@ -666,6 +696,11 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let openpyxlVersion: String
         let sheetNames: [String]
         let auditRows: Int
+    }
+
+    private struct WorkbookCopyResult {
+        let revision: ONTGenotypeWorkbookRevision
+        let wallClockSeconds: TimeInterval
     }
 
     private func resolveMode(for request: ONTBarcodeDemuxGenotypingRunRequest) throws -> AmpliconGenotypingMode {
@@ -1081,12 +1116,128 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         minimap2URL: URL,
         samtoolsURL: URL
     ) throws -> MappingStepResult {
-        let minimap2StderrURL = request.outputDirectory.appendingPathComponent("\(request.outputName).minimap2.stderr.log")
-        let sortStderrURL = request.outputDirectory.appendingPathComponent("\(request.outputName).samtools-sort.stderr.log")
+        if resolvedMode == .illuminaPaired, inputFASTQURLs.count > 1 {
+            return try runIlluminaCohortMapping(
+                request: request,
+                referenceFASTAURL: referenceFASTAURL,
+                inputFASTQURLs: inputFASTQURLs,
+                minimap2URL: minimap2URL,
+                samtoolsURL: samtoolsURL
+            )
+        }
+
+        let startedAt = Date()
+        let invocation = try runMappingInvocation(
+            request: request,
+            resolvedMode: resolvedMode,
+            referenceFASTAURL: referenceFASTAURL,
+            inputFASTQURLs: inputFASTQURLs,
+            outputBAMURL: request.mappingBAMURL,
+            minimap2URL: minimap2URL,
+            samtoolsURL: samtoolsURL,
+            stderrStem: request.outputName,
+            readGroupID: request.outputName
+        )
         let indexStderrURL = request.outputDirectory.appendingPathComponent("\(request.outputName).samtools-index.stderr.log")
+        let indexArguments = ["index", request.mappingBAMURL.path]
+        let indexStderr = try runSamtoolsIndex(
+            samtoolsURL: samtoolsURL,
+            arguments: indexArguments,
+            stderrURL: indexStderrURL
+        )
+
+        return MappingStepResult(
+            minimap2Arguments: invocation.minimap2Arguments,
+            samtoolsSortArguments: invocation.samtoolsSortArguments,
+            samtoolsMergeArguments: nil,
+            samtoolsIndexArguments: indexArguments,
+            minimap2Stderr: invocation.minimap2Stderr,
+            samtoolsSortStderr: invocation.samtoolsSortStderr,
+            samtoolsMergeStderr: "",
+            samtoolsIndexStderr: indexStderr,
+            wallClockSeconds: Date().timeIntervalSince(startedAt),
+            invocations: [invocation],
+            transientBAMURLs: []
+        )
+    }
+
+    private func runIlluminaCohortMapping(
+        request: ONTBarcodeDemuxGenotypingRunRequest,
+        referenceFASTAURL: URL,
+        inputFASTQURLs: [URL],
+        minimap2URL: URL,
+        samtoolsURL: URL
+    ) throws -> MappingStepResult {
+        let startedAt = Date()
+        let mappingDirectory = request.outputDirectory
+            .appendingPathComponent(".amplicon-genotyping", isDirectory: true)
+            .appendingPathComponent("mapping", isDirectory: true)
+        try FileManager.default.createDirectory(at: mappingDirectory, withIntermediateDirectories: true)
+
+        var invocations: [MappingInvocationResult] = []
+        for (index, fastqURL) in inputFASTQURLs.enumerated() {
+            let stem = "\(String(format: "%03d", index + 1))-\(Self.safeFilenameStem(fastqURL.deletingPathExtension().lastPathComponent))"
+            let sampleBAMURL = mappingDirectory.appendingPathComponent("\(stem).sorted.bam")
+            let invocation = try runMappingInvocation(
+                request: request,
+                resolvedMode: .illuminaPaired,
+                referenceFASTAURL: referenceFASTAURL,
+                inputFASTQURLs: [fastqURL],
+                outputBAMURL: sampleBAMURL,
+                minimap2URL: minimap2URL,
+                samtoolsURL: samtoolsURL,
+                stderrStem: "\(request.outputName).\(stem)",
+                readGroupID: "\(request.outputName)-\(index + 1)"
+            )
+            invocations.append(invocation)
+        }
+
+        let mergeStderrURL = request.outputDirectory.appendingPathComponent("\(request.outputName).samtools-merge.stderr.log")
+        let mergeArguments = ["merge", "-f", request.mappingBAMURL.path] + invocations.map(\.outputBAMURL.path)
+        let mergeStderr = try runSamtoolsMerge(
+            samtoolsURL: samtoolsURL,
+            arguments: mergeArguments,
+            stderrURL: mergeStderrURL
+        )
+        let indexStderrURL = request.outputDirectory.appendingPathComponent("\(request.outputName).samtools-index.stderr.log")
+        let indexArguments = ["index", request.mappingBAMURL.path]
+        let indexStderr = try runSamtoolsIndex(
+            samtoolsURL: samtoolsURL,
+            arguments: indexArguments,
+            stderrURL: indexStderrURL
+        )
+
+        return MappingStepResult(
+            minimap2Arguments: invocations.first?.minimap2Arguments ?? [],
+            samtoolsSortArguments: invocations.first?.samtoolsSortArguments ?? [],
+            samtoolsMergeArguments: mergeArguments,
+            samtoolsIndexArguments: indexArguments,
+            minimap2Stderr: invocations.map(\.minimap2Stderr).joined(separator: "\n"),
+            samtoolsSortStderr: invocations.map(\.samtoolsSortStderr).joined(separator: "\n"),
+            samtoolsMergeStderr: mergeStderr,
+            samtoolsIndexStderr: indexStderr,
+            wallClockSeconds: Date().timeIntervalSince(startedAt),
+            invocations: invocations,
+            transientBAMURLs: invocations.map(\.outputBAMURL)
+        )
+    }
+
+    private func runMappingInvocation(
+        request: ONTBarcodeDemuxGenotypingRunRequest,
+        resolvedMode: AmpliconGenotypingMode,
+        referenceFASTAURL: URL,
+        inputFASTQURLs: [URL],
+        outputBAMURL: URL,
+        minimap2URL: URL,
+        samtoolsURL: URL,
+        stderrStem: String,
+        readGroupID: String
+    ) throws -> MappingInvocationResult {
+        let minimap2StderrURL = request.outputDirectory.appendingPathComponent("\(stderrStem).minimap2.stderr.log")
+        let sortStderrURL = request.outputDirectory.appendingPathComponent("\(stderrStem).samtools-sort.stderr.log")
         let mappingPreset = resolvedMode == .illuminaPaired ? "sr" : "map-ont"
         let platform = resolvedMode == .illuminaPaired ? "ILLUMINA" : "ONT"
-        let readGroup = "@RG\\tID:\(request.outputName)\\tSM:\(request.outputName)\\tLB:\(request.outputName)\\tPL:\(platform)\\tPU:\(request.outputName)"
+        let readGroup = "@RG\\tID:\(readGroupID)\\tSM:\(readGroupID)\\tLB:\(request.outputName)\\tPL:\(platform)\\tPU:\(readGroupID)"
         let minimap2Arguments = [
             "-a",
             "-x", mappingPreset,
@@ -1097,12 +1248,12 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let sortArguments = [
             "sort",
             "-@", String(request.sortThreads),
-            "-o", request.mappingBAMURL.path,
+            "-o", outputBAMURL.path,
             "-",
         ]
-        let indexArguments = ["index", request.mappingBAMURL.path]
         let startedAt = Date()
 
+        try FileManager.default.createDirectory(at: outputBAMURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         let pipe = Pipe()
         let minimap2 = Process()
         minimap2.executableURL = minimap2URL
@@ -1141,31 +1292,61 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             )
         }
 
+        return MappingInvocationResult(
+            inputFASTQURLs: inputFASTQURLs,
+            outputBAMURL: outputBAMURL,
+            minimap2Arguments: minimap2Arguments,
+            samtoolsSortArguments: sortArguments,
+            minimap2Stderr: minimap2Stderr,
+            samtoolsSortStderr: sortStderr,
+            wallClockSeconds: Date().timeIntervalSince(startedAt)
+        )
+    }
+
+    private func runSamtoolsMerge(
+        samtoolsURL: URL,
+        arguments: [String],
+        stderrURL: URL
+    ) throws -> String {
+        let merge = Process()
+        merge.executableURL = samtoolsURL
+        merge.arguments = arguments
+        merge.standardError = try fileHandleForWriting(to: stderrURL)
+        try merge.run()
+        merge.waitUntilExit()
+        try? (merge.standardError as? FileHandle)?.close()
+        let stderr = (try? String(contentsOf: stderrURL, encoding: .utf8)) ?? ""
+        guard merge.terminationStatus == 0 else {
+            throw ONTBarcodeDemuxGenotypingError.processFailed(
+                tool: "samtools merge",
+                status: merge.terminationStatus,
+                stderr: stderr
+            )
+        }
+        return stderr
+    }
+
+    private func runSamtoolsIndex(
+        samtoolsURL: URL,
+        arguments: [String],
+        stderrURL: URL
+    ) throws -> String {
         let index = Process()
         index.executableURL = samtoolsURL
-        index.arguments = indexArguments
-        index.standardError = try fileHandleForWriting(to: indexStderrURL)
+        index.arguments = arguments
+        index.standardError = try fileHandleForWriting(to: stderrURL)
         try index.run()
         index.waitUntilExit()
         try? (index.standardError as? FileHandle)?.close()
-        let indexStderr = (try? String(contentsOf: indexStderrURL, encoding: .utf8)) ?? ""
+        let stderr = (try? String(contentsOf: stderrURL, encoding: .utf8)) ?? ""
         guard index.terminationStatus == 0 else {
             throw ONTBarcodeDemuxGenotypingError.processFailed(
                 tool: "samtools index",
                 status: index.terminationStatus,
-                stderr: indexStderr
+                stderr: stderr
             )
         }
-
-        return MappingStepResult(
-            minimap2Arguments: minimap2Arguments,
-            samtoolsSortArguments: sortArguments,
-            samtoolsIndexArguments: indexArguments,
-            minimap2Stderr: minimap2Stderr,
-            samtoolsSortStderr: sortStderr,
-            samtoolsIndexStderr: indexStderr,
-            wallClockSeconds: Date().timeIntervalSince(startedAt)
-        )
+        return stderr
     }
 
     private func runFilter(
@@ -1434,6 +1615,39 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         try FileManager.default.copyItem(at: source, to: destination)
     }
 
+    private func createInitialCurrentWorkbookCopy(
+        for request: ONTBarcodeDemuxGenotypingRunRequest
+    ) throws -> WorkbookCopyResult {
+        let startedAt = Date()
+        let destinationURL = request.currentWorkbookURL
+        try FileManager.default.createDirectory(
+            at: destinationURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        if FileManager.default.fileExists(atPath: destinationURL.path) {
+            try FileManager.default.removeItem(at: destinationURL)
+        }
+        try FileManager.default.copyItem(at: request.workbookURL, to: destinationURL)
+        let createdAt = Date()
+        let revision = ONTGenotypeWorkbookRevision(
+            id: "initial-current-copy",
+            role: .initialCurrentCopy,
+            path: relativePath(from: request.outputDirectory, to: destinationURL),
+            label: "Initial editable workbook",
+            sourceFilename: request.workbookURL.lastPathComponent,
+            createdAt: ISO8601DateFormatter().string(from: createdAt),
+            user: NSUserName(),
+            predecessorPath: relativePath(from: request.outputDirectory, to: request.workbookURL),
+            sha256: try ProvenanceFileHasher.sha256(of: destinationURL),
+            sizeBytes: Int64(try ProvenanceFileHasher.fileSize(of: destinationURL)),
+            provenancePath: nil
+        )
+        return WorkbookCopyResult(
+            revision: revision,
+            wallClockSeconds: createdAt.timeIntervalSince(startedAt)
+        )
+    }
+
     private func writeProvenance(
         request: ONTBarcodeDemuxGenotypingRunRequest,
         resolvedMode: AmpliconGenotypingMode,
@@ -1453,6 +1667,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         mapping: MappingStepResult,
         filter: FilterStepResult,
         report: ReportStepResult,
+        workbookCopy: WorkbookCopyResult,
         haplotypeAnalysis: GenotypeHaplotypeAnalysis?,
         startedAt: Date,
         completedAt: Date
@@ -1573,13 +1788,14 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             fileDescriptorDictionary(url: request.mappingBAIURL, role: "intermediate-index"),
             fileDescriptorDictionary(url: request.retainedBAMURL, role: "intermediate"),
             fileDescriptorDictionary(url: request.retainedBAIURL, role: "intermediate-index"),
-        ]
+        ] + mapping.transientBAMURLs.map { fileDescriptorDictionary(url: $0, role: "intermediate") }
         let provenanceOutputs: [[String: Any]] = [
             fileDescriptorDictionary(url: request.reportCSVURL, role: "report"),
             fileDescriptorDictionary(url: request.sampleSummaryCSVURL, role: "report"),
             fileDescriptorDictionary(url: request.statsJSONURL, role: "output"),
         ] + haplotypeOutputs + [
-            fileDescriptorDictionary(url: request.workbookURL, role: "report"),
+            fileDescriptorDictionary(url: request.workbookURL, role: "original-report"),
+            fileDescriptorDictionary(url: request.currentWorkbookURL, role: "current-report"),
             fileDescriptorDictionary(url: request.reportProvenanceURL, role: "provenance"),
         ]
         let primaryOutput = fileDescriptorDictionary(url: request.outputDirectory, role: "output")
@@ -1593,23 +1809,37 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "assignedUniqueRetainedReads": filter.stats.assignedUniqueRetainedReads,
             "unassignedUniqueRetainedReads": filter.stats.unassignedUniqueRetainedReads,
         ]
-        let steps: [[String: Any]] = [
+        let mappingProcessSteps: [[String: Any]] = mapping.invocations.flatMap { invocation in
             [
-                "toolName": "minimap2",
-                "argv": [minimap2URL.path] + mapping.minimap2Arguments,
+                [
+                    "toolName": "minimap2",
+                    "argv": [minimap2URL.path] + invocation.minimap2Arguments,
+                    "exitStatus": 0,
+                    "wallClockSeconds": invocation.wallClockSeconds,
+                    "wallTimeSeconds": invocation.wallClockSeconds,
+                    "stderr": invocation.minimap2Stderr,
+                ],
+                [
+                    "toolName": "samtools sort",
+                    "argv": [samtoolsURL.path] + invocation.samtoolsSortArguments,
+                    "exitStatus": 0,
+                    "wallClockSeconds": invocation.wallClockSeconds,
+                    "wallTimeSeconds": invocation.wallClockSeconds,
+                    "stderr": invocation.samtoolsSortStderr,
+                ],
+            ]
+        }
+        let mergeStep: [[String: Any]] = mapping.samtoolsMergeArguments.map { mergeArguments in
+            [[
+                "toolName": "samtools merge",
+                "argv": [samtoolsURL.path] + mergeArguments,
                 "exitStatus": 0,
                 "wallClockSeconds": mapping.wallClockSeconds,
                 "wallTimeSeconds": mapping.wallClockSeconds,
-                "stderr": mapping.minimap2Stderr,
-            ],
-            [
-                "toolName": "samtools sort",
-                "argv": [samtoolsURL.path] + mapping.samtoolsSortArguments,
-                "exitStatus": 0,
-                "wallClockSeconds": mapping.wallClockSeconds,
-                "wallTimeSeconds": mapping.wallClockSeconds,
-                "stderr": mapping.samtoolsSortStderr,
-            ],
+                "stderr": mapping.samtoolsMergeStderr,
+            ]]
+        } ?? []
+        let steps: [[String: Any]] = mappingProcessSteps + mergeStep + [
             [
                 "toolName": "samtools index",
                 "argv": [samtoolsURL.path] + mapping.samtoolsIndexArguments,
@@ -1638,6 +1868,20 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                     "provenanceJSON": report.summary.provenanceJSON,
                     "sheetNames": report.summary.sheetNames,
                     "auditRows": report.summary.auditRows,
+                ],
+            ],
+            [
+                "toolName": "lungfish genotype workbook initial-current-copy",
+                "argv": request.argv + ["--create-current-workbook", request.currentWorkbookURL.path],
+                "exitStatus": 0,
+                "wallClockSeconds": workbookCopy.wallClockSeconds,
+                "wallTimeSeconds": workbookCopy.wallClockSeconds,
+                "stderr": "",
+                "summary": [
+                    "primaryWorkbook": request.workbookURL.path,
+                    "currentWorkbook": request.currentWorkbookURL.path,
+                    "sha256": workbookCopy.revision.sha256,
+                    "sizeBytes": workbookCopy.revision.sizeBytes,
                 ],
             ],
         ]
@@ -1699,6 +1943,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             mapping: mapping,
             filter: filter,
             report: report,
+            workbookCopy: workbookCopy,
             haplotypeAnalysis: haplotypeAnalysis,
             legacyProvenanceURL: provenanceURL,
             options: options,
@@ -1728,6 +1973,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         mapping: MappingStepResult,
         filter: FilterStepResult,
         report: ReportStepResult,
+        workbookCopy: WorkbookCopyResult,
         haplotypeAnalysis: GenotypeHaplotypeAnalysis?,
         legacyProvenanceURL: URL,
         options: [String: Any],
@@ -1770,6 +2016,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             try canonicalFileDescriptor(url: request.haplotypeAnalysisURL, role: .report)
         }
         let workbook = try canonicalFileDescriptor(url: request.workbookURL, role: .report)
+        let currentWorkbook = try canonicalFileDescriptor(url: request.currentWorkbookURL, role: .report)
         let reportProvenance = try canonicalFileDescriptor(url: request.reportProvenanceURL, role: .log)
         let legacyProvenance = try canonicalFileDescriptor(url: legacyProvenanceURL, role: .log)
         let canonicalOutputs = deduplicated(
@@ -1779,34 +2026,59 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 statsJSON,
             ]
                 + (haplotypeOutput.map { [$0] } ?? [])
-                + [workbook, reportProvenance, legacyProvenance]
+                + [workbook, currentWorkbook, reportProvenance, legacyProvenance]
         )
         let outputDirectory = ProvenanceFileDescriptor(
             path: request.outputDirectory.standardizedFileURL.path,
             role: .output
         )
 
-        var canonicalSteps = [
-            ProvenanceStep(
-                toolName: "minimap2",
-                toolVersion: "unknown",
-                argv: [minimap2URL.path] + mapping.minimap2Arguments,
-                inputs: mappingFastqInputs + [referenceInput],
-                outputs: [mappingBAM],
-                exitStatus: 0,
-                wallTimeSeconds: mapping.wallClockSeconds,
-                stderr: mapping.minimap2Stderr
-            ),
-            ProvenanceStep(
-                toolName: "samtools sort",
-                toolVersion: "unknown",
-                argv: [samtoolsURL.path] + mapping.samtoolsSortArguments,
-                inputs: mappingFastqInputs + [referenceInput],
-                outputs: [mappingBAM],
-                exitStatus: 0,
-                wallTimeSeconds: mapping.wallClockSeconds,
-                stderr: mapping.samtoolsSortStderr
-            ),
+        let invocationBAMs = try mapping.invocations.map {
+            try canonicalFileDescriptor(url: $0.outputBAMURL, role: .output)
+        }
+        var canonicalSteps = try mapping.invocations.flatMap { invocation -> [ProvenanceStep] in
+            let invocationInputs = try invocation.inputFASTQURLs.map {
+                try canonicalFileDescriptor(url: $0, role: .input)
+            }
+            let invocationBAM = try canonicalFileDescriptor(url: invocation.outputBAMURL, role: .output)
+            return [
+                ProvenanceStep(
+                    toolName: "minimap2",
+                    toolVersion: "unknown",
+                    argv: [minimap2URL.path] + invocation.minimap2Arguments,
+                    inputs: invocationInputs + [referenceInput],
+                    outputs: [invocationBAM],
+                    exitStatus: 0,
+                    wallTimeSeconds: invocation.wallClockSeconds,
+                    stderr: invocation.minimap2Stderr
+                ),
+                ProvenanceStep(
+                    toolName: "samtools sort",
+                    toolVersion: "unknown",
+                    argv: [samtoolsURL.path] + invocation.samtoolsSortArguments,
+                    inputs: invocationInputs + [referenceInput],
+                    outputs: [invocationBAM],
+                    exitStatus: 0,
+                    wallTimeSeconds: invocation.wallClockSeconds,
+                    stderr: invocation.samtoolsSortStderr
+                ),
+            ]
+        }
+        if let mergeArguments = mapping.samtoolsMergeArguments {
+            canonicalSteps.append(
+                ProvenanceStep(
+                    toolName: "samtools merge",
+                    toolVersion: "unknown",
+                    argv: [samtoolsURL.path] + mergeArguments,
+                    inputs: invocationBAMs,
+                    outputs: [mappingBAM],
+                    exitStatus: 0,
+                    wallTimeSeconds: mapping.wallClockSeconds,
+                    stderr: mapping.samtoolsMergeStderr
+                )
+            )
+        }
+        canonicalSteps += [
             ProvenanceStep(
                 toolName: "samtools index",
                 toolVersion: "unknown",
@@ -1855,6 +2127,17 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 stderr: report.stderr
             )
         )
+        canonicalSteps.append(
+            ProvenanceStep(
+                toolName: "lungfish genotype workbook initial-current-copy",
+                toolVersion: WorkflowRun.currentAppVersion,
+                argv: request.argv + ["--create-current-workbook", request.currentWorkbookURL.path],
+                inputs: [workbook],
+                outputs: [currentWorkbook],
+                exitStatus: 0,
+                wallTimeSeconds: workbookCopy.wallClockSeconds
+            )
+        )
 
         return ProvenanceEnvelope(
             createdAt: completedAt,
@@ -1899,6 +2182,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         request: ONTBarcodeDemuxGenotypingRunRequest,
         resolvedMode: AmpliconGenotypingMode,
         provenanceURL: URL,
+        workbookRevision: ONTGenotypeWorkbookRevision,
         completedAt: Date
     ) throws {
         let resolvedHaplotypeDefinitionSet = try resolveHaplotypeDefinitionSet(for: request)
@@ -1906,6 +2190,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             outputName: request.outputName,
             analysisName: request.analysisName,
             primaryWorkbookPath: relativePath(from: request.outputDirectory, to: request.workbookURL),
+            currentWorkbookPath: relativePath(from: request.outputDirectory, to: request.currentWorkbookURL),
+            workbookRevisions: [workbookRevision],
             longSummaryCSVPath: relativePath(from: request.outputDirectory, to: request.reportCSVURL),
             sampleSummaryCSVPath: relativePath(from: request.outputDirectory, to: request.sampleSummaryCSVURL),
             statsJSONPath: relativePath(from: request.outputDirectory, to: request.statsJSONURL),
@@ -1932,13 +2218,16 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         }
     }
 
-    private func removeGeneratedAlignmentIntermediates(for request: ONTBarcodeDemuxGenotypingRunRequest) throws {
+    private func removeGeneratedAlignmentIntermediates(
+        for request: ONTBarcodeDemuxGenotypingRunRequest,
+        mapping: MappingStepResult
+    ) throws {
         for url in [
             request.mappingBAMURL,
             request.mappingBAIURL,
             request.retainedBAMURL,
             request.retainedBAIURL,
-        ] where FileManager.default.fileExists(atPath: url.path) {
+        ] + mapping.transientBAMURLs where FileManager.default.fileExists(atPath: url.path) {
             try FileManager.default.removeItem(at: url)
         }
     }

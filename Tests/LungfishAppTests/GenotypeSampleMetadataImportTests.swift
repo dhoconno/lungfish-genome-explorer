@@ -162,6 +162,51 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
         ))
     }
 
+    func testInspectorDocumentListsEditableWorkbookAndOriginalWorkbookWhenDistinct() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeWorkbookArtifactRows-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("barcode05-mhc.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let originalWorkbookURL = bundleURL.appendingPathComponent("barcode05-mhc.xlsx")
+        let currentWorkbookURL = bundleURL.appendingPathComponent("artifacts/workbooks/current.xlsx")
+        let result = ONTGenotypeResultBundleData(
+            bundleURL: bundleURL,
+            manifest: ONTGenotypeResultBundleManifest(
+                outputName: "barcode05-mhc",
+                analysisName: "barcode05-mhc",
+                primaryWorkbookPath: originalWorkbookURL.lastPathComponent,
+                currentWorkbookPath: "artifacts/workbooks/current.xlsx",
+                longSummaryCSVPath: "barcode05-mhc.retained-demux-genotypes.csv",
+                sampleSummaryCSVPath: "barcode05-mhc.retained-demux-samples.csv",
+                statsJSONPath: "barcode05-mhc.retained-demux-stats.json",
+                provenancePath: "retained-demux-genotyping-provenance.json"
+            ),
+            artifacts: ONTGenotypeResultArtifacts(
+                workbookURL: currentWorkbookURL,
+                primaryWorkbookURL: originalWorkbookURL,
+                longSummaryCSVURL: bundleURL.appendingPathComponent("barcode05-mhc.retained-demux-genotypes.csv"),
+                sampleSummaryCSVURL: bundleURL.appendingPathComponent("barcode05-mhc.retained-demux-samples.csv"),
+                statsJSONURL: bundleURL.appendingPathComponent("barcode05-mhc.retained-demux-stats.json"),
+                provenanceURL: bundleURL.appendingPathComponent("retained-demux-genotyping-provenance.json")
+            ),
+            stats: ONTGenotypeRunStats(totalInputReads: 1000, retainedUniqueReads: 60),
+            calls: [],
+            samples: []
+        )
+        let inspector = InspectorViewController()
+        _ = inspector.view
+
+        inspector.updateGenotypeResultDocument(result)
+
+        let rows = try XCTUnwrap(inspector.viewModel.documentSectionViewModel.genotypeResultDocument?.artifactRows)
+        XCTAssertEqual(rows.first?.label, "Workbook")
+        XCTAssertEqual(rows.first?.fileURL, currentWorkbookURL.standardizedFileURL)
+        XCTAssertTrue(rows.contains {
+            $0.label == "Original Workbook" && $0.fileURL == originalWorkbookURL.standardizedFileURL
+        })
+    }
+
     private func makeResult(
         bundleURL: URL,
         calls: [ONTGenotypeCall]
