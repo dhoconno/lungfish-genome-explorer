@@ -7,7 +7,10 @@ import LungfishIO
 import LungfishKit
 
 /// Pure formatting of clipboard payloads for the 12S copy menu (unit-tested).
-enum TwelveSCopyFormatting {
+///
+/// The enum is `public` so the App's Inspector Detail section can reuse
+/// ``referenceFASTA(_:)``; the remaining helpers stay internal to the leaf.
+public enum TwelveSCopyFormatting {
     static func names(_ rows: [TwelveSScientificNameCountRow]) -> String {
         rows.map(\.scientificName).joined(separator: "\n")
     }
@@ -20,7 +23,7 @@ enum TwelveSCopyFormatting {
     }
 
     /// FASTA for a species' matched reference sequences (Detail tab "Copy All").
-    static func referenceFASTA(_ sequences: [TwelveSReferenceSequence]) -> String {
+    public static func referenceFASTA(_ sequences: [TwelveSReferenceSequence]) -> String {
         sequences.map { ">\($0.targetID)\n\($0.sequence)" }.joined(separator: "\n")
     }
 

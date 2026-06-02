@@ -1,3 +1,4 @@
+import LungfishKit
 import LungfishTwelveSUI
 import SwiftUI
 
@@ -26,6 +27,12 @@ final class TwelveSDetailSectionViewModel {
         }
     }
 
+    /// Reference sequences for the selected target species (empty otherwise).
+    var referenceSequences: [TwelveSReferenceSequence] {
+        if case let .target(detail) = payload?.kind { return detail.referenceSequences }
+        return []
+    }
+
     func apply(_ payload: TwelveSDetailPayload?) {
         self.payload = payload
     }
@@ -43,6 +50,8 @@ final class TwelveSDetailSectionViewModel {
 
 struct TwelveSDetailSection: View {
     @Bindable var viewModel: TwelveSDetailSectionViewModel
+    @State private var isReferenceExpanded = false
+    private let pasteboard: PasteboardWriting = DefaultPasteboard()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -109,6 +118,53 @@ struct TwelveSDetailSection: View {
                 }
                 .padding(.top, 4)
             }
+
+            Divider()
+            referenceSequences(detail.referenceSequences)
+        }
+    }
+
+    @ViewBuilder
+    private func referenceSequences(_ sequences: [TwelveSReferenceSequence]) -> some View {
+        DisclosureGroup("Reference Sequences (\(sequences.count))", isExpanded: $isReferenceExpanded) {
+            VStack(alignment: .leading, spacing: 8) {
+                if sequences.isEmpty {
+                    Text("No reference sequences available.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Button {
+                        pasteboard.setString(TwelveSCopyFormatting.referenceFASTA(sequences))
+                    } label: {
+                        Label("Copy All as FASTA", systemImage: "doc.on.doc")
+                    }
+                    .controlSize(.small)
+
+                    ForEach(sequences, id: \.targetID) { seq in
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack {
+                                Text(seq.targetID)
+                                    .font(.caption.weight(.semibold))
+                                Spacer()
+                                Button {
+                                    pasteboard.setString(seq.sequence)
+                                } label: {
+                                    Image(systemName: "doc.on.doc")
+                                }
+                                .buttonStyle(.borderless)
+                                .controlSize(.small)
+                                .help("Copy this sequence")
+                            }
+                            Text(seq.sequence)
+                                .font(.system(.caption, design: .monospaced))
+                                .textSelection(.enabled)
+                                .lineLimit(nil)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+            }
+            .padding(.top, 4)
         }
     }
 

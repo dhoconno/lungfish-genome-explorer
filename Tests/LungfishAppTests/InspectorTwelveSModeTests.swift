@@ -114,6 +114,18 @@ final class InspectorTwelveSModeTests: XCTestCase {
         XCTAssertEqual(inspector.testingSelectedTab, .twelveSDetail)
     }
 
+    func testDetailViewModelExposesReferenceSequences() {
+        let vm = TwelveSDetailSectionViewModel()
+        vm.apply(TwelveSDetailPayload(kind: .target(.init(
+            scientificName: "Homo sapiens", totalExactReads: 1, referenceTargetCount: 2,
+            sampleEvidence: [], alternateTexts: [],
+            referenceSequences: [.init(targetID: "a", sequence: "ACGT"), .init(targetID: "b", sequence: "TTTT")]))))
+        XCTAssertEqual(vm.referenceSequences.map(\.targetID), ["a", "b"])
+        // unresolved / empty selections expose no reference sequences
+        vm.clear()
+        XCTAssertTrue(vm.referenceSequences.isEmpty)
+    }
+
     func testClearTwelveSDetailResetsAvailability() {
         let inspector = InspectorViewController()
         inspector.loadViewIfNeeded()
