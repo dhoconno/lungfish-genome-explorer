@@ -28,7 +28,7 @@ struct LungfishCLI: AsyncParsableCommand {
 
             For more information, see: https://github.com/dhoconno/lungfish-genome-explorer
             """,
-        version: "0.5.0-alpha12",
+        version: "0.5.0-alpha13",
         subcommands: [
             VersionCommand.self,
             ConvertCommand.self,
