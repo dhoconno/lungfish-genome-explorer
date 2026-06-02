@@ -4,7 +4,7 @@
 
 Selecting multiple FASTQ bundles for MHC amplicon genotyping should create a cohort result by genotyping each selected source independently, then merging the per-source genotype outputs into one displayable `.lungfishgenotype` bundle. The current behavior passes every selected FASTQ bundle into one `lungfish-cli fastq genotype` command and one `minimap2 -x sr` invocation, which fails for more than two short-read query files and does not match the expected per-sample workflow.
 
-The generated Excel workbook in a `.lungfishgenotype` bundle should remain a managed report artifact, not the canonical genotype data source. Lungfish should support collaborator-edited `.xlsx` files through a provenance-recorded workbook revision workflow that promotes an imported workbook as the current report artifact while retaining previous workbook versions.
+The generated Excel workbook in a `.lungfishgenotype` bundle should remain a managed report artifact, not the canonical genotype data source. Lungfish should preserve the originally generated workbook as an immutable original report, create a separate editable current workbook, and support collaborator-edited `.xlsx` files through a provenance-recorded workbook revision workflow that snapshots the editable workbook history.
 
 ## Goals
 
@@ -12,14 +12,17 @@ The generated Excel workbook in a `.lungfishgenotype` bundle should remain a man
 - Keep every minimap2 short-read invocation scoped to one logical sample input, with no more than one single-end FASTQ or one R1/R2 pair.
 - Produce one final `.lungfishgenotype` cohort bundle that native Lungfish views can display and analyze.
 - Preserve reproducibility provenance for child sample runs and the parent cohort merge.
-- Allow users to import a revised Excel workbook artifact while retaining prior workbook revisions.
+- Preserve the originally generated Excel workbook as the canonical original report artifact.
+- Always create a separate current Excel workbook path for new genotype bundles; this current workbook is the editable/shareable report artifact.
+- Allow users to import a revised Excel workbook artifact while retaining prior current-workbook snapshots.
 - Make clear that imported workbook revisions do not alter canonical genotype calls, CSV summaries, run stats, haplotype analysis, or analyst annotations.
 
 ## Non-Goals
 
 - Do not parse collaborator-edited Excel workbooks back into genotype calls in this feature.
 - Do not rely on Excel for Mac local file history for Lungfish bundle artifact recovery.
-- Do not silently overwrite the generated workbook without retaining a prior copy and provenance.
+- Do not overwrite the generated original workbook.
+- Do not replace the editable current workbook without retaining a prior snapshot and provenance.
 - Do not change the single-source ONT barcode-demux or Illumina genotyping experience beyond routing through compatible request types.
 
 ## Current Genotyping Behavior
@@ -119,7 +122,7 @@ The final canonical provenance envelope should point at final stored payloads an
 
 ## Workbook Revision Design
 
-Excel `.xlsx` output is currently one primary artifact referenced by `ONTGenotypeResultBundleManifest.primaryWorkbookPath`. Native Lungfish display loads genotype calls from the long summary CSV, sample summary CSV, stats JSON, haplotype analysis JSON, and annotation sidecar. Therefore, importing an edited workbook should change the workbook artifact Lungfish opens and shares, but should not change canonical genotype data.
+Excel `.xlsx` output is currently one primary artifact referenced by `ONTGenotypeResultBundleManifest.primaryWorkbookPath`. Native Lungfish display loads genotype calls from the long summary CSV, sample summary CSV, stats JSON, haplotype analysis JSON, and annotation sidecar. Therefore, importing or editing a workbook should change the workbook artifact Lungfish opens and shares, but should not change canonical genotype data.
 
 ### Excel Versioning Assumption
 
@@ -141,27 +144,32 @@ public let currentWorkbookPath: String?
 public let workbookRevisions: [ONTGenotypeWorkbookRevision]?
 ```
 
-`primaryWorkbookPath` remains the generated workbook path for old bundles and compatibility. `currentWorkbookPath` is the workbook Lungfish should reveal, Quick Look, and include when the user asks for the current workbook artifact. If `currentWorkbookPath` is absent, readers use `primaryWorkbookPath`.
+`primaryWorkbookPath` is the original generated workbook and must remain immutable after bundle creation. For new bundles, `currentWorkbookPath` must always be created as a separate editable workbook copy, initially copied from `primaryWorkbookPath`. Lungfish should reveal, Quick Look, and share `currentWorkbookPath` when the user asks for the current workbook artifact.
+
+For old bundles with no `currentWorkbookPath`, readers may fall back to `primaryWorkbookPath` for display. The first managed workbook-revision action on an old bundle must migrate it by copying `primaryWorkbookPath` to the editable current workbook location and writing a manifest/provenance update before applying further changes.
 
 Each revision record should include:
 
 - stable revision ID;
-- role: generated, imported, or restored;
+- role: initial-current-copy, imported, restored, or external-edit-snapshot;
 - relative path inside the bundle;
 - user-visible label;
 - source filename for imports;
-- imported/restored timestamp;
-- imported/restored user;
+- event timestamp;
+- event user;
 - predecessor revision ID or path;
 - SHA-256 checksum;
 - file size;
 - provenance path.
 
-Store revision files under a bundle-owned path such as:
+Store the editable current workbook and revision snapshots under bundle-owned paths such as:
 
 ```text
-artifacts/workbooks/<timestamp>-<safe-label>.xlsx
+artifacts/workbooks/current.xlsx
+artifacts/workbooks/revisions/<timestamp>-<safe-label>.xlsx
 ```
+
+The revision snapshots are immutable. `artifacts/workbooks/current.xlsx` is the editable current workbook and may be replaced by managed import/restore operations after the previous current workbook has been snapshotted.
 
 ### Import Revised Workbook Flow
 
@@ -176,26 +184,29 @@ This changes the Excel report Lungfish opens and shares. It does not change geno
 On confirmation:
 
 1. Validate that the selected file is an `.xlsx` file that can be opened as a ZIP/OpenXML workbook.
-2. Copy it into the bundle revision directory using an atomic temporary file and final rename.
-3. Add a workbook revision entry.
-4. Set `currentWorkbookPath` to the new revision path.
-5. Write workbook-revision provenance.
-6. Rewrite the manifest atomically.
-7. Refresh the Inspector and any Quick Look workbook view.
+2. If the bundle has no `currentWorkbookPath`, migrate it by creating the editable current workbook copy from `primaryWorkbookPath`.
+3. Snapshot the existing current workbook into `artifacts/workbooks/revisions/`.
+4. Copy the imported workbook over the stable `currentWorkbookPath` using an atomic temporary file and final rename.
+5. Add workbook revision entries for the previous-current snapshot and the imported current workbook event.
+6. Write workbook-revision provenance.
+7. Rewrite the manifest atomically.
+8. Refresh the Inspector and any Quick Look workbook view.
 
 If any step fails, restore the old manifest/current workbook state.
+
+If Lungfish detects that `currentWorkbookPath` changed on disk since the last recorded workbook event, it should snapshot that workbook as an `external-edit-snapshot` before applying a managed import or restore. This gives users room to edit the current workbook directly while preserving history at the next managed transition.
 
 ### Workbook History UI
 
 The Inspector should show:
 
 - current workbook row;
-- generated workbook row;
-- imported revision rows with timestamp and user;
+- original generated workbook row;
+- prior current-workbook snapshot rows with timestamp, user, and event role;
 - reveal/open actions for each stored revision;
 - restore action for an older revision.
 
-Restoring an older revision should create a new `restored` revision event/provenance record that points `currentWorkbookPath` back to the retained workbook. It should not delete the later revision.
+Restoring an older revision should first snapshot the existing current workbook, then copy the selected retained workbook over the stable `currentWorkbookPath`. The restore must create a new `restored` event/provenance record. It should not delete the later revision.
 
 ### Workbook Provenance
 
@@ -203,9 +214,11 @@ Workbook import/restore provenance must include:
 
 - workflow/tool name and version;
 - exact app/CLI action and reproducible command if invoked from CLI;
+- original generated workbook path, checksum, and size;
 - old current workbook path, checksum, and size;
+- previous-current snapshot path, checksum, and size;
 - imported source workbook path, checksum, and size;
-- new stored workbook path, checksum, and size;
+- new current workbook path, checksum, and size;
 - updated manifest path/checksum;
 - user-visible options and defaults;
 - runtime identity;
@@ -223,9 +236,11 @@ Workbook import/restore provenance must include:
 
 ### Workbook Revisions
 
-- Load old bundles with only `primaryWorkbookPath`.
-- Import a revised workbook and verify `currentWorkbookPath` changes while `primaryWorkbookPath` remains the generated workbook.
-- Verify the previous workbook remains stored and listed in history.
+- Load old bundles with only `primaryWorkbookPath` and verify display falls back to the original workbook.
+- Generate a new bundle and verify `primaryWorkbookPath` and `currentWorkbookPath` are both present, distinct, and initially content-identical.
+- Import a revised workbook and verify `primaryWorkbookPath` remains the generated original while `currentWorkbookPath` remains stable and contains the imported workbook.
+- Verify the previous current workbook is snapshotted and listed in history.
+- Verify direct edits to `currentWorkbookPath` are snapshotted as `external-edit-snapshot` before the next managed import or restore.
 - Verify native genotype calls, sample counts, stats, and annotations do not change after workbook import.
 - Verify provenance includes old/new workbook checksums and no removed temporary paths.
 - Force provenance or manifest write failure and verify rollback.
