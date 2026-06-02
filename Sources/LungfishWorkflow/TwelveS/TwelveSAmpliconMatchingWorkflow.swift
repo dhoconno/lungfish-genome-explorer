@@ -2,6 +2,9 @@ import Foundation
 import CryptoKit
 import LungfishCore
 import LungfishIO
+import os.log
+
+private let twelveSWorkflowLogger = Logger(subsystem: "com.lungfish.workflow", category: "TwelveSAmplicon")
 
 public struct TwelveSAmpliconMatchingConfiguration: Equatable, Sendable {
     public let inputFASTQs: [URL]
@@ -127,6 +130,7 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
             let classified = try await classifyInputs(
                 resolvedInputs,
                 classifier: classifier,
+                references: referenceIndex.records,
                 threads: config.threads
             )
             let unresolved = makeUnresolvedSequences(from: classified.unresolvedCounts)
@@ -247,6 +251,7 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
     private func classifyInputs(
         _ inputs: [ResolvedInput],
         classifier: TwelveSAmpliconReadClassifier,
+        references: [TwelveSReferenceRecord],
         threads: Int
     ) async throws -> ClassifiedReads {
         var classified = ClassifiedReads()
@@ -276,6 +281,7 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
             classifier: classifier,
             threads: threads
         )
+        var ambiguousCandidates: [String: [String]] = [:]
         for sample in perSampleSequenceCounts {
             for (normalizedSequence, count) in sample.counts {
                 guard let classification = classifications[normalizedSequence] else { continue }
@@ -283,16 +289,84 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
                 case let .exact(targetID, _):
                     classified.exactReadsBySample[sample.sampleID, default: 0] += count
                     classified.countsByTarget[targetID, default: [:]][sample.sampleID, default: 0] += count
-                case .ambiguous:
+                case let .ambiguous(targetIDs):
                     classified.ambiguousReadsBySample[sample.sampleID, default: 0] += count
                     classified.unresolvedCounts[normalizedSequence, default: [:]][sample.sampleID, default: 0] += count
+                    ambiguousCandidates[normalizedSequence] = targetIDs
                 case .unresolved:
                     classified.unresolvedCounts[normalizedSequence, default: [:]][sample.sampleID, default: 0] += count
                 }
             }
         }
 
+        // Pass B: reassign cross-species identical-sequence ambiguous reads to the
+        // most-abundant candidate species (strict plurality). See
+        // TwelveSAbundanceReassigner.
+        applyAbundanceReassignment(&classified, ambiguousCandidates: ambiguousCandidates, references: references)
+
         return classified
+    }
+
+    /// Maps each species (display name) to its canonical target — the longest
+    /// reference sequence, tie-broken by smallest targetID — matching the
+    /// classifier's same-species canonicalization.
+    private func canonicalTargetForSpecies(_ references: [TwelveSReferenceRecord]) -> [String: String] {
+        var best: [String: TwelveSReferenceRecord] = [:]
+        for ref in references {
+            if let existing = best[ref.displayName] {
+                if ref.sequence.count > existing.sequence.count
+                    || (ref.sequence.count == existing.sequence.count && ref.targetID < existing.targetID) {
+                    best[ref.displayName] = ref
+                }
+            } else {
+                best[ref.displayName] = ref
+            }
+        }
+        return best.mapValues(\.targetID)
+    }
+
+    private func applyAbundanceReassignment(
+        _ classified: inout ClassifiedReads,
+        ambiguousCandidates: [String: [String]],
+        references: [TwelveSReferenceRecord]
+    ) {
+        guard !ambiguousCandidates.isEmpty else { return }
+        let speciesForTarget = Dictionary(
+            references.map { ($0.targetID, $0.displayName) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        // Snapshot the per-sample unresolved counts before reassignment so we can
+        // shift the moved reads from ambiguous→exact per sample.
+        let unresolvedBefore = classified.unresolvedCounts
+        let result = TwelveSAbundanceReassigner.reassign(
+            ambiguousCandidates: ambiguousCandidates,
+            unresolvedCounts: classified.unresolvedCounts,
+            countsByTarget: classified.countsByTarget,
+            speciesForTarget: speciesForTarget,
+            canonicalTargetForSpecies: canonicalTargetForSpecies(references)
+        )
+        guard !result.moves.isEmpty else { return }
+
+        classified.countsByTarget = result.countsByTarget
+        classified.unresolvedCounts = result.unresolvedCounts
+
+        // Moved reads shift from ambiguous to exact, per sample.
+        var movedTotal = 0
+        for move in result.moves {
+            guard let perSample = unresolvedBefore[move.sequence] else { continue }
+            for (sampleID, reads) in perSample {
+                classified.exactReadsBySample[sampleID, default: 0] += reads
+                classified.ambiguousReadsBySample[sampleID, default: 0] -= reads
+                movedTotal += reads
+            }
+        }
+        let speciesMoves = result.moves
+            .map { "\($0.toSpecies) (+\($0.reads))" }
+            .sorted()
+            .joined(separator: ", ")
+        twelveSWorkflowLogger.info(
+            "12S abundance reassignment: moved \(movedTotal, privacy: .public) reads from cross-species ambiguity to: \(speciesMoves, privacy: .public)"
+        )
     }
 
     private func classifyUniqueSequences(
