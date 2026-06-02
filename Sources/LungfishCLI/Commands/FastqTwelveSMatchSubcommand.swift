@@ -43,6 +43,20 @@ struct FastqTwelveSMatchSubcommand: AsyncParsableCommand {
     @Flag(name: .customLong("force"), help: "Replace an existing output bundle")
     var force: Bool = false
 
+    @Option(
+        name: .customLong("ambiguity-resolution"),
+        help: "How cross-species identical-sequence reads are resolved: 'strict' (any nonzero abundance lead wins; default) or 'conservative' (winner must have >=2x the runner-up and >=10 reads)."
+    )
+    var ambiguityResolution: String = "strict"
+
+    /// Maps the flag to a reassignment policy.
+    var resolutionPolicy: TwelveSAbundanceReassigner.ResolutionPolicy {
+        switch ambiguityResolution.lowercased() {
+        case "conservative": return .conservative(minFoldRatio: 2.0, absoluteFloor: 10)
+        default: return .anyNonzeroLead
+        }
+    }
+
     @OptionGroup var globalOptions: GlobalOptions
 
     func validate() throws {
@@ -54,6 +68,9 @@ struct FastqTwelveSMatchSubcommand: AsyncParsableCommand {
         }
         guard maximumIndelBases >= 0 else {
             throw ValidationError("--max-indels must be greater than or equal to 0.")
+        }
+        guard ["strict", "conservative"].contains(ambiguityResolution.lowercased()) else {
+            throw ValidationError("--ambiguity-resolution must be 'strict' or 'conservative'.")
         }
         guard globalOptions.threads.map({ $0 > 0 }) ?? true else {
             throw ValidationError("--threads must be positive.")
@@ -89,6 +106,7 @@ struct FastqTwelveSMatchSubcommand: AsyncParsableCommand {
             threads: max(1, globalOptions.threads ?? ProcessInfo.processInfo.activeProcessorCount),
             runChimeraReview: chimeraReview,
             forceOverwrite: force,
+            ambiguityResolution: resolutionPolicy,
             argv: replayArgv()
         )
     }
@@ -130,6 +148,9 @@ struct FastqTwelveSMatchSubcommand: AsyncParsableCommand {
         }
         if !chimeraReview {
             argv.append("--no-chimera-review")
+        }
+        if ambiguityResolution.lowercased() != "strict" {
+            argv += ["--ambiguity-resolution", ambiguityResolution.lowercased()]
         }
         if force {
             argv.append("--force")

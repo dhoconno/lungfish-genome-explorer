@@ -107,6 +107,43 @@ final class FastqTwelveSMatchSubcommandTests: XCTestCase {
         XCTAssertTrue(config.argv.contains("--threads"))
     }
 
+    func testAmbiguityResolutionDefaultsToStrict() throws {
+        let command = try FastqTwelveSMatchSubcommand.parse([
+            "/tmp/a.fastq", "--reference", "/tmp/ref.fa",
+            "--output-dir", "/tmp/out", "--output-name", "x",
+        ])
+        XCTAssertEqual(command.ambiguityResolution, "strict")
+        XCTAssertEqual(command.resolutionPolicy, .anyNonzeroLead)
+        // strict is the default → not emitted in replay argv
+        let config = try command.configurationForTesting()
+        XCTAssertFalse(config.argv.contains("--ambiguity-resolution"))
+        XCTAssertEqual(config.ambiguityResolution, .anyNonzeroLead)
+    }
+
+    func testAmbiguityResolutionConservativeMapsToFoldRatioAndFloor() throws {
+        let command = try FastqTwelveSMatchSubcommand.parse([
+            "/tmp/a.fastq", "--reference", "/tmp/ref.fa",
+            "--output-dir", "/tmp/out", "--output-name", "x",
+            "--ambiguity-resolution", "conservative",
+        ])
+        XCTAssertEqual(command.resolutionPolicy, .conservative(minFoldRatio: 2.0, absoluteFloor: 10))
+        let config = try command.configurationForTesting()
+        XCTAssertEqual(config.ambiguityResolution, .conservative(minFoldRatio: 2.0, absoluteFloor: 10))
+        XCTAssertTrue(config.argv.contains("--ambiguity-resolution"))
+        XCTAssertTrue(config.argv.contains("conservative"))
+    }
+
+    func testAmbiguityResolutionRejectsUnknownValue() {
+        XCTAssertThrowsError(try {
+            let command = try FastqTwelveSMatchSubcommand.parse([
+                "/tmp/a.fastq", "--reference", "/tmp/ref.fa",
+                "--output-dir", "/tmp/out", "--output-name", "x",
+                "--ambiguity-resolution", "bogus",
+            ])
+            try command.validate()
+        }())
+    }
+
     func testBuildsWorkflowConfigurationFromTwelveSReferenceBundle() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("FastqTwelveSMatchSubcommandTests-\(UUID().uuidString)", isDirectory: true)
