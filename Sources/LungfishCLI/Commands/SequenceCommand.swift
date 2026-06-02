@@ -255,7 +255,7 @@ struct SequenceCommand: AsyncParsableCommand {
 
 }
 
-private let cliVersion = "0.5.0-alpha11"
+private let cliVersion = "0.5.0-alpha12"
 
 private func parseReadingFrames(_ rawValue: String) throws -> [ReadingFrame] {
     let tokens = rawValue
