@@ -167,6 +167,85 @@ final class TwelveSAmpliconMatchingWorkflowTests: XCTestCase {
         XCTAssertEqual(provenance.stderr, "fake vsearch stderr")
     }
 
+    func testCrossSpeciesAmbiguousReadsReassignedToAbundantSpeciesWithConservation() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwelveSReassignTest-\(UUID().uuidString)", isDirectory: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let referenceURL = root.appendingPathComponent("reference.fa")
+        let fastqURL = root.appendingPathComponent("sampleA.fastq")
+        let outputDirectory = root.appendingPathComponent("outputs", isDirectory: true)
+
+        // human-long is human-specific (unambiguous abundance). human-short and
+        // pan-short share an IDENTICAL 8-mer core → reads matching only the core
+        // are cross-species ambiguous (human vs pan).
+        try """
+        >human-long (Homo sapiens)|locus=12S|len=10|n_refs=1|n_species=1|primer_pairs=12S_vert
+        ACGTACGTAA
+        >human-short (Homo sapiens)|locus=12S|len=8|n_refs=1|n_species=1|primer_pairs=12S_vert
+        TTTTGGGG
+        >pan-short (Pan troglodytes)|locus=12S|len=8|n_refs=1|n_species=1|primer_pairs=12S_vert
+        TTTTGGGG
+        """.write(to: referenceURL, atomically: true, encoding: .utf8)
+
+        // 3 reads unambiguously human (match human-long core ACGTACGTAA);
+        // 2 reads match only the shared TTTTGGGG core → ambiguous human/pan.
+        try """
+        @h1
+        TTACGTACGTAAGG
+        +
+        IIIIIIIIIIIIII
+        @h2
+        TTACGTACGTAAGG
+        +
+        IIIIIIIIIIIIII
+        @h3
+        TTACGTACGTAAGG
+        +
+        IIIIIIIIIIIIII
+        @amb1
+        TTTTTTGGGGGG
+        +
+        IIIIIIIIIIII
+        @amb2
+        TTTTTTGGGGGG
+        +
+        IIIIIIIIIIII
+        """.write(to: fastqURL, atomically: true, encoding: .utf8)
+
+        let result = try await TwelveSAmpliconMatchingWorkflow(chimeraReviewer: TwelveSNoOpChimeraReviewer()).run(
+            TwelveSAmpliconMatchingConfiguration(
+                inputFASTQs: [fastqURL],
+                referenceFASTA: referenceURL,
+                outputDirectory: outputDirectory,
+                outputName: "reassign-12s",
+                minimumSoftClipBases: 2,
+                maximumIndelBases: 2,
+                threads: 1
+            )
+        )
+
+        let loaded = try TwelveSAmpliconResultBundle.loadResult(from: result.bundleURL)
+        let sample = try XCTUnwrap(loaded.samples.first { $0.sampleID == "sampleA" })
+
+        // Read conservation: every input read is exact, reassigned, or unresolved.
+        XCTAssertEqual(sample.inputReads, 5)
+        XCTAssertEqual(sample.exactMatchReads + sample.reassignedReads + sample.unresolvedReads, sample.inputReads)
+        XCTAssertGreaterThanOrEqual(sample.ambiguousExactReads, 0)
+
+        // The 2 ambiguous reads were reassigned to the abundant species (human),
+        // not left unresolved.
+        XCTAssertEqual(sample.reassignedReads, 2)
+        XCTAssertEqual(sample.unresolvedReads, 0)
+
+        // Per-species counts reflect the assignment, and the reassignments table persisted.
+        let humanRow = try XCTUnwrap(loaded.scientificNameRows.first { $0.scientificName == "Homo sapiens" })
+        XCTAssertEqual(humanRow.count(forSample: "sampleA"), 5) // 3 unambiguous + 2 reassigned
+        XCTAssertFalse(loaded.reassignments.isEmpty)
+        XCTAssertEqual(loaded.reassignments.first?.toSpecies, "Homo sapiens")
+        XCTAssertEqual(loaded.reassignments.map(\.reads).reduce(0, +), 2)
+    }
+
     func testWorkflowAppliesReferenceMetadataAndWritesAlternateMatchTable() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("TwelveSAmpliconMatchingWorkflowTests-\(UUID().uuidString)", isDirectory: true)

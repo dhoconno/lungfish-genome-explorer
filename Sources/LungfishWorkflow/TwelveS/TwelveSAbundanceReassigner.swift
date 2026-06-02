@@ -38,6 +38,9 @@ public enum TwelveSAbundanceReassigner {
         public let toTarget: String
         public let reads: Int
         public let decidedBy: Decision
+        /// All candidate species the read was identical to (incl. the winner),
+        /// for audit/provenance.
+        public let candidateSpecies: [String]
     }
 
     public struct Result: Sendable {
@@ -87,7 +90,8 @@ public enum TwelveSAbundanceReassigner {
                     credit(&counts, toTarget: toTarget, sampleID: sampleID, reads: reads)
                     removeUnresolved(&unresolved, sequence: sequence, sampleID: sampleID)
                     moves.append(Move(sequence: sequence, sample: sampleID, toSpecies: winner,
-                                      toTarget: toTarget, reads: reads, decidedBy: .perSample))
+                                      toTarget: toTarget, reads: reads, decidedBy: .perSample,
+                                      candidateSpecies: candidateSpecies))
                     continue
                 }
 
@@ -101,7 +105,8 @@ public enum TwelveSAbundanceReassigner {
                     credit(&counts, toTarget: toTarget, sampleID: sampleID, reads: reads)
                     removeUnresolved(&unresolved, sequence: sequence, sampleID: sampleID)
                     moves.append(Move(sequence: sequence, sample: sampleID, toSpecies: winner,
-                                      toTarget: toTarget, reads: reads, decidedBy: .pooled))
+                                      toTarget: toTarget, reads: reads, decidedBy: .pooled,
+                                      candidateSpecies: candidateSpecies))
                 }
                 // else: leave unassigned (ambiguous) in this sample.
             }

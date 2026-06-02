@@ -16,6 +16,7 @@ public struct TwelveSAmpliconResultBundleManifest: Codable, Equatable, Sendable 
     public let alternateMatchesTablePath: String?
     public let unresolvedTablePath: String?
     public let unresolvedFastaPath: String?
+    public let reassignmentsTablePath: String?
     public let resolvedSampleMetadataPath: String?
     public let sampleMetadataManifestPath: String?
     public let analysisSampleMetadataOriginalPath: String?
@@ -35,6 +36,7 @@ public struct TwelveSAmpliconResultBundleManifest: Codable, Equatable, Sendable 
         alternateMatchesTablePath: String? = nil,
         unresolvedTablePath: String? = nil,
         unresolvedFastaPath: String? = nil,
+        reassignmentsTablePath: String? = nil,
         resolvedSampleMetadataPath: String? = nil,
         sampleMetadataManifestPath: String? = nil,
         analysisSampleMetadataOriginalPath: String? = nil,
@@ -53,6 +55,7 @@ public struct TwelveSAmpliconResultBundleManifest: Codable, Equatable, Sendable 
         self.alternateMatchesTablePath = alternateMatchesTablePath
         self.unresolvedTablePath = unresolvedTablePath
         self.unresolvedFastaPath = unresolvedFastaPath
+        self.reassignmentsTablePath = reassignmentsTablePath
         self.resolvedSampleMetadataPath = resolvedSampleMetadataPath
         self.sampleMetadataManifestPath = sampleMetadataManifestPath
         self.analysisSampleMetadataOriginalPath = analysisSampleMetadataOriginalPath
@@ -78,6 +81,7 @@ public struct TwelveSAmpliconResultBundleManifest: Codable, Equatable, Sendable 
             alternateMatchesTablePath: alternateMatchesTablePath,
             unresolvedTablePath: unresolvedTablePath,
             unresolvedFastaPath: unresolvedFastaPath,
+            reassignmentsTablePath: reassignmentsTablePath,
             resolvedSampleMetadataPath: resolvedSampleMetadataPath,
             sampleMetadataManifestPath: sampleMetadataManifestPath,
             analysisSampleMetadataOriginalPath: analysisSampleMetadataOriginalPath,
@@ -96,6 +100,7 @@ public struct TwelveSAmpliconResultArtifacts: Equatable, Sendable {
     public let alternateMatchesTableURL: URL?
     public let unresolvedTableURL: URL?
     public let unresolvedFastaURL: URL?
+    public let reassignmentsURL: URL?
     public let resolvedSampleMetadataURL: URL?
     public let sampleMetadataManifestURL: URL?
     public let analysisSampleMetadataOriginalURL: URL?
@@ -110,6 +115,7 @@ public struct TwelveSAmpliconResultArtifacts: Equatable, Sendable {
         alternateMatchesTableURL: URL? = nil,
         unresolvedTableURL: URL?,
         unresolvedFastaURL: URL?,
+        reassignmentsURL: URL? = nil,
         resolvedSampleMetadataURL: URL? = nil,
         sampleMetadataManifestURL: URL? = nil,
         analysisSampleMetadataOriginalURL: URL? = nil,
@@ -123,6 +129,7 @@ public struct TwelveSAmpliconResultArtifacts: Equatable, Sendable {
         self.alternateMatchesTableURL = alternateMatchesTableURL?.standardizedFileURL
         self.unresolvedTableURL = unresolvedTableURL?.standardizedFileURL
         self.unresolvedFastaURL = unresolvedFastaURL?.standardizedFileURL
+        self.reassignmentsURL = reassignmentsURL?.standardizedFileURL
         self.resolvedSampleMetadataURL = resolvedSampleMetadataURL?.standardizedFileURL
         self.sampleMetadataManifestURL = sampleMetadataManifestURL?.standardizedFileURL
         self.analysisSampleMetadataOriginalURL = analysisSampleMetadataOriginalURL?.standardizedFileURL
@@ -269,6 +276,7 @@ public struct TwelveSAmpliconSampleResult: Codable, Equatable, Sendable {
     public let unresolvedReads: Int
     public let ambiguousExactReads: Int
     public let chimeraCandidateReads: Int
+    public let reassignedReads: Int
     public let exactMatchPercent: Double
     public let unresolvedPercent: Double
 
@@ -280,6 +288,7 @@ public struct TwelveSAmpliconSampleResult: Codable, Equatable, Sendable {
         unresolvedReads: Int,
         ambiguousExactReads: Int,
         chimeraCandidateReads: Int,
+        reassignedReads: Int = 0,
         exactMatchPercent: Double,
         unresolvedPercent: Double
     ) {
@@ -290,6 +299,7 @@ public struct TwelveSAmpliconSampleResult: Codable, Equatable, Sendable {
         self.unresolvedReads = unresolvedReads
         self.ambiguousExactReads = ambiguousExactReads
         self.chimeraCandidateReads = chimeraCandidateReads
+        self.reassignedReads = reassignedReads
         self.exactMatchPercent = exactMatchPercent
         self.unresolvedPercent = unresolvedPercent
     }
@@ -372,6 +382,34 @@ public struct TwelveSUnresolvedSequence: Codable, Equatable, Sendable {
         self.sampleCounts = sampleCounts
         self.chimeraStatus = chimeraStatus
         self.note = note
+    }
+}
+
+public struct TwelveSReassignmentRecord: Equatable, Sendable {
+    public let sequenceID: String
+    public let sampleID: String
+    public let toSpecies: String
+    public let toTargetID: String
+    public let reads: Int
+    public let decidedBy: String
+    public let candidateSpecies: [String]
+
+    public init(
+        sequenceID: String,
+        sampleID: String,
+        toSpecies: String,
+        toTargetID: String,
+        reads: Int,
+        decidedBy: String,
+        candidateSpecies: [String]
+    ) {
+        self.sequenceID = sequenceID
+        self.sampleID = sampleID
+        self.toSpecies = toSpecies
+        self.toTargetID = toTargetID
+        self.reads = reads
+        self.decidedBy = decidedBy
+        self.candidateSpecies = candidateSpecies
     }
 }
 
@@ -512,6 +550,7 @@ public struct TwelveSAmpliconResultBundleData: Equatable, Sendable {
     public let countRows: [String: [String: Int]]
     public let readFate: TwelveSAmpliconReadFate
     public let unresolvedSequences: [TwelveSUnresolvedSequence]
+    public let reassignments: [TwelveSReassignmentRecord]
     public let sampleMetadata: ResolvedSampleMetadata?
     public let sampleMetadataManifest: TwelveSSampleMetadataSnapshotManifest?
 
@@ -524,6 +563,7 @@ public struct TwelveSAmpliconResultBundleData: Equatable, Sendable {
         countRows: [String: [String: Int]],
         readFate: TwelveSAmpliconReadFate,
         unresolvedSequences: [TwelveSUnresolvedSequence],
+        reassignments: [TwelveSReassignmentRecord] = [],
         sampleMetadata: ResolvedSampleMetadata? = nil,
         sampleMetadataManifest: TwelveSSampleMetadataSnapshotManifest? = nil
     ) {
@@ -535,6 +575,7 @@ public struct TwelveSAmpliconResultBundleData: Equatable, Sendable {
         self.countRows = countRows
         self.readFate = readFate
         self.unresolvedSequences = unresolvedSequences
+        self.reassignments = reassignments
         self.sampleMetadata = sampleMetadata
         self.sampleMetadataManifest = sampleMetadataManifest
     }
@@ -733,6 +774,7 @@ public enum TwelveSAmpliconResultBundle {
             alternateMatchesTableURL: manifest.alternateMatchesTablePath.map { resolvedURL(for: $0, in: bundleURL) },
             unresolvedTableURL: manifest.unresolvedTablePath.map { resolvedURL(for: $0, in: bundleURL) },
             unresolvedFastaURL: manifest.unresolvedFastaPath.map { resolvedURL(for: $0, in: bundleURL) },
+            reassignmentsURL: manifest.reassignmentsTablePath.map { resolvedURL(for: $0, in: bundleURL) },
             resolvedSampleMetadataURL: manifest.resolvedSampleMetadataPath.map { resolvedURL(for: $0, in: bundleURL) },
             sampleMetadataManifestURL: manifest.sampleMetadataManifestPath.map { resolvedURL(for: $0, in: bundleURL) },
             analysisSampleMetadataOriginalURL: manifest.analysisSampleMetadataOriginalPath.map { resolvedURL(for: $0, in: bundleURL) },
@@ -754,6 +796,13 @@ public enum TwelveSAmpliconResultBundle {
             from: Data(contentsOf: artifacts.readFateURL)
         )
         let unresolvedSequences = try artifacts.unresolvedTableURL.map(loadUnresolvedSequences(from:)) ?? []
+        let reassignments: [TwelveSReassignmentRecord]
+        if let reassignmentsURL = artifacts.reassignmentsURL,
+           FileManager.default.fileExists(atPath: reassignmentsURL.path) {
+            reassignments = loadReassignments(from: reassignmentsURL)
+        } else {
+            reassignments = []
+        }
         let sampleMetadata = try artifacts.resolvedSampleMetadataURL.flatMap { url in
             FileManager.default.fileExists(atPath: url.path) ? try ResolvedSampleMetadata.loadTSV(from: url) : nil
         }
@@ -772,6 +821,7 @@ public enum TwelveSAmpliconResultBundle {
             countRows: countRows,
             readFate: readFate,
             unresolvedSequences: unresolvedSequences,
+            reassignments: reassignments,
             sampleMetadata: sampleMetadata,
             sampleMetadataManifest: sampleMetadataManifest
         )
@@ -845,6 +895,38 @@ public enum TwelveSAmpliconResultBundle {
         return matchesByTarget
     }
 
+    private static func loadReassignments(from url: URL) -> [TwelveSReassignmentRecord] {
+        guard let table = try? loadTSVRows(from: url) else { return [] }
+        var records: [TwelveSReassignmentRecord] = []
+        for row in table {
+            guard let sequenceID = nonEmpty(row["sequence_id"]),
+                  let sampleID = nonEmpty(row["sample_id"]),
+                  let toSpecies = nonEmpty(row["to_species"]),
+                  let toTargetID = nonEmpty(row["to_target_id"]),
+                  let readsText = nonEmpty(row["reads"]),
+                  let reads = Int(readsText) else {
+                continue
+            }
+            let decidedBy = nonEmpty(row["decided_by"]) ?? "pooled"
+            let candidateSpecies = (nonEmpty(row["candidate_species"]) ?? "")
+                .split(separator: ";", omittingEmptySubsequences: true)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            records.append(
+                TwelveSReassignmentRecord(
+                    sequenceID: sequenceID,
+                    sampleID: sampleID,
+                    toSpecies: toSpecies,
+                    toTargetID: toTargetID,
+                    reads: reads,
+                    decidedBy: decidedBy,
+                    candidateSpecies: candidateSpecies
+                )
+            )
+        }
+        return records
+    }
+
     private static func loadSamples(from url: URL) throws -> [TwelveSAmpliconSampleResult] {
         try loadTSVRows(from: url).map { row in
             let sampleID = try required(row["sample_id"], column: "sample_id", file: url.lastPathComponent)
@@ -869,6 +951,11 @@ public enum TwelveSAmpliconResultBundle {
                 column: "chimera_candidate_reads",
                 file: url.lastPathComponent
             ) ?? 0
+            let reassignedReads = try optionalInt(
+                row["reassigned_reads"],
+                column: "reassigned_reads",
+                file: url.lastPathComponent
+            ) ?? 0
             return TwelveSAmpliconSampleResult(
                 sampleID: sampleID,
                 displayName: nonEmpty(row["display_name"]) ?? sampleID,
@@ -877,6 +964,7 @@ public enum TwelveSAmpliconResultBundle {
                 unresolvedReads: unresolvedReads,
                 ambiguousExactReads: ambiguousExactReads,
                 chimeraCandidateReads: chimeraCandidateReads,
+                reassignedReads: reassignedReads,
                 exactMatchPercent: optionalDouble(row["exact_match_percent"]) ?? percent(exactMatchReads, inputReads),
                 unresolvedPercent: optionalDouble(row["unresolved_percent"]) ?? percent(unresolvedReads, inputReads)
             )

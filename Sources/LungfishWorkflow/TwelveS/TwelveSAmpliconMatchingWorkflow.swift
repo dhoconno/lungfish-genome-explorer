@@ -19,6 +19,8 @@ public struct TwelveSAmpliconMatchingConfiguration: Equatable, Sendable {
     public let threads: Int
     public let runChimeraReview: Bool
     public let forceOverwrite: Bool
+    /// How cross-species identical-sequence ambiguous reads are resolved.
+    public let ambiguityResolution: TwelveSAbundanceReassigner.ResolutionPolicy
     public let argv: [String]
 
     public init(
@@ -34,6 +36,7 @@ public struct TwelveSAmpliconMatchingConfiguration: Equatable, Sendable {
         threads: Int = 1,
         runChimeraReview: Bool = true,
         forceOverwrite: Bool = false,
+        ambiguityResolution: TwelveSAbundanceReassigner.ResolutionPolicy = .anyNonzeroLead,
         argv: [String] = []
     ) {
         self.inputFASTQs = inputFASTQs.map(\.standardizedFileURL)
@@ -48,6 +51,7 @@ public struct TwelveSAmpliconMatchingConfiguration: Equatable, Sendable {
         self.threads = max(1, threads)
         self.runChimeraReview = runChimeraReview
         self.forceOverwrite = forceOverwrite
+        self.ambiguityResolution = ambiguityResolution
         self.argv = argv
     }
 }
@@ -131,6 +135,7 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
                 resolvedInputs,
                 classifier: classifier,
                 references: referenceIndex.records,
+                ambiguityResolution: config.ambiguityResolution,
                 threads: config.threads
             )
             let unresolved = makeUnresolvedSequences(from: classified.unresolvedCounts)
@@ -213,8 +218,13 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
         var inputReadsBySample: [String: Int] = [:]
         var exactReadsBySample: [String: Int] = [:]
         var ambiguousReadsBySample: [String: Int] = [:]
+        /// Reads reassigned from cross-species ambiguity to an abundant species —
+        /// tracked separately from exact reads (never laundered in).
+        var reassignedReadsBySample: [String: Int] = [:]
         var countsByTarget: [String: [String: Int]] = [:]
         var unresolvedCounts: [String: [String: Int]] = [:]
+        /// The abundance reassignment decisions, persisted for audit.
+        var reassignmentMoves: [TwelveSAbundanceReassigner.Move] = []
     }
 
     private struct ResolvedInput: Sendable {
@@ -252,6 +262,7 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
         _ inputs: [ResolvedInput],
         classifier: TwelveSAmpliconReadClassifier,
         references: [TwelveSReferenceRecord],
+        ambiguityResolution: TwelveSAbundanceReassigner.ResolutionPolicy,
         threads: Int
     ) async throws -> ClassifiedReads {
         var classified = ClassifiedReads()
@@ -302,24 +313,33 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
         // Pass B: reassign cross-species identical-sequence ambiguous reads to the
         // most-abundant candidate species (strict plurality). See
         // TwelveSAbundanceReassigner.
-        applyAbundanceReassignment(&classified, ambiguousCandidates: ambiguousCandidates, references: references)
+        applyAbundanceReassignment(&classified, ambiguousCandidates: ambiguousCandidates,
+                                   references: references, policy: ambiguityResolution)
 
         return classified
     }
 
-    /// Maps each species (display name) to its canonical target — the longest
-    /// reference sequence, tie-broken by smallest targetID — matching the
-    /// classifier's same-species canonicalization.
+    /// The biological species key for a reference (scientific name), so multiple
+    /// reference variants of the same species count together for abundance —
+    /// matching the bundle's `scientificNameKey` grouping (NOT raw displayName).
+    private func speciesKey(for ref: TwelveSReferenceRecord) -> String {
+        let target = ref.target
+        return target.scientificName ?? target.displayName
+    }
+
+    /// Maps each species (scientific name) to its canonical target — the longest
+    /// reference sequence, tie-broken by smallest targetID.
     private func canonicalTargetForSpecies(_ references: [TwelveSReferenceRecord]) -> [String: String] {
         var best: [String: TwelveSReferenceRecord] = [:]
         for ref in references {
-            if let existing = best[ref.displayName] {
+            let key = speciesKey(for: ref)
+            if let existing = best[key] {
                 if ref.sequence.count > existing.sequence.count
                     || (ref.sequence.count == existing.sequence.count && ref.targetID < existing.targetID) {
-                    best[ref.displayName] = ref
+                    best[key] = ref
                 }
             } else {
-                best[ref.displayName] = ref
+                best[key] = ref
             }
         }
         return best.mapValues(\.targetID)
@@ -328,40 +348,40 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
     private func applyAbundanceReassignment(
         _ classified: inout ClassifiedReads,
         ambiguousCandidates: [String: [String]],
-        references: [TwelveSReferenceRecord]
+        references: [TwelveSReferenceRecord],
+        policy: TwelveSAbundanceReassigner.ResolutionPolicy
     ) {
         guard !ambiguousCandidates.isEmpty else { return }
         let speciesForTarget = Dictionary(
-            references.map { ($0.targetID, $0.displayName) },
+            references.map { ($0.targetID, speciesKey(for: $0)) },
             uniquingKeysWith: { first, _ in first }
         )
-        // Snapshot the per-sample unresolved counts before reassignment so we can
-        // shift the moved reads from ambiguous→exact per sample.
-        let unresolvedBefore = classified.unresolvedCounts
         let result = TwelveSAbundanceReassigner.reassign(
             ambiguousCandidates: ambiguousCandidates,
             unresolvedCounts: classified.unresolvedCounts,
             countsByTarget: classified.countsByTarget,
             speciesForTarget: speciesForTarget,
-            canonicalTargetForSpecies: canonicalTargetForSpecies(references)
+            canonicalTargetForSpecies: canonicalTargetForSpecies(references),
+            policy: policy
         )
         guard !result.moves.isEmpty else { return }
 
         classified.countsByTarget = result.countsByTarget
         classified.unresolvedCounts = result.unresolvedCounts
+        classified.reassignmentMoves = result.moves
 
-        // Moved reads shift from ambiguous to exact, per sample.
+        // Each move carries its exact (sequence, sample, reads), so the per-sample
+        // accounting is precise: the reads leave ambiguous and become a distinct
+        // reassigned channel (NOT folded into exact reads).
         var movedTotal = 0
         for move in result.moves {
-            guard let perSample = unresolvedBefore[move.sequence] else { continue }
-            for (sampleID, reads) in perSample {
-                classified.exactReadsBySample[sampleID, default: 0] += reads
-                classified.ambiguousReadsBySample[sampleID, default: 0] -= reads
-                movedTotal += reads
-            }
+            classified.reassignedReadsBySample[move.sample, default: 0] += move.reads
+            classified.ambiguousReadsBySample[move.sample, default: 0] -= move.reads
+            movedTotal += move.reads
         }
         let speciesMoves = result.moves
-            .map { "\($0.toSpecies) (+\($0.reads))" }
+            .reduce(into: [String: Int]()) { $0[$1.toSpecies, default: 0] += $1.reads }
+            .map { "\($0.key) (+\($0.value))" }
             .sorted()
             .joined(separator: ", ")
         twelveSWorkflowLogger.info(
@@ -446,6 +466,7 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
         let readFateURL = bundleURL.appendingPathComponent("read-fate.json")
         let unresolvedTableURL = bundleURL.appendingPathComponent("unresolved-sequences.tsv")
         let unresolvedFastaURL = bundleURL.appendingPathComponent("unresolved-sequences.fasta")
+        let reassignmentsTableURL = bundleURL.appendingPathComponent("reassignments.tsv")
 
         try FileManager.default.copyItem(at: config.referenceFASTA, to: referenceCopyURL)
         try writeTargets(references, to: targetTableURL)
@@ -466,6 +487,12 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
         try writeReadFate(samples: samples, to: readFateURL)
         try writeUnresolvedTable(unresolvedSequences, to: unresolvedTableURL)
         try writeUnresolvedFasta(unresolvedSequences, to: unresolvedFastaURL)
+        // Only emit the reassignments table when there were reassignments, so
+        // the manifest path stays nil for runs (and tools) that never reassign.
+        let wroteReassignments = !classified.reassignmentMoves.isEmpty
+        if wroteReassignments {
+            try writeReassignments(classified.reassignmentMoves, to: reassignmentsTableURL)
+        }
 
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
@@ -480,6 +507,7 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
             alternateMatchesTablePath: alternateMatchesTableURL.lastPathComponent,
             unresolvedTablePath: unresolvedTableURL.lastPathComponent,
             unresolvedFastaPath: unresolvedFastaURL.lastPathComponent,
+            reassignmentsTablePath: wroteReassignments ? reassignmentsTableURL.lastPathComponent : nil,
             resolvedSampleMetadataPath: sampleMetadataSnapshot.resolvedRelativePath,
             sampleMetadataManifestPath: sampleMetadataSnapshot.manifestRelativePath,
             analysisSampleMetadataOriginalPath: sampleMetadataSnapshot.analysisOriginalRelativePath,
@@ -497,7 +525,11 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
             let inputReads = classified.inputReadsBySample[sampleID, default: 0]
             let exactReads = classified.exactReadsBySample[sampleID, default: 0]
             let ambiguousReads = classified.ambiguousReadsBySample[sampleID, default: 0]
-            let unresolvedReads = inputReads - exactReads
+            let reassignedReads = classified.reassignedReadsBySample[sampleID, default: 0]
+            // Reassigned reads are no longer ambiguous and are tracked as their
+            // own channel (not folded into exact reads), so they leave the
+            // unresolved pool too.
+            let unresolvedReads = inputReads - exactReads - reassignedReads
             let chimeraReads = unresolvedSequences.reduce(0) { total, unresolved in
                 let count = unresolved.sampleCounts[sampleID, default: 0]
                 return unresolved.chimeraStatus == .candidate || unresolved.chimeraStatus == .confirmed
@@ -512,6 +544,7 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
                 unresolvedReads: unresolvedReads,
                 ambiguousExactReads: ambiguousReads,
                 chimeraCandidateReads: chimeraReads,
+                reassignedReads: reassignedReads,
                 exactMatchPercent: percent(exactReads, inputReads),
                 unresolvedPercent: percent(unresolvedReads, inputReads)
             )
@@ -583,7 +616,7 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
 
     private func writeSamples(_ samples: [TwelveSAmpliconSampleResult], to url: URL) throws {
         var lines = [
-            "sample_id\tdisplay_name\tinput_reads\texact_match_reads\tunresolved_reads\tambiguous_exact_reads\tchimera_candidate_reads\texact_match_percent\tunresolved_percent"
+            "sample_id\tdisplay_name\tinput_reads\texact_match_reads\tunresolved_reads\tambiguous_exact_reads\tchimera_candidate_reads\texact_match_percent\tunresolved_percent\treassigned_reads"
         ]
         for sample in samples {
             lines.append([
@@ -596,6 +629,7 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
                 String(sample.chimeraCandidateReads),
                 Self.formatDouble(sample.exactMatchPercent),
                 Self.formatDouble(sample.unresolvedPercent),
+                String(sample.reassignedReads),
             ].map(Self.tsvEscape).joined(separator: "\t"))
         }
         try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
@@ -735,6 +769,25 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
                 sampleCounts,
                 sequence.chimeraStatus.rawValue,
                 sequence.note ?? "",
+            ].map(Self.tsvEscape).joined(separator: "\t"))
+        }
+        try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func writeReassignments(_ moves: [TwelveSAbundanceReassigner.Move], to url: URL) throws {
+        var lines = ["sequence_id\tsample_id\tto_species\tto_target_id\treads\tdecided_by\tcandidate_species"]
+        for move in moves.sorted(by: {
+            $0.sequence != $1.sequence ? $0.sequence < $1.sequence : $0.sample < $1.sample
+        }) {
+            let decidedBy = move.decidedBy == .perSample ? "perSample" : "pooled"
+            lines.append([
+                move.sequence,
+                move.sample,
+                move.toSpecies,
+                move.toTarget,
+                String(move.reads),
+                decidedBy,
+                move.candidateSpecies.joined(separator: ";"),
             ].map(Self.tsvEscape).joined(separator: "\t"))
         }
         try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
