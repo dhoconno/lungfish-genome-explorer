@@ -182,6 +182,35 @@ final class TwelveSTableViewTests: XCTestCase {
         XCTAssertFalse(vc.testingTargetColumnIDs.contains { $0.hasPrefix("sample::") })
     }
 
+    func testApplyMetadataStoreAddsPerSampleMetadataColumns() throws {
+        let vc = TwelveSAmpliconResultViewController()
+        vc.loadViewIfNeeded()
+        let bundle = TwelveSFixtures.twoSampleResult()
+        vc.configure(result: bundle)
+        let entries = bundle.samples.map {
+            TwelveSSampleEntry(id: $0.sampleID, displayName: $0.displayName, exactReads: $0.exactMatchReads)
+        }
+        vc.configureSamples(entries, state: ClassifierSamplePickerState(allSamples: Set(entries.map(\.id))))
+
+        let csv = "sample_id,site\nSampleA,Hilo\nSampleB,Kona\n"
+        let store = try SampleMetadataStore(csvData: Data(csv.utf8), knownSampleIds: ["SampleA", "SampleB"])
+        vc.applyMetadataStore(store)
+
+        XCTAssertTrue(vc.testingTargetColumnIDs.contains("sample::SampleA::meta::site"))
+        XCTAssertTrue(vc.testingTargetColumnIDs.contains("sample::SampleB::meta::site"))
+        // Value resolves for the human row (row 0 = Homo sapiens, has SampleA reads).
+        XCTAssertEqual(vc.testingTargetText(row: 0, column: "sample::SampleA::meta::site"), "Hilo")
+    }
+
+    func testImportMetadataAffordanceFiresCallback() {
+        let vc = TwelveSAmpliconResultViewController()
+        vc.loadViewIfNeeded()
+        var fired = false
+        vc.onMetadataImportRequested = { fired = true }
+        vc.testingTriggerMetadataImport()
+        XCTAssertTrue(fired)
+    }
+
     func testSingleSampleBundleHidesSampleFilterButton() {
         let vc = TwelveSAmpliconResultViewController()
         vc.loadViewIfNeeded()

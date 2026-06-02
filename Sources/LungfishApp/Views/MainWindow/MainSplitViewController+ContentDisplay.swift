@@ -329,6 +329,14 @@ extension MainSplitViewController {
             controller.onSelectedRowDetailChanged = { [weak self] payload in
                 self?.inspectorController.updateTwelveSDetail(payload)
             }
+            controller.onMetadataImportRequested = { [weak self, weak controller] in
+                guard let self, let controller else { return }
+                self.presentTwelveSMetadataImport(
+                    into: controller,
+                    knownSampleIDs: Set(result.samples.map(\.sampleID)),
+                    bundleURL: result.bundleURL
+                )
+            }
             inspectorController.onTwelveSResultDisplayStateChanged = { [weak controller] state in
                 controller?.applyDisplayState(state)
             }
@@ -562,4 +570,64 @@ extension MainSplitViewController {
     /// - Per-sample subdir with DB → loads batch view, filters picker to that sample.
     /// - Any classifier dir without DB → shows auto-build placeholder.
     /// - Non-classifier dir → logs and no-ops.
+
+    // MARK: - 12S sample-metadata import
+
+    /// Presents the shared CSV/TSV metadata-import panel for the 12S viewport
+    /// and applies the parsed store as per-sample matrix columns. Reuses the
+    /// same panel + scanner + import service NVD/genotype use.
+    func presentTwelveSMetadataImport(
+        into controller: TwelveSAmpliconResultViewController,
+        knownSampleIDs: Set<String>,
+        bundleURL: URL
+    ) {
+        guard !knownSampleIDs.isEmpty, let window = view.window else { return }
+        let panel = FeatureFilePanelFactory.inspectorTextMetadataImportPanel()
+        panel.beginSheetModal(for: window) { [weak self, weak controller] response in
+            guard let self, let controller, response == .OK, let url = panel.url else { return }
+            self.finishTwelveSMetadataImport(
+                from: url, into: controller, knownSampleIDs: knownSampleIDs, bundleURL: bundleURL)
+        }
+    }
+
+    private func finishTwelveSMetadataImport(
+        from url: URL,
+        into controller: TwelveSAmpliconResultViewController,
+        knownSampleIDs: Set<String>,
+        bundleURL: URL
+    ) {
+        func alert(_ title: String, _ message: String) {
+            let a = NSAlert()
+            a.messageText = title
+            a.informativeText = message
+            a.alertStyle = .warning
+            a.addButton(withTitle: "OK")
+            if let window = view.window { a.beginSheetModal(for: window) }
+        }
+
+        guard let data = try? Data(contentsOf: url) else {
+            alert("Metadata Import Failed", "The selected metadata file could not be read.")
+            return
+        }
+        guard let scanResult = try? SampleMetadataStore.scanForSampleColumn(
+            csvData: data, knownSampleIds: knownSampleIDs),
+              let best = scanResult.bestColumn else {
+            alert("No Sample Column Found",
+                  "No column in this file matched the bundle's sample IDs. Include a column with sample names.")
+            return
+        }
+        do {
+            let result = try SampleMetadataBundleImportService().importMetadata(
+                data: data,
+                sourceURL: url,
+                scanResult: scanResult,
+                sampleColumnIndex: best.index,
+                knownSampleIds: knownSampleIDs,
+                bundleURL: bundleURL
+            )
+            controller.applyMetadataStore(result.store)
+        } catch {
+            alert("Metadata Import Failed", error.localizedDescription)
+        }
+    }
 }
