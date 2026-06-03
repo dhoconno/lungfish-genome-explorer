@@ -7,6 +7,7 @@ class SparkleReleasePackagingTests(unittest.TestCase):
         self.root = Path(__file__).resolve().parents[2]
         self.package_swift = (self.root / "Package.swift").read_text()
         self.project = (self.root / "Lungfish.xcodeproj" / "project.pbxproj").read_text()
+        self.info_plist = (self.root / "Lungfish-Info.plist").read_text()
         self.release_script = (
             self.root / "scripts" / "release" / "build-notarized-dmg.sh"
         ).read_text()
@@ -22,13 +23,16 @@ class SparkleReleasePackagingTests(unittest.TestCase):
         self.assertIn("/* Sparkle */", self.project)
         self.assertIn("productName = Sparkle;", self.project)
 
-    def test_xcode_release_build_embeds_sparkle_info_plist_defaults(self):
-        self.assertIn("INFOPLIST_KEY_SUFeedURL", self.project)
-        self.assertIn("INFOPLIST_KEY_SUPublicEDKey", self.project)
-        self.assertIn("INFOPLIST_KEY_SUVerifyUpdateBeforeExtraction = YES;", self.project)
+    def test_xcode_release_build_uses_shared_sparkle_info_plist_defaults(self):
+        self.assertIn('INFOPLIST_FILE = "Lungfish-Info.plist";', self.project)
+        self.assertIn("LUNGFISH_SPARKLE_PUBLIC_ED_KEY", self.project)
+        self.assertIn("<key>SUFeedURL</key>", self.info_plist)
+        self.assertIn("<key>SUPublicEDKey</key>", self.info_plist)
+        self.assertIn("<key>SUVerifyUpdateBeforeExtraction</key>", self.info_plist)
+        self.assertIn("<true/>", self.info_plist)
         self.assertIn(
             "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/sparkle-alpha/appcast-alpha.xml",
-            self.project,
+            self.info_plist,
         )
 
     def test_release_script_can_publish_github_hosted_alpha_appcast(self):
