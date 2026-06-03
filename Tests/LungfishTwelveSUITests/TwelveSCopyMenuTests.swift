@@ -13,9 +13,16 @@ final class TwelveSCopyMenuTests: XCTestCase {
         _ = NSApplication.shared.sendAction(item.action!, to: item.target, from: item)
     }
 
-    private func target(_ name: String, taxid: String, reads: Int) -> TwelveSScientificNameCountRow {
-        TwelveSScientificNameCountRow(scientificName: name, targetIDs: ["t"],
+    private func target(_ name: String, taxid: String, reads: Int) -> TwelveSTargetSampleRow {
+        let aggregate = TwelveSScientificNameCountRow(scientificName: name, targetIDs: ["t"],
             sampleCounts: ["s1": reads], sampleExactReadTotals: ["s1": 100], taxids: [taxid])
+        return TwelveSTargetSampleRow(
+            source: aggregate,
+            sampleID: "s1",
+            sampleDisplayName: "Sample One",
+            exactReads: reads,
+            sampleExactReadTotal: 100
+        )
     }
     private func unresolved(_ id: String, seq: String) -> TwelveSUnresolvedSequence {
         TwelveSUnresolvedSequence(sequenceID: id, sequence: seq, readCount: 1,
@@ -37,8 +44,9 @@ final class TwelveSCopyMenuTests: XCTestCase {
     func testCopyTargetRowsTSVHasHeaderAndValues() {
         let tsv = TwelveSCopyFormatting.targetRowsTSV([target("Homo sapiens", taxid: "9606", reads: 42)])
         let lines = tsv.split(separator: "\n")
-        XCTAssertEqual(lines.first, "Scientific Name\tCommon Names\tGroup\tTax ID\tExact Reads\tRefs\tMax %\tAlternates")
+        XCTAssertEqual(lines.first, "Sample\tScientific Name\tCommon Names\tGroup\tTax ID\tExact Reads\t% of Sample\tRefs\tAlternates")
         XCTAssertTrue(lines[1].contains("Homo sapiens"))
+        XCTAssertTrue(lines[1].contains("Sample One"))
         XCTAssertTrue(lines[1].contains("42"))
     }
 

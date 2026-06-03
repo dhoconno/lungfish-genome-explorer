@@ -553,6 +553,7 @@ public struct TwelveSAmpliconResultBundleData: Equatable, Sendable {
     public let reassignments: [TwelveSReassignmentRecord]
     public let sampleMetadata: ResolvedSampleMetadata?
     public let sampleMetadataManifest: TwelveSSampleMetadataSnapshotManifest?
+    private let precomputedScientificNameRows: [TwelveSScientificNameCountRow]?
 
     public init(
         bundleURL: URL,
@@ -565,7 +566,8 @@ public struct TwelveSAmpliconResultBundleData: Equatable, Sendable {
         unresolvedSequences: [TwelveSUnresolvedSequence],
         reassignments: [TwelveSReassignmentRecord] = [],
         sampleMetadata: ResolvedSampleMetadata? = nil,
-        sampleMetadataManifest: TwelveSSampleMetadataSnapshotManifest? = nil
+        sampleMetadataManifest: TwelveSSampleMetadataSnapshotManifest? = nil,
+        scientificNameRows: [TwelveSScientificNameCountRow]? = nil
     ) {
         self.bundleURL = bundleURL.standardizedFileURL
         self.manifest = manifest
@@ -578,6 +580,7 @@ public struct TwelveSAmpliconResultBundleData: Equatable, Sendable {
         self.reassignments = reassignments
         self.sampleMetadata = sampleMetadata
         self.sampleMetadataManifest = sampleMetadataManifest
+        self.precomputedScientificNameRows = scientificNameRows
     }
 
     public var sampleNames: [String] {
@@ -603,6 +606,17 @@ public struct TwelveSAmpliconResultBundleData: Equatable, Sendable {
     }
 
     public var scientificNameRows: [TwelveSScientificNameCountRow] {
+        if let precomputedScientificNameRows {
+            return precomputedScientificNameRows
+        }
+        return Self.buildScientificNameRows(targets: targets, samples: samples, countRows: countRows)
+    }
+
+    static func buildScientificNameRows(
+        targets: [TwelveSAmpliconTarget],
+        samples: [TwelveSAmpliconSampleResult],
+        countRows: [String: [String: Int]]
+    ) -> [TwelveSScientificNameCountRow] {
         let exactReadsBySample = Dictionary(uniqueKeysWithValues: samples.map {
             ($0.sampleID, $0.exactMatchReads)
         })
@@ -610,7 +624,13 @@ public struct TwelveSAmpliconResultBundleData: Equatable, Sendable {
 
         for target in targets {
             let scientificName = Self.scientificNameKey(for: target)
-            var accumulator = groups[scientificName] ?? ScientificNameAccumulator(scientificName: scientificName)
+            let accumulator: ScientificNameAccumulator
+            if let existing = groups[scientificName] {
+                accumulator = existing
+            } else {
+                accumulator = ScientificNameAccumulator(scientificName: scientificName)
+                groups[scientificName] = accumulator
+            }
             accumulator.commonNames.append(target.commonName ?? "")
             accumulator.targetIDs.append(target.targetID)
             accumulator.potentialMatches.append(contentsOf: Self.potentialMatches(for: target))
@@ -622,7 +642,6 @@ public struct TwelveSAmpliconResultBundleData: Equatable, Sendable {
             for (sampleID, count) in countRows[target.targetID, default: [:]] {
                 accumulator.sampleCounts[sampleID, default: 0] += count
             }
-            groups[scientificName] = accumulator
         }
 
         return groups.values.map { accumulator in
@@ -649,7 +668,7 @@ public struct TwelveSAmpliconResultBundleData: Equatable, Sendable {
         unresolvedSequences.filter { $0.chimeraStatus == .candidate || $0.chimeraStatus == .confirmed }.count
     }
 
-    private struct ScientificNameAccumulator {
+    private final class ScientificNameAccumulator {
         let scientificName: String
         var commonNames: [String] = []
         var targetIDs: [String] = []
@@ -658,6 +677,10 @@ public struct TwelveSAmpliconResultBundleData: Equatable, Sendable {
         var alternateMatches: [TwelveSAlternateMatch] = []
         var taxonGroups: [String] = []
         var taxids: [String] = []
+
+        init(scientificName: String) {
+            self.scientificName = scientificName
+        }
     }
 
     private static func scientificNameKey(for target: TwelveSAmpliconTarget) -> String {
@@ -757,8 +780,19 @@ public enum TwelveSAmpliconResultBundle {
     }
 
     public static func loadResult(from bundleURL: URL) throws -> TwelveSAmpliconResultBundleData {
+        try loadResult(from: bundleURL, loadUnresolvedSequences: true)
+    }
+
+    public static func loadResult(
+        from bundleURL: URL,
+        loadUnresolvedSequences: Bool
+    ) throws -> TwelveSAmpliconResultBundleData {
         let manifest = try loadManifest(from: bundleURL)
-        return try loadResult(from: bundleURL, manifest: manifest)
+        return try loadResult(
+            from: bundleURL,
+            manifest: manifest,
+            loadUnresolvedSequences: loadUnresolvedSequences
+        )
     }
 
     public static func loadSamples(from bundleURL: URL) throws -> [TwelveSAmpliconSampleResult] {
@@ -772,7 +806,8 @@ public enum TwelveSAmpliconResultBundle {
 
     public static func loadResult(
         from bundleURL: URL,
-        manifest: TwelveSAmpliconResultBundleManifest
+        manifest: TwelveSAmpliconResultBundleManifest,
+        loadUnresolvedSequences: Bool = true
     ) throws -> TwelveSAmpliconResultBundleData {
         let artifacts = TwelveSAmpliconResultArtifacts(
             referenceURL: resolvedURL(for: manifest.referencePath, in: bundleURL),
@@ -789,28 +824,49 @@ public enum TwelveSAmpliconResultBundle {
             analysisSampleMetadataOriginalURL: manifest.analysisSampleMetadataOriginalPath.map { resolvedURL(for: $0, in: bundleURL) },
             provenanceURL: resolvedURL(for: manifest.provenancePath, in: bundleURL)
         )
-        var targets = try loadTargets(from: artifacts.targetTableURL)
-        if let alternateMatchesTableURL = artifacts.alternateMatchesTableURL,
-           FileManager.default.fileExists(atPath: alternateMatchesTableURL.path) {
-            let alternateMatches = try loadAlternateMatches(from: alternateMatchesTableURL)
-            targets = targets.map { target in
-                target.withAlternateMatches(alternateMatches[target.targetID, default: []])
-            }
-        }
-        let targetIDs = Set(targets.map(\.targetID))
         let samples = try loadSampleTable(from: artifacts.sampleTableURL)
-        let countRows = try loadCountRows(from: artifacts.countMatrixURL, validTargetIDs: targetIDs)
         let readFate = try JSONDecoder().decode(
             TwelveSAmpliconReadFate.self,
             from: Data(contentsOf: artifacts.readFateURL)
         )
-        let unresolvedSequences = try artifacts.unresolvedTableURL.map(loadUnresolvedSequences(from:)) ?? []
+        let unresolvedSequences = loadUnresolvedSequences
+            ? try artifacts.unresolvedTableURL.map(loadUnresolvedSequenceTable(from:)) ?? []
+            : []
         let reassignments: [TwelveSReassignmentRecord]
         if let reassignmentsURL = artifacts.reassignmentsURL,
            FileManager.default.fileExists(atPath: reassignmentsURL.path) {
             reassignments = loadReassignments(from: reassignmentsURL)
         } else {
             reassignments = []
+        }
+        let targets: [TwelveSAmpliconTarget]
+        let countRows: [String: [String: Int]]
+        if loadUnresolvedSequences {
+            var loadedTargets = try loadTargets(from: artifacts.targetTableURL)
+            let targetIDs = Set(loadedTargets.map(\.targetID))
+            countRows = try loadCountRows(from: artifacts.countMatrixURL, validTargetIDs: targetIDs)
+            loadedTargets = try attachAlternateMatches(
+                to: loadedTargets,
+                from: artifacts.alternateMatchesTableURL
+            )
+            targets = loadedTargets
+        } else {
+            countRows = try loadCountRows(from: artifacts.countMatrixURL, validTargetIDs: nil)
+            var includedTargetIDs = Set(countRows.keys)
+            includedTargetIDs.formUnion(reassignments.map(\.toTargetID))
+            var loadedTargets = try loadTargets(
+                from: artifacts.targetTableURL,
+                includedTargetIDs: includedTargetIDs
+            )
+            let loadedTargetIDs = Set(loadedTargets.map(\.targetID))
+            if let unknownTargetID = includedTargetIDs.sorted().first(where: { !loadedTargetIDs.contains($0) }) {
+                throw TwelveSAmpliconResultBundleError.unknownTarget(targetID: unknownTargetID)
+            }
+            loadedTargets = try attachAlternateMatches(
+                to: loadedTargets,
+                from: artifacts.alternateMatchesTableURL
+            )
+            targets = loadedTargets
         }
         let sampleMetadata = try artifacts.resolvedSampleMetadataURL.flatMap { url in
             FileManager.default.fileExists(atPath: url.path) ? try ResolvedSampleMetadata.loadTSV(from: url) : nil
@@ -820,6 +876,11 @@ public enum TwelveSAmpliconResultBundle {
                 ? try JSONDecoder().decode(TwelveSSampleMetadataSnapshotManifest.self, from: Data(contentsOf: url))
                 : nil
         }
+        let scientificNameRows = TwelveSAmpliconResultBundleData.buildScientificNameRows(
+            targets: targets,
+            samples: samples,
+            countRows: countRows
+        )
 
         return TwelveSAmpliconResultBundleData(
             bundleURL: bundleURL,
@@ -832,8 +893,24 @@ public enum TwelveSAmpliconResultBundle {
             unresolvedSequences: unresolvedSequences,
             reassignments: reassignments,
             sampleMetadata: sampleMetadata,
-            sampleMetadataManifest: sampleMetadataManifest
+            sampleMetadataManifest: sampleMetadataManifest,
+            scientificNameRows: scientificNameRows
         )
+    }
+
+    public static func loadUnresolvedSequences(fromBundle bundleURL: URL) throws -> [TwelveSUnresolvedSequence] {
+        let manifest = try loadManifest(from: bundleURL)
+        return try loadUnresolvedSequences(fromBundle: bundleURL, manifest: manifest)
+    }
+
+    public static func loadUnresolvedSequences(
+        fromBundle bundleURL: URL,
+        manifest: TwelveSAmpliconResultBundleManifest
+    ) throws -> [TwelveSUnresolvedSequence] {
+        guard let unresolvedTablePath = manifest.unresolvedTablePath else { return [] }
+        let url = resolvedURL(for: unresolvedTablePath, in: bundleURL)
+        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
+        return try loadUnresolvedSequenceTable(from: url)
     }
 
     public static func resolvedURL(for path: String, in bundleURL: URL) -> URL {
@@ -844,40 +921,93 @@ public enum TwelveSAmpliconResultBundle {
         return bundleURL.appendingPathComponent(trimmed).standardizedFileURL
     }
 
-    private static func loadTargets(from url: URL) throws -> [TwelveSAmpliconTarget] {
-        try loadTSVRows(from: url).map { row in
-            let targetID = try required(row["target_id"], column: "target_id", file: url.lastPathComponent)
-            let displayName = nonEmpty(row["display_name"]) ?? targetID
-            var metadata = row
-            let knownColumns = [
-                "target_id", "display_name", "scientific_name", "common_name",
-                "taxid", "taxon_group", "taxonomy", "name_source",
-                "locus", "length", "source_header"
-            ]
-            for column in knownColumns {
-                metadata.removeValue(forKey: column)
+    private static func loadTargets(
+        from url: URL,
+        includedTargetIDs: Set<String>? = nil
+    ) throws -> [TwelveSAmpliconTarget] {
+        let content = try normalizedTSVContent(from: url)
+        let lines = nonEmptyTSVLines(in: content)
+        guard let headerLine = lines.first else { return [] }
+        let headers = splitTSVLine(headerLine).map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+        let columnIndexes = Dictionary(uniqueKeysWithValues: headers.enumerated().map { ($0.element, $0.offset) })
+        let knownColumns: Set<String> = [
+            "target_id", "display_name", "scientific_name", "common_name",
+            "taxid", "taxon_group", "taxonomy", "name_source",
+            "locus", "length", "source_header"
+        ]
+        func value(named column: String, in fields: [Substring]) -> String? {
+            guard let index = columnIndexes[column], index < fields.count else { return nil }
+            return String(fields[index])
+        }
+
+        var targets: [TwelveSAmpliconTarget] = []
+        targets.reserveCapacity(includedTargetIDs?.count ?? max(0, lines.count - 1))
+        for line in lines.dropFirst() {
+            let fields: [Substring]
+            let targetID: String
+            if let includedTargetIDs {
+                targetID = try required(
+                    String(firstTSVField(in: line)),
+                    column: "target_id",
+                    file: url.lastPathComponent
+                )
+                guard includedTargetIDs.contains(targetID) else { continue }
+                fields = splitTSVLine(line)
+            } else {
+                fields = splitTSVLine(line)
+                targetID = try required(
+                    value(named: "target_id", in: fields),
+                    column: "target_id",
+                    file: url.lastPathComponent
+                )
             }
-            if let header = nonEmpty(row["source_header"]) {
+            let displayName = nonEmpty(value(named: "display_name", in: fields)) ?? targetID
+            let sourceHeader = nonEmpty(value(named: "source_header", in: fields))
+            var metadata: [String: String] = [:]
+            for (index, header) in headers.enumerated() {
+                guard !header.isEmpty, !knownColumns.contains(header), index < fields.count else { continue }
+                let field = fields[index]
+                guard !field.isEmpty else { continue }
+                metadata[header] = String(field)
+            }
+            if let header = sourceHeader {
                 for field in header.split(separator: "|").dropFirst() {
                     let pieces = field.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
                     guard pieces.count == 2 else { continue }
-                    metadata[String(pieces[0])] = String(pieces[1])
+                    let value = pieces[1]
+                    guard !value.isEmpty else { continue }
+                    metadata[String(pieces[0])] = String(value)
                 }
             }
-            return TwelveSAmpliconTarget(
+            targets.append(TwelveSAmpliconTarget(
                 targetID: targetID,
                 displayName: displayName,
-                scientificName: nonEmpty(row["scientific_name"]),
-                commonName: nonEmpty(row["common_name"]),
-                taxid: nonEmpty(row["taxid"]),
-                taxonGroup: nonEmpty(row["taxon_group"]),
-                taxonomy: nonEmpty(row["taxonomy"]),
-                nameSource: nonEmpty(row["name_source"]),
-                locus: nonEmpty(row["locus"]),
-                length: try optionalInt(row["length"], column: "length", file: url.lastPathComponent),
-                sourceHeader: nonEmpty(row["source_header"]),
-                metadata: metadata.filter { !$0.value.isEmpty }
-            )
+                scientificName: nonEmpty(value(named: "scientific_name", in: fields)),
+                commonName: nonEmpty(value(named: "common_name", in: fields)),
+                taxid: nonEmpty(value(named: "taxid", in: fields)),
+                taxonGroup: nonEmpty(value(named: "taxon_group", in: fields)),
+                taxonomy: nonEmpty(value(named: "taxonomy", in: fields)),
+                nameSource: nonEmpty(value(named: "name_source", in: fields)),
+                locus: nonEmpty(value(named: "locus", in: fields)),
+                length: try optionalInt(value(named: "length", in: fields), column: "length", file: url.lastPathComponent),
+                sourceHeader: sourceHeader,
+                metadata: metadata
+            ))
+        }
+        return targets
+    }
+
+    private static func attachAlternateMatches(
+        to targets: [TwelveSAmpliconTarget],
+        from url: URL?
+    ) throws -> [TwelveSAmpliconTarget] {
+        guard let url, FileManager.default.fileExists(atPath: url.path) else {
+            return targets
+        }
+        let alternateMatches = try loadAlternateMatches(from: url)
+        guard !alternateMatches.isEmpty else { return targets }
+        return targets.map { target in
+            target.withAlternateMatches(alternateMatches[target.targetID, default: []])
         }
     }
 
@@ -986,32 +1116,69 @@ public enum TwelveSAmpliconResultBundle {
 
     private static func loadCountRows(
         from url: URL,
-        validTargetIDs: Set<String>
+        validTargetIDs: Set<String>?
     ) throws -> [String: [String: Int]] {
-        let table = try loadTSVTable(from: url)
-        guard table.headers.contains("target_id") else {
+        let content = try normalizedTSVContent(from: url)
+        let lines = nonEmptyTSVLines(in: content)
+        guard let headerLine = lines.first else {
+            return [:]
+        }
+        let headers = splitTSVLine(headerLine).map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard let targetIndex = headers.firstIndex(of: "target_id") else {
             throw TwelveSAmpliconResultBundleError.missingColumn(
                 file: url.lastPathComponent,
                 column: "target_id"
             )
         }
-        let sampleColumns = table.headers.filter { $0 != "target_id" }
+        let sampleColumns = headers.enumerated()
+            .filter { index, header in index != targetIndex && !header.isEmpty }
+            .map { index, header in (index: index, sampleID: header) }
         var rowsByTarget: [String: [String: Int]] = [:]
-        for row in table.rows {
-            let targetID = try required(row["target_id"], column: "target_id", file: url.lastPathComponent)
-            guard validTargetIDs.contains(targetID) else {
+        rowsByTarget.reserveCapacity(max(0, lines.count - 1))
+        for line in lines.dropFirst() {
+            let fields = splitTSVLine(line)
+            guard targetIndex < fields.count, !fields[targetIndex].isEmpty else {
+                throw TwelveSAmpliconResultBundleError.missingColumn(
+                    file: url.lastPathComponent,
+                    column: "target_id"
+                )
+            }
+            let targetID = String(fields[targetIndex])
+            if let validTargetIDs, !validTargetIDs.contains(targetID) {
                 throw TwelveSAmpliconResultBundleError.unknownTarget(targetID: targetID)
             }
             var counts: [String: Int] = [:]
-            for sample in sampleColumns {
-                counts[sample] = try requiredInt(row[sample], column: sample, file: url.lastPathComponent)
+            counts.reserveCapacity(min(sampleColumns.count, 4))
+            for sampleColumn in sampleColumns {
+                guard sampleColumn.index < fields.count, !fields[sampleColumn.index].isEmpty else {
+                    throw TwelveSAmpliconResultBundleError.missingColumn(
+                        file: url.lastPathComponent,
+                        column: sampleColumn.sampleID
+                    )
+                }
+                let field = fields[sampleColumn.index]
+                if field == "0" {
+                    continue
+                }
+                guard let count = Int(field) else {
+                    throw TwelveSAmpliconResultBundleError.invalidInteger(
+                        file: url.lastPathComponent,
+                        column: sampleColumn.sampleID,
+                        value: String(field)
+                    )
+                }
+                if count > 0 {
+                    counts[sampleColumn.sampleID] = count
+                }
             }
-            rowsByTarget[targetID] = counts
+            if !counts.isEmpty {
+                rowsByTarget[targetID] = counts
+            }
         }
         return rowsByTarget
     }
 
-    private static func loadUnresolvedSequences(from url: URL) throws -> [TwelveSUnresolvedSequence] {
+    private static func loadUnresolvedSequenceTable(from url: URL) throws -> [TwelveSUnresolvedSequence] {
         try loadTSVRows(from: url).map { row in
             let statusText = nonEmpty(row["chimera_status"]) ?? TwelveSChimeraStatus.notReviewed.rawValue
             return TwelveSUnresolvedSequence(
@@ -1035,23 +1202,18 @@ public enum TwelveSAmpliconResultBundle {
     }
 
     private static func loadTSVTable(from url: URL) throws -> TSVTable {
-        let content = try String(contentsOf: url, encoding: .utf8)
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-        let lines = content
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .map(String.init)
-            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let content = try normalizedTSVContent(from: url)
+        let lines = nonEmptyTSVLines(in: content)
         guard let headerLine = lines.first else {
             return TSVTable(headers: [], rows: [])
         }
-        let headers = splitTSVLine(headerLine).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let headers = splitTSVLine(headerLine).map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
         let rows = lines.dropFirst().map { line in
             let fields = splitTSVLine(line)
             var row: [String: String] = [:]
             for index in headers.indices {
                 guard !headers[index].isEmpty else { continue }
-                row[headers[index]] = index < fields.count ? fields[index] : ""
+                row[headers[index]] = index < fields.count ? String(fields[index]) : ""
             }
             return row
         }
@@ -1060,6 +1222,35 @@ public enum TwelveSAmpliconResultBundle {
 
     private static func splitTSVLine(_ line: String) -> [String] {
         line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+    }
+
+    private static func splitTSVLine(_ line: Substring) -> [Substring] {
+        line.split(separator: "\t", omittingEmptySubsequences: false)
+    }
+
+    private static func firstTSVField(in line: Substring) -> Substring {
+        guard let tabIndex = line.firstIndex(of: "\t") else { return line }
+        return line[..<tabIndex]
+    }
+
+    private static func normalizedTSVContent(from url: URL) throws -> String {
+        let content = try String(contentsOf: url, encoding: .utf8)
+        guard content.contains("\r") else { return content }
+        return content
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+    }
+
+    private static func nonEmptyTSVLines(in content: String) -> [Substring] {
+        content
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !isBlankTSVLine($0) }
+    }
+
+    private static func isBlankTSVLine(_ line: Substring) -> Bool {
+        line.allSatisfy { character in
+            character == " " || character == "\t"
+        }
     }
 
     private static func parseSampleCounts(_ value: String?, file: String) throws -> [String: Int] {

@@ -1111,6 +1111,32 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         )
     }
 
+    func testWorkflowOperationDialogStateCachesToolListAcrossUnrelatedEdits() throws {
+        let source = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationDialogState.swift"),
+            encoding: .utf8
+        )
+        let toolsProperty = try sourceBlock(
+            startingAt: "    var tools: [WorkflowOperationTool] {",
+            endingBefore: "    var sidebarItems: [DatasetOperationToolSidebarItem] {",
+            in: source
+        )
+        let refreshMethod = try sourceBlock(
+            startingAt: "    func refreshWorkflowAvailability() {",
+            endingBefore: "    func refreshProjectReferences",
+            in: source
+        )
+
+        XCTAssertTrue(source.contains("private var cachedTools: [WorkflowOperationTool]"))
+        XCTAssertTrue(toolsProperty.contains("cachedTools"))
+        XCTAssertFalse(
+            toolsProperty.contains("Self.makeTools"),
+            "Reading dialog tools should not revalidate workflow packages during every SwiftUI body refresh."
+        )
+        XCTAssertTrue(refreshMethod.contains("cachedTools = Self.makeTools"))
+    }
+
     private func makeDefaults() throws -> UserDefaults {
         let suiteName = "WorkflowOperationDialogStateTests-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))

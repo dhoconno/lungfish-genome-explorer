@@ -17,7 +17,7 @@ enum TaxonPillState {
 final class TwelveSResultDisplaySectionViewModel {
     var displayState = TwelveSResultDisplayState()
     var isAvailable = false
-    var summaryRowLabel = "Species Rows"
+    var summaryRowLabel = "Target Rows"
     var visibleRowCount = 0
     var totalRowCount = 0
     var sampleCount = 0
@@ -191,7 +191,7 @@ final class TwelveSResultDisplaySectionViewModel {
     func clear() {
         displayState = TwelveSResultDisplayState()
         isAvailable = false
-        summaryRowLabel = "Species Rows"
+        summaryRowLabel = "Target Rows"
         visibleRowCount = 0
         totalRowCount = 0
         sampleCount = 0

@@ -12,36 +12,55 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
 
         controller.configure(result: makeResult())
 
-        XCTAssertEqual(controller.visibleTargetRowCount, 2)
+        XCTAssertEqual(controller.visibleTargetRowCount, 3)
         XCTAssertEqual(
             controller.tableColumnIdentifiers,
             [
+                "sampleName",
                 "scientificName",
                 "commonNames",
                 "taxonGroups",
                 "taxids",
                 "totalExactReads",
+                "samplePercent",
                 "referenceTargets",
-                "maxSamplePercent",
                 "alternateMatchCount",
             ]
         )
+        XCTAssertEqual(controller.testingTargetText(row: 0, column: "sampleName"), "Sample A")
         XCTAssertEqual(controller.testingTargetText(row: 0, column: "scientificName"), "Homo sapiens")
-        XCTAssertEqual(controller.testingTargetText(row: 0, column: "totalExactReads"), "15")
+        XCTAssertEqual(controller.testingTargetText(row: 0, column: "totalExactReads"), "13")
         XCTAssertEqual(controller.testingTargetText(row: 0, column: "alternateMatchCount"), "2")
 
         controller.selectTargetForTesting(row: 0)
 
         XCTAssertEqual(
             controller.testingDetailSampleRows.map(\.sampleID),
-            ["SampleA", "Blank"]
+            ["SampleA"]
         )
-        XCTAssertEqual(controller.testingDetailSampleRows.map(\.exactReads), [13, 2])
+        XCTAssertEqual(controller.testingDetailSampleRows.map(\.exactReads), [13])
         XCTAssertEqual(
             controller.testingAlternateMatchTexts,
             ["Heidelberg man (Homo heidelbergensis)", "Neanderthal (Homo neanderthalensis)"]
         )
         XCTAssertEqual(controller.summaryTextForTesting, "2 samples | 20 exact reads | 47.4% unresolved | 1 chimera candidate")
+    }
+
+    func testTargetTableShowsOneRowPerSampleWithSpeciesReads() {
+        let controller = TwelveSAmpliconResultViewController()
+        controller.loadViewIfNeeded()
+        controller.configure(result: makeResult())
+
+        controller.applyDisplayState(TwelveSResultDisplayState(filterText: "homo"))
+
+        XCTAssertEqual(controller.visibleTargetRowCount, 2)
+        XCTAssertEqual(controller.testingTargetText(row: 0, column: "sampleName"), "Sample A")
+        XCTAssertEqual(controller.testingTargetText(row: 0, column: "scientificName"), "Homo sapiens")
+        XCTAssertEqual(controller.testingTargetText(row: 0, column: "totalExactReads"), "13")
+        XCTAssertEqual(controller.testingTargetText(row: 1, column: "sampleName"), "Blank")
+        XCTAssertEqual(controller.testingTargetText(row: 1, column: "scientificName"), "Homo sapiens")
+        XCTAssertEqual(controller.testingTargetText(row: 1, column: "totalExactReads"), "2")
+        XCTAssertFalse(controller.tableColumnIdentifiers.contains("topSample"))
     }
 
     func testDoesNotCreatePerSampleColumnsForLargeCohorts() {
@@ -51,7 +70,7 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
         controller.configure(result: makeResult(sampleCount: 120))
 
         XCTAssertFalse(controller.tableColumnIdentifiers.contains { $0.hasPrefix("sample:") })
-        XCTAssertEqual(controller.tableColumnIdentifiers.count, 8)
+        XCTAssertEqual(controller.tableColumnIdentifiers.count, 9)
     }
 
     func testAppliesInspectorMinimumExactReadFilter() {
@@ -74,6 +93,59 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
 
         XCTAssertEqual(controller.visibleTargetRowCount, 1)
         XCTAssertEqual(controller.testingTargetText(row: 0, column: "scientificName"), "Canis lupus familiaris")
+    }
+
+    func testInspectorTextFilterMatchesSampleNamesAfterProjection() {
+        let controller = TwelveSAmpliconResultViewController()
+        controller.loadViewIfNeeded()
+        controller.configure(result: makeResult())
+
+        controller.applyDisplayState(TwelveSResultDisplayState(filterText: "blank"))
+
+        XCTAssertEqual(controller.visibleTargetRowCount, 1)
+        XCTAssertEqual(controller.testingTargetText(row: 0, column: "sampleName"), "Blank")
+        XCTAssertEqual(controller.testingTargetText(row: 0, column: "scientificName"), "Homo sapiens")
+        XCTAssertEqual(controller.testingTargetText(row: 0, column: "totalExactReads"), "2")
+    }
+
+    func testLargeSparseTargetFilterStaysInteractive() {
+        let controller = TwelveSAmpliconResultViewController()
+        controller.loadViewIfNeeded()
+        controller.configure(result: makeLargeSparseResult(targetCount: 90_000, sampleCount: 19, nonZeroTargetCount: 4_000))
+
+        let start = CFAbsoluteTimeGetCurrent()
+        controller.applyDisplayState(TwelveSResultDisplayState(filterText: "needle species 3999"))
+        let elapsed = CFAbsoluteTimeGetCurrent() - start
+
+        XCTAssertLessThan(elapsed, 0.35, "Filtering a sparse 90k-target 12S result should stay interactive")
+        XCTAssertEqual(controller.visibleTargetRowCount, 1)
+        XCTAssertEqual(controller.testingTargetText(row: 0, column: "scientificName"), "Needle species 3999")
+    }
+
+    func testRealBundlePerformanceWhenConfigured() throws {
+        guard let path = ProcessInfo.processInfo.environment["LUNGFISH_12S_PERF_BUNDLE"], !path.isEmpty else {
+            throw XCTSkip("Set LUNGFISH_12S_PERF_BUNDLE to run the local 12S bundle performance check")
+        }
+        let bundleURL = URL(fileURLWithPath: path)
+
+        let loadStart = CFAbsoluteTimeGetCurrent()
+        let result = try TwelveSAmpliconResultBundle.loadResult(from: bundleURL, loadUnresolvedSequences: false)
+        let loadElapsed = CFAbsoluteTimeGetCurrent() - loadStart
+
+        let controller = TwelveSAmpliconResultViewController()
+        controller.loadViewIfNeeded()
+        let configureStart = CFAbsoluteTimeGetCurrent()
+        controller.configure(result: result)
+        let configureElapsed = CFAbsoluteTimeGetCurrent() - configureStart
+
+        let filterStart = CFAbsoluteTimeGetCurrent()
+        controller.applyDisplayState(TwelveSResultDisplayState(filterText: "homo"))
+        let filterElapsed = CFAbsoluteTimeGetCurrent() - filterStart
+
+        XCTAssertLessThan(loadElapsed, 2.0, "Loading the target summary should not parse unresolved sequences or rebuild aggregates repeatedly")
+        XCTAssertLessThan(configureElapsed, 1.0, "Configuring the 12S viewport should use sparse cached rows")
+        XCTAssertLessThan(filterElapsed, 0.35, "Filtering the 12S viewport should stay interactive")
+        XCTAssertGreaterThan(controller.visibleTargetRowCount, 0)
     }
 
     func testViewportHeaderSearchFieldFiltersTargetRows() {
@@ -216,7 +288,7 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
         controller.configure(result: makeResult())
 
         XCTAssertEqual(controller.testingActiveMode, .targets)
-        XCTAssertEqual(controller.testingActiveTableRowCount, 2)
+        XCTAssertEqual(controller.testingActiveTableRowCount, 3)
 
         controller.showUnresolvedForTesting()
         XCTAssertEqual(controller.testingActiveMode, .unresolved)
@@ -228,9 +300,10 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
         controller.loadViewIfNeeded()
         controller.configure(result: makeResult())
 
-        // Homo sapiens (15 exact reads aggregated) sorts above dog (5).
+        // Homo sapiens in Sample A (13 exact reads) sorts above dog (5) and Blank human (2).
         XCTAssertEqual(controller.testingTargetText(row: 0, column: "scientificName"), "Homo sapiens")
-        XCTAssertEqual(controller.testingTargetText(row: 0, column: "totalExactReads"), "15")
+        XCTAssertEqual(controller.testingTargetText(row: 0, column: "sampleName"), "Sample A")
+        XCTAssertEqual(controller.testingTargetText(row: 0, column: "totalExactReads"), "13")
         XCTAssertEqual(controller.testingTargetText(row: 1, column: "scientificName"), "Canis lupus familiaris")
     }
 
@@ -380,6 +453,78 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
                     chimeraStatus: .notDetected
                 )
             ]
+        )
+    }
+
+    private func makeLargeSparseResult(
+        targetCount: Int,
+        sampleCount: Int,
+        nonZeroTargetCount: Int
+    ) -> TwelveSAmpliconResultBundleData {
+        let bundleURL = URL(fileURLWithPath: "/tmp/large-sparse.lungfish12s")
+        let manifest = TwelveSAmpliconResultBundleManifest(
+            outputName: "large-sparse",
+            analysisName: "Large Sparse",
+            referencePath: "reference.fa",
+            targetTablePath: "targets.tsv",
+            countMatrixPath: "sample-target-counts.tsv",
+            sampleTablePath: "samples.tsv",
+            readFatePath: "read-fate.json",
+            unresolvedTablePath: "unresolved-sequences.tsv",
+            unresolvedFastaPath: "unresolved-sequences.fasta",
+            provenancePath: ".lungfish-provenance.json"
+        )
+        let samples = (0..<sampleCount).map { index in
+            TwelveSAmpliconSampleResult(
+                sampleID: "Sample\(index)",
+                displayName: "Sample \(index)",
+                inputReads: 1_000,
+                exactMatchReads: 1_000,
+                unresolvedReads: 0,
+                ambiguousExactReads: 0,
+                chimeraCandidateReads: 0,
+                exactMatchPercent: 100,
+                unresolvedPercent: 0
+            )
+        }
+        let targets = (0..<targetCount).map { index in
+            TwelveSAmpliconTarget(
+                targetID: "target-\(index)",
+                displayName: "needle species \(index) (Needle species \(index))",
+                scientificName: "Needle species \(index)",
+                commonName: "needle species \(index)",
+                taxid: "\(100_000 + index)",
+                taxonGroup: index % 2 == 0 ? "Mammal" : "Fish"
+            )
+        }
+        var countRows: [String: [String: Int]] = [:]
+        for index in 0..<nonZeroTargetCount {
+            countRows["target-\(index)"] = ["Sample\(index % sampleCount)": index + 1]
+        }
+        return TwelveSAmpliconResultBundleData(
+            bundleURL: bundleURL,
+            manifest: manifest,
+            artifacts: TwelveSAmpliconResultArtifacts(
+                referenceURL: bundleURL.appendingPathComponent("reference.fa"),
+                targetTableURL: bundleURL.appendingPathComponent("targets.tsv"),
+                countMatrixURL: bundleURL.appendingPathComponent("sample-target-counts.tsv"),
+                sampleTableURL: bundleURL.appendingPathComponent("samples.tsv"),
+                readFateURL: bundleURL.appendingPathComponent("read-fate.json"),
+                unresolvedTableURL: bundleURL.appendingPathComponent("unresolved-sequences.tsv"),
+                unresolvedFastaURL: bundleURL.appendingPathComponent("unresolved-sequences.fasta"),
+                provenanceURL: bundleURL.appendingPathComponent(".lungfish-provenance.json")
+            ),
+            samples: samples,
+            targets: targets,
+            countRows: countRows,
+            readFate: TwelveSAmpliconReadFate(
+                totalReads: sampleCount * 1_000,
+                exactMatchReads: sampleCount * 1_000,
+                unresolvedReads: 0,
+                ambiguousExactReads: 0,
+                chimeraCandidateReads: 0
+            ),
+            unresolvedSequences: []
         )
     }
 

@@ -70,6 +70,7 @@ final class WorkflowOperationDialogState {
     var errorMessage: String?
     var showingError: Bool
     var workflowAvailabilityRevision: Int
+    private var cachedTools: [WorkflowOperationTool]
 
     init(
         projectURL: URL?,
@@ -109,10 +110,8 @@ final class WorkflowOperationDialogState {
         self.showingError = false
         self.workflowAvailabilityRevision = 0
 
-        let initialTools = Self.makeTools(
-            enablementStore: enablementStore,
-            packageStore: packageStore
-        )
+        let initialTools = Self.makeTools(enablementStore: enablementStore, packageStore: packageStore)
+        self.cachedTools = initialTools
         let initialToolID = initialTools.first(where: { $0.availability == .available })?.id
             ?? initialTools.first?.id
             ?? Self.ontGenotypingID
@@ -139,7 +138,7 @@ final class WorkflowOperationDialogState {
 
     var tools: [WorkflowOperationTool] {
         _ = workflowAvailabilityRevision
-        return Self.makeTools(enablementStore: enablementStore, packageStore: packageStore)
+        return cachedTools
     }
 
     var sidebarItems: [DatasetOperationToolSidebarItem] {
@@ -383,6 +382,7 @@ final class WorkflowOperationDialogState {
     }
 
     func refreshWorkflowAvailability() {
+        cachedTools = Self.makeTools(enablementStore: enablementStore, packageStore: packageStore)
         workflowAvailabilityRevision &+= 1
     }
 

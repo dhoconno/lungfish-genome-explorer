@@ -1,6 +1,5 @@
 import XCTest
 import AppKit
-import LungfishCore
 import LungfishIO
 import LungfishKit
 @testable import LungfishTwelveSUI
@@ -8,7 +7,7 @@ import LungfishKit
 @MainActor
 final class TwelveSTableViewTests: XCTestCase {
 
-    private func makeTargetRow(
+    private func makeAggregateRow(
         name: String,
         taxids: [String] = [],
         sampleCounts: [String: Int] = ["s1": 10],
@@ -25,36 +24,104 @@ final class TwelveSTableViewTests: XCTestCase {
         )
     }
 
+    private func makeSampleRow(
+        name: String,
+        sampleID: String = "s1",
+        sampleName: String = "Sample One",
+        reads: Int = 10,
+        total: Int = 100,
+        taxids: [String] = [],
+        targetIDs: [String] = ["t1"]
+    ) -> TwelveSTargetSampleRow {
+        TwelveSTargetSampleRow(
+            source: makeAggregateRow(
+                name: name,
+                taxids: taxids,
+                sampleCounts: [sampleID: reads],
+                totals: [sampleID: total],
+                targetIDs: targetIDs
+            ),
+            sampleID: sampleID,
+            sampleDisplayName: sampleName,
+            exactReads: reads,
+            sampleExactReadTotal: total
+        )
+    }
+
     func testTargetColumnsAndCellText() {
         let table = TwelveSTargetTableView()
-        let row = makeTargetRow(name: "Homo sapiens", taxids: ["9606"],
-                                sampleCounts: ["s1": 42], totals: ["s1": 100])
-        XCTAssertEqual(
-            table.cellContent(for: .init("scientificName"), row: row).text,
-            "Homo sapiens"
+        let row = makeSampleRow(
+            name: "Homo sapiens",
+            sampleName: "Sample A",
+            reads: 42,
+            total: 100,
+            taxids: ["9606"]
         )
+
+        XCTAssertEqual(table.cellContent(for: .init("sampleName"), row: row).text, "Sample A")
+        XCTAssertEqual(table.cellContent(for: .init("scientificName"), row: row).text, "Homo sapiens")
         XCTAssertEqual(table.cellContent(for: .init("totalExactReads"), row: row).text, "42")
+        XCTAssertEqual(table.cellContent(for: .init("samplePercent"), row: row).text, "42.0%")
         XCTAssertEqual(table.cellContent(for: .init("referenceTargets"), row: row).text, "1")
         XCTAssertEqual(table.cellContent(for: .init("taxids"), row: row).text, "9606")
-        // numeric columns declared numeric for the kernel filter menus
         XCTAssertEqual(table.columnTypeHints["totalExactReads"], true)
+        XCTAssertEqual(table.columnTypeHints["samplePercent"], true)
         XCTAssertEqual(table.columnTypeHints["scientificName"], nil)
     }
 
     func testTargetSortByExactReadsDescending() {
         let table = TwelveSTargetTableView()
-        let low = makeTargetRow(name: "Low", sampleCounts: ["s1": 5])
-        let high = makeTargetRow(name: "High", sampleCounts: ["s1": 50])
-        // ascending == false means higher first
+        let low = makeSampleRow(name: "Low", reads: 5)
+        let high = makeSampleRow(name: "High", reads: 50)
+
         XCTAssertTrue(table.compareRows(high, low, by: "totalExactReads", ascending: false))
         XCTAssertFalse(table.compareRows(low, high, by: "totalExactReads", ascending: false))
     }
 
-    func testTargetFreeTextFilterMatchesName() {
+    func testTargetFreeTextFilterMatchesNameAndSample() {
         let table = TwelveSTargetTableView()
-        let row = makeTargetRow(name: "Gallus gallus")
+        let row = makeSampleRow(name: "Gallus gallus", sampleName: "Blank Control")
+
         XCTAssertTrue(table.rowMatchesFilter(row, filterText: "gallus"))
+        XCTAssertTrue(table.rowMatchesFilter(row, filterText: "blank"))
         XCTAssertFalse(table.rowMatchesFilter(row, filterText: "salmon"))
+    }
+
+    func testSampleMetadataColumnsAreRowScoped() throws {
+        let table = TwelveSTargetTableView()
+        let csv = "sample_id,site\nSampleA,Hilo\nSampleB,Kona\n"
+        let store = try SampleMetadataStore(csvData: Data(csv.utf8), knownSampleIds: ["SampleA", "SampleB"])
+
+        table.setSampleColumns(
+            sampleIDs: ["SampleA", "SampleB"],
+            displayNames: ["SampleA": "Sample A", "SampleB": "Sample B"],
+            showReads: true,
+            showPercent: true,
+            store: store,
+            metadataFields: ["site"]
+        )
+
+        let ids = table.tableView.tableColumns.map { $0.identifier.rawValue }
+        XCTAssertTrue(ids.contains("sampleMeta::site"))
+        XCTAssertFalse(ids.contains { $0.hasSuffix("::reads") })
+
+        let row = makeSampleRow(name: "X", sampleID: "SampleB", sampleName: "Sample B")
+        XCTAssertEqual(table.cellContent(for: .init("sampleMeta::site"), row: row).text, "Kona")
+    }
+
+    func testSettingSampleColumnsReplacesPreviousMetadataColumns() throws {
+        let table = TwelveSTargetTableView()
+        let store = try SampleMetadataStore(csvData: Data("sample_id,site,plate\nSampleA,Hilo,A1\n".utf8),
+                                            knownSampleIds: ["SampleA"])
+
+        table.setSampleColumns(sampleIDs: ["SampleA"], displayNames: [:], showReads: true,
+                               showPercent: true, store: store, metadataFields: ["site"])
+        XCTAssertTrue(table.tableView.tableColumns.map { $0.identifier.rawValue }.contains("sampleMeta::site"))
+
+        table.setSampleColumns(sampleIDs: ["SampleA"], displayNames: [:], showReads: true,
+                               showPercent: true, store: store, metadataFields: ["plate"])
+        let metadataIDs = table.tableView.tableColumns.map { $0.identifier.rawValue }.filter { $0.hasPrefix("sampleMeta::") }
+        XCTAssertEqual(metadataIDs, ["sampleMeta::plate"])
     }
 
     // MARK: - Unresolved
@@ -74,7 +141,7 @@ final class TwelveSTableViewTests: XCTestCase {
                                  sampleCounts: ["s1": 4, "s2": 0])
         XCTAssertEqual(table.cellContent(for: .init("sequenceID"), row: row).text, "cluster-1")
         XCTAssertEqual(table.cellContent(for: .init("readCount"), row: row).text, "7")
-        XCTAssertEqual(table.cellContent(for: .init("sampleCount"), row: row).text, "1") // s2 == 0 excluded
+        XCTAssertEqual(table.cellContent(for: .init("sampleCount"), row: row).text, "1")
         XCTAssertEqual(table.cellContent(for: .init("sequence"), row: row).text, "ACGTAC")
         XCTAssertEqual(table.columnTypeHints["readCount"], true)
     }
@@ -86,53 +153,12 @@ final class TwelveSTableViewTests: XCTestCase {
         XCTAssertTrue(table.compareRows(b, a, by: "readCount", ascending: false))
     }
 
-    func testTargetTableAddsPerSampleReadsColumns() {
-        let table = TwelveSTargetTableView()
-        table.setSampleColumns(sampleIDs: ["SampleA", "SampleB"],
-                               displayNames: ["SampleA": "Sample A", "SampleB": "Sample B"],
-                               showReads: true, showPercent: false, store: nil, metadataFields: [])
-        let ids = table.tableView.tableColumns.map { $0.identifier.rawValue }
-        XCTAssertTrue(ids.contains("sample::SampleA::reads"))
-        XCTAssertTrue(ids.contains("sample::SampleB::reads"))
-        let row = makeTargetRow(name: "X", sampleCounts: ["SampleA": 9], totals: ["SampleA": 100])
-        XCTAssertEqual(table.cellContent(for: .init("sample::SampleA::reads"), row: row).text, "9")
-        XCTAssertEqual(table.columnTypeHints["sample::SampleA::reads"], true)
-        // reads column compare is numeric/descending
-        let hi = makeTargetRow(name: "Hi", sampleCounts: ["SampleA": 50], totals: ["SampleA": 100])
-        let lo = makeTargetRow(name: "Lo", sampleCounts: ["SampleA": 5], totals: ["SampleA": 100])
-        XCTAssertTrue(table.compareRows(hi, lo, by: "sample::SampleA::reads", ascending: false))
-    }
-
-    func testPerSamplePercentColumnPresentAndNumeric() {
-        let table = TwelveSTargetTableView()
-        table.setSampleColumns(sampleIDs: ["SampleA"], displayNames: ["SampleA": "Sample A"],
-                               showReads: true, showPercent: true, store: nil, metadataFields: [])
-        XCTAssertTrue(table.tableView.tableColumns.map { $0.identifier.rawValue }.contains("sample::SampleA::pct"))
-        XCTAssertEqual(table.columnTypeHints["sample::SampleA::pct"], true)
-        let row = makeTargetRow(name: "X", sampleCounts: ["SampleA": 25], totals: ["SampleA": 100])
-        XCTAssertEqual(table.cellContent(for: .init("sample::SampleA::pct"), row: row).text, "25.0%")
-        // percent compare is numeric
-        let hi = makeTargetRow(name: "Hi", sampleCounts: ["SampleA": 80], totals: ["SampleA": 100])
-        let lo = makeTargetRow(name: "Lo", sampleCounts: ["SampleA": 10], totals: ["SampleA": 100])
-        XCTAssertTrue(table.compareRows(hi, lo, by: "sample::SampleA::pct", ascending: false))
-    }
-
-    func testSettingSampleColumnsReplacesPreviousMatrixColumns() {
-        let table = TwelveSTargetTableView()
-        table.setSampleColumns(sampleIDs: ["SampleA"], displayNames: [:], showReads: true, showPercent: false, store: nil, metadataFields: [])
-        XCTAssertEqual(table.tableView.tableColumns.filter { $0.identifier.rawValue.hasPrefix("sample::") }.count, 1)
-        // Switching to a different sample set replaces, not appends.
-        table.setSampleColumns(sampleIDs: ["SampleB", "SampleC"], displayNames: [:], showReads: true, showPercent: false, store: nil, metadataFields: [])
-        let matrixIDs = table.tableView.tableColumns.map { $0.identifier.rawValue }.filter { $0.hasPrefix("sample::") }
-        XCTAssertEqual(Set(matrixIDs), ["sample::SampleB::reads", "sample::SampleC::reads"])
-    }
-
     // MARK: - Multi-sample comparison
 
     func testSelectingSampleSubsetReaggregatesTargetRows() {
         let vc = TwelveSAmpliconResultViewController()
         vc.loadViewIfNeeded()
-        let bundle = TwelveSFixtures.twoSampleResult() // human(both) + chicken(SampleB only)
+        let bundle = TwelveSFixtures.twoSampleResult()
         vc.configure(result: bundle)
         let entries = bundle.samples.map {
             TwelveSSampleEntry(id: $0.sampleID, displayName: $0.displayName, exactReads: $0.exactMatchReads)
@@ -140,21 +166,18 @@ final class TwelveSTableViewTests: XCTestCase {
         let state = ClassifierSamplePickerState(allSamples: Set(entries.map(\.id)))
         vc.configureSamples(entries, state: state)
 
-        // Both species visible with all samples.
-        XCTAssertEqual(vc.testingActiveTableRowCount, 2)
+        XCTAssertEqual(vc.testingActiveTableRowCount, 3)
 
-        // Restrict to SampleA: chicken (SampleA == 0 reads) drops out.
         vc.testingSetSelectedSamples(["SampleA"])
         XCTAssertEqual(vc.testingActiveTableRowCount, 1)
         XCTAssertEqual(vc.testingTargetText(row: 0, column: "scientificName"), "Homo sapiens")
+        XCTAssertEqual(vc.testingTargetText(row: 0, column: "totalExactReads"), "40")
 
-        // Back to all samples → both species again.
         vc.testingSetSelectedSamples(["SampleA", "SampleB"])
-        XCTAssertEqual(vc.testingActiveTableRowCount, 2)
+        XCTAssertEqual(vc.testingActiveTableRowCount, 3)
     }
 
     func testSelectingSpeciesLoadsReferenceSequencesIntoPayload() throws {
-        // Write a reference FASTA with records for the fixture's target IDs.
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("twelve-s-vcref-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -166,19 +189,20 @@ final class TwelveSTableViewTests: XCTestCase {
         let bundle = TwelveSFixtures.twoSampleResult(referenceURL: refURL)
 
         let gotSequences = expectation(description: "reference sequences populated")
-        gotSequences.assertForOverFulfill = false // selection may emit more than once
+        gotSequences.assertForOverFulfill = false
         vc.onSelectedRowDetailChanged = { payload in
             if case let .target(detail)? = payload?.kind, !detail.referenceSequences.isEmpty {
                 XCTAssertEqual(detail.referenceSequences.first?.sequence, "ACGTACGTAC")
+                XCTAssertEqual(detail.sampleEvidence.map(\.sampleID), ["SampleA"])
                 gotSequences.fulfill()
             }
         }
         vc.configure(result: bundle)
-        vc.selectTargetForTesting(row: 0) // Homo sapiens (targetID "human")
+        vc.selectTargetForTesting(row: 0)
         wait(for: [gotSequences], timeout: 2.0)
     }
 
-    func testReadsColumnsAutoShowForSmallCohortAndToggle() {
+    func testReadColumnsAreFixedSampleRowsNotWideMatrix() {
         let vc = TwelveSAmpliconResultViewController()
         vc.loadViewIfNeeded()
         let bundle = TwelveSFixtures.twoSampleResult()
@@ -187,17 +211,14 @@ final class TwelveSTableViewTests: XCTestCase {
             TwelveSSampleEntry(id: $0.sampleID, displayName: $0.displayName, exactReads: $0.exactMatchReads)
         }
         vc.configureSamples(entries, state: ClassifierSamplePickerState(allSamples: Set(entries.map(\.id))))
-        // 2 samples ≤ 8 → reads columns auto-shown.
-        XCTAssertTrue(vc.testingTargetColumnIDs.contains("sample::SampleA::reads"))
-        XCTAssertTrue(vc.testingTargetColumnIDs.contains("sample::SampleB::reads"))
 
-        // Forcing reads off removes the reads columns (per-sample % columns,
-        // controlled separately, may remain).
-        vc.testingSetSampleColumnsForced(showReads: false)
-        XCTAssertFalse(vc.testingTargetColumnIDs.contains { $0.hasSuffix("::reads") })
+        XCTAssertTrue(vc.testingTargetColumnIDs.contains("sampleName"))
+        XCTAssertTrue(vc.testingTargetColumnIDs.contains("totalExactReads"))
+        XCTAssertTrue(vc.testingTargetColumnIDs.contains("samplePercent"))
+        XCTAssertFalse(vc.testingTargetColumnIDs.contains { $0.hasPrefix("sample::") })
     }
 
-    func testApplyMetadataStoreAddsPerSampleMetadataColumns() throws {
+    func testApplyMetadataStoreAddsRowScopedMetadataColumns() throws {
         let vc = TwelveSAmpliconResultViewController()
         vc.loadViewIfNeeded()
         let bundle = TwelveSFixtures.twoSampleResult()
@@ -211,10 +232,9 @@ final class TwelveSTableViewTests: XCTestCase {
         let store = try SampleMetadataStore(csvData: Data(csv.utf8), knownSampleIds: ["SampleA", "SampleB"])
         vc.applyMetadataStore(store)
 
-        XCTAssertTrue(vc.testingTargetColumnIDs.contains("sample::SampleA::meta::site"))
-        XCTAssertTrue(vc.testingTargetColumnIDs.contains("sample::SampleB::meta::site"))
-        // Value resolves for the human row (row 0 = Homo sapiens, has SampleA reads).
-        XCTAssertEqual(vc.testingTargetText(row: 0, column: "sample::SampleA::meta::site"), "Hilo")
+        XCTAssertTrue(vc.testingTargetColumnIDs.contains("sampleMeta::site"))
+        XCTAssertEqual(vc.testingTargetText(row: 0, column: "sampleMeta::site"), "Hilo")
+        XCTAssertEqual(vc.testingTargetText(row: 1, column: "sampleMeta::site"), "Kona")
     }
 
     func testImportMetadataAffordanceFiresCallback() {
@@ -231,7 +251,7 @@ final class TwelveSTableViewTests: XCTestCase {
         vc.loadViewIfNeeded()
         vc.configure(result: TwelveSFixtures.twoSampleResult())
         vc.testingSetTargetSort(key: "scientificName", ascending: true)
-        // Re-configuring must re-assert the reads-descending default.
+
         vc.configure(result: TwelveSFixtures.twoSampleResult())
         XCTAssertEqual(vc.testingTargetSortDescriptor?.key, "totalExactReads")
         XCTAssertEqual(vc.testingTargetSortDescriptor?.ascending, false)
@@ -240,26 +260,22 @@ final class TwelveSTableViewTests: XCTestCase {
     func testRowsWithZeroReadsInShownSamplesAreHidden() {
         let vc = TwelveSAmpliconResultViewController()
         vc.loadViewIfNeeded()
-        let bundle = TwelveSFixtures.twoSampleResult() // human A40/B5, chicken A0/B15
+        let bundle = TwelveSFixtures.twoSampleResult()
         vc.configure(result: bundle)
         let entries = bundle.samples.map {
             TwelveSSampleEntry(id: $0.sampleID, displayName: $0.displayName, exactReads: $0.exactMatchReads)
         }
         vc.configureSamples(entries, state: ClassifierSamplePickerState(allSamples: Set(entries.map(\.id))))
 
-        // Show only SampleA → chicken (A=0) hidden → 1 row.
         vc.testingSetSelectedSamples(["SampleA"])
         XCTAssertEqual(vc.testingActiveTableRowCount, 1)
         XCTAssertEqual(vc.testingTargetText(row: 0, column: "scientificName"), "Homo sapiens")
 
-        // Show only SampleB → human(B5) and chicken(B15) both present → 2 rows.
         vc.testingSetSelectedSamples(["SampleB"])
         XCTAssertEqual(vc.testingActiveTableRowCount, 2)
     }
 
     func testReassignmentDonorSpeciesNotHiddenDespiteZeroReads() {
-        // Build a bundle where "Pan troglodytes" has 0 reads but is a
-        // reassignment donor (a candidate that lost to Homo sapiens).
         let base = TwelveSFixtures.twoSampleResult()
         let panTarget = TwelveSAmpliconTarget(
             targetID: "pan", displayName: "chimpanzee (Pan troglodytes)",
@@ -282,7 +298,7 @@ final class TwelveSTableViewTests: XCTestCase {
         let vc = TwelveSAmpliconResultViewController()
         vc.loadViewIfNeeded()
         vc.configure(result: bundle)
-        // Pan (0 reads) is a donor → still present despite the hide-zero rule.
+
         let names = (0..<vc.testingActiveTableRowCount).map { vc.testingTargetText(row: $0, column: "scientificName") }
         XCTAssertTrue(names.contains("Pan troglodytes"), "donor species should remain visible; got \(names)")
     }

@@ -65,6 +65,35 @@ final class TwelveSAmpliconResultBundleTests: XCTestCase {
         )
     }
 
+    func testCountMatrixLoadsSparselyAndOmitsZeroSampleEntries() throws {
+        let bundleURL = try makeSyntheticBundle()
+
+        let result = try TwelveSAmpliconResultBundle.loadResult(from: bundleURL)
+
+        XCTAssertEqual(result.countRows["human-a"], ["HI_Hilo_F09": 10, "ExtractionBlank": 2])
+        XCTAssertEqual(result.countRows["human-b"], ["HI_Hilo_F09": 3])
+        XCTAssertEqual(result.countRows["dog"], ["HI_Hilo_F09": 4])
+        XCTAssertEqual(result.countRows["pig"], ["HI_Hilo_F09": 1])
+        XCTAssertEqual(result.targetRows[1].count(forSample: "ExtractionBlank"), 0)
+    }
+
+    func testCanSkipUnresolvedTableForFastInitialLoadAndLoadItLater() throws {
+        let bundleURL = try makeSyntheticBundle()
+
+        let result = try TwelveSAmpliconResultBundle.loadResult(
+            from: bundleURL,
+            loadUnresolvedSequences: false
+        )
+
+        XCTAssertEqual(result.samples.count, 2)
+        XCTAssertEqual(result.scientificNameRows.count, 3)
+        XCTAssertTrue(result.unresolvedSequences.isEmpty)
+        XCTAssertEqual(result.readFate.unresolvedReads, 48)
+
+        let unresolved = try TwelveSAmpliconResultBundle.loadUnresolvedSequences(fromBundle: bundleURL)
+        XCTAssertEqual(unresolved.map(\.sequenceID), ["unresolved_1", "unresolved_2"])
+    }
+
     func testLoadsSampleAliasesAndDiscoversSampleIDsForMetadataImport() throws {
         let bundleURL = try makeSyntheticBundle()
         try """

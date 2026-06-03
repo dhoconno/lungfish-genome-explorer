@@ -11,7 +11,7 @@ import LungfishKit
 /// The enum is `public` so the App's Inspector Detail section can reuse
 /// ``referenceFASTA(_:)``; the remaining helpers stay internal to the leaf.
 public enum TwelveSCopyFormatting {
-    static func names(_ rows: [TwelveSScientificNameCountRow]) -> String {
+    static func names(_ rows: [TwelveSTargetSampleRow]) -> String {
         rows.map(\.scientificName).joined(separator: "\n")
     }
     static func unresolvedNames(_ rows: [TwelveSUnresolvedSequence]) -> String {
@@ -28,20 +28,21 @@ public enum TwelveSCopyFormatting {
     }
 
     static let targetHeader = [
-        "Scientific Name", "Common Names", "Group", "Tax ID",
-        "Exact Reads", "Refs", "Max %", "Alternates",
+        "Sample", "Scientific Name", "Common Names", "Group", "Tax ID",
+        "Exact Reads", "% of Sample", "Refs", "Alternates",
     ]
-    static func targetRowsTSV(_ rows: [TwelveSScientificNameCountRow]) -> String {
+    static func targetRowsTSV(_ rows: [TwelveSTargetSampleRow]) -> String {
         var out = [targetHeader.joined(separator: "\t")]
         for r in rows {
             out.append([
+                r.sampleDisplayName,
                 r.scientificName,
                 r.commonNamesText,
                 r.displayTaxonGroups.joined(separator: "; "),
                 r.taxids.joined(separator: "; "),
-                String(r.totalExactReads),
+                String(r.exactReads),
+                String(format: "%.1f%%", r.samplePercent),
                 String(r.referenceTargetCount),
-                String(format: "%.1f%%", r.maxSamplePercent),
                 String(TwelveSTargetTableView.alternateTexts(for: r).count),
             ].joined(separator: "\t"))
         }
@@ -102,7 +103,7 @@ enum TwelveSCopyMenuProvider {
     /// (Wikipedia), which invoke `onOpenURL`.
     static func populateTargetMenu(
         _ menu: NSMenu,
-        rows: [TwelveSScientificNameCountRow],
+        rows: [TwelveSTargetSampleRow],
         pasteboard: PasteboardWriting,
         onOpenURL: @escaping (URL) -> Void
     ) {

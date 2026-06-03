@@ -158,6 +158,23 @@ final class InspectorTwelveSModeTests: XCTestCase {
         XCTAssertFalse(inspector.twelveSDetailSectionViewModel.hasDetail)
     }
 
+    func testTwelveSDisplayPathWiresInspectorSamplePickerState() throws {
+        let source = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ContentDisplay.swift"),
+            encoding: .utf8
+        )
+        let displayMethod = try sourceBlock(
+            startingAt: "    func displayTwelveSAmpliconResultBundleFromSidebar(",
+            endingBefore: "    func displayPhylogeneticTreeBundleFromSidebar(",
+            in: source
+        )
+
+        XCTAssertTrue(displayMethod.contains("updateClassifierSampleState"))
+        XCTAssertTrue(displayMethod.contains("TwelveSSampleEntry"))
+        XCTAssertTrue(displayMethod.contains("ClassifierSamplePickerView.commonPrefix"))
+    }
+
     private func makeResult(
         bundleURL: URL = URL(fileURLWithPath: "/tmp/example.lungfish12s"),
         sampleMetadata: ResolvedSampleMetadata? = nil,
@@ -213,5 +230,21 @@ final class InspectorTwelveSModeTests: XCTestCase {
             sampleMetadata: sampleMetadata,
             sampleMetadataManifest: sampleMetadataManifest
         )
+    }
+
+    private func sourceBlock(startingAt start: String, endingBefore end: String, in source: String) throws -> String {
+        guard let startRange = source.range(of: start),
+              let endRange = source.range(of: end, range: startRange.upperBound..<source.endIndex)
+        else {
+            throw XCTSkip("Could not locate source block")
+        }
+        return String(source[startRange.lowerBound..<endRange.lowerBound])
+    }
+
+    private func repositoryRoot() -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
     }
 }

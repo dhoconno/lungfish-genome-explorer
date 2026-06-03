@@ -35,9 +35,12 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     private var mode: Mode = .targets
     private var displayState = TwelveSResultDisplayState()
     private var allTargetRows: [TwelveSScientificNameCountRow] = []
-    private var targetRows: [TwelveSScientificNameCountRow] = []
+    private var allTargetSampleRows: [TwelveSTargetSampleRow] = []
+    private var targetRows: [TwelveSTargetSampleRow] = []
+    private var exportTargetRows: [TwelveSScientificNameCountRow] = []
     private var allUnresolvedRows: [TwelveSUnresolvedSequence] = []
     private var unresolvedRows: [TwelveSUnresolvedSequence] = []
+    private var unresolvedRowsLoaded = true
     /// Pasteboard seam for the copy context menu (overridable in tests).
     private var pasteboard: PasteboardWriting = DefaultPasteboard()
     private let copyContextMenu = NSMenu()
@@ -65,6 +68,10 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     /// Threshold above which per-sample reads columns are auto-suppressed.
     private let autoReadsColumnSampleLimit = 8
     private let sampleColumnsButton = NSButton(title: "Sample Columns", target: nil, action: nil)
+
+    public var inspectorSamplePickerState: ClassifierSamplePickerState? { samplePickerState }
+    public var inspectorSampleEntries: [any ClassifierSampleEntry] { sampleEntries }
+    public var inspectorSampleStrippedPrefix: String { sampleNameStrippedPrefix }
 
     public var onDisplaySummaryChanged: ((TwelveSResultDisplaySummary) -> Void)?
     public var onDisplayStateChanged: ((TwelveSResultDisplayState) -> Void)?
@@ -202,10 +209,21 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     public func configure(result: TwelveSAmpliconResultBundleData) {
         self.result = result
         allTargetRows = result.scientificNameRows
+        sampleEntries = result.samples.map {
+            TwelveSSampleEntry(id: $0.sampleID, displayName: $0.displayName, exactReads: $0.exactMatchReads)
+        }
+        allSampleIDs = Set(sampleEntries.map(\.id))
+        if samplePickerState == nil {
+            selectedSamples = allSampleIDs
+            sampleNameStrippedPrefix = ClassifierSamplePickerView.commonPrefix(of: sampleEntries.map(\.displayName))
+            sampleFilterButton.isHidden = sampleEntries.count <= 1
+            sampleColumnsButton.isHidden = sampleEntries.count <= 1
+        }
         allUnresolvedRows = result.unresolvedSequences.sorted { lhs, rhs in
             if lhs.readCount != rhs.readCount { return lhs.readCount > rhs.readCount }
             return lhs.sequenceID < rhs.sequenceID
         }
+        unresolvedRowsLoaded = !result.unresolvedSequences.isEmpty || result.manifest.unresolvedTablePath == nil
         targetTable.resultIdentity = result.manifest.outputName
         unresolvedTable.resultIdentity = result.manifest.outputName
         referenceProvider = TwelveSReferenceSequenceProvider(referenceURL: result.artifacts.referenceURL)
@@ -213,6 +231,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         reassignmentDonorSpecies = Set(
             result.reassignments.flatMap(\.candidateSpecies)
         ).subtracting(winners)
+        rebuildAllTargetSampleRows()
         titleLabel.stringValue = "\(result.manifest.outputName) 12S Matches"
         summaryLabel.stringValue = Self.summaryText(for: result)
         applyFilters(notify: false)
@@ -241,6 +260,15 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         startObservingSampleSelection()
         applyFilters(notify: false)
         rebuildSampleColumns()
+    }
+
+    private func rebuildAllTargetSampleRows() {
+        allTargetSampleRows = TwelveSTargetSampleRow.rows(
+            from: allTargetRows,
+            samples: result?.samples ?? [],
+            selected: [],
+            includeZeroReadScientificNames: reassignmentDonorSpecies
+        )
     }
 
     /// Applies imported per-sample metadata as matrix columns. New fields are
@@ -344,18 +372,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     @objc private func sampleColumnsButtonClicked(_ sender: NSButton) {
         let menu = NSMenu()
 
-        let readsItem = NSMenuItem(title: "Show Per-Sample Reads", action: #selector(toggleReadsColumns(_:)), keyEquivalent: "")
-        readsItem.target = self
-        readsItem.state = shouldShowReadsColumns ? .on : .off
-        menu.addItem(readsItem)
-
-        let pctItem = NSMenuItem(title: "Show Per-Sample % of Sample", action: #selector(togglePercentColumns(_:)), keyEquivalent: "")
-        pctItem.target = self
-        pctItem.state = shouldShowPercentColumns ? .on : .off
-        menu.addItem(pctItem)
-
         if let store = metadataStore, !store.columnNames.isEmpty {
-            menu.addItem(NSMenuItem.separator())
             let header = NSMenuItem(title: "Metadata Columns", action: nil, keyEquivalent: "")
             header.isEnabled = false
             menu.addItem(header)
@@ -368,7 +385,9 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
             }
         }
 
-        menu.addItem(NSMenuItem.separator())
+        if !menu.items.isEmpty {
+            menu.addItem(NSMenuItem.separator())
+        }
         let importItem = NSMenuItem(title: "Import Metadata\u{2026}", action: #selector(importMetadataMenuItem(_:)), keyEquivalent: "")
         importItem.target = self
         menu.addItem(importItem)
@@ -415,6 +434,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         selectedSamples = ids
         updateSampleFilterButtonTitle()
         applyFilters(notify: false)
+        rebuildSampleColumns()
     }
 
     func setSearchTextForTesting(_ text: String) {
@@ -429,7 +449,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
 
     func selectTargetForTesting(row: Int) {
         showTargets()
-        guard targetRows.indices.contains(row) else { return }
+        guard targetTable.displayedRows.indices.contains(row) else { return }
         targetTable.tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
         targetTable.tableViewSelectionDidChange(
             Notification(name: NSTableView.selectionDidChangeNotification, object: targetTable.tableView)
@@ -441,7 +461,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     }
 
     func testingTargetText(row: Int, column: String) -> String {
-        guard targetRows.indices.contains(row) else { return "" }
+        guard targetTable.displayedRows.indices.contains(row) else { return "" }
         return targetTable.cellContent(for: NSUserInterfaceItemIdentifier(column), row: targetTable.displayedRows[row]).text
     }
 
@@ -452,7 +472,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
             analysisName: result.manifest.analysisName,
             sampleNames: result.sampleNames,
             filters: displayState,
-            rows: targetRows,
+            rows: exportTargetRows,
             unresolvedRows: unresolvedRows
         )
     }
@@ -625,7 +645,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         }
     }
 
-    private func resolvedTargetSelection() -> [TwelveSScientificNameCountRow] {
+    private func resolvedTargetSelection() -> [TwelveSTargetSampleRow] {
         let selected = targetTable.selectedRowsByIdentity()
         return selected.isEmpty ? Array(targetTable.displayedRows.prefix(1)) : selected
     }
@@ -730,34 +750,43 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     }
 
     private func applyMode(_ mode: Mode) {
+        if mode == .unresolved {
+            loadUnresolvedRowsIfNeeded()
+        }
         self.mode = mode
         targetTable.isHidden = mode != .targets
         unresolvedTable.isHidden = mode != .unresolved
+        if mode == .unresolved {
+            applyFilters(notify: false)
+        }
         emitDetail(nil)
         updateActionBar()
         notifyDisplaySummaryChanged()
     }
 
+    private func loadUnresolvedRowsIfNeeded() {
+        guard !unresolvedRowsLoaded, let result else { return }
+        unresolvedRowsLoaded = true
+        do {
+            allUnresolvedRows = try TwelveSAmpliconResultBundle
+                .loadUnresolvedSequences(fromBundle: result.bundleURL, manifest: result.manifest)
+                .sorted { lhs, rhs in
+                    if lhs.readCount != rhs.readCount { return lhs.readCount > rhs.readCount }
+                    return lhs.sequenceID < rhs.sequenceID
+                }
+        } catch {
+            allUnresolvedRows = []
+        }
+    }
+
     private func applyFilters(notify: Bool) {
-        targetRows = allTargetRows.filter(targetMatchesDisplayState)
+        targetRows = allTargetSampleRows.filter(targetSampleMatchesDisplayState)
         unresolvedRows = allUnresolvedRows.filter(unresolvedMatchesDisplayState)
         // When comparing a strict subset of samples, drop rows that have no
         // reads in the selected samples (NAO-MGS / NVD idiom). A single-sample
         // bundle or "All Samples" leaves the row set unchanged.
         if isSampleSubset {
-            targetRows = targetRows.filter { TwelveSRowAggregator.includesTarget($0, selected: selectedSamples) }
             unresolvedRows = unresolvedRows.filter { TwelveSRowAggregator.includesUnresolved($0, selected: selectedSamples) }
-        }
-        // Hide species rows with zero reads across the currently-shown samples
-        // (unconditional). Shown = the selected subset if active, else all.
-        // Exception: a reassignment donor stays visible (with 0 reads) so a
-        // fully-absorbed rare species does not silently disappear.
-        let shownSamples = isSampleSubset ? selectedSamples : allSampleIDs
-        targetRows = targetRows.filter { row in
-            if reassignmentDonorSpecies.contains(row.scientificName) { return true }
-            return shownSamples.isEmpty
-                ? row.totalExactReads > 0
-                : TwelveSRowAggregator.totalExactReads(row, selected: shownSamples) > 0
         }
         // Display-state filters narrow the row set; the kernel free-text filter
         // (driven by the header search field) narrows within. Apply the current
@@ -767,6 +796,10 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         applyDefaultSortIfNeeded()
         targetTable.setFilterText(displayState.filterText)
         unresolvedTable.setFilterText(displayState.filterText)
+        let displayedSourceIDs = Set(targetTable.displayedRows.map { aggregateIdentity(for: $0.source) })
+        exportTargetRows = allTargetRows.filter { aggregate in
+            displayedSourceIDs.contains(aggregateIdentity(for: aggregate))
+        }
         updateActionBar()
         notifyDisplaySummaryChanged()
         if notify {
@@ -794,14 +827,33 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         unresolvedTable.tableView.sortDescriptors = [NSSortDescriptor(key: "readCount", ascending: false)]
     }
 
+    private var shownSampleIDs: Set<String> {
+        isSampleSubset ? selectedSamples : allSampleIDs
+    }
+
+    private func totalProjectedTargetRowCount() -> Int {
+        guard !shownSampleIDs.isEmpty else { return 0 }
+        return allTargetSampleRows.reduce(0) { count, row in
+            shownSampleIDs.contains(row.sampleID) ? count + 1 : count
+        }
+    }
+
+    private func aggregateIdentity(for row: TwelveSScientificNameCountRow) -> String {
+        [
+            row.scientificName,
+            row.taxids.joined(separator: "\u{0}"),
+            row.targetIDs.joined(separator: "\u{0}"),
+        ].joined(separator: "\u{1}")
+    }
+
     private func notifyDisplaySummaryChanged() {
         switch mode {
         case .targets:
             onDisplaySummaryChanged?(
                 TwelveSResultDisplaySummary(
-                    rowLabel: "Species Rows",
-                    visibleRows: targetRows.count,
-                    totalRows: allTargetRows.count
+                    rowLabel: "Target Rows",
+                    visibleRows: targetTable.displayedRows.count,
+                    totalRows: totalProjectedTargetRowCount()
                 )
             )
         case .unresolved:
@@ -815,8 +867,14 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         }
     }
 
-    private func targetMatchesDisplayState(_ row: TwelveSScientificNameCountRow) -> Bool {
-        guard row.totalExactReads >= displayState.minimumExactReads else { return false }
+    private func targetSampleMatchesDisplayState(_ row: TwelveSTargetSampleRow) -> Bool {
+        guard shownSampleIDs.contains(row.sampleID) else { return false }
+        if row.exactReads < displayState.minimumExactReads {
+            guard row.exactReads == 0,
+                  displayState.minimumExactReads == 0,
+                  reassignmentDonorSpecies.contains(row.scientificName)
+            else { return false }
+        }
         if displayState.excludeHuman, isHuman(row) { return false }
         if displayState.requireAlternateMatches, alternateTexts(for: row).isEmpty { return false }
 
@@ -827,17 +885,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         let excludedGroups = displayState.normalizedExcludedTaxonGroups
         if !excludedGroups.isEmpty, !groups.isDisjoint(with: excludedGroups) { return false }
 
-        let filter = displayState.normalizedFilterText
-        guard !filter.isEmpty else { return true }
-        let haystack = [
-            row.scientificName,
-            row.commonNamesText,
-            row.potentialMatchesText,
-            displayTaxonGroups.joined(separator: " "),
-            row.taxids.joined(separator: " "),
-            row.targetIDs.joined(separator: " "),
-        ].joined(separator: " ")
-        return haystack.localizedCaseInsensitiveContains(filter)
+        return true
     }
 
     private func unresolvedMatchesDisplayState(_ row: TwelveSUnresolvedSequence) -> Bool {
@@ -859,20 +907,25 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
             || row.taxids.contains("9606")
     }
 
+    private func isHuman(_ row: TwelveSTargetSampleRow) -> Bool {
+        row.scientificName.caseInsensitiveCompare("Homo sapiens") == .orderedSame
+            || row.taxids.contains("9606")
+    }
+
     // MARK: - Detail (emitted to the Inspector .twelveSDetail tab)
 
     private var sampleDisplayNames: [String: String] {
         Dictionary(uniqueKeysWithValues: result?.samples.map { ($0.sampleID, $0.displayName) } ?? [])
     }
 
-    private func handleTargetSelection(_ rows: [TwelveSScientificNameCountRow]) {
+    private func handleTargetSelection(_ rows: [TwelveSTargetSampleRow]) {
         guard mode == .targets else { return }
         updateActionBar()
         if rows.count == 1, let row = rows.first {
             // Emit the base detail immediately; reference sequences (read from
             // the bundle FASTA) fill in asynchronously so a high-target species
             // like Homo sapiens doesn't block the selection.
-            emitDetail(TwelveSDetailPayload(targetRow: row, sampleDisplayNames: sampleDisplayNames))
+            emitDetail(TwelveSDetailPayload(targetSampleRow: row))
             loadReferenceSequences(for: row)
         } else {
             emitDetail(nil)
@@ -882,10 +935,11 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     /// Reads the species' reference sequences off the main actor, then re-emits
     /// the detail payload with them attached — but only if the selection is
     /// still on the same species.
-    private func loadReferenceSequences(for row: TwelveSScientificNameCountRow) {
+    private func loadReferenceSequences(for row: TwelveSTargetSampleRow) {
         guard let provider = referenceProvider else { return }
         let targetIDs = row.targetIDs
         let species = row.scientificName
+        let sampleID = row.sampleID
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let sequences = provider.sequences(forTargetIDs: targetIDs)
             guard !sequences.isEmpty else { return }
@@ -893,7 +947,8 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
                 MainActor.assumeIsolated {
                     guard let self,
                           case let .target(detail)? = self.lastDetailPayload?.kind,
-                          detail.scientificName == species
+                          detail.scientificName == species,
+                          detail.sampleEvidence.first?.sampleID == sampleID
                     else { return }
                     self.emitDetail(TwelveSDetailPayload(kind: .target(detail.withReferenceSequences(sequences))))
                 }
@@ -916,6 +971,10 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         onSelectedRowDetailChanged?(payload)
     }
 
+    private func alternateTexts(for row: TwelveSTargetSampleRow) -> [String] {
+        TwelveSTargetTableView.alternateTexts(for: row)
+    }
+
     private func alternateTexts(for row: TwelveSScientificNameCountRow) -> [String] {
         TwelveSTargetTableView.alternateTexts(for: row)
     }
@@ -923,13 +982,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     private func updateActionBar() {
         switch mode {
         case .targets:
-            var info = "\(targetRows.count) of \(allTargetRows.count) target rows"
-            // Note when per-sample reads columns are auto-suppressed for a large cohort.
-            if showReadsColumnsOverride == nil,
-               orderedSelectedSampleIDs.count > autoReadsColumnSampleLimit {
-                info += " · per-sample columns hidden for \(orderedSelectedSampleIDs.count) samples (use Sample Columns)"
-            }
-            actionBar.updateInfoText(info)
+            actionBar.updateInfoText("\(targetTable.displayedRows.count) of \(totalProjectedTargetRowCount()) target rows")
             actionBar.setBlastEnabled(false, reason: "Switch to Unresolved to BLAST unmatched sequences")
         case .unresolved:
             let count = selectedUnresolvedRows().count

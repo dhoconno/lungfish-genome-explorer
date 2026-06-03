@@ -392,12 +392,16 @@ extension InspectorViewController {
         let importedMetadataStore = SampleMetadataStore.load(from: result.bundleURL, knownSampleIds: knownSampleIDs)
         importedMetadataStore?.wireAutosave(bundleURL: result.bundleURL)
         let currentDisplay = viewModel.twelveSResultDisplaySectionViewModel.displayState
+        let scientificNameRows = result.scientificNameRows
+        let targetRowCount = scientificNameRows.reduce(0) { count, row in
+            count + row.sampleCounts.values.filter { $0 > 0 }.count
+        }
         viewModel.twelveSResultDisplaySectionViewModel.update(isAvailable: true, state: currentDisplay)
         viewModel.twelveSResultDisplaySectionViewModel.updateSummary(
             TwelveSResultDisplaySummary(
-                rowLabel: "Species Rows",
-                visibleRows: result.scientificNameRows.count,
-                totalRows: result.scientificNameRows.count
+                rowLabel: "Target Rows",
+                visibleRows: targetRowCount,
+                totalRows: targetRowCount
             )
         )
         viewModel.twelveSResultDisplaySectionViewModel.updateSamples(
@@ -409,7 +413,9 @@ extension InspectorViewController {
             viewModel.twelveSResultDisplaySectionViewModel.sampleMetadataStore = importedMetadataStore
         }
         viewModel.twelveSResultDisplaySectionViewModel.updateTaxonGroupOptions(
-            result.scientificNameRows.flatMap(\.displayTaxonGroups)
+            scientificNameRows
+                .filter { $0.sampleCounts.values.contains { $0 > 0 } }
+                .flatMap(\.displayTaxonGroups)
         )
         viewModel.twelveSDetailSectionViewModel.isAvailable = true
         viewModel.twelveSDetailSectionViewModel.clear()

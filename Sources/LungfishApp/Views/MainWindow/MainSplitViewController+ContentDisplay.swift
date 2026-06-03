@@ -7,6 +7,7 @@ import LungfishCore
 import LungfishIO
 import LungfishGenotypeUI
 import LungfishPhylogeneticsUI
+import LungfishKit
 import LungfishTwelveSUI
 import LungfishWorkflow
 import os.log
@@ -316,7 +317,7 @@ extension MainSplitViewController {
         guard canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
 
         do {
-            let result = try TwelveSAmpliconResultBundle.loadResult(from: url)
+            let result = try TwelveSAmpliconResultBundle.loadResult(from: url, loadUnresolvedSequences: false)
             inspectorController.clearSelection()
             inspectorController.updateTwelveSAmpliconResultDocument(result)
             let controller = viewerController.displayTwelveSAmpliconResult(result)
@@ -325,6 +326,20 @@ extension MainSplitViewController {
             metadataStore?.wireAutosave(bundleURL: result.bundleURL)
             controller.applyMetadataStore(metadataStore)
             inspectorController.updateTwelveSImportedSampleMetadata(metadataStore)
+            let sampleEntries = result.samples.map {
+                TwelveSSampleEntry(id: $0.sampleID, displayName: $0.displayName, exactReads: $0.exactMatchReads)
+            }
+            let strippedPrefix = ClassifierSamplePickerView.commonPrefix(of: sampleEntries.map(\.displayName))
+            if let pickerState = controller.inspectorSamplePickerState {
+                let inspectorEntries: [any ClassifierSampleEntry] = sampleEntries
+                inspectorController.updateClassifierSampleState(
+                    pickerState: pickerState,
+                    entries: inspectorEntries,
+                    strippedPrefix: strippedPrefix,
+                    metadata: metadataStore,
+                    attachments: BundleAttachmentStore(bundleURL: result.bundleURL)
+                )
+            }
             controller.onDisplaySummaryChanged = { [weak self] summary in
                 self?.inspectorController.updateTwelveSResultDisplaySummary(summary)
             }
@@ -632,6 +647,15 @@ extension MainSplitViewController {
             )
             controller.applyMetadataStore(result.store)
             inspectorController.updateTwelveSImportedSampleMetadata(result.store)
+            if let pickerState = controller.inspectorSamplePickerState {
+                inspectorController.updateClassifierSampleState(
+                    pickerState: pickerState,
+                    entries: controller.inspectorSampleEntries,
+                    strippedPrefix: controller.inspectorSampleStrippedPrefix,
+                    metadata: result.store,
+                    attachments: BundleAttachmentStore(bundleURL: bundleURL)
+                )
+            }
         } catch {
             alert("Metadata Import Failed", error.localizedDescription)
         }

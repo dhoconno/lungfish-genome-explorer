@@ -141,3 +141,26 @@ public struct TwelveSDetailPayload: Equatable, Sendable {
         ))
     }
 }
+
+extension TwelveSDetailPayload {
+    init(targetSampleRow row: TwelveSTargetSampleRow) {
+        let evidence = [
+            TwelveSDetailSampleEvidenceRow(
+                sampleID: row.sampleID,
+                displayName: row.sampleDisplayName,
+                exactReads: row.exactReads,
+                percentOfSampleExactReads: row.samplePercent
+            )
+        ]
+        let alternates = row.alternateMatches.isEmpty
+            ? row.potentialMatches
+            : row.alternateMatches.map(\.displayName)
+        self.kind = .target(TargetDetail(
+            scientificName: row.scientificName,
+            totalExactReads: row.exactReads,
+            referenceTargetCount: row.referenceTargetCount,
+            sampleEvidence: evidence,
+            alternateTexts: alternates
+        ))
+    }
+}
