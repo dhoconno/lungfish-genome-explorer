@@ -662,7 +662,10 @@ final class ProvenanceExportCommandTests: XCTestCase {
                 "run",
                 outputDirectory.appendingPathComponent("main.nf").path
             ],
-            workingDirectory: outputDirectory
+            workingDirectory: outputDirectory,
+            environment: [
+                "NXF_ANSI_LOG": "false"
+            ]
         )
 
         XCTAssertEqual(result.exitStatus, 0, result.diagnostics)
@@ -703,6 +706,32 @@ final class ProvenanceExportCommandTests: XCTestCase {
             FileManager.default.fileExists(atPath: outputDirectory.appendingPathComponent("out.txt").path),
             result.diagnostics
         )
+    }
+
+    func testRunExternalCommandTimeoutKillsSpawnedProcessTree() async throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let childPIDFile = directory.appendingPathComponent("child.pid")
+        let scriptURL = directory.appendingPathComponent("timeout-child.sh")
+        let script = """
+        #!/bin/sh
+        /bin/sh -c 'trap "" TERM HUP INT; echo $$ > "\(childPIDFile.path)"; while true; do sleep 1; done' &
+        while true; do sleep 1; done
+        """
+        try script.write(to: scriptURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
+
+        _ = try runExternalCommand(
+            scriptURL,
+            arguments: [],
+            workingDirectory: directory,
+            timeout: .seconds(1)
+        )
+
+        let childPID = try waitForPIDFile(childPIDFile)
+        let childExited = await waitUntilProcessExits(pid: childPID, timeout: 2.0)
+        XCTAssertTrue(childExited, "Timeout cleanup must terminate spawned child processes")
     }
 
     func testExportCanonicalizesLegacyWorkflowRunSidecar() async throws {
@@ -1205,12 +1234,17 @@ final class ProvenanceExportCommandTests: XCTestCase {
     private func runExternalCommand(
         _ executableURL: URL,
         arguments: [String],
-        workingDirectory: URL
+        workingDirectory: URL,
+        environment: [String: String]? = nil,
+        timeout: DispatchTimeInterval = .seconds(90)
     ) throws -> ExternalCommandResult {
         let process = Process()
         process.executableURL = executableURL
         process.arguments = arguments
         process.currentDirectoryURL = workingDirectory
+        if let environment {
+            process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, new in new }
+        }
 
         let stdout = Pipe()
         let stderr = Pipe()
@@ -1220,10 +1254,9 @@ final class ProvenanceExportCommandTests: XCTestCase {
         let semaphore = DispatchSemaphore(value: 0)
         process.terminationHandler = { _ in semaphore.signal() }
         try process.run()
-        let timeout = DispatchTime.now() + .seconds(90)
-        if semaphore.wait(timeout: timeout) == .timedOut {
-            process.terminate()
-            process.waitUntilExit()
+        if semaphore.wait(timeout: .now() + timeout) == .timedOut {
+            ProcessTreeTerminator.terminate(rootProcess: process, gracePeriod: 0)
+            _ = semaphore.wait(timeout: .now() + .seconds(2))
         }
 
         let stdoutData = stdout.fileHandleForReading.readDataToEndOfFile()
@@ -1233,6 +1266,34 @@ final class ProvenanceExportCommandTests: XCTestCase {
             stdout: String(data: stdoutData, encoding: .utf8) ?? "",
             stderr: String(data: stderrData, encoding: .utf8) ?? ""
         )
+    }
+
+    private func waitForPIDFile(_ url: URL, timeout: TimeInterval = 5.0) throws -> Int32 {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let contents = try? String(contentsOf: url, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               let pid = Int32(contents) {
+                return pid
+            }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        throw NSError(
+            domain: "ProvenanceExportCommandTests",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for child PID"]
+        )
+    }
+
+    private func waitUntilProcessExits(pid: Int32, timeout: TimeInterval) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if !ProcessTreeTerminator.processExists(pid: pid) {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        return !ProcessTreeTerminator.processExists(pid: pid)
     }
 
     private func fixtureURL(_ relativePath: String) throws -> URL {
