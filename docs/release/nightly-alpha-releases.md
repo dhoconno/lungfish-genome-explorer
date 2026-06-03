@@ -19,6 +19,12 @@ The wrapper delegates to `scripts/release/nightly_alpha_release.py`, which
 coordinates git state, tests, version bumping, the notarized DMG build, GitHub
 release publishing, Sparkle appcast publishing, and cleanup.
 
+The Codex automation that triggers the nightly run is responsible for writing a
+human-readable narrative summary into the next release-note file before the
+local release script runs. The standalone Python script remains deterministic
+and model-free; if the release note already exists, it preserves that file
+instead of overwriting it.
+
 ## Agent Cleanup Scope
 
 The coordinator treats these branches as agent-managed:
@@ -94,6 +100,11 @@ To run the same flow manually:
 ```bash
 scripts/release/run-nightly-alpha-release.sh
 ```
+
+If you want the same narrative release-note quality as the scheduled Codex run,
+write the next `docs/release-notes/v<version>.md` summary before invoking the
+script. Otherwise the script will generate a deterministic commit-list release
+note when no file exists yet.
 
 To override the full test command during a local rehearsal:
 

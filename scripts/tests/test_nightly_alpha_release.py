@@ -5,6 +5,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 def load_module():
@@ -76,6 +77,36 @@ class NightlyAlphaReleaseTests(unittest.TestCase):
             self.release.previous_alpha_tag("0.5.0-alpha14", tags),
             "v0.5.0-alpha13",
         )
+
+    def test_write_release_notes_preserves_existing_release_note_file(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            notes_dir = root / "docs" / "release-notes"
+            notes_dir.mkdir(parents=True, exist_ok=True)
+            prewritten = notes_dir / "v0.5.0-alpha15.md"
+            prewritten_text = """# Lungfish 0.5.0-alpha15
+
+Previous release: v0.5.0-alpha14
+
+## Summary
+
+Codex-authored narrative summary.
+"""
+            prewritten.write_text(prewritten_text, encoding="utf-8")
+
+            with mock.patch.object(
+                self.release,
+                "git_output",
+                return_value="cea1549e fix: unblock nightly alpha release reruns\n",
+            ):
+                notes_path = self.release.write_release_notes(
+                    root=root,
+                    old_version="0.5.0-alpha14",
+                    new_version="0.5.0-alpha15",
+                    previous_tag="v0.5.0-alpha14",
+                )
+
+            self.assertEqual(notes_path.read_text(encoding="utf-8"), prewritten_text)
 
     def test_version_updater_changes_only_configured_release_version_files(self):
         with tempfile.TemporaryDirectory() as temp_dir:

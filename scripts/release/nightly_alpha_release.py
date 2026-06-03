@@ -405,6 +405,8 @@ def write_release_notes(root: Path, old_version: str, new_version: str, previous
     notes_dir = root / "docs" / "release-notes"
     notes_dir.mkdir(parents=True, exist_ok=True)
     notes_path = notes_dir / f"v{new_version}.md"
+    if notes_path.exists():
+        return notes_path
     log = git_output(root, "log", "--oneline", f"{previous_tag}..HEAD")
     commit_lines = [line.strip() for line in log.splitlines() if line.strip()]
     if not commit_lines:
