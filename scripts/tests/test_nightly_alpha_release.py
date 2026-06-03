@@ -64,6 +64,19 @@ class NightlyAlphaReleaseTests(unittest.TestCase):
             "0.5.0-alpha14",
         )
 
+    def test_previous_alpha_tag_falls_back_to_latest_existing_tag_when_current_version_is_untagged(self):
+        tags = [
+            "v0.4.0-alpha16",
+            "v0.5.0-alpha12",
+            "v0.5.0-alpha13",
+            "v0.6.0-alpha1",
+        ]
+
+        self.assertEqual(
+            self.release.previous_alpha_tag("0.5.0-alpha14", tags),
+            "v0.5.0-alpha13",
+        )
+
     def test_version_updater_changes_only_configured_release_version_files(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

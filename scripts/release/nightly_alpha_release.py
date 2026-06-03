@@ -87,6 +87,27 @@ def next_alpha_version(current_version: str, tags: list[str]) -> str:
     return f"{prefix}{highest + 1}"
 
 
+def previous_alpha_tag(current_version: str, tags: list[str]) -> str:
+    match = re.fullmatch(r"(.+-alpha)(\d+)", current_version)
+    if not match:
+        raise NightlyReleaseError(f"current version is not an alpha version: {current_version}")
+    prefix, current_number = match.groups()
+    current_number = int(current_number)
+    exact_tag = f"v{current_version}"
+    if exact_tag in tags:
+        return exact_tag
+
+    tag_pattern = re.compile(rf"^v{re.escape(prefix)}(\d+)$")
+    prior_numbers = sorted(
+        int(tag_match.group(1))
+        for tag in tags
+        if (tag_match := tag_pattern.fullmatch(tag)) and int(tag_match.group(1)) < current_number
+    )
+    if not prior_numbers:
+        raise NightlyReleaseError(f"no previous alpha tag found for {current_version}")
+    return f"v{prefix}{prior_numbers[-1]}"
+
+
 def update_versioned_files(root: Path, old_version: str, new_version: str) -> list[str]:
     changed: list[str] = []
     for relative_path in VERSIONED_FILES:
@@ -573,7 +594,7 @@ def main(argv: list[str]) -> int:
 
         commit_dirty_worktrees(candidates)
         merge_agent_branches(root, candidates)
-        prepare_release_commit(root, release_tag, old_version, new_version, f"v{old_version}")
+        prepare_release_commit(root, release_tag, old_version, new_version, previous_alpha_tag(old_version, tags))
         run_tests(root, args.test_command)
         git(root, "push", args.remote, args.main_branch)
         git(root, "tag", "-a", release_tag, "-m", f"Lungfish {release_tag}")
