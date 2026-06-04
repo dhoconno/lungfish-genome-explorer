@@ -184,6 +184,12 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
             .appendingPathComponent("current.xlsx")
     }
 
+    public var currentWorkbookProvenanceURL: URL {
+        outputDirectory
+            .appendingPathComponent("artifacts/workbooks", isDirectory: true)
+            .appendingPathComponent("current-workbook-provenance.json")
+    }
+
     public var cliSubcommand: String {
         let illuminaCohort = inputFASTQURLs.count > 1
             && barcodeDefinitionsURL == nil
@@ -481,7 +487,14 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             pythonURL: reportPythonURL
         )
 
-        let workbookCopy = try createInitialCurrentWorkbookCopy(for: request)
+        let workbookCopy = try await createInitialCurrentWorkbook(
+            for: request,
+            reportScriptURL: reportScriptURL,
+            reportPythonURL: reportPythonURL,
+            referenceFASTAURL: reference.referenceFASTAURL,
+            barcodeDefinitionsURL: inputSnapshot.barcodeDefinitionsURL,
+            haplotypeAnalysisURL: haplotypeAnalysis == nil ? nil : request.haplotypeAnalysisURL
+        )
         let completedAt = Date()
         progressHandler?(0.93, "Writing reproducibility provenance and bundle manifest.")
         let provenanceURL = try writeProvenance(
@@ -700,6 +713,14 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
 
     private struct WorkbookCopyResult {
         let revision: ONTGenotypeWorkbookRevision
+        let toolName: String
+        let toolVersion: String
+        let arguments: [String]
+        let stderr: String
+        let exitStatus: Int32
+        let creationMode: String
+        let summary: ReportSummary?
+        let provenanceURL: URL?
         let wallClockSeconds: TimeInterval
     }
 
@@ -1594,10 +1615,19 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             .appendingPathComponent("haplotype-definition.json")
     }
 
+    private func copyFilterOutput(from source: URL, to destination: URL) throws {
+        guard source != destination else { return }
+        if FileManager.default.fileExists(atPath: destination.path) {
+            try FileManager.default.removeItem(at: destination)
+        }
+        try FileManager.default.copyItem(at: source, to: destination)
+    }
+
+    @discardableResult
     private func writeHaplotypeDefinitionSnapshot(
         _ definitionSet: GenotypeHaplotypeDefinitionSet,
         supportDirectory: URL
-    ) throws {
+    ) throws -> URL {
         let inputsDirectory = supportDirectory.appendingPathComponent("inputs", isDirectory: true)
         try FileManager.default.createDirectory(at: inputsDirectory, withIntermediateDirectories: true)
         let url = inputsDirectory.appendingPathComponent("haplotype-definition.json")
@@ -1605,14 +1635,39 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(definitionSet)
         try data.write(to: url, options: .atomic)
+        return url
     }
 
-    private func copyFilterOutput(from source: URL, to destination: URL) throws {
-        guard source != destination else { return }
-        if FileManager.default.fileExists(atPath: destination.path) {
-            try FileManager.default.removeItem(at: destination)
+    private func shouldCreateMCMDecoratedCurrentWorkbook(
+        for request: ONTBarcodeDemuxGenotypingRunRequest,
+        haplotypeAnalysisURL: URL?
+    ) throws -> Bool {
+        guard haplotypeAnalysisURL != nil,
+              let definitionSet = try resolveHaplotypeDefinitionSet(for: request) else {
+            return false
         }
-        try FileManager.default.copyItem(at: source, to: destination)
+        return definitionSet.speciesCode.caseInsensitiveCompare("MCM") == .orderedSame
+    }
+
+    private func createInitialCurrentWorkbook(
+        for request: ONTBarcodeDemuxGenotypingRunRequest,
+        reportScriptURL: URL,
+        reportPythonURL: URL,
+        referenceFASTAURL: URL,
+        barcodeDefinitionsURL: URL,
+        haplotypeAnalysisURL: URL?
+    ) async throws -> WorkbookCopyResult {
+        if try shouldCreateMCMDecoratedCurrentWorkbook(for: request, haplotypeAnalysisURL: haplotypeAnalysisURL) {
+            return try await createInitialDecoratedMCMCurrentWorkbook(
+                for: request,
+                reportScriptURL: reportScriptURL,
+                reportPythonURL: reportPythonURL,
+                referenceFASTAURL: referenceFASTAURL,
+                barcodeDefinitionsURL: barcodeDefinitionsURL,
+                haplotypeAnalysisURL: haplotypeAnalysisURL
+            )
+        }
+        return try createInitialCurrentWorkbookCopy(for: request)
     }
 
     private func createInitialCurrentWorkbookCopy(
@@ -1644,6 +1699,99 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         )
         return WorkbookCopyResult(
             revision: revision,
+            toolName: "lungfish genotype workbook initial-current-copy",
+            toolVersion: WorkflowRun.currentAppVersion,
+            arguments: request.argv + ["--create-current-workbook", request.currentWorkbookURL.path],
+            stderr: "",
+            exitStatus: 0,
+            creationMode: "copy",
+            summary: nil,
+            provenanceURL: nil,
+            wallClockSeconds: createdAt.timeIntervalSince(startedAt)
+        )
+    }
+
+    private func createInitialDecoratedMCMCurrentWorkbook(
+        for request: ONTBarcodeDemuxGenotypingRunRequest,
+        reportScriptURL: URL,
+        reportPythonURL: URL,
+        referenceFASTAURL: URL,
+        barcodeDefinitionsURL: URL,
+        haplotypeAnalysisURL: URL?
+    ) async throws -> WorkbookCopyResult {
+        let startedAt = Date()
+        let destinationURL = request.currentWorkbookURL
+        try FileManager.default.createDirectory(
+            at: destinationURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        if FileManager.default.fileExists(atPath: destinationURL.path) {
+            try FileManager.default.removeItem(at: destinationURL)
+        }
+        if FileManager.default.fileExists(atPath: request.currentWorkbookProvenanceURL.path) {
+            try FileManager.default.removeItem(at: request.currentWorkbookProvenanceURL)
+        }
+
+        var arguments = [
+            reportScriptURL.path,
+            "--client-current-workbook",
+            "--genotypes-csv", request.reportCSVURL.path,
+            "--samples-csv", request.sampleSummaryCSVURL.path,
+            "--stats-json", request.statsJSONURL.path,
+            "--reference-fasta", referenceFASTAURL.path,
+            "--barcode-definitions", barcodeDefinitionsURL.path,
+            "--output-xlsx", destinationURL.path,
+            "--provenance-json", request.currentWorkbookProvenanceURL.path,
+            "--analysis-name", request.analysisName,
+            "--run-name", request.outputName,
+            "--primary-workbook", request.workbookURL.path,
+            "--haplotype-definition-json", haplotypeDefinitionSnapshotURL(for: request).path,
+            "--provenance-command",
+            (request.argv + ["--create-current-workbook", destinationURL.path]).map(shellEscape).joined(separator: " "),
+        ]
+        if let haplotypeAnalysisURL {
+            arguments += ["--haplotype-analysis-json", haplotypeAnalysisURL.path]
+        }
+
+        let result = try await condaManager.runTool(
+            name: reportPythonURL.lastPathComponent,
+            arguments: arguments,
+            environment: "openpyxl",
+            workingDirectory: request.outputDirectory,
+            timeout: 3_600
+        )
+        guard result.exitCode == 0 else {
+            throw ONTBarcodeDemuxGenotypingError.reportFailed(status: result.exitCode, stderr: result.stderr)
+        }
+        guard let data = result.stdout.data(using: .utf8),
+              let summary = try? JSONDecoder().decode(ReportSummary.self, from: data) else {
+            throw ONTBarcodeDemuxGenotypingError.invalidReportOutput(result.stdout)
+        }
+
+        let createdAt = Date()
+        let revision = ONTGenotypeWorkbookRevision(
+            id: "initial-current-copy",
+            role: .initialCurrentCopy,
+            path: relativePath(from: request.outputDirectory, to: destinationURL),
+            label: "Initial decorated MCM current workbook",
+            sourceFilename: request.workbookURL.lastPathComponent,
+            createdAt: ISO8601DateFormatter().string(from: createdAt),
+            user: NSUserName(),
+            predecessorPath: relativePath(from: request.outputDirectory, to: request.workbookURL),
+            sha256: try ProvenanceFileHasher.sha256(of: destinationURL),
+            sizeBytes: Int64(try ProvenanceFileHasher.fileSize(of: destinationURL)),
+            provenancePath: relativePath(from: request.outputDirectory, to: request.currentWorkbookProvenanceURL)
+        )
+        return WorkbookCopyResult(
+            revision: revision,
+            toolName: "openpyxl MCM current workbook report",
+            toolVersion: summary.openpyxlVersion,
+            arguments: [reportPythonURL.path] + arguments,
+            stderr: result.stderr,
+            exitStatus: result.exitCode,
+            creationMode: "mcm-client-current",
+            summary: summary,
+            provenanceURL: request.currentWorkbookProvenanceURL,
             wallClockSeconds: createdAt.timeIntervalSince(startedAt)
         )
     }
@@ -1789,6 +1937,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             fileDescriptorDictionary(url: request.retainedBAMURL, role: "intermediate"),
             fileDescriptorDictionary(url: request.retainedBAIURL, role: "intermediate-index"),
         ] + mapping.transientBAMURLs.map { fileDescriptorDictionary(url: $0, role: "intermediate") }
+        let currentWorkbookProvenanceOutputs = workbookCopy.provenanceURL
+            .map { [fileDescriptorDictionary(url: $0, role: "current-report-provenance")] } ?? []
         let provenanceOutputs: [[String: Any]] = [
             fileDescriptorDictionary(url: request.reportCSVURL, role: "report"),
             fileDescriptorDictionary(url: request.sampleSummaryCSVURL, role: "report"),
@@ -1797,7 +1947,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             fileDescriptorDictionary(url: request.workbookURL, role: "original-report"),
             fileDescriptorDictionary(url: request.currentWorkbookURL, role: "current-report"),
             fileDescriptorDictionary(url: request.reportProvenanceURL, role: "provenance"),
-        ]
+        ] + currentWorkbookProvenanceOutputs
         let primaryOutput = fileDescriptorDictionary(url: request.outputDirectory, role: "output")
         let provenanceFiles = provenanceInputs + transientAlignmentOutputs + provenanceOutputs
         let statistics: [String: Any] = [
@@ -1871,15 +2021,19 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 ],
             ],
             [
-                "toolName": "lungfish genotype workbook initial-current-copy",
-                "argv": request.argv + ["--create-current-workbook", request.currentWorkbookURL.path],
-                "exitStatus": 0,
+                "toolName": workbookCopy.toolName,
+                "toolVersion": workbookCopy.toolVersion,
+                "argv": workbookCopy.arguments,
+                "exitStatus": Int(workbookCopy.exitStatus),
                 "wallClockSeconds": workbookCopy.wallClockSeconds,
                 "wallTimeSeconds": workbookCopy.wallClockSeconds,
-                "stderr": "",
+                "stderr": workbookCopy.stderr,
                 "summary": [
+                    "mode": workbookCopy.creationMode,
                     "primaryWorkbook": request.workbookURL.path,
                     "currentWorkbook": request.currentWorkbookURL.path,
+                    "provenanceJSON": workbookCopy.provenanceURL?.path as Any? ?? NSNull(),
+                    "sheetNames": workbookCopy.summary?.sheetNames as Any? ?? NSNull(),
                     "sha256": workbookCopy.revision.sha256,
                     "sizeBytes": workbookCopy.revision.sizeBytes,
                 ],
@@ -2018,6 +2172,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let workbook = try canonicalFileDescriptor(url: request.workbookURL, role: .report)
         let currentWorkbook = try canonicalFileDescriptor(url: request.currentWorkbookURL, role: .report)
         let reportProvenance = try canonicalFileDescriptor(url: request.reportProvenanceURL, role: .log)
+        let currentWorkbookProvenance = try workbookCopy.provenanceURL.map {
+            try canonicalFileDescriptor(url: $0, role: .log)
+        }
         let legacyProvenance = try canonicalFileDescriptor(url: legacyProvenanceURL, role: .log)
         let canonicalOutputs = deduplicated(
             [
@@ -2027,6 +2184,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             ]
                 + (haplotypeOutput.map { [$0] } ?? [])
                 + [workbook, currentWorkbook, reportProvenance, legacyProvenance]
+                + (currentWorkbookProvenance.map { [$0] } ?? [])
         )
         let outputDirectory = ProvenanceFileDescriptor(
             path: request.outputDirectory.standardizedFileURL.path,
@@ -2129,13 +2287,19 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         )
         canonicalSteps.append(
             ProvenanceStep(
-                toolName: "lungfish genotype workbook initial-current-copy",
-                toolVersion: WorkflowRun.currentAppVersion,
-                argv: request.argv + ["--create-current-workbook", request.currentWorkbookURL.path],
-                inputs: [workbook],
-                outputs: [currentWorkbook],
-                exitStatus: 0,
-                wallTimeSeconds: workbookCopy.wallClockSeconds
+                toolName: workbookCopy.toolName,
+                toolVersion: workbookCopy.toolVersion,
+                argv: workbookCopy.arguments,
+                inputs: workbookCopy.creationMode == "mcm-client-current"
+                    ? [workbook, genotypeCSV, sampleCSV, statsJSON, referenceInput, reportScriptInput]
+                        + (barcodeInput.map { [$0] } ?? [])
+                        + (haplotypeOutput.map { [$0] } ?? [])
+                        + (haplotypeDefinitionInput.map { [$0] } ?? [])
+                    : [workbook],
+                outputs: [currentWorkbook] + (currentWorkbookProvenance.map { [$0] } ?? []),
+                exitStatus: Int(workbookCopy.exitStatus),
+                wallTimeSeconds: workbookCopy.wallClockSeconds,
+                stderr: workbookCopy.stderr
             )
         )
 
@@ -2880,6 +3044,9 @@ def parse_args():
     parser.add_argument("--comparison-workbook")
     parser.add_argument("--comparison-name", default="Illumina-31262")
     parser.add_argument("--haplotype-analysis-json")
+    parser.add_argument("--client-current-workbook", action="store_true")
+    parser.add_argument("--haplotype-definition-json")
+    parser.add_argument("--primary-workbook")
     parser.add_argument("--provenance-command")
     args = parser.parse_args()
     if not args.analysis_name:
@@ -3362,6 +3529,13 @@ def load_haplotype_analysis(path):
         return json.load(handle)
 
 
+def load_haplotype_definition(path):
+    if not path:
+        return {}
+    with open(path) as handle:
+        return json.load(handle)
+
+
 def haplotype_calls_by_sample_locus(haplotype_analysis):
     by_sample = {}
     if not haplotype_analysis:
@@ -3480,6 +3654,375 @@ def write_haplotype_sheet(wb, haplotype_analysis):
             ])
     style_tabular_sheet(ws)
     return ws
+
+
+MCM_CLIENT_SHEET_NAMES = [
+    "Interpretation Guide",
+    "MHC Alleles Per MHC Haplotype",
+    "Abbreviated Haplotypes",
+    "Full Sequencing Results 1",
+    "Custom Sort",
+]
+
+MCM_FAMILIES = ["M1", "M2", "M3", "M4", "M5", "M6", "M7"]
+MCM_REPORT_LOCI = ["MHC-A", "MHC-B", "MHC-DRB", "MHC-DQA", "MHC-DQB", "MHC-DPA", "MHC-DPB"]
+MCM_HAPLOTYPE_STYLES = {
+    "M1": {"fill": "000000", "font": "FFFFFF"},
+    "M2": {"fill": "FF0000", "font": "FFFFFF"},
+    "M3": {"fill": "0070C0", "font": "FFFFFF"},
+    "M4": {"fill": "00B050", "font": "FFFFFF"},
+    "M5": {"fill": "FFFF00", "font": "000000"},
+    "M6": {"fill": "A6A6A6", "font": "000000"},
+    "M7": {"fill": "7030A0", "font": "FFFFFF"},
+}
+
+
+def mcm_family(value):
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text or text == "-" or text.startswith("ERR:"):
+        return None
+    match = re.search(r"\b(M[1-7])", text)
+    return match.group(1) if match else None
+
+
+def apply_haplotype_cell_style(cell, value):
+    family = mcm_family(value)
+    if not family:
+        if isinstance(value, str) and value.startswith("ERR:"):
+            cell.fill = PatternFill("solid", fgColor="FFC7CE")
+            cell.font = Font(color="9C0006", bold=True)
+        return
+    style = MCM_HAPLOTYPE_STYLES.get(family)
+    if not style:
+        return
+    cell.fill = PatternFill("solid", fgColor=style["fill"])
+    cell.font = Font(color=style["font"], bold=True)
+    cell.alignment = Alignment(horizontal="center", vertical="center")
+
+
+def apply_basic_sheet_format(ws, freeze_panes=None):
+    header_fill = PatternFill("solid", fgColor="D9EAF7")
+    header_font = Font(bold=True)
+    thin_gray = Side(style="thin", color="D9D9D9")
+    for row in ws.iter_rows():
+        for cell in row:
+            cell.border = Border(bottom=thin_gray)
+            cell.alignment = Alignment(vertical="top", wrap_text=True)
+    for cell in ws[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    if freeze_panes:
+        ws.freeze_panes = freeze_panes
+    if ws.max_row and ws.max_column:
+        ws.auto_filter.ref = ws.dimensions
+    for col in range(1, ws.max_column + 1):
+        letter = get_column_letter(col)
+        max_len = 0
+        for row in range(1, min(ws.max_row, 120) + 1):
+            value = ws.cell(row, col).value
+            if value is not None:
+                parts = str(value).splitlines() or [str(value)]
+                max_len = max(max_len, max(len(part) for part in parts))
+        ws.column_dimensions[letter].width = min(max(max_len + 2, 10), 36)
+
+
+def set_row_label_style(ws, row):
+    ws.cell(row, 1).font = Font(bold=True)
+    ws.cell(row, 1).fill = PatternFill("solid", fgColor="EDEDED")
+
+
+def ordered_loci_from_calls(calls_by_sample_locus):
+    seen = set()
+    ordered = []
+    for locus in MCM_REPORT_LOCI:
+        if any(locus in calls for calls in calls_by_sample_locus.values()):
+            ordered.append(locus)
+            seen.add(locus)
+    for calls in calls_by_sample_locus.values():
+        for locus in calls:
+            if locus not in seen:
+                ordered.append(locus)
+                seen.add(locus)
+    return ordered if ordered else MCM_REPORT_LOCI
+
+
+def call_value(call, index):
+    if not call:
+        return None
+    value = call.get(f"haplotype{index}")
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text if text else None
+
+
+def whole_animal_haplotype(locus_calls, index, loci):
+    families = []
+    saw_nonempty = False
+    for locus in loci:
+        value = call_value(locus_calls.get(locus), index)
+        if value and value != "-":
+            saw_nonempty = True
+        family = mcm_family(value)
+        if family and family not in families:
+            families.append(family)
+    if not saw_nonempty:
+        return "?"
+    if len(families) == 1:
+        return families[0]
+    if len(families) > 1:
+        return "rec" + "".join(families)
+    return "?"
+
+
+def haplotype_comments(locus_calls):
+    comments = []
+    for locus in sorted(locus_calls):
+        call = locus_calls[locus]
+        status = call.get("status")
+        notes = str(call.get("notes") or "").strip()
+        values = [call_value(call, 1), call_value(call, 2)]
+        if any(isinstance(value, str) and value.startswith("ERR:") for value in values if value):
+            comments.append(f"{locus}: {'/'.join(value for value in values if value)}")
+        elif status not in (None, "", "called"):
+            comments.append(f"{locus}: {status}")
+        if notes:
+            comments.append(f"{locus}: {notes}")
+    return "; ".join(comments)
+
+
+def write_interpretation_guide(ws):
+    rows = [
+        ["Field", "Interpretation"],
+        ["Client ID", "Client-provided sample identifier."],
+        ["GS ID", "Genotyping sample identifier used in the run."],
+        ["Mapped Read Count", "Filtered exact-match read count retained for the sample."],
+        ["Haplotype 1 / Haplotype 2", "Whole-animal MCM haplotype assignment derived from per-locus calls."],
+        ["recM", "Recombinant or mixed-family assignment across reported loci."],
+        ["?", "No confident whole-animal haplotype assignment."],
+    ]
+    for row in rows:
+        ws.append(row)
+    apply_basic_sheet_format(ws, freeze_panes="A2")
+
+
+def definition_locus_rows(haplotype_definition):
+    rows = []
+    for locus in haplotype_definition.get("locusDefinitions", []) or []:
+        locus_name = locus.get("sourceLocus") or locus.get("locus") or ""
+        haplotypes = locus.get("haplotypes", []) or []
+        name_by_family = {family: [] for family in MCM_FAMILIES}
+        alleles_by_family = {family: [] for family in MCM_FAMILIES}
+        for haplotype in haplotypes:
+            name = haplotype.get("name")
+            family = mcm_family(name)
+            if not name or family not in name_by_family:
+                continue
+            name_by_family[family].append(str(name))
+            alleles = [str(item) for item in haplotype.get("diagnosticAlleles", []) if item]
+            alleles_by_family[family].extend(alleles)
+        rows.append((locus_name, name_by_family, alleles_by_family))
+    return rows
+
+
+def write_mcm_alleles_per_haplotype(ws, haplotype_definition):
+    ws.append(["Haplotype"] + MCM_FAMILIES)
+    for locus_name, name_by_family, alleles_by_family in definition_locus_rows(haplotype_definition):
+        ws.append([locus_name] + ["\n".join(name_by_family[family]) or None for family in MCM_FAMILIES])
+        ws.append([f"{locus_name} diagnostic alleles"] + ["\n".join(alleles_by_family[family]) or None for family in MCM_FAMILIES])
+    if ws.max_row == 1:
+        ws.append(["No haplotype definition rows found"] + [None for _ in MCM_FAMILIES])
+    apply_basic_sheet_format(ws, freeze_panes="B2")
+    for row in range(2, ws.max_row + 1):
+        for col, family in enumerate(MCM_FAMILIES, start=2):
+            value = ws.cell(row, col).value
+            if value:
+                apply_haplotype_cell_style(ws.cell(row, col), family)
+
+
+def abbreviated_headers(loci):
+    headers = ["Client ID", "GS ID", "Mapped Read Count", "Haplotype 1", "Haplotype 2"]
+    for locus in loci:
+        headers += [f"{locus} Haplotype 1", f"{locus} Haplotype 2"]
+    headers.append("Comments")
+    return headers
+
+
+def read_count_for_sample(sample_stats, sample):
+    row = sample_stats.get(sample, {})
+    return display_value(
+        row.get("passed_alignments")
+        or row.get("passed_unique_reads")
+        or row.get("sample_unique_retained_reads")
+    )
+
+
+def write_abbreviated_haplotypes(ws, samples, sample_stats, calls_by_sample_locus, loci):
+    headers = abbreviated_headers(loci)
+    ws.append(headers)
+    for sample in samples:
+        locus_calls = calls_by_sample_locus.get(sample, {})
+        values = [
+            sample,
+            sample,
+            read_count_for_sample(sample_stats, sample),
+            whole_animal_haplotype(locus_calls, 1, loci),
+            whole_animal_haplotype(locus_calls, 2, loci),
+        ]
+        for locus in loci:
+            call = locus_calls.get(locus)
+            values += [call_value(call, 1), call_value(call, 2)]
+        values.append(haplotype_comments(locus_calls) or None)
+        ws.append(values)
+    apply_basic_sheet_format(ws, freeze_panes="D2")
+    for row in range(2, ws.max_row + 1):
+        for col in range(4, ws.max_column):
+            apply_haplotype_cell_style(ws.cell(row, col), ws.cell(row, col).value)
+
+
+def write_full_sequencing_results(ws, samples, sample_stats, genotype_counts, ordered_genotypes, calls_by_sample_locus, loci):
+    ws.cell(1, 1).value = "Client ID"
+    ws.cell(2, 1).value = "GS ID"
+    ws.cell(3, 1).value = "Mapped Read Count"
+    for offset, sample in enumerate(samples, start=4):
+        ws.cell(1, offset).value = sample
+        ws.cell(2, offset).value = sample
+        ws.cell(3, offset).value = read_count_for_sample(sample_stats, sample)
+    for row in range(1, 4):
+        set_row_label_style(ws, row)
+
+    row_index = 4
+    ws.cell(row_index, 1).value = "total_read_count"
+    for offset, sample in enumerate(samples, start=4):
+        ws.cell(row_index, offset).value = display_value(sample_stats.get(sample, {}).get("sample_total_reads"))
+    set_row_label_style(ws, row_index)
+    row_index += 1
+    ws.cell(row_index, 1).value = "percent_reads_unmapped"
+    for offset, sample in enumerate(samples, start=4):
+        retained = as_number(sample_stats.get(sample, {}).get("sample_unique_retained_percent"))
+        ws.cell(row_index, offset).value = None if retained is None else max(0, 100 - retained)
+    set_row_label_style(ws, row_index)
+    row_index += 1
+
+    for locus in loci:
+        for index in (1, 2):
+            ws.cell(row_index, 1).value = f"{locus} Haplotype {index}"
+            set_row_label_style(ws, row_index)
+            for offset, sample in enumerate(samples, start=4):
+                value = call_value(calls_by_sample_locus.get(sample, {}).get(locus), index)
+                ws.cell(row_index, offset).value = value
+                apply_haplotype_cell_style(ws.cell(row_index, offset), value)
+            row_index += 1
+
+    while row_index < 20:
+        row_index += 1
+    ws.cell(row_index, 1).value = "Comments"
+    ws.cell(row_index, 2).value = "Subtotal"
+    ws.cell(row_index, 3).value = "# Obs."
+    set_row_label_style(ws, row_index)
+    for offset, sample in enumerate(samples, start=4):
+        ws.cell(row_index, offset).value = haplotype_comments(calls_by_sample_locus.get(sample, {})) or None
+    row_index += 1
+
+    ws.cell(row_index, 1).value = "Genotype"
+    ws.cell(row_index, 2).value = "Total"
+    ws.cell(row_index, 3).value = "# Obs."
+    set_row_label_style(ws, row_index)
+    row_index += 1
+    for genotype in ordered_genotypes:
+        if not any(genotype_counts.get(sample, {}).get(genotype, 0) > 0 for sample in samples):
+            continue
+        ws.cell(row_index, 1).value = genotype
+        total = 0
+        observed = 0
+        for offset, sample in enumerate(samples, start=4):
+            count = genotype_counts.get(sample, {}).get(genotype, 0)
+            if count > 0:
+                ws.cell(row_index, offset).value = count
+                total += count
+                observed += 1
+        ws.cell(row_index, 2).value = total
+        ws.cell(row_index, 3).value = observed
+        row_index += 1
+
+    apply_basic_sheet_format(ws, freeze_panes="D21")
+
+
+def write_custom_sort(ws, samples, sample_stats, calls_by_sample_locus, loci):
+    headers = abbreviated_headers(loci)
+    ws.append(headers)
+    sorted_samples = sorted(
+        samples,
+        key=lambda sample: (
+            whole_animal_haplotype(calls_by_sample_locus.get(sample, {}), 1, loci)
+            != whole_animal_haplotype(calls_by_sample_locus.get(sample, {}), 2, loci),
+            whole_animal_haplotype(calls_by_sample_locus.get(sample, {}), 1, loci),
+            whole_animal_haplotype(calls_by_sample_locus.get(sample, {}), 2, loci),
+            sample,
+        ),
+    )
+    for sample in sorted_samples:
+        locus_calls = calls_by_sample_locus.get(sample, {})
+        values = [
+            sample,
+            sample,
+            read_count_for_sample(sample_stats, sample),
+            whole_animal_haplotype(locus_calls, 1, loci),
+            whole_animal_haplotype(locus_calls, 2, loci),
+        ]
+        for locus in loci:
+            call = locus_calls.get(locus)
+            values += [call_value(call, 1), call_value(call, 2)]
+        values.append(haplotype_comments(locus_calls) or None)
+        ws.append(values)
+    apply_basic_sheet_format(ws, freeze_panes="D2")
+    for row in range(2, ws.max_row + 1):
+        for col in range(4, ws.max_column):
+            apply_haplotype_cell_style(ws.cell(row, col), ws.cell(row, col).value)
+
+
+def build_mcm_client_current_workbook(args, genotype_rows, sample_rows, stats, haplotype_analysis, haplotype_definition):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = MCM_CLIENT_SHEET_NAMES[0]
+    genotype_counts = load_genotype_counts(genotype_rows)
+    samples = report_sample_names(sample_rows, genotype_counts)
+    genotype_rows = rows_for_samples(genotype_rows, samples)
+    sample_rows = rows_for_samples(sample_rows, samples)
+    genotype_counts = load_genotype_counts(genotype_rows)
+    sample_stats = load_sample_stats(sample_rows)
+    calls_by_sample_locus = haplotype_calls_by_sample_locus(haplotype_analysis)
+    loci = ordered_loci_from_calls(calls_by_sample_locus)
+    ordered_genotypes = []
+    seen = set()
+    for name in reference_names(args.reference_fasta):
+        if name not in seen:
+            ordered_genotypes.append(name)
+            seen.add(name)
+    for row in genotype_rows:
+        genotype = row.get("genotype")
+        if genotype and genotype not in seen:
+            ordered_genotypes.append(genotype)
+            seen.add(genotype)
+
+    write_interpretation_guide(ws)
+    write_mcm_alleles_per_haplotype(wb.create_sheet(title=MCM_CLIENT_SHEET_NAMES[1]), haplotype_definition)
+    write_abbreviated_haplotypes(wb.create_sheet(title=MCM_CLIENT_SHEET_NAMES[2]), samples, sample_stats, calls_by_sample_locus, loci)
+    write_full_sequencing_results(
+        wb.create_sheet(title=MCM_CLIENT_SHEET_NAMES[3]),
+        samples,
+        sample_stats,
+        genotype_counts,
+        ordered_genotypes,
+        calls_by_sample_locus,
+        loci,
+    )
+    write_custom_sort(wb.create_sheet(title=MCM_CLIENT_SHEET_NAMES[4]), samples, sample_stats, calls_by_sample_locus, loci)
+    wb.active = 0
+    return wb, 0
 
 
 def write_audit_sheet(wb, title, comparison_ws, sample_cols, allele_rows, matched_by_row_sample, comparison_name, analysis_name):
@@ -3610,6 +4153,7 @@ def build_generic_workbook(args, genotype_headers, genotype_rows, sample_headers
 
 
 def write_provenance(args, start_time, started_at, completed_at, audit_rows):
+    mode = "mcm-client-current" if args.client_current_workbook else "standard-report"
     inputs = [
         file_record(args.genotypes_csv, "input"),
         file_record(args.samples_csv, "input"),
@@ -3621,9 +4165,14 @@ def write_provenance(args, start_time, started_at, completed_at, audit_rows):
         inputs.append(file_record(args.comparison_workbook, "comparison"))
     if args.haplotype_analysis_json:
         inputs.append(file_record(args.haplotype_analysis_json, "analysis"))
+    if args.haplotype_definition_json:
+        inputs.append(file_record(args.haplotype_definition_json, "haplotype-definition"))
+    if args.primary_workbook:
+        inputs.append(file_record(args.primary_workbook, "primary-workbook"))
     payload = {
         "toolName": "lungfish fastq ont-barcode-genotype workbook report",
         "toolVersion": "1",
+        "mode": mode,
         "argv": sys.argv,
         "reproducibleCommand": args.provenance_command or " ".join(sys.argv),
         "options": vars(args),
@@ -3631,6 +4180,9 @@ def write_provenance(args, start_time, started_at, completed_at, audit_rows):
             "analysisName": args.run_name,
             "comparisonName": "Illumina-31262",
             "haplotypeAnalysisJSON": None,
+            "clientCurrentWorkbook": False,
+            "haplotypeDefinitionJSON": None,
+            "primaryWorkbook": None,
         },
         "runtimeIdentity": {
             "python": sys.version,
@@ -3643,6 +4195,8 @@ def write_provenance(args, start_time, started_at, completed_at, audit_rows):
             file_record(args.output_xlsx, "report"),
             {"path": args.provenance_json, "role": "provenance", "exists": False},
         ],
+        "primaryWorkbook": args.primary_workbook,
+        "outputWorkbook": args.output_xlsx,
         "auditRows": audit_rows,
         "exitStatus": 0,
         "wallClockSeconds": time.time() - start_time,
@@ -3675,7 +4229,17 @@ def main():
         stats = json.load(handle)
     haplotype_analysis = load_haplotype_analysis(args.haplotype_analysis_json)
 
-    if args.comparison_workbook:
+    if args.client_current_workbook:
+        haplotype_definition = load_haplotype_definition(args.haplotype_definition_json)
+        wb, audit_rows = build_mcm_client_current_workbook(
+            args,
+            genotype_rows,
+            sample_rows,
+            stats,
+            haplotype_analysis,
+            haplotype_definition,
+        )
+    elif args.comparison_workbook:
         wb, audit_rows = build_template_workbook(args, genotype_headers, genotype_rows, sample_headers, sample_rows, stats, haplotype_analysis)
     else:
         wb, audit_rows = build_generic_workbook(args, genotype_headers, genotype_rows, sample_headers, sample_rows, stats, haplotype_analysis)
