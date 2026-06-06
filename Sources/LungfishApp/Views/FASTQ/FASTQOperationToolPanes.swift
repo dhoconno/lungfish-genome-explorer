@@ -421,7 +421,18 @@ private struct FASTQOperationPrimarySettingsSection: View {
                 labeledTextField("Analysis Name", text: $state.ontGenotypingAnalysisName)
                 HStack(spacing: 12) {
                     labeledCompactTextField("Threads", text: Self.intBinding(state, \.ontGenotypingThreads))
-                    labeledCompactTextField("Min Support", text: Self.intBinding(state, \.ontGenotypingMinSupport))
+                    labeledCompactTextField("Min Reads", text: Self.intBinding(state, \.ontGenotypingMinSupport))
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Call Thresholds")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 12) {
+                        labeledCompactTextField("Locus %", text: Self.doubleBinding(state, \.ontGenotypingHaplotypeDropoutLocusPercent))
+                    }
+                    Text("Used for haplotype calls and Excel output. Inspector filters only change what is shown.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
                 Text("Select a MiSeq allele reference and barcode definition in the Inputs section. The workflow retains exact+indel full-amplicon mappings, then demultiplexes retained reads.")
                     .font(.caption)
@@ -530,6 +541,11 @@ private struct FASTQOperationPrimarySettingsSection: View {
                         Toggle("Trim Barcodes", isOn: $state.demultiplexTrimBarcodes)
                     }
                 }
+
+            case .ontFluidigmSampleSplit:
+                Text("Uses the selected Fluidigm sample barcode definition, extracts CS1-CS2 inserts, and writes one counted FASTQ bundle per sample.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
 
             case .removeHumanReads, .minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
                 Text("This tool uses the dedicated embedded workflow pane or the fixed database chooser above.")
@@ -710,6 +726,9 @@ private struct FASTQOperationAdvancedSettingsSection: View {
                 }
             case .demultiplexBarcodes:
                 Text("Demultiplexing uses either a built-in kit or a custom barcode definition from the Inputs section.")
+                    .foregroundStyle(.secondary)
+            case .ontFluidigmSampleSplit:
+                Text("Input bundles are passed directly to the materializer; ONT chunks are not imported separately for this recipe.")
                     .foregroundStyle(.secondary)
             case .removeHumanReads:
                 Text("Human read removal stays fixed to the selected database input.")

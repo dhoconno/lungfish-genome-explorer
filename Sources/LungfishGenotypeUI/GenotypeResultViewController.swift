@@ -59,22 +59,9 @@ public final class GenotypeResultViewController: NSViewController {
     private var quickFilterState = GenotypeQuickFilterBarView.FilterState()
     private var sampleDetailHostingController: NSHostingController<GenotypeSampleDetailSheet>?
     private var callEvidenceHost: NSHostingView<GenotypeCallEvidenceView>?
-    private var dropoutAbsoluteEnabled: Bool = true
-    private var dropoutAbsoluteValue: Int = 50
-    private var dropoutSampleFractionEnabled: Bool = false
-    private var dropoutSampleFractionPercent: Double = 0.1
-    private var dropoutLocusFractionEnabled: Bool = true
-    // Default to the 1% threshold the user requested — at 5% the bundle's
-    // observed-but-not-diagnostic alleles get flagged "too many genotypes" too
-    // often. Per-locus EQ entries override this on a per-locus basis.
-    private var dropoutLocusFractionPercent: Double = 1.0
-    /// Music-EQ per-locus overrides for the locus-fraction threshold.
-    /// Keys are locus names (e.g. "MHC-B"). Percent values (0..100) replace
-    /// the global slider for that locus when the analyst wants finer control.
-    private var dropoutPerLocusFractionPercents: [String: Double] = [:]
-    /// Live re-analyzed haplotype calls — derived from raw calls + current
-    /// dropout configuration. Used by the Outline / Cohort Summary
-    /// so threshold changes update the display immediately. `nil` falls
+    /// Live re-analyzed haplotype calls — derived from raw calls + the
+    /// thresholds recorded by the genotyping run when no persisted analysis is
+    /// available or when the active project definition changes. `nil` falls
     /// back to the bundle's persisted analysis.
     private var liveHaplotypeAnalysis: GenotypeHaplotypeAnalysis?
     /// Per-project haplotype-definition store. Reads from / writes to
@@ -91,6 +78,8 @@ public final class GenotypeResultViewController: NSViewController {
     private var activeContentConstraints: [NSLayoutConstraint] = []
     private var haplotypeSampleActionTags: [Int: String] = [:]
     private var nextHaplotypeSampleActionTag = 1
+    private var currentWorkbookNeedsRefresh = false
+    private var currentWorkbookUpdateStatus: String?
     private var outlineRowsBySample: [String: GenotypeOutlineView.Row] = [:]
     private var outlineRowOrder: [String] = []
 
@@ -368,6 +357,8 @@ public final class GenotypeResultViewController: NSViewController {
     public func configure(result: ONTGenotypeResultBundleData) {
         self.result = result
         liveHaplotypeAnalysis = nil
+        currentWorkbookNeedsRefresh = false
+        currentWorkbookUpdateStatus = nil
         let knownSampleIDs = Set(
             result.samples.map(\.sample)
                 + result.calls.map(\.sample)
@@ -387,22 +378,8 @@ public final class GenotypeResultViewController: NSViewController {
             bundleURL: result.bundleURL,
             author: NSUserName()
         )
-        // Hydrate the dropout threshold sliders/steppers from saved sidecar
-        // settings so the analyst sees their last-saved values when the
-        // bundle reopens, not stale defaults.
-        if let settings = annotationStore?.sidecar.settings {
-            dropoutAbsoluteEnabled = settings.dropoutAbsolute != nil
-            dropoutAbsoluteValue = settings.dropoutAbsolute ?? dropoutAbsoluteValue
-            dropoutSampleFractionEnabled = settings.dropoutSampleFraction != nil
-            if let f = settings.dropoutSampleFraction { dropoutSampleFractionPercent = f * 100 }
-            dropoutLocusFractionEnabled = settings.dropoutLocusFraction != nil
-            if let f = settings.dropoutLocusFraction { dropoutLocusFractionPercent = f * 100 }
-            if let overrides = settings.locusFractionOverrides {
-                dropoutPerLocusFractionPercents = overrides.mapValues { $0 * 100 }
-            }
-        }
         if shouldEagerlyRecomputeHaplotypeAnalysis(for: result) {
-            recomputeLiveHaplotypeAnalysis(evaluator: currentDropoutEvaluator())
+            recomputeLiveHaplotypeAnalysis(evaluator: runHaplotypeDropoutEvaluator())
         } else {
             liveHaplotypeAnalysis = nil
         }
@@ -416,18 +393,69 @@ public final class GenotypeResultViewController: NSViewController {
         comparisonMatrix.selectFirstSharedCall()
     }
 
-    /// Build a `GenotypeDropoutEvaluator` matching the current view-model
-    /// state (sliders + per-locus EQ). Used when the analyst explicitly
-    /// applies dropout settings or when no persisted analysis is available.
-    private func currentDropoutEvaluator() -> GenotypeDropoutEvaluator {
-        GenotypeDropoutEvaluator(
-            absolute: dropoutAbsoluteEnabled ? dropoutAbsoluteValue : nil,
-            sampleFraction: dropoutSampleFractionEnabled ? dropoutSampleFractionPercent / 100.0 : nil,
-            locusFraction: dropoutLocusFractionEnabled ? dropoutLocusFractionPercent / 100.0 : nil,
-            locusFractionOverrides: dropoutLocusFractionEnabled
-                ? dropoutPerLocusFractionPercents.mapValues { $0 / 100.0 }
-                : [:]
+    /// Thresholds that were fixed at genotyping time and recorded in the run
+    /// stats. These are the only thresholds the viewport uses to explain
+    /// haplotype omissions; Inspector controls no longer recompute calls live.
+    private func runHaplotypeDropoutEvaluator() -> GenotypeDropoutEvaluator? {
+        guard let result else { return nil }
+        let metrics = result.stats.rawMetrics
+        let absolute = Self.intMetric(metrics["minSupport"]).flatMap { $0 > 1 ? $0 : nil }
+        let sampleFraction = Self.percentMetric(metrics["haplotypeMinSamplePercent"])
+        let locusFraction = Self.percentMetric(metrics["haplotypeMinLocusPercent"])
+        let overrides = Self.locusPercentOverridesMetric(metrics["haplotypeMinLocusPercentOverrides"])
+        guard absolute != nil || sampleFraction != nil || locusFraction != nil || !overrides.isEmpty else {
+            return nil
+        }
+        return GenotypeDropoutEvaluator(
+            absolute: absolute,
+            sampleFraction: sampleFraction,
+            locusFraction: locusFraction,
+            locusFractionOverrides: overrides
         )
+    }
+
+    private static func intMetric(_ value: String?) -> Int? {
+        guard let number = doubleMetric(value) else { return nil }
+        return Int(number)
+    }
+
+    private static func percentMetric(_ value: String?) -> Double? {
+        guard let percent = doubleMetric(value), percent > 0 else { return nil }
+        return min(percent / 100.0, 1.0)
+    }
+
+    private static func doubleMetric(_ value: String?) -> Double? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.lowercased() != "null" else { return nil }
+        return Double(trimmed)
+    }
+
+    private static func locusPercentOverridesMetric(_ value: String?) -> [String: Double] {
+        guard let value else { return [:] }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.lowercased() != "null" else { return [:] }
+        let entries: [String]
+        if let data = trimmed.data(using: .utf8),
+           let decoded = try? JSONSerialization.jsonObject(with: data) as? [String] {
+            entries = decoded
+        } else {
+            entries = trimmed
+                .split(separator: ",")
+                .map { String($0) }
+        }
+        var overrides: [String: Double] = [:]
+        for entry in entries {
+            let parts = entry.split(separator: "=", maxSplits: 1).map {
+                String($0).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            guard parts.count == 2,
+                  !parts[0].isEmpty,
+                  let percent = Double(parts[1]),
+                  percent > 0 else { continue }
+            overrides[parts[0]] = min(percent / 100.0, 1.0)
+        }
+        return overrides
     }
 
     public func applySampleMetadataStore(_ store: SampleMetadataStore?) {
@@ -669,7 +697,7 @@ public final class GenotypeResultViewController: NSViewController {
         onDisplayStateChanged?(displayState)
     }
 
-    private func showLens(_ lens: Lens) {
+    private func showLens(_ lens: Lens, autoActivateReviewCohort: Bool = true) {
         selectedLens = lens
         displayState.viewportLens = lens
         lensControl.selectedSegment = segmentIndex(for: lens)
@@ -682,7 +710,7 @@ public final class GenotypeResultViewController: NSViewController {
         case .review:
             rebuildHaplotypeLens()
             installContentView(splitView)
-            applyReviewLensVisibility()
+            applyReviewLensVisibility(autoActivateNeedsReview: autoActivateReviewCohort)
             scheduleInitialSplitValidationIfNeeded()
             applyLayoutPreference()
         case .audit:
@@ -691,7 +719,7 @@ public final class GenotypeResultViewController: NSViewController {
         }
     }
 
-    private func applyReviewLensVisibility() {
+    private func applyReviewLensVisibility(autoActivateNeedsReview: Bool = true) {
         outlineView.isHidden = false
         comparisonMatrix.isHidden = true
         cohortSummaryPanel.isHidden = true
@@ -704,7 +732,10 @@ public final class GenotypeResultViewController: NSViewController {
         // show every sample. Use the same built-in smart cohort shown in
         // the inspector so low-support and analyst-flagged samples are
         // included alongside hard errors.
-        if quickFilterPredicate == nil && activeSmartCohort == nil && quickFilterSearchText.isEmpty {
+        if autoActivateNeedsReview
+            && quickFilterPredicate == nil
+            && activeSmartCohort == nil
+            && quickFilterSearchText.isEmpty {
             activateNeedsReviewCohort()
         }
         // Auto-select the first review sample so Panel B has evidence
@@ -760,14 +791,18 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func updateCallEvidence() {
-        guard let host = callEvidenceHost else { return }
+        guard let host = callEvidenceHost else {
+            syncOutlineReviewSelection()
+            return
+        }
         host.rootView = makeCallEvidenceView(evidence: callEvidence)
+        syncOutlineReviewSelection()
     }
 
     private func makeCallEvidenceView(evidence: GenotypeCallEvidenceView.Evidence?) -> GenotypeCallEvidenceView {
         var view = GenotypeCallEvidenceView(evidence: evidence)
-        view.onOverrideRequested = { [weak self] haplotypeName in
-            self?.applyOverrideFromInspector(haplotype: haplotypeName)
+        view.onOverrideRequested = { [weak self] haplotypeName, slot in
+            self?.applyOverrideFromInspector(haplotype: haplotypeName, slot: slot)
         }
         view.onConfirmRequested = { [weak self] in
             self?.confirmCurrentCallEvidence()
@@ -776,6 +811,15 @@ public final class GenotypeResultViewController: NSViewController {
             self?.skipToNextReviewSample()
         }
         return view
+    }
+
+    private func syncOutlineReviewSelection() {
+        guard let sample = currentSelectedSample else {
+            outlineView.setReviewSelection(sample: nil, locus: nil)
+            return
+        }
+        let selectedLocus = currentSelectedLocus ?? callEvidence(sample: sample, locus: nil)?.locus
+        outlineView.setReviewSelection(sample: sample, locus: selectedLocus)
     }
 
     /// Computes a `GenotypeCallEvidenceView.Evidence` for the currently
@@ -824,11 +868,23 @@ public final class GenotypeResultViewController: NSViewController {
                 || group == GenotypeHaplotypeLocusResolver.canonicalLocusName(locusCall.sourceLocus)
         }
         let locusTotal = locusCalls.reduce(0) { $0 + max(0, $1.passedUniqueReads) }
+        let sampleTotal = sampleCalls.reduce(0) { $0 + max(0, $1.passedUniqueReads) }
         let observedSet = Set(locusCall.observedGenotypes)
-        // Mirror the global evaluator (with per-locus EQ) so the
-        // low-support badge in the Review lens agrees with the live
-        // analyzer's filtering.
-        let evaluator = currentDropoutEvaluator()
+        let runEvaluator = runHaplotypeDropoutEvaluator()
+        let evaluator = runEvaluator ?? GenotypeDropoutEvaluator(
+            absolute: nil,
+            sampleFraction: nil,
+            locusFraction: nil
+        )
+        let omittedGenotypes = omittedHaplotypeGenotypes(
+            from: locusCalls,
+            locusDefinition: locusDefinition,
+            observedSet: observedSet,
+            sampleTotal: sampleTotal,
+            locusTotal: locusTotal,
+            locus: locusCall.locus,
+            evaluator: runEvaluator
+        )
         let diagnostic = locusCalls
             .filter { (call: ONTGenotypeCall) -> Bool in
                 if observedSet.contains(call.genotype) { return true }
@@ -846,7 +902,6 @@ public final class GenotypeResultViewController: NSViewController {
             .prefix(8)
             .map { call -> GenotypeCallEvidenceView.DiagnosticAllele in
                 let pct = locusTotal > 0 ? Double(call.passedUniqueReads) / Double(locusTotal) : 0
-                let sampleTotal = sampleCalls.reduce(0) { $0 + max(0, $1.passedUniqueReads) }
                 let isLow = evaluator.isLowSupport(
                     reads: call.passedUniqueReads,
                     sampleTotal: sampleTotal,
@@ -896,6 +951,7 @@ public final class GenotypeResultViewController: NSViewController {
             observedGenotypeCount: locusCall.observedGenotypeCount,
             observedGenotypes: locusCall.observedGenotypes,
             diagnosticAlleles: Array(diagnostic),
+            omittedHaplotypeGenotypes: omittedGenotypes,
             locusReadTotal: locusTotal,
             neighborsBefore: neighbors.before,
             neighborsAfter: neighbors.after,
@@ -905,6 +961,96 @@ public final class GenotypeResultViewController: NSViewController {
             h2Name: displayedH2,
             perHaplotypeSupport: perHaplotype
         )
+    }
+
+    private func omittedHaplotypeGenotypes(
+        from locusCalls: [ONTGenotypeCall],
+        locusDefinition: GenotypeHaplotypeLocusDefinition?,
+        observedSet: Set<String>,
+        sampleTotal: Int,
+        locusTotal: Int,
+        locus: String,
+        evaluator: GenotypeDropoutEvaluator?
+    ) -> [GenotypeCallEvidenceView.OmittedHaplotypeGenotype] {
+        guard let evaluator, let locusDefinition else { return [] }
+        return locusCalls
+            .filter { call in
+                !observedSet.contains(call.genotype)
+                    && isDiagnosticGenotype(call.genotype, in: locusDefinition)
+                    && evaluator.isLowSupport(
+                        reads: call.passedUniqueReads,
+                        sampleTotal: sampleTotal,
+                        locusTotal: locusTotal,
+                        locus: locus
+                    )
+            }
+            .sorted {
+                if $0.passedUniqueReads != $1.passedUniqueReads {
+                    return $0.passedUniqueReads > $1.passedUniqueReads
+                }
+                return $0.genotype < $1.genotype
+            }
+            .map { call in
+                GenotypeCallEvidenceView.OmittedHaplotypeGenotype(
+                    genotype: call.genotype,
+                    reads: call.passedUniqueReads,
+                    percentOfLocus: locusTotal > 0 ? Double(call.passedUniqueReads) / Double(locusTotal) : 0,
+                    reason: haplotypeOmissionReason(
+                        reads: call.passedUniqueReads,
+                        sampleTotal: sampleTotal,
+                        locusTotal: locusTotal,
+                        locus: locus,
+                        evaluator: evaluator
+                    )
+                )
+            }
+    }
+
+    private func isDiagnosticGenotype(
+        _ genotype: String,
+        in locusDefinition: GenotypeHaplotypeLocusDefinition
+    ) -> Bool {
+        locusDefinition.haplotypes.contains { haplotype in
+            haplotype.diagnosticAlleles.contains {
+                GenotypeHaplotypeDiagnosticMatcher.matches(
+                    genotype: genotype,
+                    diagnosticAllele: $0
+                )
+            }
+        }
+    }
+
+    private func haplotypeOmissionReason(
+        reads: Int,
+        sampleTotal: Int,
+        locusTotal: Int,
+        locus: String,
+        evaluator: GenotypeDropoutEvaluator
+    ) -> String {
+        if let absolute = evaluator.absolute, reads < absolute {
+            return "below read minimum \(absolute)"
+        }
+        if let sampleFraction = evaluator.sampleFraction, sampleTotal > 0 {
+            let sampleSupport = Double(reads) / Double(sampleTotal)
+            if sampleSupport < sampleFraction {
+                return "below sample threshold \(Self.percentLabel(sampleFraction))"
+            }
+        }
+        if let locusFraction = evaluator.effectiveLocusFraction(forLocus: locus), locusTotal > 0 {
+            let locusSupport = Double(reads) / Double(locusTotal)
+            if locusSupport < locusFraction {
+                return "below locus threshold \(Self.percentLabel(locusFraction))"
+            }
+        }
+        return "below haplotype threshold"
+    }
+
+    private static func percentLabel(_ fraction: Double) -> String {
+        let percent = fraction * 100
+        if abs(percent.rounded() - percent) < 0.000_001 {
+            return String(format: "%.0f%%", percent)
+        }
+        return String(format: "%.1f%%", percent)
     }
 
     /// Build a per-haplotype supporting-allele table for the inspector. For
@@ -1093,6 +1239,9 @@ public final class GenotypeResultViewController: NSViewController {
     private func tapeCell(for haplotypeName: String, status: GenotypeHaplotypeCallStatus) -> GenotypeHaplotypeTapeView.Cell {
         if status == .notAssayed {
             return .notAssayed(label: haplotypeName.isEmpty ? "Not assayed" : haplotypeName)
+        }
+        if haplotypeName == GenotypeHaplotypeOverrideTargets.unresolved {
+            return .error(label: haplotypeName)
         }
         if haplotypeName.isEmpty || haplotypeName == "-" {
             return .empty
@@ -1461,6 +1610,7 @@ public final class GenotypeResultViewController: NSViewController {
             addAuditSection(title: "Audit Timeline", contents: [makeAuditTimelineHost(entries: entries)])
         }
         addAuditSection(title: "Share View", contents: [exportViewButton()])
+        addAuditSection(title: "Current Workbook", contents: [makeCurrentWorkbookUpdateHost()])
         var artifactRows: [NSView] = [
             artifactRow(label: "Workbook", url: result.artifacts.workbookURL),
         ]
@@ -1481,8 +1631,94 @@ public final class GenotypeResultViewController: NSViewController {
         if manualHaplotypingIsAvailable(result: result) {
             addAuditSection(title: "Manual Haplotyping", contents: [makeManualHaplotypingHost()])
         }
-        addAuditSection(title: "Dropout Thresholds", contents: [makeDropoutThresholdHost()])
+        addAuditSection(title: "Haplotype Thresholds", contents: [makeRunHaplotypeThresholdSummaryHost()])
         addAuditSection(title: "Haplotype Definition", contents: [makeActiveHaplotypeDefinitionRow()])
+    }
+
+    private func makeCurrentWorkbookUpdateHost() -> NSView {
+        let stack = NSStackView()
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 6
+
+        let manualChangeCount = currentWorkbookManualChangeCount
+        let isReadOnly = annotationStore?.isReadOnly ?? false
+        let statusText: String
+        if let currentWorkbookUpdateStatus {
+            statusText = currentWorkbookUpdateStatus
+        } else if manualChangeCount == 0 {
+            statusText = "current.xlsx is up to date."
+        } else if isReadOnly {
+            statusText = "Bundle is read-only. Save a writable copy to update current.xlsx."
+        } else if currentWorkbookNeedsRefresh {
+            statusText = "current.xlsx does not include \(manualChangeCount) manual haplotype change\(manualChangeCount == 1 ? "" : "s")."
+        } else {
+            statusText = "current.xlsx can be refreshed from \(manualChangeCount) manual haplotype change\(manualChangeCount == 1 ? "" : "s")."
+        }
+
+        stack.addArrangedSubview(caption(statusText))
+        stack.addArrangedSubview(caption("Regenerates the bundle workbook from displayed haplotype calls and records a workbook revision."))
+
+        let button = NSButton(title: "Update current.xlsx", target: self, action: #selector(updateCurrentWorkbookFromOverrides))
+        button.bezelStyle = .rounded
+        button.controlSize = .small
+        button.isEnabled = manualChangeCount > 0 && !isReadOnly
+        button.toolTip = "Apply Review viewport haplotype overrides to artifacts/workbooks/current.xlsx."
+        stack.addArrangedSubview(button)
+        return stack
+    }
+
+    private var currentWorkbookManualChangeCount: Int {
+        guard let sidecar = annotationStore?.sidecar else { return 0 }
+        return sidecar.callOverrides.count + sidecar.manualHaplotypeAssignments.count
+    }
+
+    @objc private func updateCurrentWorkbookFromOverrides() {
+        guard let result else { return }
+        let calls = currentWorkbookEffectiveHaplotypeCalls()
+        guard !calls.isEmpty else {
+            currentWorkbookUpdateStatus = "No displayed haplotype calls are available for current.xlsx."
+            rebuildArtifactLens()
+            return
+        }
+        currentWorkbookUpdateStatus = "Updating current.xlsx..."
+        rebuildArtifactLens()
+        do {
+            let annotationURL = annotationStore?.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+            let updatedManifest = try GenotypeWorkbookRevisionService().applyHaplotypeOverrides(
+                calls,
+                annotationSidecarURL: annotationURL,
+                into: result.bundleURL
+            )
+            if let updated = try? ONTGenotypeResultBundle.loadResult(from: result.bundleURL, manifest: updatedManifest) {
+                self.result = updated
+            }
+            currentWorkbookNeedsRefresh = false
+            currentWorkbookUpdateStatus = "Updated current.xlsx. Previous workbook saved in revisions."
+            rebuildArtifactLens()
+        } catch {
+            currentWorkbookUpdateStatus = error.localizedDescription
+            rebuildArtifactLens()
+            presentSheetAlert(error: error)
+        }
+    }
+
+    private func currentWorkbookEffectiveHaplotypeCalls() -> [GenotypeWorkbookHaplotypeCall] {
+        guard let analysis = activeHaplotypeAnalysis() else { return [] }
+        return analysis.samples.flatMap { sample in
+            sample.calls.map { call in
+                let effective = effectiveHaplotypeCall(sample: sample.sample, call: call)
+                return GenotypeWorkbookHaplotypeCall(
+                    sample: sample.sample,
+                    locus: call.locus,
+                    haplotype1: effective.h1,
+                    haplotype2: effective.h2,
+                    status: effective.status.rawValue,
+                    notes: call.notes
+                )
+            }
+        }
     }
 
     private func makeAuditTimelineHost(entries: [GenotypeAnnotationSidecar.AuditEntry]) -> NSView {
@@ -1564,92 +1800,56 @@ public final class GenotypeResultViewController: NSViewController {
         return "None recorded"
     }
 
-    private func makeDropoutThresholdHost() -> NSView {
-        let container = NSHostingView(rootView: dropoutThresholdBody())
+    private func makeRunHaplotypeThresholdSummaryHost() -> NSView {
+        let container = NSStackView()
         container.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            container.heightAnchor.constraint(greaterThanOrEqualToConstant: 200),
-        ])
+        container.orientation = .vertical
+        container.alignment = .leading
+        container.spacing = 6
+        container.edgeInsets = NSEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
+
+        let summary = NSTextField(labelWithString: runHaplotypeThresholdSummary())
+        summary.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        summary.textColor = .labelColor
+        container.addArrangedSubview(summary)
+
+        let hint = NSTextField(wrappingLabelWithString:
+            "These thresholds affect haplotype assignment only. Genotyping worksheets and call evidence keep all retained reads. Rerun Amplicon Genotyping to change haplotype thresholds."
+        )
+        hint.font = NSFont.systemFont(ofSize: 10)
+        hint.textColor = .secondaryLabelColor
+        hint.maximumNumberOfLines = 4
+        container.addArrangedSubview(hint)
+
         return container
     }
 
-    private func dropoutThresholdBody() -> some View {
-        let settings = annotationStore?.sidecar.settings ?? .default
-        let loci: [String] = {
-            guard let analysis = activeHaplotypeAnalysis() else { return [] }
-            return orderedLoci(from: analysis)
-        }()
-        return GenotypeDropoutThresholdSection(
-            absoluteEnabled: Binding(
-                get: { [weak self] in self?.dropoutAbsoluteEnabled ?? (settings.dropoutAbsolute != nil) },
-                set: { [weak self] newValue in self?.dropoutAbsoluteEnabled = newValue }
-            ),
-            absoluteValue: Binding(
-                get: { [weak self] in self?.dropoutAbsoluteValue ?? (settings.dropoutAbsolute ?? 50) },
-                set: { [weak self] newValue in self?.dropoutAbsoluteValue = newValue }
-            ),
-            sampleFractionEnabled: Binding(
-                get: { [weak self] in self?.dropoutSampleFractionEnabled ?? (settings.dropoutSampleFraction != nil) },
-                set: { [weak self] newValue in self?.dropoutSampleFractionEnabled = newValue }
-            ),
-            sampleFractionPercent: Binding(
-                get: { [weak self] in self?.dropoutSampleFractionPercent ?? ((settings.dropoutSampleFraction ?? 0.001) * 100) },
-                set: { [weak self] newValue in self?.dropoutSampleFractionPercent = newValue }
-            ),
-            locusFractionEnabled: Binding(
-                get: { [weak self] in self?.dropoutLocusFractionEnabled ?? (settings.dropoutLocusFraction != nil) },
-                set: { [weak self] newValue in self?.dropoutLocusFractionEnabled = newValue }
-            ),
-            locusFractionPercent: Binding(
-                get: { [weak self] in self?.dropoutLocusFractionPercent ?? ((settings.dropoutLocusFraction ?? 0.01) * 100) },
-                set: { [weak self] newValue in self?.dropoutLocusFractionPercent = newValue }
-            ),
-            perLocusFractionPercents: Binding(
-                get: { [weak self] in self?.dropoutPerLocusFractionPercents ?? [:] },
-                set: { [weak self] newValue in self?.dropoutPerLocusFractionPercents = newValue }
-            ),
-            availableLoci: loci,
-            onApply: { [weak self] evaluator in
-                self?.applyDropoutThresholds(evaluator)
-            }
-        )
+    private func runHaplotypeThresholdSummary() -> String {
+        guard let evaluator = runHaplotypeDropoutEvaluator() else {
+            return "No haplotype filtering thresholds recorded."
+        }
+        var parts: [String] = []
+        if let absolute = evaluator.absolute {
+            parts.append("min reads \(absolute)")
+        }
+        if let sample = evaluator.sampleFraction {
+            parts.append("sample \(Self.percentLabel(sample))")
+        }
+        if let locus = evaluator.locusFraction {
+            parts.append("locus \(Self.percentLabel(locus))")
+        }
+        let overrides = evaluator.locusFractionOverrides
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key) \(Self.percentLabel($0.value))" }
+        if !overrides.isEmpty {
+            parts.append("overrides: \(overrides.joined(separator: ", "))")
+        }
+        return parts.isEmpty ? "No haplotype filtering thresholds recorded." : parts.joined(separator: " · ")
     }
 
-    private func applyDropoutThresholds(_ evaluator: GenotypeDropoutEvaluator) {
-        guard let store = annotationStore else { return }
-        do {
-            try store.updateSettings { settings in
-                settings.dropoutAbsolute = evaluator.absolute
-                settings.dropoutSampleFraction = evaluator.sampleFraction
-                settings.dropoutLocusFraction = evaluator.locusFraction
-                settings.locusFractionOverrides = evaluator.locusFractionOverrides.isEmpty
-                    ? nil
-                    : evaluator.locusFractionOverrides
-            }
-        } catch {
-            presentSheetAlert(error: error)
-            return
-        }
-        // Re-run the haplotype analyzer against the raw calls with the new
-        // dropout config. Calls dropped below threshold disappear from the
-        // observed-allele set so the subset-match rule re-evaluates the
-        // matched haplotypes. The persisted pipeline output stays
-        // authoritative on disk; this in-memory recomputation is what the
-        // Outline / Matrix render.
-        recomputeLiveHaplotypeAnalysis(evaluator: evaluator)
-        rebuildHaplotypeLens()
-        rebuildOutline()
-        rebuildHaplotypeMatrix()
-        rebuildCohortSummary()
-        applyComparisonMatrixCohortFilter()
-        if selectedLens == .review {
-            updateCallEvidence()
-        }
-    }
-
-    /// Recompute the live (in-memory) haplotype analysis using the current
-    /// dropout configuration. Falls back to the pipeline-persisted analysis
-    /// when no definition set is available.
+    /// Recompute the live (in-memory) haplotype analysis using the
+    /// genotyping-run thresholds. Falls back to the pipeline-persisted
+    /// analysis when no definition set is available.
     private func recomputeLiveHaplotypeAnalysis(evaluator: GenotypeDropoutEvaluator?) {
         guard let result, let definitionSet = definitionSetForResult(result) else {
             liveHaplotypeAnalysis = nil
@@ -1681,7 +1881,7 @@ public final class GenotypeResultViewController: NSViewController {
     private func refreshAfterHaplotypeDefinitionChange() {
         liveHaplotypeAnalysis = nil
         if let result, definitionSetForResult(result) != nil {
-            recomputeLiveHaplotypeAnalysis(evaluator: currentDropoutEvaluator())
+            recomputeLiveHaplotypeAnalysis(evaluator: runHaplotypeDropoutEvaluator())
         }
         rebuildSummary()
         rebuildHaplotypeLens()
@@ -1903,6 +2103,7 @@ public final class GenotypeResultViewController: NSViewController {
         outlineRowOrder.removeAll()
         guard let result, let analysis = activeHaplotypeAnalysis(), !analysis.samples.isEmpty else {
             outlineView.configure(rows: [])
+            syncOutlineReviewSelection()
             return
         }
         let observed = GenotypeObservedLociIndex.build(from: result)
@@ -1954,6 +2155,7 @@ public final class GenotypeResultViewController: NSViewController {
             outlineRowOrder.append(sample.sample)
         }
         outlineView.configure(rows: rows)
+        syncOutlineReviewSelection()
     }
 
     private func rebuildHaplotypeMatrix() {
@@ -1961,7 +2163,7 @@ public final class GenotypeResultViewController: NSViewController {
             return
         }
         if activeHaplotypeAnalysis() == nil {
-            recomputeLiveHaplotypeAnalysis(evaluator: currentDropoutEvaluator())
+            recomputeLiveHaplotypeAnalysis(evaluator: runHaplotypeDropoutEvaluator())
         }
         guard let result,
               let analysis = activeHaplotypeAnalysis(),
@@ -2399,7 +2601,9 @@ public final class GenotypeResultViewController: NSViewController {
         let h2 = displayedCallName(sample: sampleId, locus: call.locus, slot: .h2, fallback: call.haplotype2)
         let hasOverride = hasCallOverride(sample: sampleId, locus: call.locus, slot: .h1)
             || hasCallOverride(sample: sampleId, locus: call.locus, slot: .h2)
-        if hasOverride && !h1.hasPrefix("ERR") && !h2.hasPrefix("ERR") {
+        let hasUnresolvedOverride = h1 == GenotypeHaplotypeOverrideTargets.unresolved
+            || h2 == GenotypeHaplotypeOverrideTargets.unresolved
+        if hasOverride && !hasUnresolvedOverride && !h1.hasPrefix("ERR") && !h2.hasPrefix("ERR") {
             return (h1, h2, .called)
         }
         return (h1, h2, call.status)
@@ -2411,6 +2615,9 @@ public final class GenotypeResultViewController: NSViewController {
     ) -> GenotypeHaplotypeTapeView.Cell {
         if status == .notAssayed {
             return .notAssayed(label: name.isEmpty ? "Not assayed" : name)
+        }
+        if name == GenotypeHaplotypeOverrideTargets.unresolved {
+            return .error(label: name)
         }
         if name == "-" || name.isEmpty {
             return .empty
@@ -2504,6 +2711,7 @@ public final class GenotypeResultViewController: NSViewController {
         guard let row = outlineRowsBySample[animalId] else { return }
         currentSelectedSample = animalId
         currentSelectedLocus = nil
+        syncOutlineReviewSelection()
         let detailRows: [(String, String)] = [
             ("Animal", animalId),
             ("Loci", row.loci.joined(separator: ", ")),
@@ -2522,6 +2730,8 @@ public final class GenotypeResultViewController: NSViewController {
         publishSelectionState(state)
         if selectedLens == .review {
             updateCallEvidence()
+        } else {
+            syncOutlineReviewSelection()
         }
         // Clicking a row in the Outline lens shouldn't auto-open the
         // detail sheet — the user expects the cell-click inspector, or
@@ -2533,6 +2743,7 @@ public final class GenotypeResultViewController: NSViewController {
         guard let row = outlineRowsBySample[animalId] else { return }
         currentSelectedSample = animalId
         currentSelectedLocus = locus
+        syncOutlineReviewSelection()
         let detailRows: [(String, String)] = [
             ("Animal", animalId),
             ("Selected locus", locus),
@@ -2550,7 +2761,7 @@ public final class GenotypeResultViewController: NSViewController {
             animalId: animalId
         ))
         if selectedLens != .review {
-            showLens(.review)
+            showLens(.review, autoActivateReviewCohort: false)
             onDisplayStateChanged?(displayState)
         } else {
             if callEvidenceHost == nil {
@@ -2560,14 +2771,14 @@ public final class GenotypeResultViewController: NSViewController {
         }
     }
 
-    private func applyOverrideFromInspector(haplotype: String) {
+    private func applyOverrideFromInspector(haplotype: String, slot: HaplotypeSlot) {
         guard let store = annotationStore else { return }
         guard let evidence = callEvidence, !haplotype.isEmpty else { return }
-        let slot = overrideSlotForCandidate(haplotype, evidence: evidence)
         let rawCall = rawLocusCall(sample: evidence.sample, locus: evidence.locus)
         let originalCall = slot == .h1
             ? (rawCall?.haplotype1 ?? evidence.h1Name)
             : (rawCall?.haplotype2 ?? evidence.h2Name)
+        let displayOriginal = originalCall.isEmpty ? "-" : originalCall
         do {
             try store.applyOverride(
                 sample: evidence.sample,
@@ -2576,30 +2787,14 @@ public final class GenotypeResultViewController: NSViewController {
                 originalCall: originalCall,
                 overrideCall: haplotype,
                 reasonTag: .misCall,
-                rationale: "Promoted \(haplotype) from Review inspector candidate matrix."
+                rationale: "Replaced \(evidence.locus) \(slot.displayName) \(displayOriginal) -> \(haplotype) from Review inspector candidate matrix."
             )
+            currentWorkbookNeedsRefresh = true
+            currentWorkbookUpdateStatus = "current.xlsx does not include manual haplotype changes."
             refreshAfterHaplotypeOverride()
         } catch {
             presentSheetAlert(error: error)
         }
-    }
-
-    private func overrideSlotForCandidate(
-        _ haplotype: String,
-        evidence: GenotypeCallEvidenceView.Evidence
-    ) -> HaplotypeSlot {
-        let h1 = evidence.h1Name
-        let h2 = evidence.h2Name
-        if h1.isEmpty || h1 == "-" || h1.hasPrefix("ERR") {
-            return .h1
-        }
-        if h2.isEmpty || h2 == "-" || h2 == h1 || h2.hasPrefix("ERR") {
-            return h1 == haplotype ? .h1 : .h2
-        }
-        if h1 == haplotype {
-            return .h1
-        }
-        return .h2
     }
 
     private func rawLocusCall(sample sampleId: String, locus: String) -> GenotypeHaplotypeLocusCall? {
@@ -2762,7 +2957,10 @@ public final class GenotypeResultViewController: NSViewController {
                 .first { $0.locus == locus }?
                 .haplotypes
                 .map(\.name) ?? []
-            return names + ["A1_063", "-"]
+            return GenotypeHaplotypeOverrideTargets.expandedTargets(
+                from: names + ["A1_063", "-"],
+                includeUnknown: true
+            )
         }
 
         let hostingController = NSHostingController(
@@ -2810,7 +3008,10 @@ public final class GenotypeResultViewController: NSViewController {
             )
         } catch {
             presentSheetAlert(error: error)
+            return
         }
+        currentWorkbookNeedsRefresh = true
+        currentWorkbookUpdateStatus = "current.xlsx does not include manual haplotype changes."
         refreshAfterHaplotypeOverride()
         // Re-present the sheet with fresh state so the analyst can keep working.
         dismissSampleDetailSheet()
@@ -2824,7 +3025,10 @@ public final class GenotypeResultViewController: NSViewController {
             try store.clearOverride(sample: animalId, locus: row.locus, slot: row.slot)
         } catch {
             presentSheetAlert(error: error)
+            return
         }
+        currentWorkbookNeedsRefresh = true
+        currentWorkbookUpdateStatus = "current.xlsx does not include manual haplotype changes."
         refreshAfterHaplotypeOverride()
         dismissSampleDetailSheet()
         presentSampleDetailSheet(forAnimal: animalId)
@@ -3849,8 +4053,16 @@ extension GenotypeResultViewController {
         showAnalystCalls(forHaplotypeSample: sample)
     }
 
+    func testingSelectCellEvidence(animalId: String, locus: String) {
+        selectCellEvidence(animalId: animalId, locus: locus)
+    }
+
     func testingConfirmCurrentCallEvidence() {
         confirmCurrentCallEvidence()
+    }
+
+    func testingApplyOverrideFromInspector(haplotype: String, slot: HaplotypeSlot) {
+        applyOverrideFromInspector(haplotype: haplotype, slot: slot)
     }
 
     var testingCurrentSelectedSample: String? {
@@ -4003,6 +4215,14 @@ extension GenotypeResultViewController {
 
     var testingVisibleOutlineSamples: [String] {
         outlineRowOrder
+    }
+
+    var testingOutlineSelectedSample: String? {
+        outlineView.testingReviewSelectedSample
+    }
+
+    var testingOutlineSelectedLocus: String? {
+        outlineView.testingReviewSelectedLocus
     }
 
     var testingHaplotypeMatrixText: String {

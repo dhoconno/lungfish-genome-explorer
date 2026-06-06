@@ -20,6 +20,7 @@ struct GenotypeCallEvidenceView: View {
         let observedGenotypeCount: Int
         let observedGenotypes: [String]
         let diagnosticAlleles: [DiagnosticAllele]
+        var omittedHaplotypeGenotypes: [OmittedHaplotypeGenotype] = []
         let locusReadTotal: Int
         let neighborsBefore: [Neighbor]
         let neighborsAfter: [Neighbor]
@@ -81,12 +82,29 @@ struct GenotypeCallEvidenceView: View {
         var id: String { name }
     }
 
+    struct HaplotypeOverrideAction: Identifiable, Equatable {
+        let slot: HaplotypeSlot
+        let haplotypeName: String
+        let label: String
+        let help: String
+
+        var id: String { "\(slot.rawValue)-\(haplotypeName)" }
+    }
+
     struct DiagnosticAllele: Identifiable, Equatable {
         let allele: String
         let reads: Int
         let percentOfLocus: Double
         let isLowSupport: Bool
         var id: String { allele }
+    }
+
+    struct OmittedHaplotypeGenotype: Identifiable, Equatable {
+        let genotype: String
+        let reads: Int
+        let percentOfLocus: Double
+        let reason: String
+        var id: String { genotype }
     }
 
     struct Neighbor: Identifiable, Equatable {
@@ -98,9 +116,75 @@ struct GenotypeCallEvidenceView: View {
     let evidence: Evidence?
     /// Optional callback that fires when the analyst promotes a candidate
     /// haplotype from the review matrix.
-    var onOverrideRequested: ((String) -> Void)?
+    var onOverrideRequested: ((String, HaplotypeSlot) -> Void)?
     var onConfirmRequested: (() -> Void)?
     var onSkipRequested: (() -> Void)?
+
+    static func overrideActions(
+        for candidate: CandidateHaplotype,
+        evidence: Evidence
+    ) -> [HaplotypeOverrideAction] {
+        GenotypeHaplotypeOverrideTargets.expandedTargets(from: candidate.name).flatMap { target in
+            [HaplotypeSlot.h1, .h2].compactMap { slot in
+                overrideAction(targetName: target, evidence: evidence, slot: slot)
+            }
+        }
+    }
+
+    static func unresolvedOverrideActions(for evidence: Evidence) -> [HaplotypeOverrideAction] {
+        [HaplotypeSlot.h1, .h2].compactMap { slot in
+            overrideAction(
+                targetName: GenotypeHaplotypeOverrideTargets.unresolved,
+                evidence: evidence,
+                slot: slot,
+                isUnresolved: true
+            )
+        }
+    }
+
+    private static func overrideAction(
+        targetName: String,
+        evidence: Evidence,
+        slot: HaplotypeSlot,
+        isUnresolved: Bool = false
+    ) -> HaplotypeOverrideAction? {
+        let current = currentHaplotypeName(in: evidence, slot: slot)
+        guard current != targetName else { return nil }
+        let otherSlot: HaplotypeSlot = slot == .h1 ? .h2 : .h1
+        let otherCurrent = currentHaplotypeName(in: evidence, slot: otherSlot)
+        let displayCurrent = displayOverrideValue(current)
+        let displayOther = displayOverrideValue(otherCurrent)
+        let label = "\(slot.displayName): \(displayCurrent) -> \(targetName)"
+        let help: String
+        if isUnresolved {
+            help = "Leave \(slot.displayName) unresolved at \(evidence.locus) for \(evidence.sample): \(displayCurrent) -> ?. \(otherSlot.displayName) remains \(displayOther)."
+        } else {
+            help = "Replace \(slot.displayName) at \(evidence.locus) for \(evidence.sample): \(displayCurrent) -> \(targetName). \(otherSlot.displayName) remains \(displayOther)."
+        }
+        return HaplotypeOverrideAction(
+            slot: slot,
+            haplotypeName: targetName,
+            label: label,
+            help: help
+        )
+    }
+
+    private static func currentHaplotypeName(
+        in evidence: Evidence,
+        slot: HaplotypeSlot
+    ) -> String {
+        switch slot {
+        case .h1: return evidence.h1Name
+        case .h2: return evidence.h2Name
+        }
+    }
+
+    private static func displayOverrideValue(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return "-" }
+        if trimmed.hasPrefix("ERR") { return "ERR" }
+        return trimmed
+    }
 
     var body: some View {
         ScrollView {
@@ -118,6 +202,10 @@ struct GenotypeCallEvidenceView: View {
                     if !evidence.candidateHaplotypes.isEmpty {
                         Divider()
                         candidatesBlock(evidence)
+                    }
+                    if !evidence.omittedHaplotypeGenotypes.isEmpty {
+                        Divider()
+                        omittedHaplotypeGenotypes(evidence)
                     }
                     Divider()
                     diagnosticAlleles(evidence)
@@ -216,12 +304,43 @@ struct GenotypeCallEvidenceView: View {
             ForEach(evidence.candidateHaplotypes) { candidate in
                 candidateRow(candidate, evidence: evidence)
             }
+            let unresolvedActions = Self.unresolvedOverrideActions(for: evidence)
+            if !unresolvedActions.isEmpty {
+                unresolvedActionsRow(unresolvedActions)
+            }
         }
+    }
+
+    private func unresolvedActionsRow(_ actions: [HaplotypeOverrideAction]) -> some View {
+        HStack(spacing: 6) {
+            Text("Leave unresolved")
+                .font(.caption.monospaced().weight(.semibold))
+            Text("manual unknown")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Spacer()
+            ForEach(actions) { action in
+                Button(action.label) {
+                    onOverrideRequested?(action.haplotypeName, action.slot)
+                }
+                .controlSize(.small)
+                .lineLimit(1)
+                .help(action.help)
+                .accessibilityLabel(action.help)
+            }
+        }
+        .padding(.vertical, 3)
+        .padding(.horizontal, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 5)
+                .fill(Color.secondary.opacity(0.04))
+        )
     }
 
     private func candidateRow(_ candidate: CandidateHaplotype, evidence: Evidence) -> some View {
         let isCurrentCall = candidate.name == evidence.h1Name || candidate.name == evidence.h2Name
         let totalAlleles = candidate.observed.count + candidate.missing.count
+        let actions = Self.overrideActions(for: candidate, evidence: evidence)
         return VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
                 Text(candidate.name)
@@ -241,13 +360,16 @@ struct GenotypeCallEvidenceView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 Spacer()
-                if !isCurrentCall {
-                    Button("Set haplotype") {
-                        onOverrideRequested?(candidate.name)
+                if !actions.isEmpty {
+                    ForEach(actions) { action in
+                        Button(action.label) {
+                            onOverrideRequested?(action.haplotypeName, action.slot)
+                        }
+                        .controlSize(.small)
+                        .lineLimit(1)
+                        .help(action.help)
+                        .accessibilityLabel(action.help)
                     }
-                    .controlSize(.small)
-                    .help("Set haplotype to \(candidate.name)")
-                    .accessibilityLabel("Set haplotype to \(candidate.name)")
                 }
             }
             if !candidate.observed.isEmpty {
@@ -389,6 +511,54 @@ struct GenotypeCallEvidenceView: View {
                     }
                     .padding(.vertical, 2)
                 }
+            }
+        }
+    }
+
+    private func omittedHaplotypeGenotypes(_ evidence: Evidence) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Omitted from haplotyping")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Text("These retained genotype calls stayed in the run evidence but were below the haplotype thresholds recorded for this analysis.")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 6) {
+                Text("Genotype")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text("Reads")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 60, alignment: .trailing)
+                Text("% locus")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 60, alignment: .trailing)
+            }
+            ForEach(evidence.omittedHaplotypeGenotypes) { genotype in
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(genotype.genotype)
+                            .font(.caption.monospaced())
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Text("\(genotype.reads)")
+                            .font(.caption.monospacedDigit())
+                            .frame(width: 60, alignment: .trailing)
+                        Text(String(format: "%.1f%%", genotype.percentOfLocus * 100))
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(Color(nsColor: .lungfishDanger))
+                            .frame(width: 60, alignment: .trailing)
+                    }
+                    Text(genotype.reason)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 2)
             }
         }
     }

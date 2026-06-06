@@ -28,6 +28,8 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
     func testDisplayStateDefaultsToListOverDetailLayout() {
         XCTAssertEqual(GenotypeResultDisplayState().layout, .listTop)
         XCTAssertEqual(GenotypeResultDisplaySectionViewModel().displayState.layout, .listTop)
+        XCTAssertFalse(GenotypeResultDisplayState().hideLowSupport)
+        XCTAssertEqual(GenotypeResultDisplayState().minimumSupportPercent, 0)
     }
 
     func testGenotypeSectionSetMinimumReadsUpdatesStateAndNotifies() {
@@ -77,7 +79,7 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
             .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeResultDisplaySection.swift")
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
         let start = try XCTUnwrap(source.range(of: "private var layoutControls"))
-        let end = try XCTUnwrap(source[start.lowerBound...].range(of: "private var supportControls"))
+        let end = try XCTUnwrap(source[start.lowerBound...].range(of: "private var thresholdGuidance"))
         let layoutSource = String(source[start.lowerBound..<end.lowerBound])
 
         XCTAssertTrue(layoutSource.contains("Label(\"Detail | List\""))
@@ -86,34 +88,35 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         XCTAssertTrue(layoutSource.contains(".pickerStyle(.radioGroup)"))
     }
 
-    func testSupportThresholdSliderUsesFullPercentRange() throws {
+    func testGenotypeDisplaySectionDoesNotExposeLiveReadThresholdControls() throws {
         let sourceURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeResultDisplaySection.swift")
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
-        let start = try XCTUnwrap(source.range(of: "Slider("))
-        let end = try XCTUnwrap(source[start.lowerBound...].range(of: ".controlSize(.small)"))
-        let sliderSource = String(source[start.lowerBound..<end.upperBound])
 
-        XCTAssertTrue(sliderSource.contains("in: 0...100"))
-        XCTAssertFalse(sliderSource.contains("in: 0...10,"))
+        XCTAssertFalse(source.contains("Hide Low Support"))
+        XCTAssertFalse(source.contains("Minimum Reads"))
+        XCTAssertFalse(source.contains("Slider("))
+        XCTAssertTrue(source.contains("Thresholds are fixed by the genotyping run"))
+        XCTAssertTrue(source.contains("Re-run Amplicon Genotyping"))
     }
 
-    func testSupportThresholdControlsIncludeExactEntryAndFilteredHighlightOption() throws {
+    func testGenotypeDisplaySectionKeepsThresholdGuidanceSeparateFromColorControls() throws {
         let sourceURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeResultDisplaySection.swift")
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
-        let start = try XCTUnwrap(source.range(of: "private var supportControls"))
+        let start = try XCTUnwrap(source.range(of: "private var thresholdGuidance"))
         let end = try XCTUnwrap(source[start.lowerBound...].range(of: "private var colorControls"))
-        let supportSource = String(source[start.lowerBound..<end.lowerBound])
+        let thresholdSource = String(source[start.lowerBound..<end.lowerBound])
 
-        XCTAssertTrue(supportSource.contains("TextField(\"Minimum\""))
-        XCTAssertTrue(supportSource.contains("Hide Filtered Highlights"))
+        XCTAssertTrue(thresholdSource.contains("Haplotype thresholds"))
+        XCTAssertFalse(thresholdSource.contains("TextField("))
+        XCTAssertFalse(thresholdSource.contains("Stepper("))
     }
 
     func testGenotypeViewSectionExposesHaplotypeViewportControl() throws {

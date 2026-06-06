@@ -79,6 +79,22 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertFalse(request.argv.contains("--comparison-workbook"))
     }
 
+    func testHaplotypeDropoutEvaluatorUsesMinSupportWithoutPercentThresholds() throws {
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURL: URL(fileURLWithPath: "/data/barcode08.lungfishfastq"),
+            referenceSourceURL: URL(fileURLWithPath: "/data/reference.lungfishref"),
+            barcodeDefinitionsURL: URL(fileURLWithPath: "/data/fluidigm_barcode8.txt"),
+            outputDirectory: URL(fileURLWithPath: "/tmp/out", isDirectory: true),
+            minSupport: 10
+        )
+
+        let evaluator = try XCTUnwrap(request.haplotypeDropoutEvaluator)
+        XCTAssertEqual(evaluator.absolute, 10)
+        XCTAssertNil(evaluator.sampleFraction)
+        XCTAssertNil(evaluator.locusFraction)
+        XCTAssertEqual(evaluator.locusFractionOverrides, [:])
+    }
+
     func testRunWritesCompleteCanonicalProvenanceEnvelope() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -314,6 +330,164 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(loaded.artifacts.workbookURL, currentWorkbookURL)
     }
 
+    func testRunSynthesizesDemuxManifestForImportedONTBarcodeBundleWithoutPriorDemuxOutput() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let condaRoot = root.appendingPathComponent("conda", isDirectory: true)
+        let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(at: condaRoot)
+
+        let inputBundle = root.appendingPathComponent("barcode11.lungfishfastq", isDirectory: true)
+        let chunksDirectory = inputBundle.appendingPathComponent("chunks", isDirectory: true)
+        let firstChunk = chunksDirectory.appendingPathComponent("chunk-0.fastq")
+        let secondChunk = chunksDirectory.appendingPathComponent("chunk-1.fastq")
+        let referenceFASTA = root.appendingPathComponent("reference.fa")
+        let barcodeDefinitions = root.appendingPathComponent("barcodes.csv")
+        let outputDirectory = root.appendingPathComponent("barcode11-mhc.lungfishgenotype", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: chunksDirectory, withIntermediateDirectories: true)
+        try "@r0\nACGT\n+\nIIII\n".write(to: firstChunk, atomically: true, encoding: .utf8)
+        try "@r1\nTGCA\n+\nIIII\n".write(to: secondChunk, atomically: true, encoding: .utf8)
+        try ">allele1\nACGT\n".write(to: referenceFASTA, atomically: true, encoding: .utf8)
+        try "sample,barcode\nDW472,ACGT\n".write(to: barcodeDefinitions, atomically: true, encoding: .utf8)
+        try FASTQSourceFileManifest(files: [
+            .init(filename: "chunks/chunk-0.fastq", originalPath: firstChunk.path, sizeBytes: 18, isSymlink: false),
+            .init(filename: "chunks/chunk-1.fastq", originalPath: secondChunk.path, sizeBytes: 18, isSymlink: false),
+        ]).save(to: inputBundle)
+
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURL: inputBundle,
+            referenceSourceURL: referenceFASTA,
+            barcodeDefinitionsURL: barcodeDefinitions,
+            outputDirectory: outputDirectory,
+            outputName: "barcode11-mhc",
+            threads: 2,
+            sortThreads: 1
+        )
+
+        _ = try await ONTBarcodeDemuxGenotypingPipeline(
+            condaManager: CondaManager(
+                rootPrefix: condaRoot,
+                bundledMicromambaProvider: { bundledMicromamba },
+                bundledMicromambaVersionProvider: { "test-micromamba" }
+            )
+        ).run(request)
+
+        let manifestURL = outputDirectory
+            .appendingPathComponent(".amplicon-genotyping", isDirectory: true)
+            .appendingPathComponent("inputs", isDirectory: true)
+            .appendingPathComponent("demux-manifest.json")
+        let manifest = try jsonObject(at: manifestURL)
+        XCTAssertEqual(manifest["inputReadCount"] as? Int, 2)
+        let barcodes = try XCTUnwrap(manifest["barcodes"] as? [[String: Any]])
+        XCTAssertEqual(barcodes.map { $0["barcodeID"] as? String }, ["DW472"])
+        XCTAssertNil(barcodes.first?["readCount"] as? Int)
+        XCTAssertEqual(manifest["manifestSource"] as? String, "synthesized-from-fastq-inputs")
+    }
+
+    func testRunCreatesDecoratedCurrentWorkbookForMCMHaplotypingAndRecordsProvenance() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let condaRoot = root.appendingPathComponent("conda", isDirectory: true)
+        let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(at: condaRoot)
+
+        let inputFASTQ = root.appendingPathComponent("barcode08.fastq")
+        let barcodeDefinitions = root.appendingPathComponent("barcodes.csv")
+        let demuxManifest = root.appendingPathComponent("demux-manifest.json")
+        let outputDirectory = root.appendingPathComponent("barcode08.lungfishgenotype", isDirectory: true)
+        let referenceBundle = try makeMHCReferenceBundle(
+            root: root,
+            definition: Self.mhcDefinition(
+                id: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+                assayID: "MHC-exon2-miSeq"
+            )
+        )
+        try "@r0\nACGT\n+\nIIII\n".write(to: inputFASTQ, atomically: true, encoding: .utf8)
+        try "sample,barcode\nDW472,ACGT\n".write(to: barcodeDefinitions, atomically: true, encoding: .utf8)
+        try #"{"sampleTotals":{"DW472":1},"totalInputReads":1}"#.write(to: demuxManifest, atomically: true, encoding: .utf8)
+
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURL: inputFASTQ,
+            referenceSourceURL: referenceBundle,
+            barcodeDefinitionsURL: barcodeDefinitions,
+            outputDirectory: outputDirectory,
+            outputName: "barcode08-mhc",
+            demuxManifestURL: demuxManifest,
+            threads: 2,
+            sortThreads: 1,
+            minSupport: 1,
+            haplotypeDropoutLocusFraction: 0.05,
+            haplotypeAssayID: "MHC-exon2-miSeq",
+            haplotypeDefinitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques"
+        )
+
+        _ = try await ONTBarcodeDemuxGenotypingPipeline(
+            condaManager: CondaManager(
+                rootPrefix: condaRoot,
+                bundledMicromambaProvider: { bundledMicromamba },
+                bundledMicromambaVersionProvider: { "test-micromamba" }
+            )
+        ).run(request)
+
+        let manifest = try ONTGenotypeResultBundle.loadManifest(from: outputDirectory)
+        let primaryWorkbookURL = try ONTGenotypeResultBundle.primaryWorkbookURL(for: outputDirectory)
+        let currentWorkbookURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: outputDirectory)
+
+        XCTAssertEqual(manifest.primaryWorkbookPath, request.workbookURL.lastPathComponent)
+        XCTAssertEqual(manifest.currentWorkbookPath, "artifacts/workbooks/current.xlsx")
+        XCTAssertNotEqual(try Data(contentsOf: primaryWorkbookURL), try Data(contentsOf: currentWorkbookURL))
+        XCTAssertEqual(manifest.workbookRevisions?.first?.role, .initialCurrentCopy)
+        XCTAssertEqual(manifest.workbookRevisions?.first?.label, "Initial decorated MCM current workbook")
+        XCTAssertEqual(manifest.workbookRevisions?.first?.path, "artifacts/workbooks/current.xlsx")
+        XCTAssertEqual(
+            manifest.workbookRevisions?.first?.provenancePath,
+            "artifacts/workbooks/current-workbook-provenance.json"
+        )
+
+        let currentSidecar = try jsonObject(at: request.currentWorkbookProvenanceURL)
+        let currentArgv = try XCTUnwrap(currentSidecar["argv"] as? [String])
+        XCTAssertTrue(currentArgv.contains("--client-current-workbook"))
+        XCTAssertEqual(currentSidecar["outputWorkbook"] as? String, currentWorkbookURL.path)
+        let currentHaplotypeAnalysisPath = try testValue(after: "--haplotype-analysis-json", in: currentArgv)
+        XCTAssertNotEqual(currentHaplotypeAnalysisPath, request.haplotypeAnalysisURL.path)
+        XCTAssertTrue(currentHaplotypeAnalysisPath.hasSuffix(".current-haplotype-analysis.json"))
+        let rawAnalysis = try jsonObject(at: request.haplotypeAnalysisURL)
+        let currentAnalysis = try jsonObject(at: URL(fileURLWithPath: currentHaplotypeAnalysisPath))
+        XCTAssertEqual(rawAnalysis["samples"] as? NSArray, currentAnalysis["samples"] as? NSArray)
+        XCTAssertEqual(
+            firstHaplotypeCall(in: currentAnalysis, sample: "DW472", locus: "MHC-A")?["haplotype1"] as? String,
+            "M1A"
+        )
+        XCTAssertEqual(
+            firstHaplotypeCall(in: rawAnalysis, sample: "DW472", locus: "MHC-DQ")?["haplotype1"] as? String,
+            "M1DQ"
+        )
+        XCTAssertEqual(
+            firstHaplotypeCall(in: currentAnalysis, sample: "DW472", locus: "MHC-DQ")?["haplotype1"] as? String,
+            "M1DQ"
+        )
+
+        let legacyProvenance = try jsonObject(at: request.provenanceURL)
+        let legacyOutputs = try XCTUnwrap(legacyProvenance["outputs"] as? [[String: Any]])
+        XCTAssertTrue(legacyOutputs.contains { record in
+            record["path"] as? String == request.currentWorkbookProvenanceURL.path
+                && record["role"] as? String == "current-report-provenance"
+        }, "\(legacyOutputs)")
+        let legacySteps = try XCTUnwrap(legacyProvenance["steps"] as? [[String: Any]])
+        XCTAssertTrue(legacySteps.contains { step in
+            step["toolName"] as? String == "openpyxl MCM current workbook report"
+                && ((step["argv"] as? [String])?.contains("--client-current-workbook") ?? false)
+        }, "\(legacySteps)")
+
+        let canonicalEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: outputDirectory))
+        XCTAssertTrue(canonicalEnvelope.outputs.contains { $0.path == request.currentWorkbookProvenanceURL.path })
+        XCTAssertTrue(canonicalEnvelope.steps.contains { step in
+            step.toolName == "openpyxl MCM current workbook report"
+                && step.argv.contains("--client-current-workbook")
+        }, "\(canonicalEnvelope.steps)")
+    }
+
     func testAutoModeWithBarcodesAndMultipleInputsUsesONTPresetAndAllInputs() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -502,6 +676,82 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(canonicalEnvelope.steps.filter { $0.toolName == "minimap2" }.count, 3)
     }
 
+    func testONTSampleBundleCohortUsesONTPresetAndCountWeightedSampleManifest() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let condaRoot = root.appendingPathComponent("conda", isDirectory: true)
+        let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(at: condaRoot)
+        let referenceFASTA = root.appendingPathComponent("reference.fa")
+        let outputDirectory = root.appendingPathComponent("ont-cohort.lungfishgenotype", isDirectory: true)
+        let minimap2Log = root.appendingPathComponent("minimap2-invocations.log")
+        try ">allele1\nACGTACGT\n".write(to: referenceFASTA, atomically: true, encoding: .utf8)
+
+        let sampleA = try makeCountedFASTQBundle(
+            root: root,
+            name: "LF2871",
+            records: [("u000001;size=7", "ACGTACGT")]
+        )
+        let sampleB = try makeCountedFASTQBundle(
+            root: root,
+            name: "LF2872",
+            records: [("u000001;size=3", "ACGTACGT")]
+        )
+        setenv("LUNGFISH_FAKE_MINIMAP2_LOG", minimap2Log.path, 1)
+        defer { unsetenv("LUNGFISH_FAKE_MINIMAP2_LOG") }
+
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURLs: [sampleA.bundleURL, sampleB.bundleURL],
+            referenceSourceURL: referenceFASTA,
+            outputDirectory: outputDirectory,
+            outputName: "ont-cohort",
+            analysisName: "ONTCohort",
+            threads: 2,
+            sortThreads: 1,
+            minSupport: 1,
+            mode: .ontSampleBundles,
+            readType: .ont
+        )
+
+        _ = try await ONTBarcodeDemuxGenotypingPipeline(
+            condaManager: CondaManager(
+                rootPrefix: condaRoot,
+                bundledMicromambaProvider: { bundledMicromamba },
+                bundledMicromambaVersionProvider: { "test-micromamba" }
+            )
+        ).run(request)
+
+        let minimap2Invocations = try String(contentsOf: minimap2Log, encoding: .utf8)
+            .split(whereSeparator: \.isNewline)
+            .map(String.init)
+        XCTAssertEqual(minimap2Invocations.count, 2)
+        XCTAssertTrue(minimap2Invocations.allSatisfy { $0.contains("-x map-ont") }, "\(minimap2Invocations)")
+        XCTAssertFalse(minimap2Invocations.contains { $0.contains("-x sr") }, "\(minimap2Invocations)")
+
+        let sampleManifestURL = outputDirectory
+            .appendingPathComponent(".amplicon-genotyping", isDirectory: true)
+            .appendingPathComponent("inputs", isDirectory: true)
+            .appendingPathComponent("ont-sample-bundle-manifest.json")
+        let sampleManifest = try jsonObject(at: sampleManifestURL)
+        XCTAssertEqual(sampleManifest["mode"] as? String, "ont-sample-bundles")
+        XCTAssertEqual(sampleManifest["inputReadCount"] as? Int, 10)
+        let samples = try XCTUnwrap(sampleManifest["samples"] as? [[String: Any]])
+        XCTAssertEqual(samples.map { $0["sample"] as? String }, ["LF2871", "LF2872"])
+        XCTAssertEqual(samples.map { $0["readCount"] as? Int }, [7, 3])
+
+        let provenance = try jsonObject(at: request.provenanceURL)
+        let options = try XCTUnwrap(provenance["options"] as? [String: Any])
+        XCTAssertEqual(options["resolvedMode"] as? String, "ont-sample-bundles")
+        XCTAssertEqual(options["resolvedReadType"] as? String, "ont")
+        XCTAssertEqual(options["mappingPreset"] as? String, "map-ont")
+        XCTAssertEqual(options["requireBothEndSoftclips"] as? Bool, false)
+
+        let canonicalEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: outputDirectory))
+        XCTAssertEqual(canonicalEnvelope.workflowName, "ONT Sample Bundle Amplicon Genotyping")
+        XCTAssertEqual(canonicalEnvelope.options.explicit["resolvedMode"], .string("ont-sample-bundles"))
+        XCTAssertEqual(canonicalEnvelope.steps.filter { $0.toolName == "minimap2" }.count, 2)
+    }
+
     func testResolveIlluminaSampleInputsDisambiguatesCollidingSanitizedSampleIDs() async throws {
         let tmp = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: tmp) }
@@ -629,6 +879,319 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         let resolved = try ONTBarcodeDemuxGenotypingPipeline.resolveInputFASTQURLs(for: root)
 
         XCTAssertEqual(resolved, [fastq0.standardizedFileURL, fastq1.standardizedFileURL])
+    }
+
+    func testRetainedDemuxGenotypeCSVIncludesRowsBelowHaplotypeMinSupport() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let scriptURL = root.appendingPathComponent("filter-demux-retained-bam.py")
+        let fakePysamURL = root.appendingPathComponent("pysam.py")
+        let referenceFASTA = root.appendingPathComponent("reference.fa")
+        let barcodesCSV = root.appendingPathComponent("barcodes.csv")
+        let demuxManifest = root.appendingPathComponent("demux-manifest.json")
+        let outputDirectory = root.appendingPathComponent("out", isDirectory: true)
+
+        try ONTBarcodeDemuxGenotypingPipeline.writeFilterScript(to: scriptURL)
+        try """
+        __version__ = "fake"
+
+        class Header:
+            def to_dict(self):
+                return {"HD": {"VN": "1.6"}}
+
+        class Read:
+            def __init__(self, query_name, reference_name):
+                self.query_name = query_name
+                self.reference_name = reference_name
+                self.reference_start = 0
+                self.reference_end = 4
+                self.query_sequence = "TTACGTAA"
+                self.cigartuples = [(4, 2), (0, 4), (4, 2)]
+                self.is_unmapped = False
+                self.tags = {}
+
+            def get_tag(self, tag):
+                if tag == "MD":
+                    return "4"
+                raise KeyError(tag)
+
+            def set_tag(self, tag, value, value_type=None):
+                self.tags[tag] = value
+
+        READS = [
+            Read("good-1", "MHC-A-good"),
+            Read("good-2", "MHC-A-good"),
+            Read("good-3", "MHC-A-good"),
+            Read("spurious-1", "MHC-A-lowunique"),
+            Read("spurious-1", "MHC-A-lowunique"),
+            Read("spurious-1", "MHC-A-lowunique"),
+            Read("spurious-1", "MHC-A-lowunique"),
+        ]
+
+        class AlignmentFile:
+            def __init__(self, path, mode, header=None):
+                self.path = path
+                self.mode = mode
+                self.header = header or Header()
+                if "w" in mode:
+                    open(path, "w").close()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def fetch(self, until_eof=True):
+                return list(READS)
+
+            def write(self, read):
+                with open(self.path, "a") as handle:
+                    handle.write(read.query_name + "\\n")
+
+        def index(path):
+            with open(path + ".bai", "w") as handle:
+                handle.write("index\\n")
+        """.write(to: fakePysamURL, atomically: true, encoding: .utf8)
+        try """
+        >MHC-A-good
+        ACGT
+        >MHC-A-lowunique
+        ACGT
+        """.write(to: referenceFASTA, atomically: true, encoding: .utf8)
+        try "sample,barcode\nDW472,ACGT\n".write(to: barcodesCSV, atomically: true, encoding: .utf8)
+        try #"{"inputReadCount":10,"barcodes":[{"barcodeID":"DW472","readCount":10}]}"#
+            .write(to: demuxManifest, atomically: true, encoding: .utf8)
+
+        _ = try runPython([
+            scriptURL.path,
+            "--input-bam", root.appendingPathComponent("input.bam").path,
+            "--reference-fasta", referenceFASTA.path,
+            "--barcodes", barcodesCSV.path,
+            "--demux-manifest", demuxManifest.path,
+            "--output-dir", outputDirectory.path,
+            "--prefix", "barcode10",
+            "--require-both-end-softclips",
+            "--max-mismatches", "0",
+            "--min-support", "3",
+        ], environment: ["PYTHONPATH": root.path])
+
+        let genotypesCSV = outputDirectory.appendingPathComponent("barcode10.retained_demux_genotypes.csv")
+        let csv = try String(contentsOf: genotypesCSV, encoding: .utf8)
+        XCTAssertTrue(csv.contains("DW472,MHC-A-good,3,3"), csv)
+        XCTAssertTrue(csv.contains("DW472,MHC-A-lowunique,4,1"), csv)
+    }
+
+    func testRetainedDemuxGenotypeCSVIncludesRowsBelowHaplotypePercentThresholds() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let scriptURL = root.appendingPathComponent("filter-demux-retained-bam.py")
+        let fakePysamURL = root.appendingPathComponent("pysam.py")
+        let referenceFASTA = root.appendingPathComponent("reference.fa")
+        let barcodesCSV = root.appendingPathComponent("barcodes.csv")
+        let demuxManifest = root.appendingPathComponent("demux-manifest.json")
+        let outputDirectory = root.appendingPathComponent("out", isDirectory: true)
+
+        try ONTBarcodeDemuxGenotypingPipeline.writeFilterScript(to: scriptURL)
+        try """
+        __version__ = "fake"
+
+        class Header:
+            def to_dict(self):
+                return {"HD": {"VN": "1.6"}}
+
+        class Read:
+            def __init__(self, query_name, reference_name):
+                self.query_name = query_name
+                self.reference_name = reference_name
+                self.reference_start = 0
+                self.reference_end = 4
+                self.query_sequence = "TTACGTAA"
+                self.cigartuples = [(4, 2), (0, 4), (4, 2)]
+                self.is_unmapped = False
+                self.tags = {}
+
+            def get_tag(self, tag):
+                if tag == "MD":
+                    return "4"
+                raise KeyError(tag)
+
+            def set_tag(self, tag, value, value_type=None):
+                self.tags[tag] = value
+
+        READS = (
+            [Read(f"a-good-{i}", "02_M1_G_good") for i in range(100)]
+            + [Read("a-sample-low", "02_M1_G_sample_low")]
+            + [Read(f"dqa-good-{i}", "14_M1_DQA1_good") for i in range(90)]
+            + [Read(f"dqa-bleed-{i}", "14_M1_DQA1_bleed") for i in range(9)]
+        )
+
+        class AlignmentFile:
+            def __init__(self, path, mode, header=None):
+                self.path = path
+                self.mode = mode
+                self.header = header or Header()
+                if "w" in mode:
+                    open(path, "w").close()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def fetch(self, until_eof=True):
+                return list(READS)
+
+            def write(self, read):
+                with open(self.path, "a") as handle:
+                    handle.write(read.query_name + "\\n")
+
+        def index(path):
+            with open(path + ".bai", "w") as handle:
+                handle.write("index\\n")
+        """.write(to: fakePysamURL, atomically: true, encoding: .utf8)
+        try """
+        >02_M1_G_good
+        ACGT
+        >02_M1_G_sample_low
+        ACGT
+        >14_M1_DQA1_good
+        ACGT
+        >14_M1_DQA1_bleed
+        ACGT
+        """.write(to: referenceFASTA, atomically: true, encoding: .utf8)
+        try "sample,barcode\nDW472,ACGT\n".write(to: barcodesCSV, atomically: true, encoding: .utf8)
+        try #"{"inputReadCount":200,"barcodes":[{"barcodeID":"DW472","readCount":200}]}"#
+            .write(to: demuxManifest, atomically: true, encoding: .utf8)
+
+        _ = try runPython([
+            scriptURL.path,
+            "--input-bam", root.appendingPathComponent("input.bam").path,
+            "--reference-fasta", referenceFASTA.path,
+            "--barcodes", barcodesCSV.path,
+            "--demux-manifest", demuxManifest.path,
+            "--output-dir", outputDirectory.path,
+            "--prefix", "barcode10",
+            "--require-both-end-softclips",
+            "--max-mismatches", "0",
+            "--min-support", "1",
+            "--haplotype-min-sample-percent", "1",
+            "--haplotype-min-locus-percent", "0",
+            "--haplotype-min-locus-percent-override", "MHC-DQ=10",
+        ], environment: ["PYTHONPATH": root.path])
+
+        let genotypesCSV = outputDirectory.appendingPathComponent("barcode10.retained_demux_genotypes.csv")
+        let csv = try String(contentsOf: genotypesCSV, encoding: .utf8)
+        XCTAssertTrue(csv.contains("DW472,02_M1_G_good,100,100"), csv)
+        XCTAssertTrue(csv.contains("DW472,14_M1_DQA1_good,90,90"), csv)
+        XCTAssertTrue(csv.contains("DW472,02_M1_G_sample_low,1,1"), csv)
+        XCTAssertTrue(csv.contains("DW472,14_M1_DQA1_bleed,9,9"), csv)
+    }
+
+    func testRetainedDemuxFilterUsesSizeHeaderCountsForQueryPrefixSamples() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let scriptURL = root.appendingPathComponent("filter-demux-retained-bam.py")
+        let fakePysamURL = root.appendingPathComponent("pysam.py")
+        let referenceFASTA = root.appendingPathComponent("reference.fa")
+        let sampleManifest = root.appendingPathComponent("sample-manifest.json")
+        let outputDirectory = root.appendingPathComponent("out", isDirectory: true)
+
+        try ONTBarcodeDemuxGenotypingPipeline.writeFilterScript(to: scriptURL)
+        try """
+        __version__ = "fake"
+
+        class Header:
+            def to_dict(self):
+                return {"HD": {"VN": "1.6"}}
+
+        class Read:
+            def __init__(self, query_name, reference_name):
+                self.query_name = query_name
+                self.reference_name = reference_name
+                self.reference_start = 0
+                self.reference_end = 4
+                self.query_sequence = "TTACGTAA"
+                self.cigartuples = [(4, 2), (0, 4), (4, 2)]
+                self.is_unmapped = False
+                self.tags = {}
+
+            def get_tag(self, tag):
+                if tag == "MD":
+                    return "4"
+                raise KeyError(tag)
+
+            def set_tag(self, tag, value, value_type=None):
+                self.tags[tag] = value
+
+        READS = [
+            Read("LF2871|u000001;size=7", "MHC-A-good"),
+            Read("LF2871|u000002;size=3", "MHC-A-low"),
+        ]
+
+        class AlignmentFile:
+            def __init__(self, path, mode, header=None):
+                self.path = path
+                self.mode = mode
+                self.header = header or Header()
+                if "w" in mode:
+                    open(path, "w").close()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def fetch(self, until_eof=True):
+                return list(READS)
+
+            def write(self, read):
+                with open(self.path, "a") as handle:
+                    handle.write(read.query_name + "\\n")
+
+        def index(path):
+            with open(path + ".bai", "w") as handle:
+                handle.write("index\\n")
+        """.write(to: fakePysamURL, atomically: true, encoding: .utf8)
+        try """
+        >MHC-A-good
+        ACGT
+        >MHC-A-low
+        ACGT
+        """.write(to: referenceFASTA, atomically: true, encoding: .utf8)
+        try #"{"inputReadCount":10,"samples":[{"sample":"LF2871","readCount":10}]}"#
+            .write(to: sampleManifest, atomically: true, encoding: .utf8)
+
+        _ = try runPython([
+            scriptURL.path,
+            "--input-bam", root.appendingPathComponent("input.bam").path,
+            "--reference-fasta", referenceFASTA.path,
+            "--demux-manifest", sampleManifest.path,
+            "--sample-manifest", sampleManifest.path,
+            "--assignment-mode", "query-prefix",
+            "--output-dir", outputDirectory.path,
+            "--prefix", "ont-cohort",
+            "--max-mismatches", "0",
+            "--min-support", "1",
+        ], environment: ["PYTHONPATH": root.path])
+
+        let genotypesCSV = outputDirectory.appendingPathComponent("ont-cohort.retained_demux_genotypes.csv")
+        let csv = try String(contentsOf: genotypesCSV, encoding: .utf8)
+        XCTAssertTrue(csv.contains("LF2871,MHC-A-good,7,7,10,10,100.000000,10,10,100.000000"), csv)
+        XCTAssertTrue(csv.contains("LF2871,MHC-A-low,3,3,10,10,100.000000,10,10,100.000000"), csv)
+
+        let sampleCSV = outputDirectory.appendingPathComponent("ont-cohort.retained_demux_samples.csv")
+        let sampleText = try String(contentsOf: sampleCSV, encoding: .utf8)
+        XCTAssertTrue(sampleText.contains("LF2871,10,10,10,100.000000,10,100.000000"), sampleText)
+
+        let stats = try jsonObject(at: outputDirectory.appendingPathComponent("ont-cohort.retained_demux_stats.json"))
+        XCTAssertEqual(stats["retainedUniqueReads"] as? Int, 10)
+        XCTAssertEqual(stats["assignedUniqueRetainedReads"] as? Int, 10)
     }
 
     func testReportWorkbookUsesRunBasenameAndFiltersZeroAlleleRows() throws {
@@ -795,6 +1358,230 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(inspection["provenanceIncludesHaplotypes"] as? Bool, true)
     }
 
+    func testReportScriptWritesMCMClientCurrentWorkbook() throws {
+        try XCTSkipIf(!pythonCanImportOpenpyxl(), "openpyxl is required for workbook report verification")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let scriptURL = root.appendingPathComponent("write-report.py")
+        let genotypesCSV = root.appendingPathComponent("genotypes.csv")
+        let samplesCSV = root.appendingPathComponent("samples.csv")
+        let statsJSON = root.appendingPathComponent("stats.json")
+        let referenceFASTA = root.appendingPathComponent("reference.fa")
+        let barcodesCSV = root.appendingPathComponent("barcodes.csv")
+        let haplotypesJSON = root.appendingPathComponent("haplotypes.json")
+        let definitionJSON = root.appendingPathComponent("haplotype-definition.json")
+        let primaryWorkbook = root.appendingPathComponent("primary.xlsx")
+        let currentWorkbook = root.appendingPathComponent("current.xlsx")
+        let provenanceJSON = root.appendingPathComponent("current-workbook-provenance.json")
+
+        try ONTBarcodeDemuxGenotypingPipeline.writeReportScript(to: scriptURL)
+        try Data("primary workbook placeholder\n".utf8).write(to: primaryWorkbook)
+        try """
+        sample,genotype,passed_alignments,passed_unique_reads,sample_total_reads,sample_unique_retained_reads,sample_unique_retained_percent,overall_input_reads,overall_unique_retained_reads,overall_unique_retained_percent
+        \u{FEFF}DW472,02_M1_G_02_07_2mis_156bp,42,42,100,42,42.0,100,42,42.0
+        \u{FEFF}DW472,02_M2_G_02_06_156bp,21,21,100,42,42.0,100,42,42.0
+        \u{FEFF}DW472,02_M4M7_G_02_04_156bp,11,11,100,42,42.0,100,42,42.0
+        \u{FEFF}DW472,04_M1_AG_05_3mis_156bp,18,18,100,42,42.0,100,42,42.0
+        \u{FEFF}DW472,05_M1M2M3_A1_063g,16,16,100,42,42.0,100,42,42.0
+        \u{FEFF}DW472,12_M1_B_046_01_01,11,11,100,42,42.0,100,42,42.0
+        \u{FEFF}DW472,12_M2_B_019_03,10,10,100,42,42.0,100,42,42.0
+        \u{FEFF}DW472,14_M1_DQA1_24_03,9,9,100,42,42.0,100,42,42.0
+        \u{FEFF}DW472,14_M2_DQB1_06g:14_M_DQB1_06_01_01,8,8,100,42,42.0,100,42,42.0
+        \u{FEFF}DW472,15_M1_DPA1_07_02,7,7,100,42,42.0,100,42,42.0
+        \u{FEFF}DW472,15_M2_DPB1_20_01,6,6,100,42,42.0,100,42,42.0
+        DW473,04_M4_AG_02_w_01_156bp,40,40,100,40,40.0,100,40,40.0
+        DW473,12_M4_B_027_02,30,30,100,40,40.0,100,40,40.0
+        """.write(to: genotypesCSV, atomically: true, encoding: .utf8)
+        try """
+        sample,passed_alignments,passed_unique_reads,sample_total_reads,sample_unique_retained_reads,sample_unique_retained_percent,overall_input_reads,overall_unique_retained_percent
+        \u{FEFF}DW472,84,42,100,42,42.0,100,42.0
+        DW473,70,40,100,40,40.0,100,40.0
+        """.write(to: samplesCSV, atomically: true, encoding: .utf8)
+        try """
+        {
+          "passedAlignments": 84,
+          "totalInputReads": 100,
+          "minSupport": 10,
+          "haplotypeMinSamplePercent": 1,
+          "haplotypeMinLocusPercent": 1,
+          "haplotypeMinLocusPercentOverrides": ["MHC-DP=10", "MHC-DQ=10"]
+        }
+        """.write(to: statsJSON, atomically: true, encoding: .utf8)
+        try """
+        >02_M1_G_02_07_2mis_156bp
+        ACGT
+        >02_M2_G_02_06_156bp
+        ACGT
+        >02_M4M7_G_02_04_156bp
+        ACGT
+        >04_M1_AG_05_3mis_156bp
+        ACGT
+        >05_M1M2M3_A1_063g
+        ACGT
+        >12_M1_B_046_01_01
+        ACGT
+        >12_M2_B_019_03
+        ACGT
+        >14_M1_DQA1_24_03
+        ACGT
+        >14_M2_DQB1_06g:14_M_DQB1_06_01_01
+        ACGT
+        >15_M1_DPA1_07_02
+        ACGT
+        >15_M2_DPB1_20_01
+        ACGT
+        >04_M4_AG_02_w_01_156bp
+        ACGT
+        >12_M4_B_027_02
+        ACGT
+        """.write(to: referenceFASTA, atomically: true, encoding: .utf8)
+        try "sample,barcode\nDW472,ACGT\nDW473,TGCA\n".write(to: barcodesCSV, atomically: true, encoding: .utf8)
+        try """
+        {
+          "schemaVersion": 1,
+          "assayID": "MHC-exon2-miSeq",
+          "definitionSetID": "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+          "definitionSetName": "Mauritian cynomolgus macaques",
+          "speciesName": "Mauritian cynomolgus macaques",
+          "samples": [
+            {
+              "sample": "DW472",
+              "calls": [
+                {"locus": "MHC-A", "sourceLocus": "Mafa-A", "haplotype1": "M1A", "haplotype2": "M2A", "status": "called", "matchedHaplotypes": [], "observedGenotypeCount": 4, "observedGenotypes": ["02_M1_G_02_07_2mis_156bp", "02_M2_G_02_06_156bp", "04_M1_AG_05_3mis_156bp", "05_M1M2M3_A1_063g"], "notes": ""},
+                {"locus": "MHC-B", "sourceLocus": "Mafa-B", "haplotype1": "M1B", "haplotype2": "M2B", "status": "called", "matchedHaplotypes": [], "observedGenotypeCount": 2, "observedGenotypes": ["12_M1_B_046_01_01", "12_M2_B_019_03"], "notes": ""},
+                {"locus": "MHC-DRB", "sourceLocus": "Mafa-DRB", "haplotype1": "M1DR", "haplotype2": "M2DR", "status": "called", "matchedHaplotypes": [], "observedGenotypeCount": 0, "observedGenotypes": [], "notes": ""},
+                {"locus": "MHC-DQ", "sourceLocus": "Mafa-DQ", "haplotype1": "M1DQ", "haplotype2": "M2DQ", "status": "called", "matchedHaplotypes": [], "observedGenotypeCount": 2, "observedGenotypes": ["14_M1_DQA1_24_03", "14_M2_DQB1_06g:14_M_DQB1_06_01_01"], "notes": ""},
+                {"locus": "MHC-DP", "sourceLocus": "Mafa-DP", "haplotype1": "M1DP", "haplotype2": "M2DP", "status": "called", "matchedHaplotypes": [], "observedGenotypeCount": 2, "observedGenotypes": ["15_M1_DPA1_07_02", "15_M2_DPB1_20_01"], "notes": ""}
+              ]
+            },
+            {
+              "sample": "DW473",
+              "calls": [
+                {"locus": "MHC-A", "sourceLocus": "Mafa-A", "haplotype1": "M4A", "haplotype2": "-", "status": "called", "matchedHaplotypes": [], "observedGenotypeCount": 1, "observedGenotypes": ["04_M4_AG_02_w_01_156bp"], "notes": ""},
+                {"locus": "MHC-B", "sourceLocus": "Mafa-B", "haplotype1": "M4B", "haplotype2": "-", "status": "called", "matchedHaplotypes": [], "observedGenotypeCount": 1, "observedGenotypes": ["12_M4_B_027_02"], "notes": ""},
+                {"locus": "MHC-DRB", "sourceLocus": "Mafa-DRB", "haplotype1": "M4DR", "haplotype2": "-", "status": "called", "matchedHaplotypes": [], "observedGenotypeCount": 0, "observedGenotypes": [], "notes": ""},
+                {"locus": "MHC-DQ", "sourceLocus": "Mafa-DQ", "haplotype1": "M4DQ", "haplotype2": "-", "status": "called", "matchedHaplotypes": [], "observedGenotypeCount": 0, "observedGenotypes": [], "notes": ""},
+                {"locus": "MHC-DP", "sourceLocus": "Mafa-DP", "haplotype1": "M4DP", "haplotype2": "-", "status": "called", "matchedHaplotypes": [], "observedGenotypeCount": 0, "observedGenotypes": [], "notes": ""}
+              ]
+            }
+          ]
+        }
+        """.write(to: haplotypesJSON, atomically: true, encoding: .utf8)
+        try """
+        {
+          "id": "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+          "assayID": "MHC-exon2-miSeq",
+          "displayName": "Mauritian cynomolgus macaques",
+          "speciesName": "Mauritian cynomolgus macaque",
+          "speciesCode": "MCM",
+          "prefix": "Mafa",
+            "locusDefinitions": [
+            {"locus": "MHC-A", "sourceLocus": "Mafa-A", "haplotypes": [
+              {"name": "M1A", "diagnosticAlleles": ["02_M1_G_02_07_2mis_156bp", "04_M1_AG_05_3mis_156bp"], "colorTokenIndex": 1},
+              {"name": "M2A", "diagnosticAlleles": ["02_M2_G_02_06_156bp"], "colorTokenIndex": 2}
+            ]},
+            {"locus": "MHC-B", "sourceLocus": "Mafa-B", "haplotypes": [
+              {"name": "M1B", "diagnosticAlleles": ["12_M1_B_046_01_01"], "colorTokenIndex": 1},
+              {"name": "M2B", "diagnosticAlleles": ["12_M2_B_019_03"], "colorTokenIndex": 2}
+            ]},
+            {"locus": "MHC-DQ", "sourceLocus": "Mafa-DQ", "haplotypes": [
+              {"name": "M1DQ", "diagnosticAlleles": ["14_M1_DQA1_24_03"], "colorTokenIndex": 1},
+              {"name": "M2DQ", "diagnosticAlleles": ["14_M2_DQB1_06g:14_M_DQB1_06_01_01"], "colorTokenIndex": 2}
+            ]},
+            {"locus": "MHC-DP", "sourceLocus": "Mafa-DP", "haplotypes": [
+              {"name": "M1DP", "diagnosticAlleles": ["15_M1_DPA1_07_02"], "colorTokenIndex": 1},
+              {"name": "M2DP", "diagnosticAlleles": ["15_M2_DPB1_20_01"], "colorTokenIndex": 2}
+            ]}
+          ]
+        }
+        """.write(to: definitionJSON, atomically: true, encoding: .utf8)
+
+        _ = try runPython([
+            scriptURL.path,
+            "--client-current-workbook",
+            "--genotypes-csv", genotypesCSV.path,
+            "--samples-csv", samplesCSV.path,
+            "--stats-json", statsJSON.path,
+            "--reference-fasta", referenceFASTA.path,
+            "--barcode-definitions", barcodesCSV.path,
+            "--output-xlsx", currentWorkbook.path,
+            "--provenance-json", provenanceJSON.path,
+            "--analysis-name", "barcode08-mhc",
+            "--run-name", "barcode08-mhc",
+            "--haplotype-analysis-json", haplotypesJSON.path,
+            "--haplotype-definition-json", definitionJSON.path,
+            "--primary-workbook", primaryWorkbook.path,
+        ])
+
+        let inspection = try inspectMCMClientCurrentWorkbook(currentWorkbook, provenanceJSON: provenanceJSON)
+        XCTAssertEqual(inspection["sheetnames"] as? [String], [
+            "Interpretation Guide",
+            "MHC Alleles Per MHC Haplotype",
+            "Abbreviated Haplotypes",
+            "Full Sequencing Results 1",
+            "Custom Sort",
+        ])
+        XCTAssertEqual(inspection["abbreviatedHaplotype1"] as? String, "M1")
+        XCTAssertEqual(inspection["abbreviatedHaplotype2"] as? String, "M2")
+        XCTAssertEqual(inspection["abbreviatedHomozygoteHaplotype1"] as? String, "M4")
+        XCTAssertEqual(inspection["abbreviatedHomozygoteHaplotype2"] as? String, "M4")
+        XCTAssertEqual(inspection["mhcAHaplotype1"] as? String, "M1A")
+        XCTAssertEqual(inspection["mhcAHaplotype2"] as? String, "M2A")
+        XCTAssertEqual(inspection["fullHomozygoteAHaplotype1"] as? String, "M4A")
+        XCTAssertEqual(inspection["fullHomozygoteAHaplotype2"] as? String, "M4A")
+        XCTAssertEqual(inspection["definitionIncludesM1A"] as? Bool, true)
+        XCTAssertEqual(inspection["definitionIncludesM1G"] as? Bool, true)
+        XCTAssertEqual(inspection["m2Fill"] as? String, "00000000")
+        XCTAssertTrue((inspection["m2FontColor"] as? String)?.hasSuffix("FF0000") ?? false)
+        XCTAssertEqual(inspection["m2GenotypeFill"] as? String, "00000000")
+        XCTAssertTrue((inspection["m2GenotypeFontColor"] as? String)?.hasSuffix("FF0000") ?? false)
+        XCTAssertEqual(inspection["m2GenotypeRowBold"] as? Bool, true)
+        XCTAssertEqual(inspection["m2AlleleNameFontName"] as? String, "Calibri")
+        XCTAssertEqual(inspection["m2AlleleNameFontSize"] as? Double, 11.0)
+        XCTAssertTrue((inspection["m2AlleleNameFontColor"] as? String)?.hasSuffix("FF0000") ?? false)
+        XCTAssertEqual(inspection["m2AlleleNameBold"] as? Bool, false)
+        XCTAssertEqual(inspection["sharedAlleleNameFontName"] as? String, "Calibri")
+        XCTAssertEqual(inspection["sharedAlleleNameFontSize"] as? Double, 11.0)
+        XCTAssertFalse((inspection["sharedAlleleNameFontColor"] as? String)?.hasSuffix("00B050") ?? false)
+        XCTAssertFalse((inspection["sharedAlleleNameFontColor"] as? String)?.hasSuffix("7030A0") ?? false)
+        XCTAssertEqual(inspection["sharedAlleleNameBold"] as? Bool, false)
+        XCTAssertEqual(inspection["fullHasGenericGenotypeHeader"] as? Bool, false)
+        XCTAssertLessThan(inspection["fullMafaGHeaderRow"] as? Int ?? 0, inspection["fullMafaAGHeaderRow"] as? Int ?? 0)
+        XCTAssertLessThan(inspection["fullMafaAGHeaderRow"] as? Int ?? 0, inspection["fullMafaAMajorHeaderRow"] as? Int ?? 0)
+        XCTAssertLessThan(inspection["fullMafaAMajorHeaderRow"] as? Int ?? 0, inspection["fullMafaBHeaderRow"] as? Int ?? 0)
+        XCTAssertEqual(inspection["fullDQAHaplotype1"] as? String, "M1DQ")
+        XCTAssertEqual(inspection["fullDQBHaplotype1"] as? String, "M1DQ")
+        XCTAssertEqual(inspection["fullDPAHaplotype1"] as? String, "M1DP")
+        XCTAssertEqual(inspection["fullDPBHaplotype1"] as? String, "M1DP")
+        XCTAssertEqual(inspection["fullCollapsedDQRowExists"] as? Bool, false)
+        XCTAssertEqual(inspection["fullCollapsedDPRowExists"] as? Bool, false)
+        XCTAssertEqual(inspection["abbreviatedReadCountHeader"] as? String, "Mapped Read Count")
+        XCTAssertEqual(inspection["customSortFirstSection"] as? String, "MHC homozygous MCM animals")
+        XCTAssertEqual(inspection["customSortFirstSectionSampleID"] as? String, "DW473")
+        XCTAssertEqual(inspection["customSortHomozygoteSampleID"] as? String, "DW473")
+        XCTAssertEqual(inspection["customSortHomozygoteHaplotype1"] as? String, "M4")
+        XCTAssertEqual(inspection["customSortHomozygoteHaplotype2"] as? String, "M4")
+        XCTAssertEqual(inspection["containsBOM"] as? Bool, false)
+        XCTAssertEqual(inspection["abbreviatedA2FontName"] as? String, "Calibri")
+        XCTAssertEqual(inspection["abbreviatedA2FontSize"] as? Double, 11.0)
+        XCTAssertEqual(inspection["abbreviatedA2FontBold"] as? Bool, true)
+        XCTAssertEqual(inspection["customSortSectionFontName"] as? String, "Arial")
+        XCTAssertEqual(inspection["customSortSectionFontSize"] as? Double, 14.0)
+        XCTAssertEqual(inspection["customSortA1FontSize"] as? Double, 12.0)
+        XCTAssertEqual(inspection["fullA1FontSize"] as? Double, 11.0)
+        XCTAssertEqual(inspection["customSortAutoFilter"] as? String, "")
+        XCTAssertEqual(inspection["abbreviatedAutoFilter"] as? String, "")
+        XCTAssertEqual(inspection["guideAssay"] as? String, "MHC-exon2-miSeq")
+        XCTAssertEqual(inspection["guideDefinition"] as? String, "MHC-exon2-miSeq.mauritian-cynomolgus-macaques")
+        XCTAssertEqual(inspection["guideMinReads"] as? String, "10")
+        XCTAssertEqual(inspection["guideMinSamplePercent"] as? String, "1%")
+        XCTAssertEqual(inspection["guideMinLocusPercent"] as? String, "1%")
+        XCTAssertEqual(inspection["guideLocusOverrides"] as? String, "MHC-DP=10%; MHC-DQ=10%")
+        XCTAssertEqual(inspection["provenanceMode"] as? String, "mcm-client-current")
+        XCTAssertTrue((inspection["provenanceOutputWorkbook"] as? String)?.hasSuffix("current.xlsx") ?? false)
+    }
+
     private func pythonCanImportOpenpyxl() -> Bool {
         (try? runPython(["-c", "import openpyxl"])) != nil
     }
@@ -941,10 +1728,184 @@ print(json.dumps(payload))
         return try XCTUnwrap(object as? [String: Any])
     }
 
-    private func runPython(_ arguments: [String]) throws -> String {
+    private func inspectMCMClientCurrentWorkbook(_ url: URL, provenanceJSON: URL) throws -> [String: Any] {
+        let code = #"""
+import json
+import sys
+from openpyxl import load_workbook
+
+workbook_path = sys.argv[1]
+provenance_path = sys.argv[2]
+wb = load_workbook(workbook_path, data_only=False)
+
+def row_for(ws, label):
+    for row in range(1, ws.max_row + 1):
+        if ws.cell(row, 1).value == label:
+            return row
+    return None
+
+def header_map(ws):
+    values = {}
+    for col in range(1, ws.max_column + 1):
+        value = ws.cell(1, col).value
+        if value is not None:
+            values[str(value)] = col
+    return values
+
+def sample_row(ws, sample):
+    for row in range(1, ws.max_row + 1):
+        for col in range(1, ws.max_column + 1):
+            if ws.cell(row, col).value == sample:
+                return row
+    return None
+
+def sample_col(ws, sample):
+    for col in range(1, ws.max_column + 1):
+        for row in range(1, min(ws.max_row, 4) + 1):
+            if ws.cell(row, col).value == sample:
+                return col
+    return None
+
+def first_nonempty_after_header(ws):
+    for row in range(2, ws.max_row + 1):
+        value = ws.cell(row, 1).value
+        if value not in (None, ""):
+            return row
+    return None
+
+def fill_rgb(cell):
+    value = cell.fill.fgColor.rgb
+    if isinstance(value, str):
+        return value
+    return None
+
+def font_color(cell):
+    color = cell.font.color
+    if color is None:
+        return None
+    if color.type == "rgb":
+        return color.rgb
+    if color.type == "theme":
+        return f"theme:{color.theme}:{color.tint}"
+    return str(color.type)
+
+def autofilter_ref(ws):
+    return ws.auto_filter.ref or ""
+
+def guide_value(label):
+    guide = wb["Interpretation Guide"]
+    for row in range(1, guide.max_row + 1):
+        if guide.cell(row, 1).value == label:
+            value = guide.cell(row, 2).value
+            return None if value is None else str(value)
+    return None
+
+abbr = wb["Abbreviated Haplotypes"]
+abbr_headers = header_map(abbr)
+abbr_row = sample_row(abbr, "DW472")
+abbr_homo_row = sample_row(abbr, "DW473")
+custom = wb["Custom Sort"]
+custom_row = sample_row(custom, "DW472")
+custom_homo_row = sample_row(custom, "DW473")
+custom_section_row = first_nonempty_after_header(custom)
+full = wb["Full Sequencing Results 1"]
+full_col = sample_col(full, "DW472")
+full_homo_col = sample_col(full, "DW473")
+row_m2_genotype = row_for(full, "02_M2_G_02_06_156bp")
+row_shared_genotype = row_for(full, "02_M4M7_G_02_04_156bp")
+definition = wb["MHC Alleles Per MHC Haplotype"]
+definition_values = [
+    cell.value
+    for row in definition.iter_rows()
+    for cell in row
+    if cell.value is not None
+]
+with open(provenance_path) as handle:
+    provenance = json.load(handle)
+
+m2_cell = abbr.cell(abbr_row, abbr_headers["Haplotype 2"]) if abbr_row else None
+payload = {
+    "sheetnames": wb.sheetnames,
+    "abbreviatedHaplotype1": abbr.cell(abbr_row, abbr_headers["Haplotype 1"]).value if abbr_row else None,
+    "abbreviatedHaplotype2": abbr.cell(abbr_row, abbr_headers["Haplotype 2"]).value if abbr_row else None,
+    "abbreviatedHomozygoteHaplotype1": abbr.cell(abbr_homo_row, abbr_headers["Haplotype 1"]).value if abbr_homo_row else None,
+    "abbreviatedHomozygoteHaplotype2": abbr.cell(abbr_homo_row, abbr_headers["Haplotype 2"]).value if abbr_homo_row else None,
+    "abbreviatedReadCountHeader": abbr.cell(1, 3).value,
+    "abbreviatedA2FontName": abbr.cell(abbr_row, 1).font.name if abbr_row else None,
+    "abbreviatedA2FontSize": abbr.cell(abbr_row, 1).font.sz if abbr_row else None,
+    "abbreviatedA2FontBold": abbr.cell(abbr_row, 1).font.bold if abbr_row else None,
+    "abbreviatedAutoFilter": autofilter_ref(abbr),
+    "guideAssay": guide_value("Haplotype assay"),
+    "guideDefinition": guide_value("Haplotype definition"),
+    "guideMinReads": guide_value("Haplotype min reads"),
+    "guideMinSamplePercent": guide_value("Haplotype min sample percent"),
+    "guideMinLocusPercent": guide_value("Haplotype min locus percent"),
+    "guideLocusOverrides": guide_value("Haplotype locus percent overrides"),
+    "customSortFirstSection": custom.cell(custom_section_row, 1).value if custom_section_row else None,
+    "customSortSampleID": custom.cell(custom_row, 1).value if custom_row else None,
+    "customSortFirstSectionSampleID": custom.cell(custom_section_row + 1, 1).value if custom_section_row else None,
+    "customSortHomozygoteSampleID": custom.cell(custom_homo_row, 1).value if custom_homo_row else None,
+    "customSortSectionFontName": custom.cell(custom_section_row, 1).font.name if custom_section_row else None,
+    "customSortSectionFontSize": custom.cell(custom_section_row, 1).font.sz if custom_section_row else None,
+    "customSortA1FontSize": custom.cell(1, 1).font.sz,
+    "customSortAutoFilter": autofilter_ref(custom),
+    "customSortHomozygoteHaplotype1": custom.cell(custom_homo_row, abbr_headers["Haplotype 1"]).value if custom_homo_row else None,
+    "customSortHomozygoteHaplotype2": custom.cell(custom_homo_row, abbr_headers["Haplotype 2"]).value if custom_homo_row else None,
+    "mhcAHaplotype1": full.cell(row_for(full, "MHC-A Haplotype 1"), full_col).value if full_col else None,
+    "mhcAHaplotype2": full.cell(row_for(full, "MHC-A Haplotype 2"), full_col).value if full_col else None,
+    "fullHomozygoteAHaplotype1": full.cell(row_for(full, "MHC-A Haplotype 1"), full_homo_col).value if full_homo_col else None,
+    "fullHomozygoteAHaplotype2": full.cell(row_for(full, "MHC-A Haplotype 2"), full_homo_col).value if full_homo_col else None,
+    "fullDQAHaplotype1": full.cell(row_for(full, "MHC-DQA Haplotype 1"), full_col).value if full_col and row_for(full, "MHC-DQA Haplotype 1") else None,
+    "fullDQBHaplotype1": full.cell(row_for(full, "MHC-DQB Haplotype 1"), full_col).value if full_col and row_for(full, "MHC-DQB Haplotype 1") else None,
+    "fullDPAHaplotype1": full.cell(row_for(full, "MHC-DPA Haplotype 1"), full_col).value if full_col and row_for(full, "MHC-DPA Haplotype 1") else None,
+    "fullDPBHaplotype1": full.cell(row_for(full, "MHC-DPB Haplotype 1"), full_col).value if full_col and row_for(full, "MHC-DPB Haplotype 1") else None,
+    "fullCollapsedDQRowExists": row_for(full, "MHC-DQ Haplotype 1") is not None,
+    "fullCollapsedDPRowExists": row_for(full, "MHC-DP Haplotype 1") is not None,
+    "fullHasGenericGenotypeHeader": row_for(full, "Genotype") is not None,
+    "fullMafaGHeaderRow": row_for(full, "Mafa-G alleles"),
+    "fullMafaAGHeaderRow": row_for(full, "Mafa-AG alleles"),
+    "fullMafaAMajorHeaderRow": row_for(full, "Mafa-A major alleles"),
+    "fullMafaBHeaderRow": row_for(full, "Mafa-B alleles"),
+    "m2GenotypeFill": fill_rgb(full.cell(row_m2_genotype, full_col)) if row_m2_genotype and full_col else None,
+    "m2GenotypeFontColor": font_color(full.cell(row_m2_genotype, full_col)) if row_m2_genotype and full_col else None,
+    "m2GenotypeRowBold": full.cell(row_m2_genotype, full_col).font.bold if row_m2_genotype and full_col else None,
+    "m2AlleleNameFontName": full.cell(row_m2_genotype, 1).font.name if row_m2_genotype else None,
+    "m2AlleleNameFontSize": full.cell(row_m2_genotype, 1).font.sz if row_m2_genotype else None,
+    "m2AlleleNameFontColor": font_color(full.cell(row_m2_genotype, 1)) if row_m2_genotype else None,
+    "m2AlleleNameBold": full.cell(row_m2_genotype, 1).font.bold if row_m2_genotype else None,
+    "sharedAlleleNameFontName": full.cell(row_shared_genotype, 1).font.name if row_shared_genotype else None,
+    "sharedAlleleNameFontSize": full.cell(row_shared_genotype, 1).font.sz if row_shared_genotype else None,
+    "sharedAlleleNameFontColor": font_color(full.cell(row_shared_genotype, 1)) if row_shared_genotype else None,
+    "sharedAlleleNameBold": full.cell(row_shared_genotype, 1).font.bold if row_shared_genotype else None,
+    "fullA1FontSize": full.cell(1, 1).font.sz,
+    "definitionIncludesM1A": "M1A" in definition_values,
+    "definitionIncludesM1G": any("02_M1_G_02_07_2mis_156bp" in str(value) for value in definition_values),
+    "m2Fill": fill_rgb(m2_cell) if m2_cell is not None else None,
+    "m2FontColor": font_color(m2_cell) if m2_cell is not None else None,
+    "containsBOM": any(
+        isinstance(cell.value, str) and "\ufeff" in cell.value
+        for sheet in wb.worksheets
+        for row in sheet.iter_rows()
+        for cell in row
+    ),
+    "provenanceMode": provenance.get("mode"),
+    "provenanceOutputWorkbook": provenance.get("outputWorkbook"),
+}
+print(json.dumps(payload))
+"""#
+        let output = try runPython(["-c", code, url.path, provenanceJSON.path])
+        let data = Data(output.utf8)
+        let object = try JSONSerialization.jsonObject(with: data)
+        return try XCTUnwrap(object as? [String: Any])
+    }
+
+    private func runPython(_ arguments: [String], environment: [String: String] = [:]) throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = ["python3"] + arguments
+        if !environment.isEmpty {
+            process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, new in new }
+        }
         let stdout = Pipe()
         let stderr = Pipe()
         process.standardOutput = stdout
@@ -967,6 +1928,19 @@ print(json.dumps(payload))
         let data = try Data(contentsOf: url)
         let object = try JSONSerialization.jsonObject(with: data)
         return try XCTUnwrap(object as? [String: Any])
+    }
+
+    private func firstHaplotypeCall(
+        in analysis: [String: Any],
+        sample expectedSample: String,
+        locus expectedLocus: String
+    ) -> [String: Any]? {
+        guard let samples = analysis["samples"] as? [[String: Any]],
+              let sample = samples.first(where: { $0["sample"] as? String == expectedSample }),
+              let calls = sample["calls"] as? [[String: Any]] else {
+            return nil
+        }
+        return calls.first { $0["locus"] as? String == expectedLocus }
     }
 
     private func testValue(after flag: String, in arguments: [String]) throws -> String {
@@ -1011,6 +1985,21 @@ print(json.dumps(payload))
         return (bundleURL, fastqURL)
     }
 
+    private func makeCountedFASTQBundle(
+        root: URL,
+        name: String,
+        records: [(identifier: String, sequence: String)]
+    ) throws -> (bundleURL: URL, fastqURL: URL) {
+        let bundleURL = root.appendingPathComponent("\(name).lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let fastqURL = bundleURL.appendingPathComponent("deduplicated-amplicons.fastq")
+        let text = records.map { record in
+            "@\(record.identifier)\n\(record.sequence)\n+\n\(String(repeating: "I", count: record.sequence.count))\n"
+        }.joined()
+        try text.write(to: fastqURL, atomically: true, encoding: .utf8)
+        return (bundleURL, fastqURL)
+    }
+
     private func makeIlluminaFastqBundle(
         named name: String,
         reads: [String],
@@ -1043,6 +2032,17 @@ print(json.dumps(payload))
                     sourceLocus: "Mafa-A",
                     haplotypes: [
                         GenotypeHaplotypeDefinition(name: "M1A", diagnosticAlleles: ["A1_063"])
+                    ]
+                ),
+                GenotypeHaplotypeLocusDefinition(
+                    locus: "MHC-DQ",
+                    sourceLocus: "Mafa-DQ",
+                    haplotypes: [
+                        GenotypeHaplotypeDefinition(
+                            name: "M1DQ",
+                            diagnosticAlleles: ["14_M1_DQA1_24_03", "14_M1_DQB1_18_01_01"],
+                            minimumMatches: 2
+                        )
                     ]
                 )
             ]
@@ -1246,7 +2246,12 @@ print(json.dumps(payload))
             with open(outputs["bai"], "w") as handle:
                 handle.write("retained bai\n")
             with open(outputs["genotypes"], "w") as handle:
-                handle.write("sample,genotype,passed_alignments,passed_unique_reads\nDW472,allele1,1,1\n")
+                handle.write("sample,genotype,passed_alignments,passed_unique_reads\n")
+                handle.write("DW472,A1_063_01,1,1\n")
+                handle.write("DW472,14_M1_DQA1_24_03,100,100\n")
+                handle.write("DW472,14_M1_DQB1_18_01_01,100,100\n")
+                handle.write("DW472,14_M2M6_DQB1_06g:14_M_DQB1_06_01_01,4,4\n")
+                handle.write("DW472,14_M4_DQB1_06_08,4,4\n")
             with open(outputs["samples"], "w") as handle:
                 handle.write("sample,passed_alignments,passed_unique_reads\nDW472,1,1\n")
             stats = {
@@ -1269,16 +2274,28 @@ print(json.dumps(payload))
         if script == "write-retained-demux-workbook.py":
             output_xlsx = option("--output-xlsx")
             provenance_json = option("--provenance-json")
+            is_client_current = "--client-current-workbook" in sys.argv
             os.makedirs(os.path.dirname(output_xlsx), exist_ok=True)
             with open(output_xlsx, "w") as handle:
-                handle.write("workbook\n")
+                handle.write("client current workbook\n" if is_client_current else "workbook\n")
             with open(provenance_json, "w") as handle:
-                json.dump({"argv": sys.argv, "exitStatus": 0}, handle)
+                json.dump({
+                    "argv": sys.argv,
+                    "exitStatus": 0,
+                    "mode": "mcm-client-current" if is_client_current else "standard-report",
+                    "outputWorkbook": output_xlsx,
+                }, handle)
             print(json.dumps({
                 "outputXLSX": output_xlsx,
                 "provenanceJSON": provenance_json,
                 "openpyxlVersion": "test-openpyxl",
-                "sheetNames": ["barcode08-mhc"],
+                "sheetNames": [
+                    "Interpretation Guide",
+                    "MHC Alleles Per MHC Haplotype",
+                    "Abbreviated Haplotypes",
+                    "Full Sequencing Results 1",
+                    "Custom Sort",
+                ] if is_client_current else ["barcode08-mhc"],
                 "auditRows": 0,
             }))
             sys.exit(0)

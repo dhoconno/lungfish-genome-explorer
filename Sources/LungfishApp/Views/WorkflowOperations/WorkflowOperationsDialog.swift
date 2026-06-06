@@ -69,7 +69,7 @@ private struct WorkflowOperationsDetailPane: View {
                 section(DatasetOperationSection.inputs.title) {
                     referencePicker
                     if case .ontGenotyping = state.selectedTool?.kind,
-                       state.selectedGenotypingMode != .illuminaPaired {
+                       state.effectiveGenotypingMode == .ontBarcodeDemux {
                         barcodePicker
                     }
                     if case .twelveSAmpliconMatching = state.selectedTool?.kind {
@@ -231,7 +231,18 @@ private struct WorkflowOperationsDetailPane: View {
                 labeledTextField("Report Name", text: $state.outputName)
                 HStack(spacing: 12) {
                     labeledCompactTextField("Threads", value: $state.threads)
-                    labeledCompactTextField("Min Support", value: $state.minSupport)
+                    labeledCompactTextField("Min Reads", value: $state.minSupport)
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Call Thresholds")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 12) {
+                        labeledCompactDoubleTextField("Locus %", value: $state.haplotypeDropoutLocusPercent)
+                    }
+                    Text("Used for haplotype calls and Excel output. Inspector filters only change what is shown.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
                 haplotypeDefinitionPicker
             }
@@ -271,20 +282,17 @@ private struct WorkflowOperationsDetailPane: View {
 
     private var genotypingModePicker: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Read Configuration")
+            Text("Read Type")
                 .font(.subheadline.weight(.medium))
-            Picker("Mode", selection: genotypingModeBinding) {
-                ForEach(AmpliconGenotypingMode.allCases, id: \.rawValue) { mode in
-                    Text(mode.displayName).tag(mode.rawValue)
-                }
-            }
-            .pickerStyle(.menu)
             Picker("Read Type", selection: genotypingReadTypeBinding) {
                 ForEach(AmpliconGenotypingReadType.allCases, id: \.rawValue) { readType in
                     Text(readType.displayName).tag(readType.rawValue)
                 }
             }
             .pickerStyle(.menu)
+            Text(state.effectiveGenotypingMode.displayName)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -433,17 +441,6 @@ private struct WorkflowOperationsDetailPane: View {
         )
     }
 
-    private var genotypingModeBinding: Binding<String> {
-        Binding(
-            get: { state.selectedGenotypingMode.rawValue },
-            set: { value in
-                if let mode = AmpliconGenotypingMode(cliArgument: value) {
-                    state.selectedGenotypingMode = mode
-                }
-            }
-        )
-    }
-
     private var genotypingReadTypeBinding: Binding<String> {
         Binding(
             get: { state.selectedGenotypingReadType.rawValue },
@@ -528,6 +525,18 @@ private struct WorkflowOperationsDetailPane: View {
             TextField(label, value: value, format: .number)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 96)
+                .labelsHidden()
+        }
+    }
+
+    private func labeledCompactDoubleTextField(_ label: String, value: Binding<Double>) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            TextField(label, value: value, format: .number.precision(.fractionLength(0...2)))
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 76)
                 .labelsHidden()
         }
     }

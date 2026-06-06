@@ -52,6 +52,9 @@ final class WorkflowOperationDialogState {
     var outputName: String
     var threads: Int
     var minSupport: Int
+    var haplotypeDropoutSamplePercent: Double
+    var haplotypeDropoutLocusPercent: Double
+    var haplotypeDropoutLocusOverridePercents: [String: Double]
     var selectedGenotypingMode: AmpliconGenotypingMode
     var selectedGenotypingReadType: AmpliconGenotypingReadType
     var twelveSMinimumSoftClipBases: Int
@@ -87,6 +90,9 @@ final class WorkflowOperationDialogState {
         self.outputName = Self.defaultONTGenotypingOutputName(for: standardizedReadURLs)
         self.threads = max(1, ProcessInfo.processInfo.activeProcessorCount)
         self.minSupport = 1
+        self.haplotypeDropoutSamplePercent = 0.0
+        self.haplotypeDropoutLocusPercent = 1.0
+        self.haplotypeDropoutLocusOverridePercents = [:]
         self.selectedGenotypingMode = .auto
         self.selectedGenotypingReadType = Self.defaultGenotypingReadType(for: standardizedReadURLs)
         self.twelveSMinimumSoftClipBases = 1
@@ -238,6 +244,29 @@ final class WorkflowOperationDialogState {
         selectedMHCReferenceBundleURL != nil
     }
 
+    var effectiveGenotypingMode: AmpliconGenotypingMode {
+        if selectedGenotypingMode == .ontSampleBundles {
+            return .ontSampleBundles
+        }
+        switch selectedGenotypingReadType {
+        case .ont:
+            if selectedReadURLs.count > 1 {
+                return .ontSampleBundles
+            }
+            return .ontBarcodeDemux
+        case .illumina:
+            return .illuminaPaired
+        case .auto:
+            if selectedGenotypingMode != .auto {
+                return selectedGenotypingMode
+            }
+            if selectedBarcodeDefinitionURL != nil {
+                return .ontBarcodeDemux
+            }
+            return .auto
+        }
+    }
+
     /// "From bundle: <name>" caption shown in place of the haplotype picker stack when an
     /// `.lungfishmhcref` bundle is selected; `nil` otherwise.
     var referenceBundleSummary: String? {
@@ -302,7 +331,7 @@ final class WorkflowOperationDialogState {
             return "Select a valid analysis metadata CSV or TSV file."
         }
         if selectedTool?.kind == .ontGenotyping,
-           selectedGenotypingMode == .ontBarcodeDemux,
+           effectiveGenotypingMode == .ontBarcodeDemux,
            selectedBarcodeDefinitionURL == nil {
             return "Select a project barcode definition or choose a CSV/TSV file."
         }
@@ -323,7 +352,11 @@ final class WorkflowOperationDialogState {
             return "Threads must be at least 1."
         }
         if selectedTool?.kind == .ontGenotyping, minSupport < 1 {
-            return "Minimum support must be at least 1."
+            return "Minimum read threshold must be at least 1."
+        }
+        if selectedTool?.kind == .ontGenotyping,
+           haplotypeDropoutLocusPercent < 0 || haplotypeDropoutLocusPercent > 100 {
+            return "Locus percent threshold must be between 0 and 100."
         }
         if selectedTool?.kind == .twelveSAmpliconMatching,
            twelveSMinimumSoftClipBases < 0 {
@@ -334,7 +367,7 @@ final class WorkflowOperationDialogState {
             return "Maximum indels must be at least 0."
         }
         if selectedTool?.kind == .ontGenotyping,
-           selectedGenotypingMode == .illuminaPaired,
+           effectiveGenotypingMode == .illuminaPaired,
            selectedReadURLs.isEmpty {
             return "Select one or more prepared Illumina sample FASTQ bundles."
         }
@@ -544,8 +577,8 @@ final class WorkflowOperationDialogState {
                 throw WorkflowOperationError.incompleteConfiguration(readinessText)
             }
             let barcodeDefinitionURL: URL?
-            if selectedGenotypingMode != .illuminaPaired
-                && (selectedGenotypingMode == .ontBarcodeDemux || selectedBarcodeDefinitionURL != nil) {
+            let launchMode = effectiveGenotypingMode
+            if launchMode == .ontBarcodeDemux {
                 guard let selectedBarcodeDefinitionURL else {
                     throw WorkflowOperationError.incompleteConfiguration(readinessText)
                 }
@@ -570,12 +603,17 @@ final class WorkflowOperationDialogState {
                 projectURL: projectURL,
                 threads: threads,
                 minSupport: minSupport,
+                haplotypeDropoutSampleFraction: nil,
+                haplotypeDropoutLocusFraction: selectedHaplotypeDefinitionSetID == nil
+                    ? nil
+                    : Self.fraction(fromPercent: haplotypeDropoutLocusPercent),
+                haplotypeDropoutLocusFractionOverrides: [:],
                 haplotypeAssayID: selectedHaplotypeDefinitionSetID == nil ? nil : selectedHaplotypeAssayID,
                 haplotypeSpeciesCode: selectedHaplotypeDefinitionSetID == nil ? nil : selectedHaplotypeSpeciesCode,
                 haplotypeDefinitionScope: selectedHaplotypeDefinitionSetID == nil ? nil : selectedHaplotypeDefinitionScope,
                 haplotypeDefinitionSetID: selectedHaplotypeDefinitionSetID,
                 extraArguments: try AdvancedCommandLineOptions.parse(extraArgumentsText),
-                mode: selectedGenotypingMode,
+                mode: launchMode,
                 readType: selectedGenotypingReadType
             )
             return .ontGenotyping(request)
@@ -610,6 +648,11 @@ final class WorkflowOperationDialogState {
                 bundleRoot: outputDirectoryURL.appendingPathComponent("Workflow Runs", isDirectory: true)
             )
         }
+    }
+
+    private static func fraction(fromPercent percent: Double) -> Double? {
+        guard percent.isFinite, percent > 0 else { return nil }
+        return min(percent, 100.0) / 100.0
     }
 
     private func makeLocalWorkflowRunRequest(
@@ -1048,11 +1091,7 @@ final class WorkflowOperationDialogState {
     }
 
     private static func defaultONTGenotypingOutputName(for selectedReadURLs: [URL]) -> String {
-        guard let stem = selectedReadURLs.first?.deletingPathExtension().lastPathComponent,
-              !stem.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return "ont-mhc"
-        }
-        return "\(sanitizeFilenameStem(stem))-mhc"
+        "amplicon-genotyping"
     }
 
     private static func defaultTwelveSOutputName(for selectedReadURLs: [URL]) -> String {

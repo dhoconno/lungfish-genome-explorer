@@ -646,6 +646,35 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         )
     }
 
+    func testONTFluidigmSampleSplitUsesBarcodeDefinitionAndFixedBatchOutput() {
+        let inputURL = URL(fileURLWithPath: "/tmp/barcode11.lungfishfastq", isDirectory: true)
+        let barcodeURL = URL(fileURLWithPath: "/tmp/ONT09_NB11_samples.csv")
+        let state = FASTQOperationDialogState(
+            initialCategory: .demultiplexing,
+            selectedInputURLs: [inputURL]
+        )
+
+        state.selectTool(.ontFluidigmSampleSplit)
+
+        XCTAssertEqual(state.requiredInputKinds, [.fastqDataset, .barcodeDefinition])
+        XCTAssertEqual(state.outputMode, .fixedBatch)
+        XCTAssertEqual(state.readinessText, "Select a Fluidigm sample barcode CSV or TSV.")
+        XCTAssertFalse(FASTQOperationToolID.ontFluidigmSampleSplit.supportsFASTA)
+
+        state.setAuxiliaryInput(barcodeURL, for: .barcodeDefinition)
+        state.prepareForRun()
+
+        XCTAssertTrue(state.isRunEnabled)
+        XCTAssertEqual(
+            state.pendingLaunchRequest,
+            .ontFluidigmSampleSplit(
+                inputFASTQURL: inputURL,
+                barcodeDefinitionsURL: barcodeURL,
+                threads: max(1, ProcessInfo.processInfo.activeProcessorCount)
+            )
+        )
+    }
+
     func testDemultiplexSelectedEngineRoutesIntoLaunchRequest() {
         let state = FASTQOperationDialogState(
             initialCategory: .demultiplexing,

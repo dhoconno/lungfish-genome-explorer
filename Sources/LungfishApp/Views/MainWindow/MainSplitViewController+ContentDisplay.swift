@@ -207,9 +207,8 @@ extension MainSplitViewController {
         }
     }
 
-    /// Display an MHC amplicon reference bundle (`.lungfishmhcref`). This bundle is
-    /// metadata-only with no viewport, so the viewport is cleared with an informative
-    /// status and all details are surfaced in the Bundle inspector tab.
+    /// Display an MHC amplicon reference bundle (`.lungfishmhcref`) with its
+    /// paired FASTA and haplotype definitions.
     func displayMHCReferenceBundleFromSidebar(
         at url: URL,
         identity: ContentSelectionIdentity? = nil,
@@ -226,11 +225,24 @@ extension MainSplitViewController {
                 defer { self.activityIndicator.hide() }
                 guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
 
-                self.inspectorController.clearSelection()
-                self.inspectorController.updateMHCReferenceBundleDocument(url)
-                self.viewerController.clearViewport(
-                    statusMessage: "MHC reference bundle — see the Bundle inspector for details."
-                )
+                do {
+                    let model = try MHCReferenceBundleViewportModel.load(bundleURL: url)
+                    self.inspectorController.clearSelection()
+                    self.inspectorController.updateMHCReferenceBundleDocument(url)
+                    self.viewerController.displayMHCReferenceBundle(model) { [weak self] in
+                        guard let self else { return }
+                        HaplotypeDefinitionManagerWindowController.show(
+                            projectURL: self.sidebarController.currentProjectURL
+                                ?? DocumentManager.shared.activeProject?.url,
+                            editingBundleURL: url
+                        )
+                    }
+                } catch {
+                    mainSplitLogger.error(
+                        "displayMHCReferenceBundle: Failed - \(error.localizedDescription, privacy: .public)"
+                    )
+                    self.viewerController.clearViewport(statusMessage: "Unable to load MHC reference bundle.")
+                }
             }
         }
     }
@@ -423,15 +435,26 @@ extension MainSplitViewController {
 
     /// Display an MHC amplicon reference bundle (`.lungfishmhcref`) opened outside the
     /// project sidebar (Finder double-click, "Open With", File > Open Recent, drag-to-dock).
-    /// The bundle is metadata-only with no viewport, so the viewport is cleared with an
-    /// informative status and all details are surfaced in the Bundle inspector tab.
     /// `updateMHCReferenceBundleDocument` sets the `.mhcReferenceBundle` provenance target.
     func displayMHCReferenceBundleFromExternalOpen(at url: URL) {
-        inspectorController.clearSelection()
-        inspectorController.updateMHCReferenceBundleDocument(url)
-        viewerController.clearViewport(
-            statusMessage: "MHC reference bundle — see the Bundle inspector for details."
-        )
+        do {
+            let model = try MHCReferenceBundleViewportModel.load(bundleURL: url)
+            inspectorController.clearSelection()
+            inspectorController.updateMHCReferenceBundleDocument(url)
+            viewerController.displayMHCReferenceBundle(model) { [weak self] in
+                guard let self else { return }
+                HaplotypeDefinitionManagerWindowController.show(
+                    projectURL: self.sidebarController.currentProjectURL
+                        ?? DocumentManager.shared.activeProject?.url,
+                    editingBundleURL: url
+                )
+            }
+        } catch {
+            mainSplitLogger.error(
+                "displayMHCReferenceBundleFromExternalOpen: Failed - \(error.localizedDescription, privacy: .public)"
+            )
+            viewerController.clearViewport(statusMessage: "Unable to load MHC reference bundle.")
+        }
     }
 
     /// Display a direct reference bundle in the shared list/detail reference viewport.

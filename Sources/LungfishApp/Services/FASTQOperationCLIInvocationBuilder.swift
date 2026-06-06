@@ -35,6 +35,20 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
                 )
             )
 
+        case .ontFluidigmSampleSplit(let inputFASTQURL, let barcodeDefinitionsURL, let threads):
+            return CLIInvocation(
+                subcommand: "fastq",
+                arguments: [
+                    "ont-fluidigm-samples",
+                    inputFASTQURL.path,
+                    "--barcodes", barcodeDefinitionsURL.path,
+                    "--output", outputTargetPath,
+                    "--threads", String(threads),
+                    "--primer-mismatches", "2",
+                    "--minimum-insert-length", "20",
+                ]
+            )
+
         case .map(let inputURLs, let referenceURL, _):
             var arguments = inputURLs.map(\.path)
             arguments += ["--reference", referenceURL.path]
@@ -120,6 +134,7 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
                 "--sort-threads", String(request.sortThreads),
                 "--min-support", String(request.minSupport),
             ]
+            request.appendHaplotypeThresholdArguments(to: &arguments)
             if let barcodeDefinitionsURL = request.barcodeDefinitionsURL {
                 arguments += ["--barcodes", barcodeDefinitionsURL.path]
             }

@@ -91,6 +91,9 @@ public class ViewerViewController: NSViewController {
     /// Shared reference bundle viewport (shown for direct `.lungfishref` bundle opens)
     var referenceBundleViewportController: ReferenceBundleViewportController?
 
+    /// Native MHC amplicon reference bundle viewport.
+    var mhcReferenceBundleViewController: NSHostingController<MHCReferenceBundleViewport>?
+
     /// Native multiple-sequence alignment bundle viewport.
     var multipleSequenceAlignmentViewController: MultipleSequenceAlignmentViewController?
 
@@ -1123,6 +1126,7 @@ public class ViewerViewController: NSViewController {
         hideCzIdView()
         hideAssemblyView()
         hideMappingView()
+        hideMHCReferenceBundleView()
         hideAlignmentTreeBundleViews()
         contentMode = .fastq
 
@@ -1271,6 +1275,7 @@ public class ViewerViewController: NSViewController {
         hideCzIdView()
         hideAssemblyView()
         hideMappingView()
+        hideMHCReferenceBundleView()
         hideAlignmentTreeBundleViews()
 
         let controller = VCFDatasetViewController()
@@ -2763,6 +2768,7 @@ public class ViewerViewController: NSViewController {
         hideCzIdView()
         hideAssemblyView()
         hideMappingView()
+        hideMHCReferenceBundleView()
         hideGenotypeResultView()
         hideTwelveSAmpliconResultView()
         hideAlignmentTreeBundleViews()

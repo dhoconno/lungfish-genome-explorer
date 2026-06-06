@@ -27,7 +27,19 @@ final class HaplotypeColorTokenTests: XCTestCase {
         XCTAssertEqual(HaplotypeColorToken.assigned(forName: "M1A").canonicalIndex, 1)
         XCTAssertEqual(HaplotypeColorToken.assigned(forName: "M3DR").canonicalIndex, 3)
         XCTAssertEqual(HaplotypeColorToken.assigned(forName: "M7B").canonicalIndex, 7)
+        XCTAssertEqual(HaplotypeColorToken.assigned(forName: "M4DP").canonicalIndex, 4)
+        XCTAssertEqual(HaplotypeColorToken.assigned(forName: "M7DP").canonicalIndex, 7)
         XCTAssertEqual(HaplotypeColorToken.assigned(forName: "-").canonicalIndex, 0)
+    }
+
+    func testConcreteMCMDPHaplotypesUseBuddeColors() {
+        for index in 1...7 {
+            XCTAssertEqual(
+                HaplotypeColorToken.assigned(forName: "M\(index)DP").canonicalIndex,
+                index,
+                "M\(index)DP should use canonical M\(index) color"
+            )
+        }
     }
 
     func testUnknownNameUsesHashedAssignment() {

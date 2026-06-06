@@ -64,7 +64,95 @@ final class GenotypeCallEvidenceViewTests: XCTestCase {
         XCTAssertFalse(evidence.isHomozygous)
     }
 
-    func testCandidateRowsUseDirectSetHaplotypeButtonAndNotObservedMarkers() throws {
+    func testCandidateOverrideActionsShowWhichDiploidSlotWillChange() {
+        let evidence = GenotypeCallEvidenceView.Evidence(
+            sample: "DW472",
+            locus: "MHC-DP",
+            slot: .h1,
+            callName: "M4DP",
+            status: .tooManyHaplotypes,
+            observedGenotypeCount: 3,
+            observedGenotypes: [],
+            diagnosticAlleles: [],
+            locusReadTotal: 500,
+            neighborsBefore: [],
+            neighborsAfter: [],
+            h1Name: "M4DP",
+            h2Name: "M7DP"
+        )
+        let candidate = GenotypeCallEvidenceView.CandidateHaplotype(
+            name: "M3DP",
+            observed: ["15_M3_DPA1_01"],
+            missing: ["15_M3_DPB1_01"]
+        )
+
+        let actions = GenotypeCallEvidenceView.overrideActions(for: candidate, evidence: evidence)
+
+        XCTAssertEqual(actions.map(\.slot), [.h1, .h2])
+        XCTAssertEqual(actions.map(\.label), ["H1: M4DP -> M3DP", "H2: M7DP -> M3DP"])
+        XCTAssertTrue(actions.first?.help.contains("H2 remains M7DP") ?? false)
+        XCTAssertTrue(actions.last?.help.contains("H1 remains M4DP") ?? false)
+    }
+
+    func testGroupedCandidateOverrideActionsExpandToConcreteHaplotypes() {
+        let evidence = GenotypeCallEvidenceView.Evidence(
+            sample: "DW472",
+            locus: "MHC-DP",
+            slot: .h1,
+            callName: "M4DP / M7DP",
+            status: .tooManyHaplotypes,
+            observedGenotypeCount: 3,
+            observedGenotypes: [],
+            diagnosticAlleles: [],
+            locusReadTotal: 500,
+            neighborsBefore: [],
+            neighborsAfter: [],
+            h1Name: "M4DP",
+            h2Name: "M7DP"
+        )
+        let candidate = GenotypeCallEvidenceView.CandidateHaplotype(
+            name: "M5/M6DP",
+            observed: ["15_M5M6_DPA1_01"],
+            missing: ["15_M5M6_DPB1_01"]
+        )
+
+        let actions = GenotypeCallEvidenceView.overrideActions(for: candidate, evidence: evidence)
+
+        XCTAssertEqual(actions.map(\.haplotypeName), ["M5DP", "M5DP", "M6DP", "M6DP"])
+        XCTAssertEqual(actions.map(\.label), [
+            "H1: M4DP -> M5DP",
+            "H2: M7DP -> M5DP",
+            "H1: M4DP -> M6DP",
+            "H2: M7DP -> M6DP",
+        ])
+        XCTAssertFalse(actions.contains { $0.haplotypeName == "M5/M6DP" })
+    }
+
+    func testUnresolvedOverrideActionsAllowQuestionMarkAssignments() {
+        let evidence = GenotypeCallEvidenceView.Evidence(
+            sample: "DW472",
+            locus: "MHC-DP",
+            slot: .h1,
+            callName: "M4DP / M7DP",
+            status: .tooManyHaplotypes,
+            observedGenotypeCount: 3,
+            observedGenotypes: [],
+            diagnosticAlleles: [],
+            locusReadTotal: 500,
+            neighborsBefore: [],
+            neighborsAfter: [],
+            h1Name: "M4DP",
+            h2Name: "M7DP"
+        )
+
+        let actions = GenotypeCallEvidenceView.unresolvedOverrideActions(for: evidence)
+
+        XCTAssertEqual(actions.map(\.haplotypeName), ["?", "?"])
+        XCTAssertEqual(actions.map(\.label), ["H1: M4DP -> ?", "H2: M7DP -> ?"])
+        XCTAssertTrue(actions.first?.help.contains("Leave H1 unresolved") ?? false)
+    }
+
+    func testCandidateRowsUseSlotExplicitSetHaplotypeButtonsAndNotObservedMarkers() throws {
         let sourceURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -73,9 +161,9 @@ final class GenotypeCallEvidenceViewTests: XCTestCase {
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
 
         XCTAssertFalse(source.contains("Menu(\"Override"))
-        XCTAssertFalse(source.contains("Button(\"Set H1"))
-        XCTAssertFalse(source.contains("Button(\"Set H2"))
-        XCTAssertTrue(source.contains("Button(\"Set haplotype"))
+        XCTAssertFalse(source.contains("Button(\"Set haplotype"))
+        XCTAssertTrue(source.contains("overrideActions(for: candidate, evidence: evidence)"))
+        XCTAssertTrue(source.contains("onOverrideRequested?(action.haplotypeName, action.slot)"))
         XCTAssertTrue(source.contains("[not observed]"))
     }
 
@@ -90,5 +178,20 @@ final class GenotypeCallEvidenceViewTests: XCTestCase {
         XCTAssertFalse(source.contains("NSPopover"))
         XCTAssertFalse(source.contains("presentCellEvidencePopover"))
         XCTAssertTrue(source.contains("selectCellEvidence"))
+    }
+
+    func testResultViewportShowsRunThresholdSummaryInsteadOfDropoutEditor() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeResultViewController.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertFalse(source.contains("Dropout Thresholds"))
+        XCTAssertFalse(source.contains("makeDropoutThresholdHost"))
+        XCTAssertFalse(source.contains("applyDropoutThresholds"))
+        XCTAssertTrue(source.contains("Haplotype Thresholds"))
+        XCTAssertTrue(source.contains("Rerun Amplicon Genotyping"))
     }
 }

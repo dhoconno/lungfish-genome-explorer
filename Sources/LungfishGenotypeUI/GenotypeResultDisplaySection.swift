@@ -213,10 +213,10 @@ public struct GenotypeResultDisplaySection: View {
                     Divider()
                     viewControls
                     layoutControls
-                    supportControls
+                    thresholdGuidance
                     colorControls
                     highlightControls
-                    Text("Filtering and colors are viewport aids. They do not change genotype calls or write analyst annotations to the bundle.")
+                    Text("Viewport colors are display aids. They do not change genotype calls or write analyst annotations to the bundle.")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -279,95 +279,15 @@ public struct GenotypeResultDisplaySection: View {
         }
     }
 
-    private var supportControls: some View {
+    private var thresholdGuidance: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Toggle(isOn: Binding(
-                get: { viewModel.displayState.hideLowSupport },
-                set: { viewModel.setHideLowSupport($0) }
-            )) {
-                Text("Hide Low Support")
-            }
-            .toggleStyle(.switch)
-            .controlSize(.small)
-
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("Minimum")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    TextField("Minimum", value: Binding(
-                        get: { viewModel.displayState.minimumSupportPercent },
-                        set: { viewModel.setMinimumSupportPercent($0) }
-                    ), format: .number.precision(.fractionLength(1)))
-                    .multilineTextAlignment(.trailing)
-                    .frame(width: 58)
-                    .disabled(!viewModel.displayState.hideLowSupport)
-                    .textFieldStyle(.roundedBorder)
-                    .controlSize(.small)
-                    Text("%")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Slider(
-                    value: Binding(
-                        get: { viewModel.displayState.minimumSupportPercent },
-                        set: { viewModel.setMinimumSupportPercent($0) }
-                    ),
-                    in: 0...100,
-                    step: 0.1
-                )
-                .disabled(!viewModel.displayState.hideLowSupport)
-                .controlSize(.small)
-            }
-
-            Toggle(isOn: Binding(
-                get: { viewModel.displayState.hideFilteredHighlights },
-                set: { viewModel.setHideFilteredHighlights($0) }
-            )) {
-                Text("Hide Filtered Highlights")
-            }
-            .toggleStyle(.switch)
-            .controlSize(.small)
-            .disabled(!viewModel.displayState.hideLowSupport)
-
-            Picker("Denominator", selection: Binding(
-                get: { viewModel.displayState.supportDenominator },
-                set: { viewModel.setSupportDenominator($0) }
-            )) {
-                ForEach(ONTGenotypeSupportDenominator.allCases, id: \.self) { denominator in
-                    Text(denominator.displayName).tag(denominator)
-                }
-            }
-            .pickerStyle(.menu)
-            .controlSize(.small)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Minimum Reads")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                HStack {
-                    TextField("Minimum", value: Binding(
-                        get: { viewModel.displayState.minimumReads },
-                        set: { viewModel.setMinimumReads($0) }
-                    ), format: .number)
-                    .multilineTextAlignment(.trailing)
-                    .frame(width: 74)
-                    .textFieldStyle(.roundedBorder)
-                    .controlSize(.small)
-
-                    Stepper(
-                        "",
-                        value: Binding(
-                            get: { viewModel.displayState.minimumReads },
-                            set: { viewModel.setMinimumReads($0) }
-                        ),
-                        in: 0...1_000_000
-                    )
-                    .labelsHidden()
-                    .controlSize(.small)
-                }
-            }
+            Text("Haplotype thresholds")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text("Thresholds are fixed by the genotyping run. Re-run Amplicon Genotyping to change min reads or percent thresholds.")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

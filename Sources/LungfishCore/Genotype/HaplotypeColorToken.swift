@@ -115,7 +115,8 @@ public extension HaplotypeColorToken {
         "M1B": 1, "M2B": 2, "M3B": 3, "M4B": 4, "M5B": 5, "M6B": 6, "M7B": 7,
         "M1DR": 1, "M2DR": 2, "M3DR": 3, "M4DR": 4, "M5DR": 5, "M6DR": 6, "M7DR": 7,
         "M1DQ": 1, "M2DQ": 2, "M3DQ": 3, "M4DQ": 4, "M5DQ": 5, "M6DQ": 6, "M7DQ": 7,
-        "M1DP": 1, "M2DP": 2, "M3DP": 3, "M4M7DP": 4, "M5M6DP": 5,
+        "M1DP": 1, "M2DP": 2, "M3DP": 3, "M4DP": 4, "M5DP": 5, "M6DP": 6, "M7DP": 7,
+        "M4M7DP": 4, "M5M6DP": 5,
         "-": 0, "": 0, "A1_063": 1,
     ]
 

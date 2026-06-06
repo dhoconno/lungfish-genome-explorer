@@ -11,10 +11,17 @@ final class HaplotypeDefinitionManagerWindowController: NSWindowController {
     private static var shared: HaplotypeDefinitionManagerWindowController?
 
     static func show(projectURL: URL?) {
+        show(projectURL: projectURL, editingBundleURL: nil)
+    }
+
+    static func show(projectURL: URL?, editingBundleURL: URL?) {
         let controller = shared ?? HaplotypeDefinitionManagerWindowController(projectURL: projectURL)
         shared = controller
         if let view = controller.window?.contentViewController as? NSHostingController<HaplotypeDefinitionManagerView> {
-            view.rootView.viewModel.configure(projectURL: projectURL)
+            view.rootView.viewModel.configure(
+                projectURL: projectURL,
+                editingBundleURL: editingBundleURL
+            )
         }
         controller.showWindow(nil)
         controller.window?.makeKeyAndOrderFront(nil)
@@ -63,6 +70,7 @@ final class HaplotypeDefinitionManagerViewModel: ObservableObject {
     @Published var selectedRecordID: String?
     @Published var errorMessage: String?
     @Published var isWorking = false
+    @Published var pendingEditRecordID: String?
 
     init(projectURL: URL?) {
         self.projectURL = projectURL?.standardizedFileURL
@@ -70,8 +78,15 @@ final class HaplotypeDefinitionManagerViewModel: ObservableObject {
     }
 
     func configure(projectURL: URL?) {
+        configure(projectURL: projectURL, editingBundleURL: nil)
+    }
+
+    func configure(projectURL: URL?, editingBundleURL: URL?) {
         self.projectURL = projectURL?.standardizedFileURL
         reload()
+        if let editingBundleURL {
+            beginEditing(bundleURL: editingBundleURL)
+        }
     }
 
     var selectedRecord: HaplotypeDefinitionRecord? {
@@ -113,6 +128,16 @@ final class HaplotypeDefinitionManagerViewModel: ObservableObject {
             referenceFASTAURL: record.referenceFASTAURL,
             definition: record.definitionSet
         )
+    }
+
+    func beginEditing(bundleURL: URL) {
+        let standardized = bundleURL.standardizedFileURL
+        guard let record = records.first(where: { $0.referenceBundleURL == standardized }) else {
+            errorMessage = "This MHC reference bundle is not available in the active project."
+            return
+        }
+        selectedRecordID = record.id
+        pendingEditRecordID = record.id
     }
 
     func importDefinition() {
@@ -504,11 +529,24 @@ struct HaplotypeDefinitionManagerView: View {
         } message: {
             Text(viewModel.errorMessage ?? "")
         }
+        .onAppear {
+            consumePendingEditRequest()
+        }
+        .onChange(of: viewModel.pendingEditRecordID) { _, _ in
+            consumePendingEditRequest()
+        }
     }
 
     private func beginEditing(_ draft: HaplotypeDefinitionManagerEditingDraft) {
         selectedReferenceURL = draft.referenceFASTAURL
         editingDraft = draft
+    }
+
+    private func consumePendingEditRequest() {
+        guard let recordID = viewModel.pendingEditRecordID else { return }
+        viewModel.pendingEditRecordID = nil
+        guard let record = viewModel.records.first(where: { $0.id == recordID }) else { return }
+        beginEditing(viewModel.editDraft(for: record))
     }
 
     private var toolbar: some View {

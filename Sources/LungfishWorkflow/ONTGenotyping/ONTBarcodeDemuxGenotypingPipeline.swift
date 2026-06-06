@@ -17,6 +17,9 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
     public let threads: Int
     public let sortThreads: Int
     public let minSupport: Int
+    public let haplotypeDropoutSampleFraction: Double?
+    public let haplotypeDropoutLocusFraction: Double?
+    public let haplotypeDropoutLocusFractionOverrides: [String: Double]
     public let haplotypeAssayID: String?
     public let haplotypeSpeciesCode: String?
     public let haplotypeDefinitionScope: HaplotypeDefinitionScope?
@@ -39,6 +42,9 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
         threads: Int = max(1, ProcessInfo.processInfo.activeProcessorCount),
         sortThreads: Int = 4,
         minSupport: Int = 1,
+        haplotypeDropoutSampleFraction: Double? = nil,
+        haplotypeDropoutLocusFraction: Double? = nil,
+        haplotypeDropoutLocusFractionOverrides: [String: Double] = [:],
         haplotypeAssayID: String? = nil,
         haplotypeSpeciesCode: String? = nil,
         haplotypeDefinitionScope: HaplotypeDefinitionScope? = nil,
@@ -59,6 +65,9 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
             threads: threads,
             sortThreads: sortThreads,
             minSupport: minSupport,
+            haplotypeDropoutSampleFraction: haplotypeDropoutSampleFraction,
+            haplotypeDropoutLocusFraction: haplotypeDropoutLocusFraction,
+            haplotypeDropoutLocusFractionOverrides: haplotypeDropoutLocusFractionOverrides,
             haplotypeAssayID: haplotypeAssayID,
             haplotypeSpeciesCode: haplotypeSpeciesCode,
             haplotypeDefinitionScope: haplotypeDefinitionScope,
@@ -83,6 +92,9 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
         threads: Int = max(1, ProcessInfo.processInfo.activeProcessorCount),
         sortThreads: Int = 4,
         minSupport: Int = 1,
+        haplotypeDropoutSampleFraction: Double? = nil,
+        haplotypeDropoutLocusFraction: Double? = nil,
+        haplotypeDropoutLocusFractionOverrides: [String: Double] = [:],
         haplotypeAssayID: String? = nil,
         haplotypeSpeciesCode: String? = nil,
         haplotypeDefinitionScope: HaplotypeDefinitionScope? = nil,
@@ -98,7 +110,17 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
         self.inputFASTQURL = standardizedInputURLs[0]
         self.inputFASTQURLs = standardizedInputURLs
         self.referenceSourceURL = referenceSourceURL.standardizedFileURL
-        self.barcodeDefinitionsURL = barcodeDefinitionsURL?.standardizedFileURL
+        let standardizedBarcodeDefinitionsURL = barcodeDefinitionsURL?.standardizedFileURL
+        let effectiveMode = Self.effectiveMode(
+            requestedMode: mode,
+            readType: readType,
+            barcodeDefinitionsURL: standardizedBarcodeDefinitionsURL
+        )
+        let effectiveReadType = Self.effectiveReadType(
+            requestedReadType: readType,
+            mode: effectiveMode
+        )
+        self.barcodeDefinitionsURL = standardizedBarcodeDefinitionsURL
         self.outputDirectory = outputDirectory.standardizedFileURL
         self.outputName = normalizedOutputName
         self.demuxManifestURL = demuxManifestURL?.standardizedFileURL
@@ -114,6 +136,9 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
         self.threads = max(1, threads)
         self.sortThreads = max(1, sortThreads)
         self.minSupport = max(1, minSupport)
+        self.haplotypeDropoutSampleFraction = Self.normalizedFraction(haplotypeDropoutSampleFraction)
+        self.haplotypeDropoutLocusFraction = Self.normalizedFraction(haplotypeDropoutLocusFraction)
+        self.haplotypeDropoutLocusFractionOverrides = Self.normalizedFractionOverrides(haplotypeDropoutLocusFractionOverrides)
         let trimmedHaplotypeAssayID = haplotypeAssayID?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.haplotypeAssayID = trimmedHaplotypeAssayID?.isEmpty == true
             ? nil
@@ -128,8 +153,109 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
             ? nil
             : trimmedHaplotypeDefinitionSetID
         self.extraArguments = extraArguments
-        self.mode = mode
-        self.readType = readType
+        self.mode = effectiveMode
+        self.readType = effectiveReadType
+    }
+
+    public func replacingOutput(
+        outputDirectory: URL,
+        outputName: String,
+        analysisName: String
+    ) -> ONTBarcodeDemuxGenotypingRunRequest {
+        ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURLs: inputFASTQURLs,
+            referenceSourceURL: referenceSourceURL,
+            barcodeDefinitionsURL: barcodeDefinitionsURL,
+            outputDirectory: outputDirectory,
+            outputName: outputName,
+            demuxManifestURL: demuxManifestURL,
+            analysisName: analysisName,
+            comparisonWorkbookURL: comparisonWorkbookURL,
+            comparisonName: comparisonName,
+            projectURL: projectURL,
+            threads: threads,
+            sortThreads: sortThreads,
+            minSupport: minSupport,
+            haplotypeDropoutSampleFraction: haplotypeDropoutSampleFraction,
+            haplotypeDropoutLocusFraction: haplotypeDropoutLocusFraction,
+            haplotypeDropoutLocusFractionOverrides: haplotypeDropoutLocusFractionOverrides,
+            haplotypeAssayID: haplotypeAssayID,
+            haplotypeSpeciesCode: haplotypeSpeciesCode,
+            haplotypeDefinitionScope: haplotypeDefinitionScope,
+            haplotypeDefinitionSetID: haplotypeDefinitionSetID,
+            extraArguments: extraArguments,
+            mode: mode,
+            readType: readType
+        )
+    }
+
+    private static func effectiveMode(
+        requestedMode: AmpliconGenotypingMode,
+        readType: AmpliconGenotypingReadType,
+        barcodeDefinitionsURL: URL?
+    ) -> AmpliconGenotypingMode {
+        if requestedMode == .ontSampleBundles {
+            return .ontSampleBundles
+        }
+        switch readType {
+        case .ont:
+            return .ontBarcodeDemux
+        case .illumina:
+            return .illuminaPaired
+        case .auto:
+            if requestedMode == .auto, barcodeDefinitionsURL != nil {
+                return .ontBarcodeDemux
+            }
+            return requestedMode
+        }
+    }
+
+    private static func effectiveReadType(
+        requestedReadType: AmpliconGenotypingReadType,
+        mode: AmpliconGenotypingMode
+    ) -> AmpliconGenotypingReadType {
+        if requestedReadType != .auto {
+            return requestedReadType
+        }
+        switch mode {
+        case .ontBarcodeDemux, .ontSampleBundles:
+            return .ont
+        case .illuminaPaired:
+            return .illumina
+        case .auto:
+            return .auto
+        }
+    }
+
+    private static func normalizedFraction(_ value: Double?) -> Double? {
+        guard let value, value.isFinite, value > 0 else { return nil }
+        return min(value, 1.0)
+    }
+
+    private static func normalizedFractionOverrides(_ values: [String: Double]) -> [String: Double] {
+        var normalized: [String: Double] = [:]
+        for (key, value) in values {
+            let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  let fraction = normalizedFraction(value) else { continue }
+            normalized[trimmed] = fraction
+        }
+        return normalized
+    }
+
+    public var haplotypeDropoutEvaluator: GenotypeDropoutEvaluator? {
+        guard minSupport > 1
+                || haplotypeDropoutSampleFraction != nil
+                || haplotypeDropoutLocusFraction != nil
+                || !haplotypeDropoutLocusFractionOverrides.isEmpty else {
+            return nil
+        }
+        return GenotypeDropoutEvaluator(
+            absolute: minSupport,
+            sampleFraction: haplotypeDropoutSampleFraction,
+            locusFraction: haplotypeDropoutLocusFraction,
+            locusFractionOverrides: haplotypeDropoutLocusFractionOverrides
+        )
     }
 
     public var mappingBAMURL: URL {
@@ -164,6 +290,10 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
         outputDirectory.appendingPathComponent("\(outputName).haplotype-analysis.json")
     }
 
+    public var currentHaplotypeAnalysisURL: URL {
+        outputDirectory.appendingPathComponent("\(outputName).current-haplotype-analysis.json")
+    }
+
     public var reportProvenanceURL: URL {
         outputDirectory.appendingPathComponent("\(outputName).report-workbook-provenance.json")
     }
@@ -182,6 +312,12 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
         outputDirectory
             .appendingPathComponent("artifacts/workbooks", isDirectory: true)
             .appendingPathComponent("current.xlsx")
+    }
+
+    public var currentWorkbookProvenanceURL: URL {
+        outputDirectory
+            .appendingPathComponent("artifacts/workbooks", isDirectory: true)
+            .appendingPathComponent("current-workbook-provenance.json")
     }
 
     public var cliSubcommand: String {
@@ -207,6 +343,7 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
             "--min-support", String(minSupport),
             "--analysis-name", analysisName,
         ]
+        appendHaplotypeThresholdArguments(to: &values)
         if let barcodeDefinitionsURL {
             values += ["--barcodes", barcodeDefinitionsURL.path]
         }
@@ -238,6 +375,32 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
             values += ["--extra-args", AdvancedCommandLineOptions.join(extraArguments)]
         }
         return values
+    }
+
+    public func appendHaplotypeThresholdArguments(to values: inout [String]) {
+        if let haplotypeDropoutSampleFraction {
+            values += [
+                "--haplotype-min-sample-percent",
+                Self.percentArgument(forFraction: haplotypeDropoutSampleFraction),
+            ]
+        }
+        if let haplotypeDropoutLocusFraction {
+            values += [
+                "--haplotype-min-locus-percent",
+                Self.percentArgument(forFraction: haplotypeDropoutLocusFraction),
+            ]
+        }
+        for key in haplotypeDropoutLocusFractionOverrides.keys.sorted() {
+            guard let fraction = haplotypeDropoutLocusFractionOverrides[key] else { continue }
+            values += [
+                "--haplotype-min-locus-percent-override",
+                "\(key)=\(Self.percentArgument(forFraction: fraction))",
+            ]
+        }
+    }
+
+    private static func percentArgument(forFraction fraction: Double) -> String {
+        String(format: "%g", fraction * 100.0)
     }
 
     private static func sanitizedOutputName(_ value: String) -> String {
@@ -481,7 +644,14 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             pythonURL: reportPythonURL
         )
 
-        let workbookCopy = try createInitialCurrentWorkbookCopy(for: request)
+        let workbookCopy = try await createInitialCurrentWorkbook(
+            for: request,
+            reportScriptURL: reportScriptURL,
+            reportPythonURL: reportPythonURL,
+            referenceFASTAURL: reference.referenceFASTAURL,
+            barcodeDefinitionsURL: inputSnapshot.barcodeDefinitionsURL,
+            haplotypeAnalysisURL: haplotypeAnalysis == nil ? nil : request.haplotypeAnalysisURL
+        )
         let completedAt = Date()
         progressHandler?(0.93, "Writing reproducibility provenance and bundle manifest.")
         let provenanceURL = try writeProvenance(
@@ -633,6 +803,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
     }
 
     private struct IlluminaPreparation {
+        let mode: AmpliconGenotypingMode
         let sampleManifestURL: URL
         let sampleDefinitionsURL: URL
         let sourceFASTQURLs: [URL]
@@ -700,15 +871,27 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
 
     private struct WorkbookCopyResult {
         let revision: ONTGenotypeWorkbookRevision
+        let toolName: String
+        let toolVersion: String
+        let arguments: [String]
+        let stderr: String
+        let exitStatus: Int32
+        let creationMode: String
+        let summary: ReportSummary?
+        let provenanceURL: URL?
+        let currentHaplotypeAnalysisURL: URL?
         let wallClockSeconds: TimeInterval
     }
 
     private func resolveMode(for request: ONTBarcodeDemuxGenotypingRunRequest) throws -> AmpliconGenotypingMode {
         switch request.mode {
-        case .ontBarcodeDemux, .illuminaPaired:
+        case .ontBarcodeDemux, .ontSampleBundles, .illuminaPaired:
             return request.mode
         case .auto:
             if request.readType == .ont {
+                if request.barcodeDefinitionsURL == nil, request.inputFASTQURLs.count > 1 {
+                    return .ontSampleBundles
+                }
                 return .ontBarcodeDemux
             }
             if request.readType == .illumina {
@@ -729,7 +912,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 return .illuminaPaired
             }
             if detected.contains(.oxfordNanopore) {
-                return .ontBarcodeDemux
+                return request.barcodeDefinitionsURL == nil && request.inputFASTQURLs.count > 1
+                    ? .ontSampleBundles
+                    : .ontBarcodeDemux
             }
             throw ONTBarcodeDemuxGenotypingError.ambiguousGenotypingMode
         }
@@ -743,7 +928,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             return request.readType
         }
         switch mode {
-        case .ontBarcodeDemux:
+        case .ontBarcodeDemux, .ontSampleBundles:
             return .ont
         case .illuminaPaired:
             return .illumina
@@ -761,21 +946,22 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         switch resolvedMode {
         case .ontBarcodeDemux:
             progressNoop()
-            let demuxManifestURL = try resolveDemuxManifest(for: request)
-            guard FileManager.default.fileExists(atPath: demuxManifestURL.path) else {
-                throw ONTBarcodeDemuxGenotypingError.missingDemuxManifest(demuxManifestURL)
-            }
-            let inputSnapshot = try snapshotSmallInputs(
-                for: request,
-                demuxManifestURL: demuxManifestURL,
-                supportDirectory: supportDirectory
-            )
             let inputFASTQURLs = try request.inputFASTQURLs.flatMap { inputURL in
                 try Self.resolveInputFASTQURLs(for: inputURL)
             }
             guard !inputFASTQURLs.isEmpty else {
                 throw ONTBarcodeDemuxGenotypingError.noInputFASTQs
             }
+            let demuxManifestURL = try await resolveOrSynthesizeDemuxManifest(
+                for: request,
+                inputFASTQURLs: inputFASTQURLs,
+                supportDirectory: supportDirectory
+            )
+            let inputSnapshot = try snapshotSmallInputs(
+                for: request,
+                demuxManifestURL: demuxManifestURL,
+                supportDirectory: supportDirectory
+            )
             return InputPlan(
                 mappingFASTQURLs: inputFASTQURLs,
                 originalInputFASTQURLs: inputFASTQURLs,
@@ -784,9 +970,10 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 illuminaPreparation: nil
             )
 
-        case .illuminaPaired:
+        case .illuminaPaired, .ontSampleBundles:
             let preparation = try await prepareIlluminaInputs(
                 request: request,
+                mode: resolvedMode,
                 supportDirectory: supportDirectory,
                 pythonURL: pythonURL
             )
@@ -822,13 +1009,48 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
 
     private func progressNoop() {}
 
+    private static func mappingPreset(for mode: AmpliconGenotypingMode) -> String {
+        mode == .illuminaPaired ? "sr" : "map-ont"
+    }
+
+    private static func mappingPlatform(for mode: AmpliconGenotypingMode) -> String {
+        mode == .illuminaPaired ? "ILLUMINA" : "ONT"
+    }
+
+    private static func workflowName(for mode: AmpliconGenotypingMode) -> String {
+        switch mode {
+        case .illuminaPaired:
+            return "Illumina Paired Amplicon Genotyping"
+        case .ontSampleBundles:
+            return "ONT Sample Bundle Amplicon Genotyping"
+        case .ontBarcodeDemux, .auto:
+            return "ONT Barcode Demux Genotyping"
+        }
+    }
+
+    private static func analysisToolName(for mode: AmpliconGenotypingMode) -> String {
+        switch mode {
+        case .illuminaPaired:
+            return "illumina-amplicon-genotyping"
+        case .ontSampleBundles:
+            return "ont-sample-bundle-genotyping"
+        case .ontBarcodeDemux, .auto:
+            return "ont-genotyping"
+        }
+    }
+
     private func prepareIlluminaInputs(
         request: ONTBarcodeDemuxGenotypingRunRequest,
+        mode: AmpliconGenotypingMode,
         supportDirectory: URL,
         pythonURL: URL
     ) async throws -> IlluminaPreparation {
         let inputsDirectory = supportDirectory.appendingPathComponent("inputs", isDirectory: true)
-        let stagedDirectory = supportDirectory.appendingPathComponent("illumina-sample-fastqs", isDirectory: true)
+        let isONTSampleBundles = mode == .ontSampleBundles
+        let stagedDirectory = supportDirectory.appendingPathComponent(
+            isONTSampleBundles ? "ont-sample-fastqs" : "illumina-sample-fastqs",
+            isDirectory: true
+        )
         try FileManager.default.createDirectory(at: inputsDirectory, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: stagedDirectory, withIntermediateDirectories: true)
 
@@ -838,13 +1060,17 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         )
         _ = pythonURL
 
-        let sampleDefinitionsURL = inputsDirectory.appendingPathComponent("illumina-sample-definitions.csv")
+        let sampleDefinitionsURL = inputsDirectory.appendingPathComponent(
+            isONTSampleBundles ? "ont-sample-bundle-definitions.csv" : "illumina-sample-definitions.csv"
+        )
         let sampleDefinitionRows = ["sample,barcode"]
-            + samples.map { "\($0.sampleID),ILLUMINA_SAMPLE" }
+            + samples.map { "\($0.sampleID),\(isONTSampleBundles ? "ONT_SAMPLE" : "ILLUMINA_SAMPLE")" }
         try (sampleDefinitionRows.joined(separator: "\n") + "\n")
             .write(to: sampleDefinitionsURL, atomically: true, encoding: .utf8)
 
-        let sampleManifestURL = inputsDirectory.appendingPathComponent("illumina-sample-manifest.json")
+        let sampleManifestURL = inputsDirectory.appendingPathComponent(
+            isONTSampleBundles ? "ont-sample-bundle-manifest.json" : "illumina-sample-manifest.json"
+        )
         let sampleItems = samples.map { sample -> [String: Any] in
             [
                 "sample": sample.sampleID,
@@ -855,7 +1081,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             ]
         }
         let manifest: [String: Any] = [
-            "mode": AmpliconGenotypingMode.illuminaPaired.rawValue,
+            "mode": mode.rawValue,
             "inputReadCount": samples.reduce(0) { $0 + $1.readCount },
             "samples": sampleItems,
         ]
@@ -863,6 +1089,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         try manifestData.write(to: sampleManifestURL, options: .atomic)
 
         return IlluminaPreparation(
+            mode: mode,
             sampleManifestURL: sampleManifestURL,
             sampleDefinitionsURL: sampleDefinitionsURL,
             sourceFASTQURLs: samples.map(\.fastqURL),
@@ -974,9 +1201,23 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 quality: record.quality
             )
             try writer.write(prefixed)
-            count += 1
+            count += Self.readCountWeight(fromIdentifier: record.identifier, description: record.description)
         }
         return count
+    }
+
+    private static func readCountWeight(fromIdentifier identifier: String, description: String?) -> Int {
+        for text in [identifier, description].compactMap({ $0 }) {
+            for token in text.split(whereSeparator: { $0 == ";" || $0 == " " || $0 == "\t" || $0 == "|" }) {
+                guard token.hasPrefix("size="),
+                      let value = Int(token.dropFirst("size=".count)),
+                      value > 0 else {
+                    continue
+                }
+                return value
+            }
+        }
+        return 1
     }
 
     private static func sampleID(from url: URL) -> String {
@@ -1014,6 +1255,117 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             .deletingLastPathComponent()
             .appendingPathComponent("demux-manifest.json")
         return sibling
+    }
+
+    private func resolveOrSynthesizeDemuxManifest(
+        for request: ONTBarcodeDemuxGenotypingRunRequest,
+        inputFASTQURLs: [URL],
+        supportDirectory: URL
+    ) async throws -> URL {
+        let demuxManifestURL = try resolveDemuxManifest(for: request)
+        if FileManager.default.fileExists(atPath: demuxManifestURL.path) {
+            return demuxManifestURL
+        }
+        if request.demuxManifestURL != nil {
+            throw ONTBarcodeDemuxGenotypingError.missingDemuxManifest(demuxManifestURL)
+        }
+        return try await synthesizeDemuxManifest(
+            for: request,
+            inputFASTQURLs: inputFASTQURLs,
+            supportDirectory: supportDirectory
+        )
+    }
+
+    private func synthesizeDemuxManifest(
+        for request: ONTBarcodeDemuxGenotypingRunRequest,
+        inputFASTQURLs: [URL],
+        supportDirectory: URL
+    ) async throws -> URL {
+        guard let barcodeDefinitionsURL = request.barcodeDefinitionsURL else {
+            throw ONTBarcodeDemuxGenotypingError.missingBarcodeDefinitionsForONT
+        }
+        let inputsDirectory = supportDirectory.appendingPathComponent("inputs", isDirectory: true)
+        try FileManager.default.createDirectory(at: inputsDirectory, withIntermediateDirectories: true)
+        let manifestURL = inputsDirectory.appendingPathComponent("demux-manifest.json")
+        let readCount = try await Self.countFASTQRecords(in: inputFASTQURLs)
+        let barcodes = try Self.barcodeSampleIDs(from: barcodeDefinitionsURL).map { sampleID in
+            [
+                "barcodeID": sampleID,
+                "readCount": NSNull(),
+            ] as [String: Any]
+        }
+        let payload: [String: Any] = [
+            "inputReadCount": readCount,
+            "barcodes": barcodes,
+            "manifestSource": "synthesized-from-fastq-inputs",
+            "sourceFASTQs": inputFASTQURLs.map(\.path),
+            "barcodeDefinitions": barcodeDefinitionsURL.path,
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: manifestURL, options: .atomic)
+        return manifestURL
+    }
+
+    private static func countFASTQRecords(in urls: [URL]) async throws -> Int {
+        let reader = FASTQReader(validateSequence: false)
+        var count = 0
+        for url in urls {
+            for try await _ in reader.records(from: url) {
+                count += 1
+            }
+        }
+        return count
+    }
+
+    private static func barcodeSampleIDs(from url: URL) throws -> [String] {
+        let text = try String(contentsOf: url, encoding: .utf8)
+        let delimiter: Character = text.prefix(2048).filter { $0 == "\t" }.count >= text.prefix(2048).filter { $0 == "," }.count
+            ? "\t"
+            : ","
+        var seen = Set<String>()
+        var sampleIDs: [String] = []
+        for rawLine in text.split(whereSeparator: \.isNewline) {
+            let fields = parseDelimitedFields(String(rawLine), delimiter: delimiter)
+            guard fields.count >= 2 else { continue }
+            var sampleID = fields[0].trimmingCharacters(in: .whitespacesAndNewlines)
+            if sampleID.unicodeScalars.first?.value == 0xfeff {
+                sampleID.removeFirst()
+            }
+            guard !sampleID.isEmpty else { continue }
+            if ["sample", "sample_id", "id", "barcodeid"].contains(sampleID.lowercased()) {
+                continue
+            }
+            guard seen.insert(sampleID).inserted else { continue }
+            sampleIDs.append(sampleID)
+        }
+        return sampleIDs
+    }
+
+    private static func parseDelimitedFields(_ line: String, delimiter: Character) -> [String] {
+        var fields: [String] = []
+        var current = ""
+        var inQuotes = false
+        var index = line.startIndex
+        while index < line.endIndex {
+            let character = line[index]
+            if character == "\"" {
+                let next = line.index(after: index)
+                if inQuotes, next < line.endIndex, line[next] == "\"" {
+                    current.append("\"")
+                    index = line.index(after: next)
+                    continue
+                }
+                inQuotes.toggle()
+            } else if character == delimiter, !inQuotes {
+                fields.append(current)
+                current = ""
+            } else {
+                current.append(character)
+            }
+            index = line.index(after: index)
+        }
+        fields.append(current)
+        return fields
     }
 
     private func snapshotSmallInputs(
@@ -1116,9 +1468,10 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         minimap2URL: URL,
         samtoolsURL: URL
     ) throws -> MappingStepResult {
-        if resolvedMode == .illuminaPaired, inputFASTQURLs.count > 1 {
-            return try runIlluminaCohortMapping(
+        if (resolvedMode == .illuminaPaired || resolvedMode == .ontSampleBundles), inputFASTQURLs.count > 1 {
+            return try runSampleBundleCohortMapping(
                 request: request,
+                resolvedMode: resolvedMode,
                 referenceFASTAURL: referenceFASTAURL,
                 inputFASTQURLs: inputFASTQURLs,
                 minimap2URL: minimap2URL,
@@ -1161,8 +1514,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         )
     }
 
-    private func runIlluminaCohortMapping(
+    private func runSampleBundleCohortMapping(
         request: ONTBarcodeDemuxGenotypingRunRequest,
+        resolvedMode: AmpliconGenotypingMode,
         referenceFASTAURL: URL,
         inputFASTQURLs: [URL],
         minimap2URL: URL,
@@ -1180,7 +1534,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             let sampleBAMURL = mappingDirectory.appendingPathComponent("\(stem).sorted.bam")
             let invocation = try runMappingInvocation(
                 request: request,
-                resolvedMode: .illuminaPaired,
+                resolvedMode: resolvedMode,
                 referenceFASTAURL: referenceFASTAURL,
                 inputFASTQURLs: [fastqURL],
                 outputBAMURL: sampleBAMURL,
@@ -1235,8 +1589,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
     ) throws -> MappingInvocationResult {
         let minimap2StderrURL = request.outputDirectory.appendingPathComponent("\(stderrStem).minimap2.stderr.log")
         let sortStderrURL = request.outputDirectory.appendingPathComponent("\(stderrStem).samtools-sort.stderr.log")
-        let mappingPreset = resolvedMode == .illuminaPaired ? "sr" : "map-ont"
-        let platform = resolvedMode == .illuminaPaired ? "ILLUMINA" : "ONT"
+        let mappingPreset = Self.mappingPreset(for: resolvedMode)
+        let platform = Self.mappingPlatform(for: resolvedMode)
         let readGroup = "@RG\\tID:\(readGroupID)\\tSM:\(readGroupID)\\tLB:\(request.outputName)\\tPL:\(platform)\\tPU:\(readGroupID)"
         let minimap2Arguments = [
             "-a",
@@ -1369,6 +1723,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "--min-support", String(request.minSupport),
             "--provenance-command", request.argv.map(shellEscape).joined(separator: " "),
         ]
+        request.appendHaplotypeThresholdArguments(to: &arguments)
         switch resolvedMode {
         case .ontBarcodeDemux:
             arguments += [
@@ -1376,7 +1731,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 "--barcodes", barcodeDefinitionsURL.path,
                 "--require-both-end-softclips",
             ]
-        case .illuminaPaired:
+        case .illuminaPaired, .ontSampleBundles:
             arguments += [
                 "--assignment-mode", "query-prefix",
                 "--sample-manifest", demuxManifestURL.path,
@@ -1493,7 +1848,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let analysis = GenotypeHaplotypeAnalyzer.analyze(
             calls: result.calls,
             definitionSet: definitionSet,
-            generatedAt: ISO8601DateFormatter().string(from: generatedAt)
+            generatedAt: ISO8601DateFormatter().string(from: generatedAt),
+            dropoutFilter: request.haplotypeDropoutEvaluator
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -1594,10 +1950,19 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             .appendingPathComponent("haplotype-definition.json")
     }
 
+    private func copyFilterOutput(from source: URL, to destination: URL) throws {
+        guard source != destination else { return }
+        if FileManager.default.fileExists(atPath: destination.path) {
+            try FileManager.default.removeItem(at: destination)
+        }
+        try FileManager.default.copyItem(at: source, to: destination)
+    }
+
+    @discardableResult
     private func writeHaplotypeDefinitionSnapshot(
         _ definitionSet: GenotypeHaplotypeDefinitionSet,
         supportDirectory: URL
-    ) throws {
+    ) throws -> URL {
         let inputsDirectory = supportDirectory.appendingPathComponent("inputs", isDirectory: true)
         try FileManager.default.createDirectory(at: inputsDirectory, withIntermediateDirectories: true)
         let url = inputsDirectory.appendingPathComponent("haplotype-definition.json")
@@ -1605,14 +1970,39 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(definitionSet)
         try data.write(to: url, options: .atomic)
+        return url
     }
 
-    private func copyFilterOutput(from source: URL, to destination: URL) throws {
-        guard source != destination else { return }
-        if FileManager.default.fileExists(atPath: destination.path) {
-            try FileManager.default.removeItem(at: destination)
+    private func shouldCreateMCMDecoratedCurrentWorkbook(
+        for request: ONTBarcodeDemuxGenotypingRunRequest,
+        haplotypeAnalysisURL: URL?
+    ) throws -> Bool {
+        guard haplotypeAnalysisURL != nil,
+              let definitionSet = try resolveHaplotypeDefinitionSet(for: request) else {
+            return false
         }
-        try FileManager.default.copyItem(at: source, to: destination)
+        return definitionSet.speciesCode.caseInsensitiveCompare("MCM") == .orderedSame
+    }
+
+    private func createInitialCurrentWorkbook(
+        for request: ONTBarcodeDemuxGenotypingRunRequest,
+        reportScriptURL: URL,
+        reportPythonURL: URL,
+        referenceFASTAURL: URL,
+        barcodeDefinitionsURL: URL,
+        haplotypeAnalysisURL: URL?
+    ) async throws -> WorkbookCopyResult {
+        if try shouldCreateMCMDecoratedCurrentWorkbook(for: request, haplotypeAnalysisURL: haplotypeAnalysisURL) {
+            return try await createInitialDecoratedMCMCurrentWorkbook(
+                for: request,
+                reportScriptURL: reportScriptURL,
+                reportPythonURL: reportPythonURL,
+                referenceFASTAURL: referenceFASTAURL,
+                barcodeDefinitionsURL: barcodeDefinitionsURL,
+                haplotypeAnalysisURL: haplotypeAnalysisURL
+            )
+        }
+        return try createInitialCurrentWorkbookCopy(for: request)
     }
 
     private func createInitialCurrentWorkbookCopy(
@@ -1644,8 +2034,141 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         )
         return WorkbookCopyResult(
             revision: revision,
+            toolName: "lungfish genotype workbook initial-current-copy",
+            toolVersion: WorkflowRun.currentAppVersion,
+            arguments: request.argv + ["--create-current-workbook", request.currentWorkbookURL.path],
+            stderr: "",
+            exitStatus: 0,
+            creationMode: "copy",
+            summary: nil,
+            provenanceURL: nil,
+            currentHaplotypeAnalysisURL: nil,
             wallClockSeconds: createdAt.timeIntervalSince(startedAt)
         )
+    }
+
+    private func createInitialDecoratedMCMCurrentWorkbook(
+        for request: ONTBarcodeDemuxGenotypingRunRequest,
+        reportScriptURL: URL,
+        reportPythonURL: URL,
+        referenceFASTAURL: URL,
+        barcodeDefinitionsURL: URL,
+        haplotypeAnalysisURL: URL?
+    ) async throws -> WorkbookCopyResult {
+        let startedAt = Date()
+        let destinationURL = request.currentWorkbookURL
+        try FileManager.default.createDirectory(
+            at: destinationURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        if FileManager.default.fileExists(atPath: destinationURL.path) {
+            try FileManager.default.removeItem(at: destinationURL)
+        }
+        if FileManager.default.fileExists(atPath: request.currentWorkbookProvenanceURL.path) {
+            try FileManager.default.removeItem(at: request.currentWorkbookProvenanceURL)
+        }
+        let currentHaplotypeAnalysisURL = try writeCurrentWorkbookHaplotypeAnalysis(
+            for: request,
+            generatedAt: startedAt
+        )
+
+        var arguments = [
+            reportScriptURL.path,
+            "--client-current-workbook",
+            "--genotypes-csv", request.reportCSVURL.path,
+            "--samples-csv", request.sampleSummaryCSVURL.path,
+            "--stats-json", request.statsJSONURL.path,
+            "--reference-fasta", referenceFASTAURL.path,
+            "--barcode-definitions", barcodeDefinitionsURL.path,
+            "--output-xlsx", destinationURL.path,
+            "--provenance-json", request.currentWorkbookProvenanceURL.path,
+            "--analysis-name", request.analysisName,
+            "--run-name", request.outputName,
+            "--primary-workbook", request.workbookURL.path,
+            "--haplotype-definition-json", haplotypeDefinitionSnapshotURL(for: request).path,
+            "--provenance-command",
+            (request.argv + ["--create-current-workbook", destinationURL.path]).map(shellEscape).joined(separator: " "),
+        ]
+        if let currentHaplotypeAnalysisURL {
+            arguments += ["--haplotype-analysis-json", currentHaplotypeAnalysisURL.path]
+        } else if let haplotypeAnalysisURL {
+            arguments += ["--haplotype-analysis-json", haplotypeAnalysisURL.path]
+        }
+
+        let result = try await condaManager.runTool(
+            name: reportPythonURL.lastPathComponent,
+            arguments: arguments,
+            environment: "openpyxl",
+            workingDirectory: request.outputDirectory,
+            timeout: 3_600
+        )
+        guard result.exitCode == 0 else {
+            throw ONTBarcodeDemuxGenotypingError.reportFailed(status: result.exitCode, stderr: result.stderr)
+        }
+        guard let data = result.stdout.data(using: .utf8),
+              let summary = try? JSONDecoder().decode(ReportSummary.self, from: data) else {
+            throw ONTBarcodeDemuxGenotypingError.invalidReportOutput(result.stdout)
+        }
+
+        let createdAt = Date()
+        let revision = ONTGenotypeWorkbookRevision(
+            id: "initial-current-copy",
+            role: .initialCurrentCopy,
+            path: relativePath(from: request.outputDirectory, to: destinationURL),
+            label: "Initial decorated MCM current workbook",
+            sourceFilename: request.workbookURL.lastPathComponent,
+            createdAt: ISO8601DateFormatter().string(from: createdAt),
+            user: NSUserName(),
+            predecessorPath: relativePath(from: request.outputDirectory, to: request.workbookURL),
+            sha256: try ProvenanceFileHasher.sha256(of: destinationURL),
+            sizeBytes: Int64(try ProvenanceFileHasher.fileSize(of: destinationURL)),
+            provenancePath: relativePath(from: request.outputDirectory, to: request.currentWorkbookProvenanceURL)
+        )
+        return WorkbookCopyResult(
+            revision: revision,
+            toolName: "openpyxl MCM current workbook report",
+            toolVersion: summary.openpyxlVersion,
+            arguments: [reportPythonURL.path] + arguments,
+            stderr: result.stderr,
+            exitStatus: result.exitCode,
+            creationMode: "mcm-client-current",
+            summary: summary,
+            provenanceURL: request.currentWorkbookProvenanceURL,
+            currentHaplotypeAnalysisURL: currentHaplotypeAnalysisURL,
+            wallClockSeconds: createdAt.timeIntervalSince(startedAt)
+        )
+    }
+
+    private func writeCurrentWorkbookHaplotypeAnalysis(
+        for request: ONTBarcodeDemuxGenotypingRunRequest,
+        generatedAt: Date
+    ) throws -> URL? {
+        guard request.haplotypeDefinitionSetID != nil,
+              let definitionSet = try resolveHaplotypeDefinitionSet(for: request) else {
+            return nil
+        }
+        let manifest = ONTGenotypeResultBundleManifest(
+            outputName: request.outputName,
+            analysisName: request.analysisName,
+            primaryWorkbookPath: relativePath(from: request.outputDirectory, to: request.workbookURL),
+            longSummaryCSVPath: relativePath(from: request.outputDirectory, to: request.reportCSVURL),
+            sampleSummaryCSVPath: relativePath(from: request.outputDirectory, to: request.sampleSummaryCSVURL),
+            statsJSONPath: relativePath(from: request.outputDirectory, to: request.statsJSONURL),
+            provenancePath: relativePath(from: request.outputDirectory, to: request.provenanceURL),
+            haplotypeDefinitionSetID: definitionSet.id,
+            haplotypeAssayID: definitionSet.assayID
+        )
+        let result = try ONTGenotypeResultBundle.loadResult(from: request.outputDirectory, manifest: manifest)
+        let analysis = GenotypeHaplotypeAnalyzer.analyze(
+            calls: result.calls,
+            definitionSet: definitionSet,
+            generatedAt: ISO8601DateFormatter().string(from: generatedAt),
+            dropoutFilter: request.haplotypeDropoutEvaluator
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(analysis).write(to: request.currentHaplotypeAnalysisURL, options: .atomic)
+        return request.currentHaplotypeAnalysisURL
     }
 
     private func writeProvenance(
@@ -1684,6 +2207,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let haplotypeOutputs = haplotypeAnalysis == nil
             ? []
             : [fileDescriptorDictionary(url: request.haplotypeAnalysisURL, role: "analysis")]
+        let currentHaplotypeOutputs = workbookCopy.currentHaplotypeAnalysisURL
+            .map { [fileDescriptorDictionary(url: $0, role: "current-haplotype-analysis")] } ?? []
         let resolvedHaplotypeDefinitionSet = try? resolveHaplotypeDefinitionSet(for: request)
         let haplotypeDefinitionSnapshotURL = self.haplotypeDefinitionSnapshotURL(for: request)
         let haplotypeDefinitionInputs = haplotypeAnalysis == nil
@@ -1706,6 +2231,34 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 "wallTimeSeconds": 0,
             ]]
         } ?? []
+        let currentHaplotypeSteps: [[String: Any]] = workbookCopy.currentHaplotypeAnalysisURL.map { url in
+            [[
+                "toolName": "deterministic genotype haplotype assignment",
+                "argv": haplotypeAssignmentArgv(for: request, resolvedAssayID: haplotypeAnalysis?.assayID) + [
+                    "--dropout-locus-fraction", "MHC-DQ=0.05",
+                    "--dropout-locus-fraction", "MHC-DP=0.05",
+                    "--output", url.path,
+                ],
+                "definitionInput": haplotypeDefinitionSnapshotURL.path,
+                "definitionSHA256": haplotypeDefinitionSHA256,
+                "output": url.path,
+                "exitStatus": 0,
+                "wallTimeSeconds": 0,
+            ]]
+        } ?? []
+        let sampleBundleInputPreparation: Any = illuminaPreparation.map { preparation in
+            [
+                "mode": preparation.mode.rawValue,
+                "sourceFASTQs": preparation.sourceFASTQURLs.map(\.path),
+                "mappingFASTQs": preparation.mappingFASTQURLs.map(\.path),
+                "sampleDefinitions": preparation.sampleDefinitionsURL.path,
+                "sampleManifest": preparation.sampleManifestURL.path,
+                "internalMergePerformed": false,
+            ] as [String: Any]
+        } as Any? ?? NSNull()
+        let illuminaInputPreparation: Any = resolvedMode == .illuminaPaired
+            ? sampleBundleInputPreparation
+            : NSNull()
         let options: [String: Any] = [
             "inputFASTQ": request.inputFASTQURL.path,
             "inputFASTQs": request.inputFASTQURLs.map(\.path),
@@ -1729,22 +2282,18 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "threads": request.threads,
             "sortThreads": request.sortThreads,
             "minSupport": request.minSupport,
-            "mappingPreset": resolvedMode == .illuminaPaired ? "sr" : "map-ont",
+            "haplotypeDropoutSampleFraction": request.haplotypeDropoutSampleFraction as Any? ?? NSNull(),
+            "haplotypeDropoutLocusFraction": request.haplotypeDropoutLocusFraction as Any? ?? NSNull(),
+            "haplotypeDropoutLocusFractionOverrides": request.haplotypeDropoutLocusFractionOverrides,
+            "mappingPreset": Self.mappingPreset(for: resolvedMode),
             "requireBothEndSoftclips": resolvedMode == .ontBarcodeDemux,
             "requireFullReferenceSpan": true,
             "allowIndels": true,
             "maxMismatches": 0,
             "demuxRetainedReadsOnly": resolvedMode == .ontBarcodeDemux,
             "illuminaMergeResults": NSNull(),
-            "illuminaInputPreparation": illuminaPreparation.map { preparation in
-                [
-                    "sourceFASTQs": preparation.sourceFASTQURLs.map(\.path),
-                    "mappingFASTQs": preparation.mappingFASTQURLs.map(\.path),
-                    "sampleDefinitions": preparation.sampleDefinitionsURL.path,
-                    "sampleManifest": preparation.sampleManifestURL.path,
-                    "internalMergePerformed": false,
-                ] as [String: Any]
-            } as Any? ?? NSNull(),
+            "illuminaInputPreparation": illuminaInputPreparation,
+            "sampleBundleInputPreparation": sampleBundleInputPreparation,
             "extraArguments": request.extraArguments,
         ]
         let resolvedDefaults: [String: Any] = [
@@ -1758,7 +2307,10 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "haplotypeDefinitionSetID": NSNull(),
             "sortThreads": 4,
             "minSupport": 1,
-            "mappingPreset": resolvedMode == .illuminaPaired ? "sr" : "map-ont",
+            "haplotypeDropoutSampleFraction": NSNull(),
+            "haplotypeDropoutLocusFraction": NSNull(),
+            "haplotypeDropoutLocusFractionOverrides": [:],
+            "mappingPreset": Self.mappingPreset(for: resolvedMode),
             "requireBothEndSoftclips": resolvedMode == .ontBarcodeDemux,
             "requireFullReferenceSpan": true,
             "allowIndels": true,
@@ -1766,6 +2318,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "demuxRetainedReadsOnly": resolvedMode == .ontBarcodeDemux,
             "illuminaMergeResults": NSNull(),
             "illuminaInputPreparation": NSNull(),
+            "sampleBundleInputPreparation": NSNull(),
             "extraArguments": [],
         ]
         let runtimeIdentity: [String: Any] = [
@@ -1789,15 +2342,17 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             fileDescriptorDictionary(url: request.retainedBAMURL, role: "intermediate"),
             fileDescriptorDictionary(url: request.retainedBAIURL, role: "intermediate-index"),
         ] + mapping.transientBAMURLs.map { fileDescriptorDictionary(url: $0, role: "intermediate") }
+        let currentWorkbookProvenanceOutputs = workbookCopy.provenanceURL
+            .map { [fileDescriptorDictionary(url: $0, role: "current-report-provenance")] } ?? []
         let provenanceOutputs: [[String: Any]] = [
             fileDescriptorDictionary(url: request.reportCSVURL, role: "report"),
             fileDescriptorDictionary(url: request.sampleSummaryCSVURL, role: "report"),
             fileDescriptorDictionary(url: request.statsJSONURL, role: "output"),
-        ] + haplotypeOutputs + [
+        ] + haplotypeOutputs + currentHaplotypeOutputs + [
             fileDescriptorDictionary(url: request.workbookURL, role: "original-report"),
             fileDescriptorDictionary(url: request.currentWorkbookURL, role: "current-report"),
             fileDescriptorDictionary(url: request.reportProvenanceURL, role: "provenance"),
-        ]
+        ] + currentWorkbookProvenanceOutputs
         let primaryOutput = fileDescriptorDictionary(url: request.outputDirectory, role: "output")
         let provenanceFiles = provenanceInputs + transientAlignmentOutputs + provenanceOutputs
         let statistics: [String: Any] = [
@@ -1855,7 +2410,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 "wallTimeSeconds": filter.wallClockSeconds,
                 "stderr": filter.stderr,
             ],
-        ] + haplotypeSteps + [
+        ] + haplotypeSteps + currentHaplotypeSteps + [
             [
                 "toolName": "openpyxl ONT genotype workbook report",
                 "argv": [reportPythonURL.path] + report.arguments,
@@ -1871,15 +2426,19 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 ],
             ],
             [
-                "toolName": "lungfish genotype workbook initial-current-copy",
-                "argv": request.argv + ["--create-current-workbook", request.currentWorkbookURL.path],
-                "exitStatus": 0,
+                "toolName": workbookCopy.toolName,
+                "toolVersion": workbookCopy.toolVersion,
+                "argv": workbookCopy.arguments,
+                "exitStatus": Int(workbookCopy.exitStatus),
                 "wallClockSeconds": workbookCopy.wallClockSeconds,
                 "wallTimeSeconds": workbookCopy.wallClockSeconds,
-                "stderr": "",
+                "stderr": workbookCopy.stderr,
                 "summary": [
+                    "mode": workbookCopy.creationMode,
                     "primaryWorkbook": request.workbookURL.path,
                     "currentWorkbook": request.currentWorkbookURL.path,
+                    "provenanceJSON": workbookCopy.provenanceURL?.path as Any? ?? NSNull(),
+                    "sheetNames": workbookCopy.summary?.sheetNames as Any? ?? NSNull(),
                     "sha256": workbookCopy.revision.sha256,
                     "sizeBytes": workbookCopy.revision.sizeBytes,
                 ],
@@ -1889,9 +2448,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "createdAt": ISO8601DateFormatter().string(from: completedAt),
             "toolName": "lungfish fastq genotype",
             "toolVersion": WorkflowRun.currentAppVersion,
-            "workflowName": resolvedMode == .illuminaPaired
-                ? "Illumina Paired Amplicon Genotyping"
-                : "ONT Barcode Demux Genotyping",
+            "workflowName": Self.workflowName(for: resolvedMode),
             "workflowVersion": "1",
             "argv": request.argv,
             "durableReplayArgv": request.argv,
@@ -2015,9 +2572,15 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let haplotypeOutput = try haplotypeAnalysis.map { _ in
             try canonicalFileDescriptor(url: request.haplotypeAnalysisURL, role: .report)
         }
+        let currentHaplotypeOutput = try workbookCopy.currentHaplotypeAnalysisURL.map {
+            try canonicalFileDescriptor(url: $0, role: .report)
+        }
         let workbook = try canonicalFileDescriptor(url: request.workbookURL, role: .report)
         let currentWorkbook = try canonicalFileDescriptor(url: request.currentWorkbookURL, role: .report)
         let reportProvenance = try canonicalFileDescriptor(url: request.reportProvenanceURL, role: .log)
+        let currentWorkbookProvenance = try workbookCopy.provenanceURL.map {
+            try canonicalFileDescriptor(url: $0, role: .log)
+        }
         let legacyProvenance = try canonicalFileDescriptor(url: legacyProvenanceURL, role: .log)
         let canonicalOutputs = deduplicated(
             [
@@ -2026,7 +2589,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 statsJSON,
             ]
                 + (haplotypeOutput.map { [$0] } ?? [])
+                + (currentHaplotypeOutput.map { [$0] } ?? [])
                 + [workbook, currentWorkbook, reportProvenance, legacyProvenance]
+                + (currentWorkbookProvenance.map { [$0] } ?? [])
         )
         let outputDirectory = ProvenanceFileDescriptor(
             path: request.outputDirectory.standardizedFileURL.path,
@@ -2113,6 +2678,23 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 )
             )
         }
+        if let currentHaplotypeOutput {
+            canonicalSteps.append(
+                ProvenanceStep(
+                    toolName: "deterministic genotype haplotype assignment",
+                    toolVersion: WorkflowRun.currentAppVersion,
+                    argv: haplotypeAssignmentArgv(for: request, resolvedAssayID: haplotypeAnalysis?.assayID) + [
+                        "--dropout-locus-fraction", "MHC-DQ=0.05",
+                        "--dropout-locus-fraction", "MHC-DP=0.05",
+                        "--output", currentHaplotypeOutput.path,
+                    ],
+                    inputs: [genotypeCSV] + (haplotypeDefinitionInput.map { [$0] } ?? []),
+                    outputs: [currentHaplotypeOutput],
+                    exitStatus: 0,
+                    wallTimeSeconds: 0
+                )
+            )
+        }
         canonicalSteps.append(
             ProvenanceStep(
                 toolName: "openpyxl ONT genotype workbook report",
@@ -2129,19 +2711,25 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         )
         canonicalSteps.append(
             ProvenanceStep(
-                toolName: "lungfish genotype workbook initial-current-copy",
-                toolVersion: WorkflowRun.currentAppVersion,
-                argv: request.argv + ["--create-current-workbook", request.currentWorkbookURL.path],
-                inputs: [workbook],
-                outputs: [currentWorkbook],
-                exitStatus: 0,
-                wallTimeSeconds: workbookCopy.wallClockSeconds
+                toolName: workbookCopy.toolName,
+                toolVersion: workbookCopy.toolVersion,
+                argv: workbookCopy.arguments,
+                inputs: workbookCopy.creationMode == "mcm-client-current"
+                    ? [workbook, genotypeCSV, sampleCSV, statsJSON, referenceInput, reportScriptInput]
+                        + (barcodeInput.map { [$0] } ?? [])
+                        + (currentHaplotypeOutput.map { [$0] } ?? haplotypeOutput.map { [$0] } ?? [])
+                        + (haplotypeDefinitionInput.map { [$0] } ?? [])
+                    : [workbook],
+                outputs: [currentWorkbook] + (currentWorkbookProvenance.map { [$0] } ?? []),
+                exitStatus: Int(workbookCopy.exitStatus),
+                wallTimeSeconds: workbookCopy.wallClockSeconds,
+                stderr: workbookCopy.stderr
             )
         )
 
         return ProvenanceEnvelope(
             createdAt: completedAt,
-            workflowName: resolvedMode == .illuminaPaired ? "Illumina Paired Amplicon Genotyping" : "ONT Barcode Demux Genotyping",
+            workflowName: Self.workflowName(for: resolvedMode),
             workflowVersion: "1",
             toolName: "lungfish fastq genotype",
             toolVersion: WorkflowRun.currentAppVersion,
@@ -2209,7 +2797,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
            request.outputDirectory.standardizedFileURL.path.hasPrefix(projectURL.standardizedFileURL.path) {
             try? AnalysesFolder.writeAnalysisMetadata(
                 AnalysesFolder.AnalysisMetadata(
-                    tool: resolvedMode == .illuminaPaired ? "illumina-amplicon-genotyping" : "ont-genotyping",
+                    tool: Self.analysisToolName(for: resolvedMode),
                     isBatch: false,
                     created: completedAt
                 ),
@@ -2423,6 +3011,9 @@ def parse_args():
     parser.add_argument("--require-both-end-softclips", action="store_true")
     parser.add_argument("--max-mismatches", type=int, default=0)
     parser.add_argument("--min-support", type=int, default=1)
+    parser.add_argument("--haplotype-min-sample-percent", type=float, default=0.0)
+    parser.add_argument("--haplotype-min-locus-percent", type=float, default=0.0)
+    parser.add_argument("--haplotype-min-locus-percent-override", action="append", default=[])
     parser.add_argument("--provenance-command", default=None)
     return parser.parse_args()
 
@@ -2519,6 +3110,56 @@ def reverse_complement(sequence):
     return sequence.translate(table)[::-1].upper()
 
 
+def fraction_from_percent(value):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if number <= 0:
+        return 0.0
+    return min(number, 100.0) / 100.0
+
+
+def parse_locus_fraction_overrides(items):
+    values = {}
+    for item in items or []:
+        if "=" not in item:
+            raise ValueError("--haplotype-min-locus-percent-override must be LOCUS=PERCENT")
+        locus, percent = item.split("=", 1)
+        locus = locus.strip()
+        if not locus:
+            raise ValueError("--haplotype-min-locus-percent-override locus must not be empty")
+        values[locus] = fraction_from_percent(percent)
+    return {key: value for key, value in values.items() if value > 0}
+
+
+def raw_locus_group_for_genotype(genotype):
+    text = str(genotype or "").strip()
+    if text.startswith("14_"):
+        if "DQB" in text:
+            return "MHC-DQB"
+        return "MHC-DQA"
+    if text.startswith("15_"):
+        if "DPB" in text:
+            return "MHC-DPB"
+        return "MHC-DPA"
+    if text.startswith("13_"):
+        return "MHC-DRB"
+    if text.startswith("12_") or text.startswith("B") or text.startswith("I_"):
+        return "MHC-B"
+    if text.startswith(("01_", "02_", "04_", "05_", "06_", "07_", "10_", "11_", "AG_", "A1_", "A2_", "A4_", "A5_", "E_")):
+        return "MHC-A"
+    return "MHC-UNKNOWN"
+
+
+def canonical_locus_for_threshold(raw_locus):
+    if raw_locus in {"MHC-DQA", "MHC-DQB"}:
+        return "MHC-DQ"
+    if raw_locus in {"MHC-DPA", "MHC-DPB"}:
+        return "MHC-DP"
+    return raw_locus
+
+
 def barcode_regex(entries):
     pattern_to_sample = {}
     ordered_patterns = []
@@ -2547,6 +3188,24 @@ def assign_query_prefix(query_name, sample_totals):
     if sample not in sample_totals:
         return None
     return sample, "", 0
+
+
+def query_weight(query_name):
+    if not query_name:
+        return 1
+    for token in re.split(r"[;|\s]+", query_name):
+        if token.startswith("size="):
+            try:
+                value = int(token.split("=", 1)[1])
+            except ValueError:
+                continue
+            if value > 0:
+                return value
+    return 1
+
+
+def weighted_query_count(query_names, query_weights):
+    return sum(query_weights.get(name, query_weight(name)) for name in query_names)
 
 
 def has_both_terminal_softclips(read):
@@ -2621,6 +3280,9 @@ def main():
     start_time = time.time()
     started_at = utc_now()
     os.makedirs(args.output_dir, exist_ok=True)
+    min_sample_fraction = fraction_from_percent(args.haplotype_min_sample_percent)
+    min_locus_fraction = fraction_from_percent(args.haplotype_min_locus_percent)
+    locus_fraction_overrides = parse_locus_fraction_overrides(args.haplotype_min_locus_percent_override)
     reference_lengths = load_reference_lengths(args.reference_fasta)
     manifest = load_demux_manifest(args.sample_manifest or args.demux_manifest)
     if args.assignment_mode == "barcode":
@@ -2669,14 +3331,16 @@ def main():
             if assignment is not None:
                 sample, barcode, start = assignment
                 barcode_cache[read.query_name] = (sample, barcode, start)
-                barcode_cache_counts[sample] += 1
+                barcode_cache_counts[sample] += query_weight(read.query_name)
 
     genotype_alignment_counts = Counter()
     genotype_unique_reads = defaultdict(set)
+    sample_locus_unique_reads = defaultdict(set)
     sample_alignment_counts = Counter()
     sample_unique_reads = defaultdict(set)
     retained_unique_reads = set()
     unassigned_unique_reads = set()
+    query_weights = {}
     write_filter_counters = Counter()
     with pysam.AlignmentFile(args.input_bam, "rb") as source:
         header = source.header.to_dict()
@@ -2697,30 +3361,41 @@ def main():
                     read.set_tag("LF", sample, value_type="Z")
                     read.set_tag("BC", barcode, value_type="Z")
                     sample_unique_reads[sample].add(read.query_name)
+                weight = query_weight(read.query_name)
+                query_weights[read.query_name] = weight
                 retained_unique_reads.add(read.query_name)
                 key = (sample, read.reference_name)
-                genotype_alignment_counts[key] += 1
+                genotype_alignment_counts[key] += weight
                 genotype_unique_reads[key].add(read.query_name)
-                sample_alignment_counts[sample] += 1
+                locus_group = raw_locus_group_for_genotype(read.reference_name)
+                sample_locus_unique_reads[(sample, locus_group)].add(read.query_name)
+                sample_alignment_counts[sample] += weight
                 dest.write(read)
     pysam.index(output_bam)
 
-    retained_unique_count = len(retained_unique_reads)
-    assigned_unique_count = sum(len(values) for sample, values in sample_unique_reads.items() if sample != "unassigned")
-    unassigned_unique_count = len(unassigned_unique_reads)
+    retained_unique_count = weighted_query_count(retained_unique_reads, query_weights)
+    assigned_unique_count = sum(
+        weighted_query_count(values, query_weights)
+        for sample, values in sample_unique_reads.items()
+        if sample != "unassigned"
+    )
+    unassigned_unique_count = weighted_query_count(unassigned_unique_reads, query_weights)
     retained_percent = (retained_unique_count / total_input_reads * 100.0) if total_input_reads else None
 
     genotype_rows = []
     for (sample, genotype), count in sorted(genotype_alignment_counts.items(), key=lambda item: (item[0][0], -item[1], item[0][1])):
-        if count < args.min_support:
-            continue
+        unique_read_count = weighted_query_count(genotype_unique_reads[(sample, genotype)], query_weights)
         sample_total = manifest["sampleTotals"].get(sample)
-        sample_unique_count = len(sample_unique_reads.get(sample, set())) if sample != "unassigned" else unassigned_unique_count
+        sample_unique_count = (
+            weighted_query_count(sample_unique_reads.get(sample, set()), query_weights)
+            if sample != "unassigned"
+            else unassigned_unique_count
+        )
         genotype_rows.append({
             "sample": sample,
             "genotype": genotype,
             "passed_alignments": count,
-            "passed_unique_reads": len(genotype_unique_reads[(sample, genotype)]),
+            "passed_unique_reads": unique_read_count,
             "sample_total_reads": sample_total if sample_total is not None else "",
             "sample_unique_retained_reads": sample_unique_count,
             "sample_unique_retained_percent": f"{(sample_unique_count / sample_total * 100.0):.6f}" if sample_total else "",
@@ -2734,7 +3409,11 @@ def main():
     all_samples = sorted(set(sample_alignment_counts) | set(manifest["sampleTotals"]))
     for sample in all_samples:
         sample_total = manifest["sampleTotals"].get(sample)
-        unique_count = len(sample_unique_reads.get(sample, set())) if sample != "unassigned" else unassigned_unique_count
+        unique_count = (
+            weighted_query_count(sample_unique_reads.get(sample, set()), query_weights)
+            if sample != "unassigned"
+            else unassigned_unique_count
+        )
         sample_rows.append({
             "sample": sample,
             "passed_alignments": sample_alignment_counts.get(sample, 0),
@@ -2783,6 +3462,9 @@ def main():
         "maxMismatches": args.max_mismatches,
         "demuxRetainedReadsOnly": args.assignment_mode == "barcode",
         "minSupport": args.min_support,
+        "haplotypeMinSamplePercent": args.haplotype_min_sample_percent,
+        "haplotypeMinLocusPercent": args.haplotype_min_locus_percent,
+        "haplotypeMinLocusPercentOverrides": args.haplotype_min_locus_percent_override,
     }
     with open(stats_json, "w") as handle:
         json.dump(stats, handle, indent=2, sort_keys=True)
@@ -2794,7 +3476,15 @@ def main():
         "argv": sys.argv,
         "reproducibleCommand": args.provenance_command or " ".join(sys.argv),
         "options": vars(args),
-        "resolvedDefaults": {"maxMismatches": args.max_mismatches, "requireBothEndSoftclips": args.require_both_end_softclips, "minSupport": args.min_support, "demuxRetainedReadsOnly": args.assignment_mode == "barcode"},
+        "resolvedDefaults": {
+            "maxMismatches": args.max_mismatches,
+            "requireBothEndSoftclips": args.require_both_end_softclips,
+            "minSupport": args.min_support,
+            "haplotypeMinSamplePercent": 0.0,
+            "haplotypeMinLocusPercent": 0.0,
+            "haplotypeMinLocusPercentOverrides": [],
+            "demuxRetainedReadsOnly": args.assignment_mode == "barcode"
+        },
         "runtimeIdentity": {"python": sys.version, "platform": platform.platform(), "pysam": pysam.__version__, "executable": sys.executable},
         "inputs": [record for record in [
             file_record(args.input_bam, "input"),
@@ -2880,6 +3570,9 @@ def parse_args():
     parser.add_argument("--comparison-workbook")
     parser.add_argument("--comparison-name", default="Illumina-31262")
     parser.add_argument("--haplotype-analysis-json")
+    parser.add_argument("--client-current-workbook", action="store_true")
+    parser.add_argument("--haplotype-definition-json")
+    parser.add_argument("--primary-workbook")
     parser.add_argument("--provenance-command")
     args = parser.parse_args()
     if not args.analysis_name:
@@ -2910,11 +3603,25 @@ def file_record(path, role):
     return {"path": path, "role": role, "exists": True, "sizeBytes": stat.st_size, "sha256": sha256(path)}
 
 
+def clean_csv_text(value):
+    if value is None:
+        return ""
+    return str(value).replace("\ufeff", "").strip()
+
+
 def read_csv(path):
     with open(path, newline="") as handle:
         reader = csv.DictReader(handle)
-        rows = list(reader)
-        return reader.fieldnames or [], rows
+        fieldnames = [clean_csv_text(field) for field in (reader.fieldnames or [])]
+        rows = [
+            {
+                clean_csv_text(key): clean_csv_text(value)
+                for key, value in row.items()
+                if key is not None
+            }
+            for row in reader
+        ]
+        return fieldnames, rows
 
 
 def as_number(value):
@@ -3362,6 +4069,13 @@ def load_haplotype_analysis(path):
         return json.load(handle)
 
 
+def load_haplotype_definition(path):
+    if not path:
+        return {}
+    with open(path) as handle:
+        return json.load(handle)
+
+
 def haplotype_calls_by_sample_locus(haplotype_analysis):
     by_sample = {}
     if not haplotype_analysis:
@@ -3480,6 +4194,759 @@ def write_haplotype_sheet(wb, haplotype_analysis):
             ])
     style_tabular_sheet(ws)
     return ws
+
+
+MCM_CLIENT_SHEET_NAMES = [
+    "Interpretation Guide",
+    "MHC Alleles Per MHC Haplotype",
+    "Abbreviated Haplotypes",
+    "Full Sequencing Results 1",
+    "Custom Sort",
+]
+
+MCM_FAMILIES = ["M1", "M2", "M3", "M4", "M5", "M6", "M7"]
+MCM_REPORT_LOCI = ["MHC-A", "MHC-B", "MHC-DRB", "MHC-DQ", "MHC-DP"]
+MCM_FULL_SUMMARY_LOCI = ["MHC-A", "MHC-B", "MHC-DRB", "MHC-DQA", "MHC-DQB", "MHC-DPA", "MHC-DPB"]
+MCM_SUMMARY_DISPLAY_LOCI = [
+    ("MHC-A", "MHC-A"),
+    ("MHC-B", "MHC-B"),
+    ("MHC-DRB", "MHC-DRB"),
+    ("MHC-DQ", "MHC-DQA/B"),
+    ("MHC-DP", "MHC-DPA/B"),
+]
+MCM_HAPLOTYPE_STYLES = {
+    "M1": {"font": "000000"},
+    "M2": {"font": "FF0000"},
+    "M3": {"font": "0432FF"},
+    "M4": {"font": "00B050"},
+    "M5": {"font": "FFC000"},
+    "M6": {"font": "595959"},
+    "M7": {"font": "7030A0"},
+}
+MCM_ALLELE_SECTION_ORDER = [
+    "Mafa-F alleles",
+    "Mafa-G alleles",
+    "Mafa-AG alleles",
+    "Mafa-A major alleles",
+    "Mafa-A minor alleles",
+    "Mafa-70 alleles",
+    "Mafa-E alleles",
+    "Mafa-B alleles",
+    "Mafa-DRB alleles",
+    "Mafa-DQA/DQB alleles",
+    "Mafa-DPA/DPB alleles",
+]
+MCM_ABBREVIATED_COLUMN_A_WIDTH = 17.33203125
+MCM_CUSTOM_SORT_COLUMN_A_WIDTH = 16.83203125
+MCM_FULL_COLUMN_A_WIDTH = 37.1640625
+
+
+def mcm_family(value):
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text or text == "-" or text.startswith("ERR:"):
+        return None
+    match = re.search(r"\b(M[1-7])", text)
+    return match.group(1) if match else None
+
+
+def mcm_families(value):
+    if value is None:
+        return []
+    seen = set()
+    families = []
+    for match in re.finditer(r"M[1-7]", str(value)):
+        family = match.group(0)
+        if family not in seen:
+            families.append(family)
+            seen.add(family)
+    return families
+
+
+def mcm_style_for_family(family):
+    return MCM_HAPLOTYPE_STYLES.get(family, {})
+
+
+def clear_cell_fill(cell):
+    cell.fill = PatternFill(fill_type=None)
+
+
+def apply_haplotype_cell_style(cell, value):
+    family = mcm_family(value)
+    clear_cell_fill(cell)
+    if not family:
+        if isinstance(value, str) and value.startswith("ERR:"):
+            cell.font = Font(name="Calibri", size=11, color="9C0006", bold=True)
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+        return
+    style = mcm_style_for_family(family)
+    if not style:
+        return
+    cell.font = Font(name="Calibri", size=11, color=style["font"], bold=True)
+    cell.alignment = Alignment(horizontal="center", vertical="center")
+
+
+def apply_basic_sheet_format(ws, freeze_panes=None, auto_filter=True):
+    header_fill = PatternFill("solid", fgColor="D9EAF7")
+    header_font = Font(name="Calibri", size=11, bold=True)
+    body_font = Font(name="Calibri", size=11)
+    thin_gray = Side(style="thin", color="D9D9D9")
+    for row in ws.iter_rows():
+        for cell in row:
+            cell.border = Border(bottom=thin_gray)
+            cell.font = body_font
+            cell.alignment = Alignment(vertical="top", wrap_text=True)
+    for cell in ws[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    if freeze_panes:
+        ws.freeze_panes = freeze_panes
+    if auto_filter and ws.max_row and ws.max_column:
+        ws.auto_filter.ref = ws.dimensions
+    else:
+        ws.auto_filter.ref = None
+    for col in range(1, ws.max_column + 1):
+        letter = get_column_letter(col)
+        max_len = 0
+        for row in range(1, min(ws.max_row, 120) + 1):
+            value = ws.cell(row, col).value
+            if value is not None:
+                parts = str(value).splitlines() or [str(value)]
+                max_len = max(max_len, max(len(part) for part in parts))
+        ws.column_dimensions[letter].width = min(max(max_len + 2, 10), 36)
+
+
+def set_row_label_style(ws, row):
+    ws.cell(row, 1).font = Font(name="Calibri", size=11, bold=True)
+    clear_cell_fill(ws.cell(row, 1))
+
+
+def clear_mcm_sheet_fills(ws):
+    for row in ws.iter_rows():
+        for cell in row:
+            clear_cell_fill(cell)
+
+
+def is_mcm_full_summary_label(value):
+    text = str(value or "").strip()
+    if text in {
+        "Client ID",
+        "GS ID",
+        "Mapped Read Count",
+        "total_read_count",
+        "percent_reads_unmapped",
+        "Comments",
+    }:
+        return True
+    return text.startswith("MHC-") and " Haplotype " in text
+
+
+def mcm_allele_name_font(value):
+    families = mcm_families(value)
+    if len(families) == 1:
+        style = mcm_style_for_family(families[0])
+        if style:
+            return Font(name="Calibri", size=11, color=style["font"], bold=False)
+    return Font(name="Calibri", size=11, bold=False)
+
+
+def apply_mcm_summary_sheet_format(ws, custom_sort=False):
+    clear_mcm_sheet_fills(ws)
+    ws.column_dimensions["A"].width = MCM_CUSTOM_SORT_COLUMN_A_WIDTH if custom_sort else MCM_ABBREVIATED_COLUMN_A_WIDTH
+    for cell in ws[1]:
+        cell.font = Font(name="Calibri", size=12 if custom_sort else 11, bold=True)
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    section_labels = {
+        "MHC homozygous MCM animals",
+        "MHC heterozygous  MCM animals",
+        "MHC recombinant  MCM animals",
+        "Need to Repeat",
+    }
+    for row in range(2, ws.max_row + 1):
+        first = ws.cell(row, 1).value
+        if first in section_labels:
+            ws.cell(row, 1).font = Font(name="Arial", size=14, bold=True)
+            ws.cell(row, 1).alignment = Alignment(horizontal="left", vertical="center")
+            continue
+        if first not in (None, ""):
+            ws.cell(row, 1).font = Font(name="Calibri", size=11, bold=True)
+            ws.cell(row, 1).alignment = Alignment(horizontal="center", vertical="center")
+
+
+def apply_mcm_full_sheet_format(ws):
+    clear_mcm_sheet_fills(ws)
+    ws.column_dimensions["A"].width = MCM_FULL_COLUMN_A_WIDTH
+    for row in range(1, ws.max_row + 1):
+        cell = ws.cell(row, 1)
+        if cell.value not in (None, ""):
+            if cell.value in MCM_ALLELE_SECTION_ORDER:
+                cell.font = Font(name="Calibri", size=14, bold=True)
+            elif is_mcm_full_summary_label(cell.value):
+                cell.font = Font(name="Calibri", size=11, bold=True)
+            else:
+                cell.font = mcm_allele_name_font(cell.value)
+            cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+
+
+def ordered_loci_from_calls(calls_by_sample_locus):
+    seen = set()
+    ordered = []
+    for locus in MCM_REPORT_LOCI:
+        if any(report_call_for_locus(calls, locus) for calls in calls_by_sample_locus.values()):
+            ordered.append(locus)
+            seen.add(locus)
+    for calls in calls_by_sample_locus.values():
+        for locus in calls:
+            normalized = summary_locus_for_call(locus)
+            if normalized not in seen:
+                ordered.append(normalized)
+                seen.add(normalized)
+    return ordered if ordered else MCM_REPORT_LOCI
+
+
+def summary_locus_for_call(locus):
+    if locus in ("MHC-DQA", "MHC-DQB"):
+        return "MHC-DQ"
+    if locus in ("MHC-DPA", "MHC-DPB"):
+        return "MHC-DP"
+    return locus
+
+
+def report_call_for_locus(locus_calls, locus):
+    if not locus_calls:
+        return None
+    if locus in locus_calls:
+        return locus_calls.get(locus)
+    if locus in ("MHC-DQA", "MHC-DQB", "MHC-DQ"):
+        return locus_calls.get("MHC-DQ") or locus_calls.get("MHC-DQA") or locus_calls.get("MHC-DQB")
+    if locus in ("MHC-DPA", "MHC-DPB", "MHC-DP"):
+        return locus_calls.get("MHC-DP") or locus_calls.get("MHC-DPA") or locus_calls.get("MHC-DPB")
+    return None
+
+
+def call_value(call, index):
+    if not call:
+        return None
+    value = call.get(f"haplotype{index}")
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text if text else None
+
+
+def inferred_homozygous_family(locus_calls, loci):
+    families = []
+    saw_called_locus = False
+    for locus in loci:
+        call = report_call_for_locus(locus_calls, locus)
+        if not call:
+            continue
+        first = call_value(call, 1)
+        second = call_value(call, 2)
+        first_family = mcm_family(first)
+        second_family = mcm_family(second)
+        if first_family:
+            saw_called_locus = True
+            if first_family not in families:
+                families.append(first_family)
+        if second and second != "-":
+            if not second_family:
+                return None
+            if second_family not in families:
+                families.append(second_family)
+        if isinstance(first, str) and first.startswith("ERR:"):
+            return None
+        if isinstance(second, str) and second.startswith("ERR:"):
+            return None
+    if saw_called_locus and len(families) == 1:
+        return families[0]
+    return None
+
+
+def report_call_value(locus_calls, locus, index, loci):
+    call = report_call_for_locus(locus_calls, locus)
+    value = call_value(call, index)
+    if index == 2 and value == "-":
+        family = inferred_homozygous_family(locus_calls, loci)
+        first = call_value(call, 1)
+        if family and mcm_family(first) == family:
+            return first
+    return value
+
+
+def whole_animal_haplotype(locus_calls, index, loci):
+    families = []
+    saw_nonempty = False
+    for locus in loci:
+        value = report_call_value(locus_calls, locus, index, loci)
+        if value and value != "-":
+            saw_nonempty = True
+        family = mcm_family(value)
+        if family and family not in families:
+            families.append(family)
+    if not saw_nonempty:
+        return "?"
+    if len(families) == 1:
+        return families[0]
+    if len(families) > 1:
+        return "rec" + "".join(families)
+    return "?"
+
+
+def haplotype_comments(locus_calls):
+    comments = []
+    for locus in sorted(locus_calls):
+        call = locus_calls[locus]
+        status = call.get("status")
+        notes = str(call.get("notes") or "").strip()
+        values = [call_value(call, 1), call_value(call, 2)]
+        if any(isinstance(value, str) and value.startswith("ERR:") for value in values if value):
+            comments.append(f"{locus}: {'/'.join(value for value in values if value)}")
+        elif status not in (None, "", "called"):
+            comments.append(f"{locus}: {status}")
+        if notes:
+            comments.append(f"{locus}: {notes}")
+    return "; ".join(comments)
+
+
+def mcm_custom_sort_group(locus_calls, loci):
+    h1 = whole_animal_haplotype(locus_calls, 1, loci)
+    h2 = whole_animal_haplotype(locus_calls, 2, loci)
+    comments = haplotype_comments(locus_calls)
+    if h1 == "?" or h2 == "?" or "ERR:" in comments:
+        return "Need to Repeat"
+    if str(h1).startswith("rec") or str(h2).startswith("rec"):
+        return "MHC recombinant  MCM animals"
+    if h1 == h2:
+        return "MHC homozygous MCM animals"
+    return "MHC heterozygous  MCM animals"
+
+
+def mcm_summary_values(sample, sample_stats, calls_by_sample_locus, loci):
+    locus_calls = calls_by_sample_locus.get(sample, {})
+    values = [
+        sample,
+        sample,
+        read_count_for_sample(sample_stats, sample),
+        whole_animal_haplotype(locus_calls, 1, loci),
+        whole_animal_haplotype(locus_calls, 2, loci),
+        None,
+    ]
+    for locus, _label in MCM_SUMMARY_DISPLAY_LOCI:
+        values.append(report_call_value(locus_calls, locus, 1, loci))
+    values.append(None)
+    for locus, _label in MCM_SUMMARY_DISPLAY_LOCI:
+        values.append(report_call_value(locus_calls, locus, 2, loci))
+    values.append(haplotype_comments(locus_calls) or None)
+    return values
+
+
+def mcm_allele_section_label(genotype):
+    text = str(genotype or "").strip()
+    if text.startswith("01_"):
+        return "Mafa-F alleles"
+    if text.startswith("02_"):
+        return "Mafa-G alleles"
+    if text.startswith("04_") or text.startswith("AG_"):
+        return "Mafa-AG alleles"
+    if text.startswith("05_") or re.match(r"^A1_", text):
+        return "Mafa-A major alleles"
+    if text.startswith("06_") or re.match(r"^A[245]_", text):
+        return "Mafa-A minor alleles"
+    if text.startswith("07_") or text.startswith("10_"):
+        return "Mafa-70 alleles"
+    if text.startswith("11_") or text.startswith("E_"):
+        return "Mafa-E alleles"
+    if text.startswith("12_") or text.startswith("B") or text.startswith("I_"):
+        return "Mafa-B alleles"
+    if text.startswith("13_"):
+        return "Mafa-DRB alleles"
+    if text.startswith("14_"):
+        return "Mafa-DQA/DQB alleles"
+    if text.startswith("15_"):
+        return "Mafa-DPA/DPB alleles"
+    return "Mafa-DPA/DPB alleles"
+
+
+def mcm_locus_for_allele_section(section):
+    if section in {
+        "Mafa-F alleles",
+        "Mafa-G alleles",
+        "Mafa-AG alleles",
+        "Mafa-A major alleles",
+        "Mafa-A minor alleles",
+        "Mafa-70 alleles",
+        "Mafa-E alleles",
+    }:
+        return "MHC-A"
+    if section == "Mafa-B alleles":
+        return "MHC-B"
+    if section == "Mafa-DRB alleles":
+        return "MHC-DRB"
+    if section == "Mafa-DQA/DQB alleles":
+        return "MHC-DQ"
+    if section == "Mafa-DPA/DPB alleles":
+        return "MHC-DP"
+    return None
+
+
+def sample_families_for_locus(locus_calls, locus):
+    call = report_call_for_locus(locus_calls, locus)
+    families = []
+    for index in (1, 2):
+        family = mcm_family(call_value(call, index))
+        if family and family not in families:
+            families.append(family)
+    return families
+
+
+def choose_count_style_family(genotype, locus_calls, section):
+    genotype_families = mcm_families(genotype)
+    if not genotype_families:
+        return None
+    locus = mcm_locus_for_allele_section(section)
+    sample_families = sample_families_for_locus(locus_calls, locus)
+    intersection = [family for family in MCM_FAMILIES if family in genotype_families and family in sample_families]
+    if intersection:
+        return intersection[0]
+    if len(genotype_families) == 1:
+        return genotype_families[0]
+    return None
+
+
+def apply_genotype_count_cell_style(cell, genotype, locus_calls, section):
+    clear_cell_fill(cell)
+    if cell.value in (None, ""):
+        return
+    family = choose_count_style_family(genotype, locus_calls, section)
+    if family:
+        style = mcm_style_for_family(family)
+        cell.font = Font(name="Calibri", size=11, color=style.get("font", "000000"), bold=True)
+    else:
+        cell.font = Font(name="Calibri", size=11, bold=True)
+
+
+def report_percent_value(value):
+    if value is None or value == "":
+        return "0%"
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        text = str(value).strip()
+        return text if text.endswith("%") else text
+    if number.is_integer():
+        return f"{int(number)}%"
+    return f"{number:g}%"
+
+
+def report_locus_percent_overrides(values):
+    formatted = []
+    for item in values or []:
+        text = str(item or "").strip()
+        if not text:
+            continue
+        if "=" not in text:
+            formatted.append(text)
+            continue
+        locus, percent = text.split("=", 1)
+        formatted.append(f"{locus.strip()}={report_percent_value(percent.strip())}")
+    return "; ".join(formatted) if formatted else "None"
+
+
+def write_interpretation_guide(ws, args, stats, haplotype_analysis, haplotype_definition):
+    assay = (
+        (haplotype_analysis or {}).get("assayID")
+        or (haplotype_definition or {}).get("assayID")
+        or ""
+    )
+    definition = (
+        (haplotype_analysis or {}).get("definitionSetID")
+        or (haplotype_definition or {}).get("id")
+        or ""
+    )
+    rows = [
+        ["Field", "Interpretation"],
+        ["Client ID", "Client-provided sample identifier."],
+        ["GS ID", "Genotyping sample identifier used in the run."],
+        ["Mapped Read Count", "Filtered exact-match read count retained for the sample."],
+        ["Haplotype 1 / Haplotype 2", "Whole-animal MCM haplotype assignment derived from per-locus calls."],
+        ["recM", "Recombinant or mixed-family assignment across reported loci."],
+        ["?", "No confident whole-animal haplotype assignment."],
+        [None, None],
+        ["Haplotype assay", assay],
+        ["Haplotype definition", definition],
+        ["Haplotype min reads", display_value(stats.get("minSupport"))],
+        ["Haplotype min sample percent", report_percent_value(stats.get("haplotypeMinSamplePercent"))],
+        ["Haplotype min locus percent", report_percent_value(stats.get("haplotypeMinLocusPercent"))],
+        ["Haplotype locus percent overrides", report_locus_percent_overrides(stats.get("haplotypeMinLocusPercentOverrides"))],
+        ["Haplotype filtering scope", "Read thresholds are used for haplotype assignment only; genotyping worksheets retain all observed reads."],
+        ["Primary workbook", getattr(args, "primary_workbook", None) or ""],
+        ["Report command", getattr(args, "provenance_command", None) or ""],
+    ]
+    for row in rows:
+        ws.append(row)
+    apply_basic_sheet_format(ws, auto_filter=False)
+
+
+def definition_locus_rows(haplotype_definition):
+    rows = []
+    for locus in haplotype_definition.get("locusDefinitions", []) or []:
+        locus_name = locus.get("sourceLocus") or locus.get("locus") or ""
+        haplotypes = locus.get("haplotypes", []) or []
+        name_by_family = {family: [] for family in MCM_FAMILIES}
+        alleles_by_family = {family: [] for family in MCM_FAMILIES}
+        for haplotype in haplotypes:
+            name = haplotype.get("name")
+            family = mcm_family(name)
+            if not name or family not in name_by_family:
+                continue
+            name_by_family[family].append(str(name))
+            alleles = [str(item) for item in haplotype.get("diagnosticAlleles", []) if item]
+            alleles_by_family[family].extend(alleles)
+        rows.append((locus_name, name_by_family, alleles_by_family))
+    return rows
+
+
+def write_mcm_alleles_per_haplotype(ws, haplotype_definition):
+    ws.append(["Haplotype"] + MCM_FAMILIES)
+    for locus_name, name_by_family, alleles_by_family in definition_locus_rows(haplotype_definition):
+        ws.append([locus_name] + ["\n".join(name_by_family[family]) or None for family in MCM_FAMILIES])
+        ws.append([f"{locus_name} diagnostic alleles"] + ["\n".join(alleles_by_family[family]) or None for family in MCM_FAMILIES])
+    if ws.max_row == 1:
+        ws.append(["No haplotype definition rows found"] + [None for _ in MCM_FAMILIES])
+    apply_basic_sheet_format(ws, auto_filter=False)
+    clear_mcm_sheet_fills(ws)
+    for row in range(2, ws.max_row + 1):
+        for col, family in enumerate(MCM_FAMILIES, start=2):
+            value = ws.cell(row, col).value
+            if value:
+                apply_haplotype_cell_style(ws.cell(row, col), family)
+
+
+def abbreviated_headers(loci):
+    return (
+        ["Client ID", "GS ID", "Mapped Read Count", "Haplotype 1", "Haplotype 2", None]
+        + [f"{label} Haplotype 1" for _locus, label in MCM_SUMMARY_DISPLAY_LOCI]
+        + [None]
+        + [f"{label} Haplotype 2" for _locus, label in MCM_SUMMARY_DISPLAY_LOCI]
+        + ["Comments"]
+    )
+
+
+def read_count_for_sample(sample_stats, sample):
+    row = sample_stats.get(sample, {})
+    return display_value(
+        row.get("passed_alignments")
+        or row.get("passed_unique_reads")
+        or row.get("sample_unique_retained_reads")
+    )
+
+
+def write_abbreviated_haplotypes(ws, samples, sample_stats, calls_by_sample_locus, loci):
+    headers = abbreviated_headers(loci)
+    ws.append(headers)
+    for sample in samples:
+        ws.append(mcm_summary_values(sample, sample_stats, calls_by_sample_locus, loci))
+    apply_basic_sheet_format(ws, auto_filter=False)
+    apply_mcm_summary_sheet_format(ws)
+    for row in range(2, ws.max_row + 1):
+        for col in range(4, ws.max_column):
+            apply_haplotype_cell_style(ws.cell(row, col), ws.cell(row, col).value)
+
+
+def write_full_sequencing_results(ws, samples, sample_stats, genotype_counts, ordered_genotypes, calls_by_sample_locus, loci):
+    ws.cell(1, 1).value = "Client ID"
+    ws.cell(2, 1).value = "GS ID"
+    ws.cell(3, 1).value = "Mapped Read Count"
+    for offset, sample in enumerate(samples, start=4):
+        ws.cell(1, offset).value = sample
+        ws.cell(2, offset).value = sample
+        ws.cell(3, offset).value = read_count_for_sample(sample_stats, sample)
+    for row in range(1, 4):
+        set_row_label_style(ws, row)
+
+    row_index = 4
+    ws.cell(row_index, 1).value = "total_read_count"
+    for offset, sample in enumerate(samples, start=4):
+        ws.cell(row_index, offset).value = display_value(sample_stats.get(sample, {}).get("sample_total_reads"))
+    set_row_label_style(ws, row_index)
+    row_index += 1
+    ws.cell(row_index, 1).value = "percent_reads_unmapped"
+    for offset, sample in enumerate(samples, start=4):
+        retained = as_number(sample_stats.get(sample, {}).get("sample_unique_retained_percent"))
+        ws.cell(row_index, offset).value = None if retained is None else max(0, 100 - retained)
+    set_row_label_style(ws, row_index)
+    row_index += 1
+
+    summary_haplotype_rows = []
+    for locus in MCM_FULL_SUMMARY_LOCI:
+        for index in (1, 2):
+            ws.cell(row_index, 1).value = f"{locus} Haplotype {index}"
+            set_row_label_style(ws, row_index)
+            for offset, sample in enumerate(samples, start=4):
+                locus_calls = calls_by_sample_locus.get(sample, {})
+                value = report_call_value(locus_calls, locus, index, loci)
+                ws.cell(row_index, offset).value = value
+            summary_haplotype_rows.append(row_index)
+            row_index += 1
+
+    while row_index < 20:
+        row_index += 1
+    ws.cell(row_index, 1).value = "Comments"
+    ws.cell(row_index, 2).value = "Subtotal"
+    ws.cell(row_index, 3).value = "# Obs."
+    set_row_label_style(ws, row_index)
+    for offset, sample in enumerate(samples, start=4):
+        ws.cell(row_index, offset).value = haplotype_comments(calls_by_sample_locus.get(sample, {})) or None
+    row_index += 1
+
+    observed_genotypes_by_section = {section: [] for section in MCM_ALLELE_SECTION_ORDER}
+    for genotype in ordered_genotypes:
+        if not any(genotype_counts.get(sample, {}).get(genotype, 0) > 0 for sample in samples):
+            continue
+        section = mcm_allele_section_label(genotype)
+        observed_genotypes_by_section.setdefault(section, []).append(genotype)
+
+    allele_row_info = []
+    for section in MCM_ALLELE_SECTION_ORDER:
+        section_genotypes = observed_genotypes_by_section.get(section, [])
+        if not section_genotypes:
+            continue
+        ws.cell(row_index, 1).value = section
+        set_row_label_style(ws, row_index)
+        row_index += 1
+        for genotype in section_genotypes:
+            ws.cell(row_index, 1).value = genotype
+            total = 0
+            observed = 0
+            for offset, sample in enumerate(samples, start=4):
+                count = genotype_counts.get(sample, {}).get(genotype, 0)
+                if count > 0:
+                    ws.cell(row_index, offset).value = count
+                    total += count
+                    observed += 1
+            ws.cell(row_index, 2).value = total
+            ws.cell(row_index, 3).value = observed
+            allele_row_info.append((row_index, genotype, section))
+            row_index += 1
+    for section in sorted(observed_genotypes_by_section):
+        if section in MCM_ALLELE_SECTION_ORDER or not observed_genotypes_by_section.get(section):
+            continue
+        ws.cell(row_index, 1).value = section
+        set_row_label_style(ws, row_index)
+        row_index += 1
+        for genotype in observed_genotypes_by_section[section]:
+            ws.cell(row_index, 1).value = genotype
+            total = 0
+            observed = 0
+            for offset, sample in enumerate(samples, start=4):
+                count = genotype_counts.get(sample, {}).get(genotype, 0)
+                if count > 0:
+                    ws.cell(row_index, offset).value = count
+                    total += count
+                    observed += 1
+            ws.cell(row_index, 2).value = total
+            ws.cell(row_index, 3).value = observed
+            allele_row_info.append((row_index, genotype, section))
+            row_index += 1
+
+    apply_basic_sheet_format(ws, freeze_panes="D21", auto_filter=False)
+    apply_mcm_full_sheet_format(ws)
+    for row in summary_haplotype_rows:
+        for col in range(4, ws.max_column + 1):
+            apply_haplotype_cell_style(ws.cell(row, col), ws.cell(row, col).value)
+    for row, genotype, section in allele_row_info:
+        for col, sample in enumerate(samples, start=4):
+            apply_genotype_count_cell_style(
+                ws.cell(row, col),
+                genotype,
+                calls_by_sample_locus.get(sample, {}),
+                section,
+            )
+
+
+def write_custom_sort(ws, samples, sample_stats, calls_by_sample_locus, loci):
+    headers = abbreviated_headers(loci)
+    headers[2] = "Mapped Read Counts"
+    ws.append(headers)
+    group_order = [
+        "MHC homozygous MCM animals",
+        "MHC heterozygous  MCM animals",
+        "MHC recombinant  MCM animals",
+        "Need to Repeat",
+    ]
+    grouped = {label: [] for label in group_order}
+    for sample in samples:
+        locus_calls = calls_by_sample_locus.get(sample, {})
+        grouped[mcm_custom_sort_group(locus_calls, loci)].append(sample)
+    for label in group_order:
+        group_samples = grouped[label]
+        if not group_samples:
+            continue
+        if ws.max_row > 1:
+            ws.append([None for _ in headers])
+        ws.append([label] + [None for _ in headers[1:]])
+        sorted_samples = sorted(
+            group_samples,
+            key=lambda sample: (
+                whole_animal_haplotype(calls_by_sample_locus.get(sample, {}), 1, loci),
+                whole_animal_haplotype(calls_by_sample_locus.get(sample, {}), 2, loci),
+                sample,
+            ),
+        )
+        for sample in sorted_samples:
+            ws.append(mcm_summary_values(sample, sample_stats, calls_by_sample_locus, loci))
+    apply_basic_sheet_format(ws, auto_filter=False)
+    apply_mcm_summary_sheet_format(ws, custom_sort=True)
+    for row in range(2, ws.max_row + 1):
+        for col in range(4, ws.max_column):
+            apply_haplotype_cell_style(ws.cell(row, col), ws.cell(row, col).value)
+        if ws.cell(row, 1).value in grouped:
+            for col in range(1, ws.max_column + 1):
+                ws.cell(row, col).border = Border()
+
+
+def build_mcm_client_current_workbook(args, genotype_rows, sample_rows, stats, haplotype_analysis, haplotype_definition):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = MCM_CLIENT_SHEET_NAMES[0]
+    genotype_counts = load_genotype_counts(genotype_rows)
+    samples = report_sample_names(sample_rows, genotype_counts)
+    genotype_rows = rows_for_samples(genotype_rows, samples)
+    sample_rows = rows_for_samples(sample_rows, samples)
+    genotype_counts = load_genotype_counts(genotype_rows)
+    sample_stats = load_sample_stats(sample_rows)
+    calls_by_sample_locus = haplotype_calls_by_sample_locus(haplotype_analysis)
+    loci = ordered_loci_from_calls(calls_by_sample_locus)
+    ordered_genotypes = []
+    seen = set()
+    for name in reference_names(args.reference_fasta):
+        if name not in seen:
+            ordered_genotypes.append(name)
+            seen.add(name)
+    for row in genotype_rows:
+        genotype = row.get("genotype")
+        if genotype and genotype not in seen:
+            ordered_genotypes.append(genotype)
+            seen.add(genotype)
+
+    write_interpretation_guide(ws, args, stats, haplotype_analysis, haplotype_definition)
+    write_mcm_alleles_per_haplotype(wb.create_sheet(title=MCM_CLIENT_SHEET_NAMES[1]), haplotype_definition)
+    write_abbreviated_haplotypes(wb.create_sheet(title=MCM_CLIENT_SHEET_NAMES[2]), samples, sample_stats, calls_by_sample_locus, loci)
+    write_full_sequencing_results(
+        wb.create_sheet(title=MCM_CLIENT_SHEET_NAMES[3]),
+        samples,
+        sample_stats,
+        genotype_counts,
+        ordered_genotypes,
+        calls_by_sample_locus,
+        loci,
+    )
+    write_custom_sort(wb.create_sheet(title=MCM_CLIENT_SHEET_NAMES[4]), samples, sample_stats, calls_by_sample_locus, loci)
+    wb.active = 0
+    return wb, 0
 
 
 def write_audit_sheet(wb, title, comparison_ws, sample_cols, allele_rows, matched_by_row_sample, comparison_name, analysis_name):
@@ -3610,6 +5077,7 @@ def build_generic_workbook(args, genotype_headers, genotype_rows, sample_headers
 
 
 def write_provenance(args, start_time, started_at, completed_at, audit_rows):
+    mode = "mcm-client-current" if args.client_current_workbook else "standard-report"
     inputs = [
         file_record(args.genotypes_csv, "input"),
         file_record(args.samples_csv, "input"),
@@ -3621,9 +5089,14 @@ def write_provenance(args, start_time, started_at, completed_at, audit_rows):
         inputs.append(file_record(args.comparison_workbook, "comparison"))
     if args.haplotype_analysis_json:
         inputs.append(file_record(args.haplotype_analysis_json, "analysis"))
+    if args.haplotype_definition_json:
+        inputs.append(file_record(args.haplotype_definition_json, "haplotype-definition"))
+    if args.primary_workbook:
+        inputs.append(file_record(args.primary_workbook, "primary-workbook"))
     payload = {
         "toolName": "lungfish fastq ont-barcode-genotype workbook report",
         "toolVersion": "1",
+        "mode": mode,
         "argv": sys.argv,
         "reproducibleCommand": args.provenance_command or " ".join(sys.argv),
         "options": vars(args),
@@ -3631,6 +5104,9 @@ def write_provenance(args, start_time, started_at, completed_at, audit_rows):
             "analysisName": args.run_name,
             "comparisonName": "Illumina-31262",
             "haplotypeAnalysisJSON": None,
+            "clientCurrentWorkbook": False,
+            "haplotypeDefinitionJSON": None,
+            "primaryWorkbook": None,
         },
         "runtimeIdentity": {
             "python": sys.version,
@@ -3643,6 +5119,8 @@ def write_provenance(args, start_time, started_at, completed_at, audit_rows):
             file_record(args.output_xlsx, "report"),
             {"path": args.provenance_json, "role": "provenance", "exists": False},
         ],
+        "primaryWorkbook": args.primary_workbook,
+        "outputWorkbook": args.output_xlsx,
         "auditRows": audit_rows,
         "exitStatus": 0,
         "wallClockSeconds": time.time() - start_time,
@@ -3675,7 +5153,17 @@ def main():
         stats = json.load(handle)
     haplotype_analysis = load_haplotype_analysis(args.haplotype_analysis_json)
 
-    if args.comparison_workbook:
+    if args.client_current_workbook:
+        haplotype_definition = load_haplotype_definition(args.haplotype_definition_json)
+        wb, audit_rows = build_mcm_client_current_workbook(
+            args,
+            genotype_rows,
+            sample_rows,
+            stats,
+            haplotype_analysis,
+            haplotype_definition,
+        )
+    elif args.comparison_workbook:
         wb, audit_rows = build_template_workbook(args, genotype_headers, genotype_rows, sample_headers, sample_rows, stats, haplotype_analysis)
     else:
         wb, audit_rows = build_generic_workbook(args, genotype_headers, genotype_rows, sample_headers, sample_rows, stats, haplotype_analysis)

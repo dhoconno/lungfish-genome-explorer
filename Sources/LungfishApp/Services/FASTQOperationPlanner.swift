@@ -47,6 +47,8 @@ func outputMode(for request: FASTQOperationLaunchRequest) -> FASTQOperationOutpu
         return .fixedBatch
     case .derivative(_, _, let outputMode):
         return outputMode
+    case .ontFluidigmSampleSplit:
+        return .fixedBatch
     case .map(_, _, let outputMode):
         return outputMode
     case .assemble(_, let outputMode):
@@ -63,6 +65,9 @@ func outputMode(for request: FASTQOperationLaunchRequest) -> FASTQOperationOutpu
 func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
     if case .derivative(let derivativeRequest, _, _) = request,
        case .demultiplex = derivativeRequest {
+        return true
+    }
+    if case .ontFluidigmSampleSplit = request {
         return true
     }
     return false
@@ -311,7 +316,7 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
             return .jsonReport
         case .derivative(let derivativeRequest, _, _):
             return derivativeRequest.usesDirectoryOutput ? .directory : .fastqFile
-        case .map, .assemble, .classify, .pbaa, .ontGenotyping:
+        case .ontFluidigmSampleSplit, .map, .assemble, .classify, .pbaa, .ontGenotyping:
             return .directory
         }
     }
@@ -493,6 +498,8 @@ extension FASTQOperationLaunchRequest {
             return inputURLs
         case .derivative(_, let inputURLs, _):
             return inputURLs
+        case .ontFluidigmSampleSplit(let inputFASTQURL, _, _):
+            return [inputFASTQURL]
         case .map(let inputURLs, _, _):
             return inputURLs
         case .assemble(let request, _):
@@ -511,6 +518,8 @@ extension FASTQOperationLaunchRequest {
         switch self {
         case .derivative(let request, _, _):
             urls.append(contentsOf: request.provenanceInputURLs)
+        case .ontFluidigmSampleSplit(_, let barcodeDefinitionsURL, _):
+            urls.append(barcodeDefinitionsURL)
         case .map(_, let referenceURL, _):
             urls.append(referenceURL)
         case .classify(_, _, let databaseName, _):
@@ -541,6 +550,13 @@ extension FASTQOperationLaunchRequest {
             return .refreshQCSummary(inputURLs: inputURLs)
         case .derivative(let request, _, let outputMode):
             return .derivative(request: request, inputURLs: inputURLs, outputMode: outputMode)
+        case .ontFluidigmSampleSplit(_, let barcodeDefinitionsURL, let threads):
+            guard let inputFASTQURL = inputURLs.first else { return self }
+            return .ontFluidigmSampleSplit(
+                inputFASTQURL: inputFASTQURL,
+                barcodeDefinitionsURL: barcodeDefinitionsURL,
+                threads: threads
+            )
         case .map(_, let referenceURL, let outputMode):
             return .map(inputURLs: inputURLs, referenceURL: referenceURL, outputMode: outputMode)
         case .assemble(let request, let outputMode):
@@ -575,6 +591,9 @@ extension FASTQOperationLaunchRequest {
                 threads: request.threads,
                 sortThreads: request.sortThreads,
                 minSupport: request.minSupport,
+                haplotypeDropoutSampleFraction: request.haplotypeDropoutSampleFraction,
+                haplotypeDropoutLocusFraction: request.haplotypeDropoutLocusFraction,
+                haplotypeDropoutLocusFractionOverrides: request.haplotypeDropoutLocusFractionOverrides,
                 haplotypeAssayID: request.haplotypeAssayID,
                 haplotypeSpeciesCode: request.haplotypeSpeciesCode,
                 haplotypeDefinitionScope: request.haplotypeDefinitionScope,
@@ -592,6 +611,8 @@ extension FASTQOperationLaunchRequest {
             return "FASTQ QC Summary"
         case .derivative(let request, _, _):
             return request.batchLabel
+        case .ontFluidigmSampleSplit:
+            return "ONT Fluidigm Sample Split"
         case .map:
             return "Map Reads"
         case .assemble(let request, _):
@@ -611,6 +632,8 @@ extension FASTQOperationLaunchRequest {
             return "qcSummary"
         case .derivative(let request, _, _):
             return request.operationKindString
+        case .ontFluidigmSampleSplit:
+            return "ontFluidigmSampleSplit"
         case .map:
             return "mapping"
         case .assemble:
@@ -630,6 +653,15 @@ extension FASTQOperationLaunchRequest {
             return [:]
         case .derivative(let request, _, _):
             return request.batchParameters
+        case .ontFluidigmSampleSplit(_, let barcodeDefinitionsURL, let threads):
+            return [
+                "barcodes": barcodeDefinitionsURL.lastPathComponent,
+                "threads": String(threads),
+                "primerMismatches": "2",
+                "minimumInsertLength": "20",
+                "payloadRepresentation": "deduplicated gzip-compressed CS1-CS2 insert FASTQ",
+                "duplicateCountEncoding": "size=N",
+            ]
         case .map(_, let referenceURL, _):
             return ["reference": referenceURL.lastPathComponent]
         case .assemble(let request, _):
@@ -644,7 +676,7 @@ extension FASTQOperationLaunchRequest {
             }
             return params
         case .pbaa(let request):
-            var params = [
+            var params: [String: String] = [
                 "guide": request.guideSourceURL.lastPathComponent,
                 "outputName": request.outputName,
                 "threads": String(request.threads),
@@ -655,13 +687,26 @@ extension FASTQOperationLaunchRequest {
             }
             return params
         case .ontGenotyping(let request):
+            let haplotypeDropoutLocusFractionOverrides = request.haplotypeDropoutLocusFractionOverrides
+                .keys
+                .sorted()
+                .compactMap { key -> String? in
+                    guard let fraction = request.haplotypeDropoutLocusFractionOverrides[key] else {
+                        return nil
+                    }
+                    return "\(key)=\(fraction)"
+                }
+                .joined(separator: ";")
             var params = [
                 "reference": request.referenceSourceURL.lastPathComponent,
                 "outputName": request.outputName,
                 "analysisName": request.analysisName,
-                "threads": String(request.threads),
-                "sortThreads": String(request.sortThreads),
-                "minSupport": String(request.minSupport),
+                "threads": "\(request.threads)",
+                "sortThreads": "\(request.sortThreads)",
+                "minSupport": "\(request.minSupport)",
+                "haplotypeDropoutSampleFraction": request.haplotypeDropoutSampleFraction.map { "\($0)" } ?? "",
+                "haplotypeDropoutLocusFraction": request.haplotypeDropoutLocusFraction.map { "\($0)" } ?? "",
+                "haplotypeDropoutLocusFractionOverrides": haplotypeDropoutLocusFractionOverrides,
                 "mode": request.mode.rawValue,
                 "readType": request.readType.rawValue,
                 "maxMismatches": "0",
@@ -703,6 +748,8 @@ extension FASTQOperationLaunchRequest {
             return "qc-summary"
         case .derivative(let request, _, _):
             return request.outputNameStem
+        case .ontFluidigmSampleSplit:
+            return "ont-fluidigm-samples"
         case .map:
             return "mapping"
         case .assemble(let request, _):
@@ -720,7 +767,7 @@ extension FASTQOperationLaunchRequest {
         switch self {
         case .refreshQCSummary, .derivative, .pbaa:
             return true
-        case .map, .assemble, .classify, .ontGenotyping:
+        case .ontFluidigmSampleSplit, .map, .assemble, .classify, .ontGenotyping:
             return false
         }
     }
@@ -749,6 +796,9 @@ extension FASTQOperationLaunchRequest {
         if case .assemble = self {
             return false
         }
+        if case .ontFluidigmSampleSplit = self {
+            return false
+        }
         return true
     }
 
@@ -765,7 +815,7 @@ extension FASTQOperationLaunchRequest {
             default:
                 return false
             }
-        case .map, .assemble, .pbaa, .ontGenotyping:
+        case .ontFluidigmSampleSplit, .map, .assemble, .pbaa, .ontGenotyping:
             return false
         }
     }

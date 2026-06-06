@@ -142,6 +142,9 @@ final class FASTQOperationDialogState {
     var ontGenotypingAnalysisName: String
     var ontGenotypingThreads: Int
     var ontGenotypingMinSupport: Int
+    var ontGenotypingHaplotypeDropoutSamplePercent: Double
+    var ontGenotypingHaplotypeDropoutLocusPercent: Double
+    var ontGenotypingHaplotypeDropoutLocusOverridePercents: [String: Double]
     var ontGenotypingExtraArguments: String
 
     private let availableToolIDsOverride: [FASTQOperationToolID]?
@@ -253,6 +256,9 @@ final class FASTQOperationDialogState {
         self.ontGenotypingAnalysisName = Self.defaultONTGenotypingAnalysisName(for: selectedInputURLs)
         self.ontGenotypingThreads = max(1, ProcessInfo.processInfo.activeProcessorCount)
         self.ontGenotypingMinSupport = 1
+        self.ontGenotypingHaplotypeDropoutSamplePercent = 0.0
+        self.ontGenotypingHaplotypeDropoutLocusPercent = 1.0
+        self.ontGenotypingHaplotypeDropoutLocusOverridePercents = [:]
         self.ontGenotypingExtraArguments = ""
         self.embeddedToolReady = defaultToolID.defaultEmbeddedReadiness
 
@@ -357,6 +363,18 @@ final class FASTQOperationDialogState {
                 ),
                 inputURLs: selectedInputURLs,
                 outputMode: outputMode
+            )
+
+        case .ontFluidigmSampleSplit:
+            guard selectedInputURLs.count == 1,
+                  let inputFASTQURL = selectedInputURLs.first,
+                  let barcodeDefinitionsURL = auxiliaryInputURL(for: .barcodeDefinition) else {
+                return nil
+            }
+            return .ontFluidigmSampleSplit(
+                inputFASTQURL: inputFASTQURL,
+                barcodeDefinitionsURL: barcodeDefinitionsURL,
+                threads: max(1, ProcessInfo.processInfo.activeProcessorCount)
             )
 
         case .fastpTrim:
@@ -649,6 +667,9 @@ final class FASTQOperationDialogState {
                     projectURL: projectURL,
                     threads: ontGenotypingThreads,
                     minSupport: ontGenotypingMinSupport,
+                    haplotypeDropoutSampleFraction: nil,
+                    haplotypeDropoutLocusFraction: Self.fraction(fromPercent: ontGenotypingHaplotypeDropoutLocusPercent),
+                    haplotypeDropoutLocusFractionOverrides: [:],
                     extraArguments: AdvancedCommandLineOptions.parse(ontGenotypingExtraArguments)
                   ) else {
                 return nil
@@ -842,6 +863,11 @@ final class FASTQOperationDialogState {
             return "Select at least one \(inputDatasetDisplayName) dataset."
         }
 
+        if selectedToolID == .ontFluidigmSampleSplit,
+           auxiliaryInputURL(for: .barcodeDefinition) == nil {
+            return "Select a Fluidigm sample barcode CSV or TSV."
+        }
+
         if let missingKind = missingRequiredAuxiliaryInputKinds.first {
             return missingKind.missingSelectionText
         }
@@ -954,6 +980,8 @@ final class FASTQOperationDialogState {
             return "Recompute the QC summary for the selected FASTQ datasets."
         case .demultiplexBarcodes:
             return "Split pooled reads into sample-specific outputs using a barcode definition."
+        case .ontFluidigmSampleSplit:
+            return "Split one bulk ONT Fluidigm amplicon bundle into counted per-sample CS1-CS2 insert FASTQ bundles."
         case .fastpTrim:
             return "Run fastp adapter detection/removal and quality trimming in one pass."
         case .qualityTrim:
@@ -1055,7 +1083,7 @@ final class FASTQOperationDialogState {
         case .qcReporting:
             return [.refreshQCSummary]
         case .demultiplexing:
-            return [.demultiplexBarcodes]
+            return [.demultiplexBarcodes, .ontFluidigmSampleSplit]
         case .trimmingFiltering:
             return [.fastpTrim, .qualityTrim, .adapterRemoval, .primerTrimming, .trimFixedBases, .filterByReadLength]
         case .decontamination:
@@ -1165,6 +1193,15 @@ final class FASTQOperationDialogState {
                 ? "Select a reference sequence to continue."
                 : nil
 
+        case .ontFluidigmSampleSplit:
+            if selectedInputURLs.count != 1 {
+                return "Select one bulk ONT FASTQ dataset."
+            }
+            if auxiliaryInputURL(for: .barcodeDefinition) == nil {
+                return "Select a Fluidigm sample barcode CSV or TSV."
+            }
+            return nil
+
         case .pbaa:
             if selectedInputURLs.count != 1 {
                 return "pbAA clustering runs one demultiplexed HiFi FASTQ dataset at a time."
@@ -1199,7 +1236,10 @@ final class FASTQOperationDialogState {
                 return "Enter a positive thread count."
             }
             if ontGenotypingMinSupport <= 0 {
-                return "Enter a positive minimum support."
+                return "Enter a positive minimum read threshold."
+            }
+            if ontGenotypingHaplotypeDropoutLocusPercent < 0 || ontGenotypingHaplotypeDropoutLocusPercent > 100 {
+                return "Enter a locus percent threshold between 0 and 100."
             }
             do {
                 _ = try AdvancedCommandLineOptions.parse(ontGenotypingExtraArguments)
@@ -1282,6 +1322,11 @@ final class FASTQOperationDialogState {
         }
     }
 
+    private static func fraction(fromPercent percent: Double) -> Double? {
+        guard percent.isFinite, percent > 0 else { return nil }
+        return min(percent, 100.0) / 100.0
+    }
+
     private func normalizeSelectionState() {
         let visibleToolIDs = visibleToolIDs(for: selectedCategory)
         if !visibleToolIDs.contains(selectedToolID),
@@ -1333,22 +1378,11 @@ final class FASTQOperationDialogState {
     }
 
     private static func defaultONTGenotypingOutputName(for selectedInputURLs: [URL]) -> String {
-        let stem = selectedInputURLs.first?.deletingPathExtension().lastPathComponent ?? "ont-genotyping"
-        return "\(sanitizeFilenameStem(stem))-mhc"
+        "amplicon-genotyping"
     }
 
     private static func defaultONTGenotypingAnalysisName(for selectedInputURLs: [URL]) -> String {
-        guard let stem = selectedInputURLs.first?.deletingPathExtension().lastPathComponent.lowercased() else {
-            return "ONT"
-        }
-        if let range = stem.range(of: #"barcode[-_ ]?([0-9]+)"#, options: .regularExpression) {
-            let match = String(stem[range])
-            let digits = match.filter(\.isNumber)
-            if !digits.isEmpty {
-                return "ONT\(digits)"
-            }
-        }
-        return "ONT"
+        "amplicon-genotyping"
     }
 
     private static func sanitizeFilenameStem(_ value: String) -> String {
@@ -1608,6 +1642,7 @@ final class FASTQOperationDialogState {
 enum FASTQOperationToolID: String, CaseIterable, Sendable {
     case refreshQCSummary
     case demultiplexBarcodes
+    case ontFluidigmSampleSplit
     case fastpTrim
     case qualityTrim
     case adapterRemoval
@@ -1650,6 +1685,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         switch self {
         case .refreshQCSummary: return "Refresh QC Summary"
         case .demultiplexBarcodes: return "Demultiplex Barcodes"
+        case .ontFluidigmSampleSplit: return "ONT Fluidigm Sample Split"
         case .fastpTrim: return "fastp Adapter + Quality Trim"
         case .qualityTrim: return "Quality Trim"
         case .adapterRemoval: return "Adapter Removal"
@@ -1694,6 +1730,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         switch self {
         case .refreshQCSummary: return "Rebuild the QC summary for the current FASTQ data."
         case .demultiplexBarcodes: return "Split pooled reads into barcode-defined samples."
+        case .ontFluidigmSampleSplit: return "Split a bulk ONT Fluidigm amplicon bundle into one counted CS1-CS2 insert FASTQ bundle per sample."
         case .fastpTrim: return "Run fastp adapter detection/removal and quality trimming in one pass."
         case .qualityTrim: return "Trim low-quality bases from read ends."
         case .adapterRemoval: return "Remove adapter sequence from reads."
@@ -1738,7 +1775,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         switch self {
         case .refreshQCSummary:
             return .qcReporting
-        case .demultiplexBarcodes:
+        case .demultiplexBarcodes, .ontFluidigmSampleSplit:
             return .demultiplexing
         case .fastpTrim, .qualityTrim, .adapterRemoval, .primerTrimming, .trimFixedBases, .filterByReadLength:
             return .trimmingFiltering
@@ -1765,7 +1802,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         switch self {
         case .refreshQCSummary:
             return [.fastqDataset]
-        case .demultiplexBarcodes:
+        case .demultiplexBarcodes, .ontFluidigmSampleSplit:
             return [.fastqDataset, .barcodeDefinition]
         case .fastpTrim, .qualityTrim, .adapterRemoval, .trimFixedBases, .filterByReadLength,
              .removeRibosomalRNA, .removeDuplicates, .mergeOverlappingPairs, .repairPairedEndFiles,
@@ -1791,6 +1828,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
     var defaultOutputMode: FASTQOperationOutputMode {
         if self == .mafft { return .fixedBatch }
         if self == .pbaa { return .perInput }
+        if self == .ontFluidigmSampleSplit { return .fixedBatch }
         if self == .ontGenotyping { return .fixedBatch }
         return categoryID == .classification ? .fixedBatch : .perInput
     }
@@ -1818,6 +1856,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
     var supportsConfigurableOutput: Bool {
         if self == .mafft { return false }
         if self == .pbaa { return false }
+        if self == .ontFluidigmSampleSplit { return false }
         if self == .ontGenotyping { return false }
         return categoryID != .classification && self != .removeRibosomalRNA
     }
@@ -1890,7 +1929,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
              .bwaMem2, .bowtie2, .bbmap, .spades, .megahit, .skesa,
              .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
             return true
-        case .refreshQCSummary, .fastpTrim, .qualityTrim, .pbaa, .ontGenotyping, .mergeOverlappingPairs,
+        case .refreshQCSummary, .ontFluidigmSampleSplit, .fastpTrim, .qualityTrim, .pbaa, .ontGenotyping, .mergeOverlappingPairs,
              .repairPairedEndFiles, .correctSequencingErrors, .viralRecon:
             return false
         }
@@ -1973,6 +2012,7 @@ enum FASTQOperationOutputMode: String, CaseIterable, Sendable {
 enum FASTQOperationLaunchRequest: Sendable, Equatable {
     case refreshQCSummary(inputURLs: [URL])
     case derivative(request: FASTQDerivativeRequest, inputURLs: [URL], outputMode: FASTQOperationOutputMode)
+    case ontFluidigmSampleSplit(inputFASTQURL: URL, barcodeDefinitionsURL: URL, threads: Int)
     case map(inputURLs: [URL], referenceURL: URL, outputMode: FASTQOperationOutputMode)
     case assemble(request: AssemblyRunRequest, outputMode: FASTQOperationOutputMode)
     case classify(tool: FASTQOperationToolID, inputURLs: [URL], databaseName: String, extraArguments: [String] = [])
