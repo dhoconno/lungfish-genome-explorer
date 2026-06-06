@@ -191,6 +191,52 @@ final class TwelveSAmpliconMatchingWorkflowTests: XCTestCase {
         XCTAssertEqual(provenance.stderr, "fake vsearch stderr")
     }
 
+    func testWorkflowUsesSizeHeaderAsReadSupportCount() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwelveSCountedFASTQTests-\(UUID().uuidString)", isDirectory: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let referenceURL = root.appendingPathComponent("reference.fa")
+        let fastqURL = root.appendingPathComponent("sampleA.fastq")
+        let outputDirectory = root.appendingPathComponent("outputs", isDirectory: true)
+
+        try """
+        >human (Homo sapiens)|locus=12S|len=8
+        ACGTACGT
+        """.write(to: referenceURL, atomically: true, encoding: .utf8)
+        try """
+        @exact;size=7
+        TTACGTACGTGG
+        +
+        IIIIIIIIIIII
+        @unresolved;size=3
+        TTAAAAAAAAAGG
+        +
+        IIIIIIIIIIII
+        """.write(to: fastqURL, atomically: true, encoding: .utf8)
+
+        let result = try await TwelveSAmpliconMatchingWorkflow().run(
+            TwelveSAmpliconMatchingConfiguration(
+                inputFASTQs: [fastqURL],
+                referenceFASTA: referenceURL,
+                outputDirectory: outputDirectory,
+                outputName: "sampleA-counted-12s",
+                minimumSoftClipBases: 2,
+                maximumIndelBases: 2,
+                matchingMode: .illuminaExact,
+                runChimeraReview: false
+            )
+        )
+
+        let loaded = try TwelveSAmpliconResultBundle.loadResult(from: result.bundleURL)
+        XCTAssertEqual(loaded.readFate.totalReads, 10)
+        XCTAssertEqual(loaded.readFate.exactMatchReads, 7)
+        XCTAssertEqual(loaded.readFate.unresolvedReads, 3)
+        XCTAssertEqual(loaded.targetRows.first?.count(forSample: "sampleA"), 7)
+        XCTAssertEqual(loaded.unresolvedSequences.first?.readCount, 3)
+        XCTAssertEqual(loaded.unresolvedSequences.first?.sampleCounts["sampleA"], 3)
+    }
+
     func testCrossSpeciesAmbiguousReadsReassignedToAbundantSpeciesWithConservation() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("TwelveSReassignTest-\(UUID().uuidString)", isDirectory: true)

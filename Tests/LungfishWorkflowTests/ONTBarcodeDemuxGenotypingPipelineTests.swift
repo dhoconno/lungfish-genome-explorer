@@ -724,9 +724,11 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         let minimap2Invocations = try String(contentsOf: minimap2Log, encoding: .utf8)
             .split(whereSeparator: \.isNewline)
             .map(String.init)
-        XCTAssertEqual(minimap2Invocations.count, 2)
+        XCTAssertEqual(minimap2Invocations.count, 1)
         XCTAssertTrue(minimap2Invocations.allSatisfy { $0.contains("-x map-ont") }, "\(minimap2Invocations)")
         XCTAssertFalse(minimap2Invocations.contains { $0.contains("-x sr") }, "\(minimap2Invocations)")
+        XCTAssertTrue(minimap2Invocations[0].contains("LF2871.sample-prefixed.fastq"), "\(minimap2Invocations)")
+        XCTAssertTrue(minimap2Invocations[0].contains("LF2872.sample-prefixed.fastq"), "\(minimap2Invocations)")
 
         let sampleManifestURL = outputDirectory
             .appendingPathComponent(".amplicon-genotyping", isDirectory: true)
@@ -738,18 +740,25 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         let samples = try XCTUnwrap(sampleManifest["samples"] as? [[String: Any]])
         XCTAssertEqual(samples.map { $0["sample"] as? String }, ["LF2871", "LF2872"])
         XCTAssertEqual(samples.map { $0["readCount"] as? Int }, [7, 3])
+        let filterScriptURL = outputDirectory
+            .appendingPathComponent(".amplicon-genotyping", isDirectory: true)
+            .appendingPathComponent("filter-demux-retained-bam.py")
+        let filterScript = try String(contentsOf: filterScriptURL, encoding: .utf8)
+        XCTAssertTrue(filterScript.contains("def sequence_for_barcode_assignment(read):"))
+        XCTAssertTrue(filterScript.contains("if read.is_reverse:"))
 
         let provenance = try jsonObject(at: request.provenanceURL)
         let options = try XCTUnwrap(provenance["options"] as? [String: Any])
         XCTAssertEqual(options["resolvedMode"] as? String, "ont-sample-bundles")
         XCTAssertEqual(options["resolvedReadType"] as? String, "ont")
         XCTAssertEqual(options["mappingPreset"] as? String, "map-ont")
-        XCTAssertEqual(options["requireBothEndSoftclips"] as? Bool, false)
+        XCTAssertEqual(options["requireBothEndSoftclips"] as? Bool, true)
+        XCTAssertEqual(sampleManifest["requiresBothEndSoftclips"] as? Bool, true)
 
         let canonicalEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: outputDirectory))
         XCTAssertEqual(canonicalEnvelope.workflowName, "ONT Sample Bundle Amplicon Genotyping")
         XCTAssertEqual(canonicalEnvelope.options.explicit["resolvedMode"], .string("ont-sample-bundles"))
-        XCTAssertEqual(canonicalEnvelope.steps.filter { $0.toolName == "minimap2" }.count, 2)
+        XCTAssertEqual(canonicalEnvelope.steps.filter { $0.toolName == "minimap2" }.count, 1)
     }
 
     func testResolveIlluminaSampleInputsDisambiguatesCollidingSanitizedSampleIDs() async throws {

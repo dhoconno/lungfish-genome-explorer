@@ -1587,6 +1587,7 @@ extension FASTQDerivativeService {
                 kind: .pairedEndMerge,
                 mergeStrictness: strictness,
                 mergeMinOverlap: minOverlap,
+                mergeCountDuplicates: true,
                 toolUsed: "bbmerge",
                 toolCommand: result.toolCommand
             )

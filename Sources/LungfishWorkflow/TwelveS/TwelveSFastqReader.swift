@@ -4,6 +4,10 @@ import LungfishIO
 struct TwelveSFastqRecord: Equatable, Sendable {
     let identifier: String
     let sequence: String
+
+    var readCountWeight: Int {
+        CountedFASTQMaterializer.readCountWeight(identifier: identifier)
+    }
 }
 
 enum TwelveSFastqReaderError: Error, LocalizedError, Equatable {

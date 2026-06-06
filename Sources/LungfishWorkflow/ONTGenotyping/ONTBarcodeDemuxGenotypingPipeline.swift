@@ -608,6 +608,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             referenceFASTAURL: reference.referenceFASTAURL,
             barcodeDefinitionsURL: inputSnapshot.barcodeDefinitionsURL,
             demuxManifestURL: inputSnapshot.demuxManifestURL,
+            requireBothEndSoftclips: inputPlan.illuminaPreparation?.requiresBothEndSoftclips
+                ?? (resolvedMode == .ontBarcodeDemux),
             scriptURL: scriptURL,
             pythonURL: pythonURL
         )
@@ -808,6 +810,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let sampleDefinitionsURL: URL
         let sourceFASTQURLs: [URL]
         let mappingFASTQURLs: [URL]
+        let requiresBothEndSoftclips: Bool
     }
 
     private struct MappingStepResult {
@@ -1059,6 +1062,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             stagingDirectory: stagedDirectory
         )
         _ = pythonURL
+        let requiresBothEndSoftclips = isONTSampleBundles
+            && samples.allSatisfy { Self.sampleInputRetainsFullReadContext($0.sourceURL) }
 
         let sampleDefinitionsURL = inputsDirectory.appendingPathComponent(
             isONTSampleBundles ? "ont-sample-bundle-definitions.csv" : "illumina-sample-definitions.csv"
@@ -1078,11 +1083,15 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 "fastq": sample.fastqURL.path,
                 "mappingFASTQ": sample.prefixedFASTQURL.path,
                 "readCount": sample.readCount,
+                "retainsFullReadContext": isONTSampleBundles
+                    ? Self.sampleInputRetainsFullReadContext(sample.sourceURL)
+                    : false,
             ]
         }
         let manifest: [String: Any] = [
             "mode": mode.rawValue,
             "inputReadCount": samples.reduce(0) { $0 + $1.readCount },
+            "requiresBothEndSoftclips": requiresBothEndSoftclips,
             "samples": sampleItems,
         ]
         let manifestData = try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
@@ -1093,8 +1102,25 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             sampleManifestURL: sampleManifestURL,
             sampleDefinitionsURL: sampleDefinitionsURL,
             sourceFASTQURLs: samples.map(\.fastqURL),
-            mappingFASTQURLs: samples.map(\.prefixedFASTQURL)
+            mappingFASTQURLs: samples.map(\.prefixedFASTQURL),
+            requiresBothEndSoftclips: requiresBothEndSoftclips
         )
+    }
+
+    private static func sampleInputRetainsFullReadContext(_ url: URL) -> Bool {
+        guard FASTQBundle.isBundleURL(url),
+              let manifest = FASTQBundle.loadDerivedManifest(in: url) else {
+            return true
+        }
+        let filename = manifest.rootFASTQFilename.lowercased()
+        if filename.contains("deduplicated-amplicons") {
+            return false
+        }
+        if let notes = manifest.provenance?.notes?.lowercased(),
+           notes.contains("cs1-cs2") || notes.contains("insert exemplar") {
+            return false
+        }
+        return true
     }
 
     private static func resolveIlluminaSampleInputs(
@@ -1468,7 +1494,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         minimap2URL: URL,
         samtoolsURL: URL
     ) throws -> MappingStepResult {
-        if (resolvedMode == .illuminaPaired || resolvedMode == .ontSampleBundles), inputFASTQURLs.count > 1 {
+        if resolvedMode == .illuminaPaired, inputFASTQURLs.count > 1 {
             return try runSampleBundleCohortMapping(
                 request: request,
                 resolvedMode: resolvedMode,
@@ -1709,6 +1735,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         referenceFASTAURL: URL,
         barcodeDefinitionsURL: URL,
         demuxManifestURL: URL,
+        requireBothEndSoftclips: Bool,
         scriptURL: URL,
         pythonURL: URL
     ) async throws -> FilterStepResult {
@@ -1729,7 +1756,6 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             arguments += [
                 "--assignment-mode", "barcode",
                 "--barcodes", barcodeDefinitionsURL.path,
-                "--require-both-end-softclips",
             ]
         case .illuminaPaired, .ontSampleBundles:
             arguments += [
@@ -1738,6 +1764,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             ]
         case .auto:
             break
+        }
+        if requireBothEndSoftclips {
+            arguments.append("--require-both-end-softclips")
         }
         let startedAt = Date()
         let result = try await condaManager.runTool(
@@ -2253,12 +2282,15 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 "mappingFASTQs": preparation.mappingFASTQURLs.map(\.path),
                 "sampleDefinitions": preparation.sampleDefinitionsURL.path,
                 "sampleManifest": preparation.sampleManifestURL.path,
+                "requiresBothEndSoftclips": preparation.requiresBothEndSoftclips,
                 "internalMergePerformed": false,
             ] as [String: Any]
         } as Any? ?? NSNull()
         let illuminaInputPreparation: Any = resolvedMode == .illuminaPaired
             ? sampleBundleInputPreparation
             : NSNull()
+        let requireBothEndSoftclips = illuminaPreparation?.requiresBothEndSoftclips
+            ?? (resolvedMode == .ontBarcodeDemux)
         let options: [String: Any] = [
             "inputFASTQ": request.inputFASTQURL.path,
             "inputFASTQs": request.inputFASTQURLs.map(\.path),
@@ -2286,7 +2318,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "haplotypeDropoutLocusFraction": request.haplotypeDropoutLocusFraction as Any? ?? NSNull(),
             "haplotypeDropoutLocusFractionOverrides": request.haplotypeDropoutLocusFractionOverrides,
             "mappingPreset": Self.mappingPreset(for: resolvedMode),
-            "requireBothEndSoftclips": resolvedMode == .ontBarcodeDemux,
+            "requireBothEndSoftclips": requireBothEndSoftclips,
             "requireFullReferenceSpan": true,
             "allowIndels": true,
             "maxMismatches": 0,
@@ -2311,7 +2343,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "haplotypeDropoutLocusFraction": NSNull(),
             "haplotypeDropoutLocusFractionOverrides": [:],
             "mappingPreset": Self.mappingPreset(for: resolvedMode),
-            "requireBothEndSoftclips": resolvedMode == .ontBarcodeDemux,
+            "requireBothEndSoftclips": requireBothEndSoftclips,
             "requireFullReferenceSpan": true,
             "allowIndels": true,
             "maxMismatches": 0,
@@ -3078,7 +3110,7 @@ def load_barcodes(path):
         for row in reader:
             if not row or len(row) < 2:
                 continue
-            first = row[0].strip()
+            first = row[0].strip().lstrip("\ufeff")
             second = row[1].strip()
             if not first or not second:
                 continue
@@ -3204,6 +3236,15 @@ def query_weight(query_name):
     return 1
 
 
+def sequence_for_barcode_assignment(read):
+    sequence = read.query_sequence
+    if not sequence:
+        return None
+    if read.is_reverse:
+        return reverse_complement(sequence)
+    return sequence
+
+
 def weighted_query_count(query_names, query_weights):
     return sum(query_weights.get(name, query_weight(name)) for name in query_names)
 
@@ -3315,7 +3356,7 @@ def main():
     retained_sequence_records_seen = 0
     with pysam.AlignmentFile(args.input_bam, "rb") as source:
         for read in source.fetch(until_eof=True):
-            sequence = read.query_sequence
+            sequence = sequence_for_barcode_assignment(read)
             if not sequence:
                 continue
             sequence_records_seen += 1

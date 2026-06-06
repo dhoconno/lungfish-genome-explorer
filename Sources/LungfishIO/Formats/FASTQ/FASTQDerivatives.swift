@@ -414,6 +414,7 @@ public struct FASTQDerivativeOperation: Codable, Sendable, Equatable {
     // PE merge parameters
     public var mergeStrictness: FASTQMergeStrictness?
     public var mergeMinOverlap: Int?
+    public var mergeCountDuplicates: Bool?
 
     // Primer removal parameters
     public var primerSource: FASTQPrimerSource?
@@ -540,6 +541,7 @@ public struct FASTQDerivativeOperation: Codable, Sendable, Equatable {
         contaminantHammingDistance: Int? = nil,
         mergeStrictness: FASTQMergeStrictness? = nil,
         mergeMinOverlap: Int? = nil,
+        mergeCountDuplicates: Bool? = nil,
         primerSource: FASTQPrimerSource? = nil,
         primerLiteralSequence: String? = nil,
         primerReferenceFasta: String? = nil,
@@ -615,6 +617,7 @@ public struct FASTQDerivativeOperation: Codable, Sendable, Equatable {
         self.contaminantHammingDistance = contaminantHammingDistance
         self.mergeStrictness = mergeStrictness
         self.mergeMinOverlap = mergeMinOverlap
+        self.mergeCountDuplicates = mergeCountDuplicates
         self.primerSource = primerSource
         self.primerLiteralSequence = primerLiteralSequence
         self.primerReferenceFasta = primerReferenceFasta
@@ -1589,7 +1592,10 @@ extension FASTQDerivativeOperation {
         case .pairedEndMerge:
             let s = mergeStrictness ?? .normal
             let o = mergeMinOverlap ?? 12
-            return "Paired-end reads were merged\(tool) (\(s.rawValue) mode, minimum overlap \(o) bp)."
+            let counted = mergeCountDuplicates == true
+                ? "; duplicate merged reads encoded as size=N"
+                : ""
+            return "Paired-end reads were merged\(tool) (\(s.rawValue) mode, minimum overlap \(o) bp\(counted))."
 
         case .pairedEndRepair:
             return "Paired-end reads were repaired\(tool)."
