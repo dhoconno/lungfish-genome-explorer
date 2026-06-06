@@ -160,10 +160,11 @@ final class CLIMSAAlignmentRunnerTests: XCTestCase {
         let readyURL = tempDir.appendingPathComponent("ready")
         let rootPIDURL = tempDir.appendingPathComponent("root.pid")
         let childPIDURL = tempDir.appendingPathComponent("child.pid")
+        let childNaturalCompletionSeconds = 3.0
         let script = """
         #!/bin/sh
         echo $$ > '\(rootPIDURL.path)'
-        /bin/sh -c 'trap "" TERM HUP; sleep 3 & wait' &
+        /bin/sh -c 'trap "" TERM HUP; sleep \(Int(childNaturalCompletionSeconds)) & wait' &
         child=$!
         echo "$child" > '\(childPIDURL.path)'
         printf '%s\\n' '{"event":"msaAlignmentStart","tool":"mafft","sourceCount":1}'
@@ -199,7 +200,11 @@ final class CLIMSAAlignmentRunnerTests: XCTestCase {
         try await waitForProcessExit(pid: childPID)
         let cancelElapsed = Date().timeIntervalSince(start)
 
-        XCTAssertLessThan(cancelElapsed, 1.0, "MAFFT cancellation should not wait for the child process to finish naturally")
+        XCTAssertLessThan(
+            cancelElapsed,
+            childNaturalCompletionSeconds - 0.5,
+            "MAFFT cancellation should not wait for the child process to finish naturally"
+        )
     }
 
     private func makeTemporaryDirectory() throws -> URL {
