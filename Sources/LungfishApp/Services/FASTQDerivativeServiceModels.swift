@@ -252,7 +252,12 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
         case .contaminantFilter(let mode, _, let kmerSize, let hammingDistance):
             return ["mode": "\(mode)", "kmerSize": "\(kmerSize)", "hammingDistance": "\(hammingDistance)"]
         case .pairedEndMerge(let strictness, let minOverlap):
-            return ["strictness": "\(strictness)", "minOverlap": "\(minOverlap)"]
+            return [
+                "strictness": "\(strictness)",
+                "minOverlap": "\(minOverlap)",
+                "countDuplicatesAfterMerge": "true",
+                "duplicateCountEncoding": "size=N",
+            ]
         case .pairedEndRepair:
             return [:]
         case .primerRemoval(let configuration):
@@ -476,6 +481,7 @@ extension FASTQDerivativeRequest {
         case .pairedEndMerge(let strictness, let minOverlap):
             var args = [inputPath, "-o", outputPath, "--min-overlap", String(minOverlap)]
             if strictness == .strict { args.append("--strict") }
+            args.append("--count-duplicates")
             return buildLungfishCommand(subcommand: "fastq merge", args: args)
 
         case .pairedEndRepair:
@@ -624,7 +630,11 @@ extension FASTQDerivativeRequest {
                 "--hamming-distance", String(hammingDistance),
             ] + optionalFlag("--reference-fasta", referenceFasta)
         case .pairedEndMerge(let strictness, let minOverlap):
-            return ["--strictness", strictness.rawValue, "--min-overlap", String(minOverlap)]
+            return [
+                "--strictness", strictness.rawValue,
+                "--min-overlap", String(minOverlap),
+                "--count-duplicates", "true",
+            ]
         case .pairedEndRepair:
             return []
         case .primerRemoval(let configuration):
@@ -752,7 +762,12 @@ extension FASTQDerivativeRequest {
                 "hammingDistance": .integer(hammingDistance),
             ]
         case .pairedEndMerge(let strictness, let minOverlap):
-            return ["strictness": .string(strictness.rawValue), "minOverlap": .integer(minOverlap)]
+            return [
+                "strictness": .string(strictness.rawValue),
+                "minOverlap": .integer(minOverlap),
+                "countDuplicatesAfterMerge": .boolean(true),
+                "duplicateCountEncoding": .string("size=N"),
+            ]
         case .pairedEndRepair:
             return [:]
         case .primerRemoval(let configuration):

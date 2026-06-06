@@ -282,9 +282,10 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
                 let reader = TwelveSFastqReader(url: fastqURL)
                 for try await record in reader.records() {
                     let normalizedSequence = record.sequence.uppercased()
-                    counts[normalizedSequence, default: 0] += 1
+                    let weight = record.readCountWeight
+                    counts[normalizedSequence, default: 0] += weight
                     uniqueSequences.insert(normalizedSequence)
-                    inputReads += 1
+                    inputReads += weight
                 }
             }
             classified.inputReadsBySample[sampleID, default: 0] += inputReads

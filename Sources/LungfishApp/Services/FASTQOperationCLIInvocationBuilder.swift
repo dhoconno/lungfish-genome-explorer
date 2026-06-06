@@ -44,8 +44,6 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
                     "--barcodes", barcodeDefinitionsURL.path,
                     "--output", outputTargetPath,
                     "--threads", String(threads),
-                    "--primer-mismatches", "2",
-                    "--minimum-insert-length", "20",
                 ]
             )
 
@@ -305,6 +303,7 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
         case .pairedEndMerge(let strictness, let minOverlap):
             var arguments = ["merge", inputURL.path, "--min-overlap", "\(minOverlap)", "-o", outputTarget]
             if strictness == .strict { arguments.append("--strict") }
+            arguments.append("--count-duplicates")
             return arguments
         case .pairedEndRepair:
             return ["repair", inputURL.path, "-o", outputTarget]

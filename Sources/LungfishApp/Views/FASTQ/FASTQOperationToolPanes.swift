@@ -656,7 +656,7 @@ private struct FASTQOperationAdvancedSettingsSection: View {
                 Text("The deduplication preset selects the CLI-compatible parameter set.")
                     .foregroundStyle(.secondary)
             case .mergeOverlappingPairs:
-                Text("Merge strictness only affects the bbmerge invocation.")
+                Text("Merged amplicon reads are stored as counted exemplars; duplicate support is encoded in FASTQ headers.")
                     .foregroundStyle(.secondary)
             case .repairPairedEndFiles:
                 Text("Paired-end repair has no additional settings.")

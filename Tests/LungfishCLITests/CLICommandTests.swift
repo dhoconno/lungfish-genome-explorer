@@ -1639,11 +1639,12 @@ final class FastqCommandTests: XCTestCase {
     /// Verifies that merge parses min-overlap and strict options.
     func testMergeParsesOptions() throws {
         let cmd = try FastqMergeSubcommand.parse([
-            "interleaved.fq", "--min-overlap", "20", "--strict", "-o", "/tmp/out.fq",
+            "interleaved.fq", "--min-overlap", "20", "--strict", "--count-duplicates", "-o", "/tmp/out.fq",
         ])
         XCTAssertEqual(cmd.input, "interleaved.fq")
         XCTAssertEqual(cmd.minOverlap, 20)
         XCTAssertTrue(cmd.strict)
+        XCTAssertTrue(cmd.countDuplicates)
     }
 
     /// Verifies that merge uses correct defaults.
@@ -1653,6 +1654,7 @@ final class FastqCommandTests: XCTestCase {
         ])
         XCTAssertEqual(cmd.minOverlap, 12)
         XCTAssertFalse(cmd.strict)
+        XCTAssertFalse(cmd.countDuplicates)
     }
 
     // MARK: - Repair Argument Parsing

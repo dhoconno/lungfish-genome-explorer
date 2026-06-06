@@ -194,7 +194,6 @@ struct FastqTrimSubcommand: AsyncParsableCommand {
         if output.compress {
             cliArguments.append("--compress")
         }
-
         try await recordFASTQNativeToolProvenance(
             workflowName: "lungfish fastq trim",
             nativeTool: .fastp,
@@ -1662,6 +1661,9 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
     @Flag(name: .customLong("strict"), help: "Use strict merge mode")
     var strict: Bool = false
 
+    @Flag(name: .customLong("count-duplicates"), help: "Collapse identical output sequences after merge and encode support as size=N")
+    var countDuplicates: Bool = false
+
     @OptionGroup var output: OutputOptions
 
     func run() async throws {
@@ -1694,19 +1696,42 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
             throw CLIError.conversionFailed(reason: "bbmerge failed: \(result.stderr)")
         }
 
-        // Concatenate merged + unmerged
         let outputURL = URL(fileURLWithPath: output.output)
-        FileManager.default.createFile(atPath: outputURL.path, contents: nil)
-        let outputHandle = try FileHandle(forWritingTo: outputURL)
-        defer { try? outputHandle.close() }
-        for url in [mergedURL, unmergedURL] {
-            guard FileManager.default.fileExists(atPath: url.path) else { continue }
-            let inputHandle = try FileHandle(forReadingFrom: url)
-            defer { try? inputHandle.close() }
-            while true {
-                let chunk = inputHandle.readData(ofLength: 1_048_576)
-                if chunk.isEmpty { break }
-                outputHandle.write(chunk)
+        var countedResult: CountedFASTQMaterializationResult?
+        if countDuplicates {
+            let countedInputs = [mergedURL, unmergedURL].filter {
+                FileManager.default.fileExists(atPath: $0.path)
+            }
+            if countedInputs.isEmpty {
+                FileManager.default.createFile(atPath: outputURL.path, contents: nil)
+            } else {
+                countedResult = try await CountedFASTQMaterializer().materialize(
+                    inputs: countedInputs,
+                    outputURL: outputURL,
+                    compress: output.compress,
+                    normalization: .uppercase
+                )
+            }
+        } else {
+            // Concatenate merged + unmerged.
+            let concatenatedURL = output.compress
+                ? tempDir.appendingPathComponent("merged-and-unmerged.fastq")
+                : outputURL
+            FileManager.default.createFile(atPath: concatenatedURL.path, contents: nil)
+            let outputHandle = try FileHandle(forWritingTo: concatenatedURL)
+            for url in [mergedURL, unmergedURL] {
+                guard FileManager.default.fileExists(atPath: url.path) else { continue }
+                let inputHandle = try FileHandle(forReadingFrom: url)
+                defer { try? inputHandle.close() }
+                while true {
+                    let chunk = inputHandle.readData(ofLength: 1_048_576)
+                    if chunk.isEmpty { break }
+                    outputHandle.write(chunk)
+                }
+            }
+            try outputHandle.close()
+            if output.compress {
+                try gzipCompress(sourceURL: concatenatedURL, outputURL: outputURL)
             }
         }
         var cliArguments = ["merge", inputURL.path]
@@ -1716,6 +1741,9 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
         if strict {
             cliArguments.append("--strict")
         }
+        if countDuplicates {
+            cliArguments.append("--count-duplicates")
+        }
         cliArguments += ["--output", output.output]
         if output.force {
             cliArguments.append("--force")
@@ -1723,6 +1751,10 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
         if output.compress {
             cliArguments.append("--compress")
         }
+        let countedOutputRecords: ParameterValue = countedResult
+            .map { ParameterValue.integer($0.uniqueSequenceCount) } ?? .string("not counted")
+        let countedOutputReadCount: ParameterValue = countedResult
+            .map { ParameterValue.integer($0.totalReadCount) } ?? .string("not counted")
         try await recordFASTQNativeToolProvenance(
             workflowName: "lungfish fastq merge",
             nativeTool: .bbmerge,
@@ -1736,12 +1768,18 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
                 "output": .file(outputURL),
                 "minOverlap": .integer(minOverlap),
                 "strict": .boolean(strict),
+                "countDuplicatesAfterMerge": .boolean(countDuplicates),
+                "duplicateCountEncoding": .string(countDuplicates ? "size=N" : "none"),
+                "countedOutputRecords": countedOutputRecords,
+                "countedOutputReadCount": countedOutputReadCount,
                 "force": .boolean(output.force),
                 "compress": .boolean(output.compress)
             ],
             defaults: [
                 "minOverlap": .integer(12),
                 "strict": .boolean(false),
+                "countDuplicatesAfterMerge": .boolean(false),
+                "duplicateCountEncoding": .string("none"),
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],
@@ -1749,6 +1787,25 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
         )
 
         FileHandle.standardError.write(Data("Merged reads written to \(output.output)\n".utf8))
+    }
+
+    private func gzipCompress(sourceURL: URL, outputURL: URL) throws {
+        if FileManager.default.fileExists(atPath: outputURL.path) {
+            try FileManager.default.removeItem(at: outputURL)
+        }
+        FileManager.default.createFile(atPath: outputURL.path, contents: nil)
+        let outputHandle = try FileHandle(forWritingTo: outputURL)
+        defer { try? outputHandle.close() }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+        process.arguments = ["-c", sourceURL.path]
+        process.standardOutput = outputHandle
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationReason == .exit, process.terminationStatus == 0 else {
+            throw CLIError.conversionFailed(reason: "gzip failed while compressing merged FASTQ \(outputURL.path)")
+        }
     }
 }
 
@@ -2356,9 +2413,9 @@ struct FastqONTFluidigmSamplesSubcommand: AsyncParsableCommand {
         abstract: "Materialize counted per-sample ONT Fluidigm amplicon FASTQs",
         discussion: """
             Assigns ONT reads to samples with the same exact Fluidigm barcode matching
-            used by amplicon genotyping, extracts the CS1-CS2 insert, then writes one
-            physical .lungfishfastq bundle per sample containing unique insert
-            exemplars. Payloads are gzip-compressed and duplicate support is encoded
+            used by amplicon genotyping, then writes one physical .lungfishfastq bundle
+            per sample containing unique full-read exemplars. Payloads are
+            gzip-compressed and duplicate support is encoded
             in FASTQ headers as size=N.
             """
     )
@@ -2375,18 +2432,18 @@ struct FastqONTFluidigmSamplesSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("threads"), help: "Worker count reserved for future parallel materialization; currently recorded for provenance")
     var threads: Int = 1
 
-    @Option(name: .customLong("primer-mismatches"), help: "Maximum mismatches allowed when finding CS1/CS2 primer sites (default: 2)")
+    @Option(name: .customLong("primer-mismatches"), help: "Deprecated compatibility option recorded in provenance; full reads are not primer-trimmed (default: 2)")
     var primerMismatches: Int = 2
 
-    @Option(name: .customLong("minimum-insert-length"), help: "Minimum extracted insert length in bases (default: 20)")
+    @Option(name: .customLong("minimum-insert-length"), help: "Deprecated compatibility option recorded in provenance; full reads are not primer-trimmed (default: 20)")
     var minimumInsertLength: Int = 20
 
     @Flag(
         name: .customLong("canonicalize-reverse-complements"),
         inversion: .prefixedNo,
-        help: "Collapse exact reverse-complement insert matches into one exemplar (default: enabled)"
+        help: "Deprecated compatibility option recorded in provenance; full reads keep original orientation (default: disabled)"
     )
-    var canonicalizeReverseComplements: Bool = true
+    var canonicalizeReverseComplements: Bool = false
 
     @Flag(name: .customLong("force"), help: "Replace an existing output directory")
     var force: Bool = false
@@ -2462,7 +2519,7 @@ struct FastqONTFluidigmSamplesSubcommand: AsyncParsableCommand {
                 "primerMismatches": .integer(primerMismatches),
                 "minimumInsertLength": .integer(minimumInsertLength),
                 "canonicalizeReverseComplements": .boolean(canonicalizeReverseComplements),
-                "payloadRepresentation": .string("deduplicated gzip-compressed CS1-CS2 insert FASTQ"),
+                "payloadRepresentation": .string("deduplicated gzip-compressed full demultiplexed FASTQ"),
                 "duplicateCountEncoding": .string("size=N"),
                 "inputReadCount": .integer(result.inputReadCount),
                 "assignedReadCount": .integer(result.assignedReadCount),
@@ -2478,8 +2535,8 @@ struct FastqONTFluidigmSamplesSubcommand: AsyncParsableCommand {
                 "reversePrimer": .string(ONTFluidigmAmpliconMaterializer.defaultReversePrimer),
                 "primerMismatches": .integer(2),
                 "minimumInsertLength": .integer(20),
-                "canonicalizeReverseComplements": .boolean(true),
-                "payloadRepresentation": .string("deduplicated gzip-compressed CS1-CS2 insert FASTQ"),
+                "canonicalizeReverseComplements": .boolean(false),
+                "payloadRepresentation": .string("deduplicated gzip-compressed full demultiplexed FASTQ"),
                 "duplicateCountEncoding": .string("size=N"),
             ],
             toolName: "lungfish fastq ont-fluidigm-samples",

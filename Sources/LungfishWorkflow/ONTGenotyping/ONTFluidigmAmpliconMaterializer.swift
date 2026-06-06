@@ -76,7 +76,7 @@ public enum ONTFluidigmAmpliconMaterializerError: LocalizedError, Sendable {
 public final class ONTFluidigmAmpliconMaterializer: Sendable {
     public static let defaultForwardPrimer = "ACACTGACGACATGGTTCTACA"
     public static let defaultReversePrimer = "TACGGTAGCAGAGACTTGGTCT"
-    public static let manifestFilename = "ont-fluidigm-amplicons-manifest.json"
+    public static let manifestFilename = "ont-fluidigm-counted-samples-manifest.json"
 
     public init() {}
 
@@ -109,14 +109,6 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
         guard let barcodeMatcher = BarcodeMatcher(entries: barcodeEntries) else {
             throw ONTFluidigmAmpliconMaterializerError.noBarcodeRows(request.barcodeDefinitionsURL)
         }
-        let insertExtractor = InsertExtractor(
-            forwardPrimer: request.forwardPrimer,
-            reversePrimer: request.reversePrimer,
-            maxMismatches: request.primerMismatches,
-            minimumInsertLength: request.minimumInsertLength,
-            canonicalizeReverseComplements: request.canonicalizeReverseComplements
-        )
-
         var accumulators = Dictionary(uniqueKeysWithValues: barcodeEntries.map { entry in
             (entry.sampleID, SampleAccumulator(entry: entry))
         })
@@ -124,7 +116,7 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
         var assignedReadCount = 0
         var extractedReadCount = 0
         var unassignedReadCount = 0
-        var unextractedReadCount = 0
+        let unextractedReadCount = 0
         let reader = FASTQReader(validateSequence: false)
 
         for fastqURL in inputFASTQs {
@@ -137,12 +129,12 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
                 }
                 assignedReadCount += 1
                 accumulators[entry.sampleID]?.recordAssignedRead()
-                guard let insert = insertExtractor.extract(from: bases) else {
-                    unextractedReadCount += 1
-                    continue
-                }
+                let sequence = CountedFASTQMaterializer.normalized(
+                    record.sequence,
+                    normalization: .uppercase
+                )
                 extractedReadCount += 1
-                accumulators[entry.sampleID]?.recordExtracted(insert: insert)
+                accumulators[entry.sampleID]?.recordExtracted(sequence: sequence)
             }
         }
 
@@ -177,7 +169,7 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
         }
         let manifest: [String: Any] = [
             "schemaVersion": 1,
-            "toolName": "lungfish fastq ont-fluidigm-amplicons",
+            "toolName": "lungfish fastq ont-fluidigm-samples",
             "input": request.inputURL.path,
             "barcodes": request.barcodeDefinitionsURL.path,
             "outputDirectory": request.outputDirectory.path,
@@ -186,6 +178,8 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
             "primerMismatches": request.primerMismatches,
             "minimumInsertLength": request.minimumInsertLength,
             "canonicalizeReverseComplements": request.canonicalizeReverseComplements,
+            "payloadRepresentation": "deduplicated gzip-compressed full demultiplexed FASTQ",
+            "duplicateCountEncoding": "size=N",
             "inputReadCount": inputReadCount,
             "assignedReadCount": assignedReadCount,
             "unassignedReadCount": unassignedReadCount,
@@ -242,7 +236,9 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
                 guard !trimmed.isEmpty, !trimmed.hasPrefix("#") else { return nil }
                 let columns = splitDelimitedLine(trimmed)
                 guard columns.count >= 2 else { return nil }
-                let first = columns[0].trimmingCharacters(in: .whitespacesAndNewlines)
+                let first = Self.stripUTF8BOM(
+                    columns[0].trimmingCharacters(in: .whitespacesAndNewlines)
+                )
                 let second = columns[1].trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !first.isEmpty, !second.isEmpty else { return nil }
                 let normalizedHeader = first.lowercased().replacingOccurrences(of: " ", with: "_")
@@ -264,6 +260,10 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
             return line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
         }
         return line.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
+    }
+
+    private static func stripUTF8BOM(_ value: String) -> String {
+        value.hasPrefix("\u{feff}") ? String(value.dropFirst()) : value
     }
 
     private static func sanitizedSampleID(_ value: String) -> String {
@@ -483,33 +483,16 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
         let bundleURL = request.outputDirectory
             .appendingPathComponent("\(accumulator.entry.sampleID).lungfishfastq", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
-        let rawFASTQFilename = "deduplicated-amplicons.fastq"
+        let rawFASTQFilename = "deduplicated-sample-reads.fastq"
         let rawFASTQURL = bundleURL.appendingPathComponent(rawFASTQFilename)
-        let writer = FASTQWriter(url: rawFASTQURL)
-        try writer.open()
-
-        var uniqueBaseCount = 0
-        var weightedBaseCount = 0
-        do {
-            for (index, item) in accumulator.orderedSequences().enumerated() {
-                let sequence = item.sequence
-                uniqueBaseCount += sequence.count
-                weightedBaseCount += sequence.count * item.count
-                let identifier = "u\(String(format: "%06d", index + 1));size=\(item.count)"
-                let record = FASTQRecord(
-                    identifier: identifier,
-                    sequence: sequence,
-                    qualityString: String(repeating: "I", count: sequence.count)
-                )
-                try writer.write(record)
-            }
-            try writer.close()
-        } catch {
-            try? writer.close()
-            throw error
-        }
-
-        let fastqURL = try Self.gzipCompress(rawFASTQURL)
+        let countedResult = try CountedFASTQMaterializer().write(
+            counts: accumulator.sequenceCounts,
+            outputURL: rawFASTQURL.appendingPathExtension("gz"),
+            compress: true,
+            inputRecordCount: accumulator.rawReadCount,
+            totalReadCount: accumulator.rawReadCount
+        )
+        let fastqURL = countedResult.outputURL
         let fastqFilename = fastqURL.lastPathComponent
         let checksum = try PayloadChecksum.sha256Hex(fileAt: fastqURL)
         let operation = FASTQDerivativeOperation(
@@ -524,7 +507,7 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
             sampleName: accumulator.entry.sampleID,
             toolUsed: "lungfish",
             toolVersion: WorkflowRun.currentAppVersion,
-            toolCommand: "lungfish fastq ont-fluidigm-amplicons"
+            toolCommand: "lungfish fastq ont-fluidigm-samples"
         )
         let manifest = FASTQDerivedBundleManifest(
             name: accumulator.entry.sampleID,
@@ -534,13 +517,13 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
             payload: .full(fastqFilename: fastqFilename),
             lineage: [operation],
             operation: operation,
-            cachedStatistics: .placeholder(readCount: accumulator.uniqueSequenceCount, baseCount: Int64(uniqueBaseCount)),
+            cachedStatistics: .placeholder(readCount: accumulator.uniqueSequenceCount, baseCount: Int64(countedResult.uniqueBaseCount)),
             pairingMode: nil,
             sequenceFormat: .fastq,
             provenance: SampleProvenance(
                 sampleID: accumulator.entry.sampleID,
                 libraryPrep: "Fluidigm Access Array MHC amplicon",
-                notes: "Materialized gzip-compressed CS1-CS2 insert exemplars after sample barcode assignment; duplicate counts encoded as size=N."
+                notes: "Materialized gzip-compressed full demultiplexed read exemplars after exact Fluidigm barcode assignment; duplicate counts encoded as size=N."
             ),
             payloadChecksums: PayloadChecksum(checksums: [fastqFilename: checksum]),
             materializationState: .materialized(checksum: checksum)
@@ -555,8 +538,8 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
             rawReadCount: accumulator.rawReadCount,
             extractedReadCount: accumulator.extractedReadCount,
             uniqueSequenceCount: accumulator.uniqueSequenceCount,
-            uniqueBaseCount: uniqueBaseCount,
-            weightedBaseCount: weightedBaseCount
+            uniqueBaseCount: countedResult.uniqueBaseCount,
+            weightedBaseCount: countedResult.weightedBaseCount
         )
     }
 
@@ -673,25 +656,25 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
         let entry: BarcodeEntry
         private(set) var rawReadCount: Int = 0
         private(set) var extractedReadCount: Int = 0
-        private var insertCounts: [String: Int] = [:]
+        private(set) var sequenceCounts: [String: Int] = [:]
 
         init(entry: BarcodeEntry) {
             self.entry = entry
         }
 
-        var uniqueSequenceCount: Int { insertCounts.count }
+        var uniqueSequenceCount: Int { sequenceCounts.count }
 
         mutating func recordAssignedRead() {
             rawReadCount += 1
         }
 
-        mutating func recordExtracted(insert: String) {
+        mutating func recordExtracted(sequence: String) {
             extractedReadCount += 1
-            insertCounts[insert, default: 0] += 1
+            sequenceCounts[sequence, default: 0] += 1
         }
 
         func orderedSequences() -> [(sequence: String, count: Int)] {
-            insertCounts.map { ($0.key, $0.value) }
+            sequenceCounts.map { ($0.key, $0.value) }
                 .sorted {
                     if $0.count != $1.count {
                         return $0.count > $1.count

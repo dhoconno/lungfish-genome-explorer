@@ -108,9 +108,11 @@ extension FASTQDerivativeService {
         outputBundleURL: URL,
         strictness: FASTQMergeStrictness,
         minOverlap: Int,
+        countDuplicateMergedReads: Bool = true,
         provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
     ) async throws -> (BBToolResult, ReadClassification) {
         let mergedURL = outputBundleURL.appendingPathComponent("merged.fastq")
+        let countedMergedURL = outputBundleURL.appendingPathComponent("merged.counted.fastq")
         let unmergedInterleavedURL = outputBundleURL.appendingPathComponent("unmerged.fastq")
         let unmergedR1URL = outputBundleURL.appendingPathComponent("unmerged_R1.fastq")
         let unmergedR2URL = outputBundleURL.appendingPathComponent("unmerged_R2.fastq")
@@ -148,10 +150,23 @@ extension FASTQDerivativeService {
             try? FileManager.default.removeItem(at: unmergedInterleavedURL)
         }
 
-        let mergedCount =
-            FileManager.default.fileExists(atPath: mergedURL.path)
-            ? try countFASTQReads(at: mergedURL)
-            : 0
+        var mergedCount = 0
+        var countedMergedSummary: CountedFASTQMaterializationResult?
+        if FileManager.default.fileExists(atPath: mergedURL.path) {
+            if countDuplicateMergedReads {
+                let summary = try await CountedFASTQMaterializer().materialize(
+                    inputs: [mergedURL],
+                    outputURL: countedMergedURL,
+                    normalization: .uppercase
+                )
+                try? FileManager.default.removeItem(at: mergedURL)
+                try FileManager.default.moveItem(at: countedMergedURL, to: mergedURL)
+                countedMergedSummary = summary
+                mergedCount = summary.totalReadCount
+            } else {
+                mergedCount = try countFASTQReads(at: mergedURL)
+            }
+        }
         let r1Count =
             FileManager.default.fileExists(atPath: unmergedR1URL.path)
             ? try countFASTQReads(at: unmergedR1URL)
@@ -183,6 +198,9 @@ extension FASTQDerivativeService {
         return (
             BBToolResult(
                 toolCommand: "bbmerge.sh \(args.joined(separator: " ")); reformat.sh out1=unmerged_R1.fastq out2=unmerged_R2.fastq"
+                    + (countDuplicateMergedReads
+                       ? "; lungfish counted-fastq merged.fastq duplicateCountEncoding=size=N uniqueMergedRecords=\(countedMergedSummary?.uniqueSequenceCount ?? 0)"
+                       : "")
             ),
             classification
         )
