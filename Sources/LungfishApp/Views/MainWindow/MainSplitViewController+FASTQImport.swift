@@ -680,11 +680,11 @@ extension MainSplitViewController {
             let alert = NSAlert()
             alert.messageText = "ONT Directory Import"
             if let layout {
-                alert.informativeText = "Found \(layout.barcodeDirectories.count) barcode directories."
+                alert.informativeText = "Found \(layout.barcodeDirectories.count) barcode directories. Choose the import recipe for this ONT run folder."
             } else {
-                alert.informativeText = "Choose how this ONT directory should be stored in the project."
+                alert.informativeText = "Choose the import recipe for this ONT run folder."
             }
-            alert.addButton(withTitle: "Import")
+            let importButton = alert.addButton(withTitle: "Import")
             alert.addButton(withTitle: "Cancel")
 
             let stack = NSStackView()
@@ -692,24 +692,49 @@ extension MainSplitViewController {
             stack.alignment = .leading
             stack.spacing = 10
 
-            let storageRow = NSStackView()
-            storageRow.orientation = .horizontal
-            storageRow.alignment = .centerY
-            storageRow.spacing = 8
-            let storageLabel = NSTextField(labelWithString: "Storage")
-            storageLabel.alignment = .right
-            storageLabel.widthAnchor.constraint(equalToConstant: 92).isActive = true
-            let storagePopup = NSPopUpButton(frame: .zero, pullsDown: false)
-            storagePopup.addItems(withTitles: [
-                "Keep chunks",
-                "Flatten to single FASTQ",
-            ])
-            storagePopup.selectItem(at: 0)
-            storagePopup.toolTip = "Keep chunked ONT files for atomic bundle copies, or flatten each barcode into one FASTQ payload."
-            storagePopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
-            storageRow.addArrangedSubview(storageLabel)
-            storageRow.addArrangedSubview(storagePopup)
-            stack.addArrangedSubview(storageRow)
+            let recipeRow = NSStackView()
+            recipeRow.orientation = .horizontal
+            recipeRow.alignment = .centerY
+            recipeRow.spacing = 8
+            let recipeLabel = NSTextField(labelWithString: "Recipe")
+            recipeLabel.alignment = .right
+            recipeLabel.widthAnchor.constraint(equalToConstant: 112).isActive = true
+            let recipePopup = NSPopUpButton(frame: .zero, pullsDown: false)
+            recipePopup.addItems(withTitles: ONTDirectoryImportRecipe.allCases.map(\.displayName))
+            recipePopup.selectItem(withTitle: ONTDirectoryImportRecipe.sampleSplit.displayName)
+            recipePopup.toolTip = "Select whether this ONT run should be split into counted sample FASTQ bundles or imported with the legacy barcode-directory storage."
+            recipePopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 330).isActive = true
+            recipeRow.addArrangedSubview(recipeLabel)
+            recipeRow.addArrangedSubview(recipePopup)
+            stack.addArrangedSubview(recipeRow)
+
+            let recipeExplanationLabel = NSTextField(wrappingLabelWithString: ONTDirectoryImportRecipe.sampleSplit.explanation)
+            recipeExplanationLabel.textColor = .secondaryLabelColor
+            recipeExplanationLabel.maximumNumberOfLines = 3
+            recipeExplanationLabel.widthAnchor.constraint(equalToConstant: 520).isActive = true
+            stack.addArrangedSubview(recipeExplanationLabel)
+
+            let barcodeRow = NSStackView()
+            barcodeRow.orientation = .horizontal
+            barcodeRow.alignment = .centerY
+            barcodeRow.spacing = 8
+            let barcodeLabel = NSTextField(labelWithString: "Barcode Definition")
+            barcodeLabel.alignment = .right
+            barcodeLabel.widthAnchor.constraint(equalToConstant: 112).isActive = true
+            let barcodeDefinitionPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+            barcodeDefinitionPopup.toolTip = "CSV, TSV, or text file containing sample names and Fluidigm barcode sequences."
+            barcodeDefinitionPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 300).isActive = true
+            let chooseBarcodeDefinitionButton = NSButton(title: "Choose...", target: nil, action: nil)
+            barcodeRow.addArrangedSubview(barcodeLabel)
+            barcodeRow.addArrangedSubview(barcodeDefinitionPopup)
+            barcodeRow.addArrangedSubview(chooseBarcodeDefinitionButton)
+            stack.addArrangedSubview(barcodeRow)
+
+            let barcodeDefinitionStatusLabel = NSTextField(wrappingLabelWithString: "")
+            barcodeDefinitionStatusLabel.textColor = .secondaryLabelColor
+            barcodeDefinitionStatusLabel.maximumNumberOfLines = 2
+            barcodeDefinitionStatusLabel.widthAnchor.constraint(equalToConstant: 520).isActive = true
+            stack.addArrangedSubview(barcodeDefinitionStatusLabel)
 
             let optimizeStorageButton = NSButton(
                 checkboxWithTitle: "Optimize flattened FASTQ with clumpify",
@@ -719,10 +744,6 @@ extension MainSplitViewController {
             optimizeStorageButton.state = .off
             optimizeStorageButton.toolTip = "Runs clumpify after flattened import. This can reduce storage size, but requires the managed BBTools environment."
             stack.addArrangedSubview(optimizeStorageButton)
-            let accessoryController = ONTImportOptionsAccessoryController(
-                storagePopup: storagePopup,
-                optimizeStorageButton: optimizeStorageButton
-            )
 
             let includeUnclassifiedButton: NSButton?
             if hasUnclassified {
@@ -734,7 +755,20 @@ extension MainSplitViewController {
                 includeUnclassifiedButton = nil
             }
 
-            stack.frame = NSRect(x: 0, y: 0, width: 360, height: hasUnclassified ? 104 : 72)
+            let accessoryController = ONTImportOptionsAccessoryController(
+                recipePopup: recipePopup,
+                recipeExplanationLabel: recipeExplanationLabel,
+                barcodeDefinitionPopup: barcodeDefinitionPopup,
+                chooseBarcodeDefinitionButton: chooseBarcodeDefinitionButton,
+                barcodeDefinitionStatusLabel: barcodeDefinitionStatusLabel,
+                optimizeStorageButton: optimizeStorageButton,
+                includeUnclassifiedButton: includeUnclassifiedButton,
+                importButton: importButton,
+                projectURL: projectURL,
+                barcodeDefinitionCandidates: projectBarcodeDefinitionCandidates(in: projectURL)
+            )
+
+            stack.frame = NSRect(x: 0, y: 0, width: 560, height: hasUnclassified ? 212 : 184)
             alert.accessoryView = stack
             alert.applyLungfishBranding()
             alert.beginSheetModal(for: window) { [weak self] response in
@@ -748,17 +782,42 @@ extension MainSplitViewController {
                     )
                     return
                 }
-                let includeUnclassified = includeUnclassifiedButton?.state == .on
-                let storageMode: ONTImportStorageMode = storagePopup.indexOfSelectedItem == 1 ? .flattened : .chunked
-                let optimizeStorage = storageMode == .flattened && optimizeStorageButton.state == .on
                 MainActor.assumeIsolated {
-                    self?.performONTImport(
-                        sourceURL: sourceURL, projectURL: projectURL,
-                        includeUnclassified: includeUnclassified,
-                        storageMode: storageMode,
-                        optimizeStorage: optimizeStorage,
-                        viewerController: viewerController, requestID: requestID
-                    )
+                    switch accessoryController.selectedRecipe {
+                    case .sampleSplit:
+                        guard let barcodeDefinitionURL = accessoryController.selectedBarcodeDefinitionURL else {
+                            self?.postSidebarFileDropCompleted(
+                                requestID: requestID,
+                                sourceURL: sourceURL,
+                                success: false,
+                                error: "Choose a barcode definition before importing."
+                            )
+                            return
+                        }
+                        self?.performONTFluidigmSampleSplit(
+                            sourceURL: sourceURL,
+                            projectURL: projectURL,
+                            barcodeDefinitionsURL: barcodeDefinitionURL,
+                            viewerController: viewerController,
+                            requestID: requestID
+                        )
+                    case .keepChunks:
+                        self?.performONTImport(
+                            sourceURL: sourceURL, projectURL: projectURL,
+                            includeUnclassified: includeUnclassifiedButton?.state == .on,
+                            storageMode: .chunked,
+                            optimizeStorage: false,
+                            viewerController: viewerController, requestID: requestID
+                        )
+                    case .flattened:
+                        self?.performONTImport(
+                            sourceURL: sourceURL, projectURL: projectURL,
+                            includeUnclassified: includeUnclassifiedButton?.state == .on,
+                            storageMode: .flattened,
+                            optimizeStorage: optimizeStorageButton.state == .on,
+                            viewerController: viewerController, requestID: requestID
+                        )
+                    }
                 }
             }
         } else {
@@ -769,6 +828,134 @@ extension MainSplitViewController {
                 optimizeStorage: false,
                 viewerController: viewerController, requestID: requestID
             )
+        }
+    }
+
+    func projectBarcodeDefinitionCandidates(in projectURL: URL?) -> [URL] {
+        guard let projectURL else { return [] }
+        let allowedExtensions = Set(["csv", "tsv", "txt"])
+        guard let enumerator = FileManager.default.enumerator(
+            at: projectURL,
+            includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey],
+            options: [.skipsPackageDescendants]
+        ) else {
+            return []
+        }
+
+        var candidates: [URL] = []
+        for case let url as URL in enumerator {
+            let name = url.lastPathComponent
+            if name.hasPrefix(".") {
+                if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                    enumerator.skipDescendants()
+                }
+                continue
+            }
+            if url.pathExtension.lowercased().hasPrefix("lungfish") {
+                enumerator.skipDescendants()
+                continue
+            }
+            guard allowedExtensions.contains(url.pathExtension.lowercased()),
+                  (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
+                continue
+            }
+            candidates.append(url.standardizedFileURL)
+        }
+        return candidates.sorted {
+            WorkflowOperationDialogState.displayPath(for: $0, relativeTo: projectURL)
+                .localizedStandardCompare(WorkflowOperationDialogState.displayPath(for: $1, relativeTo: projectURL)) == .orderedAscending
+        }
+    }
+
+    func performONTFluidigmSampleSplit(
+        sourceURL: URL,
+        projectURL: URL,
+        barcodeDefinitionsURL: URL,
+        viewerController: ViewerViewController,
+        requestID: String?
+    ) {
+        let request = FASTQOperationLaunchRequest.ontFluidigmSampleSplit(
+            inputFASTQURL: sourceURL.standardizedFileURL,
+            barcodeDefinitionsURL: barcodeDefinitionsURL.standardizedFileURL,
+            threads: max(1, ProcessInfo.processInfo.activeProcessorCount)
+        )
+        let destinationRoot = projectURL.standardizedFileURL
+        let workingDirectory = uniqueFASTQOperationOutputDirectory(in: destinationRoot, request: request)
+        let executionService = FASTQOperationExecutionService(
+            directImporter: BundleFASTQOperationImporter(destinationDirectory: destinationRoot)
+        )
+        let cliCommand: String? = try? {
+            let invocation = try executionService.buildInvocation(for: request)
+            return ([ "lungfish-cli", invocation.subcommand ] + invocation.arguments).joined(separator: " ")
+        }()
+        let opTitle = "FASTQ: \(request.operationDisplayTitle)"
+        let startTime = Date()
+        let opID = OperationCenter.shared.start(
+            title: opTitle,
+            detail: "Preparing...",
+            operationType: .fastqOperation,
+            cliCommand: cliCommand,
+            routeContext: operationRouteContext
+        )
+        OperationCenter.shared.log(id: opID, level: .info, message: "Starting \(request.operationDisplayTitle)")
+        viewerController.showProgress("Splitting ONT reads by Fluidigm sample barcodes...")
+
+        Task.detached(priority: .userInitiated) { [weak self, weak viewerController] in
+            do {
+                try FileManager.default.createDirectory(at: destinationRoot, withIntermediateDirectories: true)
+                let result = try await executionService.execute(request: request, workingDirectory: workingDirectory)
+                let elapsed = Date().timeIntervalSince(startTime)
+                let completionTarget = result.groupedContainerURL ?? result.importedURLs.first ?? workingDirectory
+
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        viewerController?.hideProgress()
+                        OperationCenter.shared.log(
+                            id: opID,
+                            level: .info,
+                            message: "Completed in \(String(format: "%.1f", elapsed))s"
+                        )
+                        OperationCenter.shared.complete(
+                            id: opID,
+                            detail: "Done in \(String(format: "%.1f", elapsed))s"
+                        )
+                        self?.refreshSidebarAndSelectDerivedURL(completionTarget)
+                        self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: true, error: nil)
+                        self?.requestInspectorDocumentModeAfterDownload()
+                    }
+                }
+            } catch {
+                let elapsed = Date().timeIntervalSince(startTime)
+                let errorDesc = error.localizedDescription
+                mainSplitLogger.error("performONTFluidigmSampleSplit: \(errorDesc, privacy: .public)")
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        viewerController?.hideProgress()
+                        OperationCenter.shared.log(
+                            id: opID,
+                            level: .error,
+                            message: "Failed after \(String(format: "%.1f", elapsed))s: \(errorDesc)"
+                        )
+                        OperationCenter.shared.fail(
+                            id: opID,
+                            detail: "Failed after \(String(format: "%.1f", elapsed))s",
+                            errorMessage: errorDesc,
+                            errorDetail: "\(error)"
+                        )
+                        self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: errorDesc)
+
+                        let alert = NSAlert()
+                        alert.messageText = "ONT Sample Split Failed"
+                        alert.informativeText = "\(error)"
+                        alert.alertStyle = .warning
+                        alert.addButton(withTitle: "OK")
+                        alert.applyLungfishBranding()
+                        if let window = self?.view.window ?? NSApp.keyWindow {
+                            alert.beginSheetModal(for: window) { _ in }
+                        }
+                    }
+                }
+            }
         }
     }
 
