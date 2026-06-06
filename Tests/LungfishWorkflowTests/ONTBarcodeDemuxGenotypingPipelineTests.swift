@@ -745,7 +745,8 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             .appendingPathComponent("filter-demux-retained-bam.py")
         let filterScript = try String(contentsOf: filterScriptURL, encoding: .utf8)
         XCTAssertTrue(filterScript.contains("def sequence_for_barcode_assignment(read):"))
-        XCTAssertTrue(filterScript.contains("if read.is_reverse:"))
+        XCTAssertTrue(filterScript.contains("is_reverse = read.is_reverse"))
+        XCTAssertTrue(filterScript.contains("except AttributeError:"))
 
         let provenance = try jsonObject(at: request.provenanceURL)
         let options = try XCTUnwrap(provenance["options"] as? [String: Any])

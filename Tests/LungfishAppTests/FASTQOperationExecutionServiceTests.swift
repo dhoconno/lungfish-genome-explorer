@@ -2025,8 +2025,6 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
             "--barcodes", "/tmp/ONT09_NB11_samples.csv",
             "--output", "<derived>",
             "--threads", "8",
-            "--primer-mismatches", "2",
-            "--minimum-insert-length", "20",
         ])
     }
 

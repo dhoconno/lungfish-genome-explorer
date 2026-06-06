@@ -3240,7 +3240,11 @@ def sequence_for_barcode_assignment(read):
     sequence = read.query_sequence
     if not sequence:
         return None
-    if read.is_reverse:
+    try:
+        is_reverse = read.is_reverse
+    except AttributeError:
+        is_reverse = False
+    if is_reverse:
         return reverse_complement(sequence)
     return sequence
 
