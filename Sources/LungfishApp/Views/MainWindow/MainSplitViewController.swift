@@ -56,6 +56,8 @@ extension FASTQOperationLaunchRequest {
             return inputURLs.first
         case .derivative(_, let inputURLs, _):
             return inputURLs.first
+        case .ontFluidigmSampleSplit(let inputFASTQURL, _, _):
+            return inputFASTQURL
         case .map(let inputURLs, _, _):
             return inputURLs.first
         case .assemble(let request, _):
@@ -75,6 +77,8 @@ extension FASTQOperationLaunchRequest {
             return .fixedBatch
         case .derivative(_, _, let outputMode):
             return outputMode
+        case .ontFluidigmSampleSplit:
+            return .fixedBatch
         case .map(_, _, let outputMode):
             return outputMode
         case .assemble(_, let outputMode):
@@ -92,6 +96,9 @@ extension FASTQOperationLaunchRequest {
         if case .derivative(let request, _, _) = self, case .demultiplex = request {
             return true
         }
+        if case .ontFluidigmSampleSplit = self {
+            return true
+        }
         return false
     }
 
@@ -101,6 +108,8 @@ extension FASTQOperationLaunchRequest {
             return "FASTQ QC Summary"
         case .derivative(let request, _, _):
             return request.operationLabel
+        case .ontFluidigmSampleSplit:
+            return "ONT Fluidigm Sample Split"
         case .map:
             return "Map Reads"
         case .assemble(let request, _):

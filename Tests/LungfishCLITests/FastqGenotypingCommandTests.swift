@@ -6,7 +6,53 @@ final class FastqGenotypingCommandTests: XCTestCase {
         let names = FastqCommand.configuration.subcommands.map { $0.configuration.commandName }
         XCTAssertTrue(names.contains("genotype"))
         XCTAssertTrue(names.contains("genotype-cohort"))
+        XCTAssertTrue(names.contains("ont-fluidigm-samples"))
         XCTAssertTrue(names.contains("mhc-reference-bundle"))
+    }
+
+    func testONTFluidigmSamplesCommandParsesRequiredInputs() throws {
+        let command = try FastqONTFluidigmSamplesSubcommand.parse([
+            "/tmp/barcode11.lungfishfastq",
+            "--barcodes", "/tmp/ONT09_NB11_samples.csv",
+            "--output", "/tmp/ont-fluidigm-samples",
+            "--threads", "8",
+            "--primer-mismatches", "2",
+            "--minimum-insert-length", "40",
+            "--no-canonicalize-reverse-complements",
+            "--force",
+        ])
+
+        XCTAssertEqual(command.input, "/tmp/barcode11.lungfishfastq")
+        XCTAssertEqual(command.barcodes, "/tmp/ONT09_NB11_samples.csv")
+        XCTAssertEqual(command.output, "/tmp/ont-fluidigm-samples")
+        XCTAssertEqual(command.threads, 8)
+        XCTAssertEqual(command.primerMismatches, 2)
+        XCTAssertEqual(command.minimumInsertLength, 40)
+        XCTAssertFalse(command.canonicalizeReverseComplements)
+        XCTAssertTrue(command.force)
+    }
+
+    func testGenotypeCohortParsesONTSampleBundlesWithoutBarcodes() throws {
+        let command = try FastqGenotypingCohortSubcommand.parse([
+            "/tmp/LF2871.lungfishfastq",
+            "/tmp/LF2872.lungfishfastq",
+            "--mode", "ont-sample-bundles",
+            "--read-type", "ont",
+            "--reference", "/tmp/mhc.lungfishref",
+            "--output-dir", "/tmp/out",
+            "--output-name", "ont-mhc",
+            "--project", "/tmp/project.lungfish",
+            "--threads", "8",
+            "--sort-threads", "2",
+            "--min-support", "3",
+        ])
+
+        XCTAssertEqual(command.inputs, ["/tmp/LF2871.lungfishfastq", "/tmp/LF2872.lungfishfastq"])
+        XCTAssertEqual(command.mode, "ont-sample-bundles")
+        XCTAssertEqual(command.readType, "ont")
+        XCTAssertNil(command.barcodes)
+        XCTAssertEqual(command.reference, "/tmp/mhc.lungfishref")
+        XCTAssertEqual(command.outputName, "ont-mhc")
     }
 
     func testGenotypeCohortParsesIlluminaPairedInputsWithoutBarcodes() throws {
@@ -68,6 +114,34 @@ final class FastqGenotypingCommandTests: XCTestCase {
         XCTAssertEqual(command.threads, 8)
         XCTAssertEqual(command.sortThreads, 2)
         XCTAssertEqual(command.minSupport, 3)
+    }
+
+    func testGenotypeParsesHaplotypeThresholdsAndDefinitionScope() throws {
+        let command = try FastqGenotypingSubcommand.parse([
+            "/tmp/barcode11.lungfishfastq",
+            "--mode", "ont-barcode-demux",
+            "--read-type", "ont",
+            "--reference", "/tmp/mhc.lungfishmhcref",
+            "--output-dir", "/tmp/out",
+            "--output-name", "barcode11-mhc-test",
+            "--project", "/tmp/project.lungfish",
+            "--haplotype-assay", "MHC-exon2-miSeq",
+            "--haplotype-species", "MCM",
+            "--haplotype-definition-scope", "project",
+            "--haplotype-definition", "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            "--haplotype-min-sample-percent", "1",
+            "--haplotype-min-locus-percent", "1",
+            "--haplotype-min-locus-percent-override", "MHC-DQ=10",
+            "--haplotype-min-locus-percent-override", "MHC-DP=10",
+            "--barcodes", "/tmp/fluidigm.csv",
+            "--threads", "14",
+            "--min-support", "10",
+        ])
+
+        XCTAssertEqual(command.haplotypeDefinitionScope, "project")
+        XCTAssertEqual(command.haplotypeMinSamplePercent, 1)
+        XCTAssertEqual(command.haplotypeMinLocusPercent, 1)
+        XCTAssertEqual(command.haplotypeMinLocusPercentOverrides, ["MHC-DQ=10", "MHC-DP=10"])
     }
 
     func testMHCReferenceBundleParsesOptions() throws {

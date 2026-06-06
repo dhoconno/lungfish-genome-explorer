@@ -311,6 +311,24 @@ struct ReleaseBuildConfigurationTests {
         #expect(project.contains("lungfish-cli.entitlements"))
     }
 
+    @Test("Embed lungfish-cli phase always refreshes bundled CLI")
+    func embedLungfishCLIPhaseAlwaysRefreshesBundledCLI() throws {
+        let project = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent("Lungfish.xcodeproj/project.pbxproj"),
+            encoding: .utf8
+        )
+
+        let embedBlock = try Self.buildPhaseBlock(
+            named: "F1E2D3C4B5A6978877665567 /* Embed lungfish-cli */",
+            in: project
+        )
+        #expect(embedBlock.contains("alwaysOutOfDate = 1;"))
+        #expect(embedBlock.contains("--product lungfish-cli"))
+        #expect(embedBlock.contains(".build/xcode-cli"))
+        #expect(embedBlock.contains("install -m 755"))
+    }
+
     @Test("Embed lungfish-cli phase supports scripted release skip override")
     func embedLungfishCLIPhaseSupportsScriptedReleaseSkipOverride() throws {
         let project = try String(

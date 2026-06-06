@@ -60,6 +60,7 @@ final class GenotypeOutlineView: NSView {
     var onLocusCellClicked: ((String, String) -> Void)?
     private(set) var numberOfRows: Int = 0
     private var rows: [Row] = []
+    private var reviewSelection = ReviewSelection()
     /// Per-sample disclosure state. When `true`, the row renders an
     /// inline detail block beneath the tape showing each locus's
     /// haplotype call text. Click the triangle to toggle.
@@ -118,6 +119,13 @@ final class GenotypeOutlineView: NSView {
         rebuild()
     }
 
+    func setReviewSelection(sample: String?, locus: String?) {
+        let selection = ReviewSelection(sample: sample, locus: locus)
+        guard selection != reviewSelection else { return }
+        reviewSelection = selection
+        rebuild()
+    }
+
     /// Fixed-width gutter for the leading "fixed" widgets (disclosure +
     /// block glyph + animal label). All rows + the header share this so
     /// the locus columns align vertically across the whole table.
@@ -169,12 +177,26 @@ final class GenotypeOutlineView: NSView {
         for locus in loci {
             let column = NSView()
             column.translatesAutoresizingMaskIntoConstraints = false
-            let label = NSTextField(labelWithString: shortLocusLabel(locus))
-            label.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
-            label.textColor = .secondaryLabelColor
+            let shortLabel = shortLocusLabel(locus)
+            let label = NSTextField(labelWithString: shortLabel)
+            let isSelected = reviewSelection.locus == locus
+            let font = NSFont.systemFont(ofSize: 10, weight: isSelected ? .bold : .semibold)
+            label.font = font
+            label.textColor = isSelected ? .controlAccentColor : .secondaryLabelColor
+            if isSelected {
+                label.attributedStringValue = NSAttributedString(
+                    string: shortLabel,
+                    attributes: [
+                        .font: font,
+                        .foregroundColor: NSColor.controlAccentColor,
+                        .underlineStyle: NSUnderlineStyle.single.rawValue,
+                    ]
+                )
+                label.setAccessibilityLabel("\(locus) selected")
+            }
             label.alignment = .center
             label.lineBreakMode = .byTruncatingMiddle
-            label.toolTip = locus
+            label.toolTip = isSelected ? "\(locus) selected for review" : locus
             label.translatesAutoresizingMaskIntoConstraints = false
             column.addSubview(label)
             NSLayoutConstraint.activate([
@@ -242,12 +264,14 @@ final class GenotypeOutlineView: NSView {
         outer.spacing = 2
         outer.identifier = NSUserInterfaceItemIdentifier(row.animalId)
 
-        let container = NSStackView()
+        let container = SelectionRowStackView()
         container.translatesAutoresizingMaskIntoConstraints = false
         container.orientation = .horizontal
         container.alignment = .centerY
         container.spacing = 6
         container.edgeInsets = NSEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
+        let isSelectedSample = reviewSelection.sample == row.animalId
+        container.isReviewSelected = isSelectedSample
 
         // Fixed-width leading gutter so every row's locus columns start at
         // the same x-coordinate as the header. Disclosure + block glyph +
@@ -274,7 +298,7 @@ final class GenotypeOutlineView: NSView {
         blockGlyph.toolTip = blockGlyphTooltip(row.blockKind)
         blockGlyph.widthAnchor.constraint(equalToConstant: 16).isActive = true
         let animalLabel = NSTextField(labelWithString: row.animalId)
-        animalLabel.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .semibold)
+        animalLabel.font = NSFont.monospacedSystemFont(ofSize: 11, weight: isSelectedSample ? .bold : .semibold)
         animalLabel.textColor = .labelColor
         animalLabel.widthAnchor.constraint(equalToConstant: 80).isActive = true
         animalLabel.lineBreakMode = .byTruncatingTail
@@ -287,6 +311,8 @@ final class GenotypeOutlineView: NSView {
         tape.translatesAutoresizingMaskIntoConstraints = false
         tape.configure(loci: row.loci, slots: row.tapeSlots)
         tape.sampleAccessibilityLabel = row.animalId
+        tape.isReviewSelected = isSelectedSample
+        tape.selectedLocus = isSelectedSample ? reviewSelection.locus : nil
         // No fixed width — let the tape expand to consume all available
         // horizontal space so locus columns line up under the headers.
         // The tape draws columns as `bounds.width / slots.count`, so wider
@@ -421,6 +447,33 @@ final class GenotypeOutlineView: NSView {
         var animalId: String = ""
     }
 
+    private struct ReviewSelection: Equatable {
+        var sample: String?
+        var locus: String?
+    }
+
+    private final class SelectionRowStackView: NSStackView {
+        var isReviewSelected: Bool = false {
+            didSet {
+                guard oldValue != isReviewSelected else { return }
+                needsDisplay = true
+            }
+        }
+
+        override func draw(_ dirtyRect: NSRect) {
+            if isReviewSelected {
+                let active = window?.isKeyWindow ?? true
+                let base = active
+                    ? NSColor.selectedContentBackgroundColor
+                    : NSColor.unemphasizedSelectedContentBackgroundColor
+                base.withAlphaComponent(0.14).setFill()
+                let rect = bounds.insetBy(dx: 2, dy: 1)
+                NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).fill()
+            }
+            super.draw(dirtyRect)
+        }
+    }
+
     @objc private func handleClick(_ recognizer: NSClickGestureRecognizer) {
         guard let view = recognizer.view,
               let id = view.identifier?.rawValue else { return }
@@ -488,6 +541,24 @@ extension GenotypeOutlineView {
         textContent(in: self).joined(separator: "\n")
     }
 
+    var testingReviewSelectedSample: String? {
+        reviewSelection.sample
+    }
+
+    var testingReviewSelectedLocus: String? {
+        reviewSelection.locus
+    }
+
+    func testingSelectedTapeLocus(sample: String) -> String? {
+        tapeViews(in: self)
+            .first { $0.sampleAccessibilityLabel == sample && $0.testingIsReviewSelected }?
+            .testingSelectedLocus
+    }
+
+    func testingHeaderIsSelected(locus: String) -> Bool {
+        reviewSelection.locus == locus
+    }
+
     private func textContent(in view: NSView) -> [String] {
         var values: [String] = []
         if let textField = view as? NSTextField {
@@ -495,6 +566,17 @@ extension GenotypeOutlineView {
         }
         for subview in view.subviews {
             values.append(contentsOf: textContent(in: subview))
+        }
+        return values
+    }
+
+    private func tapeViews(in view: NSView) -> [GenotypeHaplotypeTapeView] {
+        var values: [GenotypeHaplotypeTapeView] = []
+        if let tape = view as? GenotypeHaplotypeTapeView {
+            values.append(tape)
+        }
+        for subview in view.subviews {
+            values.append(contentsOf: tapeViews(in: subview))
         }
         return values
     }

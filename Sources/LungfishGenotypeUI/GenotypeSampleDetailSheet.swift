@@ -163,7 +163,8 @@ struct GenotypeSampleDetailSheet: View {
     }
 
     private func swatch(forName name: String, status: GenotypeHaplotypeCallStatus) -> some View {
-        let isError = status != .called && status != .notAssayed && status != .specialCase
+        let isError = name == GenotypeHaplotypeOverrideTargets.unresolved
+            || (status != .called && status != .notAssayed && status != .specialCase)
         let token = HaplotypeColorToken.assigned(forName: name)
         let fillColor: Color = isError
             ? Color(nsColor: .controlBackgroundColor)
@@ -185,6 +186,7 @@ struct GenotypeSampleDetailSheet: View {
     }
 
     private func errorSymbol(_ label: String) -> String {
+        if label == GenotypeHaplotypeOverrideTargets.unresolved { return "?" }
         if label.contains("TMH") { return "T" }
         if label.contains("TMG") { return "G" }
         if label.contains("NO HAP") { return "?" }

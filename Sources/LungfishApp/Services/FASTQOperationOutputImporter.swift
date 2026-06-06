@@ -312,6 +312,13 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
         case .derivative(.demultiplex, _, _):
             return [outputDirectory]
 
+        case .ontFluidigmSampleSplit:
+            return try rehydrateONTFluidigmSampleBundles(
+                outputURLs,
+                originalRequest: originalRequest,
+                outputDirectory: outputDirectory
+            )
+
         case .derivative:
             return try await importSequenceOutputs(outputURLs, originalRequest: originalRequest)
 
@@ -321,6 +328,36 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
         default:
             return outputURLs
         }
+    }
+
+    private func rehydrateONTFluidigmSampleBundles(
+        _ outputURLs: [URL],
+        originalRequest: FASTQOperationLaunchRequest,
+        outputDirectory: URL
+    ) throws -> [URL] {
+        _ = originalRequest
+        let bundleURLs = outputURLs
+            .filter { FASTQBundle.isBundleURL($0) }
+            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+
+        guard !bundleURLs.isEmpty else { return [] }
+
+        for bundleURL in bundleURLs {
+            guard let payloadURL = FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL) else {
+                throw ProvenanceRehydrationError.missingSourceProvenance(
+                    "ONT Fluidigm sample bundle has no primary FASTQ payload: \(bundleURL.path)"
+                )
+            }
+            var pathMap = [payloadURL.path: payloadURL.standardizedFileURL.path]
+            pathMap[payloadURL.standardizedFileURL.path] = payloadURL.standardizedFileURL.path
+            try ProvenanceRehydrator.rehydrateSelectedOutputs(
+                sourceDirectory: outputDirectory,
+                finalDirectory: bundleURL,
+                pathMap: pathMap
+            )
+        }
+
+        return bundleURLs
     }
 
     private func importSequenceOutputs(

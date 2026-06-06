@@ -114,6 +114,148 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
         XCTAssertTrue(item.logEntries.contains { $0.message.contains("could not load resource bundle") })
     }
 
+    func testONTReadTypeForcesBarcodeDemuxModeWhenRequestModeIsAuto() throws {
+        let temp = try temporaryDirectory()
+        let readsURL = temp.appendingPathComponent("reads.lungfishfastq", isDirectory: true)
+        let referenceURL = temp.appendingPathComponent("ref.lungfishref", isDirectory: true)
+        let barcodesURL = temp.appendingPathComponent("barcodes.csv")
+        let outputURL = temp.appendingPathComponent("Analyses/amplicon-genotyping.lungfishgenotype", isDirectory: true)
+
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURLs: [readsURL],
+            referenceSourceURL: referenceURL,
+            barcodeDefinitionsURL: barcodesURL,
+            outputDirectory: outputURL,
+            outputName: "amplicon-genotyping",
+            mode: .auto,
+            readType: .ont
+        )
+        let arguments = WorkflowOperationExecutionService().ontGenotypingArguments(for: request)
+
+        XCTAssertEqual(try testValue(after: "--mode", in: arguments), "ont-barcode-demux")
+        XCTAssertEqual(try testValue(after: "--read-type", in: arguments), "ont")
+    }
+
+    func testIlluminaReadTypeForcesCohortModeWhenRequestModeIsAuto() throws {
+        let temp = try temporaryDirectory()
+        let first = temp.appendingPathComponent("dw001.lungfishfastq", isDirectory: true)
+        let second = temp.appendingPathComponent("dw002.lungfishfastq", isDirectory: true)
+        let referenceURL = temp.appendingPathComponent("ref.lungfishref", isDirectory: true)
+        let outputURL = temp.appendingPathComponent("Analyses/amplicon-genotyping.lungfishgenotype", isDirectory: true)
+
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURLs: [first, second],
+            referenceSourceURL: referenceURL,
+            outputDirectory: outputURL,
+            outputName: "amplicon-genotyping",
+            mode: .auto,
+            readType: .illumina
+        )
+        let arguments = WorkflowOperationExecutionService().ontGenotypingArguments(for: request)
+
+        XCTAssertEqual(arguments.prefix(2), ["fastq", "genotype-cohort"])
+        XCTAssertEqual(try testValue(after: "--mode", in: arguments), "illumina-paired")
+        XCTAssertEqual(try testValue(after: "--read-type", in: arguments), "illumina")
+    }
+
+    func testONTSampleBundleModeUsesCohortSubcommandWithoutBarcodes() throws {
+        let temp = try temporaryDirectory()
+        let first = temp.appendingPathComponent("lf2871.lungfishfastq", isDirectory: true)
+        let second = temp.appendingPathComponent("lf2872.lungfishfastq", isDirectory: true)
+        let referenceURL = temp.appendingPathComponent("ref.lungfishref", isDirectory: true)
+        let outputURL = temp.appendingPathComponent("Analyses/amplicon-genotyping.lungfishgenotype", isDirectory: true)
+
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURLs: [first, second],
+            referenceSourceURL: referenceURL,
+            outputDirectory: outputURL,
+            outputName: "amplicon-genotyping",
+            mode: .ontSampleBundles,
+            readType: .ont
+        )
+        let arguments = WorkflowOperationExecutionService().ontGenotypingArguments(for: request)
+
+        XCTAssertEqual(arguments.prefix(2), ["fastq", "genotype-cohort"])
+        XCTAssertEqual(try testValue(after: "--mode", in: arguments), "ont-sample-bundles")
+        XCTAssertEqual(try testValue(after: "--read-type", in: arguments), "ont")
+        XCTAssertFalse(arguments.contains("--barcodes"))
+    }
+
+    func testONTGenotypingDisambiguatesOccupiedOutputBundleNameAtRuntime() async throws {
+        let temp = try temporaryDirectory()
+        let request = try makeONTGenotypingRequest(temp: temp)
+        try Data("previous run".utf8).write(
+            to: request.outputDirectory.appendingPathComponent("manifest.json")
+        )
+        let operationCenter = OperationCenter()
+        let runner = StubWorkflowOperationCLIProcessRunner()
+        let resultRefresher = StubWorkflowOperationResultRefresher()
+        let service = WorkflowOperationExecutionService(
+            operationCenter: operationCenter,
+            processRunner: runner,
+            viewerBundlePreparer: StubWorkflowOperationViewerBundlePreparer(),
+            bamImporter: StubWorkflowOperationBAMImporter(),
+            resultRefresher: resultRefresher
+        )
+
+        _ = try await service.run(.ontGenotyping(request))
+
+        let invocation = try XCTUnwrap(runner.invocations.first)
+        XCTAssertEqual(try testValue(after: "--output-name", in: invocation.arguments), "reads-ont_1")
+        XCTAssertEqual(try testValue(after: "--analysis-name", in: invocation.arguments), "ONT08_1")
+        XCTAssertEqual(
+            try testValue(after: "--output-dir", in: invocation.arguments),
+            request.outputDirectory.deletingLastPathComponent()
+                .appendingPathComponent("reads-ont_1.lungfishgenotype", isDirectory: true)
+                .standardizedFileURL.path
+        )
+        XCTAssertEqual(
+            resultRefresher.invocations,
+            [
+                request.outputDirectory.deletingLastPathComponent()
+                    .appendingPathComponent("reads-ont_1.lungfishgenotype", isDirectory: true)
+                    .standardizedFileURL
+            ]
+        )
+    }
+
+    func testONTGenotypingFailureAddsDemuxManifestHintWhenBarcodesWereProvided() async throws {
+        let temp = try temporaryDirectory()
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURLs: [temp.appendingPathComponent("reads.lungfishfastq", isDirectory: true)],
+            referenceSourceURL: temp.appendingPathComponent("ref.lungfishref", isDirectory: true),
+            barcodeDefinitionsURL: temp.appendingPathComponent("ONT09_NB11_samples.csv"),
+            outputDirectory: temp.appendingPathComponent("Analyses/amplicon-genotyping.lungfishgenotype", isDirectory: true),
+            outputName: "amplicon-genotyping",
+            mode: .auto,
+            readType: .ont
+        )
+        let operationCenter = OperationCenter()
+        let runner = StubWorkflowOperationCLIProcessRunner(
+            exitCode: 1,
+            stderr: "Error: Demultiplex manifest does not exist: /tmp/project/demux-manifest.json"
+        )
+        let service = WorkflowOperationExecutionService(
+            operationCenter: operationCenter,
+            processRunner: runner,
+            viewerBundlePreparer: StubWorkflowOperationViewerBundlePreparer(),
+            bamImporter: StubWorkflowOperationBAMImporter(),
+            resultRefresher: StubWorkflowOperationResultRefresher()
+        )
+
+        do {
+            _ = try await service.run(.ontGenotyping(request))
+            XCTFail("Expected failure")
+        } catch LocalWorkflowExecutionError.nonZeroExit(let status) {
+            XCTAssertEqual(status, 1)
+        }
+
+        let item = try XCTUnwrap(operationCenter.items.first)
+        XCTAssertTrue(item.errorDetail?.contains("Demultiplex manifest") == true)
+        XCTAssertTrue(item.errorDetail?.contains("barcode CSV") == true)
+        XCTAssertTrue(item.errorDetail?.contains("--mode ont-barcode-demux") == true)
+    }
+
     func testTwelveSAmpliconMatchingRunsCLIAndReportsBundleOutput() async throws {
         let temp = try temporaryDirectory()
         let firstReadsURL = temp.appendingPathComponent("hilo-f09.lungfishfastq", isDirectory: true)
@@ -361,6 +503,37 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
             try testValue(after: "--haplotype-definition", in: arguments),
             "MHC-exon2-miSeq.mauritian-cynomolgus-macaques"
         )
+    }
+
+    func testONTGenotypingArgumentsIncludeOperationHaplotypeThresholds() throws {
+        let temp = try temporaryDirectory()
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURL: temp.appendingPathComponent("reads.lungfishfastq", isDirectory: true),
+            referenceSourceURL: temp.appendingPathComponent("ref.lungfishref", isDirectory: true),
+            barcodeDefinitionsURL: temp.appendingPathComponent("barcodes.csv"),
+            outputDirectory: temp.appendingPathComponent("out.lungfishgenotype", isDirectory: true),
+            outputName: "reads-ont",
+            analysisName: "ONT08",
+            threads: 4,
+            minSupport: 10,
+            haplotypeDropoutSampleFraction: 0.001,
+            haplotypeDropoutLocusFraction: 0.01,
+            haplotypeDropoutLocusFractionOverrides: [
+                "MHC-DP": 0.10,
+                "MHC-DQ": 0.10,
+            ],
+            haplotypeAssayID: "MHC-exon2-miSeq",
+            haplotypeDefinitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques"
+        )
+
+        let service = WorkflowOperationExecutionService()
+        let arguments = service.ontGenotypingArguments(for: request)
+
+        XCTAssertEqual(try testValue(after: "--haplotype-min-sample-percent", in: arguments), "0.1")
+        XCTAssertEqual(try testValue(after: "--haplotype-min-locus-percent", in: arguments), "1")
+        XCTAssertTrue(arguments.contains("--haplotype-min-locus-percent-override"))
+        XCTAssertTrue(arguments.contains("MHC-DP=10"))
+        XCTAssertTrue(arguments.contains("MHC-DQ=10"))
     }
 
     func testONTGenotypingArgumentsUseCohortCommandForMultipleIlluminaInputs() throws {

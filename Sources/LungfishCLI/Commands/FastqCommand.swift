@@ -45,6 +45,7 @@ struct FastqCommand: AsyncParsableCommand {
             FastqInterleaveSubcommand.self,
             FastqDeduplicateSubcommand.self,
             FastqDemultiplexSubcommand.self,
+            FastqONTFluidigmSamplesSubcommand.self,
             FastqScoutSubcommand.self,
             FastqImportONTSubcommand.self,
             FastqMaterializeSubcommand.self,
@@ -2344,6 +2345,170 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
         for barcode in result.manifest.barcodes where barcode.readCount > 0 {
             FileHandle.standardError.write(Data("  \(barcode.displayName): \(barcode.readCount) reads\n".utf8))
         }
+    }
+}
+
+// MARK: - ONT Fluidigm Sample Materialization
+
+struct FastqONTFluidigmSamplesSubcommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "ont-fluidigm-samples",
+        abstract: "Materialize counted per-sample ONT Fluidigm amplicon FASTQs",
+        discussion: """
+            Assigns ONT reads to samples with the same exact Fluidigm barcode matching
+            used by amplicon genotyping, extracts the CS1-CS2 insert, then writes one
+            physical .lungfishfastq bundle per sample containing unique insert
+            exemplars. Payloads are gzip-compressed and duplicate support is encoded
+            in FASTQ headers as size=N.
+            """
+    )
+
+    @Argument(help: "Input FASTQ file, directory, or .lungfishfastq bundle")
+    var input: String
+
+    @Option(name: .customLong("barcodes"), help: "CSV/TSV file with sample and Fluidigm barcode sequence columns")
+    var barcodes: String
+
+    @Option(name: [.customLong("output"), .customShort("o")], help: "Output directory for per-sample .lungfishfastq bundles")
+    var output: String
+
+    @Option(name: .customLong("threads"), help: "Worker count reserved for future parallel materialization; currently recorded for provenance")
+    var threads: Int = 1
+
+    @Option(name: .customLong("primer-mismatches"), help: "Maximum mismatches allowed when finding CS1/CS2 primer sites (default: 2)")
+    var primerMismatches: Int = 2
+
+    @Option(name: .customLong("minimum-insert-length"), help: "Minimum extracted insert length in bases (default: 20)")
+    var minimumInsertLength: Int = 20
+
+    @Flag(
+        name: .customLong("canonicalize-reverse-complements"),
+        inversion: .prefixedNo,
+        help: "Collapse exact reverse-complement insert matches into one exemplar (default: enabled)"
+    )
+    var canonicalizeReverseComplements: Bool = true
+
+    @Flag(name: .customLong("force"), help: "Replace an existing output directory")
+    var force: Bool = false
+
+    func run() async throws {
+        guard threads > 0 else {
+            throw ValidationError("--threads must be positive.")
+        }
+        guard primerMismatches >= 0 else {
+            throw ValidationError("--primer-mismatches must be non-negative.")
+        }
+        guard minimumInsertLength > 0 else {
+            throw ValidationError("--minimum-insert-length must be positive.")
+        }
+
+        let inputURL = URL(fileURLWithPath: input)
+        let barcodeURL = URL(fileURLWithPath: barcodes)
+        let outputURL = URL(fileURLWithPath: output, isDirectory: true)
+        let startedAt = Date()
+        let request = ONTFluidigmAmpliconMaterializationRequest(
+            inputURL: inputURL,
+            barcodeDefinitionsURL: barcodeURL,
+            outputDirectory: outputURL,
+            primerMismatches: primerMismatches,
+            minimumInsertLength: minimumInsertLength,
+            canonicalizeReverseComplements: canonicalizeReverseComplements,
+            force: force
+        )
+        let result = try await ONTFluidigmAmpliconMaterializer().run(request)
+
+        var cliArguments = [
+            "ont-fluidigm-samples",
+            inputURL.path,
+            "--barcodes", barcodeURL.path,
+            "--output", outputURL.path,
+            "--primer-mismatches", String(primerMismatches),
+            "--minimum-insert-length", String(minimumInsertLength),
+        ]
+        if threads != 1 {
+            cliArguments += ["--threads", String(threads)]
+        }
+        if !canonicalizeReverseComplements {
+            cliArguments.append("--no-canonicalize-reverse-complements")
+        }
+        if force {
+            cliArguments.append("--force")
+        }
+
+        let outputPayloads = result.outputBundleURLs
+            .compactMap { FASTQBundle.resolvePrimaryFASTQURL(for: $0) }
+        let outputs = [
+            ProvenanceRecorder.fileRecord(url: result.outputDirectory, format: .unknown, role: .output),
+            ProvenanceRecorder.fileRecord(url: result.manifestURL, format: .json, role: .output),
+        ] + result.outputBundleURLs.map {
+            ProvenanceRecorder.fileRecord(url: $0, format: .unknown, role: .output)
+        } + outputPayloads.map {
+            ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output)
+        }
+        let inputRecords = [
+            ProvenanceRecorder.fileRecord(url: inputURL, format: .fastq, role: .input),
+            ProvenanceRecorder.fileRecord(url: barcodeURL, format: .text, role: .input),
+        ]
+        try await CLIProvenanceSupport.recordSingleStepRun(
+            name: "lungfish fastq ont-fluidigm-samples",
+            parameters: [
+                "input": .file(inputURL),
+                "barcodes": .file(barcodeURL),
+                "output": .file(outputURL),
+                "threads": .integer(threads),
+                "force": .boolean(force),
+                "forwardPrimer": .string(request.forwardPrimer),
+                "reversePrimer": .string(request.reversePrimer),
+                "primerMismatches": .integer(primerMismatches),
+                "minimumInsertLength": .integer(minimumInsertLength),
+                "canonicalizeReverseComplements": .boolean(canonicalizeReverseComplements),
+                "payloadRepresentation": .string("deduplicated gzip-compressed CS1-CS2 insert FASTQ"),
+                "duplicateCountEncoding": .string("size=N"),
+                "inputReadCount": .integer(result.inputReadCount),
+                "assignedReadCount": .integer(result.assignedReadCount),
+                "extractedReadCount": .integer(result.extractedReadCount),
+                "uniqueSequenceCount": .integer(result.uniqueSequenceCount),
+                "unassignedReadCount": .integer(result.unassignedReadCount),
+                "unextractedReadCount": .integer(result.unextractedReadCount),
+            ],
+            defaults: [
+                "threads": .integer(1),
+                "force": .boolean(false),
+                "forwardPrimer": .string(ONTFluidigmAmpliconMaterializer.defaultForwardPrimer),
+                "reversePrimer": .string(ONTFluidigmAmpliconMaterializer.defaultReversePrimer),
+                "primerMismatches": .integer(2),
+                "minimumInsertLength": .integer(20),
+                "canonicalizeReverseComplements": .boolean(true),
+                "payloadRepresentation": .string("deduplicated gzip-compressed CS1-CS2 insert FASTQ"),
+                "duplicateCountEncoding": .string("size=N"),
+            ],
+            toolName: "lungfish fastq ont-fluidigm-samples",
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: ["lungfish", "fastq"] + cliArguments,
+            stepCommand: ["lungfish", "fastq"] + cliArguments,
+            inputs: inputRecords,
+            outputs: outputs,
+            exitCode: 0,
+            wallTime: Date().timeIntervalSince(startedAt),
+            stderr: nil,
+            status: .completed,
+            outputDirectory: result.outputDirectory
+        )
+
+        let payload: [String: Any] = [
+            "outputDirectory": result.outputDirectory.path,
+            "manifest": result.manifestURL.path,
+            "outputBundles": result.outputBundleURLs.map(\.path),
+            "inputReadCount": result.inputReadCount,
+            "assignedReadCount": result.assignedReadCount,
+            "extractedReadCount": result.extractedReadCount,
+            "uniqueSequenceCount": result.uniqueSequenceCount,
+            "unassignedReadCount": result.unassignedReadCount,
+            "unextractedReadCount": result.unextractedReadCount,
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
+        FileHandle.standardOutput.write(data)
+        FileHandle.standardOutput.write(Data("\n".utf8))
     }
 }
 

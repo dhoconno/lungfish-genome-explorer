@@ -518,9 +518,9 @@ public enum GenotypeHaplotypeAnalyzer {
         dropoutFilter: GenotypeDropoutEvaluator?
     ) -> GenotypeHaplotypeAnalysis {
         let filteredCalls = applyDropout(calls, evaluator: dropoutFilter, definitionSet: definitionSet)
-        let callsBySample = Dictionary(grouping: filteredCalls, by: \.sample)
+        let callsBySample = Dictionary(grouping: filteredCalls, by: { normalizedSampleName($0.sample) })
         let observedLoci = observedDefinitionLoci(calls: calls, definitionSet: definitionSet)
-        let rawSampleNames = Set(calls.map(\.sample))
+        let rawSampleNames = Set(calls.map { normalizedSampleName($0.sample) })
         let samples = rawSampleNames.sorted {
             $0.localizedStandardCompare($1) == .orderedAscending
         }.map { sample in
@@ -536,14 +536,186 @@ public enum GenotypeHaplotypeAnalyzer {
                 }
             )
         }
+        let resolvedSamples = resolveLinkedMCMClassIIAmbiguousDP(in: samples, definitionSet: definitionSet)
         return GenotypeHaplotypeAnalysis(
             assayID: definitionSet.assayID,
             definitionSetID: definitionSet.id,
             definitionSetName: definitionSet.displayName,
             speciesName: definitionSet.speciesName,
             generatedAt: generatedAt,
-            samples: samples
+            samples: resolvedSamples
         )
+    }
+
+    private static func resolveLinkedMCMClassIIAmbiguousDP(
+        in samples: [GenotypeHaplotypeSampleAnalysis],
+        definitionSet: GenotypeHaplotypeDefinitionSet
+    ) -> [GenotypeHaplotypeSampleAnalysis] {
+        guard definitionSet.speciesCode.caseInsensitiveCompare("MCM") == .orderedSame else {
+            return samples
+        }
+        return samples.map { sample in
+            guard let dqIndex = sample.calls.firstIndex(where: {
+                GenotypeHaplotypeLocusResolver.canonicalLocusName($0.locus) == "MHC-DQ"
+            }),
+            let dpIndex = sample.calls.firstIndex(where: {
+                GenotypeHaplotypeLocusResolver.canonicalLocusName($0.locus) == "MHC-DP"
+            }) else {
+                return sample
+            }
+            let dqCall = sample.calls[dqIndex]
+            let dpCall = sample.calls[dpIndex]
+            let resolved = resolveMCMClassIIDPCall(dpCall, usingLinkedDQ: dqCall)
+            guard resolved != dpCall else { return sample }
+            var calls = sample.calls
+            calls[dpIndex] = resolved
+            return GenotypeHaplotypeSampleAnalysis(sample: sample.sample, calls: calls)
+        }
+    }
+
+    private static func resolveMCMClassIIDPCall(
+        _ dpCall: GenotypeHaplotypeLocusCall,
+        usingLinkedDQ dqCall: GenotypeHaplotypeLocusCall
+    ) -> GenotypeHaplotypeLocusCall {
+        let dqFamilies = linkedDQFamilies(from: dqCall)
+        guard !dqFamilies.isEmpty else { return dpCall }
+
+        if let resolved = resolveConcreteMCMClassIIDPOvercall(dpCall, dqFamilies: dqFamilies) {
+            return resolved
+        }
+
+        let originalValues = [dpCall.haplotype1, dpCall.haplotype2]
+        var usedResolvedFamilies = Set<String>()
+        var resolvedValues: [String] = []
+        for (index, value) in originalValues.enumerated() {
+            let ambiguousFamilies = mcmFamilies(inAlleleName: value)
+            guard ambiguousFamilies.count > 1 else {
+                resolvedValues.append(value)
+                if let family = mcmFamily(value) {
+                    usedResolvedFamilies.insert(family)
+                }
+                continue
+            }
+            if let family = linkedMCMFamily(
+                at: index,
+                candidates: ambiguousFamilies,
+                dqFamilies: dqFamilies,
+                usedFamilies: usedResolvedFamilies
+            ) {
+                usedResolvedFamilies.insert(family)
+                resolvedValues.append("\(family)DP")
+            } else {
+                resolvedValues.append(value)
+            }
+        }
+
+        guard resolvedValues != originalValues else { return dpCall }
+        let resolutionNotes = zip(originalValues, resolvedValues).compactMap { original, resolved -> String? in
+            guard mcmFamilies(inAlleleName: original).count > 1, resolved != original else { return nil }
+            return "MHC-DP \(original) ambiguity resolved to \(resolved) from linked MHC-DQ call."
+        }
+        let notes = ([dpCall.notes].filter { !$0.isEmpty } + resolutionNotes).joined(separator: " ")
+        return GenotypeHaplotypeLocusCall(
+            locus: dpCall.locus,
+            sourceLocus: dpCall.sourceLocus,
+            haplotype1: resolvedValues[0],
+            haplotype2: resolvedValues[1],
+            status: dpCall.status,
+            matchedHaplotypes: dpCall.matchedHaplotypes,
+            observedGenotypeCount: dpCall.observedGenotypeCount,
+            observedGenotypes: dpCall.observedGenotypes,
+            notes: notes
+        )
+    }
+
+    private static func resolveConcreteMCMClassIIDPOvercall(
+        _ dpCall: GenotypeHaplotypeLocusCall,
+        dqFamilies: [String?]
+    ) -> GenotypeHaplotypeLocusCall? {
+        guard dpCall.matchedHaplotypes.count > 1 else { return nil }
+        var matchByFamily: [String: GenotypeHaplotypeMatchedDefinition] = [:]
+        for matched in dpCall.matchedHaplotypes {
+            let families = mcmFamilies(inAlleleName: matched.name)
+            guard families.count == 1, let family = families.first else { continue }
+            matchByFamily[family] = matchByFamily[family] ?? matched
+        }
+        let matchedFamilies = Set(matchByFamily.keys)
+        guard matchedFamilies.count > 1 else { return nil }
+
+        var selectedFamilies: [String] = []
+        for family in dqFamilies.compactMap({ $0 }) where matchByFamily[family] != nil {
+            if !selectedFamilies.contains(family) {
+                selectedFamilies.append(family)
+            }
+        }
+        let selectedFamilySet = Set(selectedFamilies)
+        guard !selectedFamilies.isEmpty,
+              selectedFamilySet.count < matchedFamilies.count,
+              selectedFamilies.count <= 2 else {
+            return nil
+        }
+
+        let selectedMatches = selectedFamilies.compactMap { matchByFamily[$0] }
+        let haplotype1 = selectedMatches[0].name
+        let haplotype2 = selectedMatches.count > 1 ? selectedMatches[1].name : "-"
+        let original = dpCall.matchedHaplotypes.map(\.name).joined(separator: ", ")
+        let resolved = selectedMatches.map(\.name).joined(separator: ", ")
+        let resolutionNote = "MHC-DP ambiguity resolved from linked MHC-DQ call: \(original) -> \(resolved)."
+        let notes = ([dpCall.notes].filter { !$0.isEmpty } + [resolutionNote]).joined(separator: " ")
+
+        return GenotypeHaplotypeLocusCall(
+            locus: dpCall.locus,
+            sourceLocus: dpCall.sourceLocus,
+            haplotype1: haplotype1,
+            haplotype2: haplotype2,
+            status: .called,
+            matchedHaplotypes: selectedMatches,
+            observedGenotypeCount: dpCall.observedGenotypeCount,
+            observedGenotypes: dpCall.observedGenotypes,
+            notes: notes
+        )
+    }
+
+    private static func linkedDQFamilies(from dqCall: GenotypeHaplotypeLocusCall) -> [String?] {
+        guard dqCall.status == .called || dqCall.status == .specialCase else { return [] }
+        return [dqCall.haplotype1, dqCall.haplotype2].map { value in
+            guard !value.isEmpty,
+                  value != "-",
+                  value != "Not assayed",
+                  !value.hasPrefix("ERR:") else {
+                return nil
+            }
+            return mcmFamily(value)
+        }
+    }
+
+    private static func linkedMCMFamily(
+        at index: Int,
+        candidates: Set<String>,
+        dqFamilies: [String?],
+        usedFamilies: Set<String>
+    ) -> String? {
+        if dqFamilies.indices.contains(index),
+           let sameSlot = dqFamilies[index],
+           candidates.contains(sameSlot) {
+            return sameSlot
+        }
+        let available = dqFamilies.compactMap { family -> String? in
+            guard let family, candidates.contains(family), !usedFamilies.contains(family) else {
+                return nil
+            }
+            return family
+        }
+        return Set(available).count == 1 ? available[0] : nil
+    }
+
+    private static func mcmFamily(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let pattern = #"\bM[1-7]"#
+        guard let range = value.range(of: pattern, options: .regularExpression) else {
+            return nil
+        }
+        return String(value[range])
     }
 
     /// Apply the dropout evaluator: for each (sample, locus group), drop
@@ -563,12 +735,14 @@ public enum GenotypeHaplotypeAnalyzer {
         var sampleLocusTotals: [String: [String: Int]] = [:]
         let canonicalDefinitionLocusByRawLocus = canonicalLocusLookup(for: definitionSet)
         for call in calls {
-            sampleTotals[call.sample, default: 0] += max(0, call.passedUniqueReads)
-            sampleLocusTotals[call.sample, default: [:]][call.locusGroup, default: 0] += max(0, call.passedUniqueReads)
+            let sample = normalizedSampleName(call.sample)
+            sampleTotals[sample, default: 0] += max(0, call.passedUniqueReads)
+            sampleLocusTotals[sample, default: [:]][call.locusGroup, default: 0] += max(0, call.passedUniqueReads)
         }
         return calls.filter { call in
-            let sampleTotal = sampleTotals[call.sample] ?? 0
-            let locusTotal = sampleLocusTotals[call.sample]?[call.locusGroup] ?? 0
+            let sample = normalizedSampleName(call.sample)
+            let sampleTotal = sampleTotals[sample] ?? 0
+            let locusTotal = sampleLocusTotals[sample]?[call.locusGroup] ?? 0
             let rawLocus = GenotypeHaplotypeLocusResolver.canonicalLocusName(call.locusGroup)
             let canonicalLocus = canonicalDefinitionLocusByRawLocus[rawLocus]
                 ?? GenotypeHaplotypeLocusResolver.canonicalLocus(
@@ -582,6 +756,13 @@ public enum GenotypeHaplotypeAnalyzer {
                 locus: canonicalLocus
             )
         }
+    }
+
+    private static func normalizedSampleName(_ sample: String) -> String {
+        let cleaned = sample
+            .replacingOccurrences(of: "\u{FEFF}", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleaned.isEmpty ? sample : cleaned
     }
 
     private static func canonicalLocusLookup(
@@ -619,7 +800,7 @@ public enum GenotypeHaplotypeAnalyzer {
             .map(\.genotype)
             .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
 
-        let matched = locusDefinition.haplotypes.compactMap { haplotype -> GenotypeHaplotypeMatchedDefinition? in
+        var matched = locusDefinition.haplotypes.compactMap { haplotype -> GenotypeHaplotypeMatchedDefinition? in
             let observedDiagnostics = haplotype.diagnosticAlleles.filter { allele in
                 diagnosticCalls.contains { call in
                     GenotypeHaplotypeDiagnosticMatcher.matches(
@@ -633,13 +814,22 @@ public enum GenotypeHaplotypeAnalyzer {
             // remains the strict "all alleles must be observed" rule
             // the notebook uses — preserves backwards compatibility for
             // any caller that hasn't specified a threshold.
-            guard observedDiagnostics.count >= haplotype.effectiveMinimumMatches else { return nil }
+            guard observedDiagnostics.count >= haplotype.effectiveMinimumMatches
+                    || usesMCMAClassIGAGSpecificRescue(
+                        locusDefinition: locusDefinition,
+                        haplotype: haplotype,
+                        observedDiagnostics: observedDiagnostics
+                    ) else { return nil }
             return GenotypeHaplotypeMatchedDefinition(
                 name: haplotype.name,
                 diagnosticAlleles: haplotype.diagnosticAlleles,
                 observedDiagnosticAlleles: observedDiagnostics
             )
         }
+        matched = trimMCMClassIARescueOvercalls(
+            matched,
+            locusDefinition: locusDefinition
+        )
 
         var haplotype1: String
         var haplotype2: String
@@ -702,6 +892,53 @@ public enum GenotypeHaplotypeAnalyzer {
             observedGenotypes: observedGenotypes,
             notes: notes
         )
+    }
+
+    private static func usesMCMAClassIGAGSpecificRescue(
+        locusDefinition: GenotypeHaplotypeLocusDefinition,
+        haplotype: GenotypeHaplotypeDefinition,
+        observedDiagnostics: [String]
+    ) -> Bool {
+        guard locusDefinition.sourceLocus == "Mafa-A",
+              ["M1A", "M2A", "M3A"].contains(haplotype.name),
+              !observedDiagnostics.isEmpty else {
+            return false
+        }
+        let expectedFamily = String(haplotype.name.prefix(2))
+        return observedDiagnostics.contains { allele in
+            mcmFamilies(inAlleleName: allele) == Set([expectedFamily])
+        }
+    }
+
+    private static func trimMCMClassIARescueOvercalls(
+        _ matched: [GenotypeHaplotypeMatchedDefinition],
+        locusDefinition: GenotypeHaplotypeLocusDefinition
+    ) -> [GenotypeHaplotypeMatchedDefinition] {
+        guard locusDefinition.sourceLocus == "Mafa-A",
+              matched.count > 2 else {
+            return matched
+        }
+        let definitionsByName = Dictionary(uniqueKeysWithValues: locusDefinition.haplotypes.map { ($0.name, $0) })
+        let strict = matched.filter { match in
+            guard let definition = definitionsByName[match.name] else { return true }
+            return match.observedDiagnosticAlleles.count >= definition.effectiveMinimumMatches
+        }
+        guard strict.count >= 2 else {
+            return matched
+        }
+        return Array(strict.prefix(2))
+    }
+
+    private static func mcmFamilies(inAlleleName allele: String) -> Set<String> {
+        let pattern = #"M[1-7]"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return []
+        }
+        let range = NSRange(allele.startIndex..<allele.endIndex, in: allele)
+        return Set(regex.matches(in: allele, range: range).compactMap { match in
+            guard let tokenRange = Range(match.range, in: allele) else { return nil }
+            return String(allele[tokenRange])
+        })
     }
 
     private static func observedDefinitionLoci(

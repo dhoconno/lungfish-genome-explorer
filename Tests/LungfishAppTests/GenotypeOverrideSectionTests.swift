@@ -27,6 +27,15 @@ final class GenotypeOverrideSectionTests: XCTestCase {
         XCTAssertEqual(section.originalCall, "M2A")
     }
 
+    func testOverrideTargetExpansionDeconvolutesGroupedHaplotypesAndAddsUnknown() {
+        let targets = GenotypeHaplotypeOverrideTargets.expandedTargets(
+            from: ["M5/M6DP", "M4/M7DP", "M3DP", "-"],
+            includeUnknown: true
+        )
+
+        XCTAssertEqual(targets, ["M5DP", "M6DP", "M4DP", "M7DP", "M3DP", "-", "?"])
+    }
+
     func testHostingViewRendersWithWhitelistTargetsWithoutCrashing() {
         let allowed = ["M1A", "M2A", "M3A"]
         var draft = GenotypeOverrideSection.OverrideDraft()

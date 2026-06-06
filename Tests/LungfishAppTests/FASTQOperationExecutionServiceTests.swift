@@ -265,6 +265,59 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(imported, [referenceBundle])
     }
 
+    func testONTFluidigmSampleBundlesPassThroughImporterWithLocalProvenance() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecONTFluidigmImport")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let inputBundle = try FASTQOperationTestHelper.makeBundle(named: "barcode11", in: tempDir)
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(to: inputBundle.fastqURL, readCount: 2, readLength: 16)
+        let barcodeURL = tempDir.appendingPathComponent("ONT09_NB11_samples.csv")
+        try "sample,barcode\nLF1001,ACGT\n".write(to: barcodeURL, atomically: true, encoding: .utf8)
+
+        let outputDirectory = tempDir.appendingPathComponent("ont-fluidigm-samples", isDirectory: true)
+        try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+        let sampleBundle = try FASTQOperationTestHelper.makeBundle(named: "LF1001", in: outputDirectory)
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(to: sampleBundle.fastqURL, readCount: 1, readLength: 16)
+        try writeSyntheticMultiOutputProvenance(
+            to: outputDirectory,
+            name: "lungfish fastq ont-fluidigm-samples",
+            toolName: "lungfish fastq ont-fluidigm-samples",
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: [
+                "lungfish", "fastq", "ont-fluidigm-samples",
+                inputBundle.bundleURL.path,
+                "--barcodes", barcodeURL.path,
+                "--output", outputDirectory.path,
+            ],
+            inputURL: inputBundle.fastqURL,
+            outputURLs: [sampleBundle.fastqURL],
+            parameters: ["payloadCompression": .string("gzip")]
+        )
+
+        let request = FASTQOperationLaunchRequest.ontFluidigmSampleSplit(
+            inputFASTQURL: inputBundle.bundleURL,
+            barcodeDefinitionsURL: barcodeURL,
+            threads: 4
+        )
+
+        let imported = try await BundleFASTQOperationImporter(destinationDirectory: tempDir).importOutputs(
+            at: [sampleBundle.bundleURL],
+            forResolvedRequest: request,
+            originalRequest: request,
+            outputDirectory: outputDirectory
+        )
+
+        XCTAssertEqual(imported, [sampleBundle.bundleURL])
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: sampleBundle.bundleURL))
+        XCTAssertEqual(envelope.workflowName, "lungfish fastq ont-fluidigm-samples")
+        XCTAssertEqual(envelope.outputs.map(\.path), [sampleBundle.fastqURL.path])
+        XCTAssertEqual(envelope.steps.first?.outputs.map(\.path), [sampleBundle.fastqURL.path])
+        XCTAssertEqual(
+            envelope.output?.sourceProvenancePath,
+            outputDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename).path
+        )
+    }
+
     func testPlannerKeepsAssemblyOutputInWorkingDirectory() throws {
         let planner = FASTQOperationPlanner()
         let workingDirectory = URL(fileURLWithPath: "/tmp/assembly-output", isDirectory: true)
@@ -1953,6 +2006,27 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
             "--reference",
             "/tmp/ref.fasta",
             "--paired",
+            ])
+    }
+
+    func testONTFluidigmSampleSplitBuildsCLIInvocation() throws {
+        let request = FASTQOperationLaunchRequest.ontFluidigmSampleSplit(
+            inputFASTQURL: URL(fileURLWithPath: "/tmp/barcode11.lungfishfastq", isDirectory: true),
+            barcodeDefinitionsURL: URL(fileURLWithPath: "/tmp/ONT09_NB11_samples.csv"),
+            threads: 8
+        )
+
+        let invocation = try FASTQOperationExecutionService().buildInvocation(for: request)
+
+        XCTAssertEqual(invocation.subcommand, "fastq")
+        XCTAssertEqual(invocation.arguments, [
+            "ont-fluidigm-samples",
+            "/tmp/barcode11.lungfishfastq",
+            "--barcodes", "/tmp/ONT09_NB11_samples.csv",
+            "--output", "<derived>",
+            "--threads", "8",
+            "--primer-mismatches", "2",
+            "--minimum-insert-length", "20",
         ])
     }
 
@@ -2211,6 +2285,53 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(runner.invocations.count, 1)
         XCTAssertTrue(runner.invocations[0].arguments.contains(sourceBundleURL.path))
         XCTAssertFalse(runner.invocations[0].arguments.contains(materializedURL.path))
+    }
+
+    func testExecuteONTFluidigmSampleSplitPassesOriginalBulkBundleWithoutResolvingChunks() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecONTFluidigmNoResolve")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let inputBundle = try makeVirtualDerivedFASTQBundle(named: "bulk-barcode11", in: tempDir)
+        let materializedURL = tempDir.appendingPathComponent("materialized.fastq")
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(to: materializedURL, readCount: 2, readLength: 20)
+        let barcodeURL = tempDir.appendingPathComponent("ONT09_NB11_samples.csv")
+        try "sample,barcode\nLF1001,ACGT\n".write(to: barcodeURL, atomically: true, encoding: .utf8)
+
+        let originalRequest = FASTQOperationLaunchRequest.ontFluidigmSampleSplit(
+            inputFASTQURL: inputBundle,
+            barcodeDefinitionsURL: barcodeURL,
+            threads: 6
+        )
+        let resolvedRequest = FASTQOperationLaunchRequest.ontFluidigmSampleSplit(
+            inputFASTQURL: materializedURL,
+            barcodeDefinitionsURL: barcodeURL,
+            threads: 6
+        )
+
+        let resolver = SpyInputResolver(resolvedRequest: resolvedRequest)
+        let runner = SpyCommandRunner { invocation, outputDirectory in
+            XCTAssertTrue(invocation.arguments.contains(inputBundle.path))
+            XCTAssertFalse(invocation.arguments.contains(materializedURL.path))
+            let sampleBundle = try FASTQOperationTestHelper.makeBundle(named: "LF1001", in: outputDirectory)
+            try FASTQOperationTestHelper.writeSyntheticFASTQ(to: sampleBundle.fastqURL, readCount: 1, readLength: 20)
+            return FASTQCLIExecutionResult(outputURLs: [sampleBundle.bundleURL])
+        }
+        let importer = SpyDirectImporter()
+        let service = FASTQOperationExecutionService(
+            inputResolver: resolver,
+            commandRunner: runner,
+            directImporter: importer
+        )
+
+        let result = try await service.execute(
+            request: originalRequest,
+            workingDirectory: tempDir.appendingPathComponent("operation-output", isDirectory: true)
+        )
+
+        XCTAssertTrue(resolver.requests.isEmpty)
+        XCTAssertEqual(result.executedInvocations.count, 1)
+        XCTAssertEqual(importer.calls.count, 1)
+        XCTAssertEqual(result.resolvedRequest, originalRequest)
     }
 
     func testExecuteAssemblyRejectsInvalidFlyeAndHifiasmMultiInputBeforeResolvingInputs() async throws {

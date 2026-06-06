@@ -287,6 +287,7 @@ final class WorkflowOperationExecutionService {
         _ request: ONTBarcodeDemuxGenotypingRunRequest,
         routeContext: OperationRouteContext?
     ) async throws -> [URL] {
+        let request = try uniqueONTGenotypingRequestIfNeeded(request)
         try fileManager.createDirectory(at: request.outputDirectory, withIntermediateDirectories: true)
         let arguments = ontGenotypingArguments(for: request)
         let cliCommand = ViralReconWorkflowCommandPreview.build(
@@ -320,7 +321,7 @@ final class WorkflowOperationExecutionService {
                 logProcessOutput(result, operationID: operationID)
             }
             if result.exitCode != 0 {
-            let failureDetail = "Amplicon genotyping failed with exit code \(result.exitCode)"
+                let failureDetail = "Amplicon genotyping failed with exit code \(result.exitCode)"
                 operationCenter.log(id: operationID, level: .error, message: failureDetail)
                 operationCenter.fail(
                     id: operationID,
@@ -376,6 +377,7 @@ final class WorkflowOperationExecutionService {
             "--sort-threads", String(request.sortThreads),
             "--min-support", String(request.minSupport),
         ]
+        request.appendHaplotypeThresholdArguments(to: &arguments)
         if let barcodeDefinitionsURL = request.barcodeDefinitionsURL {
             arguments += ["--barcodes", barcodeDefinitionsURL.path]
         }
@@ -413,7 +415,52 @@ final class WorkflowOperationExecutionService {
         let illuminaCohort = request.inputFASTQURLs.count > 1
             && request.barcodeDefinitionsURL == nil
             && (request.mode == .illuminaPaired || (request.mode == .auto && request.readType == .illumina))
-        return illuminaCohort ? "genotype-cohort" : "genotype"
+        let ontSampleBundleCohort = request.inputFASTQURLs.count > 1
+            && request.barcodeDefinitionsURL == nil
+            && (request.mode == .ontSampleBundles || (request.mode == .auto && request.readType == .ont))
+        return illuminaCohort || ontSampleBundleCohort ? "genotype-cohort" : "genotype"
+    }
+
+    private func uniqueONTGenotypingRequestIfNeeded(
+        _ request: ONTBarcodeDemuxGenotypingRunRequest
+    ) throws -> ONTBarcodeDemuxGenotypingRunRequest {
+        guard try outputBundleIsOccupied(request.outputDirectory) else {
+            return request
+        }
+        let parentURL = request.outputDirectory.deletingLastPathComponent()
+        let baseOutputName = request.outputName
+        let baseAnalysisName = request.analysisName
+        for index in 1...999 {
+            let candidateOutputName = "\(baseOutputName)_\(index)"
+            let candidateAnalysisName = "\(baseAnalysisName)_\(index)"
+            let candidateURL = parentURL.appendingPathComponent(
+                "\(candidateOutputName).\(ONTGenotypeResultBundle.directoryExtension)",
+                isDirectory: true
+            )
+            if try !outputBundleIsOccupied(candidateURL) {
+                return request.replacingOutput(
+                    outputDirectory: candidateURL,
+                    outputName: candidateOutputName,
+                    analysisName: candidateAnalysisName
+                )
+            }
+        }
+        throw LocalWorkflowExecutionError.incompleteRunBundle(
+            "Could not find an unused report name near \(request.outputDirectory.path)"
+        )
+    }
+
+    private func outputBundleIsOccupied(_ url: URL) throws -> Bool {
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            return false
+        }
+        guard isDirectory.boolValue else {
+            return true
+        }
+        let visibleContents = try fileManager.contentsOfDirectory(atPath: url.path)
+            .filter { $0 != ".DS_Store" }
+        return !visibleContents.isEmpty
     }
 
     func twelveSAmpliconMatchingArguments(for configuration: TwelveSAmpliconMatchingConfiguration) -> [String] {
@@ -814,6 +861,9 @@ final class WorkflowOperationExecutionService {
             "CLI command:",
             cliCommand,
         ]
+        if let hint = failureHint(result: result, cliCommand: cliCommand) {
+            parts += ["", "Likely cause:", hint]
+        }
         let stderr = tail(result.standardError)
         if !stderr.isEmpty {
             parts += ["", "stderr:", stderr]
@@ -823,6 +873,24 @@ final class WorkflowOperationExecutionService {
             parts += ["", "stdout:", stdout]
         }
         return parts.joined(separator: "\n")
+    }
+
+    private func failureHint(
+        result: LocalWorkflowCLIProcessResult,
+        cliCommand: String
+    ) -> String? {
+        let combined = "\(result.standardError)\n\(result.standardOutput)"
+        guard combined.localizedCaseInsensitiveContains("Demultiplex manifest does not exist") else {
+            return nil
+        }
+        if cliCommand.contains("--barcodes") {
+            return """
+            A barcode CSV was provided with --mode ont-barcode-demux, but the CLI still failed while resolving demux-manifest.json. Current Lungfish builds synthesize this manifest for imported ONT barcode FASTQ bundles; use the rebuilt app/CLI, or check that any explicitly supplied --demux-manifest path exists.
+            """
+        }
+        return """
+        Lungfish could not find demux-manifest.json for prepared demultiplexed input. Select an ONT barcode CSV for barcode-demux genotyping, or re-create/import the FASTQ bundle so its demux manifest is present.
+        """
     }
 
     private func tail(_ text: String, lineLimit: Int = 80) -> String {

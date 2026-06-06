@@ -266,6 +266,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         let mainWindowSource = combinedMainSplitViewControllerSource()
         XCTAssertTrue(mainWindowSource.contains("func displayMHCReferenceBundleFromExternalOpen(at url: URL)"))
         XCTAssertTrue(mainWindowSource.contains("inspectorController.updateMHCReferenceBundleDocument(url)"))
+        XCTAssertTrue(mainWindowSource.contains("displayMHCReferenceBundle(model)"))
     }
 
     func testExternalOpenMHCReferenceBundlePopulatesInspectorAndProvenanceTarget() throws {
@@ -293,6 +294,7 @@ final class MappingViewportRoutingTests: XCTestCase {
             controller.inspectorController.viewModel.provenanceSectionViewModel.currentItem?.sidebarType,
             .mhcReferenceBundle
         )
+        XCTAssertNotNil(controller.viewerController.mhcReferenceBundleViewController)
     }
 
     func testReferenceBundleSidebarRouteHasNoDeadForceReloadParameter() throws {

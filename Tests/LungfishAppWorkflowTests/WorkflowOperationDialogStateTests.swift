@@ -21,6 +21,24 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertEqual(ont.availability, .available)
     }
 
+    func testONTGenotypingDefaultReportNameIsGeneric() throws {
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let temp = try temporaryDirectory()
+        let readsURL = temp.appendingPathComponent("barcode11.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: readsURL, withIntermediateDirectories: true)
+
+        let state = WorkflowOperationDialogState(
+            projectURL: temp,
+            selectedReadURLs: [readsURL],
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+
+        XCTAssertEqual(state.outputName, "amplicon-genotyping")
+    }
+
     func testFreshInstallONTGenotypingCanRunWithCompleteConfiguration() throws {
         let defaults = try makeDefaults()
         let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
@@ -629,6 +647,49 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertEqual(request.haplotypeDefinitionSetID, "MHC-exon2-miSeq.mauritian-cynomolgus-macaques")
     }
 
+    func testONTGenotypingLaunchRequestIncludesOperationHaplotypeThresholds() throws {
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        enablementStore.setWorkflow(.ontGenotyping, enabled: true)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let temp = try temporaryDirectory()
+        let referenceURL = temp.appendingPathComponent("ref.lungfishref", isDirectory: true)
+        let readsURL = temp.appendingPathComponent("reads.lungfishfastq", isDirectory: true)
+        let barcodesURL = temp.appendingPathComponent("barcodes.csv")
+        let outputURL = temp.appendingPathComponent("Analyses", isDirectory: true)
+        try FileManager.default.createDirectory(at: referenceURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: readsURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
+        try Data("sample,barcode\nDW472,ACGT\n".utf8).write(to: barcodesURL)
+
+        let state = WorkflowOperationDialogState(
+            projectURL: temp,
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+        state.setReference(referenceURL)
+        state.setBarcodeDefinition(barcodesURL)
+        state.setReads([readsURL])
+        state.setOutputDirectory(outputURL)
+        state.selectedHaplotypeAssayID = "MHC-exon2-miSeq"
+        state.selectedHaplotypeDefinitionSetID = "MHC-exon2-miSeq.mauritian-cynomolgus-macaques"
+        state.haplotypeDropoutSamplePercent = 0.1
+        state.haplotypeDropoutLocusPercent = 1.0
+        state.haplotypeDropoutLocusOverridePercents = [
+            "MHC-DQ": 10.0,
+            "MHC-DP": 10.0,
+        ]
+
+        let launchRequest = try state.makeLaunchRequest()
+        guard case .ontGenotyping(let request) = launchRequest else {
+            return XCTFail("Expected ONT genotyping request")
+        }
+
+        XCTAssertNil(request.haplotypeDropoutSampleFraction)
+        XCTAssertEqual(request.haplotypeDropoutLocusFraction ?? -1, 0.01, accuracy: 0.000001)
+        XCTAssertTrue(request.haplotypeDropoutLocusFractionOverrides.isEmpty)
+    }
+
     func testHaplotypeDefinitionSelectionTracksAssayScope() throws {
         let defaults = try makeDefaults()
         let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
@@ -803,7 +864,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         })
     }
 
-    func testONTGenotypingAllowsMultipleSelectedReadBundles() throws {
+    func testONTGenotypingTreatsMultipleSelectedReadBundlesAsSampleBundles() throws {
         let defaults = try makeDefaults()
         let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
         enablementStore.setWorkflow(.ontGenotyping, enabled: true)
@@ -826,7 +887,8 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             enablementStore: enablementStore,
             packageStore: packageStore
         )
-        state.selectedGenotypingMode = .ontBarcodeDemux
+        state.selectedGenotypingMode = .auto
+        state.selectedGenotypingReadType = .ont
         state.setReference(referenceURL)
         state.setBarcodeDefinition(barcodesURL)
         state.setOutputDirectory(outputURL)
@@ -847,7 +909,9 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             firstReadsURL.standardizedFileURL,
             secondReadsURL.standardizedFileURL,
         ])
-        XCTAssertEqual(request.mode, .ontBarcodeDemux)
+        XCTAssertNil(request.barcodeDefinitionsURL)
+        XCTAssertEqual(request.mode, .ontSampleBundles)
+        XCTAssertEqual(request.readType, .ont)
     }
 
     func testAmpliconGenotypingIlluminaModeAllowsMultipleReadBundlesWithoutBarcodes() throws {
@@ -870,7 +934,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             enablementStore: enablementStore,
             packageStore: packageStore
         )
-        state.selectedGenotypingMode = .illuminaPaired
+        state.selectedGenotypingMode = .auto
         state.selectedGenotypingReadType = .illumina
         state.setReference(referenceURL)
         state.setBarcodeDefinition(nil)
@@ -886,6 +950,44 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertNil(request.barcodeDefinitionsURL)
         XCTAssertEqual(request.mode, .illuminaPaired)
         XCTAssertEqual(request.readType, .illumina)
+    }
+
+    func testAmpliconGenotypingONTSampleBundleModeAllowsMultipleReadBundlesWithoutBarcodes() throws {
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        enablementStore.setWorkflow(.ontGenotyping, enabled: true)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let temp = try temporaryDirectory()
+        let referenceURL = temp.appendingPathComponent("ref.lungfishref", isDirectory: true)
+        let firstReadsURL = temp.appendingPathComponent("lf2871.lungfishfastq", isDirectory: true)
+        let secondReadsURL = temp.appendingPathComponent("lf2872.lungfishfastq", isDirectory: true)
+        let outputURL = temp.appendingPathComponent("Analyses", isDirectory: true)
+        for url in [referenceURL, firstReadsURL, secondReadsURL, outputURL] {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        }
+
+        let state = WorkflowOperationDialogState(
+            projectURL: temp,
+            selectedReadURLs: [firstReadsURL, secondReadsURL],
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+        state.selectedGenotypingMode = .auto
+        state.selectedGenotypingReadType = .ont
+        state.setReference(referenceURL)
+        state.setBarcodeDefinition(nil)
+        state.setOutputDirectory(outputURL)
+
+        XCTAssertTrue(state.isRunEnabled)
+        XCTAssertEqual(state.readinessText, "Ready to run.")
+        let launchRequest = try state.makeLaunchRequest()
+        guard case .ontGenotyping(let request) = launchRequest else {
+            return XCTFail("Expected amplicon genotyping request")
+        }
+        XCTAssertEqual(request.inputFASTQURLs, [firstReadsURL.standardizedFileURL, secondReadsURL.standardizedFileURL])
+        XCTAssertNil(request.barcodeDefinitionsURL)
+        XCTAssertEqual(request.mode, .ontSampleBundles)
+        XCTAssertEqual(request.readType, .ont)
     }
 
     func testAmpliconGenotypingDefaultsReadTypeFromSelectedFASTQMetadata() throws {
@@ -1064,6 +1166,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             in: source
         )
 
+        XCTAssertTrue(source.contains("state.effectiveGenotypingMode == .ontBarcodeDemux"))
         XCTAssertTrue(barcodePicker.contains("Picker(\"Project File\""))
         XCTAssertTrue(barcodePicker.contains("barcodeDefinitionProjectFileBinding"))
     }

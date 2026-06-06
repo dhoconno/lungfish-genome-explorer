@@ -20,6 +20,7 @@ final class FastqONTBarcodeGenotypingCommandTests: XCTestCase {
             "--comparison-workbook", "/tmp/pbaa.xlsx",
             "--comparison-name", "Illumina-31262",
             "--haplotype-assay", "MHC-exon2-miSeq",
+            "--haplotype-definition-scope", "project",
             "--haplotype-definition", "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
             "--threads", "8",
             "--sort-threads", "2",
@@ -38,6 +39,7 @@ final class FastqONTBarcodeGenotypingCommandTests: XCTestCase {
         XCTAssertEqual(command.comparisonWorkbook, "/tmp/pbaa.xlsx")
         XCTAssertEqual(command.comparisonName, "Illumina-31262")
         XCTAssertEqual(command.haplotypeAssay, "MHC-exon2-miSeq")
+        XCTAssertEqual(command.haplotypeDefinitionScope, "project")
         XCTAssertEqual(command.haplotypeDefinition, "MHC-exon2-miSeq.mauritian-cynomolgus-macaques")
         XCTAssertEqual(command.threads, 8)
         XCTAssertEqual(command.sortThreads, 2)

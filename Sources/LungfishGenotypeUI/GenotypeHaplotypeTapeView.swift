@@ -25,6 +25,20 @@ final class GenotypeHaplotypeTapeView: NSView {
     private(set) var swatchCount: Int = 0
     var sampleAccessibilityLabel: String = ""
     var showOverrideHatching: ((Slot, HaplotypeSlot) -> Bool)? = nil
+    var isReviewSelected: Bool = false {
+        didSet {
+            guard oldValue != isReviewSelected else { return }
+            accessibilityElementsCache = nil
+            setNeedsDisplay(bounds)
+        }
+    }
+    var selectedLocus: String? {
+        didSet {
+            guard oldValue != selectedLocus else { return }
+            accessibilityElementsCache = nil
+            setNeedsDisplay(bounds)
+        }
+    }
 
     private var slots: [Slot] = []
 
@@ -74,6 +88,33 @@ final class GenotypeHaplotypeTapeView: NSView {
             drawCell(slot.h2, in: botRect,
                      isOverridden: showOverrideHatching?(slot, .h2) == true)
         }
+        drawSelectedLocusIndicator(columnWidth: columnWidth)
+    }
+
+    private func drawSelectedLocusIndicator(columnWidth: CGFloat) {
+        guard isReviewSelected,
+              let selectedLocus,
+              let index = slots.firstIndex(where: { $0.locus == selectedLocus }) else {
+            return
+        }
+        let x = CGFloat(index) * columnWidth
+        let rect = NSRect(
+            x: x + 1.5,
+            y: 1.5,
+            width: max(0, columnWidth - 3.0),
+            height: max(0, bounds.height - 3.0)
+        )
+        guard rect.width > 0, rect.height > 0 else { return }
+
+        let path = NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4)
+        let separator = selectionSeparatorColor()
+        separator.setStroke()
+        path.lineWidth = 4.0
+        path.stroke()
+
+        NSColor.keyboardFocusIndicatorColor.setStroke()
+        path.lineWidth = 2.0
+        path.stroke()
     }
 
     private func drawCell(_ cell: Cell, in rect: NSRect, isOverridden: Bool) {
@@ -183,6 +224,7 @@ final class GenotypeHaplotypeTapeView: NSView {
     }
 
     private func errorSymbol(forLabel label: String) -> String {
+        if label == "?" { return "?" }
         if label.contains("TMH") { return "T" }
         if label.contains("TMG") { return "G" }
         if label.contains("NO HAP") { return "?" }
@@ -219,6 +261,14 @@ final class GenotypeHaplotypeTapeView: NSView {
         }()
         let color: AnnotationColor = isDark ? token.darkFillColor : token.fillColor
         return color.nsColor
+    }
+
+    private func selectionSeparatorColor() -> NSColor {
+        if let match = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]),
+           match == .darkAqua {
+            return NSColor.black.withAlphaComponent(0.72)
+        }
+        return NSColor.white.withAlphaComponent(0.86)
     }
 
     // MARK: Accessibility
@@ -261,13 +311,15 @@ final class GenotypeHaplotypeTapeView: NSView {
         for slot: Slot, slot tapeSlot: HaplotypeSlot, frame: NSRect
     ) -> NSAccessibilityElement {
         let value = cellLabel(tapeSlot == .h1 ? slot.h1 : slot.h2)
+        let isSelected = isReviewSelected && selectedLocus == slot.locus
         let element = NSAccessibilityElement()
         element.setAccessibilityRole(.button)
         element.setAccessibilityFrameInParentSpace(frame)
-        let label = [sampleAccessibilityLabel, slot.locus, tapeSlot.displayName, value]
+        let label = [sampleAccessibilityLabel, slot.locus, tapeSlot.displayName, value, isSelected ? "selected" : ""]
             .filter { !$0.isEmpty }
             .joined(separator: " ")
         element.setAccessibilityLabel(label)
+        element.setAccessibilitySelected(isSelected)
         element.setAccessibilityParent(self)
         return element
     }
@@ -284,6 +336,13 @@ final class GenotypeHaplotypeTapeView: NSView {
         }
     }
 }
+
+#if DEBUG
+extension GenotypeHaplotypeTapeView {
+    var testingSelectedLocus: String? { selectedLocus }
+    var testingIsReviewSelected: Bool { isReviewSelected }
+}
+#endif
 
 extension AnnotationColor {
     var nsColor: NSColor {

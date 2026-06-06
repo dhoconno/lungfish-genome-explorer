@@ -20,6 +20,7 @@ extension ViewerViewController {
         hideCzIdView()
         hideAssemblyView()
         hideMappingView()
+        hideMHCReferenceBundleView()
         hideGenotypeResultView()
         hideAlignmentTreeBundleViews()
         clearBundleDisplay()

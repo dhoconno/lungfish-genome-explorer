@@ -101,8 +101,8 @@ public struct GenotypeResultDisplayState: Equatable {
     public var viewportLens: GenotypeResultViewportLens = .summary
     public var summaryViewMode: GenotypeSummaryViewMode = .outline
     public var layout: GenotypeResultPanelLayout = .listTop
-    public var hideLowSupport: Bool = true
-    public var minimumSupportPercent: Double = 1.0
+    public var hideLowSupport: Bool = false
+    public var minimumSupportPercent: Double = 0
     public var supportDenominator: ONTGenotypeSupportDenominator = .viewedLocus
     public var cellColorMode: GenotypeResultCellColorMode = .support
     public var hideFilteredHighlights: Bool = true
@@ -128,8 +128,8 @@ public struct GenotypeResultDisplayState: Equatable {
         viewportLens: GenotypeResultViewportLens = .summary,
         summaryViewMode: GenotypeSummaryViewMode = .outline,
         layout: GenotypeResultPanelLayout = .listTop,
-        hideLowSupport: Bool = true,
-        minimumSupportPercent: Double = 1.0,
+        hideLowSupport: Bool = false,
+        minimumSupportPercent: Double = 0,
         supportDenominator: ONTGenotypeSupportDenominator = .viewedLocus,
         cellColorMode: GenotypeResultCellColorMode = .support,
         hideFilteredHighlights: Bool = true,

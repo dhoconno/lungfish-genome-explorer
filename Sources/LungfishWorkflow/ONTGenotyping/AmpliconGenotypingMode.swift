@@ -3,6 +3,7 @@ import Foundation
 public enum AmpliconGenotypingMode: String, Codable, Sendable, CaseIterable, Equatable {
     case auto
     case ontBarcodeDemux = "ont-barcode-demux"
+    case ontSampleBundles = "ont-sample-bundles"
     case illuminaPaired = "illumina-paired"
 
     public var displayName: String {
@@ -11,6 +12,8 @@ public enum AmpliconGenotypingMode: String, Codable, Sendable, CaseIterable, Equ
             return "Auto"
         case .ontBarcodeDemux:
             return "ONT barcode demux"
+        case .ontSampleBundles:
+            return "ONT sample bundles"
         case .illuminaPaired:
             return "Illumina sample bundles"
         }
@@ -25,6 +28,8 @@ public enum AmpliconGenotypingMode: String, Codable, Sendable, CaseIterable, Equ
             self = .auto
         case "ont", "ont-barcode", "ont-barcode-demux", "ont_barcode_demux":
             self = .ontBarcodeDemux
+        case "ont-sample-bundles", "ont-sample-bundle", "ont_sample_bundles", "ont-samples":
+            self = .ontSampleBundles
         case "illumina", "illumina-paired", "illumina-pe", "illumina_paired":
             self = .illuminaPaired
         default:

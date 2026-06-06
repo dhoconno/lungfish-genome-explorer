@@ -46,14 +46,26 @@ struct FastqONTBarcodeGenotypingSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("sort-threads"), help: "Threads for samtools sort")
     var sortThreads: Int = 4
 
-    @Option(name: .customLong("min-support"), help: "Minimum retained alignment support required for a genotype row in the report")
+    @Option(name: .customLong("min-support"), help: "Minimum retained unique-read support required for a genotype row in the report and workbook")
     var minSupport: Int = 1
+
+    @Option(name: .customLong("haplotype-min-sample-percent"), help: "Drop genotype rows below this percent of retained genotyping reads for the sample; 0 disables")
+    var haplotypeMinSamplePercent: Double = 0
+
+    @Option(name: .customLong("haplotype-min-locus-percent"), help: "Drop genotype rows below this percent of retained genotyping reads for the sample/locus; 0 disables")
+    var haplotypeMinLocusPercent: Double = 0
+
+    @Option(name: .customLong("haplotype-min-locus-percent-override"), parsing: .upToNextOption, help: "Per-locus percent override such as MHC-DQ=10; may be repeated")
+    var haplotypeMinLocusPercentOverrides: [String] = []
 
     @Option(name: .customLong("haplotype-assay"), help: "Assay/amplicon set for haplotyping; disambiguates --haplotype-definition")
     var haplotypeAssay: String?
 
     @Option(name: .customLong("haplotype-species"), help: "Species code used to restrict compatible haplotype definitions, such as MCM or MAMU")
     var haplotypeSpecies: String?
+
+    @Option(name: .customLong("haplotype-definition-scope"), help: "Haplotype definition scope: project")
+    var haplotypeDefinitionScope: String?
 
     @Option(name: .customLong("haplotype-definition"), help: "Optional assay-scoped haplotype definition set ID; omit to skip haplotyping")
     var haplotypeDefinition: String?
@@ -79,6 +91,16 @@ struct FastqONTBarcodeGenotypingSubcommand: AsyncParsableCommand {
         guard minSupport > 0 else {
             throw ValidationError("--min-support must be positive.")
         }
+        guard haplotypeMinSamplePercent >= 0 && haplotypeMinSamplePercent <= 100 else {
+            throw ValidationError("--haplotype-min-sample-percent must be between 0 and 100.")
+        }
+        guard haplotypeMinLocusPercent >= 0 && haplotypeMinLocusPercent <= 100 else {
+            throw ValidationError("--haplotype-min-locus-percent must be between 0 and 100.")
+        }
+        let parsedLocusOverrides = try Self.parseLocusPercentOverrides(haplotypeMinLocusPercentOverrides)
+        let parsedHaplotypeDefinitionScope = try FastqGenotypingSubcommand.parseHaplotypeDefinitionScope(
+            haplotypeDefinitionScope
+        )
         let parsedExtraArguments: [String]
         do {
             parsedExtraArguments = try AdvancedCommandLineOptions.parse(extraArgs)
@@ -108,9 +130,14 @@ struct FastqONTBarcodeGenotypingSubcommand: AsyncParsableCommand {
             threads: threads,
             sortThreads: sortThreads,
             minSupport: minSupport,
+            haplotypeDropoutSampleFraction: Self.fraction(fromPercent: haplotypeMinSamplePercent),
+            haplotypeDropoutLocusFraction: Self.fraction(fromPercent: haplotypeMinLocusPercent),
+            haplotypeDropoutLocusFractionOverrides: parsedLocusOverrides,
             haplotypeAssayID: effectiveHaplotypeAssay,
             haplotypeSpeciesCode: effectiveHaplotypeSpecies,
-            haplotypeDefinitionScope: .project,
+            haplotypeDefinitionScope: effectiveHaplotypeDefinition == nil
+                ? nil
+                : (parsedHaplotypeDefinitionScope ?? .project),
             haplotypeDefinitionSetID: effectiveHaplotypeDefinition,
             extraArguments: parsedExtraArguments
         )
@@ -160,6 +187,33 @@ struct FastqONTBarcodeGenotypingSubcommand: AsyncParsableCommand {
             referenceURL: referenceURL,
             explicitID: explicitID
         )
+    }
+
+    private static func fraction(fromPercent percent: Double) -> Double? {
+        guard percent.isFinite, percent > 0 else { return nil }
+        return min(percent, 100) / 100
+    }
+
+    private static func parseLocusPercentOverrides(_ rawValues: [String]) throws -> [String: Double] {
+        var values: [String: Double] = [:]
+        for rawValue in rawValues {
+            let parts = rawValue.split(separator: "=", maxSplits: 1).map(String.init)
+            guard parts.count == 2 else {
+                throw ValidationError("--haplotype-min-locus-percent-override must be LOCUS=PERCENT.")
+            }
+            let locus = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+            let percentText = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !locus.isEmpty,
+                  let percent = Double(percentText),
+                  percent >= 0,
+                  percent <= 100 else {
+                throw ValidationError("--haplotype-min-locus-percent-override must use a percent between 0 and 100.")
+            }
+            if let fraction = fraction(fromPercent: percent) {
+                values[locus] = fraction
+            }
+        }
+        return values
     }
 }
 

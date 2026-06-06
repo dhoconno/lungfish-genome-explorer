@@ -5,6 +5,7 @@ public enum GenotypeWorkbookRevisionError: Error, LocalizedError, Equatable, Sen
     case invalidWorkbook(String)
     case missingRevision(String)
     case missingCurrentWorkbook(String)
+    case workbookOverrideFailed(String)
 
     public var errorDescription: String? {
         switch self {
@@ -14,7 +15,34 @@ public enum GenotypeWorkbookRevisionError: Error, LocalizedError, Equatable, Sen
             return "Workbook revision \(id) does not exist."
         case .missingCurrentWorkbook(let path):
             return "Current workbook does not exist: \(path)"
+        case .workbookOverrideFailed(let message):
+            return "Could not update current.xlsx from haplotype overrides: \(message)"
         }
+    }
+}
+
+public struct GenotypeWorkbookHaplotypeCall: Codable, Equatable, Sendable {
+    public let sample: String
+    public let locus: String
+    public let haplotype1: String
+    public let haplotype2: String
+    public let status: String
+    public let notes: String
+
+    public init(
+        sample: String,
+        locus: String,
+        haplotype1: String,
+        haplotype2: String,
+        status: String,
+        notes: String
+    ) {
+        self.sample = sample
+        self.locus = locus
+        self.haplotype1 = haplotype1
+        self.haplotype2 = haplotype2
+        self.status = status
+        self.notes = notes
     }
 }
 
@@ -80,15 +108,64 @@ public struct GenotypeWorkbookRevisionService {
             newCurrentURL: currentURL,
             manifestURL: ONTGenotypeResultBundle.manifestURL(in: bundle),
             provenancePath: provenancePath,
-            startedAt: dateProvider()
+            startedAt: dateProvider(),
+            additionalInputURLs: []
         )
         return updated
+    }
+
+    public func applyHaplotypeOverrides(
+        _ calls: [GenotypeWorkbookHaplotypeCall],
+        annotationSidecarURL: URL?,
+        into bundleURL: URL
+    ) throws -> ONTGenotypeResultBundleManifest {
+        let bundle = bundleURL.standardizedFileURL
+        _ = try ensureCurrentWorkbook(in: bundle)
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: bundle)
+        guard fileManager.fileExists(atPath: currentURL.path) else {
+            throw GenotypeWorkbookRevisionError.missingCurrentWorkbook(currentURL.path)
+        }
+
+        let tempDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent("LungfishCurrentWorkbookOverrides-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: tempDirectory) }
+
+        let callsURL = bundle
+            .appendingPathComponent("artifacts/workbooks/updates", isDirectory: true)
+            .appendingPathComponent("\(timestampSlug())-haplotype-calls-\(UUID().uuidString.prefix(8)).json")
+        let patchedURL = bundle
+            .appendingPathComponent("artifacts/workbooks/updates", isDirectory: true)
+            .appendingPathComponent("\(timestampSlug())-current-overrides-\(UUID().uuidString.prefix(8)).xlsx")
+        let scriptURL = tempDirectory.appendingPathComponent("apply-current-workbook-overrides.py")
+        try fileManager.createDirectory(at: callsURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONEncoder().encode(calls).write(to: callsURL)
+        try workbookOverrideScript.write(to: scriptURL, atomically: true, encoding: .utf8)
+        try runPythonScript(scriptURL: scriptURL, arguments: [
+            currentURL.path,
+            patchedURL.path,
+            callsURL.path,
+        ])
+
+        var additionalInputs = [callsURL]
+        if let annotationSidecarURL, fileManager.fileExists(atPath: annotationSidecarURL.path) {
+            additionalInputs.append(annotationSidecarURL)
+        }
+        return try importRevisedWorkbook(
+            from: patchedURL,
+            into: bundle,
+            label: "Applied haplotype overrides",
+            provenanceAction: "apply-haplotype-overrides",
+            additionalInputURLs: additionalInputs
+        )
     }
 
     public func importRevisedWorkbook(
         from sourceURL: URL,
         into bundleURL: URL,
-        label: String? = nil
+        label: String? = nil,
+        provenanceAction: String = "import",
+        additionalInputURLs: [URL] = []
     ) throws -> ONTGenotypeResultBundleManifest {
         let source = sourceURL.standardizedFileURL
         try validateWorkbook(source)
@@ -111,7 +188,7 @@ public struct GenotypeWorkbookRevisionService {
             throw GenotypeWorkbookRevisionError.missingCurrentWorkbook(currentURL.path)
         }
         let previousCurrentRevision = latestCurrentWorkbookRevision(in: manifest)
-        let provenancePath = nextProvenancePath(action: "import", in: bundle)
+        let provenancePath = nextProvenancePath(action: provenanceAction, in: bundle)
 
         do {
             let currentSHA256 = try ProvenanceFileHasher.sha256(of: currentURL)
@@ -155,7 +232,8 @@ public struct GenotypeWorkbookRevisionService {
                 newCurrentURL: currentURL,
                 manifestURL: ONTGenotypeResultBundle.manifestURL(in: bundle),
                 provenancePath: provenancePath,
-                startedAt: startedAt
+                startedAt: startedAt,
+                additionalInputURLs: additionalInputURLs
             )
             return manifest
         } catch {
@@ -226,9 +304,299 @@ public struct GenotypeWorkbookRevisionService {
             newCurrentURL: currentURL,
             manifestURL: ONTGenotypeResultBundle.manifestURL(in: bundle),
             provenancePath: provenancePath,
-            startedAt: startedAt
+            startedAt: startedAt,
+            additionalInputURLs: []
         )
         return manifest
+    }
+
+    private func runPythonScript(scriptURL: URL, arguments: [String]) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["python3", scriptURL.path] + arguments
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+        try process.run()
+        process.waitUntilExit()
+        let out = String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let err = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        guard process.terminationStatus == 0 else {
+            let message = err.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? out.trimmingCharacters(in: .whitespacesAndNewlines)
+                : err.trimmingCharacters(in: .whitespacesAndNewlines)
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(message)
+        }
+    }
+
+    private var workbookOverrideScript: String {
+        #"""
+import json
+import re
+import sys
+from copy import copy
+from openpyxl import load_workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+
+input_path = sys.argv[1]
+output_path = sys.argv[2]
+calls_path = sys.argv[3]
+
+with open(calls_path) as handle:
+    call_rows = json.load(handle)
+
+wb = load_workbook(input_path)
+
+MCM_FAMILIES = ["M1", "M2", "M3", "M4", "M5", "M6", "M7"]
+MCM_STYLES = {
+    "M1": {"font": "000000"},
+    "M2": {"font": "FF0000"},
+    "M3": {"font": "0432FF"},
+    "M4": {"font": "00B050"},
+    "M5": {"font": "FFC000"},
+    "M6": {"font": "595959"},
+    "M7": {"font": "7030A0"},
+}
+SUMMARY_LOCI = [
+    ("MHC-A", "MHC-A"),
+    ("MHC-B", "MHC-B"),
+    ("MHC-DRB", "MHC-DRB"),
+    ("MHC-DQ", "MHC-DQA/B"),
+    ("MHC-DP", "MHC-DPA/B"),
+]
+FULL_LOCI = ["MHC-A", "MHC-B", "MHC-DRB", "MHC-DQA", "MHC-DQB", "MHC-DPA", "MHC-DPB"]
+
+
+def clean(value):
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def family(value):
+    text = clean(value)
+    if not text or text == "-" or text.startswith("ERR"):
+        return None
+    match = re.search(r"\b(M[1-7])", text)
+    return match.group(1) if match else None
+
+
+def display_family(value):
+    return family(value) or clean(value) or "?"
+
+
+def canonical_locus(locus):
+    text = clean(locus)
+    if text in ("MHC-DQA", "MHC-DQB"):
+        return "MHC-DQ"
+    if text in ("MHC-DPA", "MHC-DPB"):
+        return "MHC-DP"
+    return text
+
+
+calls_by_sample_locus = {}
+for call in call_rows:
+    sample = clean(call.get("sample"))
+    locus = canonical_locus(call.get("locus"))
+    if not sample or not locus:
+        continue
+    calls_by_sample_locus.setdefault(sample, {})[locus] = {
+        "haplotype1": clean(call.get("haplotype1")),
+        "haplotype2": clean(call.get("haplotype2")),
+        "status": clean(call.get("status")),
+        "notes": clean(call.get("notes")),
+    }
+
+
+def call_for(sample, locus):
+    return calls_by_sample_locus.get(sample, {}).get(canonical_locus(locus), {})
+
+
+def call_value(sample, locus, index):
+    call = call_for(sample, locus)
+    key = "haplotype1" if index == 1 else "haplotype2"
+    value = call.get(key, "")
+    if index == 2 and (not value or value == "-"):
+        inferred = inferred_homozygous_family(sample)
+        first = call.get("haplotype1", "")
+        if inferred and family(first) == inferred:
+            return first
+    return value or "-"
+
+
+def inferred_homozygous_family(sample):
+    families = []
+    for locus in [item[0] for item in SUMMARY_LOCI]:
+        call = call_for(sample, locus)
+        if not call:
+            continue
+        first = call.get("haplotype1", "")
+        second = call.get("haplotype2", "")
+        first_family = family(first)
+        second_family = family(second)
+        if first_family:
+            families.append(first_family)
+            if not second_family:
+                continue
+        if second_family:
+            families.append(second_family)
+    unique = []
+    for item in families:
+        if item not in unique:
+            unique.append(item)
+    return unique[0] if len(unique) == 1 else None
+
+
+def whole_animal(sample, index):
+    families = []
+    for locus, _label in SUMMARY_LOCI:
+        value = call_value(sample, locus, index)
+        item = family(value)
+        if item and item not in families:
+            families.append(item)
+    if not families:
+        return "?"
+    if len(families) == 1:
+        return families[0]
+    return "rec" + "".join(families)
+
+
+def comments(sample):
+    values = []
+    for locus in sorted(calls_by_sample_locus.get(sample, {})):
+        call = call_for(sample, locus)
+        status = call.get("status", "")
+        note = call.get("notes", "")
+        h1 = call.get("haplotype1", "")
+        h2 = call.get("haplotype2", "")
+        if h1.startswith("ERR") or h2.startswith("ERR"):
+            values.append(f"{locus}: {h1}/{h2}".strip("/"))
+        elif status and status != "called":
+            values.append(f"{locus}: {status}")
+        if note:
+            values.append(f"{locus}: {note}")
+    return "; ".join(values) or None
+
+
+def header_map(ws):
+    values = {}
+    for col in range(1, ws.max_column + 1):
+        value = ws.cell(1, col).value
+        if value is not None:
+            values[str(value)] = col
+    return values
+
+
+def sample_row(ws, sample):
+    for row in range(1, ws.max_row + 1):
+        if clean(ws.cell(row, 1).value) == sample:
+            return row
+    return None
+
+
+def sample_col(ws, sample):
+    for col in range(1, ws.max_column + 1):
+        for row in range(1, min(ws.max_row, 4) + 1):
+            if clean(ws.cell(row, col).value) == sample:
+                return col
+    return None
+
+
+def row_for(ws, label):
+    for row in range(1, ws.max_row + 1):
+        if clean(ws.cell(row, 1).value) == label:
+            return row
+    return None
+
+
+def clear_fill(cell):
+    cell.fill = PatternFill(fill_type=None)
+
+
+def style_haplotype(cell, value):
+    clear_fill(cell)
+    item = family(value)
+    if item:
+        cell.font = Font(name="Calibri", size=11, color=MCM_STYLES[item]["font"], bold=True)
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+    elif clean(value).startswith("ERR"):
+        cell.font = Font(name="Calibri", size=11, color="9C0006", bold=True)
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+    else:
+        cell.font = Font(name="Calibri", size=11)
+
+
+def set_cell(cell, value):
+    cell.value = value
+    style_haplotype(cell, value)
+
+
+def patch_summary_sheet(sheet_name):
+    if sheet_name not in wb.sheetnames:
+        return
+    ws = wb[sheet_name]
+    headers = header_map(ws)
+    for sample in calls_by_sample_locus:
+        row = sample_row(ws, sample)
+        if row is None:
+            continue
+        if "Haplotype 1" in headers:
+            set_cell(ws.cell(row, headers["Haplotype 1"]), whole_animal(sample, 1))
+        if "Haplotype 2" in headers:
+            set_cell(ws.cell(row, headers["Haplotype 2"]), whole_animal(sample, 2))
+        for locus, label in SUMMARY_LOCI:
+            h1_header = f"{label} Haplotype 1"
+            h2_header = f"{label} Haplotype 2"
+            if h1_header in headers:
+                set_cell(ws.cell(row, headers[h1_header]), call_value(sample, locus, 1))
+            if h2_header in headers:
+                set_cell(ws.cell(row, headers[h2_header]), call_value(sample, locus, 2))
+        if "Comments" in headers:
+            ws.cell(row, headers["Comments"]).value = comments(sample)
+
+
+def patch_full_sheet():
+    if "Full Sequencing Results 1" not in wb.sheetnames:
+        return
+    ws = wb["Full Sequencing Results 1"]
+    for sample in calls_by_sample_locus:
+        col = sample_col(ws, sample)
+        if col is None:
+            continue
+        for locus in FULL_LOCI:
+            for index in (1, 2):
+                row = row_for(ws, f"{locus} Haplotype {index}")
+                if row is not None:
+                    set_cell(ws.cell(row, col), call_value(sample, locus, index))
+        comment_row = row_for(ws, "Comments")
+        if comment_row is not None:
+            ws.cell(comment_row, col).value = comments(sample)
+
+
+def upsert_guide_row(label, value):
+    if "Interpretation Guide" not in wb.sheetnames:
+        ws = wb.create_sheet("Interpretation Guide", 0)
+        ws.append(["Field", "Interpretation"])
+    ws = wb["Interpretation Guide"]
+    target = row_for(ws, label)
+    if target is None:
+        target = ws.max_row + 1
+    ws.cell(target, 1).value = label
+    ws.cell(target, 2).value = value
+    ws.cell(target, 1).font = Font(name="Calibri", size=11, bold=True)
+    ws.cell(target, 2).font = Font(name="Calibri", size=11)
+
+
+patch_summary_sheet("Abbreviated Haplotypes")
+patch_summary_sheet("Custom Sort")
+patch_full_sheet()
+upsert_guide_row("Workbook update source", "Lungfish.app Review viewport")
+upsert_guide_row("Workbook update note", "current.xlsx reflects sidecar haplotype overrides at the time this workbook revision was created.")
+upsert_guide_row("Workbook updated haplotype calls", str(sum(len(calls) for calls in calls_by_sample_locus.values())))
+
+wb.save(output_path)
+"""#
     }
 
     private var defaultCurrentWorkbookRelativePath: String {
@@ -301,10 +669,11 @@ public struct GenotypeWorkbookRevisionService {
         newCurrentURL: URL,
         manifestURL: URL,
         provenancePath: String,
-        startedAt: Date
+        startedAt: Date,
+        additionalInputURLs: [URL]
     ) throws {
         let completedAt = dateProvider()
-        let inputURLs = [sourceWorkbookURL, previousCurrentURL, importedSourceURL].compactMap { $0 }
+        let inputURLs = ([sourceWorkbookURL, previousCurrentURL, importedSourceURL].compactMap { $0 } + additionalInputURLs)
         let outputURLs = [snapshotURL, newCurrentURL, manifestURL].compactMap { $0 }
         let inputs = try inputURLs.map { try ProvenanceFileDescriptor.file(url: $0, role: .input) }
         let outputs = try outputURLs.map { try ProvenanceFileDescriptor.file(url: $0, role: .output) }
@@ -317,6 +686,14 @@ public struct GenotypeWorkbookRevisionService {
             "--bundle", bundleURL.path,
             "--current-workbook", newCurrentURL.path,
         ]
+        var explicitOptions: [String: ParameterValue] = [
+            "action": .string(action),
+            "bundle": .file(bundleURL),
+            "currentWorkbook": .file(newCurrentURL),
+        ]
+        if !additionalInputURLs.isEmpty {
+            explicitOptions["additionalInputs"] = .array(additionalInputURLs.map { .file($0) })
+        }
         let envelope = ProvenanceEnvelope(
             createdAt: completedAt,
             workflowName: "Genotype Workbook Revision",
@@ -327,11 +704,7 @@ public struct GenotypeWorkbookRevisionService {
             argv: argv,
             durableReplayArgv: argv,
             options: ProvenanceOptions(
-                explicit: [
-                    "action": .string(action),
-                    "bundle": .file(bundleURL),
-                    "currentWorkbook": .file(newCurrentURL),
-                ],
+                explicit: explicitOptions,
                 resolvedDefaults: [
                     "currentWorkbookPath": .string(defaultCurrentWorkbookRelativePath),
                     "historyDirectory": .string("artifacts/workbooks/revisions"),

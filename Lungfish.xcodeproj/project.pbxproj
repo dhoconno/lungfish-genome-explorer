@@ -302,6 +302,7 @@
 		};
 		F1E2D3C4B5A6978877665567 /* Embed lungfish-cli */ = {
 			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);

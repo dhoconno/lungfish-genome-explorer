@@ -112,8 +112,15 @@ struct GenotypeOverrideSection: View {
     private var isOffWhitelist: Bool {
         let trimmed = draft.target.trimmingCharacters(in: .whitespacesAndNewlines)
         return !trimmed.isEmpty
-            && !allowedTargets.isEmpty
-            && !allowedTargets.contains(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame })
+            && !normalizedAllowedTargets.isEmpty
+            && !normalizedAllowedTargets.contains(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame })
+    }
+
+    private var normalizedAllowedTargets: [String] {
+        GenotypeHaplotypeOverrideTargets.expandedTargets(
+            from: allowedTargets,
+            includeUnknown: !allowedTargets.isEmpty
+        )
     }
 
     /// Whitelist entries that prefix-match what the user has typed so far.
@@ -124,9 +131,9 @@ struct GenotypeOverrideSection: View {
         let query = draft.target.trimmingCharacters(in: .whitespacesAndNewlines)
         let candidates: [String]
         if query.isEmpty {
-            candidates = allowedTargets
+            candidates = normalizedAllowedTargets
         } else {
-            candidates = allowedTargets.filter {
+            candidates = normalizedAllowedTargets.filter {
                 $0.localizedCaseInsensitiveContains(query)
             }
         }
