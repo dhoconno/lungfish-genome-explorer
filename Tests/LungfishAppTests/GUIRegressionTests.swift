@@ -100,6 +100,11 @@ final class GUIRegressionTests: XCTestCase {
             OperationCenter.buildCLICommand(subcommand: "fastq import-ont", args: [])
                 .contains("'fastq import-ont'")
         )
+        XCTAssertTrue(mainSplitSource.contains("Split by Fluidigm sample barcodes"))
+        XCTAssertTrue(mainSplitSource.contains("Barcode Definition"))
+        XCTAssertTrue(mainSplitSource.contains("performONTFluidigmSampleSplit"))
+        XCTAssertTrue(mainSplitSource.contains("FASTQOperationLaunchRequest.ontFluidigmSampleSplit"))
+        XCTAssertTrue(mainSplitSource.contains("recipePopup.selectItem(withTitle: ONTDirectoryImportRecipe.sampleSplit.displayName)"))
     }
 
     func testONTDirectoryRoutingExcludesExistingFASTQBundles() throws {
@@ -119,8 +124,8 @@ final class GUIRegressionTests: XCTestCase {
             "Import Center FASTQ routing must not scan preview.fastq or chunk payloads inside existing .lungfishfastq bundles."
         )
         XCTAssertTrue(
-            mainSplitSource.contains("storagePopup.widthAnchor.constraint"),
-            "The ONT import accessory popup needs explicit AppKit sizing; otherwise it can render as an empty pulldown in NSAlert."
+            mainSplitSource.contains("recipePopup.widthAnchor.constraint"),
+            "The ONT import recipe popup needs explicit AppKit sizing; otherwise it can render as an empty pulldown in NSAlert."
         )
     }
 
