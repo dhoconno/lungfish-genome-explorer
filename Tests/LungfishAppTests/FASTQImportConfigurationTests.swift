@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import AppKit
 import Testing
 @testable import LungfishApp
 
@@ -122,5 +123,54 @@ struct FASTQImportConfigurationTests {
             r2: nil
         )
         #expect(pair.sampleName == "MySample")
+    }
+
+    @MainActor
+    @Test("ONT import sheet hides paired-end choices and imports as single-end")
+    func ontImportSheetHidesPairedEndChoices() {
+        let pair = FASTQFilePair(
+            r1: URL(fileURLWithPath: "/data/barcode01_R1.fastq.gz"),
+            r2: URL(fileURLWithPath: "/data/barcode01_R2.fastq.gz")
+        )
+        var capturedConfig: FASTQImportConfiguration?
+        let sheet = FASTQImportConfigSheet(
+            pairs: [pair],
+            detectedPlatform: .oxfordNanopore,
+            onImport: { configuration in
+                capturedConfig = configuration
+            }
+        )
+
+        sheet.loadViewIfNeeded()
+
+        let pairingLabel = sheet.view.fastqImportDescendants(of: NSTextField.self)
+            .first { $0.stringValue == "Pairing:" }
+        let pairingPopup = sheet.view.fastqImportDescendants(of: NSPopUpButton.self)
+            .first { popup in
+                (0..<popup.numberOfItems).contains { popup.item(at: $0)?.title == "Paired-end" }
+            }
+
+        #expect(pairingLabel?.isHidden == true)
+        #expect(pairingPopup?.isHidden == true)
+        #expect(pairingPopup?.selectedItem?.title == "Single-end")
+
+        let importButton = sheet.view.fastqImportDescendants(of: NSButton.self)
+            .first { $0.title == "Import" }
+        importButton?.performClick(nil)
+
+        #expect(capturedConfig?.pairingMode == .singleEnd)
+    }
+}
+
+private extension NSView {
+    func fastqImportDescendants<T: NSView>(of type: T.Type) -> [T] {
+        var matches: [T] = []
+        for subview in subviews {
+            if let match = subview as? T {
+                matches.append(match)
+            }
+            matches.append(contentsOf: subview.fastqImportDescendants(of: type))
+        }
+        return matches
     }
 }
