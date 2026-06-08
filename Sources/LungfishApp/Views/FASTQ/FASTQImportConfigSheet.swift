@@ -48,6 +48,8 @@ public final class FASTQImportConfigSheet: NSViewController {
     private let recipeDescLabel = NSTextField(wrappingLabelWithString: "")
     private let importButton = NSButton(title: "Import", target: nil, action: nil)
     private let cancelButton = NSButton(title: "Cancel", target: nil, action: nil)
+    private var binningBelowPairingConstraint: NSLayoutConstraint?
+    private var binningBelowPlatformConstraint: NSLayoutConstraint?
 
     // MARK: - Init
 
@@ -219,6 +221,16 @@ public final class FASTQImportConfigSheet: NSViewController {
         // Constraints
         let labelWidth: CGFloat = 110
         let margin: CGFloat = 20
+        let binningBelowPairingConstraint = binningLabel.topAnchor.constraint(
+            equalTo: pairingLabel.bottomAnchor,
+            constant: 10
+        )
+        let binningBelowPlatformConstraint = binningLabel.topAnchor.constraint(
+            equalTo: platformLabel.bottomAnchor,
+            constant: 10
+        )
+        self.binningBelowPairingConstraint = binningBelowPairingConstraint
+        self.binningBelowPlatformConstraint = binningBelowPlatformConstraint
         NSLayoutConstraint.activate([
             // Header
             headerLabel.topAnchor.constraint(equalTo: view.topAnchor, constant: margin),
@@ -248,7 +260,7 @@ public final class FASTQImportConfigSheet: NSViewController {
             pairingPopup.leadingAnchor.constraint(equalTo: pairingLabel.trailingAnchor, constant: 8),
 
             // Binning row
-            binningLabel.topAnchor.constraint(equalTo: pairingLabel.bottomAnchor, constant: 10),
+            binningBelowPairingConstraint,
             binningLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: margin),
             binningLabel.widthAnchor.constraint(equalToConstant: labelWidth),
             binningPopup.centerYAnchor.constraint(equalTo: binningLabel.centerYAnchor),
@@ -290,6 +302,7 @@ public final class FASTQImportConfigSheet: NSViewController {
             cancelButton.trailingAnchor.constraint(equalTo: importButton.leadingAnchor, constant: -8),
             cancelButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 80),
         ])
+        updatePairingControlsForSelectedPlatform()
     }
 
     // MARK: - Summary
@@ -349,6 +362,18 @@ public final class FASTQImportConfigSheet: NSViewController {
 
     @objc private func platformChanged(_ sender: Any) {
         binningPopup.selectItem(at: defaultBinningIndex(for: selectedPlatform()))
+        updatePairingControlsForSelectedPlatform()
+    }
+
+    private func updatePairingControlsForSelectedPlatform() {
+        let showPairingControls = selectedPlatform() != .oxfordNanopore
+        pairingLabel.isHidden = !showPairingControls
+        pairingPopup.isHidden = !showPairingControls
+        binningBelowPairingConstraint?.isActive = showPairingControls
+        binningBelowPlatformConstraint?.isActive = !showPairingControls
+        if !showPairingControls {
+            pairingPopup.selectItem(at: 0)
+        }
     }
 
     @objc private func recipeToggled(_ sender: Any) {
@@ -395,7 +420,7 @@ public final class FASTQImportConfigSheet: NSViewController {
 
     @objc private func importClicked(_ sender: Any) {
         let platform = selectedPlatform()
-        let pairingMode = selectedPairingMode()
+        let pairingMode = platform == .oxfordNanopore ? .singleEnd : selectedPairingMode()
         let binning = selectedBinning()
         let skipClumpify = clumpifyCheckbox.state == .off
 
