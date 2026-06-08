@@ -13,6 +13,7 @@ public final class GenotypeResultViewController: NSViewController {
     public var onDisplaySummaryChanged: ((Int, Int, Int) -> Void)?
     public var onDisplayStateChanged: ((GenotypeResultDisplayState) -> Void)?
     public var onAnnotationSidecarChanged: ((GenotypeAnnotationSidecar) -> Void)?
+    public var onCurrentWorkbookUpdateRequested: ((URL, [GenotypeWorkbookHaplotypeCall]) -> Void)?
     public var windowStateScope: WindowStateScope?
 
     private let summaryStrip = NSStackView()
@@ -133,6 +134,12 @@ public final class GenotypeResultViewController: NSViewController {
             name: .genotypeResultOpenHaplotypeDefinitions,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleCurrentWorkbookUpdateRequest(_:)),
+            name: .genotypeResultCurrentWorkbookUpdateRequested,
+            object: nil
+        )
     }
 
     @objc private func handleSampleDetailSheetRequest(_ notification: Notification) {
@@ -143,6 +150,11 @@ public final class GenotypeResultViewController: NSViewController {
     @objc private func handleHaplotypeDefinitionsRequest(_ notification: Notification) {
         showLens(.audit)
         onDisplayStateChanged?(displayState)
+    }
+
+    @objc private func handleCurrentWorkbookUpdateRequest(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
+        updateCurrentWorkbookFromOverrides()
     }
 
     private func applyQuickFilterState(_ state: GenotypeQuickFilterBarView.FilterState) {
@@ -1682,6 +1694,12 @@ public final class GenotypeResultViewController: NSViewController {
             rebuildArtifactLens()
             return
         }
+        if let onCurrentWorkbookUpdateRequested {
+            currentWorkbookUpdateStatus = "Queued current.xlsx update in Operations Panel."
+            rebuildArtifactLens()
+            onCurrentWorkbookUpdateRequested(result.bundleURL, calls)
+            return
+        }
         currentWorkbookUpdateStatus = "Updating current.xlsx..."
         rebuildArtifactLens()
         do {
@@ -1697,11 +1715,29 @@ public final class GenotypeResultViewController: NSViewController {
             currentWorkbookNeedsRefresh = false
             currentWorkbookUpdateStatus = "Updated current.xlsx. Previous workbook saved in revisions."
             rebuildArtifactLens()
+            if let sidecar = annotationStore?.sidecar {
+                onAnnotationSidecarChanged?(sidecar)
+            }
         } catch {
             currentWorkbookUpdateStatus = error.localizedDescription
             rebuildArtifactLens()
             presentSheetAlert(error: error)
         }
+    }
+
+    public func applyCurrentWorkbookUpdateCompleted(result updatedResult: ONTGenotypeResultBundleData) {
+        result = updatedResult
+        currentWorkbookNeedsRefresh = false
+        currentWorkbookUpdateStatus = "Updated current.xlsx. Previous workbook saved in revisions."
+        rebuildArtifactLens()
+        if let sidecar = annotationStore?.sidecar {
+            onAnnotationSidecarChanged?(sidecar)
+        }
+    }
+
+    public func applyCurrentWorkbookUpdateFailed(_ error: Error) {
+        currentWorkbookUpdateStatus = "current.xlsx update failed — see Operations Panel."
+        rebuildArtifactLens()
     }
 
     private func currentWorkbookEffectiveHaplotypeCalls() -> [GenotypeWorkbookHaplotypeCall] {
@@ -1999,6 +2035,8 @@ public final class GenotypeResultViewController: NSViewController {
             }
             guard !bulk.isEmpty else { return }
             try store.addManualHaplotypeAssignments(bulk)
+            currentWorkbookNeedsRefresh = true
+            currentWorkbookUpdateStatus = "current.xlsx does not include manual haplotype changes."
             onAnnotationSidecarChanged?(store.sidecar)
         } catch {
             if let window = view.window ?? NSApp.keyWindow {
@@ -2018,6 +2056,8 @@ public final class GenotypeResultViewController: NSViewController {
             try store.removeManualHaplotypeAssignments { other in
                 other.label == assignment.label
             }
+            currentWorkbookNeedsRefresh = true
+            currentWorkbookUpdateStatus = "current.xlsx does not include manual haplotype changes."
             onAnnotationSidecarChanged?(store.sidecar)
         } catch {
             if let window = view.window ?? NSApp.keyWindow {

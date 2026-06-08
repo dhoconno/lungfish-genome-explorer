@@ -6,8 +6,21 @@ final class FastqGenotypingCommandTests: XCTestCase {
         let names = FastqCommand.configuration.subcommands.map { $0.configuration.commandName }
         XCTAssertTrue(names.contains("genotype"))
         XCTAssertTrue(names.contains("genotype-cohort"))
+        XCTAssertTrue(names.contains("update-current-workbook"))
         XCTAssertTrue(names.contains("ont-fluidigm-samples"))
         XCTAssertTrue(names.contains("mhc-reference-bundle"))
+    }
+
+    func testUpdateCurrentWorkbookParsesBundleCallsAndAnnotations() throws {
+        let command = try FastqUpdateCurrentWorkbookSubcommand.parse([
+            "/tmp/barcode11-mhc.lungfishgenotype",
+            "--calls-json", "/tmp/barcode11-mhc/artifacts/workbooks/updates/calls.json",
+            "--annotations", "/tmp/barcode11-mhc.lungfishgenotype/annotations.json",
+        ])
+
+        XCTAssertEqual(command.bundle, "/tmp/barcode11-mhc.lungfishgenotype")
+        XCTAssertEqual(command.callsJSON, "/tmp/barcode11-mhc/artifacts/workbooks/updates/calls.json")
+        XCTAssertEqual(command.annotations, "/tmp/barcode11-mhc.lungfishgenotype/annotations.json")
     }
 
     func testONTFluidigmSamplesCommandParsesRequiredInputs() throws {

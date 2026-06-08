@@ -349,7 +349,8 @@ extension InspectorViewController {
             smartCohorts: smartCohorts,
             auditEntries: sidecar.auditLog,
             haplotypeDefinitionRows: genotypeHaplotypeDefinitionRows(result, sidecar: sidecar),
-            haplotypeDefinitionsFolderURL: genotypeHaplotypeDefinitionsFolderURL(result)
+            haplotypeDefinitionsFolderURL: genotypeHaplotypeDefinitionsFolderURL(result),
+            currentWorkbookUpdate: genotypeCurrentWorkbookUpdateState(result: result, sidecar: sidecar)
         )
         // Mirror the current display-state knobs into the document state so
         // the Inspector toggles (View Mode radio, "Show observed-only loci"
@@ -472,6 +473,7 @@ extension InspectorViewController {
                 )
             }
             nextState.haplotypeDefinitionRows = genotypeHaplotypeDefinitionRows(result, sidecar: sidecar)
+            nextState.currentWorkbookUpdate = genotypeCurrentWorkbookUpdateState(result: result, sidecar: sidecar)
         }
         viewModel.documentSectionViewModel.updateGenotypeResultDocument(
             nextState
@@ -499,6 +501,28 @@ extension InspectorViewController {
             ("Retained %", formatPercent(result.stats.retainedUniquePercentOfTotalReads)),
             ("Created", result.manifest.createdAt ?? "Unknown"),
         ]
+    }
+
+    private func genotypeCurrentWorkbookUpdateState(
+        result: ONTGenotypeResultBundleData,
+        sidecar: GenotypeAnnotationSidecar
+    ) -> GenotypeResultCurrentWorkbookUpdateState {
+        let manualChangeCount = sidecar.callOverrides.count + sidecar.manualHaplotypeAssignments.count
+        let changeLabel = manualChangeCount == 1 ? "manual haplotype change" : "manual haplotype changes"
+        let isWritable = FileManager.default.isWritableFile(atPath: result.bundleURL.path)
+        let statusText: String
+        if manualChangeCount == 0 {
+            statusText = "current.xlsx has no manual haplotype edits to apply."
+        } else if !isWritable {
+            statusText = "current.xlsx cannot be updated because this bundle is read-only."
+        } else {
+            statusText = "current.xlsx can be refreshed from \(manualChangeCount) \(changeLabel)."
+        }
+        return GenotypeResultCurrentWorkbookUpdateState(
+            manualChangeCount: manualChangeCount,
+            statusText: statusText,
+            isEnabled: manualChangeCount > 0 && isWritable
+        )
     }
 
     private func genotypeSampleIds(_ result: ONTGenotypeResultBundleData) -> [String] {

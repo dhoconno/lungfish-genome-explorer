@@ -94,7 +94,11 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
 
             switch outputKind {
             case .directory:
-                outputTarget = parentDirectory
+                if case .ontFluidigmSampleSplit = pair.original {
+                    outputTarget = parentDirectory.appendingPathComponent("ont-fluidigm-samples", isDirectory: true)
+                } else {
+                    outputTarget = parentDirectory
+                }
             case .fastqFile:
                 outputTarget = parentDirectory.appendingPathComponent(
                     defaultFASTQOutputFilename(for: pair.original)
@@ -145,6 +149,9 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
     func executionDirectory(for plan: FASTQOperationPlan) -> URL {
         switch plan.outputKind {
         case .directory:
+            if case .ontFluidigmSampleSplit = plan.originalRequest {
+                return plan.outputTarget.deletingLastPathComponent()
+            }
             return plan.outputTarget
         case .fastqFile, .jsonReport:
             return plan.outputTarget.deletingLastPathComponent()

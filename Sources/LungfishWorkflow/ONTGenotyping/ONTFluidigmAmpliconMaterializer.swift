@@ -116,8 +116,15 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
         var assignedReadCount = 0
         var extractedReadCount = 0
         var unassignedReadCount = 0
-        let unextractedReadCount = 0
+        var unextractedReadCount = 0
         let reader = FASTQReader(validateSequence: false)
+        let extractor = InsertExtractor(
+            forwardPrimer: request.forwardPrimer,
+            reversePrimer: request.reversePrimer,
+            maxMismatches: request.primerMismatches,
+            minimumInsertLength: request.minimumInsertLength,
+            canonicalizeReverseComplements: request.canonicalizeReverseComplements
+        )
 
         for fastqURL in inputFASTQs {
             for try await record in reader.records(from: fastqURL) {
@@ -129,10 +136,10 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
                 }
                 assignedReadCount += 1
                 accumulators[entry.sampleID]?.recordAssignedRead()
-                let sequence = CountedFASTQMaterializer.normalized(
-                    record.sequence,
-                    normalization: .uppercase
-                )
+                guard let sequence = extractor.extract(from: bases) else {
+                    unextractedReadCount += 1
+                    continue
+                }
                 extractedReadCount += 1
                 accumulators[entry.sampleID]?.recordExtracted(sequence: sequence)
             }
@@ -178,7 +185,7 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
             "primerMismatches": request.primerMismatches,
             "minimumInsertLength": request.minimumInsertLength,
             "canonicalizeReverseComplements": request.canonicalizeReverseComplements,
-            "payloadRepresentation": "deduplicated gzip-compressed full demultiplexed FASTQ",
+            "payloadRepresentation": "deduplicated gzip-compressed CS1-CS2 insert FASTQ",
             "duplicateCountEncoding": "size=N",
             "inputReadCount": inputReadCount,
             "assignedReadCount": assignedReadCount,
@@ -489,8 +496,8 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
             counts: accumulator.sequenceCounts,
             outputURL: rawFASTQURL.appendingPathExtension("gz"),
             compress: true,
-            inputRecordCount: accumulator.rawReadCount,
-            totalReadCount: accumulator.rawReadCount
+            inputRecordCount: accumulator.extractedReadCount,
+            totalReadCount: accumulator.extractedReadCount
         )
         let fastqURL = countedResult.outputURL
         let fastqFilename = fastqURL.lastPathComponent
@@ -517,13 +524,16 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
             payload: .full(fastqFilename: fastqFilename),
             lineage: [operation],
             operation: operation,
-            cachedStatistics: .placeholder(readCount: accumulator.uniqueSequenceCount, baseCount: Int64(countedResult.uniqueBaseCount)),
+            cachedStatistics: .placeholder(
+                readCount: accumulator.extractedReadCount,
+                baseCount: Int64(countedResult.weightedBaseCount)
+            ),
             pairingMode: nil,
             sequenceFormat: .fastq,
             provenance: SampleProvenance(
                 sampleID: accumulator.entry.sampleID,
                 libraryPrep: "Fluidigm Access Array MHC amplicon",
-                notes: "Materialized gzip-compressed full demultiplexed read exemplars after exact Fluidigm barcode assignment; duplicate counts encoded as size=N."
+                notes: "Materialized gzip-compressed CS1-CS2 insert exemplars after exact Fluidigm barcode assignment; duplicate counts encoded as size=N."
             ),
             payloadChecksums: PayloadChecksum(checksums: [fastqFilename: checksum]),
             materializationState: .materialized(checksum: checksum)

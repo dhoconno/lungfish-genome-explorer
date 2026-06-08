@@ -212,6 +212,64 @@ final class ProjectDeletionPlannerTests: XCTestCase {
         )
     }
 
+    func testDeletionImpactDoesNotReportChildrenAlreadyCoveredBySelectedDirectory() throws {
+        let outputDirectory = projectURL
+            .appendingPathComponent("ont-fluidigm-sample-split-2", isDirectory: true)
+            .appendingPathComponent("ont-fluidigm-samples", isDirectory: true)
+        let sampleBundle = outputDirectory.appendingPathComponent("CA136.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: sampleBundle, withIntermediateDirectories: true)
+        try """
+        {
+          "name": "CA136",
+          "rootFASTQFilename": "deduplicated-sample-reads.fastq.gz"
+        }
+        """.write(
+            to: sampleBundle.appendingPathComponent("derived.manifest.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let impact = ProjectDeletionPlanner(fileManager: .default)
+            .impact(ofDeleting: [outputDirectory], in: projectURL)
+
+        XCTAssertTrue(
+            impact.dependentURLs.isEmpty,
+            "Children inside a selected directory are already covered by deleting that directory and should not trigger dependency traversal warnings."
+        )
+        XCTAssertEqual(impact.urlsForCascadingDeletion.map(\.standardizedFileURL), [outputDirectory.standardizedFileURL])
+    }
+
+    func testDeletionImpactDoesNotTraverseInsideOpaqueProjectObjectDirectories() throws {
+        let selectedURL = projectURL.appendingPathComponent("source.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: selectedURL, withIntermediateDirectories: true)
+
+        let containerBundle = projectURL.appendingPathComponent("container.lungfishfastq", isDirectory: true)
+        let nestedAnalysis = containerBundle.appendingPathComponent("nested-analysis", isDirectory: true)
+        try FileManager.default.createDirectory(at: nestedAnalysis, withIntermediateDirectories: true)
+        try """
+        {"inputs":["\(selectedURL.path)"],"tool":"minimap2"}
+        """.write(
+            to: nestedAnalysis.appendingPathComponent("mapping-result.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        {"name":"container"}
+        """.write(
+            to: containerBundle.appendingPathComponent("derived.manifest.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let impact = ProjectDeletionPlanner(fileManager: .default)
+            .impact(ofDeleting: [selectedURL], in: projectURL)
+
+        XCTAssertTrue(
+            impact.dependentURLs.isEmpty,
+            "Dependency planning should treat project-object bundles as opaque and avoid scanning nested payload directories."
+        )
+    }
+
     func testDependencyListPresentationTruncatesPreviewAndKeepsFullProjectRelativeList() throws {
         let dependentURLs = (1...5).map { index in
             projectURL

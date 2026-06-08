@@ -46,19 +46,41 @@ public struct GenotypeWorkbookHaplotypeCall: Codable, Equatable, Sendable {
     }
 }
 
+public struct GenotypeWorkbookRevisionProvenanceContext: Equatable, Sendable {
+    public let toolName: String
+    public let toolKind: String
+    public let argv: [String]
+    public let durableReplayArgv: [String]
+
+    public init(
+        toolName: String,
+        toolKind: String,
+        argv: [String],
+        durableReplayArgv: [String]? = nil
+    ) {
+        self.toolName = toolName
+        self.toolKind = toolKind
+        self.argv = argv
+        self.durableReplayArgv = durableReplayArgv ?? argv
+    }
+}
+
 public struct GenotypeWorkbookRevisionService {
     private let fileManager: FileManager
     private let dateProvider: @Sendable () -> Date
     private let userProvider: @Sendable () -> String
+    private let pythonExecutableURL: URL?
 
     public init(
         fileManager: FileManager = .default,
         dateProvider: @escaping @Sendable () -> Date = Date.init,
-        userProvider: @escaping @Sendable () -> String = { NSUserName() }
+        userProvider: @escaping @Sendable () -> String = { NSUserName() },
+        pythonExecutableURL: URL? = nil
     ) {
         self.fileManager = fileManager
         self.dateProvider = dateProvider
         self.userProvider = userProvider
+        self.pythonExecutableURL = pythonExecutableURL
     }
 
     public func ensureCurrentWorkbook(
@@ -117,7 +139,8 @@ public struct GenotypeWorkbookRevisionService {
     public func applyHaplotypeOverrides(
         _ calls: [GenotypeWorkbookHaplotypeCall],
         annotationSidecarURL: URL?,
-        into bundleURL: URL
+        into bundleURL: URL,
+        provenanceContext: GenotypeWorkbookRevisionProvenanceContext? = nil
     ) throws -> ONTGenotypeResultBundleManifest {
         let bundle = bundleURL.standardizedFileURL
         _ = try ensureCurrentWorkbook(in: bundle)
@@ -141,11 +164,15 @@ public struct GenotypeWorkbookRevisionService {
         try fileManager.createDirectory(at: callsURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try JSONEncoder().encode(calls).write(to: callsURL)
         try workbookOverrideScript.write(to: scriptURL, atomically: true, encoding: .utf8)
-        try runPythonScript(scriptURL: scriptURL, arguments: [
+        var scriptArguments = [
             currentURL.path,
             patchedURL.path,
             callsURL.path,
-        ])
+        ]
+        if let annotationSidecarURL, fileManager.fileExists(atPath: annotationSidecarURL.path) {
+            scriptArguments.append(annotationSidecarURL.path)
+        }
+        try runPythonScript(scriptURL: scriptURL, arguments: scriptArguments)
 
         var additionalInputs = [callsURL]
         if let annotationSidecarURL, fileManager.fileExists(atPath: annotationSidecarURL.path) {
@@ -156,7 +183,8 @@ public struct GenotypeWorkbookRevisionService {
             into: bundle,
             label: "Applied haplotype overrides",
             provenanceAction: "apply-haplotype-overrides",
-            additionalInputURLs: additionalInputs
+            additionalInputURLs: additionalInputs,
+            provenanceContext: provenanceContext
         )
     }
 
@@ -165,7 +193,8 @@ public struct GenotypeWorkbookRevisionService {
         into bundleURL: URL,
         label: String? = nil,
         provenanceAction: String = "import",
-        additionalInputURLs: [URL] = []
+        additionalInputURLs: [URL] = [],
+        provenanceContext: GenotypeWorkbookRevisionProvenanceContext? = nil
     ) throws -> ONTGenotypeResultBundleManifest {
         let source = sourceURL.standardizedFileURL
         try validateWorkbook(source)
@@ -233,7 +262,8 @@ public struct GenotypeWorkbookRevisionService {
                 manifestURL: ONTGenotypeResultBundle.manifestURL(in: bundle),
                 provenancePath: provenancePath,
                 startedAt: startedAt,
-                additionalInputURLs: additionalInputURLs
+                additionalInputURLs: additionalInputURLs,
+                provenanceContext: provenanceContext
             )
             return manifest
         } catch {
@@ -312,8 +342,13 @@ public struct GenotypeWorkbookRevisionService {
 
     private func runPythonScript(scriptURL: URL, arguments: [String]) throws {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["python3", scriptURL.path] + arguments
+        if let pythonExecutableURL {
+            process.executableURL = pythonExecutableURL
+            process.arguments = [scriptURL.path] + arguments
+        } else {
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = ["python3", scriptURL.path] + arguments
+        }
         let stdout = Pipe()
         let stderr = Pipe()
         process.standardOutput = stdout
@@ -342,9 +377,18 @@ from openpyxl.styles import Alignment, Font, PatternFill
 input_path = sys.argv[1]
 output_path = sys.argv[2]
 calls_path = sys.argv[3]
+sidecar_path = sys.argv[4] if len(sys.argv) > 4 else ""
 
 with open(calls_path) as handle:
     call_rows = json.load(handle)
+
+sidecar = {}
+if sidecar_path:
+    try:
+        with open(sidecar_path) as handle:
+            sidecar = json.load(handle)
+    except FileNotFoundError:
+        sidecar = {}
 
 wb = load_workbook(input_path)
 
@@ -407,6 +451,9 @@ for call in call_rows:
         "status": clean(call.get("status")),
         "notes": clean(call.get("notes")),
     }
+
+call_overrides = sidecar.get("callOverrides") or []
+audit_entries = sidecar.get("auditLog") or []
 
 
 def call_for(sample, locus):
@@ -588,12 +635,114 @@ def upsert_guide_row(label, value):
     ws.cell(target, 2).font = Font(name="Calibri", size=11)
 
 
+def replace_sheet(name):
+    if name in wb.sheetnames:
+        del wb[name]
+    return wb.create_sheet(name)
+
+
+def style_table_header(ws):
+    fill = PatternFill(fill_type="solid", fgColor="D9EAF7")
+    for cell in ws[1]:
+        cell.font = Font(name="Calibri", size=11, bold=True)
+        cell.fill = fill
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+
+def style_table_body(ws):
+    for row in ws.iter_rows(min_row=2):
+        for cell in row:
+            cell.font = Font(name="Calibri", size=11)
+            cell.alignment = Alignment(vertical="top", wrap_text=True)
+
+
+def autosize_columns(ws, max_width=64):
+    for column_cells in ws.columns:
+        width = 10
+        for cell in column_cells:
+            value = clean(cell.value)
+            if value:
+                width = max(width, min(max_width, len(value) + 2))
+        ws.column_dimensions[column_cells[0].column_letter].width = width
+
+
+def write_table_sheet(name, headers, rows):
+    ws = replace_sheet(name)
+    ws.append(headers)
+    for row in rows:
+        ws.append(row)
+    style_table_header(ws)
+    style_table_body(ws)
+    autosize_columns(ws)
+    ws.freeze_panes = "A2"
+
+
+def write_override_sheets():
+    override_headers = [
+        "Sample",
+        "Locus",
+        "Slot",
+        "Original Call",
+        "Override Call",
+        "Reason",
+        "Rationale",
+        "Author",
+        "Timestamp",
+    ]
+    override_rows = []
+    for entry in call_overrides:
+        override_rows.append([
+            clean(entry.get("sample")),
+            clean(entry.get("locus")),
+            clean(entry.get("slot")),
+            clean(entry.get("originalCall")),
+            clean(entry.get("overrideCall")),
+            clean(entry.get("reasonTag")),
+            clean(entry.get("rationale")),
+            clean(entry.get("author")),
+            clean(entry.get("timestamp")),
+        ])
+    write_table_sheet("Overrides", override_headers, override_rows)
+
+    audit_headers = [
+        "Action",
+        "Sample",
+        "Locus",
+        "Slot",
+        "Before",
+        "After",
+        "Reason",
+        "Rationale",
+        "Author",
+        "Timestamp",
+    ]
+    audit_rows = []
+    for entry in audit_entries:
+        audit_rows.append([
+            clean(entry.get("action")),
+            clean(entry.get("sample")),
+            clean(entry.get("locus")),
+            clean(entry.get("slot")),
+            clean(entry.get("before")),
+            clean(entry.get("after")),
+            clean(entry.get("reason")),
+            clean(entry.get("rationale")),
+            clean(entry.get("author")),
+            clean(entry.get("timestamp")),
+        ])
+    write_table_sheet("Audit Log", audit_headers, audit_rows)
+
+
 patch_summary_sheet("Abbreviated Haplotypes")
 patch_summary_sheet("Custom Sort")
 patch_full_sheet()
+write_override_sheets()
 upsert_guide_row("Workbook update source", "Lungfish.app Review viewport")
 upsert_guide_row("Workbook update note", "current.xlsx reflects sidecar haplotype overrides at the time this workbook revision was created.")
 upsert_guide_row("Workbook updated haplotype calls", str(sum(len(calls) for calls in calls_by_sample_locus.values())))
+upsert_guide_row("Workbook update overrides", str(len(call_overrides)))
+upsert_guide_row("Workbook update audit entries", str(len(audit_entries)))
+upsert_guide_row("Workbook update audit source", "annotations.json")
 
 wb.save(output_path)
 """#
@@ -670,7 +819,8 @@ wb.save(output_path)
         manifestURL: URL,
         provenancePath: String,
         startedAt: Date,
-        additionalInputURLs: [URL]
+        additionalInputURLs: [URL],
+        provenanceContext: GenotypeWorkbookRevisionProvenanceContext? = nil
     ) throws {
         let completedAt = dateProvider()
         let inputURLs = ([sourceWorkbookURL, previousCurrentURL, importedSourceURL].compactMap { $0 } + additionalInputURLs)
@@ -679,13 +829,17 @@ wb.save(output_path)
         let outputs = try outputURLs.map { try ProvenanceFileDescriptor.file(url: $0, role: .output) }
         let provenanceURL = ONTGenotypeResultBundle.resolvedURL(for: provenancePath, in: bundleURL)
         let provenanceDescriptor = ProvenanceFileDescriptor(path: provenanceURL.path, role: .log)
-        let argv = [
+        let defaultArgv = [
             "Lungfish.app",
             "genotype-workbook",
             action,
             "--bundle", bundleURL.path,
             "--current-workbook", newCurrentURL.path,
         ]
+        let argv = provenanceContext?.argv ?? defaultArgv
+        let durableReplayArgv = provenanceContext?.durableReplayArgv ?? argv
+        let toolName = provenanceContext?.toolName ?? "Lungfish.app"
+        let toolKind = provenanceContext?.toolKind ?? "app"
         var explicitOptions: [String: ParameterValue] = [
             "action": .string(action),
             "bundle": .file(bundleURL),
@@ -698,11 +852,11 @@ wb.save(output_path)
             createdAt: completedAt,
             workflowName: "Genotype Workbook Revision",
             workflowVersion: WorkflowRun.currentAppVersion,
-            toolName: "Lungfish.app",
+            toolName: toolName,
             toolVersion: WorkflowRun.currentAppVersion,
-            tool: ProvenanceToolIdentity(name: "Lungfish.app", version: WorkflowRun.currentAppVersion, kind: "app"),
+            tool: ProvenanceToolIdentity(name: toolName, version: WorkflowRun.currentAppVersion, kind: toolKind),
             argv: argv,
-            durableReplayArgv: argv,
+            durableReplayArgv: durableReplayArgv,
             options: ProvenanceOptions(
                 explicit: explicitOptions,
                 resolvedDefaults: [
@@ -716,7 +870,7 @@ wb.save(output_path)
             outputs: outputs + [provenanceDescriptor],
             steps: [
                 ProvenanceStep(
-                    toolName: "Lungfish.app genotype workbook \(action)",
+                    toolName: "\(toolName) genotype workbook \(action)",
                     toolVersion: WorkflowRun.currentAppVersion,
                     argv: argv,
                     inputs: inputs,

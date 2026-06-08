@@ -53,6 +53,7 @@ struct FastqCommand: AsyncParsableCommand {
             FastqPBAAClusterSubcommand.self,
             FastqGenotypingSubcommand.self,
             FastqGenotypingCohortSubcommand.self,
+            FastqUpdateCurrentWorkbookSubcommand.self,
             FastqONTGenotypingSubcommand.self,
             FastqONTBarcodeGenotypingSubcommand.self,
             FastqMHCReferenceBundleSubcommand.self,
@@ -2413,10 +2414,10 @@ struct FastqONTFluidigmSamplesSubcommand: AsyncParsableCommand {
         abstract: "Materialize counted per-sample ONT Fluidigm amplicon FASTQs",
         discussion: """
             Assigns ONT reads to samples with the same exact Fluidigm barcode matching
-            used by amplicon genotyping, then writes one physical .lungfishfastq bundle
-            per sample containing unique full-read exemplars. Payloads are
-            gzip-compressed and duplicate support is encoded
-            in FASTQ headers as size=N.
+            used by amplicon genotyping, extracts the CS1-CS2 amplicon insert, then
+            writes one physical .lungfishfastq bundle per sample containing unique
+            insert exemplars. Payloads are gzip-compressed and duplicate support is
+            encoded in FASTQ headers as size=N.
             """
     )
 
@@ -2432,16 +2433,16 @@ struct FastqONTFluidigmSamplesSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("threads"), help: "Worker count reserved for future parallel materialization; currently recorded for provenance")
     var threads: Int = 1
 
-    @Option(name: .customLong("primer-mismatches"), help: "Deprecated compatibility option recorded in provenance; full reads are not primer-trimmed (default: 2)")
+    @Option(name: .customLong("primer-mismatches"), help: "Maximum mismatches allowed when detecting CS1/CS2 primer boundaries (default: 2)")
     var primerMismatches: Int = 2
 
-    @Option(name: .customLong("minimum-insert-length"), help: "Deprecated compatibility option recorded in provenance; full reads are not primer-trimmed (default: 20)")
+    @Option(name: .customLong("minimum-insert-length"), help: "Minimum CS1-CS2 insert length to retain (default: 20)")
     var minimumInsertLength: Int = 20
 
     @Flag(
         name: .customLong("canonicalize-reverse-complements"),
         inversion: .prefixedNo,
-        help: "Deprecated compatibility option recorded in provenance; full reads keep original orientation (default: disabled)"
+        help: "Canonicalize exact reverse-complement insert duplicates after orienting CS1-CS2 reads (default: disabled)"
     )
     var canonicalizeReverseComplements: Bool = false
 
@@ -2519,7 +2520,7 @@ struct FastqONTFluidigmSamplesSubcommand: AsyncParsableCommand {
                 "primerMismatches": .integer(primerMismatches),
                 "minimumInsertLength": .integer(minimumInsertLength),
                 "canonicalizeReverseComplements": .boolean(canonicalizeReverseComplements),
-                "payloadRepresentation": .string("deduplicated gzip-compressed full demultiplexed FASTQ"),
+                "payloadRepresentation": .string("deduplicated gzip-compressed CS1-CS2 insert FASTQ"),
                 "duplicateCountEncoding": .string("size=N"),
                 "inputReadCount": .integer(result.inputReadCount),
                 "assignedReadCount": .integer(result.assignedReadCount),
@@ -2536,7 +2537,7 @@ struct FastqONTFluidigmSamplesSubcommand: AsyncParsableCommand {
                 "primerMismatches": .integer(2),
                 "minimumInsertLength": .integer(20),
                 "canonicalizeReverseComplements": .boolean(false),
-                "payloadRepresentation": .string("deduplicated gzip-compressed full demultiplexed FASTQ"),
+                "payloadRepresentation": .string("deduplicated gzip-compressed CS1-CS2 insert FASTQ"),
                 "duplicateCountEncoding": .string("size=N"),
             ],
             toolName: "lungfish fastq ont-fluidigm-samples",

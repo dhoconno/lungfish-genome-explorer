@@ -104,7 +104,7 @@ final class ProjectDeletionPlanner {
 
         let objects = collectProjectObjects(in: projectURL)
             .filter { objectURL in
-                !normalizedSelected.contains { sameURL($0, objectURL) }
+                !isCoveredByDeletionTargets(objectURL, targets: normalizedSelected)
             }
 
         var allTargets = normalizedSelected
@@ -116,7 +116,7 @@ final class ProjectDeletionPlanner {
             let newDependents = objects.filter { objectURL in
                 let key = urlKey(objectURL)
                 guard !dependentSet.contains(key),
-                      !normalizedSelected.contains(where: { sameURL($0, objectURL) }) else {
+                      !isCoveredByDeletionTargets(objectURL, targets: allTargets) else {
                     return false
                 }
                 return object(objectURL, isAffectedByDeletingAnyOf: frontier, projectURL: projectURL)
@@ -192,6 +192,7 @@ final class ProjectDeletionPlanner {
                 }
                 if isProjectObjectDirectory(standardized) {
                     objects.append(standardized)
+                    enumerator.skipDescendants()
                 }
                 continue
             }
@@ -270,6 +271,10 @@ final class ProjectDeletionPlanner {
             return shouldScanMetadataFile(objectURL) ? [objectURL] : []
         }
 
+        if isProjectObjectDirectory(objectURL) {
+            return topLevelMetadataFiles(in: objectURL)
+        }
+
         guard let enumerator = fileManager.enumerator(
             at: objectURL,
             includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey, .fileSizeKey],
@@ -296,6 +301,28 @@ final class ProjectDeletionPlanner {
             urls.append(standardized)
         }
         return urls.sorted(by: stableURLSort)
+    }
+
+    private func topLevelMetadataFiles(in directoryURL: URL) -> [URL] {
+        guard let contents = try? fileManager.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        return contents.compactMap { url -> URL? in
+            let standardized = url.standardizedFileURL
+            let values = try? standardized.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+            guard values?.isRegularFile == true,
+                  shouldScanMetadataFile(standardized),
+                  UInt64(values?.fileSize ?? 0) <= maxMetadataFileBytes else {
+                return nil
+            }
+            return standardized
+        }
+        .sorted(by: stableURLSort)
     }
 
     private func dependencyStrings(in value: Any) -> [String] {
@@ -533,6 +560,10 @@ final class ProjectDeletionPlanner {
 
     private func sameURL(_ lhs: URL, _ rhs: URL) -> Bool {
         Self.sameURL(lhs, rhs)
+    }
+
+    private func isCoveredByDeletionTargets(_ url: URL, targets: [URL]) -> Bool {
+        targets.contains { Self.isAncestor($0, of: url) }
     }
 
     private func urlKey(_ url: URL) -> String {
