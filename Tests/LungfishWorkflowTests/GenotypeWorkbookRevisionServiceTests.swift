@@ -10,9 +10,34 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let fixture = try makeMCMWorkbookBundle(in: root, outputName: "mcm")
         let annotationURL = fixture.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
-        try GenotypeAnnotationSidecar.empty(generatedAt: "2026-06-04T00:00:00Z")
-            .encoded()
-            .write(to: annotationURL)
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-06-04T00:00:00Z")
+        sidecar.callOverrides = [
+            GenotypeAnnotationSidecar.CallOverride(
+                sample: "DW472",
+                locus: "MHC-DP",
+                slot: .h1,
+                originalCall: "M4DP",
+                overrideCall: "M3DP",
+                reasonTag: .analystJudgment,
+                rationale: "Manual curation from review viewport.",
+                author: "curator",
+                timestamp: "2026-06-04T12:00:00Z"
+            )
+        ]
+        sidecar.append(audit: GenotypeAnnotationSidecar.AuditEntry(
+            action: "override",
+            sample: "DW472",
+            locus: "MHC-DP",
+            slot: .h1,
+            before: "M4DP",
+            after: "M3DP",
+            color: nil,
+            reason: "analyst-judgment",
+            rationale: "Manual curation from review viewport.",
+            author: "curator",
+            timestamp: "2026-06-04T12:00:00Z"
+        ))
+        try sidecar.encoded().write(to: annotationURL)
 
         let updatedManifest = try GenotypeWorkbookRevisionService(
             dateProvider: { Date(timeIntervalSince1970: 5_000) },
@@ -39,6 +64,17 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
         XCTAssertEqual(inspection["fullDPBHaplotype2"], "M7DP")
         XCTAssertEqual(inspection["customDPHaplotype1"], "M3DP")
         XCTAssertEqual(inspection["guideWorkbookUpdateSource"], "Lungfish.app Review viewport")
+        XCTAssertEqual(inspection["guideAuditEntries"], "1")
+        XCTAssertEqual(inspection["hasOverridesSheet"], "true")
+        XCTAssertEqual(inspection["hasAuditLogSheet"], "true")
+        XCTAssertEqual(
+            inspection["firstOverrideRow"],
+            "DW472|MHC-DP|h1|M4DP|M3DP|analyst-judgment|Manual curation from review viewport.|curator|2026-06-04T12:00:00Z"
+        )
+        XCTAssertEqual(
+            inspection["firstAuditRow"],
+            "override|DW472|MHC-DP|h1|M4DP|M3DP|analyst-judgment|Manual curation from review viewport.|curator|2026-06-04T12:00:00Z"
+        )
         XCTAssertTrue(updatedManifest.workbookRevisions?.contains { $0.role == .externalEditSnapshot } == true)
         let imported = try XCTUnwrap(updatedManifest.workbookRevisions?.last)
         let provenancePath = try XCTUnwrap(imported.provenancePath)
@@ -135,6 +171,35 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
             try Data(contentsOf: ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)),
             originalCurrent
         )
+    }
+
+    func testApplyHaplotypeOverridesUsesInjectedPythonExecutable() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeBundle(in: root, outputName: "cohort", includeCurrent: true)
+        let fakePythonURL = root.appendingPathComponent("fake-python")
+        let invocationLogURL = root.appendingPathComponent("python-argv.txt")
+        try """
+        #!/bin/sh
+        printf '%s\n' "$0" "$@" > "\(invocationLogURL.path)"
+        echo "fake python used" >&2
+        exit 73
+        """.write(to: fakePythonURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: fakePythonURL.path
+        )
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(pythonExecutableURL: fakePythonURL)
+                .applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        ) { error in
+            XCTAssertTrue(error.localizedDescription.contains("fake python used"))
+        }
+
+        let invocation = try String(contentsOf: invocationLogURL, encoding: .utf8)
+        XCTAssertTrue(invocation.hasPrefix(fakePythonURL.path))
+        XCTAssertTrue(invocation.contains("apply-current-workbook-overrides.py"))
     }
 
     func testImportSnapshotsExternalEditBeforeManagedReplacement() throws {
@@ -393,13 +458,28 @@ custom_headers = header_map(custom)
 abbr_row = sample_row(abbr, "DW472")
 custom_row = sample_row(custom, "DW472")
 full_col = sample_col(full, "DW472")
+
+def text(value):
+    return "" if value is None else str(value)
+
+def row_values(sheet, row_index, col_count):
+    if sheet not in wb.sheetnames or wb[sheet].max_row < row_index:
+        return ""
+    ws = wb[sheet]
+    return "|".join(text(ws.cell(row_index, col).value) for col in range(1, col_count + 1))
+
 payload = {
+    "hasOverridesSheet": str("Overrides" in wb.sheetnames).lower(),
+    "hasAuditLogSheet": str("Audit Log" in wb.sheetnames).lower(),
     "abbreviatedDPHaplotype1": abbr.cell(abbr_row, abbr_headers["MHC-DPA/B Haplotype 1"]).value,
     "abbreviatedDPHaplotype2": abbr.cell(abbr_row, abbr_headers["MHC-DPA/B Haplotype 2"]).value,
     "customDPHaplotype1": custom.cell(custom_row, custom_headers["MHC-DPA/B Haplotype 1"]).value,
     "fullDPAHaplotype1": full.cell(row_for(full, "MHC-DPA Haplotype 1"), full_col).value,
     "fullDPBHaplotype2": full.cell(row_for(full, "MHC-DPB Haplotype 2"), full_col).value,
     "guideWorkbookUpdateSource": guide_value("Workbook update source"),
+    "guideAuditEntries": text(guide_value("Workbook update audit entries")),
+    "firstOverrideRow": row_values("Overrides", 2, 9),
+    "firstAuditRow": row_values("Audit Log", 2, 10),
 }
 print(json.dumps(payload))
 """#

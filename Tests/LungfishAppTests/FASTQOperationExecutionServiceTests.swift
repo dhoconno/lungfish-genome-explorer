@@ -2310,7 +2310,15 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         let runner = SpyCommandRunner { invocation, outputDirectory in
             XCTAssertTrue(invocation.arguments.contains(inputBundle.path))
             XCTAssertFalse(invocation.arguments.contains(materializedURL.path))
-            let sampleBundle = try FASTQOperationTestHelper.makeBundle(named: "LF1001", in: outputDirectory)
+            let outputFlagIndex = try XCTUnwrap(invocation.arguments.firstIndex(of: "--output"))
+            let outputTarget = URL(fileURLWithPath: invocation.arguments[outputFlagIndex + 1], isDirectory: true)
+            XCTAssertFalse(
+                FileManager.default.fileExists(atPath: outputTarget.path),
+                "ONT Fluidigm materializer rejects pre-existing output directories."
+            )
+            XCTAssertEqual(outputTarget.deletingLastPathComponent(), outputDirectory.standardizedFileURL)
+            try FileManager.default.createDirectory(at: outputTarget, withIntermediateDirectories: true)
+            let sampleBundle = try FASTQOperationTestHelper.makeBundle(named: "LF1001", in: outputTarget)
             try FASTQOperationTestHelper.writeSyntheticFASTQ(to: sampleBundle.fastqURL, readCount: 1, readLength: 20)
             return FASTQCLIExecutionResult(outputURLs: [sampleBundle.bundleURL])
         }

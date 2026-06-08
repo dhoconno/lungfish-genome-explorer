@@ -671,164 +671,99 @@ extension MainSplitViewController {
             return
         }
 
-        // Ask for ONT-specific import options before creating scientific data.
+        // Ask for import options before creating scientific data. ONT run folders
+        // use the shared FASTQ import sheet so the default path is a plain import
+        // and barcode sample sheets are requested only by recipes that need them.
         let importer = ONTDirectoryImporter()
         let layout = try? importer.detectLayout(at: sourceURL)
-        let hasUnclassified = layout?.hasUnclassified ?? false
 
         if let window = self.view.window ?? NSApp.keyWindow {
-            let alert = NSAlert()
-            alert.messageText = "ONT Directory Import"
+            let summaryText: String
             if let layout {
-                alert.informativeText = "Found \(layout.barcodeDirectories.count) barcode directories. Choose the import recipe for this ONT run folder."
+                let totalSize = layout.barcodeDirectories
+                    .flatMap(\.chunkFiles)
+                    .reduce(Int64(0)) { total, url in
+                        let size = ((try? FileManager.default.attributesOfItem(atPath: url.path)[.size]) as? Int64) ?? 0
+                        return total + size
+                    }
+                summaryText = [
+                    "ONT run folder: \(sourceURL.lastPathComponent)",
+                    "Found \(layout.barcodeDirectories.count) barcode directories.",
+                    "Total size: \(formatFASTQImportBytes(totalSize))"
+                ].joined(separator: "\n")
             } else {
-                alert.informativeText = "Choose the import recipe for this ONT run folder."
-            }
-            let importButton = alert.addButton(withTitle: "Import")
-            alert.addButton(withTitle: "Cancel")
-
-            let stack = NSStackView()
-            stack.orientation = .vertical
-            stack.alignment = .leading
-            stack.spacing = 10
-
-            let recipeRow = NSStackView()
-            recipeRow.orientation = .horizontal
-            recipeRow.alignment = .centerY
-            recipeRow.spacing = 8
-            let recipeLabel = NSTextField(labelWithString: "Recipe")
-            recipeLabel.alignment = .right
-            recipeLabel.widthAnchor.constraint(equalToConstant: 112).isActive = true
-            let recipePopup = NSPopUpButton(frame: .zero, pullsDown: false)
-            recipePopup.addItems(withTitles: ONTDirectoryImportRecipe.allCases.map(\.displayName))
-            recipePopup.selectItem(withTitle: ONTDirectoryImportRecipe.sampleSplit.displayName)
-            recipePopup.toolTip = "Select whether this ONT run should be split into counted sample FASTQ bundles or imported with the legacy barcode-directory storage."
-            recipePopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 330).isActive = true
-            recipeRow.addArrangedSubview(recipeLabel)
-            recipeRow.addArrangedSubview(recipePopup)
-            stack.addArrangedSubview(recipeRow)
-
-            let recipeExplanationLabel = NSTextField(wrappingLabelWithString: ONTDirectoryImportRecipe.sampleSplit.explanation)
-            recipeExplanationLabel.textColor = .secondaryLabelColor
-            recipeExplanationLabel.maximumNumberOfLines = 3
-            recipeExplanationLabel.widthAnchor.constraint(equalToConstant: 520).isActive = true
-            stack.addArrangedSubview(recipeExplanationLabel)
-
-            let barcodeRow = NSStackView()
-            barcodeRow.orientation = .horizontal
-            barcodeRow.alignment = .centerY
-            barcodeRow.spacing = 8
-            let barcodeLabel = NSTextField(labelWithString: "Barcode Definition")
-            barcodeLabel.alignment = .right
-            barcodeLabel.widthAnchor.constraint(equalToConstant: 112).isActive = true
-            let barcodeDefinitionPopup = NSPopUpButton(frame: .zero, pullsDown: false)
-            barcodeDefinitionPopup.toolTip = "CSV, TSV, or text file containing sample names and Fluidigm barcode sequences."
-            barcodeDefinitionPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 300).isActive = true
-            let chooseBarcodeDefinitionButton = NSButton(title: "Choose...", target: nil, action: nil)
-            barcodeRow.addArrangedSubview(barcodeLabel)
-            barcodeRow.addArrangedSubview(barcodeDefinitionPopup)
-            barcodeRow.addArrangedSubview(chooseBarcodeDefinitionButton)
-            stack.addArrangedSubview(barcodeRow)
-
-            let barcodeDefinitionStatusLabel = NSTextField(wrappingLabelWithString: "")
-            barcodeDefinitionStatusLabel.textColor = .secondaryLabelColor
-            barcodeDefinitionStatusLabel.maximumNumberOfLines = 2
-            barcodeDefinitionStatusLabel.widthAnchor.constraint(equalToConstant: 520).isActive = true
-            stack.addArrangedSubview(barcodeDefinitionStatusLabel)
-
-            let optimizeStorageButton = NSButton(
-                checkboxWithTitle: "Optimize flattened FASTQ with clumpify",
-                target: nil,
-                action: nil
-            )
-            optimizeStorageButton.state = .off
-            optimizeStorageButton.toolTip = "Runs clumpify after flattened import. This can reduce storage size, but requires the managed BBTools environment."
-            stack.addArrangedSubview(optimizeStorageButton)
-
-            let includeUnclassifiedButton: NSButton?
-            if hasUnclassified {
-                let checkbox = NSButton(checkboxWithTitle: "Include unclassified reads", target: nil, action: nil)
-                checkbox.state = .off
-                stack.addArrangedSubview(checkbox)
-                includeUnclassifiedButton = checkbox
-            } else {
-                includeUnclassifiedButton = nil
+                summaryText = [
+                    "ONT run folder: \(sourceURL.lastPathComponent)",
+                    "Total size: \(formatFASTQImportBytes(0))"
+                ].joined(separator: "\n")
             }
 
-            let accessoryController = ONTImportOptionsAccessoryController(
-                recipePopup: recipePopup,
-                recipeExplanationLabel: recipeExplanationLabel,
-                barcodeDefinitionPopup: barcodeDefinitionPopup,
-                chooseBarcodeDefinitionButton: chooseBarcodeDefinitionButton,
-                barcodeDefinitionStatusLabel: barcodeDefinitionStatusLabel,
-                optimizeStorageButton: optimizeStorageButton,
-                includeUnclassifiedButton: includeUnclassifiedButton,
-                importButton: importButton,
+            FASTQImportConfigSheet.present(
+                on: window,
+                pairs: [FASTQFilePair(r1: sourceURL, r2: nil)],
+                detectedPlatform: .oxfordNanopore,
+                summaryOverride: summaryText,
+                recipeOptions: [.ontFluidigmSampleSplit],
                 projectURL: projectURL,
-                barcodeDefinitionCandidates: projectBarcodeDefinitionCandidates(in: projectURL)
-            )
-
-            stack.frame = NSRect(x: 0, y: 0, width: 560, height: hasUnclassified ? 212 : 184)
-            alert.accessoryView = stack
-            alert.applyLungfishBranding()
-            alert.beginSheetModal(for: window) { [weak self] response in
-                _ = accessoryController
-                guard response == .alertFirstButtonReturn else {
-                    self?.postSidebarFileDropCompleted(
-                        requestID: requestID,
-                        sourceURL: sourceURL,
-                        success: true,
-                        error: nil
-                    )
-                    return
-                }
-                MainActor.assumeIsolated {
-                    switch accessoryController.selectedRecipe {
-                    case .sampleSplit:
-                        guard let barcodeDefinitionURL = accessoryController.selectedBarcodeDefinitionURL else {
+                barcodeDefinitionCandidates: projectBarcodeDefinitionCandidates(in: projectURL),
+                onImport: { [weak self] config in
+                    if config.recipeName == FASTQImportSheetRecipeOption.ontFluidigmSampleSplit.id {
+                        guard let barcodePath = config.resolvedPlaceholders["barcodeDefinition"],
+                              !barcodePath.isEmpty else {
                             self?.postSidebarFileDropCompleted(
                                 requestID: requestID,
                                 sourceURL: sourceURL,
                                 success: false,
-                                error: "Choose a barcode definition before importing."
+                                error: "Choose a barcode sample sheet before importing."
                             )
                             return
                         }
                         self?.performONTFluidigmSampleSplit(
                             sourceURL: sourceURL,
                             projectURL: projectURL,
-                            barcodeDefinitionsURL: barcodeDefinitionURL,
+                            barcodeDefinitionsURL: URL(fileURLWithPath: barcodePath),
                             viewerController: viewerController,
                             requestID: requestID
                         )
-                    case .keepChunks:
+                    } else {
+                        let optimizeStorage = !config.skipClumpify
                         self?.performONTImport(
-                            sourceURL: sourceURL, projectURL: projectURL,
-                            includeUnclassified: includeUnclassifiedButton?.state == .on,
-                            storageMode: .chunked,
-                            optimizeStorage: false,
-                            viewerController: viewerController, requestID: requestID
-                        )
-                    case .flattened:
-                        self?.performONTImport(
-                            sourceURL: sourceURL, projectURL: projectURL,
-                            includeUnclassified: includeUnclassifiedButton?.state == .on,
-                            storageMode: .flattened,
-                            optimizeStorage: optimizeStorageButton.state == .on,
-                            viewerController: viewerController, requestID: requestID
+                            sourceURL: sourceURL,
+                            projectURL: projectURL,
+                            includeUnclassified: false,
+                            storageMode: optimizeStorage ? .flattened : .chunked,
+                            optimizeStorage: optimizeStorage,
+                            qualityBinning: config.qualityBinning,
+                            viewerController: viewerController,
+                            requestID: requestID
                         )
                     }
+                },
+                onCancel: { [weak self] in
+                    self?.postSidebarFileDropCompleted(
+                        requestID: requestID,
+                        sourceURL: sourceURL,
+                        success: false,
+                        error: "Cancelled by user"
+                    )
                 }
-            }
+            )
         } else {
             performONTImport(
                 sourceURL: sourceURL, projectURL: projectURL,
                 includeUnclassified: false,
                 storageMode: .chunked,
                 optimizeStorage: false,
+                qualityBinning: .none,
                 viewerController: viewerController, requestID: requestID
             )
         }
+    }
+
+    private func formatFASTQImportBytes(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
     }
 
     func projectBarcodeDefinitionCandidates(in projectURL: URL?) -> [URL] {
@@ -965,6 +900,7 @@ extension MainSplitViewController {
         includeUnclassified: Bool,
         storageMode: ONTImportStorageMode,
         optimizeStorage: Bool,
+        qualityBinning: QualityBinningScheme,
         viewerController: ViewerViewController, requestID: String?
     ) {
         viewerController.showProgress("Importing ONT directory\u{2026}")
@@ -979,7 +915,7 @@ extension MainSplitViewController {
                     includeUnclassified: includeUnclassified,
                     storageMode: storageMode,
                     optimizeStorage: optimizeStorage,
-                    qualityBinning: .none,
+                    qualityBinning: qualityBinning,
                     routeContext: routeContext
                 )
                 let result = workflowResult.importResult

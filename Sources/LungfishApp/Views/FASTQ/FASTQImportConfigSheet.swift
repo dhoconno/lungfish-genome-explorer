@@ -5,12 +5,69 @@
 import AppKit
 import LungfishIO
 import LungfishWorkflow
+import UniformTypeIdentifiers
 
 
 /// Callback invoked when the user clicks "Import" with configured settings.
 public typealias FASTQImportCompletion = @MainActor (
     _ configuration: FASTQImportConfiguration
 ) -> Void
+
+/// Recipe presentation model used by the shared FASTQ import sheet.
+public struct FASTQImportSheetRecipeOption: Sendable, Equatable {
+    public let id: String
+    public let name: String
+    public let presentationText: String
+    public let requiresBarcodeDefinition: Bool
+
+    public init(
+        id: String,
+        name: String,
+        presentationText: String,
+        requiresBarcodeDefinition: Bool = false
+    ) {
+        self.id = id
+        self.name = name
+        self.presentationText = presentationText
+        self.requiresBarcodeDefinition = requiresBarcodeDefinition
+    }
+
+    public init(recipe: Recipe) {
+        var lines: [String] = []
+        if let purpose = recipe.description?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !purpose.isEmpty {
+            lines.append(purpose)
+        }
+
+        let workflow = recipe.steps
+            .compactMap { $0.label ?? $0.type }
+            .joined(separator: " \u{2192} ")
+        lines.append("Workflow: \(workflow)")
+
+        switch recipe.requiredInput {
+        case .paired: lines.append("Input: paired-end reads")
+        case .single: lines.append("Input: single-end reads")
+        case .any: break
+        }
+
+        self.init(
+            id: recipe.id,
+            name: recipe.name,
+            presentationText: lines.joined(separator: "\n")
+        )
+    }
+
+    public static let ontFluidigmSampleSplit = FASTQImportSheetRecipeOption(
+        id: "ont-fluidigm-sample-split",
+        name: "Split by Fluidigm sample barcodes",
+        presentationText: [
+            "Creates one counted .lungfishfastq bundle per sample using a Fluidigm barcode sample sheet.",
+            "Workflow: detect CS1-CS2 insert \u{2192} assign Fluidigm sample barcode \u{2192} write counted sample FASTQ bundles",
+            "Input: ONT run folder"
+        ].joined(separator: "\n"),
+        requiresBarcodeDefinition: true
+    )
+}
 
 /// Modal sheet that presents import options for FASTQ files before ingestion.
 ///
@@ -26,9 +83,12 @@ public final class FASTQImportConfigSheet: NSViewController {
 
     private let pairs: [FASTQFilePair]
     private let detectedPlatform: LungfishIO.SequencingPlatform
+    private let summaryOverride: String?
+    private let projectURL: URL?
     private let onImport: FASTQImportCompletion?
     private let onCancel: (() -> Void)?
-    private var allV2Recipes: [Recipe] = []
+    private var recipeOptions: [FASTQImportSheetRecipeOption]
+    private var barcodeDefinitionCandidates: [URL]
 
     // MARK: - UI
 
@@ -46,6 +106,11 @@ public final class FASTQImportConfigSheet: NSViewController {
     private let recipeCheckbox = NSButton(checkboxWithTitle: "Apply processing recipe after import", target: nil, action: nil)
     private let recipePopup = NSPopUpButton()
     private let recipeDescLabel = NSTextField(wrappingLabelWithString: "")
+    private let barcodeDefinitionRow = NSStackView()
+    private let barcodeDefinitionLabel = NSTextField(labelWithString: "Barcode Sheet:")
+    private let barcodeDefinitionPopup = NSPopUpButton()
+    private let chooseBarcodeDefinitionButton = NSButton(title: "Choose...", target: nil, action: nil)
+    private let barcodeDefinitionStatusLabel = NSTextField(wrappingLabelWithString: "")
     private let importButton = NSButton(title: "Import", target: nil, action: nil)
     private let cancelButton = NSButton(title: "Cancel", target: nil, action: nil)
 
@@ -54,11 +119,19 @@ public final class FASTQImportConfigSheet: NSViewController {
     public init(
         pairs: [FASTQFilePair],
         detectedPlatform: LungfishIO.SequencingPlatform,
+        summaryOverride: String? = nil,
+        recipeOptions: [FASTQImportSheetRecipeOption]? = nil,
+        projectURL: URL? = nil,
+        barcodeDefinitionCandidates: [URL] = [],
         onImport: FASTQImportCompletion? = nil,
         onCancel: (() -> Void)? = nil
     ) {
         self.pairs = pairs
         self.detectedPlatform = detectedPlatform
+        self.summaryOverride = summaryOverride
+        self.projectURL = projectURL
+        self.recipeOptions = recipeOptions ?? RecipeRegistryV2.allRecipes().map(FASTQImportSheetRecipeOption.init(recipe:))
+        self.barcodeDefinitionCandidates = barcodeDefinitionCandidates
         self.onImport = onImport
         self.onCancel = onCancel
         super.init(nibName: nil, bundle: nil)
@@ -79,6 +152,9 @@ public final class FASTQImportConfigSheet: NSViewController {
     // MARK: - Layout
 
     private func setupUI() {
+        let labelWidth: CGFloat = 110
+        let margin: CGFloat = 20
+
         // Header
         headerLabel.font = .boldSystemFont(ofSize: 14)
         headerLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -181,8 +257,7 @@ public final class FASTQImportConfigSheet: NSViewController {
         view.addSubview(recipeCheckbox)
 
         // Recipe popup
-        allV2Recipes = RecipeRegistryV2.allRecipes()
-        for recipe in allV2Recipes {
+        for recipe in recipeOptions {
             recipePopup.addItem(withTitle: recipe.name)
         }
         recipePopup.font = .systemFont(ofSize: 12)
@@ -201,6 +276,40 @@ public final class FASTQImportConfigSheet: NSViewController {
         recipeDescLabel.isHidden = true
         view.addSubview(recipeDescLabel)
 
+        // Barcode sample-sheet controls for recipes that require them.
+        barcodeDefinitionRow.orientation = .horizontal
+        barcodeDefinitionRow.alignment = .centerY
+        barcodeDefinitionRow.spacing = 8
+        barcodeDefinitionRow.translatesAutoresizingMaskIntoConstraints = false
+        barcodeDefinitionRow.isHidden = true
+        view.addSubview(barcodeDefinitionRow)
+
+        barcodeDefinitionLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        barcodeDefinitionLabel.alignment = .right
+        barcodeDefinitionLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        barcodeDefinitionLabel.widthAnchor.constraint(equalToConstant: labelWidth).isActive = true
+        barcodeDefinitionRow.addArrangedSubview(barcodeDefinitionLabel)
+
+        barcodeDefinitionPopup.font = .systemFont(ofSize: 12)
+        barcodeDefinitionPopup.toolTip = "CSV, TSV, or text file containing sample names and Fluidigm barcode sequences."
+        barcodeDefinitionPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 260).isActive = true
+        barcodeDefinitionPopup.target = self
+        barcodeDefinitionPopup.action = #selector(barcodeDefinitionChanged(_:))
+        barcodeDefinitionRow.addArrangedSubview(barcodeDefinitionPopup)
+
+        chooseBarcodeDefinitionButton.bezelStyle = .rounded
+        chooseBarcodeDefinitionButton.target = self
+        chooseBarcodeDefinitionButton.action = #selector(chooseBarcodeDefinition(_:))
+        barcodeDefinitionRow.addArrangedSubview(chooseBarcodeDefinitionButton)
+
+        barcodeDefinitionStatusLabel.font = .systemFont(ofSize: 11)
+        barcodeDefinitionStatusLabel.textColor = .secondaryLabelColor
+        barcodeDefinitionStatusLabel.translatesAutoresizingMaskIntoConstraints = false
+        barcodeDefinitionStatusLabel.maximumNumberOfLines = 2
+        barcodeDefinitionStatusLabel.preferredMaxLayoutWidth = 400
+        barcodeDefinitionStatusLabel.isHidden = true
+        view.addSubview(barcodeDefinitionStatusLabel)
+
         // Bottom buttons
         importButton.bezelStyle = .rounded
         importButton.keyEquivalent = "\r"
@@ -217,8 +326,6 @@ public final class FASTQImportConfigSheet: NSViewController {
         view.addSubview(cancelButton)
 
         // Constraints
-        let labelWidth: CGFloat = 110
-        let margin: CGFloat = 20
         NSLayoutConstraint.activate([
             // Header
             headerLabel.topAnchor.constraint(equalTo: view.topAnchor, constant: margin),
@@ -281,6 +388,13 @@ public final class FASTQImportConfigSheet: NSViewController {
             recipeDescLabel.leadingAnchor.constraint(equalTo: recipePopup.leadingAnchor),
             recipeDescLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -margin),
 
+            barcodeDefinitionRow.topAnchor.constraint(equalTo: recipeDescLabel.bottomAnchor, constant: 8),
+            barcodeDefinitionRow.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: margin),
+
+            barcodeDefinitionStatusLabel.topAnchor.constraint(equalTo: barcodeDefinitionRow.bottomAnchor, constant: 4),
+            barcodeDefinitionStatusLabel.leadingAnchor.constraint(equalTo: recipePopup.leadingAnchor),
+            barcodeDefinitionStatusLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -margin),
+
             // Bottom buttons
             importButton.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -margin),
             importButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -margin),
@@ -290,11 +404,18 @@ public final class FASTQImportConfigSheet: NSViewController {
             cancelButton.trailingAnchor.constraint(equalTo: importButton.leadingAnchor, constant: -8),
             cancelButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 80),
         ])
+
+        populateBarcodeDefinitions()
+        updateRecipeControls()
     }
 
     // MARK: - Summary
 
     private func updateSummary() {
+        if let summaryOverride {
+            summaryLabel.stringValue = summaryOverride
+            return
+        }
         if pairs.count == 1 {
             let pair = pairs[0]
             if let r2 = pair.r2 {
@@ -352,45 +473,127 @@ public final class FASTQImportConfigSheet: NSViewController {
     }
 
     @objc private func recipeToggled(_ sender: Any) {
-        let show = recipeCheckbox.state == .on
-        recipePopup.isHidden = !show
-        recipeDescLabel.isHidden = !show
-        if show { updateRecipeDescription() }
+        updateRecipeControls()
     }
 
     @objc private func recipeChanged(_ sender: Any) {
-        updateRecipeDescription()
+        updateRecipeControls()
+    }
+
+    @objc private func barcodeDefinitionChanged(_ sender: NSPopUpButton) {
+        updateRecipeControls()
+    }
+
+    @objc private func chooseBarcodeDefinition(_ sender: NSButton) {
+        let panel = NSOpenPanel()
+        panel.title = "Choose Barcode Sample Sheet"
+        panel.message = "Select a CSV, TSV, or text file containing sample names and Fluidigm barcode sequences."
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [
+            UTType(filenameExtension: "csv"),
+            UTType(filenameExtension: "tsv"),
+            .plainText,
+        ].compactMap { $0 }
+
+        let completion: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard response == .OK, let url = panel.url?.standardizedFileURL else { return }
+            Task { @MainActor in
+                self?.selectBarcodeDefinition(url)
+            }
+        }
+
+        if let window = sender.window {
+            panel.beginSheetModal(for: window, completionHandler: completion)
+        } else {
+            panel.begin(completionHandler: completion)
+        }
+    }
+
+    private func updateRecipeControls() {
+        let showRecipe = recipeCheckbox.state == .on && !recipeOptions.isEmpty
+        recipePopup.isHidden = !showRecipe
+        recipeDescLabel.isHidden = !showRecipe
+        if showRecipe {
+            updateRecipeDescription()
+        } else {
+            recipeDescLabel.stringValue = ""
+        }
+
+        let requiresBarcodeDefinition = showRecipe && (selectedRecipeOption?.requiresBarcodeDefinition == true)
+        barcodeDefinitionRow.isHidden = !requiresBarcodeDefinition
+        barcodeDefinitionStatusLabel.isHidden = !requiresBarcodeDefinition
+
+        if requiresBarcodeDefinition {
+            barcodeDefinitionPopup.isEnabled = !barcodeDefinitionCandidates.isEmpty
+            chooseBarcodeDefinitionButton.isEnabled = true
+            if let selectedBarcodeDefinitionURL {
+                barcodeDefinitionStatusLabel.stringValue = "Using \(displayPath(for: selectedBarcodeDefinitionURL))."
+            } else {
+                barcodeDefinitionStatusLabel.stringValue = "Choose a barcode sample sheet before importing."
+            }
+            importButton.isEnabled = selectedBarcodeDefinitionURL != nil
+        } else {
+            importButton.isEnabled = true
+        }
     }
 
     private func updateRecipeDescription() {
         let idx = recipePopup.indexOfSelectedItem
-        guard idx >= 0, idx < allV2Recipes.count else {
+        guard idx >= 0, idx < recipeOptions.count else {
             recipeDescLabel.stringValue = ""
             return
         }
-        let recipe = allV2Recipes[idx]
-        recipeDescLabel.stringValue = recipePresentationText(for: recipe)
+        let recipe = recipeOptions[idx]
+        recipeDescLabel.stringValue = recipe.presentationText
     }
 
-    private func recipePresentationText(for recipe: Recipe) -> String {
-        var lines: [String] = []
-        if let purpose = recipe.description?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !purpose.isEmpty {
-            lines.append(purpose)
+    private var selectedRecipeOption: FASTQImportSheetRecipeOption? {
+        let idx = recipePopup.indexOfSelectedItem
+        guard idx >= 0, idx < recipeOptions.count else { return nil }
+        return recipeOptions[idx]
+    }
+
+    private var selectedBarcodeDefinitionURL: URL? {
+        barcodeDefinitionPopup.selectedItem?.representedObject as? URL
+    }
+
+    private func populateBarcodeDefinitions() {
+        barcodeDefinitionPopup.removeAllItems()
+        if barcodeDefinitionCandidates.isEmpty {
+            barcodeDefinitionPopup.addItem(withTitle: "Choose a barcode sample sheet...")
+            barcodeDefinitionPopup.lastItem?.isEnabled = false
+        } else {
+            for url in barcodeDefinitionCandidates {
+                barcodeDefinitionPopup.addItem(withTitle: displayPath(for: url))
+                barcodeDefinitionPopup.lastItem?.representedObject = url.standardizedFileURL
+            }
+            barcodeDefinitionPopup.selectItem(at: 0)
         }
+    }
 
-        let workflow = recipe.steps
-            .compactMap { $0.label ?? $0.type }
-            .joined(separator: " \u{2192} ")
-        lines.append("Workflow: \(workflow)")
-
-        switch recipe.requiredInput {
-        case .paired: lines.append("Input: paired-end reads")
-        case .single: lines.append("Input: single-end reads")
-        case .any: break
+    private func selectBarcodeDefinition(_ url: URL) {
+        if !barcodeDefinitionCandidates.contains(where: { $0.standardizedFileURL == url.standardizedFileURL }) {
+            barcodeDefinitionCandidates.append(url.standardizedFileURL)
+            barcodeDefinitionCandidates.sort {
+                displayPath(for: $0).localizedStandardCompare(displayPath(for: $1)) == .orderedAscending
+            }
+            populateBarcodeDefinitions()
         }
+        for index in 0..<barcodeDefinitionPopup.numberOfItems {
+            guard let itemURL = barcodeDefinitionPopup.item(at: index)?.representedObject as? URL,
+                  itemURL.standardizedFileURL == url.standardizedFileURL else {
+                continue
+            }
+            barcodeDefinitionPopup.selectItem(at: index)
+            break
+        }
+        updateRecipeControls()
+    }
 
-        return lines.joined(separator: "\n")
+    private func displayPath(for url: URL) -> String {
+        WorkflowOperationDialogState.displayPath(for: url, relativeTo: projectURL)
     }
 
     @objc private func importClicked(_ sender: Any) {
@@ -402,12 +605,13 @@ public final class FASTQImportConfigSheet: NSViewController {
         let recipe: ProcessingRecipe? = nil
 
         // V2 recipe name from the popup (if recipe checkbox is on and a recipe is selected)
-        let selectedRecipeName: String? = {
-            guard recipeCheckbox.state == .on,
-                  recipePopup.indexOfSelectedItem >= 0,
-                  recipePopup.indexOfSelectedItem < allV2Recipes.count else { return nil }
-            return allV2Recipes[recipePopup.indexOfSelectedItem].id
-        }()
+        let chosenRecipeOption = recipeCheckbox.state == .on ? self.selectedRecipeOption : nil
+        let selectedRecipeName = chosenRecipeOption?.id
+        var resolvedPlaceholders: [String: String] = [:]
+        if chosenRecipeOption?.requiresBarcodeDefinition == true,
+           let barcodeDefinitionURL = selectedBarcodeDefinitionURL {
+            resolvedPlaceholders["barcodeDefinition"] = barcodeDefinitionURL.path
+        }
 
         let compressionLevel: CompressionLevel = {
             switch compressionPopup.indexOfSelectedItem {
@@ -429,7 +633,7 @@ public final class FASTQImportConfigSheet: NSViewController {
             skipClumpify: skipClumpify,
             deleteOriginals: false,
             postImportRecipe: recipe,
-            resolvedPlaceholders: [:],
+            resolvedPlaceholders: resolvedPlaceholders,
             recipeName: selectedRecipeName,
             compressionLevel: compressionLevel
         )
@@ -467,12 +671,20 @@ public final class FASTQImportConfigSheet: NSViewController {
         on window: NSWindow,
         pairs: [FASTQFilePair],
         detectedPlatform: LungfishIO.SequencingPlatform,
+        summaryOverride: String? = nil,
+        recipeOptions: [FASTQImportSheetRecipeOption]? = nil,
+        projectURL: URL? = nil,
+        barcodeDefinitionCandidates: [URL] = [],
         onImport: FASTQImportCompletion? = nil,
         onCancel: (() -> Void)? = nil
     ) {
         let controller = FASTQImportConfigSheet(
             pairs: pairs,
             detectedPlatform: detectedPlatform,
+            summaryOverride: summaryOverride,
+            recipeOptions: recipeOptions,
+            projectURL: projectURL,
+            barcodeDefinitionCandidates: barcodeDefinitionCandidates,
             onImport: onImport,
             onCancel: onCancel
         )

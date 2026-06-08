@@ -14,6 +14,18 @@ public struct GenotypeResultArtifactRow: Equatable {
     }
 }
 
+public struct GenotypeResultCurrentWorkbookUpdateState: Equatable {
+    public var manualChangeCount: Int
+    public var statusText: String
+    public var isEnabled: Bool
+
+    public init(manualChangeCount: Int, statusText: String, isEnabled: Bool) {
+        self.manualChangeCount = manualChangeCount
+        self.statusText = statusText
+        self.isEnabled = isEnabled
+    }
+}
+
 public struct GenotypeResultDocumentState: Equatable {
     public var title: String
     public var subtitle: String?
@@ -30,6 +42,7 @@ public struct GenotypeResultDocumentState: Equatable {
     public var auditEntries: [GenotypeAnnotationSidecar.AuditEntry] = []
     public var haplotypeDefinitionRows: [(String, String)] = []
     public var haplotypeDefinitionsFolderURL: URL?
+    public var currentWorkbookUpdate: GenotypeResultCurrentWorkbookUpdateState?
 
     public init(
         title: String,
@@ -46,7 +59,8 @@ public struct GenotypeResultDocumentState: Equatable {
         smartCohorts: [GenotypeSmartCohortSection.DisplayedCohort] = [],
         auditEntries: [GenotypeAnnotationSidecar.AuditEntry] = [],
         haplotypeDefinitionRows: [(String, String)] = [],
-        haplotypeDefinitionsFolderURL: URL? = nil
+        haplotypeDefinitionsFolderURL: URL? = nil,
+        currentWorkbookUpdate: GenotypeResultCurrentWorkbookUpdateState? = nil
     ) {
         self.title = title
         self.subtitle = subtitle
@@ -63,6 +77,7 @@ public struct GenotypeResultDocumentState: Equatable {
         self.auditEntries = auditEntries
         self.haplotypeDefinitionRows = haplotypeDefinitionRows
         self.haplotypeDefinitionsFolderURL = haplotypeDefinitionsFolderURL
+        self.currentWorkbookUpdate = currentWorkbookUpdate
     }
 
     public func replacing(sampleMetadataStore: SampleMetadataStore?) -> GenotypeResultDocumentState {
@@ -89,6 +104,14 @@ public struct GenotypeResultDocumentState: Equatable {
         return copy
     }
 
+    public func replacing(
+        currentWorkbookUpdate: GenotypeResultCurrentWorkbookUpdateState?
+    ) -> GenotypeResultDocumentState {
+        var copy = self
+        copy.currentWorkbookUpdate = currentWorkbookUpdate
+        return copy
+    }
+
     public static func == (
         lhs: GenotypeResultDocumentState,
         rhs: GenotypeResultDocumentState
@@ -108,7 +131,8 @@ public struct GenotypeResultDocumentState: Equatable {
             lhs.smartCohorts == rhs.smartCohorts &&
             lhs.auditEntries == rhs.auditEntries &&
             lhs.haplotypeDefinitionRows.elementsEqual(rhs.haplotypeDefinitionRows, by: { $0.0 == $1.0 && $0.1 == $1.1 }) &&
-            lhs.haplotypeDefinitionsFolderURL == rhs.haplotypeDefinitionsFolderURL
+            lhs.haplotypeDefinitionsFolderURL == rhs.haplotypeDefinitionsFolderURL &&
+            lhs.currentWorkbookUpdate == rhs.currentWorkbookUpdate
     }
 }
 
@@ -119,12 +143,14 @@ public struct GenotypeResultDocumentSection: View {
     var onSmartCohortSelected: ((GenotypeCohortSmartFilter) -> Void)? = nil
     var onSmartCohortDeleted: ((GenotypeCohortSmartFilter) -> Void)? = nil
     var onSmartCohortAddRequested: (() -> Void)? = nil
+    var onCurrentWorkbookUpdateRequested: (() -> Void)? = nil
 
     @State private var isSummaryExpanded = true
     @State private var isQCExpanded = true
     @State private var isArtifactsExpanded = true
     @State private var isSamplesExpanded = true
     @State private var isViewModeExpanded = true
+    @State private var isCurrentWorkbookExpanded = true
     @State private var isAuditTimelineExpanded = false
 
     public init(
@@ -133,7 +159,8 @@ public struct GenotypeResultDocumentSection: View {
         onShowsAncillaryLociChange: ((Bool) -> Void)? = nil,
         onSmartCohortSelected: ((GenotypeCohortSmartFilter) -> Void)? = nil,
         onSmartCohortDeleted: ((GenotypeCohortSmartFilter) -> Void)? = nil,
-        onSmartCohortAddRequested: (() -> Void)? = nil
+        onSmartCohortAddRequested: (() -> Void)? = nil,
+        onCurrentWorkbookUpdateRequested: (() -> Void)? = nil
     ) {
         self.state = state
         self.onViewModeChange = onViewModeChange
@@ -141,6 +168,7 @@ public struct GenotypeResultDocumentSection: View {
         self.onSmartCohortSelected = onSmartCohortSelected
         self.onSmartCohortDeleted = onSmartCohortDeleted
         self.onSmartCohortAddRequested = onSmartCohortAddRequested
+        self.onCurrentWorkbookUpdateRequested = onCurrentWorkbookUpdateRequested
     }
 
     public var body: some View {
@@ -154,6 +182,10 @@ public struct GenotypeResultDocumentSection: View {
             summarySection
             Divider()
             samplesSection
+            if state.currentWorkbookUpdate != nil {
+                Divider()
+                currentWorkbookSection
+            }
             if !state.haplotypeDefinitionRows.isEmpty {
                 Divider()
                 haplotypeDefinitionsSection
@@ -306,6 +338,31 @@ public struct GenotypeResultDocumentSection: View {
 
                 if let store = state.sampleMetadataStore {
                     SampleMetadataSection(store: store)
+                }
+            }
+            .padding(.top, 4)
+        }
+        .font(.caption.weight(.semibold))
+    }
+
+    private var currentWorkbookSection: some View {
+        DisclosureGroup("Current Workbook", isExpanded: $isCurrentWorkbookExpanded) {
+            VStack(alignment: .leading, spacing: 8) {
+                if let update = state.currentWorkbookUpdate {
+                    Text(update.statusText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("Update current.xlsx") {
+                        onCurrentWorkbookUpdateRequested?()
+                    }
+                    .controlSize(.small)
+                    .disabled(!update.isEnabled)
+                    .help("Apply Review viewport haplotype edits and audit timeline to artifacts/workbooks/current.xlsx.")
+                    Text("Writes displayed haplotype calls, Overrides, and Audit Log worksheets.")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .padding(.top, 4)

@@ -285,6 +285,33 @@ extension MainSplitViewController {
             controller.onAnnotationSidecarChanged = { [weak self] sidecar in
                 self?.inspectorController.updateGenotypeAnnotationSidecar(sidecar)
             }
+            controller.onCurrentWorkbookUpdateRequested = { [weak self, weak controller] bundleURL, calls in
+                guard let self else { return }
+                guard self.canWriteProjectOutputs(workflowName: "Update current.xlsx") else { return }
+                let annotationURL = ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: bundleURL)
+                let routeContext = OperationRouteContext(
+                    projectURL: self.sidebarController.currentProjectURL,
+                    windowStateScope: self.projectSession.windowStateScope
+                )
+                Task { @MainActor [weak self, weak controller] in
+                    guard let self else { return }
+                    do {
+                        try await GenotypeCurrentWorkbookUpdateExecutionService().run(
+                            bundleURL: bundleURL,
+                            calls: calls,
+                            annotationSidecarURL: annotationURL,
+                            routeContext: routeContext
+                        )
+                        let updated = try ONTGenotypeResultBundle.loadResult(from: bundleURL)
+                        controller?.applyCurrentWorkbookUpdateCompleted(result: updated)
+                        self.inspectorController.updateGenotypeResultDocument(updated)
+                        self.sidebarController.reloadFromFilesystem()
+                    } catch {
+                        controller?.applyCurrentWorkbookUpdateFailed(error)
+                        (NSApp.delegate as? AppDelegate)?.showOperationsPanel(nil)
+                    }
+                }
+            }
             inspectorController.onGenotypeResultDisplayStateChanged = { [weak controller] state in
                 controller?.applyDisplayState(state)
             }

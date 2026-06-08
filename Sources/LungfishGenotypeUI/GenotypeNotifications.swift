@@ -27,6 +27,10 @@ public extension Notification.Name {
     /// `userInfo["cohort"]` is the `GenotypeCohortSmartFilter` JSON.
     static let genotypeResultSmartCohortDeleteRequested = Notification.Name("com.lungfish.genotypeResultSmartCohortDeleteRequested")
 
+    /// Posted when the analyst requests applying Review viewport haplotype edits
+    /// and the audit timeline to the bundle's `artifacts/workbooks/current.xlsx`.
+    static let genotypeResultCurrentWorkbookUpdateRequested = Notification.Name("com.lungfish.genotypeResultCurrentWorkbookUpdateRequested")
+
     /// Posted when the analyst clicks "Edit calls…" in the Selected Item
     /// Inspector tab for a `.lungfishgenotype` bundle. The viewport reopens
     /// the Sample Detail sheet for the named sample. `userInfo["sample"]` is

@@ -100,11 +100,33 @@ final class GUIRegressionTests: XCTestCase {
             OperationCenter.buildCLICommand(subcommand: "fastq import-ont", args: [])
                 .contains("'fastq import-ont'")
         )
-        XCTAssertTrue(mainSplitSource.contains("Split by Fluidigm sample barcodes"))
-        XCTAssertTrue(mainSplitSource.contains("Barcode Definition"))
+        XCTAssertTrue(mainSplitSource.contains("FASTQImportConfigSheet.present("))
+        XCTAssertTrue(mainSplitSource.contains("detectedPlatform: .oxfordNanopore"))
+        XCTAssertTrue(mainSplitSource.contains("recipeOptions: [.ontFluidigmSampleSplit]"))
+        XCTAssertTrue(mainSplitSource.contains("let optimizeStorage = !config.skipClumpify"))
+        XCTAssertTrue(mainSplitSource.contains("storageMode: optimizeStorage ? .flattened : .chunked"))
+        XCTAssertTrue(mainSplitSource.contains("qualityBinning: config.qualityBinning"))
         XCTAssertTrue(mainSplitSource.contains("performONTFluidigmSampleSplit"))
         XCTAssertTrue(mainSplitSource.contains("FASTQOperationLaunchRequest.ontFluidigmSampleSplit"))
-        XCTAssertTrue(mainSplitSource.contains("recipePopup.selectItem(withTitle: ONTDirectoryImportRecipe.sampleSplit.displayName)"))
+        XCTAssertFalse(mainSplitSource.contains("alert.messageText = \"ONT Directory Import\""))
+        XCTAssertFalse(mainSplitSource.contains("recipePopup.selectItem(withTitle: ONTDirectoryImportRecipe.sampleSplit.displayName)"))
+    }
+
+    func testFASTQImportSheetSupportsBarcodeGatedRecipes() throws {
+        let source = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/FASTQ/FASTQImportConfigSheet.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("Apply processing recipe after import"))
+        XCTAssertTrue(source.contains("Split by Fluidigm sample barcodes"))
+        XCTAssertTrue(source.contains("recipeCheckbox.state = .off"))
+        XCTAssertTrue(source.contains("requiresBarcodeDefinition"))
+        XCTAssertTrue(source.contains("Choose Barcode Sample Sheet"))
+        XCTAssertTrue(source.contains("barcodeDefinitionRow.isHidden = !requiresBarcodeDefinition"))
+        XCTAssertTrue(source.contains("importButton.isEnabled = selectedBarcodeDefinitionURL != nil"))
+        XCTAssertTrue(source.contains("resolvedPlaceholders[\"barcodeDefinition\"] = barcodeDefinitionURL.path"))
     }
 
     func testONTDirectoryRoutingExcludesExistingFASTQBundles() throws {
@@ -122,10 +144,6 @@ final class GUIRegressionTests: XCTestCase {
         XCTAssertTrue(
             appDelegateSource.contains("enumerator.skipDescendants()"),
             "Import Center FASTQ routing must not scan preview.fastq or chunk payloads inside existing .lungfishfastq bundles."
-        )
-        XCTAssertTrue(
-            mainSplitSource.contains("recipePopup.widthAnchor.constraint"),
-            "The ONT import recipe popup needs explicit AppKit sizing; otherwise it can render as an empty pulldown in NSAlert."
         )
     }
 

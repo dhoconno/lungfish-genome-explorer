@@ -3,7 +3,7 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class ONTFluidigmAmpliconMaterializerTests: XCTestCase {
-    func testMaterializesPerSampleCountedFullReadFastqsAfterBarcodeAssignment() async throws {
+    func testMaterializesPerSampleCountedInsertFastqsAfterBarcodeAssignment() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -60,25 +60,20 @@ final class ONTFluidigmAmpliconMaterializerTests: XCTestCase {
         let lf2871Records = try await fastqRecords(at: lf2871FASTQ)
         XCTAssertEqual(lf2871Records.map(\.identifier), ["u000001;size=2"])
         XCTAssertEqual(lf2871Records.map(\.sequence), [
-            (cs1 + lf2871Insert + readRightPrimer + "CC" + lf2871Barcode).uppercased()
+            lf2871Insert
         ])
-        XCTAssertTrue(lf2871Records.allSatisfy { $0.sequence.contains(lf2871Barcode) })
-        XCTAssertTrue(lf2871Records.allSatisfy { $0.sequence.contains(cs1) })
-        XCTAssertTrue(lf2871Records.allSatisfy { $0.sequence.contains(readRightPrimer) })
+        XCTAssertFalse(lf2871Records.contains { $0.sequence.contains(lf2871Barcode) })
+        XCTAssertFalse(lf2871Records.contains { $0.sequence.contains(cs1) })
+        XCTAssertFalse(lf2871Records.contains { $0.sequence.contains(readRightPrimer) })
         let lf2871Manifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: lf2871Bundle))
-        XCTAssertEqual(lf2871Manifest.cachedStatistics.readCount, 1)
-        XCTAssertEqual(
-            lf2871Manifest.cachedStatistics.baseCount,
-            Int64((cs1 + lf2871Insert + readRightPrimer + "CC" + lf2871Barcode).count)
-        )
+        XCTAssertEqual(lf2871Manifest.cachedStatistics.readCount, 2)
+        XCTAssertEqual(lf2871Manifest.cachedStatistics.baseCount, Int64(lf2871Insert.count * 2))
 
         let lf2872Bundle = outputDirectory.appendingPathComponent("LF2872.lungfishfastq", isDirectory: true)
         let lf2872FASTQ = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: lf2872Bundle))
         let lf2872Records = try await fastqRecords(at: lf2872FASTQ)
         XCTAssertEqual(lf2872Records.map(\.identifier), ["u000001;size=1"])
-        XCTAssertEqual(lf2872Records.map(\.sequence), [
-            (cs1 + lf2872Insert + readRightPrimer + "AA" + lf2872Barcode).uppercased()
-        ])
+        XCTAssertEqual(lf2872Records.map(\.sequence), [lf2872Insert])
 
         let manifest = try jsonObject(at: result.manifestURL)
         XCTAssertEqual(manifest["inputReadCount"] as? Int, 3)
@@ -88,9 +83,61 @@ final class ONTFluidigmAmpliconMaterializerTests: XCTestCase {
         XCTAssertNotNil(manifest["sampleTotals"])
         let samples = try XCTUnwrap(manifest["samples"] as? [[String: Any]])
         let lf2871Sample = try XCTUnwrap(samples.first { $0["sample"] as? String == "LF2871" })
-        let lf2871FullReadLength = (cs1 + lf2871Insert + readRightPrimer + "CC" + lf2871Barcode).count
-        XCTAssertEqual(lf2871Sample["baseCount"] as? Int, lf2871FullReadLength)
-        XCTAssertEqual(lf2871Sample["weightedBaseCount"] as? Int, lf2871FullReadLength * 2)
+        XCTAssertEqual(lf2871Sample["baseCount"] as? Int, lf2871Insert.count)
+        XCTAssertEqual(lf2871Sample["weightedBaseCount"] as? Int, lf2871Insert.count * 2)
+    }
+
+    func testExtractsCS1CS2InsertBeforeCountingDuplicateSampleReads() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let inputFASTQ = root.appendingPathComponent("barcode11.fastq")
+        let barcodesCSV = root.appendingPathComponent("ONT09_NB11_samples.csv")
+        let outputDirectory = root.appendingPathComponent("ont-fluidigm-amplicons", isDirectory: true)
+
+        let cs1 = ONTFluidigmAmpliconMaterializer.defaultForwardPrimer
+        let cs2 = ONTFluidigmAmpliconMaterializer.defaultReversePrimer
+        let readRightPrimer = Self.reverseComplement(cs2)
+        let barcode = "AAAACCCCGG"
+        let insert = "ACGTACGTACGTACGT"
+        let reads = [
+            ("read-1", "GGTT" + cs1 + insert + readRightPrimer + "CC" + barcode),
+            ("read-2", "TTAA" + cs1 + insert + readRightPrimer + "GGGG" + barcode + "AAAA"),
+        ]
+        let fastq = reads.map { identifier, sequence in
+            "@\(identifier)\n\(sequence)\n+\n\(String(repeating: "I", count: sequence.count))\n"
+        }.joined()
+        try fastq.write(to: inputFASTQ, atomically: true, encoding: .utf8)
+        try """
+        sample,barcode
+        LF2871,\(barcode)
+        """.write(to: barcodesCSV, atomically: true, encoding: .utf8)
+
+        let result = try await ONTFluidigmAmpliconMaterializer().run(
+            ONTFluidigmAmpliconMaterializationRequest(
+                inputURL: inputFASTQ,
+                barcodeDefinitionsURL: barcodesCSV,
+                outputDirectory: outputDirectory,
+                primerMismatches: 0,
+                minimumInsertLength: 8,
+                canonicalizeReverseComplements: false,
+                force: true
+            )
+        )
+
+        XCTAssertEqual(result.inputReadCount, 2)
+        XCTAssertEqual(result.assignedReadCount, 2)
+        XCTAssertEqual(result.extractedReadCount, 2)
+        XCTAssertEqual(result.uniqueSequenceCount, 1)
+
+        let bundle = outputDirectory.appendingPathComponent("LF2871.lungfishfastq", isDirectory: true)
+        let fastqURL = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundle))
+        let records = try await fastqRecords(at: fastqURL)
+        XCTAssertEqual(records.map(\.identifier), ["u000001;size=2"])
+        XCTAssertEqual(records.map(\.sequence), [insert])
+        let manifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: bundle))
+        XCTAssertEqual(manifest.cachedStatistics.readCount, 2)
+        XCTAssertEqual(manifest.cachedStatistics.baseCount, Int64(insert.count * 2))
     }
 
     func testAmpliconBarcodeAssignmentDoesNotCreateMatchesAcrossInvalidBases() async throws {
