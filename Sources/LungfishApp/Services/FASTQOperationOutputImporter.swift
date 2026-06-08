@@ -312,7 +312,7 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
         case .derivative(.demultiplex, _, _):
             return [outputDirectory]
 
-        case .ontFluidigmSampleSplit:
+        case .ontFluidigmSampleSplit, .ontPacBioBarcodeDemux:
             return try rehydrateONTFluidigmSampleBundles(
                 outputURLs,
                 originalRequest: originalRequest,

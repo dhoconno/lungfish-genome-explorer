@@ -801,6 +801,23 @@ extension MainSplitViewController {
                             viewerController: viewerController,
                             requestID: requestID
                         )
+                    case .pacBioBarcodeDemux:
+                        guard let barcodeDefinitionURL = accessoryController.selectedBarcodeDefinitionURL else {
+                            self?.postSidebarFileDropCompleted(
+                                requestID: requestID,
+                                sourceURL: sourceURL,
+                                success: false,
+                                error: "Choose a barcode definition before importing."
+                            )
+                            return
+                        }
+                        self?.performONTPacBioBarcodeDemux(
+                            sourceURL: sourceURL,
+                            projectURL: projectURL,
+                            barcodeDefinitionsURL: barcodeDefinitionURL,
+                            viewerController: viewerController,
+                            requestID: requestID
+                        )
                     case .keepChunks:
                         self?.performONTImport(
                             sourceURL: sourceURL, projectURL: projectURL,
@@ -903,7 +920,22 @@ extension MainSplitViewController {
         Task.detached(priority: .userInitiated) { [weak self, weak viewerController] in
             do {
                 try FileManager.default.createDirectory(at: destinationRoot, withIntermediateDirectories: true)
-                let result = try await executionService.execute(request: request, workingDirectory: workingDirectory)
+                let result = try await executionService.execute(
+                    request: request,
+                    workingDirectory: workingDirectory,
+                    progress: { fraction, message in
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                viewerController?.showProgress(message)
+                                OperationCenter.shared.updateWithLog(
+                                    id: opID,
+                                    progress: fraction,
+                                    detail: message
+                                )
+                            }
+                        }
+                    }
+                )
                 let elapsed = Date().timeIntervalSince(startTime)
                 let completionTarget = result.groupedContainerURL ?? result.importedURLs.first ?? workingDirectory
 
@@ -946,6 +978,116 @@ extension MainSplitViewController {
 
                         let alert = NSAlert()
                         alert.messageText = "ONT Sample Split Failed"
+                        alert.informativeText = "\(error)"
+                        alert.alertStyle = .warning
+                        alert.addButton(withTitle: "OK")
+                        alert.applyLungfishBranding()
+                        if let window = self?.view.window ?? NSApp.keyWindow {
+                            alert.beginSheetModal(for: window) { _ in }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    func performONTPacBioBarcodeDemux(
+        sourceURL: URL,
+        projectURL: URL,
+        barcodeDefinitionsURL: URL,
+        viewerController: ViewerViewController,
+        requestID: String?
+    ) {
+        let request = FASTQOperationLaunchRequest.ontPacBioBarcodeDemux(
+            inputFASTQURL: sourceURL.standardizedFileURL,
+            barcodeDefinitionsURL: barcodeDefinitionsURL.standardizedFileURL,
+            threads: 1,
+            chunkJobs: ONTPacBioBarcodeDemuxMaterializationRequest.defaultChunkJobs,
+            maxReadsPerSlice: 100_000,
+            maxBytesPerCutadapt: 512 * 1024 * 1024
+        )
+        let destinationRoot = projectURL.standardizedFileURL
+        let workingDirectory = uniqueFASTQOperationOutputDirectory(in: destinationRoot, request: request)
+        let executionService = FASTQOperationExecutionService(
+            directImporter: BundleFASTQOperationImporter(destinationDirectory: destinationRoot)
+        )
+        let cliCommand: String? = try? {
+            let invocation = try executionService.buildInvocation(for: request)
+            return ([ "lungfish-cli", invocation.subcommand ] + invocation.arguments).joined(separator: " ")
+        }()
+        let opTitle = "FASTQ: \(request.operationDisplayTitle)"
+        let startTime = Date()
+        let opID = OperationCenter.shared.start(
+            title: opTitle,
+            detail: "Preparing...",
+            operationType: .fastqOperation,
+            cliCommand: cliCommand,
+            routeContext: operationRouteContext
+        )
+        OperationCenter.shared.log(id: opID, level: .info, message: "Starting \(request.operationDisplayTitle)")
+        viewerController.showProgress("Demultiplexing ONT chunks with PacBio barcode pairs...")
+
+        Task.detached(priority: .userInitiated) { [weak self, weak viewerController] in
+            do {
+                try FileManager.default.createDirectory(at: destinationRoot, withIntermediateDirectories: true)
+                let result = try await executionService.execute(
+                    request: request,
+                    workingDirectory: workingDirectory,
+                    progress: { fraction, message in
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                viewerController?.showProgress(message)
+                                OperationCenter.shared.updateWithLog(
+                                    id: opID,
+                                    progress: fraction,
+                                    detail: message
+                                )
+                            }
+                        }
+                    }
+                )
+                let elapsed = Date().timeIntervalSince(startTime)
+                let completionTarget = result.groupedContainerURL ?? result.importedURLs.first ?? workingDirectory
+
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        viewerController?.hideProgress()
+                        OperationCenter.shared.log(
+                            id: opID,
+                            level: .info,
+                            message: "Completed in \(String(format: "%.1f", elapsed))s"
+                        )
+                        OperationCenter.shared.complete(
+                            id: opID,
+                            detail: "Done in \(String(format: "%.1f", elapsed))s"
+                        )
+                        self?.refreshSidebarAndSelectDerivedURL(completionTarget)
+                        self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: true, error: nil)
+                        self?.requestInspectorDocumentModeAfterDownload()
+                    }
+                }
+            } catch {
+                let elapsed = Date().timeIntervalSince(startTime)
+                let errorDesc = error.localizedDescription
+                mainSplitLogger.error("performONTPacBioBarcodeDemux: \(errorDesc, privacy: .public)")
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        viewerController?.hideProgress()
+                        OperationCenter.shared.log(
+                            id: opID,
+                            level: .error,
+                            message: "Failed after \(String(format: "%.1f", elapsed))s: \(errorDesc)"
+                        )
+                        OperationCenter.shared.fail(
+                            id: opID,
+                            detail: "Failed after \(String(format: "%.1f", elapsed))s",
+                            errorMessage: errorDesc,
+                            errorDetail: "\(error)"
+                        )
+                        self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: errorDesc)
+
+                        let alert = NSAlert()
+                        alert.messageText = "ONT PacBio Barcode Demultiplex Failed"
                         alert.informativeText = "\(error)"
                         alert.alertStyle = .warning
                         alert.addButton(withTitle: "OK")

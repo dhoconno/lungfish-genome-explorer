@@ -5,6 +5,27 @@ import LungfishCore
 @testable import LungfishIO
 @testable import LungfishWorkflow
 
+private enum SyntheticCommandFailure: Error {
+    case commandFailed
+}
+
+private final class ProgressRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedEvents: [(Double, String)] = []
+
+    func append(_ fraction: Double, _ message: String) {
+        lock.lock()
+        recordedEvents.append((fraction, message))
+        lock.unlock()
+    }
+
+    func events() -> [(Double, String)] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedEvents
+    }
+}
+
 final class FASTQOperationExecutionServiceTests: XCTestCase {
     func testPlannerSplitsPerInputDerivativeRequestsIntoOnePlanPerInput() throws {
         let planner = FASTQOperationPlanner()
@@ -431,6 +452,185 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: preservedStaging.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: finalBundle.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: callerDirectory.path))
+    }
+
+    func testFASTQCLIProgressEventParsesJSONProgressLines() throws {
+        let event = try XCTUnwrap(FASTQCLIProgressEvent.parse(
+            """
+            {"event":"progress","operation":"ontPacBioBarcodeDemux","progress":0.46,"message":"Processed 1/2 chunks"}
+            """
+        ))
+
+        XCTAssertEqual(event.progress, 0.46, accuracy: 0.0001)
+        XCTAssertEqual(event.message, "Processed 1/2 chunks")
+    }
+
+    func testExecuteForwardsCommandProgressUpdatesToCaller() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecProgress")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let inputURL = tempDir.appendingPathComponent("input.fastq")
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(to: inputURL, readCount: 1, readLength: 16)
+        let outputFASTQ = tempDir.appendingPathComponent("filtered.fastq")
+        let runner = SpyCommandRunner(progressHandler: { _, _, progress in
+            progress(0.46, "Processed 1/2 chunks")
+            try FASTQOperationTestHelper.writeSyntheticFASTQ(to: outputFASTQ, readCount: 1, readLength: 16)
+            return FASTQCLIExecutionResult(outputURLs: [outputFASTQ])
+        })
+        let service = FASTQOperationExecutionService(
+            commandRunner: runner,
+            directImporter: SpyDirectImporter()
+        )
+        let progressRecorder = ProgressRecorder()
+
+        _ = try await service.execute(
+            request: FASTQOperationLaunchRequest.derivative(
+                request: FASTQDerivativeRequest.lengthFilter(min: 10, max: 40),
+                inputURLs: [inputURL],
+                outputMode: FASTQOperationOutputMode.perInput
+            ),
+            workingDirectory: tempDir,
+            progress: { fraction, message in
+                progressRecorder.append(fraction, message)
+            }
+        )
+
+        let progressEvents = progressRecorder.events()
+        XCTAssertEqual(progressEvents.count, 1)
+        XCTAssertEqual(progressEvents[0].0, 0.46, accuracy: 0.0001)
+        XCTAssertEqual(progressEvents[0].1, "Processed 1/2 chunks")
+    }
+
+    func testExecuteDoesNotPrecreateFreshONTPacBioDemuxOutputDirectoryBeforeLaunchingCLI() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecFreshDemuxOutput")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let inputDirectory = tempDir.appendingPathComponent("barcode13", isDirectory: true)
+        try FileManager.default.createDirectory(at: inputDirectory, withIntermediateDirectories: true)
+        let barcodesURL = tempDir.appendingPathComponent("NB13_MHC-I_plate1.barcodes.csv")
+        try "sample,forward,reverse\nLF1001,ACGT,TGCA\n".write(to: barcodesURL, atomically: true, encoding: .utf8)
+        let workingDirectory = tempDir.appendingPathComponent("ont-pacbio-barcode-demultiplex", isDirectory: true)
+
+        let runner = SpyCommandRunner { invocation, processWorkingDirectory in
+            let outputIndex = try XCTUnwrap(invocation.arguments.firstIndex(of: "--output"))
+            let outputURL = URL(fileURLWithPath: invocation.arguments[outputIndex + 1], isDirectory: true)
+            XCTAssertEqual(outputURL.standardizedFileURL, workingDirectory.standardizedFileURL)
+            XCTAssertEqual(processWorkingDirectory.standardizedFileURL, tempDir.standardizedFileURL)
+            XCTAssertFalse(
+                FileManager.default.fileExists(atPath: outputURL.path),
+                "The GUI runner must not pre-create fresh demux output directories before invoking CLI tools that create their own output root."
+            )
+
+            let sampleBundle = try FASTQOperationTestHelper.makeBundle(named: "LF1001", in: outputURL)
+            try FASTQOperationTestHelper.writeSyntheticFASTQ(to: sampleBundle.fastqURL, readCount: 1, readLength: 20)
+            return FASTQCLIExecutionResult(outputURLs: [sampleBundle.bundleURL])
+        }
+        let importer = SpyDirectImporter()
+        let service = FASTQOperationExecutionService(
+            commandRunner: runner,
+            directImporter: importer
+        )
+
+        let result = try await service.execute(
+            request: .ontPacBioBarcodeDemux(
+                inputFASTQURL: inputDirectory,
+                barcodeDefinitionsURL: barcodesURL,
+                threads: 1,
+                chunkJobs: 2,
+                maxReadsPerSlice: 100_000,
+                maxBytesPerCutadapt: 536_870_912
+            ),
+            workingDirectory: workingDirectory
+        )
+
+        XCTAssertEqual(runner.invocations.count, 1)
+        XCTAssertEqual(result.importedURLs.map(\.lastPathComponent), ["LF1001.\(FASTQBundle.directoryExtension)"])
+    }
+
+    func testExecuteRemovesFreshOutputDirectoryAfterCommandFailure() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecFailedDemuxCleanup")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let inputDirectory = tempDir.appendingPathComponent("barcode13", isDirectory: true)
+        try FileManager.default.createDirectory(at: inputDirectory, withIntermediateDirectories: true)
+        let barcodesURL = tempDir.appendingPathComponent("NB13_MHC-I_plate1.barcodes.csv")
+        try "sample,forward,reverse\nLF1001,ACGT,TGCA\n".write(to: barcodesURL, atomically: true, encoding: .utf8)
+        let workingDirectory = tempDir.appendingPathComponent("ont-pacbio-barcode-demultiplex", isDirectory: true)
+
+        let runner = SpyCommandRunner { invocation, _ in
+            let outputIndex = try XCTUnwrap(invocation.arguments.firstIndex(of: "--output"))
+            let outputURL = URL(fileURLWithPath: invocation.arguments[outputIndex + 1], isDirectory: true)
+            try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
+            try "partial\n".write(
+                to: outputURL.appendingPathComponent("partial.txt"),
+                atomically: true,
+                encoding: .utf8
+            )
+            throw SyntheticCommandFailure.commandFailed
+        }
+        let service = FASTQOperationExecutionService(
+            commandRunner: runner,
+            directImporter: SpyDirectImporter()
+        )
+
+        do {
+            _ = try await service.execute(
+                request: FASTQOperationLaunchRequest.ontPacBioBarcodeDemux(
+                    inputFASTQURL: inputDirectory,
+                    barcodeDefinitionsURL: barcodesURL,
+                    threads: 1,
+                    chunkJobs: 2,
+                    maxReadsPerSlice: 100_000,
+                    maxBytesPerCutadapt: 536_870_912
+                ),
+                workingDirectory: workingDirectory
+            )
+            XCTFail("Expected command failure")
+        } catch SyntheticCommandFailure.commandFailed {
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: workingDirectory.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: tempDir.path))
+    }
+
+    func testExecuteRemovesTransientFASTQOperationStagingAfterCommandFailure() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecFailedGenericCleanup")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let inputURL = tempDir.appendingPathComponent("input.fastq")
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(to: inputURL, readCount: 2, readLength: 16)
+        let runner = SpyCommandRunner { _, outputDirectory in
+            try "partial\n".write(
+                to: outputDirectory.appendingPathComponent("partial.txt"),
+                atomically: true,
+                encoding: .utf8
+            )
+            throw SyntheticCommandFailure.commandFailed
+        }
+        let service = FASTQOperationExecutionService(
+            commandRunner: runner,
+            directImporter: SpyDirectImporter()
+        )
+
+        do {
+            _ = try await service.execute(
+                request: FASTQOperationLaunchRequest.derivative(
+                    request: FASTQDerivativeRequest.lengthFilter(min: 10, max: 40),
+                    inputURLs: [inputURL],
+                    outputMode: FASTQOperationOutputMode.perInput
+                ),
+                workingDirectory: tempDir
+            )
+            XCTFail("Expected command failure")
+        } catch SyntheticCommandFailure.commandFailed {
+        }
+
+        let remainingEntries = try FileManager.default.contentsOfDirectory(
+            at: tempDir,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
+        XCTAssertFalse(remainingEntries.contains { $0.lastPathComponent.hasPrefix("cli-output-") })
     }
 
     func testBuildInvocationRoutesCombinedFastpTrimToFastqTrimCommand() throws {
@@ -2028,6 +2228,31 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         ])
     }
 
+    func testONTPacBioBarcodeDemuxBuildsCLIInvocation() throws {
+        let request = FASTQOperationLaunchRequest.ontPacBioBarcodeDemux(
+            inputFASTQURL: URL(fileURLWithPath: "/tmp/fastq_pass/barcode13", isDirectory: true),
+            barcodeDefinitionsURL: URL(fileURLWithPath: "/tmp/NB13_MHC-I_plate1.barcodes.csv"),
+            threads: 4,
+            chunkJobs: 6,
+            maxReadsPerSlice: 100_000,
+            maxBytesPerCutadapt: 536_870_912
+        )
+
+        let invocation = try FASTQOperationExecutionService().buildInvocation(for: request)
+
+        XCTAssertEqual(invocation.subcommand, "fastq")
+        XCTAssertEqual(invocation.arguments, [
+            "ont-pacbio-barcode-demux",
+            "/tmp/fastq_pass/barcode13",
+            "--barcodes", "/tmp/NB13_MHC-I_plate1.barcodes.csv",
+            "--output", "<derived>",
+            "--threads", "4",
+            "--chunk-jobs", "6",
+            "--max-reads-per-slice", "100000",
+            "--max-bytes-per-cutadapt", "536870912",
+        ])
+    }
+
     func testAssemblyLaunchBuildsAssemblerAwareInvocation() throws {
         let request = FASTQOperationLaunchRequest.assemble(
             request: AssemblyRunRequest(
@@ -2997,19 +3222,31 @@ private final class SpyDirectImporter: @unchecked Sendable, FASTQOperationDirect
 
 private final class SpyCommandRunner: @unchecked Sendable, FASTQOperationCommandRunning {
     private(set) var invocations: [CLIInvocation] = []
-    private let handler: @Sendable (CLIInvocation, URL) throws -> FASTQCLIExecutionResult
+    private let handler: @Sendable (CLIInvocation, URL, FASTQOperationProgressHandler) throws -> FASTQCLIExecutionResult
 
     init(
         handler: @escaping @Sendable (CLIInvocation, URL) throws -> FASTQCLIExecutionResult = { _, _ in
             FASTQCLIExecutionResult(outputURLs: [])
         }
     ) {
-        self.handler = handler
+        self.handler = { invocation, outputDirectory, _ in
+            try handler(invocation, outputDirectory)
+        }
     }
 
-    func run(invocation: CLIInvocation, outputDirectory: URL) async throws -> FASTQCLIExecutionResult {
+    init(
+        progressHandler: @escaping @Sendable (CLIInvocation, URL, FASTQOperationProgressHandler) throws -> FASTQCLIExecutionResult
+    ) {
+        self.handler = progressHandler
+    }
+
+    func run(
+        invocation: CLIInvocation,
+        outputDirectory: URL,
+        progress: @escaping FASTQOperationProgressHandler
+    ) async throws -> FASTQCLIExecutionResult {
         invocations.append(invocation)
-        return try handler(invocation, outputDirectory)
+        return try handler(invocation, outputDirectory, progress)
     }
 }
 

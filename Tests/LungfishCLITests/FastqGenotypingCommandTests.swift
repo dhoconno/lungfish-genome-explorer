@@ -7,6 +7,7 @@ final class FastqGenotypingCommandTests: XCTestCase {
         XCTAssertTrue(names.contains("genotype"))
         XCTAssertTrue(names.contains("genotype-cohort"))
         XCTAssertTrue(names.contains("ont-fluidigm-samples"))
+        XCTAssertTrue(names.contains("ont-pacbio-barcode-demux"))
         XCTAssertTrue(names.contains("mhc-reference-bundle"))
     }
 
@@ -30,6 +31,39 @@ final class FastqGenotypingCommandTests: XCTestCase {
         XCTAssertEqual(command.minimumInsertLength, 40)
         XCTAssertFalse(command.canonicalizeReverseComplements)
         XCTAssertTrue(command.force)
+    }
+
+    func testONTPacBioBarcodeDemuxCommandParsesRequiredInputs() throws {
+        let command = try FastqONTPacBioBarcodeDemuxSubcommand.parse([
+            "/tmp/fastq_pass/barcode13",
+            "--barcodes", "/tmp/NB13_MHC-I_plate1.barcodes.csv",
+            "--output", "/tmp/mhc-pacbio-demux",
+            "--threads", "4",
+            "--chunk-jobs", "6",
+            "--max-reads-per-slice", "100000",
+            "--max-bytes-per-cutadapt", "536870912",
+            "--force",
+        ])
+
+        XCTAssertEqual(command.input, "/tmp/fastq_pass/barcode13")
+        XCTAssertEqual(command.barcodes, "/tmp/NB13_MHC-I_plate1.barcodes.csv")
+        XCTAssertEqual(command.output, "/tmp/mhc-pacbio-demux")
+        XCTAssertEqual(command.threads, 4)
+        XCTAssertEqual(command.chunkJobs, 6)
+        XCTAssertEqual(command.maxReadsPerSlice, 100_000)
+        XCTAssertEqual(command.maxBytesPerCutadapt, 536_870_912)
+        XCTAssertTrue(command.force)
+    }
+
+    func testONTPacBioBarcodeDemuxCommandDefaultsToOneChunkJobPerActiveProcessor() throws {
+        let command = try FastqONTPacBioBarcodeDemuxSubcommand.parse([
+            "/tmp/fastq_pass/barcode13",
+            "--barcodes", "/tmp/NB13_MHC-I_plate1.barcodes.csv",
+            "--output", "/tmp/mhc-pacbio-demux",
+        ])
+
+        XCTAssertEqual(command.threads, 1)
+        XCTAssertEqual(command.chunkJobs, max(1, ProcessInfo.processInfo.activeProcessorCount))
     }
 
     func testGenotypeCohortParsesONTSampleBundlesWithoutBarcodes() throws {

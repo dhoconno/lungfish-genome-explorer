@@ -47,6 +47,28 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
                 ]
             )
 
+        case .ontPacBioBarcodeDemux(
+            let inputFASTQURL,
+            let barcodeDefinitionsURL,
+            let threads,
+            let chunkJobs,
+            let maxReadsPerSlice,
+            let maxBytesPerCutadapt
+        ):
+            return CLIInvocation(
+                subcommand: "fastq",
+                arguments: [
+                    "ont-pacbio-barcode-demux",
+                    inputFASTQURL.path,
+                    "--barcodes", barcodeDefinitionsURL.path,
+                    "--output", outputTargetPath,
+                    "--threads", String(threads),
+                    "--chunk-jobs", String(chunkJobs),
+                    "--max-reads-per-slice", String(maxReadsPerSlice),
+                    "--max-bytes-per-cutadapt", String(maxBytesPerCutadapt),
+                ]
+            )
+
         case .map(let inputURLs, let referenceURL, _):
             var arguments = inputURLs.map(\.path)
             arguments += ["--reference", referenceURL.path]

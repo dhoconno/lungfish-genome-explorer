@@ -26,6 +26,7 @@ internal func mainSplitPerformOnMainRunLoop(_ block: @escaping @MainActor @Senda
 @MainActor
 enum ONTDirectoryImportRecipe: CaseIterable {
     case sampleSplit
+    case pacBioBarcodeDemux
     case keepChunks
     case flattened
 
@@ -33,6 +34,8 @@ enum ONTDirectoryImportRecipe: CaseIterable {
         switch self {
         case .sampleSplit:
             return "Split by Fluidigm sample barcodes"
+        case .pacBioBarcodeDemux:
+            return "Demultiplex full-length MHC ONT amplicons with PacBio barcodes"
         case .keepChunks:
             return "Keep ONT barcode chunks"
         case .flattened:
@@ -44,10 +47,21 @@ enum ONTDirectoryImportRecipe: CaseIterable {
         switch self {
         case .sampleSplit:
             return "Creates one counted .lungfishfastq bundle per sample using a Fluidigm barcode definition. Use this recipe for MHC and 12S amplicon genotyping."
+        case .pacBioBarcodeDemux:
+            return "Runs cutadapt on each ONT FASTQ chunk with a PacBio barcode-pair definition, then concatenates chunk outputs into one .lungfishfastq bundle per sample."
         case .keepChunks:
             return "Legacy import that stores each ONT barcode directory as chunked barcode bundles."
         case .flattened:
             return "Legacy import that flattens each ONT barcode directory into one physical FASTQ bundle."
+        }
+    }
+
+    var requiresBarcodeDefinition: Bool {
+        switch self {
+        case .sampleSplit, .pacBioBarcodeDemux:
+            return true
+        case .keepChunks, .flattened:
+            return false
         }
     }
 }
@@ -104,7 +118,7 @@ final class ONTImportOptionsAccessoryController: NSObject {
     }
 
     var selectedBarcodeDefinitionURL: URL? {
-        guard selectedRecipe == .sampleSplit else { return nil }
+        guard selectedRecipe.requiresBarcodeDefinition else { return nil }
         return barcodeDefinitionPopup.selectedItem?.representedObject as? URL
     }
 
@@ -119,7 +133,7 @@ final class ONTImportOptionsAccessoryController: NSObject {
     @objc func chooseBarcodeDefinition(_ sender: NSButton) {
         let panel = NSOpenPanel()
         panel.title = "Choose Barcode Definition"
-        panel.message = "Select a CSV, TSV, or text file containing sample names and Fluidigm barcodes."
+        panel.message = "Select a CSV, TSV, or text file containing sample names and barcode definitions."
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
@@ -180,17 +194,17 @@ final class ONTImportOptionsAccessoryController: NSObject {
     private func updateControls() {
         let recipe = selectedRecipe
         recipeExplanationLabel.stringValue = recipe.explanation
-        let requiresBarcodeDefinition = recipe == .sampleSplit
+        let requiresBarcodeDefinition = recipe.requiresBarcodeDefinition
         barcodeDefinitionPopup.isEnabled = requiresBarcodeDefinition && !barcodeDefinitionCandidates.isEmpty
         chooseBarcodeDefinitionButton.isEnabled = requiresBarcodeDefinition
         barcodeDefinitionStatusLabel.isEnabled = requiresBarcodeDefinition
         optimizeStorageButton.isEnabled = recipe == .flattened
-        includeUnclassifiedButton?.isEnabled = recipe != .sampleSplit
+        includeUnclassifiedButton?.isEnabled = !recipe.requiresBarcodeDefinition
 
         if recipe != .flattened {
             optimizeStorageButton.state = .off
         }
-        if recipe == .sampleSplit {
+        if recipe.requiresBarcodeDefinition {
             if let selectedBarcodeDefinitionURL {
                 barcodeDefinitionStatusLabel.stringValue = "Using \(Self.displayPath(for: selectedBarcodeDefinitionURL, relativeTo: projectURL))."
                 importButton.isEnabled = true
@@ -199,7 +213,7 @@ final class ONTImportOptionsAccessoryController: NSObject {
                 importButton.isEnabled = false
             }
         } else {
-            barcodeDefinitionStatusLabel.stringValue = "Barcode definitions are used only by the sample-splitting recipe."
+            barcodeDefinitionStatusLabel.stringValue = "Barcode definitions are used only by demultiplexing recipes."
             importButton.isEnabled = true
         }
     }
@@ -216,7 +230,8 @@ extension FASTQOperationLaunchRequest {
             return inputURLs.first
         case .derivative(_, let inputURLs, _):
             return inputURLs.first
-        case .ontFluidigmSampleSplit(let inputFASTQURL, _, _):
+        case .ontFluidigmSampleSplit(let inputFASTQURL, _, _),
+             .ontPacBioBarcodeDemux(let inputFASTQURL, _, _, _, _, _):
             return inputFASTQURL
         case .map(let inputURLs, _, _):
             return inputURLs.first
@@ -237,7 +252,7 @@ extension FASTQOperationLaunchRequest {
             return .fixedBatch
         case .derivative(_, _, let outputMode):
             return outputMode
-        case .ontFluidigmSampleSplit:
+        case .ontFluidigmSampleSplit, .ontPacBioBarcodeDemux:
             return .fixedBatch
         case .map(_, _, let outputMode):
             return outputMode
@@ -259,6 +274,9 @@ extension FASTQOperationLaunchRequest {
         if case .ontFluidigmSampleSplit = self {
             return true
         }
+        if case .ontPacBioBarcodeDemux = self {
+            return true
+        }
         return false
     }
 
@@ -270,6 +288,8 @@ extension FASTQOperationLaunchRequest {
             return request.operationLabel
         case .ontFluidigmSampleSplit:
             return "ONT Fluidigm Sample Split"
+        case .ontPacBioBarcodeDemux:
+            return "ONT PacBio Barcode Demultiplex"
         case .map:
             return "Map Reads"
         case .assemble(let request, _):

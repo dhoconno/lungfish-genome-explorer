@@ -101,9 +101,12 @@ final class GUIRegressionTests: XCTestCase {
                 .contains("'fastq import-ont'")
         )
         XCTAssertTrue(mainSplitSource.contains("Split by Fluidigm sample barcodes"))
+        XCTAssertTrue(mainSplitSource.contains("Demultiplex full-length MHC ONT amplicons with PacBio barcodes"))
         XCTAssertTrue(mainSplitSource.contains("Barcode Definition"))
         XCTAssertTrue(mainSplitSource.contains("performONTFluidigmSampleSplit"))
+        XCTAssertTrue(mainSplitSource.contains("performONTPacBioBarcodeDemux"))
         XCTAssertTrue(mainSplitSource.contains("FASTQOperationLaunchRequest.ontFluidigmSampleSplit"))
+        XCTAssertTrue(mainSplitSource.contains("FASTQOperationLaunchRequest.ontPacBioBarcodeDemux"))
         XCTAssertTrue(mainSplitSource.contains("recipePopup.selectItem(withTitle: ONTDirectoryImportRecipe.sampleSplit.displayName)"))
     }
 

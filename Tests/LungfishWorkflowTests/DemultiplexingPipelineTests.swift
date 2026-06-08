@@ -34,6 +34,20 @@ final class DemultiplexingPipelineTests: XCTestCase {
         try lines.joined(separator: "\n").appending("\n").write(to: url, atomically: true, encoding: .utf8)
     }
 
+    private func makeManagedTool(
+        root: URL,
+        environment: String,
+        executable: String,
+        script: String
+    ) throws {
+        let executableDir = root
+            .appendingPathComponent(".lungfish/conda/envs/\(environment)/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: executableDir, withIntermediateDirectories: true)
+        let executableURL = executableDir.appendingPathComponent(executable)
+        try script.write(to: executableURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executableURL.path)
+    }
+
     // MARK: - NativeTool.cutadapt Registration
 
     func testCutadaptRegistered() {
@@ -119,6 +133,8 @@ final class DemultiplexingPipelineTests: XCTestCase {
         XCTAssertEqual(pipeline.canonicalAdapterName("bc1002--bc1070;2"), "bc1002--bc1070")
         XCTAssertEqual(pipeline.canonicalAdapterName("bc1002--bc1070"), "bc1002--bc1070")
         XCTAssertEqual(pipeline.canonicalAdapterName("sample;rev"), "sample;rev")
+        XCTAssertEqual(pipeline.canonicalAdapterName("32286-059_DP08__lge_forward"), "32286-059_DP08")
+        XCTAssertEqual(pipeline.canonicalAdapterName("32286-059_DP08__lge_reverse_complement"), "32286-059_DP08")
     }
 
     // MARK: - DemultiplexConfig Custom Location
@@ -265,6 +281,63 @@ final class DemultiplexingPipelineTests: XCTestCase {
         XCTAssertEqual(result.manifest.barcodes.first?.barcodeID, "P01")
         XCTAssertEqual(result.manifest.barcodes.first?.readCount, 2)
         XCTAssertEqual(result.manifest.unassigned.readCount, 1)
+    }
+
+    func testCustomFixedDualKitMatchesObservedBarcodePairInsideONTWrapper() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir.deletingLastPathComponent()) }
+
+        let inputFASTQ = dir.appendingPathComponent("input.fastq")
+        let outputDir = dir.appendingPathComponent("demux-out", isDirectory: true)
+        let forward = "CTATACGTATATCTAT"
+        let reverse = "CACTCACGTGTGATAT"
+        let ontLeft = "TTACGTATTGCTAAGGTTAAAGAACGACTTCCATACTCGTGTGACAGCACCT"
+        let ontRight = "AGGTGCTGTCACACAGTTGTGGAAGTAGGCTTCTTAACCTTAGCAAT"
+
+        try writeFASTQ(
+            sequences: [
+                ontLeft + forward + "GATTACAGATTACAGATTACA" + reverse + ontRight,
+                ontLeft + PlatformAdapters.reverseComplement(reverse) + "GATTACAGATTACAGATTACA"
+                    + PlatformAdapters.reverseComplement(forward) + ontRight,
+                ontLeft + "GGGGGGGGGGGGGGGG" + "GATTACA" + reverse + ontRight,
+            ],
+            to: inputFASTQ
+        )
+
+        let kit = BarcodeKitDefinition(
+            id: "custom-fluidigm-pair",
+            displayName: "Custom Fluidigm Pair",
+            vendor: "custom",
+            isDualIndexed: true,
+            pairingMode: .fixedDual,
+            barcodes: [
+                BarcodeEntry(id: "32286-059_DP08", i7Sequence: forward, i5Sequence: reverse),
+            ]
+        )
+
+        let result = try await DemultiplexingPipeline().run(
+            config: DemultiplexConfig(
+                inputURL: inputFASTQ,
+                barcodeKit: kit,
+                outputDirectory: outputDir,
+                barcodeLocation: .bothEnds,
+                errorRate: 0.0,
+                minimumOverlap: 16,
+                trimBarcodes: true,
+                threads: 1
+            ),
+            progress: { _, _ in }
+        )
+
+        XCTAssertEqual(result.manifest.inputReadCount, 3)
+        XCTAssertEqual(result.manifest.barcodes.count, 1)
+        XCTAssertEqual(result.manifest.barcodes.first?.barcodeID, "32286-059_DP08")
+        XCTAssertEqual(result.manifest.barcodes.first?.readCount, 2)
+        XCTAssertEqual(result.manifest.unassigned.readCount, 1)
+        let nativeCommand = try XCTUnwrap(result.nativeCommand)
+        XCTAssertTrue(nativeCommand.contains("--quiet"))
+        XCTAssertTrue(nativeCommand.contains { $0.contains("{name}.fastq") })
+        XCTAssertFalse(nativeCommand.contains { $0.contains("{name}.fastq.gz") })
     }
 
     func testVirtualDemuxPreservesInterleavedPairingModeFromBundleMetadata() async throws {
@@ -731,6 +804,324 @@ final class DemultiplexingPipelineTests: XCTestCase {
         XCTAssertEqual(result.manifest.parameters.tool, "cutadapt")
         XCTAssertNotNil(result.nativeCommand)
         XCTAssertEqual(result.manifest.barcodes.first(where: { $0.barcodeID == "FLD0001" })?.readCount, 1)
+    }
+
+    func testCutadaptFullOutputModeDoesNotBuildVirtualReadIDSidecars() async throws {
+        let (tempDir, bundleURL, fastqURL) = try makeTempBundle(named: "input")
+        defer { try? FileManager.default.removeItem(at: tempDir.deletingLastPathComponent()) }
+
+        try writeFASTQ(
+            sequences: [
+                "GTATCGTCGTGATTACA",
+                "AAAAAAAAAAGATTACA",
+            ],
+            to: fastqURL
+        )
+
+        let outputDir = tempDir.appendingPathComponent("demux-out", isDirectory: true)
+        let customKit = BarcodeKitDefinition(
+            id: "custom-fluidigm-subset",
+            displayName: "Custom Fluidigm Subset",
+            vendor: "custom",
+            isDualIndexed: false,
+            pairingMode: .singleEnd,
+            barcodes: [
+                BarcodeEntry(id: "FLD0001", i7Sequence: "GTATCGTCGT"),
+            ]
+        )
+
+        let result = try await DemultiplexingPipeline().run(
+            config: DemultiplexConfig(
+                inputURL: bundleURL,
+                barcodeKit: customKit,
+                outputDirectory: outputDir,
+                barcodeLocation: .fivePrime,
+                errorRate: 0.0,
+                minimumOverlap: 10,
+                trimBarcodes: true,
+                threads: 1
+            ),
+            progress: { _, _ in }
+        )
+
+        let outputBundleURL = try XCTUnwrap(result.outputBundleURLs.first)
+        let barcodeResult = try XCTUnwrap(
+            result.manifest.barcodes.first(where: { $0.barcodeID == "FLD0001" })
+        )
+        XCTAssertEqual(barcodeResult.readCount, 1)
+        XCTAssertEqual(barcodeResult.baseCount, 7)
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: outputBundleURL.appendingPathComponent("FLD0001.fastq.gz").path
+            ),
+            "Full-output demux bundles should keep cutadapt's materialized FASTQ payload."
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: outputBundleURL.appendingPathComponent("read-ids.txt").path),
+            "Materialized demux bundles should not build a full read-id sidecar."
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: outputBundleURL.appendingPathComponent("orient-map.tsv").path),
+            "Materialized demux bundles should not build a full orientation sidecar."
+        )
+        XCTAssertNil(
+            FASTQBundle.loadDerivedManifest(in: outputBundleURL),
+            "Materialized demux bundles should not be virtual derived bundles."
+        )
+    }
+
+    func testCutadaptMaterializedEmptyFASTQOutputIsTreatedAsEmptyStatistics() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir.deletingLastPathComponent()) }
+
+        let inputFASTQ = dir.appendingPathComponent("input.fastq")
+        try Data().write(to: inputFASTQ)
+
+        let outputDir = dir.appendingPathComponent("demux-out", isDirectory: true)
+        let customKit = BarcodeKitDefinition(
+            id: "custom-single-empty",
+            displayName: "Custom Single Empty",
+            vendor: "custom",
+            isDualIndexed: false,
+            pairingMode: .singleEnd,
+            barcodes: [
+                BarcodeEntry(id: "BC01", i7Sequence: "GTATCGTCGT"),
+            ]
+        )
+
+        let result = try await DemultiplexingPipeline().run(
+            config: DemultiplexConfig(
+                inputURL: inputFASTQ,
+                barcodeKit: customKit,
+                outputDirectory: outputDir,
+                barcodeLocation: .fivePrime,
+                errorRate: 0.0,
+                minimumOverlap: 10,
+                trimBarcodes: true,
+                threads: 1
+            ),
+            progress: { _, _ in }
+        )
+
+        XCTAssertEqual(result.manifest.inputReadCount, 0)
+        XCTAssertEqual(result.manifest.barcodes.reduce(0) { $0 + $1.readCount }, 0)
+        XCTAssertEqual(result.manifest.unassigned.readCount, 0)
+    }
+
+    func testCutadaptMaterializedHeaderOnlySeqkitStatsForNonemptyOutputFailsInsteadOfZeroCounts() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir.deletingLastPathComponent()) }
+
+        let runnerRoot = dir.appendingPathComponent("managed-tools", isDirectory: true)
+        try makeManagedTool(
+            root: runnerRoot,
+            environment: "cutadapt",
+            executable: "cutadapt",
+            script: """
+            #!/bin/sh
+            case "$1" in
+              --version|version)
+                echo "cutadapt 5.2"
+                exit 0
+                ;;
+            esac
+            output_pattern=""
+            json_path=""
+            while [ "$#" -gt 0 ]; do
+              case "$1" in
+                -o)
+                  output_pattern="$2"
+                  shift 2
+                  ;;
+                --json)
+                  json_path="$2"
+                  shift 2
+                  ;;
+                *)
+                  shift
+                  ;;
+              esac
+            done
+            sample_output=$(printf '%s' "$output_pattern" | sed 's/{name}/BC01/g')
+            mkdir -p "$(dirname "$sample_output")"
+            printf 'header-only stats fixture payload\\n' > "$sample_output"
+            if [ -n "$json_path" ]; then
+              printf '{}' > "$json_path"
+            fi
+            """
+        )
+        try makeManagedTool(
+            root: runnerRoot,
+            environment: "seqkit",
+            executable: "seqkit",
+            script: """
+            #!/bin/sh
+            case "$1" in
+              version|--version)
+                echo "seqkit v2.10.0"
+                ;;
+              stats)
+                printf 'file\\tformat\\ttype\\tnum_seqs\\tsum_len\\tmin_len\\tavg_len\\tmax_len\\n'
+                ;;
+              *)
+                echo "unexpected seqkit invocation: $*" >&2
+                exit 1
+                ;;
+            esac
+            """
+        )
+
+        let inputFASTQ = dir.appendingPathComponent("input.fastq")
+        try writeFASTQ(sequences: ["GTATCGTCGTGATTACA"], to: inputFASTQ)
+
+        let outputDir = dir.appendingPathComponent("demux-out", isDirectory: true)
+        let customKit = BarcodeKitDefinition(
+            id: "custom-single-empty-stats",
+            displayName: "Custom Single Empty Stats",
+            vendor: "custom",
+            isDualIndexed: false,
+            pairingMode: .singleEnd,
+            barcodes: [
+                BarcodeEntry(id: "BC01", i7Sequence: "GTATCGTCGT"),
+            ]
+        )
+
+        do {
+            _ = try await DemultiplexingPipeline(
+                runner: NativeToolRunner(toolsDirectory: nil, homeDirectory: runnerRoot)
+            ).run(
+                config: DemultiplexConfig(
+                    inputURL: inputFASTQ,
+                    barcodeKit: customKit,
+                    outputDirectory: outputDir,
+                    barcodeLocation: .fivePrime,
+                    errorRate: 0.0,
+                    minimumOverlap: 10,
+                    trimBarcodes: true,
+                    threads: 1
+                ),
+                progress: { _, _ in }
+            )
+            XCTFail("Persistent header-only seqkit stats for a nonempty output must not be reported as zero reads")
+        } catch let error as DemultiplexError {
+            guard case .outputParsingFailed(let message) = error else {
+                XCTFail("Expected outputParsingFailed, got \(error)")
+                return
+            }
+            XCTAssertTrue(message.contains("seqkit stats produced no data row"))
+            XCTAssertTrue(message.contains("BC01.fastq.gz"))
+        }
+    }
+
+    func testCutadaptMaterializedStatsRetriesEmptySeqkitStdoutForNonemptyOutput() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir.deletingLastPathComponent()) }
+
+        let runnerRoot = dir.appendingPathComponent("managed-tools", isDirectory: true)
+        try makeManagedTool(
+            root: runnerRoot,
+            environment: "cutadapt",
+            executable: "cutadapt",
+            script: """
+            #!/bin/sh
+            case "$1" in
+              --version|version)
+                echo "cutadapt 5.2"
+                exit 0
+                ;;
+            esac
+            output_pattern=""
+            json_path=""
+            while [ "$#" -gt 0 ]; do
+              case "$1" in
+                -o)
+                  output_pattern="$2"
+                  shift 2
+                  ;;
+                --json)
+                  json_path="$2"
+                  shift 2
+                  ;;
+                *)
+                  shift
+                  ;;
+              esac
+            done
+            sample_output=$(printf '%s' "$output_pattern" | sed 's/{name}/BC01/g')
+            mkdir -p "$(dirname "$sample_output")"
+            cat > "$sample_output" <<'FASTQ'
+            @read_1
+            GATTACA
+            +
+            IIIIIII
+            FASTQ
+            if [ -n "$json_path" ]; then
+              printf '{}' > "$json_path"
+            fi
+            """
+        )
+        try makeManagedTool(
+            root: runnerRoot,
+            environment: "seqkit",
+            executable: "seqkit",
+            script: """
+            #!/bin/sh
+            case "$1" in
+              version|--version)
+                echo "seqkit v2.10.0"
+                ;;
+              stats)
+                state="$(dirname "$0")/stats-attempts"
+                if [ ! -f "$state" ]; then
+                  printf 1 > "$state"
+                  exit 0
+                fi
+                printf 'file\\tformat\\ttype\\tnum_seqs\\tsum_len\\tmin_len\\tavg_len\\tmax_len\\n'
+                printf '%s\\tFASTQ\\tDNA\\t1\\t7\\t7\\t7.0\\t7\\n' "$3"
+                ;;
+              *)
+                echo "unexpected seqkit invocation: $*" >&2
+                exit 1
+                ;;
+            esac
+            """
+        )
+
+        let inputFASTQ = dir.appendingPathComponent("input.fastq")
+        try writeFASTQ(sequences: ["GTATCGTCGTGATTACA"], to: inputFASTQ)
+
+        let outputDir = dir.appendingPathComponent("demux-out", isDirectory: true)
+        let customKit = BarcodeKitDefinition(
+            id: "custom-single-transient-empty-stats",
+            displayName: "Custom Single Transient Empty Stats",
+            vendor: "custom",
+            isDualIndexed: false,
+            pairingMode: .singleEnd,
+            barcodes: [
+                BarcodeEntry(id: "BC01", i7Sequence: "GTATCGTCGT"),
+            ]
+        )
+
+        let result = try await DemultiplexingPipeline(
+            runner: NativeToolRunner(toolsDirectory: nil, homeDirectory: runnerRoot),
+            cutadaptVersionOverride: "5.2"
+        ).run(
+            config: DemultiplexConfig(
+                inputURL: inputFASTQ,
+                barcodeKit: customKit,
+                outputDirectory: outputDir,
+                barcodeLocation: .fivePrime,
+                errorRate: 0.0,
+                minimumOverlap: 10,
+                trimBarcodes: true,
+                threads: 1
+            ),
+            progress: { _, _ in }
+        )
+
+        XCTAssertEqual(result.manifest.inputReadCount, 1)
+        XCTAssertEqual(result.manifest.barcodes.first?.readCount, 1)
+        XCTAssertEqual(result.manifest.barcodes.first?.baseCount, 7)
     }
 
     // MARK: - Poly-G Trim Config

@@ -167,6 +167,68 @@ public final class GzipInputStream: Sendable {
         }
     }
 
+    /// Synchronously iterates over decompressed byte chunks.
+    ///
+    /// This is intended for high-volume parsers that can operate on bytes and
+    /// should avoid allocating one `String` per input line.
+    func forEachDecompressedChunk(
+        chunkSize: Int = 1_048_576,
+        _ body: (Data) throws -> Void
+    ) throws {
+        try Self.validateGzipHeader(at: url)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+        process.arguments = ["-dc", url.path]
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        let stdoutHandle = stdoutPipe.fileHandleForReading
+        let stderrHandle = stderrPipe.fileHandleForReading
+        var processStarted = false
+        var processWaited = false
+
+        defer {
+            if processStarted {
+                if process.isRunning {
+                    process.terminate()
+                }
+                if !processWaited {
+                    process.waitUntilExit()
+                }
+            }
+            try? stdoutHandle.close()
+            try? stderrHandle.close()
+        }
+
+        try process.run()
+        processStarted = true
+
+        while true {
+            try Task.checkCancellation()
+
+            let chunk = stdoutHandle.readData(ofLength: chunkSize)
+            if chunk.isEmpty { break }
+            try body(chunk)
+        }
+
+        try Task.checkCancellation()
+        process.waitUntilExit()
+        processWaited = true
+
+        if process.terminationStatus != 0 {
+            let stderrData = stderrHandle.readDataToEndOfFile()
+            let stderrText = String(data: stderrData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            throw GzipError.decompressionFailed(
+                stderrText?.isEmpty == false ? stderrText! : "gzip exited with code \(process.terminationStatus)"
+            )
+        }
+    }
+
     /// Decompresses the entire file and returns the content as a string.
     ///
     /// - Returns: Decompressed file content
@@ -189,7 +251,7 @@ public final class GzipInputStream: Sendable {
         return content
     }
 
-    private static func emitCompleteLines(
+    fileprivate static func emitCompleteLines(
         from buffer: inout Data,
         _ body: (String) throws -> Void
     ) throws {
@@ -222,7 +284,7 @@ public final class GzipInputStream: Sendable {
         }
     }
 
-    private static func emitFinalLine(
+    fileprivate static func emitFinalLine(
         from buffer: Data,
         _ body: (String) throws -> Void
     ) throws {
@@ -296,6 +358,59 @@ public final class GzipInputStream: Sendable {
     }
 }
 
+// MARK: - Plain Text Input Stream
+
+private struct PlainTextInputStream {
+    let url: URL
+
+    func forEachLine(_ body: (String) throws -> Void) throws {
+        guard FileManager.default.fileExists(atPath: url.path),
+              let handle = FileHandle(forReadingAtPath: url.path) else {
+            throw GzipError.fileNotFound(url)
+        }
+        defer {
+            try? handle.close()
+        }
+
+        let chunkSize = 1_048_576 // 1 MB
+        var partial = Data()
+
+        while true {
+            try Task.checkCancellation()
+
+            let chunk = handle.readData(ofLength: chunkSize)
+            if chunk.isEmpty { break }
+
+            partial.append(chunk)
+            try GzipInputStream.emitCompleteLines(from: &partial, body)
+        }
+
+        try Task.checkCancellation()
+        try GzipInputStream.emitFinalLine(from: partial, body)
+    }
+
+    func forEachChunk(
+        chunkSize: Int = 1_048_576,
+        _ body: (Data) throws -> Void
+    ) throws {
+        guard FileManager.default.fileExists(atPath: url.path),
+              let handle = FileHandle(forReadingAtPath: url.path) else {
+            throw GzipError.fileNotFound(url)
+        }
+        defer {
+            try? handle.close()
+        }
+
+        while true {
+            try Task.checkCancellation()
+
+            let chunk = handle.readData(ofLength: chunkSize)
+            if chunk.isEmpty { break }
+            try body(chunk)
+        }
+    }
+}
+
 // MARK: - URL Extension for Gzip Detection
 
 extension URL {
@@ -307,6 +422,32 @@ extension URL {
     /// Whether this URL points to a gzip-compressed file (based on extension).
     public var isGzipCompressed: Bool {
         pathExtension.lowercased() == "gz"
+    }
+
+    /// Iterates over lines synchronously, automatically handling gzip compression.
+    ///
+    /// This gives high-volume parsers backpressure that `AsyncThrowingStream` cannot
+    /// provide, so decompressed FASTQ lines are not buffered ahead of consumers.
+    public func forEachLineAutoDecompressing(_ body: (String) throws -> Void) throws {
+        if isGzipCompressed {
+            let stream = try GzipInputStream(url: self)
+            try stream.forEachLine(body)
+        } else {
+            try PlainTextInputStream(url: self).forEachLine(body)
+        }
+    }
+
+    /// Iterates over raw decompressed byte chunks, automatically handling gzip compression.
+    public func forEachChunkAutoDecompressing(
+        chunkSize: Int = 1_048_576,
+        _ body: (Data) throws -> Void
+    ) throws {
+        if isGzipCompressed {
+            let stream = try GzipInputStream(url: self)
+            try stream.forEachDecompressedChunk(chunkSize: chunkSize, body)
+        } else {
+            try PlainTextInputStream(url: self).forEachChunk(chunkSize: chunkSize, body)
+        }
     }
 
     /// Returns an async sequence of lines, automatically handling gzip compression.

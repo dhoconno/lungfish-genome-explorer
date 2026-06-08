@@ -12,6 +12,84 @@ struct FASTQCLIExecutionResult: Sendable, Equatable {
     let outputURLs: [URL]
 }
 
+typealias FASTQOperationProgressHandler = @Sendable (Double, String) -> Void
+
+struct FASTQCLIProgressEvent: Sendable, Equatable {
+    let progress: Double
+    let message: String
+
+    static func parse(_ line: String) throws -> FASTQCLIProgressEvent? {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("{"),
+              let data = trimmed.data(using: .utf8),
+              let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              payload["event"] as? String == "progress",
+              let message = payload["message"] as? String else {
+            return nil
+        }
+
+        let progress: Double
+        if let number = payload["progress"] as? NSNumber {
+            progress = number.doubleValue
+        } else if let value = payload["progress"] as? Double {
+            progress = value
+        } else {
+            return nil
+        }
+
+        return FASTQCLIProgressEvent(
+            progress: max(0, min(1, progress)),
+            message: message
+        )
+    }
+}
+
+private final class FASTQCLIStderrCapture: @unchecked Sendable {
+    private let lock = NSLock()
+    private var capturedData = Data()
+    private var pendingText = ""
+
+    func append(_ data: Data) -> [FASTQCLIProgressEvent] {
+        guard !data.isEmpty else { return [] }
+        lock.lock()
+        capturedData.append(data)
+        guard let text = String(data: data, encoding: .utf8) else {
+            lock.unlock()
+            return []
+        }
+        pendingText += text
+
+        var events: [FASTQCLIProgressEvent] = []
+        while let newlineIndex = pendingText.firstIndex(of: "\n") {
+            let line = String(pendingText[..<newlineIndex])
+            pendingText.removeSubrange(...newlineIndex)
+            if let event = try? FASTQCLIProgressEvent.parse(line) {
+                events.append(event)
+            }
+        }
+        lock.unlock()
+        return events
+    }
+
+    func finish() -> [FASTQCLIProgressEvent] {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !pendingText.isEmpty else { return [] }
+        let line = pendingText
+        pendingText.removeAll(keepingCapacity: true)
+        if let event = try? FASTQCLIProgressEvent.parse(line) {
+            return [event]
+        }
+        return []
+    }
+
+    var data: Data {
+        lock.lock()
+        defer { lock.unlock() }
+        return capturedData
+    }
+}
+
 struct FASTQOperationExecutionResult: Sendable, Equatable {
     let resolvedRequest: FASTQOperationLaunchRequest
     let executedInvocations: [CLIInvocation]
@@ -27,7 +105,11 @@ protocol FASTQOperationInputResolving: Sendable {
 }
 
 protocol FASTQOperationCommandRunning: Sendable {
-    func run(invocation: CLIInvocation, outputDirectory: URL) async throws -> FASTQCLIExecutionResult
+    func run(
+        invocation: CLIInvocation,
+        outputDirectory: URL,
+        progress: @escaping FASTQOperationProgressHandler
+    ) async throws -> FASTQCLIExecutionResult
 }
 
 protocol FASTQOperationDirectImporting: Sendable {
@@ -112,9 +194,19 @@ struct FASTQOperationExecutionService {
 
     func execute(
         request: FASTQOperationLaunchRequest,
-        workingDirectory: URL
+        workingDirectory: URL,
+        progress: @escaping FASTQOperationProgressHandler = { _, _ in }
     ) async throws -> FASTQOperationExecutionResult {
         try validatePreResolutionTopologyIfNeeded(for: request)
+
+        let fileManager = FileManager.default
+        var failureCleanupCandidates: [URL] = []
+        func trackFreshCleanupCandidate(_ url: URL) {
+            let standardizedURL = url.standardizedFileURL
+            if !fileManager.fileExists(atPath: standardizedURL.path) {
+                failureCleanupCandidates.append(standardizedURL)
+            }
+        }
 
         let materializationDirectory = request.resolvesInputsBeforeCLI
             ? workingDirectory.appendingPathComponent(
@@ -123,95 +215,123 @@ struct FASTQOperationExecutionService {
             )
             : nil
         let outputDirectory = planner.executionOutputDirectory(for: request, workingDirectory: workingDirectory)
-        if let materializationDirectory {
-            try FileManager.default.createDirectory(at: materializationDirectory, withIntermediateDirectories: true)
-        }
-        try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
 
-        let resolvedRequest: FASTQOperationLaunchRequest
-        if let materializationDirectory {
-            resolvedRequest = try await inputResolver.resolve(
-                request: request,
-                tempDirectory: materializationDirectory
-            )
-        } else {
-            resolvedRequest = request
-        }
-        let executionPlans = planner.makeExecutionPlans(
-            originalRequest: request,
-            resolvedRequest: resolvedRequest,
-            baseOutputDirectory: outputDirectory
-        )
-
-        var invocations: [CLIInvocation] = []
-        var outputURLs: [URL] = []
-
-        for executionPlan in executionPlans {
-            let executionDirectory = planner.executionDirectory(for: executionPlan)
-            try FileManager.default.createDirectory(at: executionDirectory, withIntermediateDirectories: true)
-            let invocation = try invocationBuilder.buildInvocation(
-                for: executionPlan.resolvedRequest,
-                outputTargetPath: executionPlan.outputTarget.path
-            )
-            invocations.append(invocation)
-            let result = try await commandRunner.run(
-                invocation: invocation,
-                outputDirectory: executionDirectory
-            )
-            if result.outputURLs.isEmpty {
-                outputURLs.append(contentsOf: planner.discoverOutputs(for: executionPlan, in: executionDirectory))
-            } else {
-                outputURLs.append(contentsOf: result.outputURLs)
+        do {
+            if let materializationDirectory {
+                trackFreshCleanupCandidate(materializationDirectory)
+                try fileManager.createDirectory(at: materializationDirectory, withIntermediateDirectories: true)
             }
-        }
 
-        if outputURLs.isEmpty {
-            outputURLs = FASTQOperationPlanner.discoverFASTQBundles(in: outputDirectory)
-        }
+            if planner.cliCreatesFreshOutputDirectory(for: request) {
+                trackFreshCleanupCandidate(outputDirectory)
+                try fileManager.createDirectory(
+                    at: outputDirectory.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+            } else {
+                trackFreshCleanupCandidate(outputDirectory)
+                try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+            }
 
-        switch planner.outputMode(for: resolvedRequest) {
-        case .groupedResult:
-            try planner.persistGroupedResultManifest(
+            let resolvedRequest: FASTQOperationLaunchRequest
+            if let materializationDirectory {
+                resolvedRequest = try await inputResolver.resolve(
+                    request: request,
+                    tempDirectory: materializationDirectory
+                )
+            } else {
+                resolvedRequest = request
+            }
+            let executionPlans = planner.makeExecutionPlans(
                 originalRequest: request,
                 resolvedRequest: resolvedRequest,
-                outputURLs: outputURLs,
-                outputDirectory: outputDirectory
-            )
-            try planner.ensureGroupedResultProvenance(
-                originalRequest: request,
-                resolvedRequest: resolvedRequest,
-                invocations: invocations,
-                outputURLs: outputURLs,
-                outputDirectory: outputDirectory
-            )
-            stagingCleanup.cleanup(
-                directories: [materializationDirectory].compactMap { $0 },
-                preserving: [outputDirectory] + outputURLs
-            )
-            return FASTQOperationExecutionResult(
-                resolvedRequest: resolvedRequest,
-                executedInvocations: invocations,
-                importedURLs: [outputDirectory],
-                groupedContainerURL: outputDirectory
+                baseOutputDirectory: outputDirectory
             )
 
-        case .perInput, .fixedBatch:
-            let importedURLs = try await directImporter.importOutputs(
-                at: outputURLs,
-                forResolvedRequest: resolvedRequest,
-                originalRequest: request,
-                outputDirectory: outputDirectory
-            )
-            stagingCleanup.cleanup(
-                directories: [materializationDirectory, outputDirectory].compactMap { $0 },
-                preserving: importedURLs
-            )
-            return FASTQOperationExecutionResult(
-                resolvedRequest: resolvedRequest,
-                executedInvocations: invocations,
-                importedURLs: importedURLs,
-                groupedContainerURL: nil
-            )
+            var invocations: [CLIInvocation] = []
+            var outputURLs: [URL] = []
+
+            for executionPlan in executionPlans {
+                let cliCreatesFreshOutputDirectory = planner.cliCreatesFreshOutputDirectory(for: executionPlan)
+                let executionDirectory = cliCreatesFreshOutputDirectory
+                    ? executionPlan.outputTarget.deletingLastPathComponent()
+                    : planner.executionDirectory(for: executionPlan)
+
+                if cliCreatesFreshOutputDirectory {
+                    trackFreshCleanupCandidate(executionPlan.outputTarget)
+                } else {
+                    trackFreshCleanupCandidate(executionDirectory)
+                }
+                try fileManager.createDirectory(at: executionDirectory, withIntermediateDirectories: true)
+
+                let invocation = try invocationBuilder.buildInvocation(
+                    for: executionPlan.resolvedRequest,
+                    outputTargetPath: executionPlan.outputTarget.path
+                )
+                invocations.append(invocation)
+                let result = try await commandRunner.run(
+                    invocation: invocation,
+                    outputDirectory: executionDirectory,
+                    progress: progress
+                )
+                if result.outputURLs.isEmpty {
+                    outputURLs.append(contentsOf: planner.discoverOutputs(for: executionPlan, in: executionDirectory))
+                } else {
+                    outputURLs.append(contentsOf: result.outputURLs)
+                }
+            }
+
+            if outputURLs.isEmpty {
+                outputURLs = FASTQOperationPlanner.discoverFASTQBundles(in: outputDirectory)
+            }
+
+            switch planner.outputMode(for: resolvedRequest) {
+            case .groupedResult:
+                try planner.persistGroupedResultManifest(
+                    originalRequest: request,
+                    resolvedRequest: resolvedRequest,
+                    outputURLs: outputURLs,
+                    outputDirectory: outputDirectory
+                )
+                try planner.ensureGroupedResultProvenance(
+                    originalRequest: request,
+                    resolvedRequest: resolvedRequest,
+                    invocations: invocations,
+                    outputURLs: outputURLs,
+                    outputDirectory: outputDirectory
+                )
+                stagingCleanup.cleanup(
+                    directories: [materializationDirectory].compactMap { $0 },
+                    preserving: [outputDirectory] + outputURLs
+                )
+                return FASTQOperationExecutionResult(
+                    resolvedRequest: resolvedRequest,
+                    executedInvocations: invocations,
+                    importedURLs: [outputDirectory],
+                    groupedContainerURL: outputDirectory
+                )
+
+            case .perInput, .fixedBatch:
+                let importedURLs = try await directImporter.importOutputs(
+                    at: outputURLs,
+                    forResolvedRequest: resolvedRequest,
+                    originalRequest: request,
+                    outputDirectory: outputDirectory
+                )
+                stagingCleanup.cleanup(
+                    directories: [materializationDirectory, outputDirectory].compactMap { $0 },
+                    preserving: importedURLs
+                )
+                return FASTQOperationExecutionResult(
+                    resolvedRequest: resolvedRequest,
+                    executedInvocations: invocations,
+                    importedURLs: importedURLs,
+                    groupedContainerURL: nil
+                )
+            }
+        } catch {
+            stagingCleanup.cleanupFailedRun(candidates: failureCleanupCandidates)
+            throw error
         }
     }
 
@@ -431,7 +551,11 @@ private struct FASTQSourceResolverAdapter: FASTQOperationInputResolving {
 }
 
 private struct LungfishCLIProcessRunner: FASTQOperationCommandRunning {
-    func run(invocation: CLIInvocation, outputDirectory: URL) async throws -> FASTQCLIExecutionResult {
+    func run(
+        invocation: CLIInvocation,
+        outputDirectory: URL,
+        progress: @escaping FASTQOperationProgressHandler
+    ) async throws -> FASTQCLIExecutionResult {
         guard let cliURL = LungfishCLIRunner.findCLI() else {
             throw LungfishCLIRunner.RunError.cliNotFound
         }
@@ -447,8 +571,20 @@ private struct LungfishCLIProcessRunner: FASTQOperationCommandRunning {
         let stdoutTask = Task.detached(priority: .userInitiated) {
             stdout.fileHandleForReading.readDataToEndOfFile()
         }
+        let stderrCapture = FASTQCLIStderrCapture()
         let stderrTask = Task.detached(priority: .userInitiated) {
-            stderr.fileHandleForReading.readDataToEndOfFile()
+            let handle = stderr.fileHandleForReading
+            while true {
+                let chunk = handle.availableData
+                if chunk.isEmpty { break }
+                let events = stderrCapture.append(chunk)
+                for event in events {
+                    progress(event.progress, event.message)
+                }
+            }
+            for event in stderrCapture.finish() {
+                progress(event.progress, event.message)
+            }
         }
 
         let terminationStatus: Int32
@@ -472,7 +608,8 @@ private struct LungfishCLIProcessRunner: FASTQOperationCommandRunning {
             throw error
         }
 
-        let stderrData = await stderrTask.value
+        await stderrTask.value
+        let stderrData = stderrCapture.data
         let stdoutData = await stdoutTask.value
         _ = stdoutData
 

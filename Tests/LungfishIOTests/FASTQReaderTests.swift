@@ -236,6 +236,21 @@ final class FASTQReaderTests: XCTestCase {
         XCTAssertGreaterThan(stats.meanQuality, 0)
     }
 
+    func testSummaryStatisticsDoNotRetainHistograms() async throws {
+        let reader = FASTQReader()
+
+        let stats = try await reader.computeSummaryStatistics(from: regularFastqURL)
+
+        XCTAssertEqual(stats.readCount, 20)
+        XCTAssertGreaterThan(stats.baseCount, 0)
+        XCTAssertGreaterThan(stats.meanReadLength, 0)
+        XCTAssertEqual(stats.meanQuality, 0)
+        XCTAssertEqual(stats.gcContent, 0)
+        XCTAssertTrue(stats.readLengthHistogram.isEmpty)
+        XCTAssertTrue(stats.qualityScoreHistogram.isEmpty)
+        XCTAssertTrue(stats.perPositionQuality.isEmpty)
+    }
+
     func testQ20Q30Percentages() async throws {
         let url = regularFastqURL
         let reader = FASTQReader()
@@ -565,6 +580,34 @@ final class GzipInputStreamTests: XCTestCase {
 
         // Should have 80+ lines (20 records x 4 lines each)
         XCTAssertGreaterThanOrEqual(lineCount, 80)
+    }
+
+    func testAutoDecompressingForEachLineStreamsPlainAndGzip() throws {
+        let plainURL = Bundle.module.url(
+            forResource: "test_reads", withExtension: "fastq", subdirectory: "Resources"
+        )!
+
+        var plainFirstLine: String?
+        var plainLineCount = 0
+        try plainURL.forEachLineAutoDecompressing { line in
+            plainLineCount += 1
+            if plainFirstLine == nil {
+                plainFirstLine = line
+            }
+        }
+
+        var gzipFirstLine: String?
+        var gzipLineCount = 0
+        try gzipURL.forEachLineAutoDecompressing { line in
+            gzipLineCount += 1
+            if gzipFirstLine == nil {
+                gzipFirstLine = line
+            }
+        }
+
+        XCTAssertEqual(plainLineCount, gzipLineCount)
+        XCTAssertEqual(plainFirstLine, gzipFirstLine)
+        XCTAssertTrue(gzipFirstLine?.hasPrefix("@SEQ_001") == true)
     }
 
     func testGzipReadAll() async throws {
