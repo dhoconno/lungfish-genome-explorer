@@ -1260,7 +1260,7 @@ final class FastqCommandTests: XCTestCase {
             "contaminant-filter", "primer-remove", "error-correct",
             "merge", "repair", "deinterleave", "interleave", "deduplicate",
             "demultiplex", "ont-fluidigm-samples", "scout", "import-ont", "materialize", "qc-summary",
-            "pbaa-cluster", "genotype", "genotype-cohort", "update-current-workbook", "ont-genotype", "ont-barcode-genotype", "search-text", "search-motif", "orient", "scrub-human",
+            "pbaa-cluster", "full-length-ont-mhc-genotype", "genotype", "genotype-cohort", "update-current-workbook", "ont-genotype", "ont-barcode-genotype", "search-text", "search-motif", "orient", "scrub-human",
             "sequence-filter", "deacon-ribo", "reverse-complement", "translate",
             "mhc-reference-bundle", "12s-reference-metadata", "12s-reference-bundle",
             "12s-match", "12s-export", "12s-export-unresolved",

@@ -109,6 +109,8 @@ final class WorkflowOperationExecutionService {
         switch request {
         case .ontGenotyping(let request):
             return try await runONTGenotyping(request, routeContext: routeContext)
+        case .fullLengthONTMHCGenotyping(let request):
+            return try await runFullLengthONTMHCGenotyping(request, routeContext: routeContext)
         case .twelveSAmpliconMatching(let configuration):
             return try await runTwelveSAmpliconMatching(configuration, routeContext: routeContext)
         case .workflowPackage(let request, let bundleRoot):
@@ -295,8 +297,8 @@ final class WorkflowOperationExecutionService {
             arguments: arguments
         )
         let operationID = operationCenter.start(
-            title: "Amplicon Genotyping",
-            detail: "Running amplicon genotyping workflow",
+            title: "miSeq amplicon ONT MHC genotyping",
+            detail: "Running miSeq amplicon ONT MHC genotyping workflow",
             operationType: .workflow,
             targetBundleURL: request.outputDirectory,
             cliCommand: cliCommand,
@@ -306,7 +308,7 @@ final class WorkflowOperationExecutionService {
         operationCenter.updateWithLog(
             id: operationID,
             progress: 0.01,
-            detail: "Launching lungfish-cli for amplicon genotyping..."
+            detail: "Launching lungfish-cli for miSeq amplicon ONT MHC genotyping..."
         )
 
         do {
@@ -321,12 +323,12 @@ final class WorkflowOperationExecutionService {
                 logProcessOutput(result, operationID: operationID)
             }
             if result.exitCode != 0 {
-                let failureDetail = "Amplicon genotyping failed with exit code \(result.exitCode)"
+                let failureDetail = "miSeq amplicon ONT MHC genotyping failed with exit code \(result.exitCode)"
                 operationCenter.log(id: operationID, level: .error, message: failureDetail)
                 operationCenter.fail(
                     id: operationID,
                     detail: failureDetail,
-                    errorMessage: "Amplicon genotyping failed",
+                    errorMessage: "miSeq amplicon ONT MHC genotyping failed",
                     errorDetail: failureDiagnostics(
                         result: result,
                         cliCommand: cliCommand
@@ -342,7 +344,7 @@ final class WorkflowOperationExecutionService {
             operationCenter.log(id: operationID, level: .info, message: "Status: completed")
             operationCenter.complete(
                 id: operationID,
-                detail: "Amplicon genotyping completed. Output: \(request.outputDirectory.path)",
+                detail: "miSeq amplicon ONT MHC genotyping completed. Output: \(request.outputDirectory.path)",
                 outputURLs: outputURLs
             )
             resultRefresher.refresh(
@@ -356,8 +358,79 @@ final class WorkflowOperationExecutionService {
         } catch {
             operationCenter.fail(
                 id: operationID,
-                detail: "Amplicon genotyping failed",
-                errorMessage: "Amplicon genotyping failed",
+                detail: "miSeq amplicon ONT MHC genotyping failed",
+                errorMessage: "miSeq amplicon ONT MHC genotyping failed",
+                errorDetail: error.localizedDescription
+            )
+            throw error
+        }
+    }
+
+    private func runFullLengthONTMHCGenotyping(
+        _ request: FullLengthONTMHCGenotypingRunRequest,
+        routeContext: OperationRouteContext?
+    ) async throws -> [URL] {
+        try fileManager.createDirectory(at: request.outputDirectory, withIntermediateDirectories: true)
+        let arguments = fullLengthONTMHCGenotypingArguments(for: request)
+        let cliCommand = ViralReconWorkflowCommandPreview.build(
+            executableName: "lungfish-cli",
+            arguments: arguments
+        )
+        let operationID = operationCenter.start(
+            title: "Full-length ONT MHC genotyping",
+            detail: "Running full-length ONT MHC genotyping workflow",
+            operationType: .workflow,
+            targetBundleURL: request.outputDirectory,
+            cliCommand: cliCommand,
+            routeContext: routeContext
+        )
+        operationCenter.log(id: operationID, level: .info, message: cliCommand)
+        operationCenter.updateWithLog(
+            id: operationID,
+            progress: 0.01,
+            detail: "Launching lungfish-cli for full-length ONT MHC genotyping..."
+        )
+
+        do {
+            let result = try await processRunner.runLungfishCLI(
+                arguments: arguments,
+                workingDirectory: request.outputDirectory,
+                outputHandler: { [operationCenter] output in
+                    Self.recordProcessOutput(output, operationID: operationID, operationCenter: operationCenter)
+                }
+            )
+            if !result.didStreamOutput {
+                logProcessOutput(result, operationID: operationID)
+            }
+            if result.exitCode != 0 {
+                let failureDetail = "Full-length ONT MHC genotyping failed with exit code \(result.exitCode)"
+                operationCenter.log(id: operationID, level: .error, message: failureDetail)
+                operationCenter.fail(
+                    id: operationID,
+                    detail: failureDetail,
+                    errorMessage: "Full-length ONT MHC genotyping failed",
+                    errorDetail: failureDiagnostics(result: result, cliCommand: cliCommand)
+                )
+                throw LocalWorkflowExecutionError.nonZeroExit(result.exitCode)
+            }
+            let cliPayload = decodeFullLengthONTMHCGenotypingPayload(from: result.standardOutput)
+            let outputURLs = fullLengthONTMHCGenotypingOutputURLs(for: request, cliPayload: cliPayload)
+            operationCenter.log(id: operationID, level: .info, message: "Status: completed")
+            operationCenter.complete(
+                id: operationID,
+                detail: "Full-length ONT MHC genotyping completed. Output: \(request.outputDirectory.path)",
+                outputURLs: outputURLs
+            )
+            resultRefresher.refresh(
+                routeContext: routeContext,
+                preferredSelectionURL: request.outputDirectory
+            )
+            return outputURLs
+        } catch {
+            operationCenter.fail(
+                id: operationID,
+                detail: "Full-length ONT MHC genotyping failed",
+                errorMessage: "Full-length ONT MHC genotyping failed",
                 errorDetail: error.localizedDescription
             )
             throw error
@@ -407,6 +480,36 @@ final class WorkflowOperationExecutionService {
         }
         if !request.extraArguments.isEmpty {
             arguments += ["--extra-args", AdvancedCommandLineOptions.join(request.extraArguments)]
+        }
+        return arguments
+    }
+
+    func fullLengthONTMHCGenotypingArguments(for request: FullLengthONTMHCGenotypingRunRequest) -> [String] {
+        var arguments = ["fastq", "full-length-ont-mhc-genotype"] + request.inputFASTQURLs.map(\.path)
+        arguments += [
+            "--reference", request.referenceSourceURL.path,
+            "--guide", request.guideSourceURL.path,
+            "--output-dir", request.outputDirectory.path,
+            "--output-name", request.outputName,
+            "--threads", String(request.threads),
+            "--min-length", String(request.minimumLength),
+            "--max-length", String(request.maximumLength),
+            "--pbaa-seed", String(request.pbaaSeed),
+            "--pbaa-extra-args", request.pbaaExtraArgumentsText,
+            "--min-unmatched-reads", String(request.minUnmatchedReads),
+            "--cdna-threshold", String(request.cdnaThreshold),
+        ]
+        if let orientReferenceURL = request.orientReferenceURL {
+            arguments += ["--orient-reference", orientReferenceURL.path]
+        }
+        if let forwardPrimerURL = request.forwardPrimerURL {
+            arguments += ["--forward-primer", forwardPrimerURL.path]
+        }
+        if let reversePrimerURL = request.reversePrimerURL {
+            arguments += ["--reverse-primer", reversePrimerURL.path]
+        }
+        if let projectURL = request.projectURL {
+            arguments += ["--project", projectURL.path]
         }
         return arguments
     }
@@ -546,6 +649,31 @@ final class WorkflowOperationExecutionService {
         urls.append(request.reportCSVURL)
         urls.append(request.sampleSummaryCSVURL)
         urls.append(request.statsJSONURL)
+        urls.append(request.provenanceURL)
+        urls.append(request.outputDirectory)
+        return deduplicatedExistingURLs(urls)
+    }
+
+    private func fullLengthONTMHCGenotypingOutputURLs(
+        for request: FullLengthONTMHCGenotypingRunRequest,
+        cliPayload: FullLengthONTMHCGenotypingCLIPayload?
+    ) -> [URL] {
+        var urls: [URL] = []
+        if let cliPayload {
+            urls.append(cliPayload.workbookURL)
+            urls.append(cliPayload.reportCSVURL)
+            urls.append(cliPayload.sampleSummaryCSVURL)
+            urls.append(cliPayload.statsJSONURL)
+            urls.append(cliPayload.unmatchedClustersFASTAURL)
+            urls.append(cliPayload.cdnaClustersFASTAURL)
+            urls.append(cliPayload.provenanceURL)
+        }
+        urls.append(request.workbookURL)
+        urls.append(request.reportCSVURL)
+        urls.append(request.sampleSummaryCSVURL)
+        urls.append(request.statsJSONURL)
+        urls.append(request.unmatchedClustersFASTAURL)
+        urls.append(request.cdnaClustersFASTAURL)
         urls.append(request.provenanceURL)
         urls.append(request.outputDirectory)
         return deduplicatedExistingURLs(urls)
@@ -782,6 +910,20 @@ final class WorkflowOperationExecutionService {
         return try? JSONDecoder().decode(ONTGenotypingCLIPayload.self, from: Data(json.utf8))
     }
 
+    private func decodeFullLengthONTMHCGenotypingPayload(from stdout: String) -> FullLengthONTMHCGenotypingCLIPayload? {
+        guard let data = stdout.data(using: .utf8) else { return nil }
+        if let payload = try? JSONDecoder().decode(FullLengthONTMHCGenotypingCLIPayload.self, from: data) {
+            return payload
+        }
+        guard let start = stdout.firstIndex(of: "{"),
+              let end = stdout.lastIndex(of: "}"),
+              start <= end else {
+            return nil
+        }
+        let json = String(stdout[start...end])
+        return try? JSONDecoder().decode(FullLengthONTMHCGenotypingCLIPayload.self, from: Data(json.utf8))
+    }
+
     private func deduplicatedExistingURLs(_ urls: [URL]) -> [URL] {
         var seen = Set<String>()
         var result: [URL] = []
@@ -923,5 +1065,27 @@ private struct ONTGenotypingCLIPayload: Decodable {
     var sampleSummaryCSVURL: URL { URL(fileURLWithPath: sampleSummaryCSVPath).standardizedFileURL }
     var statsJSONURL: URL { URL(fileURLWithPath: statsJSONPath).standardizedFileURL }
     var workbookURL: URL { URL(fileURLWithPath: workbookPath).standardizedFileURL }
+    var provenanceURL: URL { URL(fileURLWithPath: provenancePath).standardizedFileURL }
+}
+
+private struct FullLengthONTMHCGenotypingCLIPayload: Decodable {
+    let outputDirectory: String
+    let reportCSVPath: String
+    let sampleSummaryCSVPath: String
+    let statsJSONPath: String
+    let workbookPath: String
+    let unmatchedClustersFASTAPath: String
+    let cdnaClustersFASTAPath: String
+    let provenancePath: String
+    let referenceFASTAPath: String
+    let guideFASTAPath: String
+
+    var outputDirectoryURL: URL { URL(fileURLWithPath: outputDirectory).standardizedFileURL }
+    var reportCSVURL: URL { URL(fileURLWithPath: reportCSVPath).standardizedFileURL }
+    var sampleSummaryCSVURL: URL { URL(fileURLWithPath: sampleSummaryCSVPath).standardizedFileURL }
+    var statsJSONURL: URL { URL(fileURLWithPath: statsJSONPath).standardizedFileURL }
+    var workbookURL: URL { URL(fileURLWithPath: workbookPath).standardizedFileURL }
+    var unmatchedClustersFASTAURL: URL { URL(fileURLWithPath: unmatchedClustersFASTAPath).standardizedFileURL }
+    var cdnaClustersFASTAURL: URL { URL(fileURLWithPath: cdnaClustersFASTAPath).standardizedFileURL }
     var provenanceURL: URL { URL(fileURLWithPath: provenancePath).standardizedFileURL }
 }

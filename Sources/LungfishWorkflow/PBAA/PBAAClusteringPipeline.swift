@@ -1,5 +1,6 @@
 import Foundation
 import LungfishCore
+import LungfishIO
 
 public struct PBAANextflowRunResult: Sendable, Equatable {
     public let exitCode: Int32
@@ -144,6 +145,7 @@ public struct PBAAClusteringPipeline: Sendable {
         let options = ProvenanceOptions(
             explicit: [
                 "inputFASTQ": .file(request.inputFASTQURL),
+                "inputFormat": .string(request.inputFormat.rawValue),
                 "guide": .file(request.guideSourceURL),
                 "outputDirectory": .file(request.outputDirectory),
                 "outputName": .string(request.outputName),
@@ -172,11 +174,13 @@ public struct PBAAClusteringPipeline: Sendable {
             ]
         )
 
+        let readsFilename = request.inputFormat == .fasta ? "reads.fasta" : "reads.fastq"
+        let inputFileFormat: FileFormat = request.inputFormat == .fasta ? .fasta : .fastq
         let pbaaStepArgv = [
             "pbaa", "cluster",
             "-j", String(request.threads),
             "--seed", String(request.seed),
-        ] + request.extraArguments + ["guide.fasta", "reads.fastq", request.prefix]
+        ] + request.extraArguments + ["guide.fasta", readsFilename, request.prefix]
         let nextflowArgv = runResult.argv.isEmpty
             ? ProcessPBAANextflowRunner.nextflowArguments(workflowDirectory: workflowDirectory)
             : runResult.argv
@@ -196,7 +200,7 @@ public struct PBAAClusteringPipeline: Sendable {
         .durableReplayArgv(argv)
         .reproducibleCommand(argv.map(shellEscape).joined(separator: " "))
         .options(explicit: options.explicit, defaults: options.defaults, resolved: options.resolvedDefaults)
-        .input(request.inputFASTQURL, format: .fastq, role: .input)
+        .input(request.inputFASTQURL, format: inputFileFormat, role: .input)
         .input(request.guideSourceURL, format: .fasta, role: .input)
         .runtime(ProvenanceRuntimeIdentity(
             containerImage: request.containerPins.pbaa.reference,
@@ -207,7 +211,7 @@ public struct PBAAClusteringPipeline: Sendable {
             toolVersion: "unknown",
             argv: nextflowArgv,
             inputs: [
-                try ProvenanceFileDescriptor.file(url: request.inputFASTQURL, format: .fastq, role: .input),
+                try ProvenanceFileDescriptor.file(url: request.inputFASTQURL, format: inputFileFormat, role: .input),
                 try ProvenanceFileDescriptor.file(url: request.guideSourceURL, format: .fasta, role: .input),
                 try ProvenanceFileDescriptor.file(
                     url: workflowDirectory.appendingPathComponent("main.nf"),
@@ -237,7 +241,7 @@ public struct PBAAClusteringPipeline: Sendable {
             toolVersion: request.containerPins.pbaa.toolVersion,
             argv: pbaaStepArgv,
             inputs: [
-                try ProvenanceFileDescriptor.file(url: request.inputFASTQURL, format: .fastq, role: .input),
+                try ProvenanceFileDescriptor.file(url: request.inputFASTQURL, format: inputFileFormat, role: .input),
                 try ProvenanceFileDescriptor.file(url: request.guideSourceURL, format: .fasta, role: .input),
             ],
             outputs: stepOutputs,

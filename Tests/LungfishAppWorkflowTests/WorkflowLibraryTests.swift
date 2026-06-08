@@ -11,7 +11,7 @@ final class WorkflowLibraryTests: XCTestCase {
         let ont = try XCTUnwrap(WorkflowLibraryCatalog.item(for: .ontGenotyping))
         XCTAssertEqual(ont.maturity, .specialized)
         XCTAssertEqual(ont.requiredPluginPackIDs, ["lungfish-tools", "read-mapping"])
-        XCTAssertEqual(ont.title, "Amplicon Genotyping")
+        XCTAssertEqual(ont.title, "miSeq amplicon ONT MHC genotyping")
 
         XCTAssertEqual(WorkflowLibraryCatalog.item(for: .minimap2)?.requiredPluginPackIDs, ["read-mapping"])
         XCTAssertEqual(WorkflowLibraryCatalog.item(for: .mafft)?.requiredPluginPackIDs, ["multiple-sequence-alignment"])
@@ -31,6 +31,20 @@ final class WorkflowLibraryTests: XCTestCase {
         XCTAssertEqual(twelveS.requiredPluginPackIDs, ["lungfish-tools"])
     }
 
+    func testBuiltInCatalogIncludesFullLengthONTMHCGenotypingAsSpecializedWorkflow() throws {
+        let workflow = try XCTUnwrap(
+            WorkflowLibraryCatalog.item(id: WorkflowLibraryCatalog.fullLengthONTMHCGenotypingID)
+        )
+
+        XCTAssertNil(workflow.toolID)
+        XCTAssertEqual(workflow.title, "Full-length ONT MHC genotyping")
+        XCTAssertEqual(workflow.maturity, .specialized)
+        XCTAssertEqual(workflow.categoryID, .classification)
+        XCTAssertEqual(workflow.requiredPluginPackIDs, ["lungfish-tools", "read-mapping"])
+        XCTAssertTrue(workflow.capabilities.contains(.workflowOperations))
+        XCTAssertTrue(workflow.capabilities.contains(.haplotypeDefinitions))
+    }
+
     func testBuiltInSectionsGroupCoreWorkflowsBeforeSpecializedWorkflows() throws {
         let sections = WorkflowLibraryCatalog.builtInSections
 
@@ -41,6 +55,7 @@ final class WorkflowLibraryTests: XCTestCase {
         let specialized = try XCTUnwrap(sections.first { $0.kind == .specialized })
         XCTAssertEqual(specialized.title, "Specialized Workflows")
         XCTAssertTrue(specialized.items.contains { $0.toolID == .ontGenotyping })
+        XCTAssertTrue(specialized.items.contains { $0.id == WorkflowLibraryCatalog.fullLengthONTMHCGenotypingID })
         XCTAssertTrue(specialized.items.contains { $0.id == WorkflowLibraryCatalog.twelveSAmpliconMatchingID })
         XCTAssertTrue(sections.firstIndex { $0.kind == .core }! < sections.firstIndex { $0.kind == .specialized }!)
     }

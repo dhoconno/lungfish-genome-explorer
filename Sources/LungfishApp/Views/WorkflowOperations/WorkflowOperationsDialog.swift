@@ -68,6 +68,9 @@ private struct WorkflowOperationsDetailPane: View {
 
                 section(DatasetOperationSection.inputs.title) {
                     referencePicker
+                    if case .fullLengthONTMHCGenotyping = state.selectedTool?.kind {
+                        guidePicker
+                    }
                     if case .ontGenotyping = state.selectedTool?.kind,
                        state.effectiveGenotypingMode == .ontBarcodeDemux {
                         barcodePicker
@@ -166,6 +169,28 @@ private struct WorkflowOperationsDetailPane: View {
         }
     }
 
+    private var guidePicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("pbAA Guides")
+                .font(.subheadline.weight(.medium))
+            HStack(spacing: 10) {
+                Text(state.selectedGuideDisplay)
+                    .font(.caption)
+                    .foregroundStyle(state.selectedGuideURL == nil ? Color.lungfishOrangeFallback : Color.lungfishSecondaryText)
+                    .lineLimit(2)
+                Spacer()
+                Button(state.selectedGuideURL == nil ? "Choose…" : "Replace…") {
+                    browseForGuide()
+                }
+                if state.selectedGuideURL != nil {
+                    Button("Clear") {
+                        state.setGuide(nil)
+                    }
+                }
+            }
+        }
+    }
+
     private var barcodePicker: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Barcode Definition")
@@ -245,6 +270,15 @@ private struct WorkflowOperationsDetailPane: View {
                         .foregroundStyle(.secondary)
                 }
                 haplotypeDefinitionPicker
+            }
+        case .fullLengthONTMHCGenotyping:
+            VStack(alignment: .leading, spacing: 10) {
+                labeledTextField("Report Name", text: $state.outputName)
+                HStack(spacing: 12) {
+                    labeledCompactTextField("Threads", value: $state.threads)
+                    labeledCompactTextField("Min Length", value: $state.fullLengthMinimumLength)
+                    labeledCompactTextField("Max Length", value: $state.fullLengthMaximumLength)
+                }
             }
         case .twelveSAmpliconMatching:
             VStack(alignment: .leading, spacing: 10) {
@@ -365,6 +399,27 @@ private struct WorkflowOperationsDetailPane: View {
                     Text("Arguments are passed to minimap2 after the ONT mapping preset.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+                .padding(.top, 4)
+            }
+        case .fullLengthONTMHCGenotyping:
+            DisclosureGroup("Advanced Options", isExpanded: $state.advancedOptionsExpanded) {
+                VStack(alignment: .leading, spacing: 8) {
+                    fullLengthPrimerRow(
+                        title: "Orient Reference",
+                        url: state.fullLengthOrientReferenceURL,
+                        set: { state.fullLengthOrientReferenceURL = $0 }
+                    )
+                    fullLengthPrimerRow(
+                        title: "Forward Primers",
+                        url: state.fullLengthForwardPrimerURL,
+                        set: { state.fullLengthForwardPrimerURL = $0 }
+                    )
+                    fullLengthPrimerRow(
+                        title: "Reverse Primers",
+                        url: state.fullLengthReversePrimerURL,
+                        set: { state.fullLengthReversePrimerURL = $0 }
+                    )
                 }
                 .padding(.top, 4)
             }
@@ -541,6 +596,33 @@ private struct WorkflowOperationsDetailPane: View {
         }
     }
 
+    private func fullLengthPrimerRow(
+        title: String,
+        url: URL?,
+        set: @escaping (URL?) -> Void
+    ) -> some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(url.map { WorkflowOperationDialogState.displayPath(for: $0, relativeTo: state.projectURL) } ?? "None")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+            Button(url == nil ? "Choose…" : "Replace…") {
+                browseForFASTA(title: "Choose \(title)", completion: set)
+            }
+            if url != nil {
+                Button("Clear") {
+                    set(nil)
+                }
+            }
+        }
+    }
+
     private func browseForReference() {
         let panel = NSOpenPanel()
         panel.title = "Choose Reference"
@@ -556,6 +638,51 @@ private struct WorkflowOperationsDetailPane: View {
             panel.beginSheetModal(for: window, completionHandler: completion)
         } else {
             panel.begin(completionHandler: completion)
+        }
+    }
+
+    private func browseForGuide() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose pbAA Guides"
+        panel.message = "Select a guide FASTA file or .lungfishref bundle."
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        let completion: (NSApplication.ModalResponse) -> Void = { response in
+            guard response == .OK else { return }
+            state.setGuide(panel.url)
+        }
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            panel.beginSheetModal(for: window, completionHandler: completion)
+        } else {
+            panel.begin(completionHandler: completion)
+        }
+    }
+
+    private func browseForFASTA(title: String, completion: @escaping (URL?) -> Void) {
+        let panel = NSOpenPanel()
+        panel.title = title
+        panel.message = "Select a FASTA file."
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        var contentTypes: [UTType] = []
+        for ext in ["fa", "fasta", "fna", "fas"] {
+            if let type = UTType(filenameExtension: ext) {
+                contentTypes.append(type)
+            }
+        }
+        if !contentTypes.isEmpty {
+            panel.allowedContentTypes = contentTypes
+        }
+        let handler: (NSApplication.ModalResponse) -> Void = { response in
+            guard response == .OK else { return }
+            completion(panel.url)
+        }
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            panel.beginSheetModal(for: window, completionHandler: handler)
+        } else {
+            panel.begin(completionHandler: handler)
         }
     }
 

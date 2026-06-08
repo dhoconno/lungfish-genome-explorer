@@ -127,6 +127,7 @@ struct WorkflowLibrarySection: Identifiable, Equatable, Sendable {
 
 enum WorkflowLibraryCatalog {
     static let twelveSAmpliconMatchingID = "builtin.12s-amplicon-matching"
+    static let fullLengthONTMHCGenotypingID = "builtin.full-length-ont-mhc-genotyping"
 
     static let twelveSAmpliconMatchingItem = WorkflowLibraryItem(
         id: twelveSAmpliconMatchingID,
@@ -136,6 +137,16 @@ enum WorkflowLibraryCatalog {
         maturity: .specialized,
         requiredPluginPackIDs: ["lungfish-tools"],
         capabilities: [.workflowOperations]
+    )
+
+    static let fullLengthONTMHCGenotypingItem = WorkflowLibraryItem(
+        id: fullLengthONTMHCGenotypingID,
+        title: "Full-length ONT MHC genotyping",
+        subtitle: "Cluster full-length ONT MHC amplicons with pbAA and genotype cluster consensus sequences against an MHC allele library.",
+        categoryID: .classification,
+        maturity: .specialized,
+        requiredPluginPackIDs: ["lungfish-tools", "read-mapping"],
+        capabilities: [.workflowOperations, .haplotypeDefinitions]
     )
 
     static let builtIn: [WorkflowLibraryItem] = FASTQOperationToolID.allCases.map { toolID in
@@ -152,7 +163,7 @@ enum WorkflowLibraryCatalog {
             maturity: .core,
             requiredPluginPackIDs: toolID.categoryID.requiredPackIDs
         )
-    } + [twelveSAmpliconMatchingItem]
+    } + [fullLengthONTMHCGenotypingItem, twelveSAmpliconMatchingItem]
 
     static func item(for toolID: FASTQOperationToolID) -> WorkflowLibraryItem? {
         builtIn.first { $0.toolID == toolID }

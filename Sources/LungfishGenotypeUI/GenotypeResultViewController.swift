@@ -1850,7 +1850,7 @@ public final class GenotypeResultViewController: NSViewController {
         container.addArrangedSubview(summary)
 
         let hint = NSTextField(wrappingLabelWithString:
-            "These thresholds affect haplotype assignment only. Genotyping worksheets and call evidence keep all retained reads. Rerun Amplicon Genotyping to change haplotype thresholds."
+            "These thresholds affect haplotype assignment only. Genotyping worksheets and call evidence keep all retained reads. Rerun miSeq amplicon ONT MHC genotyping to change haplotype thresholds."
         )
         hint.font = NSFont.systemFont(ofSize: 10)
         hint.textColor = .secondaryLabelColor

@@ -17,7 +17,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             packageStore: packageStore
         )
 
-        let ont = try XCTUnwrap(state.tools.first { $0.title == "Amplicon Genotyping" })
+        let ont = try XCTUnwrap(state.tools.first { $0.title == "miSeq amplicon ONT MHC genotyping" })
         XCTAssertEqual(ont.availability, .available)
     }
 
@@ -187,7 +187,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         // dialog reflects a library-store change made after it was created.
         let twelveSItem = try XCTUnwrap(WorkflowLibraryCatalog.item(id: WorkflowLibraryCatalog.twelveSAmpliconMatchingID))
         libraryStore.setWorkflow(twelveSItem, enabled: true)
-        var ont = try XCTUnwrap(state.tools.first { $0.title == "Amplicon Genotyping" })
+        var ont = try XCTUnwrap(state.tools.first { $0.title == "miSeq amplicon ONT MHC genotyping" })
         XCTAssertEqual(ont.availability, .available)
         var twelveS = try XCTUnwrap(state.tools.first { $0.title == "12S Amplicon Matching" })
         XCTAssertEqual(twelveS.availability, .available)
@@ -195,7 +195,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         libraryStore.setWorkflow(.ontGenotyping, enabled: false)
         libraryStore.setWorkflow(twelveSItem, enabled: false)
 
-        ont = try XCTUnwrap(state.tools.first { $0.title == "Amplicon Genotyping" })
+        ont = try XCTUnwrap(state.tools.first { $0.title == "miSeq amplicon ONT MHC genotyping" })
         XCTAssertEqual(ont.availability, .disabled(reason: "Enable in Library"))
         twelveS = try XCTUnwrap(state.tools.first { $0.title == "12S Amplicon Matching" })
         XCTAssertEqual(twelveS.availability, .disabled(reason: "Enable in Library"))
@@ -203,7 +203,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         libraryStore.setWorkflow(.ontGenotyping, enabled: true)
         libraryStore.setWorkflow(twelveSItem, enabled: true)
 
-        ont = try XCTUnwrap(state.tools.first { $0.title == "Amplicon Genotyping" })
+        ont = try XCTUnwrap(state.tools.first { $0.title == "miSeq amplicon ONT MHC genotyping" })
         XCTAssertEqual(ont.availability, .available)
         twelveS = try XCTUnwrap(state.tools.first { $0.title == "12S Amplicon Matching" })
         XCTAssertEqual(twelveS.availability, .available)
@@ -225,6 +225,98 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         waitForMainQueue()
 
         XCTAssertGreaterThan(state.workflowAvailabilityRevision, initialRevision)
+    }
+
+    func testFullLengthONTMHCGenotypingLaunchRequestUsesGuideAndAdvancedInputs() throws {
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let fullLengthItem = try XCTUnwrap(
+            WorkflowLibraryCatalog.item(id: WorkflowLibraryCatalog.fullLengthONTMHCGenotypingID)
+        )
+        enablementStore.setWorkflow(fullLengthItem, enabled: true)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let temp = try temporaryDirectory()
+        let referenceURL = temp.appendingPathComponent("Reference Sequences/Mamu-class-I.lungfishmhcref", isDirectory: true)
+        let referenceFASTAURL = referenceURL.appendingPathComponent("reference.fa")
+        let readsURL = temp.appendingPathComponent("Reads/NB13.lungfishfastq", isDirectory: true)
+        let guideURL = temp.appendingPathComponent("Reference Sequences/guide.lungfishref", isDirectory: true)
+        let guideFASTAURL = guideURL.appendingPathComponent("guide.fasta")
+        let orientReferenceURL = temp.appendingPathComponent("Reference Sequences/MHC_class_I_orient.fasta")
+        let forwardPrimerURL = temp.appendingPathComponent("Reference Sequences/MHC_class_I_F.fasta")
+        let reversePrimerURL = temp.appendingPathComponent("Reference Sequences/MHC_class_I_R.fasta")
+        let outputURL = temp.appendingPathComponent("Analyses", isDirectory: true)
+        try FileManager.default.createDirectory(at: referenceURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: readsURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: guideURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
+        try ">Mamu-A1*001\nACGT\n".write(to: referenceFASTAURL, atomically: true, encoding: .utf8)
+        try ">guide\nACGT\n".write(to: guideFASTAURL, atomically: true, encoding: .utf8)
+        try ">orient\nACGT\n".write(to: orientReferenceURL, atomically: true, encoding: .utf8)
+        try ">F\nACGT\n".write(to: forwardPrimerURL, atomically: true, encoding: .utf8)
+        try ">R\nTGCA\n".write(to: reversePrimerURL, atomically: true, encoding: .utf8)
+        try MHCAmpliconReferenceBundle.writeManifest(
+            MHCAmpliconReferenceBundleManifest(
+                name: "Mamu class I",
+                referenceFastaPath: "reference.fa",
+                haplotypeDefinitionPaths: [],
+                defaultHaplotypeDefinitionID: nil,
+                metrics: MHCAmpliconReferenceBundleMetrics(referenceCount: 1, haplotypeDefinitionCount: 0),
+                createdAt: "2026-06-06T00:00:00Z"
+            ),
+            to: referenceURL
+        )
+        try BundleManifest(
+            name: "guide",
+            identifier: "org.lungfish.test.guide",
+            source: SourceInfo(organism: "Macaca mulatta", assembly: "guide"),
+            genome: GenomeInfo(
+                path: "guide.fasta",
+                indexPath: "guide.fasta.fai",
+                totalLength: 4,
+                chromosomes: [
+                    ChromosomeInfo(name: "guide", length: 4, offset: 0, lineBases: 4, lineWidth: 5),
+                ]
+            )
+        ).save(to: guideURL)
+        try Data().write(to: guideURL.appendingPathComponent("guide.fasta.fai"))
+
+        let state = WorkflowOperationDialogState(
+            projectURL: temp,
+            selectedReadURLs: [readsURL],
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+        state.selectTool(WorkflowLibraryCatalog.fullLengthONTMHCGenotypingID)
+        state.setReference(referenceURL)
+        state.setGuide(guideURL)
+        state.setOutputDirectory(outputURL)
+        state.outputName = "nb13-full-length"
+        state.fullLengthOrientReferenceURL = orientReferenceURL
+        state.fullLengthForwardPrimerURL = forwardPrimerURL
+        state.fullLengthReversePrimerURL = reversePrimerURL
+        state.fullLengthMinimumLength = 2000
+        state.fullLengthMaximumLength = 4000
+        state.threads = 8
+
+        XCTAssertEqual(state.readinessText, "Ready to run.")
+        let launchRequest = try state.makeLaunchRequest()
+        guard case .fullLengthONTMHCGenotyping(let request) = launchRequest else {
+            return XCTFail("Expected full-length ONT MHC genotyping request")
+        }
+
+        XCTAssertEqual(request.inputFASTQURLs, [readsURL.standardizedFileURL])
+        XCTAssertEqual(request.referenceSourceURL, referenceURL.standardizedFileURL)
+        XCTAssertEqual(request.guideSourceURL, guideURL.standardizedFileURL)
+        XCTAssertEqual(request.orientReferenceURL, orientReferenceURL.standardizedFileURL)
+        XCTAssertEqual(request.forwardPrimerURL, forwardPrimerURL.standardizedFileURL)
+        XCTAssertEqual(request.reversePrimerURL, reversePrimerURL.standardizedFileURL)
+        XCTAssertEqual(request.minimumLength, 2000)
+        XCTAssertEqual(request.maximumLength, 4000)
+        XCTAssertEqual(request.threads, 8)
+        XCTAssertEqual(
+            request.outputDirectory,
+            outputURL.appendingPathComponent("nb13-full-length.lungfishgenotype", isDirectory: true).standardizedFileURL
+        )
     }
 
     func testEnabledWorkflowPackageBuildsLocalWorkflowRunWithExpectedOutputs() async throws {
@@ -1135,7 +1227,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         )
         let readPicker = try sourceBlock(
             startingAt: "    private var readPicker: some View",
-            endingBefore: "    private var barcodePicker: some View",
+            endingBefore: "    private var guidePicker: some View",
             in: source
         )
         let referencePicker = try sourceBlock(

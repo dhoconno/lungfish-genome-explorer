@@ -6,6 +6,7 @@ import Observation
 
 enum WorkflowOperationToolKind: Equatable, Sendable {
     case ontGenotyping
+    case fullLengthONTMHCGenotyping
     case twelveSAmpliconMatching
     case workflowPackage(WorkflowPackageValidationResult)
 }
@@ -20,6 +21,7 @@ struct WorkflowOperationTool: Identifiable, Equatable, Sendable {
 
 enum WorkflowOperationLaunchRequest: Equatable {
     case ontGenotyping(ONTBarcodeDemuxGenotypingRunRequest)
+    case fullLengthONTMHCGenotyping(FullLengthONTMHCGenotypingRunRequest)
     case twelveSAmpliconMatching(TwelveSAmpliconMatchingConfiguration)
     case workflowPackage(LocalWorkflowRunRequest, bundleRoot: URL)
 }
@@ -46,6 +48,7 @@ final class WorkflowOperationDialogState {
     var projectURL: URL?
     var selectedToolID: String
     var selectedReferenceURL: URL?
+    var selectedGuideURL: URL?
     var selectedBarcodeDefinitionURL: URL?
     var selectedReadURLs: [URL]
     var outputDirectoryURL: URL?
@@ -62,6 +65,11 @@ final class WorkflowOperationDialogState {
     var twelveSMatchingMode: TwelveSAmpliconMatchingMode
     var twelveSRunChimeraReview: Bool
     var twelveSSampleMetadataURL: URL?
+    var fullLengthOrientReferenceURL: URL?
+    var fullLengthForwardPrimerURL: URL?
+    var fullLengthReversePrimerURL: URL?
+    var fullLengthMinimumLength: Int
+    var fullLengthMaximumLength: Int
     var selectedHaplotypeAssayID: String?
     var selectedHaplotypeSpeciesCode: String?
     var selectedHaplotypeDefinitionScope: HaplotypeDefinitionScope?
@@ -100,6 +108,20 @@ final class WorkflowOperationDialogState {
         self.twelveSMatchingMode = .illuminaExact
         self.twelveSRunChimeraReview = true
         self.twelveSSampleMetadataURL = nil
+        self.fullLengthOrientReferenceURL = Self.defaultFullLengthPrimerReferenceURL(
+            filename: "MHC_class_I_orient.fasta",
+            projectURL: standardizedProjectURL
+        )
+        self.fullLengthForwardPrimerURL = Self.defaultFullLengthPrimerReferenceURL(
+            filename: "MHC_class_I_F.fasta",
+            projectURL: standardizedProjectURL
+        )
+        self.fullLengthReversePrimerURL = Self.defaultFullLengthPrimerReferenceURL(
+            filename: "MHC_class_I_R.fasta",
+            projectURL: standardizedProjectURL
+        )
+        self.fullLengthMinimumLength = 2_000
+        self.fullLengthMaximumLength = 4_000
         self.selectedHaplotypeAssayID = Self.defaultHaplotypeAssayID()
         self.selectedHaplotypeSpeciesCode = nil
         self.selectedHaplotypeDefinitionScope = nil
@@ -111,6 +133,7 @@ final class WorkflowOperationDialogState {
         self.projectReferenceCandidates = referenceCandidates
         self.projectBarcodeDefinitionCandidates = barcodeDefinitionCandidates
         self.selectedReferenceURL = referenceCandidates.first
+        self.selectedGuideURL = nil
         self.selectedBarcodeDefinitionURL = barcodeDefinitionCandidates.first
         self.errorMessage = nil
         self.showingError = false
@@ -290,6 +313,11 @@ final class WorkflowOperationDialogState {
         return Self.displayPath(for: selectedReferenceURL, relativeTo: projectURL)
     }
 
+    var selectedGuideDisplay: String {
+        guard let selectedGuideURL else { return "No guide selected" }
+        return Self.displayPath(for: selectedGuideURL, relativeTo: projectURL)
+    }
+
     var selectedReadsDisplay: String {
         guard !selectedReadURLs.isEmpty else { return "No read bundles selected" }
         return selectedReadURLs
@@ -324,6 +352,10 @@ final class WorkflowOperationDialogState {
         if selectedTool?.kind == .twelveSAmpliconMatching,
            Self.twelveSReferenceInput(for: selectedReferenceURL) == nil {
             return "Select a 12S reference FASTA file or reference bundle."
+        }
+        if selectedTool?.kind == .fullLengthONTMHCGenotyping,
+           selectedGuideURL == nil {
+            return "Select guide sequences for pbAA clustering."
         }
         if selectedTool?.kind == .twelveSAmpliconMatching,
            let twelveSSampleMetadataURL,
@@ -366,6 +398,14 @@ final class WorkflowOperationDialogState {
            twelveSMaximumIndelBases < 0 {
             return "Maximum indels must be at least 0."
         }
+        if selectedTool?.kind == .fullLengthONTMHCGenotyping,
+           fullLengthMinimumLength < 1 {
+            return "Minimum length must be at least 1."
+        }
+        if selectedTool?.kind == .fullLengthONTMHCGenotyping,
+           fullLengthMaximumLength < fullLengthMinimumLength {
+            return "Maximum length must be greater than or equal to minimum length."
+        }
         if selectedTool?.kind == .ontGenotyping,
            effectiveGenotypingMode == .illuminaPaired,
            selectedReadURLs.isEmpty {
@@ -404,6 +444,8 @@ final class WorkflowOperationDialogState {
                 .components(separatedBy: CharacterSet.alphanumerics.inverted)
                 .filter { !$0.isEmpty }
                 .joined(separator: "-") ?? "workflow-output"
+        } else if selectedTool?.kind == .fullLengthONTMHCGenotyping {
+            outputName = Self.defaultFullLengthONTMHCOutputName(for: selectedReadURLs)
         } else if selectedTool?.kind == .twelveSAmpliconMatching {
             outputName = Self.defaultTwelveSOutputName(for: selectedReadURLs)
         } else {
@@ -504,6 +546,10 @@ final class WorkflowOperationDialogState {
         }
     }
 
+    func setGuide(_ url: URL?) {
+        selectedGuideURL = url?.standardizedFileURL
+    }
+
     private func applyBundledMHCReferenceDefaultsIfAvailable(for url: URL?) {
         guard let url,
               MHCAmpliconReferenceBundle.isBundleURL(url),
@@ -550,6 +596,21 @@ final class WorkflowOperationDialogState {
         }
         if projectChanged || selectedBarcodeDefinitionURL == nil {
             selectedBarcodeDefinitionURL = projectBarcodeDefinitionCandidates.first
+        }
+        if projectChanged {
+            selectedGuideURL = nil
+            fullLengthOrientReferenceURL = Self.defaultFullLengthPrimerReferenceURL(
+                filename: "MHC_class_I_orient.fasta",
+                projectURL: standardizedProjectURL
+            )
+            fullLengthForwardPrimerURL = Self.defaultFullLengthPrimerReferenceURL(
+                filename: "MHC_class_I_F.fasta",
+                projectURL: standardizedProjectURL
+            )
+            fullLengthReversePrimerURL = Self.defaultFullLengthPrimerReferenceURL(
+                filename: "MHC_class_I_R.fasta",
+                projectURL: standardizedProjectURL
+            )
         }
         if projectChanged {
             selectedGenotypingReadType = Self.defaultGenotypingReadType(for: self.selectedReadURLs)
@@ -617,6 +678,30 @@ final class WorkflowOperationDialogState {
                 readType: selectedGenotypingReadType
             )
             return .ontGenotyping(request)
+
+        case .fullLengthONTMHCGenotyping:
+            guard !selectedReadURLs.isEmpty,
+                  let selectedGuideURL else {
+                throw WorkflowOperationError.incompleteConfiguration(readinessText)
+            }
+            let request = FullLengthONTMHCGenotypingRunRequest(
+                inputFASTQURLs: selectedReadURLs,
+                referenceSourceURL: selectedReferenceURL,
+                guideSourceURL: selectedGuideURL,
+                orientReferenceURL: fullLengthOrientReferenceURL,
+                forwardPrimerURL: fullLengthForwardPrimerURL,
+                reversePrimerURL: fullLengthReversePrimerURL,
+                outputDirectory: Self.genotypeBundleURL(
+                    outputLocationURL: outputDirectoryURL,
+                    outputName: outputName
+                ),
+                outputName: outputName,
+                projectURL: projectURL,
+                threads: threads,
+                minimumLength: fullLengthMinimumLength,
+                maximumLength: fullLengthMaximumLength
+            )
+            return .fullLengthONTMHCGenotyping(request)
 
         case .twelveSAmpliconMatching:
             guard !selectedReadURLs.isEmpty else {
@@ -789,8 +874,10 @@ final class WorkflowOperationDialogState {
     }
 
     private static let ontGenotypingID = "builtin.ont-genotyping"
+    private static let fullLengthONTMHCGenotypingID = WorkflowLibraryCatalog.fullLengthONTMHCGenotypingID
     private static let twelveSAmpliconMatchingID = WorkflowLibraryCatalog.twelveSAmpliconMatchingID
     private static let ontGenotypingResultsDirectoryName = "Amplicon genotyping results"
+    private static let fullLengthONTMHCResultsDirectoryName = "Full-length ONT MHC genotyping results"
     private static let twelveSResultsDirectoryName = "12S amplicon results"
 
     private struct TwelveSReferenceInput {
@@ -807,6 +894,13 @@ final class WorkflowOperationDialogState {
     }
 
     private static func ontGenotypingBundleURL(
+        outputLocationURL: URL,
+        outputName: String
+    ) -> URL {
+        genotypeBundleURL(outputLocationURL: outputLocationURL, outputName: outputName)
+    }
+
+    private static func genotypeBundleURL(
         outputLocationURL: URL,
         outputName: String
     ) -> URL {
@@ -834,6 +928,11 @@ final class WorkflowOperationDialogState {
                 ontGenotypingResultsDirectoryName,
                 isDirectory: true
             )
+        case .fullLengthONTMHCGenotyping:
+            return analysesDirectory.appendingPathComponent(
+                fullLengthONTMHCResultsDirectoryName,
+                isDirectory: true
+            )
         case .twelveSAmpliconMatching:
             return analysesDirectory.appendingPathComponent(
                 twelveSResultsDirectoryName,
@@ -858,6 +957,17 @@ final class WorkflowOperationDialogState {
                 subtitle: ont.subtitle,
                 kind: .ontGenotyping,
                 availability: enablementStore.isWorkflowEnabled(.ontGenotyping)
+                    ? .available
+                    : .disabled(reason: "Enable in Library")
+            ))
+        }
+        if let fullLengthONTMHC = WorkflowLibraryCatalog.item(id: fullLengthONTMHCGenotypingID) {
+            tools.append(WorkflowOperationTool(
+                id: fullLengthONTMHCGenotypingID,
+                title: fullLengthONTMHC.title,
+                subtitle: fullLengthONTMHC.subtitle,
+                kind: .fullLengthONTMHCGenotyping,
+                availability: enablementStore.isWorkflowEnabled(fullLengthONTMHC)
                     ? .available
                     : .disabled(reason: "Enable in Library")
             ))
@@ -1094,6 +1204,15 @@ final class WorkflowOperationDialogState {
         "amplicon-genotyping"
     }
 
+    private static func defaultFullLengthONTMHCOutputName(for selectedReadURLs: [URL]) -> String {
+        guard selectedReadURLs.count == 1,
+              let stem = selectedReadURLs.first?.deletingPathExtension().lastPathComponent,
+              !stem.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return "full-length-ont-mhc-genotyping"
+        }
+        return "\(sanitizeFilenameStem(stem))-full-length-ont-mhc"
+    }
+
     private static func defaultTwelveSOutputName(for selectedReadURLs: [URL]) -> String {
         guard let stem = selectedReadURLs.first?.deletingPathExtension().lastPathComponent,
               !stem.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -1154,6 +1273,25 @@ final class WorkflowOperationDialogState {
             .split(separator: "-", omittingEmptySubsequences: true)
             .joined(separator: "-")
         return collapsed.isEmpty ? "ont" : collapsed
+    }
+
+    private static func defaultFullLengthPrimerReferenceURL(filename: String, projectURL: URL?) -> URL? {
+        guard let projectURL else { return nil }
+        guard let enumerator = FileManager.default.enumerator(
+            at: projectURL,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else {
+            return nil
+        }
+        for case let url as URL in enumerator {
+            guard url.lastPathComponent == filename,
+                  (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
+                continue
+            }
+            return url.standardizedFileURL
+        }
+        return nil
     }
 }
 
