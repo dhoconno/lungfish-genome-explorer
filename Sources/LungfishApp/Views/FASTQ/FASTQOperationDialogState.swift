@@ -2013,6 +2013,14 @@ enum FASTQOperationLaunchRequest: Sendable, Equatable {
     case refreshQCSummary(inputURLs: [URL])
     case derivative(request: FASTQDerivativeRequest, inputURLs: [URL], outputMode: FASTQOperationOutputMode)
     case ontFluidigmSampleSplit(inputFASTQURL: URL, barcodeDefinitionsURL: URL, threads: Int)
+    case ontPacBioBarcodeDemux(
+        inputFASTQURL: URL,
+        barcodeDefinitionsURL: URL,
+        threads: Int,
+        chunkJobs: Int,
+        maxReadsPerSlice: Int,
+        maxBytesPerCutadapt: Int64
+    )
     case map(inputURLs: [URL], referenceURL: URL, outputMode: FASTQOperationOutputMode)
     case assemble(request: AssemblyRunRequest, outputMode: FASTQOperationOutputMode)
     case classify(tool: FASTQOperationToolID, inputURLs: [URL], databaseName: String, extraArguments: [String] = [])

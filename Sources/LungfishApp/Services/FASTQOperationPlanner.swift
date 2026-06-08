@@ -47,7 +47,7 @@ func outputMode(for request: FASTQOperationLaunchRequest) -> FASTQOperationOutpu
         return .fixedBatch
     case .derivative(_, _, let outputMode):
         return outputMode
-    case .ontFluidigmSampleSplit:
+    case .ontFluidigmSampleSplit, .ontPacBioBarcodeDemux:
         return .fixedBatch
     case .map(_, _, let outputMode):
         return outputMode
@@ -68,6 +68,9 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
         return true
     }
     if case .ontFluidigmSampleSplit = request {
+        return true
+    }
+    if case .ontPacBioBarcodeDemux = request {
         return true
     }
     return false
@@ -156,6 +159,19 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
         case .fastqFile, .jsonReport:
             return plan.outputTarget.deletingLastPathComponent()
         }
+    }
+
+    func cliCreatesFreshOutputDirectory(for request: FASTQOperationLaunchRequest) -> Bool {
+        switch request {
+        case .ontFluidigmSampleSplit, .ontPacBioBarcodeDemux:
+            return true
+        default:
+            return false
+        }
+    }
+
+    func cliCreatesFreshOutputDirectory(for plan: FASTQOperationPlan) -> Bool {
+        plan.outputKind == .directory && cliCreatesFreshOutputDirectory(for: plan.originalRequest)
     }
 
     func persistGroupedResultManifest(
@@ -323,7 +339,7 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
             return .jsonReport
         case .derivative(let derivativeRequest, _, _):
             return derivativeRequest.usesDirectoryOutput ? .directory : .fastqFile
-        case .ontFluidigmSampleSplit, .map, .assemble, .classify, .pbaa, .ontGenotyping:
+        case .ontFluidigmSampleSplit, .ontPacBioBarcodeDemux, .map, .assemble, .classify, .pbaa, .ontGenotyping:
             return .directory
         }
     }
@@ -505,7 +521,8 @@ extension FASTQOperationLaunchRequest {
             return inputURLs
         case .derivative(_, let inputURLs, _):
             return inputURLs
-        case .ontFluidigmSampleSplit(let inputFASTQURL, _, _):
+        case .ontFluidigmSampleSplit(let inputFASTQURL, _, _),
+             .ontPacBioBarcodeDemux(let inputFASTQURL, _, _, _, _, _):
             return [inputFASTQURL]
         case .map(let inputURLs, _, _):
             return inputURLs
@@ -525,7 +542,8 @@ extension FASTQOperationLaunchRequest {
         switch self {
         case .derivative(let request, _, _):
             urls.append(contentsOf: request.provenanceInputURLs)
-        case .ontFluidigmSampleSplit(_, let barcodeDefinitionsURL, _):
+        case .ontFluidigmSampleSplit(_, let barcodeDefinitionsURL, _),
+             .ontPacBioBarcodeDemux(_, let barcodeDefinitionsURL, _, _, _, _):
             urls.append(barcodeDefinitionsURL)
         case .map(_, let referenceURL, _):
             urls.append(referenceURL)
@@ -563,6 +581,23 @@ extension FASTQOperationLaunchRequest {
                 inputFASTQURL: inputFASTQURL,
                 barcodeDefinitionsURL: barcodeDefinitionsURL,
                 threads: threads
+            )
+        case .ontPacBioBarcodeDemux(
+            _,
+            let barcodeDefinitionsURL,
+            let threads,
+            let chunkJobs,
+            let maxReadsPerSlice,
+            let maxBytesPerCutadapt
+        ):
+            guard let inputFASTQURL = inputURLs.first else { return self }
+            return .ontPacBioBarcodeDemux(
+                inputFASTQURL: inputFASTQURL,
+                barcodeDefinitionsURL: barcodeDefinitionsURL,
+                threads: threads,
+                chunkJobs: chunkJobs,
+                maxReadsPerSlice: maxReadsPerSlice,
+                maxBytesPerCutadapt: maxBytesPerCutadapt
             )
         case .map(_, let referenceURL, let outputMode):
             return .map(inputURLs: inputURLs, referenceURL: referenceURL, outputMode: outputMode)
@@ -620,6 +655,8 @@ extension FASTQOperationLaunchRequest {
             return request.batchLabel
         case .ontFluidigmSampleSplit:
             return "ONT Fluidigm Sample Split"
+        case .ontPacBioBarcodeDemux:
+            return "ONT PacBio Barcode Demultiplex"
         case .map:
             return "Map Reads"
         case .assemble(let request, _):
@@ -641,6 +678,8 @@ extension FASTQOperationLaunchRequest {
             return request.operationKindString
         case .ontFluidigmSampleSplit:
             return "ontFluidigmSampleSplit"
+        case .ontPacBioBarcodeDemux:
+            return "ontPacBioBarcodeDemux"
         case .map:
             return "mapping"
         case .assemble:
@@ -668,6 +707,22 @@ extension FASTQOperationLaunchRequest {
                 "minimumInsertLength": "20",
                 "payloadRepresentation": "deduplicated gzip-compressed CS1-CS2 insert FASTQ",
                 "duplicateCountEncoding": "size=N",
+            ]
+        case .ontPacBioBarcodeDemux(
+            _,
+            let barcodeDefinitionsURL,
+            let threads,
+            let chunkJobs,
+            let maxReadsPerSlice,
+            let maxBytesPerCutadapt
+        ):
+            return [
+                "barcodes": barcodeDefinitionsURL.lastPathComponent,
+                "threads": String(threads),
+                "chunkJobs": String(chunkJobs),
+                "maxReadsPerSlice": String(maxReadsPerSlice),
+                "maxBytesPerCutadapt": String(maxBytesPerCutadapt),
+                "payloadRepresentation": "gzip-compressed full demultiplexed FASTQ",
             ]
         case .map(_, let referenceURL, _):
             return ["reference": referenceURL.lastPathComponent]
@@ -757,6 +812,8 @@ extension FASTQOperationLaunchRequest {
             return request.outputNameStem
         case .ontFluidigmSampleSplit:
             return "ont-fluidigm-samples"
+        case .ontPacBioBarcodeDemux:
+            return "ont-pacbio-barcode-demux"
         case .map:
             return "mapping"
         case .assemble(let request, _):
@@ -774,7 +831,7 @@ extension FASTQOperationLaunchRequest {
         switch self {
         case .refreshQCSummary, .derivative, .pbaa:
             return true
-        case .ontFluidigmSampleSplit, .map, .assemble, .classify, .ontGenotyping:
+        case .ontFluidigmSampleSplit, .ontPacBioBarcodeDemux, .map, .assemble, .classify, .ontGenotyping:
             return false
         }
     }
@@ -806,6 +863,9 @@ extension FASTQOperationLaunchRequest {
         if case .ontFluidigmSampleSplit = self {
             return false
         }
+        if case .ontPacBioBarcodeDemux = self {
+            return false
+        }
         return true
     }
 
@@ -822,7 +882,7 @@ extension FASTQOperationLaunchRequest {
             default:
                 return false
             }
-        case .ontFluidigmSampleSplit, .map, .assemble, .pbaa, .ontGenotyping:
+        case .ontFluidigmSampleSplit, .ontPacBioBarcodeDemux, .map, .assemble, .pbaa, .ontGenotyping:
             return false
         }
     }

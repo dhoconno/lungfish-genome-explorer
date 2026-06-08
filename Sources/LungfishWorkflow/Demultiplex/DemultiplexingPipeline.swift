@@ -321,7 +321,10 @@ public enum DemultiplexError: Error, LocalizedError, Sendable {
 /// ```
 public final class DemultiplexingPipeline: @unchecked Sendable {
 
-    let runner = NativeToolRunner.shared
+    let runner: NativeToolRunner
+    private let cutadaptVersionOverride: String?
+    private static let observedForwardOrientationSuffix = "__lge_forward"
+    private static let observedReverseComplementOrientationSuffix = "__lge_reverse_complement"
 
     private struct DemuxTrimEntry: Sendable {
         let readID: String
@@ -331,7 +334,15 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         let rootReadLength: Int?
     }
 
-    public init() {}
+    public init() {
+        self.runner = .shared
+        self.cutadaptVersionOverride = nil
+    }
+
+    public init(runner: NativeToolRunner, cutadaptVersionOverride: String? = nil) {
+        self.runner = runner
+        self.cutadaptVersionOverride = cutadaptVersionOverride
+    }
 
     /// Runs the demultiplexing pipeline.
     ///
@@ -392,7 +403,12 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         try fm.createDirectory(at: config.outputDirectory, withIntermediateDirectories: true)
 
         // Fetch cutadapt version for provenance recording
-        let cutadaptVersion = await runner.getToolVersion(.cutadapt)
+        let cutadaptVersion: String?
+        if let cutadaptVersionOverride {
+            cutadaptVersion = cutadaptVersionOverride
+        } else {
+            cutadaptVersion = await runner.getToolVersion(.cutadapt)
+        }
 
         // Step 1: Generate adapter FASTA (5% progress)
         progress(0.0, "Generating adapter sequences...")
@@ -414,10 +430,12 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         let demuxOutputDir = workDir.appendingPathComponent("demux-output", isDirectory: true)
         try fm.createDirectory(at: demuxOutputDir, withIntermediateDirectories: true)
 
+        let usesPlainObservedTemporaryOutputs = usesObservedCustomBarcodePairs(config)
+        let temporaryFASTQExtension = usesPlainObservedTemporaryOutputs ? "fastq" : "fastq.gz"
         let outputPattern = demuxOutputDir
-            .appendingPathComponent("{name}.fastq.gz").path
+            .appendingPathComponent("{name}.\(temporaryFASTQExtension)").path
         let unassignedPath = demuxOutputDir
-            .appendingPathComponent("unassigned.fastq.gz").path
+            .appendingPathComponent("unassigned.\(temporaryFASTQExtension)").path
         let jsonReportPath = workDir
             .appendingPathComponent("cutadapt-report.json").path
 
@@ -472,6 +490,15 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                 exitCode: result.exitCode,
                 stderr: result.stderr
             )
+        }
+
+        try coalesceObservedOrientationOutputsIfNeeded(
+            for: config,
+            in: demuxOutputDir,
+            temporaryFASTQExtension: temporaryFASTQExtension
+        )
+        if usesPlainObservedTemporaryOutputs {
+            try gzipPlainDemuxOutputs(in: demuxOutputDir)
         }
 
         progress(0.75, "cutadapt complete, processing trim info...")
@@ -685,10 +712,11 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         ) { group in
             var results: [VirtualBundleResult] = []
             var inFlight = 0
+            let maxConcurrentBundles = (isVirtualMode || config.captureTrimsForChaining) ? 8 : 2
 
             for file in filesToProcess {
-                // Throttle to 8 concurrent
-                if inFlight >= 8 {
+                // Keep full-output post-processing gentle on memory and disk I/O.
+                if inFlight >= maxConcurrentBundles {
                     if let result = try await group.next() {
                         if let r = result { results.append(r) }
                         inFlight -= 1
@@ -702,6 +730,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
 
                 let capturedRunner = self.runner
                 let capturedIsVirtual = isVirtualMode
+                let capturedNeedsVirtualSidecars = isVirtualMode || config.captureTrimsForChaining
                 let capturedTrimPositions = trimPositionsByBarcode[file.baseName]
                 let capturedParentTrimMap = parentTrimMap
                 let capturedParentOrientMap = parentOrientMap
@@ -713,6 +742,23 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                 }
                 group.addTask { [self] in
                     try Task.checkCancellation()
+
+                    if !capturedNeedsVirtualSidecars {
+                        let destURL = bundleURL.appendingPathComponent(file.url.lastPathComponent)
+                        try FileManager.default.moveItem(at: file.url, to: destURL)
+
+                        let statistics = try await self.computeMaterializedFASTQStatistics(
+                            from: destURL,
+                            runner: capturedRunner
+                        )
+                        return VirtualBundleResult(
+                            baseName: file.baseName,
+                            isUnassigned: file.isUnassigned,
+                            bundleURL: bundleURL,
+                            bundleName: bundleName,
+                            statistics: statistics
+                        )
+                    }
 
                     let readIDsURL = bundleURL.appendingPathComponent("read-ids.txt")
                     let readIDResult = try await capturedRunner.run(
@@ -897,7 +943,15 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                         }
                     }
                     let reader = FASTQReader(validateSequence: false)
-                    let (statistics, _) = try await reader.computeStatistics(from: statsSource, sampleLimit: 0)
+                    let statistics: FASTQDatasetStatistics
+                    if capturedIsVirtual {
+                        statistics = try await reader.computeStatistics(from: statsSource, sampleLimit: 0).statistics
+                    } else {
+                        statistics = try await self.computeMaterializedFASTQStatistics(
+                            from: statsSource,
+                            runner: capturedRunner
+                        )
+                    }
 
                     return VirtualBundleResult(
                         baseName: file.baseName,
@@ -990,7 +1044,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
 
             progress(
                 0.80 + Double(i + 1) * progressPerFile,
-                "Created virtual bundle for \(result.baseName)"
+                "Created bundle for \(result.baseName)"
             )
         }
 
@@ -2409,6 +2463,21 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             )
 
         case .fixedDual:
+            if usesObservedCustomBarcodePairs(config) {
+                let entries: [(name: String, first: String, second: String)] = config.barcodeKit.barcodes.compactMap { barcode in
+                    guard let second = barcode.i5Sequence else { return nil }
+                    return (
+                        name: barcode.id,
+                        first: barcode.i7Sequence,
+                        second: second
+                    )
+                }
+                guard !entries.isEmpty else { throw DemultiplexError.noBarcodes }
+                try writeObservedLinkedAdapterFASTA(entries: entries, to: adapterFASTA)
+                try validateAdapterFASTA(at: adapterFASTA, kitName: config.barcodeKit.displayName)
+                return AdapterConfiguration(adapterFASTA: adapterFASTA, adapterFlag: "-g")
+            }
+
             let entries: [(name: String, first: String, second: String)] = config.barcodeKit.barcodes.compactMap { barcode in
                 guard let i5 = barcode.i5Sequence else { return nil }
                 return (
@@ -2439,6 +2508,16 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         case .combinatorialDual:
             throw DemultiplexError.combinatorialRequiresSampleAssignments
         }
+    }
+
+    private func usesObservedCustomBarcodePairs(_ config: DemultiplexConfig) -> Bool {
+        config.sampleAssignments.isEmpty
+            && config.barcodeKit.isDualIndexed
+            && config.barcodeKit.pairingMode == .fixedDual
+            && config.barcodeKit.kitType == .custom
+            && config.barcodeKit.platform == .unknown
+            && config.resolvedAdapterContext is BareAdapterContext
+            && config.barcodeLocation == .bothEnds
     }
 
     /// Validates that an adapter FASTA file contains at least one non-empty sequence.
@@ -2533,6 +2612,155 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
 
         let content = lines.joined(separator: "\n") + "\n"
         try content.write(to: outputURL, atomically: true, encoding: .utf8)
+    }
+
+    private func writeObservedLinkedAdapterFASTA(
+        entries: [(name: String, first: String, second: String)],
+        to outputURL: URL
+    ) throws {
+        var lines: [String] = []
+        lines.reserveCapacity(max(1, entries.count * 4))
+
+        for entry in entries {
+            let first = entry.first.uppercased()
+            let second = entry.second.uppercased()
+            lines.append(">\(observedOrientationAdapterName(entry.name, suffix: Self.observedForwardOrientationSuffix))")
+            lines.append("\(first)...\(second)")
+
+            let reverseFirst = PlatformAdapters.reverseComplement(second)
+            let reverseSecond = PlatformAdapters.reverseComplement(first)
+            if reverseFirst != first || reverseSecond != second {
+                lines.append(">\(observedOrientationAdapterName(entry.name, suffix: Self.observedReverseComplementOrientationSuffix))")
+                lines.append("\(reverseFirst)...\(reverseSecond)")
+            }
+        }
+
+        let content = lines.joined(separator: "\n") + "\n"
+        try content.write(to: outputURL, atomically: true, encoding: .utf8)
+    }
+
+    private func observedOrientationAdapterName(_ sampleName: String, suffix: String) -> String {
+        sampleName + suffix
+    }
+
+    private func coalesceObservedOrientationOutputsIfNeeded(
+        for config: DemultiplexConfig,
+        in demuxOutputDir: URL,
+        temporaryFASTQExtension: String
+    ) throws {
+        guard usesObservedCustomBarcodePairs(config) else { return }
+
+        let fm = FileManager.default
+        for barcode in config.barcodeKit.barcodes {
+            let sampleName = barcode.id
+            let outputURL = demuxOutputDir.appendingPathComponent("\(sampleName).\(temporaryFASTQExtension)")
+            let orientationURLs = [
+                demuxOutputDir.appendingPathComponent(
+                    "\(observedOrientationAdapterName(sampleName, suffix: Self.observedForwardOrientationSuffix)).\(temporaryFASTQExtension)"
+                ),
+                demuxOutputDir.appendingPathComponent(
+                    "\(observedOrientationAdapterName(sampleName, suffix: Self.observedReverseComplementOrientationSuffix)).\(temporaryFASTQExtension)"
+                ),
+            ].filter { fm.fileExists(atPath: $0.path) }
+
+            guard !orientationURLs.isEmpty else { continue }
+
+            let minimumNonEmptyBytes: Int64 = temporaryFASTQExtension == "fastq.gz" ? 20 : 0
+            let nonEmptyOrientationURLs = orientationURLs.filter { fileSize($0) > minimumNonEmptyBytes }
+            if fm.fileExists(atPath: outputURL.path) {
+                try fm.removeItem(at: outputURL)
+            }
+
+            if !nonEmptyOrientationURLs.isEmpty {
+                for orientationURL in nonEmptyOrientationURLs {
+                    try appendFileContents(from: orientationURL, to: outputURL)
+                }
+            }
+
+            for orientationURL in orientationURLs {
+                try? fm.removeItem(at: orientationURL)
+            }
+        }
+    }
+
+    private func gzipPlainDemuxOutputs(in demuxOutputDir: URL) throws {
+        let fm = FileManager.default
+        let fastqURLs = try fm.contentsOfDirectory(
+            at: demuxOutputDir,
+            includingPropertiesForKeys: [.fileSizeKey],
+            options: [.skipsHiddenFiles]
+        ).filter { $0.pathExtension == "fastq" }
+
+        for fastqURL in fastqURLs {
+            guard fileSize(fastqURL) > 0 else {
+                try? fm.removeItem(at: fastqURL)
+                continue
+            }
+
+            let gzipURL = fastqURL.appendingPathExtension("gz")
+            let tempGzipURL = fastqURL.deletingLastPathComponent()
+                .appendingPathComponent("\(fastqURL.lastPathComponent).gz.tmp")
+            if fm.fileExists(atPath: tempGzipURL.path) {
+                try fm.removeItem(at: tempGzipURL)
+            }
+            fm.createFile(atPath: tempGzipURL.path, contents: nil)
+
+            let outputHandle = try FileHandle(forWritingTo: tempGzipURL)
+            defer { try? outputHandle.close() }
+
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+            process.arguments = ["-c", fastqURL.path]
+            process.standardOutput = outputHandle
+
+            let stderrPipe = Pipe()
+            process.standardError = stderrPipe
+
+            do {
+                try process.run()
+            } catch {
+                throw DemultiplexError.outputParsingFailed("Failed to launch gzip for \(fastqURL.lastPathComponent): \(error.localizedDescription)")
+            }
+            process.waitUntilExit()
+
+            let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+            try? stderrPipe.fileHandleForReading.close()
+            guard process.terminationStatus == 0 else {
+                let stderr = String(data: stderrData, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                throw DemultiplexError.outputParsingFailed(
+                    "gzip failed for \(fastqURL.lastPathComponent): \(stderr?.isEmpty == false ? stderr! : "exit \(process.terminationStatus)")"
+                )
+            }
+
+            try outputHandle.close()
+            if fm.fileExists(atPath: gzipURL.path) {
+                try fm.removeItem(at: gzipURL)
+            }
+            try fm.moveItem(at: tempGzipURL, to: gzipURL)
+            try fm.removeItem(at: fastqURL)
+        }
+    }
+
+    private func appendFileContents(from sourceURL: URL, to destinationURL: URL) throws {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: sourceURL.path) else { return }
+        try fm.createDirectory(at: destinationURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if !fm.fileExists(atPath: destinationURL.path) {
+            fm.createFile(atPath: destinationURL.path, contents: nil)
+        }
+
+        let input = try FileHandle(forReadingFrom: sourceURL)
+        defer { try? input.close() }
+        let output = try FileHandle(forWritingTo: destinationURL)
+        defer { try? output.close() }
+        try output.seekToEnd()
+
+        while true {
+            let data = input.readData(ofLength: 1_048_576)
+            if data.isEmpty { break }
+            try output.write(contentsOf: data)
+        }
     }
 
     private func writeLinkedAdapterFASTA(
@@ -2720,6 +2948,10 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
     ) -> [String] {
         var args: [String] = []
 
+        // The JSON report carries structured results; quiet mode prevents large
+        // adapter summaries from filling subprocess stdout pipes on big demux jobs.
+        args += ["--quiet"]
+
         // Adapter specification.
         args += [adapterFlag, "file:\(adapterFASTA.path)"]
 
@@ -2770,6 +3002,101 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         args += ["--cores", String(max(1, config.threads))]
 
         return args
+    }
+
+    private func computeMaterializedFASTQStatistics(
+        from url: URL,
+        runner: NativeToolRunner
+    ) async throws -> FASTQDatasetStatistics {
+        var lastParseFailure: String?
+        let maxAttempts = fileSize(url) > 20 ? 3 : 1
+
+        for attempt in 1...maxAttempts {
+            let result = try await runner.run(
+                .seqkit,
+                arguments: ["stats", "-T", url.path],
+                timeout: 3600
+            )
+            guard result.isSuccess else {
+                throw DemultiplexError.outputParsingFailed(
+                    "seqkit stats failed for \(url.lastPathComponent): \(result.stderr)"
+                )
+            }
+
+            do {
+                return try parseSeqkitStats(result.stdout, source: url)
+            } catch let error as DemultiplexError {
+                guard case .outputParsingFailed(let message) = error,
+                      message.contains("seqkit stats produced no data row"),
+                      attempt < maxAttempts else {
+                    throw error
+                }
+                lastParseFailure = message
+                try await Task.sleep(nanoseconds: UInt64(attempt) * 100_000_000)
+            }
+        }
+
+        throw DemultiplexError.outputParsingFailed(
+            lastParseFailure ?? "seqkit stats produced no data row for \(url.lastPathComponent)"
+        )
+    }
+
+    private func parseSeqkitStats(_ stdout: String, source: URL) throws -> FASTQDatasetStatistics {
+        let lines = stdout.split(separator: "\n").filter {
+            !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        guard let headerLine = lines.first else {
+            throw DemultiplexError.outputParsingFailed(
+                "seqkit stats produced no data row for \(source.lastPathComponent)"
+            )
+        }
+
+        let headers = headerLine.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+        guard lines.count >= 2 else {
+            throw DemultiplexError.outputParsingFailed(
+                "seqkit stats produced no data row for \(source.lastPathComponent)"
+            )
+        }
+
+        let values = lines[1].split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+        guard headers.count == values.count else {
+            throw DemultiplexError.outputParsingFailed(
+                "seqkit stats header/value mismatch for \(source.lastPathComponent)"
+            )
+        }
+
+        let row = Dictionary(uniqueKeysWithValues: zip(headers, values))
+        func integerValue(_ key: String) throws -> Int {
+            guard let raw = row[key] else {
+                throw DemultiplexError.outputParsingFailed("seqkit stats missing \(key) for \(source.lastPathComponent)")
+            }
+            let normalized = raw.replacingOccurrences(of: ",", with: "")
+            guard let value = Int(normalized) else {
+                throw DemultiplexError.outputParsingFailed("seqkit stats invalid \(key)=\(raw) for \(source.lastPathComponent)")
+            }
+            return value
+        }
+
+        let readCount = try integerValue("num_seqs")
+        let baseCount = Int64(try integerValue("sum_len"))
+        guard readCount > 0 else { return .empty }
+
+        return FASTQDatasetStatistics(
+            readCount: readCount,
+            baseCount: baseCount,
+            meanReadLength: Double(baseCount) / Double(readCount),
+            minReadLength: try integerValue("min_len"),
+            maxReadLength: try integerValue("max_len"),
+            medianReadLength: 0,
+            n50ReadLength: 0,
+            meanQuality: 0,
+            q20Percentage: 0,
+            q30Percentage: 0,
+            gcContent: 0,
+            readLengthHistogram: [:],
+            qualityScoreHistogram: [:],
+            perPositionQuality: []
+        )
     }
 
     /// Parses cutadapt's `--info-file` output to extract per-read trim positions.
@@ -3119,6 +3446,13 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
     }
 
     func canonicalAdapterName(_ adapterName: String) -> String {
+        for suffix in [
+            Self.observedForwardOrientationSuffix,
+            Self.observedReverseComplementOrientationSuffix,
+        ] where adapterName.hasSuffix(suffix) {
+            return String(adapterName.dropLast(suffix.count))
+        }
+
         guard let semicolonIndex = adapterName.lastIndex(of: ";") else {
             return adapterName
         }

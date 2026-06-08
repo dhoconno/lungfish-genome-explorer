@@ -67,6 +67,17 @@ public struct FASTQImportSheetRecipeOption: Sendable, Equatable {
         ].joined(separator: "\n"),
         requiresBarcodeDefinition: true
     )
+
+    public static let ontPacBioBarcodeDemux = FASTQImportSheetRecipeOption(
+        id: "ont-pacbio-barcode-demux",
+        name: "Demultiplex full-length MHC ONT amplicons with PacBio barcodes",
+        presentationText: [
+            "Runs cutadapt on each ONT FASTQ chunk with a PacBio barcode-pair sheet.",
+            "Workflow: demultiplex physical chunks \u{2192} concatenate per-sample FASTQ bundles",
+            "Input: ONT run folder"
+        ].joined(separator: "\n"),
+        requiresBarcodeDefinition: true
+    )
 }
 
 /// Modal sheet that presents import options for FASTQ files before ingestion.
@@ -293,7 +304,7 @@ public final class FASTQImportConfigSheet: NSViewController {
         barcodeDefinitionRow.addArrangedSubview(barcodeDefinitionLabel)
 
         barcodeDefinitionPopup.font = .systemFont(ofSize: 12)
-        barcodeDefinitionPopup.toolTip = "CSV, TSV, or text file containing sample names and Fluidigm barcode sequences."
+        barcodeDefinitionPopup.toolTip = "CSV, TSV, or text file containing sample names and barcode definitions."
         barcodeDefinitionPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 260).isActive = true
         barcodeDefinitionPopup.target = self
         barcodeDefinitionPopup.action = #selector(barcodeDefinitionChanged(_:))
@@ -511,8 +522,8 @@ public final class FASTQImportConfigSheet: NSViewController {
 
     @objc private func chooseBarcodeDefinition(_ sender: NSButton) {
         let panel = NSOpenPanel()
-        panel.title = "Choose Barcode Sample Sheet"
-        panel.message = "Select a CSV, TSV, or text file containing sample names and Fluidigm barcode sequences."
+        panel.title = "Choose Barcode Sheet"
+        panel.message = "Select a CSV, TSV, or text file containing sample names and barcode definitions."
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
@@ -556,7 +567,7 @@ public final class FASTQImportConfigSheet: NSViewController {
             if let selectedBarcodeDefinitionURL {
                 barcodeDefinitionStatusLabel.stringValue = "Using \(displayPath(for: selectedBarcodeDefinitionURL))."
             } else {
-                barcodeDefinitionStatusLabel.stringValue = "Choose a barcode sample sheet before importing."
+                barcodeDefinitionStatusLabel.stringValue = "Choose a barcode sheet before importing."
             }
             importButton.isEnabled = selectedBarcodeDefinitionURL != nil
         } else {
@@ -587,7 +598,7 @@ public final class FASTQImportConfigSheet: NSViewController {
     private func populateBarcodeDefinitions() {
         barcodeDefinitionPopup.removeAllItems()
         if barcodeDefinitionCandidates.isEmpty {
-            barcodeDefinitionPopup.addItem(withTitle: "Choose a barcode sample sheet...")
+            barcodeDefinitionPopup.addItem(withTitle: "Choose a barcode sheet...")
             barcodeDefinitionPopup.lastItem?.isEnabled = false
         } else {
             for url in barcodeDefinitionCandidates {

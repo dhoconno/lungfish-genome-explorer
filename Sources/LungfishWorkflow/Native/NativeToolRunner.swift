@@ -121,6 +121,116 @@ private final class TailBuffer: @unchecked Sendable {
     var data: Data { buffer }
 }
 
+private final class ProcessOutputAccumulator: @unchecked Sendable {
+    private let lock = NSLock()
+    private let maxBytes: Int?
+    private var buffer = Data()
+
+    init(maxBytes: Int? = nil) {
+        self.maxBytes = maxBytes
+    }
+
+    func append(_ chunk: Data) {
+        guard !chunk.isEmpty else { return }
+        lock.lock()
+        buffer.append(chunk)
+        if let maxBytes, buffer.count > maxBytes {
+            buffer = buffer.suffix(maxBytes)
+        }
+        lock.unlock()
+    }
+
+    var data: Data {
+        lock.lock()
+        defer { lock.unlock() }
+        return buffer
+    }
+}
+
+private final class ProcessPipeDrain: @unchecked Sendable {
+    private let stdoutHandle: FileHandle
+    private let stderrHandle: FileHandle
+    private let stdoutAccumulator: ProcessOutputAccumulator
+    private let stderrAccumulator: ProcessOutputAccumulator
+    private let group = DispatchGroup()
+    private let lock = NSLock()
+    private var started = false
+    private var handlesClosed = false
+
+    init(
+        stdoutHandle: FileHandle,
+        stderrHandle: FileHandle,
+        stdoutAccumulator: ProcessOutputAccumulator,
+        stderrAccumulator: ProcessOutputAccumulator
+    ) {
+        self.stdoutHandle = stdoutHandle
+        self.stderrHandle = stderrHandle
+        self.stdoutAccumulator = stdoutAccumulator
+        self.stderrAccumulator = stderrAccumulator
+    }
+
+    func start() {
+        lock.lock()
+        guard !started else {
+            lock.unlock()
+            return
+        }
+        started = true
+        lock.unlock()
+
+        startReader(handle: stdoutHandle, accumulator: stdoutAccumulator)
+        startReader(handle: stderrHandle, accumulator: stderrAccumulator)
+    }
+
+    func waitUntilFinished() {
+        group.wait()
+    }
+
+    func closeHandles() {
+        lock.lock()
+        guard !handlesClosed else {
+            lock.unlock()
+            return
+        }
+        handlesClosed = true
+        lock.unlock()
+
+        try? stdoutHandle.close()
+        try? stderrHandle.close()
+    }
+
+    private func startReader(
+        handle: FileHandle,
+        accumulator: ProcessOutputAccumulator
+    ) {
+        group.enter()
+        DispatchQueue.global(qos: .utility).async {
+            defer { self.group.leave() }
+            while true {
+                let chunk = handle.readData(ofLength: 64 * 1024)
+                if chunk.isEmpty { break }
+                accumulator.append(chunk)
+            }
+        }
+    }
+}
+
+private final class ProcessContinuationGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var didResume = false
+
+    func resumeOnce(_ body: () -> Void) {
+        lock.lock()
+        guard !didResume else {
+            lock.unlock()
+            return
+        }
+        didResume = true
+        lock.unlock()
+        body()
+    }
+}
+
 private enum ProcessCancellationReason {
     case task
     case timeout
@@ -171,6 +281,16 @@ private final class ProcessCancellationState: @unchecked Sendable {
         if shouldCancel {
             timeoutWorkItem.cancel()
         }
+    }
+
+    func cancelTimeoutWorkItems() {
+        let workItemsToCancel: [DispatchWorkItem]
+        lock.lock()
+        workItemsToCancel = timeoutWorkItems
+        timeoutWorkItems.removeAll()
+        lock.unlock()
+
+        workItemsToCancel.forEach { $0.cancel() }
     }
 
     var isCancelled: Bool {
@@ -732,136 +852,134 @@ public actor NativeToolRunner {
 
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-            let process = Process()
-            process.executableURL = executableURL
-            process.arguments = arguments
-            
-            if let workingDirectory {
-                process.currentDirectoryURL = workingDirectory
-            }
-            
-            // Merge environment
-            var processEnvironment = ProcessInfo.processInfo.environment
-            if let environment {
-                for (key, value) in environment {
-                    processEnvironment[key] = value
-                }
-            }
-            process.environment = processEnvironment
-            
-            let stdoutPipe = Pipe()
-            let stderrPipe = Pipe()
-            process.standardOutput = stdoutPipe
-            process.standardError = stderrPipe
-            cancellationState.register(process: process)
-            defer { cancellationState.unregisterAllProcesses() }
+                let process = Process()
+                process.executableURL = executableURL
+                process.arguments = arguments
 
-            // Timeout handling. Infinite timeout is used by recipe workflows for
-            // very large scientific datasets where wall time is data-dependent.
-            let timeoutWorkItem: DispatchWorkItem?
-            if actualTimeout.isFinite {
-                let workItem = DispatchWorkItem {
-                    cancellationState.cancelForTimeout()
+                if let workingDirectory {
+                    process.currentDirectoryURL = workingDirectory
                 }
-                cancellationState.register(timeoutWorkItem: workItem)
-                DispatchQueue.global().asyncAfter(
-                    deadline: .now() + actualTimeout,
-                    execute: workItem
-                )
-                timeoutWorkItem = workItem
-            } else {
-                timeoutWorkItem = nil
-            }
 
-            do {
-                if cancellationState.isCancelled {
-                    throw CancellationError()
-                }
-                try process.run()
-
-                // Drain pipes concurrently to avoid deadlock when output exceeds
-                // the ~64 KB kernel pipe buffer.
-                let stdoutBox = DataBox()
-                let stderrBox = DataBox()
-                let drainGroup = DispatchGroup()
-                drainGroup.enter()
-                DispatchQueue.global().async {
-                    stdoutBox.value = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-                    drainGroup.leave()
-                }
-                drainGroup.enter()
-                DispatchQueue.global().async {
-                    if let maxBytes = maxStderrBytes {
-                        let tailBuf = TailBuffer(capacity: maxBytes)
-                        let handle = stderrPipe.fileHandleForReading
-                        while true {
-                            let chunk = handle.availableData
-                            if chunk.isEmpty { break }
-                            tailBuf.append(chunk)
-                        }
-                        stderrBox.value = tailBuf.data
-                    } else {
-                        stderrBox.value = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                // Merge environment
+                var processEnvironment = ProcessInfo.processInfo.environment
+                if let environment {
+                    for (key, value) in environment {
+                        processEnvironment[key] = value
                     }
-                    drainGroup.leave()
                 }
+                process.environment = processEnvironment
 
-                process.waitUntilExit()
-                drainGroup.wait()
-                timeoutWorkItem?.cancel()
-
-                if cancellationState.didTimeOut {
-                    continuation.resume(throwing: NativeToolError.timeout(name, actualTimeout))
-                    return
-                }
-
-                if cancellationState.isCancelled {
-                    continuation.resume(throwing: CancellationError())
-                    return
-                }
-
-                let stdout = String(data: stdoutBox.value, encoding: .utf8) ?? ""
-                let stderr = String(data: stderrBox.value, encoding: .utf8) ?? ""
-
-                let result = NativeToolResult(
-                    exitCode: process.terminationStatus,
-                    stdout: stdout,
-                    stderr: stderr,
-                    arguments: [executableURL.path] + arguments
+                let stdoutPipe = Pipe()
+                let stderrPipe = Pipe()
+                let stdoutHandle = stdoutPipe.fileHandleForReading
+                let stderrHandle = stderrPipe.fileHandleForReading
+                let stdoutAccumulator = ProcessOutputAccumulator()
+                let stderrAccumulator = ProcessOutputAccumulator(maxBytes: maxStderrBytes)
+                let completionGate = ProcessContinuationGate()
+                let pipeDrain = ProcessPipeDrain(
+                    stdoutHandle: stdoutHandle,
+                    stderrHandle: stderrHandle,
+                    stdoutAccumulator: stdoutAccumulator,
+                    stderrAccumulator: stderrAccumulator
                 )
+                let logger = self.logger
 
-                if result.isSuccess {
-                    self.logger.info("\(name) completed successfully")
-                } else {
-                    self.logger.warning("\(name) exited with code \(result.exitCode)")
-                }
+                process.standardOutput = stdoutPipe
+                process.standardError = stderrPipe
+                cancellationState.register(process: process)
 
-                continuation.resume(returning: result)
-
-            } catch is CancellationError {
-                timeoutWorkItem?.cancel()
-                if cancellationState.didTimeOut {
-                    continuation.resume(throwing: NativeToolError.timeout(name, actualTimeout))
-                    return
-                }
-                continuation.resume(throwing: CancellationError())
-            } catch {
-                timeoutWorkItem?.cancel()
-                if cancellationState.isCancelled {
-                    if cancellationState.didTimeOut {
-                        continuation.resume(throwing: NativeToolError.timeout(name, actualTimeout))
-                    } else {
-                        continuation.resume(throwing: CancellationError())
+                // Timeout handling. Infinite timeout is used by recipe workflows for
+                // very large scientific datasets where wall time is data-dependent.
+                if actualTimeout.isFinite {
+                    let workItem = DispatchWorkItem {
+                        cancellationState.cancelForTimeout()
                     }
-                    return
-                }
-                continuation.resume(
-                    throwing: NativeToolError.executionFailed(
-                        name, -1, error.localizedDescription
+                    cancellationState.register(timeoutWorkItem: workItem)
+                    DispatchQueue.global().asyncAfter(
+                        deadline: .now() + actualTimeout,
+                        execute: workItem
                     )
-                )
+                }
+
+                let finish: @Sendable (Result<NativeToolResult, Error>) -> Void = { result in
+                    completionGate.resumeOnce {
+                        cancellationState.cancelTimeoutWorkItems()
+                        cancellationState.unregisterAllProcesses()
+                        switch result {
+                        case .success(let result):
+                            continuation.resume(returning: result)
+                        case .failure(let error):
+                            continuation.resume(throwing: error)
+                        }
+                    }
+                }
+
+                process.terminationHandler = { terminatedProcess in
+                    pipeDrain.start()
+                    pipeDrain.waitUntilFinished()
+                    pipeDrain.closeHandles()
+
+                    if cancellationState.didTimeOut {
+                        finish(.failure(NativeToolError.timeout(name, actualTimeout)))
+                        return
+                    }
+
+                    if cancellationState.isCancelled {
+                        finish(.failure(CancellationError()))
+                        return
+                    }
+
+                    let stdout = String(data: stdoutAccumulator.data, encoding: .utf8) ?? ""
+                    let stderr = String(data: stderrAccumulator.data, encoding: .utf8) ?? ""
+
+                    let result = NativeToolResult(
+                        exitCode: terminatedProcess.terminationStatus,
+                        stdout: stdout,
+                        stderr: stderr,
+                        arguments: [executableURL.path] + arguments
+                    )
+
+                    if result.isSuccess {
+                        logger.info("\(name) completed successfully")
+                    } else {
+                        logger.warning("\(name) exited with code \(result.exitCode)")
+                    }
+
+                    finish(.success(result))
+                }
+
+                do {
+                    if cancellationState.isCancelled {
+                        throw CancellationError()
+                    }
+                    try process.run()
+                    pipeDrain.start()
+                } catch is CancellationError {
+                    pipeDrain.closeHandles()
+                    if cancellationState.didTimeOut {
+                        finish(.failure(NativeToolError.timeout(name, actualTimeout)))
+                    } else {
+                        finish(.failure(CancellationError()))
+                    }
+                } catch {
+                    pipeDrain.closeHandles()
+                    if cancellationState.isCancelled {
+                        if cancellationState.didTimeOut {
+                            finish(.failure(NativeToolError.timeout(name, actualTimeout)))
+                        } else {
+                            finish(.failure(CancellationError()))
+                        }
+                        return
+                    }
+                    finish(
+                        .failure(
+                            NativeToolError.executionFailed(
+                                name, -1, error.localizedDescription
+                            )
+                        )
+                    )
+                }
             }
-        }
         } onCancel: {
             cancellationState.cancel()
         }

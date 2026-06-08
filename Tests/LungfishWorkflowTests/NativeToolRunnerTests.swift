@@ -251,6 +251,62 @@ final class NativeToolRunnerTests: XCTestCase {
         )
     }
 
+    func testConcurrentRunsDrainLargeStdoutAndStderrWithoutDeadlock() async throws {
+        let (_, root) = try makeManagedNativeToolRunner()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let jobCount = max(4, min(16, ProcessInfo.processInfo.activeProcessorCount * 2))
+        let results = try await withTimeout(nanoseconds: 5_000_000_000) {
+            try await withThrowingTaskGroup(of: NativeToolResult.self) { group in
+                for _ in 0..<jobCount {
+                    group.addTask {
+                        let runner = NativeToolRunner(toolsDirectory: nil, homeDirectory: root)
+                        return try await runner.run(.seqkit, arguments: ["large-output"], timeout: 30)
+                    }
+                }
+
+                var results: [NativeToolResult] = []
+                for try await result in group {
+                    results.append(result)
+                }
+                return results
+            }
+        }
+
+        XCTAssertEqual(results.count, jobCount)
+        for result in results {
+            XCTAssertTrue(result.isSuccess)
+            XCTAssertGreaterThan(result.stdout.utf8.count, 65_536)
+            XCTAssertGreaterThan(result.stderr.utf8.count, 65_536)
+        }
+    }
+
+    func testConcurrentShortRunsDoNotLoseStdoutBeforeTermination() async throws {
+        let (_, root) = try makeManagedNativeToolRunner()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let runCount = 300
+        try await withTimeout(nanoseconds: 10_000_000_000) {
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                for index in 0..<runCount {
+                    group.addTask {
+                        let runner = NativeToolRunner(toolsDirectory: nil, homeDirectory: root)
+                        let result = try await runner.run(
+                            .seqkit,
+                            arguments: ["short-output", "\(index)"],
+                            timeout: 10
+                        )
+
+                        XCTAssertTrue(result.isSuccess)
+                        XCTAssertEqual(result.stdout, "short-output-\(index)\n")
+                    }
+                }
+
+                try await group.waitForAll()
+            }
+        }
+    }
+
     func testIvarVersionProbeUsesVersionSubcommand() {
         // iVar rejects --version as "Unknown command" but accepts the
         // `version` subcommand. NativeTool.versionArguments must reflect that
@@ -784,6 +840,17 @@ final class NativeToolRunnerTests: XCTestCase {
               stats)
                 awk 'BEGIN { count = 0 } /^@/ { count++ } END { print count }'
                 ;;
+              large-output)
+                i=0
+                while [ "$i" -lt 3000 ]; do
+                  printf 'stdout-%04d-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789\\n' "$i"
+                  printf 'stderr-%04d-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789\\n' "$i" >&2
+                  i=$((i + 1))
+                done
+                ;;
+              short-output)
+                printf 'short-output-%s\\n' "$2"
+                ;;
               *)
                 echo "seqkit v2.0"
                 ;;
@@ -827,6 +894,28 @@ final class NativeToolRunnerTests: XCTestCase {
         }
 
         return (NativeToolRunner(toolsDirectory: nil, homeDirectory: root), root)
+    }
+
+    private enum TimeoutError: Error {
+        case timedOut
+    }
+
+    private func withTimeout<T: Sendable>(
+        nanoseconds: UInt64,
+        operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask {
+                try await operation()
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: nanoseconds)
+                throw TimeoutError.timedOut
+            }
+            let result = try await group.next()!
+            group.cancelAll()
+            return result
+        }
     }
 
     private func makeCancellableManagedNativeToolRunner(root: URL) throws -> (runner: NativeToolRunner, root: URL) {

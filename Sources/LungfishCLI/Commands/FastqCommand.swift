@@ -46,6 +46,7 @@ struct FastqCommand: AsyncParsableCommand {
             FastqDeduplicateSubcommand.self,
             FastqDemultiplexSubcommand.self,
             FastqONTFluidigmSamplesSubcommand.self,
+            FastqONTPacBioBarcodeDemuxSubcommand.self,
             FastqScoutSubcommand.self,
             FastqImportONTSubcommand.self,
             FastqMaterializeSubcommand.self,
@@ -2221,16 +2222,13 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
         let sourceBundleURL = FASTQBundle.isBundleURL(inputURL) ? inputURL : nil
         let sourceManifest = sourceBundleURL.flatMap { FASTQBundle.loadDerivedManifest(in: $0) }
         let rootBundleURL = sourceBundleURL.flatMap { bundleURL -> URL? in
-            if let sourceManifest {
-                return FASTQBundle.resolveBundle(
-                    relativePath: sourceManifest.rootBundleRelativePath,
-                    from: bundleURL
-                )
-            }
-            return bundleURL
+            guard let sourceManifest else { return nil }
+            return FASTQBundle.resolveBundle(
+                relativePath: sourceManifest.rootBundleRelativePath,
+                from: bundleURL
+            )
         }
         let rootFASTQFilename = sourceManifest?.rootFASTQFilename
-            ?? sourceBundleURL.flatMap { FASTQBundle.resolvePrimaryFASTQURL(for: $0)?.lastPathComponent }
         let inputPairingMode = sourceManifest?.pairingMode
             ?? sourceBundleURL
                 .flatMap { FASTQBundle.resolvePrimaryFASTQURL(for: $0) }
@@ -2497,10 +2495,10 @@ struct FastqONTFluidigmSamplesSubcommand: AsyncParsableCommand {
         let outputPayloads = result.outputBundleURLs
             .compactMap { FASTQBundle.resolvePrimaryFASTQURL(for: $0) }
         let outputs = [
-            ProvenanceRecorder.fileRecord(url: result.outputDirectory, format: .unknown, role: .output),
+            directoryOutputRecord(result.outputDirectory),
             ProvenanceRecorder.fileRecord(url: result.manifestURL, format: .json, role: .output),
         ] + result.outputBundleURLs.map {
-            ProvenanceRecorder.fileRecord(url: $0, format: .unknown, role: .output)
+            directoryOutputRecord($0)
         } + outputPayloads.map {
             ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output)
         }
@@ -2568,6 +2566,197 @@ struct FastqONTFluidigmSamplesSubcommand: AsyncParsableCommand {
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
         FileHandle.standardOutput.write(data)
         FileHandle.standardOutput.write(Data("\n".utf8))
+    }
+
+    private func directoryOutputRecord(_ url: URL) -> FileRecord {
+        FileRecord(
+            path: url.standardizedFileURL.path,
+            sha256: nil,
+            sizeBytes: nil,
+            format: .unknown,
+            role: .output
+        )
+    }
+}
+
+// MARK: - ONT PacBio Barcode Pair Demultiplexing
+
+struct FastqONTPacBioBarcodeDemuxSubcommand: AsyncParsableCommand {
+    private static let progressEmitLock = NSLock()
+
+    static let configuration = CommandConfiguration(
+        commandName: "ont-pacbio-barcode-demux",
+        abstract: "Demultiplex full-length MHC ONT amplicons with PacBio barcode pairs",
+        discussion: """
+            Runs cutadapt independently on each physical ONT FASTQ chunk, then
+            concatenates per-chunk demultiplexed outputs into one materialized
+            .lungfishfastq bundle per sample. Barcode definitions must contain
+            sample, forward barcode, and reverse barcode columns.
+            """
+    )
+
+    @Argument(help: "Input ONT FASTQ file, barcode directory, run directory, or .lungfishfastq bundle")
+    var input: String
+
+    @Option(name: .customLong("barcodes"), help: "CSV/TSV file with sample, forward barcode, and reverse barcode columns")
+    var barcodes: String
+
+    @Option(name: [.customLong("output"), .customShort("o")], help: "Output directory for per-sample .lungfishfastq bundles")
+    var output: String
+
+    @Option(name: .customLong("threads"), help: "cutadapt cores per chunk (default: 1)")
+    var threads: Int = 1
+
+    @Option(name: .customLong("chunk-jobs"), help: "Physical ONT chunks to demultiplex concurrently (default: active cores; each cutadapt run uses --threads cores)")
+    var chunkJobs: Int = ONTPacBioBarcodeDemuxMaterializationRequest.defaultChunkJobs
+
+    @Option(name: .customLong("max-reads-per-slice"), help: "Maximum reads per temporary slice when an input chunk exceeds --max-bytes-per-cutadapt; 0 disables sub-slicing (default: 100000)")
+    var maxReadsPerSlice: Int = 100_000
+
+    @Option(name: .customLong("max-bytes-per-cutadapt"), help: "Input chunk byte threshold above which --max-reads-per-slice is applied (default: 536870912)")
+    var maxBytesPerCutadapt: Int64 = 512 * 1024 * 1024
+
+    @Flag(name: .customLong("force"), help: "Replace an existing output directory")
+    var force: Bool = false
+
+    func run() async throws {
+        guard threads > 0 else {
+            throw ValidationError("--threads must be positive.")
+        }
+        guard chunkJobs > 0 else {
+            throw ValidationError("--chunk-jobs must be positive.")
+        }
+        guard maxReadsPerSlice >= 0 else {
+            throw ValidationError("--max-reads-per-slice must be non-negative.")
+        }
+        guard maxBytesPerCutadapt > 0 else {
+            throw ValidationError("--max-bytes-per-cutadapt must be positive.")
+        }
+
+        let inputURL = URL(fileURLWithPath: input)
+        let barcodeURL = URL(fileURLWithPath: barcodes)
+        let outputURL = URL(fileURLWithPath: output, isDirectory: true)
+        let startedAt = Date()
+        let request = ONTPacBioBarcodeDemuxMaterializationRequest(
+            inputURL: inputURL,
+            barcodeDefinitionsURL: barcodeURL,
+            outputDirectory: outputURL,
+            force: force,
+            threads: threads,
+            chunkJobs: chunkJobs,
+            maxReadsPerSlice: maxReadsPerSlice,
+            maxInputBytesPerCutadapt: maxBytesPerCutadapt
+        )
+        let result = try await ONTPacBioBarcodeDemuxMaterializer().run(request) { fraction, message in
+            emitProgress(fraction, message)
+        }
+
+        var cliArguments = [
+            "ont-pacbio-barcode-demux",
+            inputURL.path,
+            "--barcodes", barcodeURL.path,
+            "--output", outputURL.path,
+            "--threads", String(threads),
+            "--chunk-jobs", String(chunkJobs),
+            "--max-reads-per-slice", String(maxReadsPerSlice),
+            "--max-bytes-per-cutadapt", String(maxBytesPerCutadapt),
+        ]
+        if force {
+            cliArguments.append("--force")
+        }
+
+        let resolvedInputFASTQs = (try? ONTBarcodeDemuxGenotypingPipeline.resolveInputFASTQURLs(for: inputURL)) ?? [inputURL]
+        let outputPayloads = result.outputBundleURLs
+            .compactMap { FASTQBundle.resolvePrimaryFASTQURL(for: $0) }
+        let inputs = resolvedInputFASTQs.map {
+            ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input)
+        } + [
+            ProvenanceRecorder.fileRecord(url: barcodeURL, format: .text, role: .input),
+        ]
+        let outputs = [
+            ProvenanceRecorder.fileRecord(url: result.outputDirectory, format: .unknown, role: .output),
+            ProvenanceRecorder.fileRecord(url: result.manifestURL, format: .json, role: .output),
+        ] + result.outputBundleURLs.map {
+            ProvenanceRecorder.fileRecord(url: $0, format: .unknown, role: .output)
+        } + outputPayloads.map {
+            ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output)
+        }
+
+        let cutadaptArgv = result.cutadaptRuns
+            .map { $0.argv.joined(separator: " ") }
+            .joined(separator: "\n")
+        try await CLIProvenanceSupport.recordSingleStepRun(
+            name: "lungfish fastq ont-pacbio-barcode-demux",
+            parameters: [
+                "input": .file(inputURL),
+                "barcodes": .file(barcodeURL),
+                "output": .file(outputURL),
+                "threads": .integer(threads),
+                "chunkJobs": .integer(chunkJobs),
+                "effectiveChunkJobs": .integer(result.chunkJobs),
+                "force": .boolean(force),
+                "maxReadsPerSlice": .integer(maxReadsPerSlice),
+                "maxBytesPerCutadapt": .integer(Int(maxBytesPerCutadapt)),
+                "inputChunkCount": .integer(result.inputChunkCount),
+                "executedCutadaptChunkCount": .integer(result.executedCutadaptChunkCount),
+                "inputReadCount": .integer(result.inputReadCount),
+                "assignedReadCount": .integer(result.assignedReadCount),
+                "unassignedReadCount": .integer(result.unassignedReadCount),
+                "payloadRepresentation": .string("gzip-compressed full demultiplexed FASTQ"),
+                "cutadaptCommands": .string(cutadaptArgv),
+            ],
+            defaults: [
+                "threads": .integer(1),
+                "chunkJobs": .integer(ONTPacBioBarcodeDemuxMaterializationRequest.defaultChunkJobs),
+                "force": .boolean(false),
+                "maxReadsPerSlice": .integer(100_000),
+                "maxBytesPerCutadapt": .integer(512 * 1024 * 1024),
+                "payloadRepresentation": .string("gzip-compressed full demultiplexed FASTQ"),
+            ],
+            toolName: "lungfish fastq ont-pacbio-barcode-demux",
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: ["lungfish", "fastq"] + cliArguments,
+            stepCommand: ["lungfish", "fastq"] + cliArguments,
+            inputs: inputs,
+            outputs: outputs,
+            exitCode: 0,
+            wallTime: Date().timeIntervalSince(startedAt),
+            stderr: nil,
+            status: .completed,
+            outputDirectory: result.outputDirectory
+        )
+
+        let payload: [String: Any] = [
+            "outputDirectory": result.outputDirectory.path,
+            "manifest": result.manifestURL.path,
+            "outputBundles": result.outputBundleURLs.map(\.path),
+            "inputChunkCount": result.inputChunkCount,
+            "executedCutadaptChunkCount": result.executedCutadaptChunkCount,
+            "chunkJobs": result.chunkJobs,
+            "inputReadCount": result.inputReadCount,
+            "assignedReadCount": result.assignedReadCount,
+            "unassignedReadCount": result.unassignedReadCount,
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
+        FileHandle.standardOutput.write(data)
+        FileHandle.standardOutput.write(Data("\n".utf8))
+    }
+
+    private func emitProgress(_ fraction: Double, _ message: String) {
+        let payload: [String: Any] = [
+            "event": "progress",
+            "operation": "ontPacBioBarcodeDemux",
+            "progress": max(0, min(1, fraction)),
+            "message": message,
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) else {
+            return
+        }
+        var line = data
+        line.append(Data("\n".utf8))
+        Self.progressEmitLock.lock()
+        FileHandle.standardError.write(line)
+        Self.progressEmitLock.unlock()
     }
 }
 

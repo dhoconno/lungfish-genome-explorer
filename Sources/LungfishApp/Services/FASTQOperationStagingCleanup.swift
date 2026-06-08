@@ -7,14 +7,29 @@ struct FASTQOperationStagingCleanup: Sendable {
     ) {
         for directory in directories.map(\.standardizedFileURL) {
             guard Self.isTransientFASTQOperationStagingDirectory(directory),
-                  !shouldPreserveTransientDirectory(directory, preserving: preservedURLs) else {
+                  !shouldPreserveDirectory(directory, preserving: preservedURLs) else {
                 continue
             }
             try? FileManager.default.removeItem(at: directory)
         }
     }
 
-    private func shouldPreserveTransientDirectory(
+    func cleanupFailedRun(
+        candidates: [URL],
+        preserving preservedURLs: [URL] = []
+    ) {
+        var seenPaths = Set<String>()
+        for candidate in candidates.map(\.standardizedFileURL) {
+            guard seenPaths.insert(candidate.path).inserted,
+                  FileManager.default.fileExists(atPath: candidate.path),
+                  !shouldPreserveDirectory(candidate, preserving: preservedURLs) else {
+                continue
+            }
+            try? FileManager.default.removeItem(at: candidate)
+        }
+    }
+
+    private func shouldPreserveDirectory(
         _ directory: URL,
         preserving preservedURLs: [URL]
     ) -> Bool {
