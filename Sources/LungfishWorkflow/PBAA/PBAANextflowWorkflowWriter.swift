@@ -1,4 +1,5 @@
 import Foundation
+import LungfishIO
 
 public struct PBAANextflowWorkflowFiles: Sendable, Equatable {
     public let mainNFURL: URL
@@ -15,6 +16,7 @@ public struct PBAANextflowWorkflowFiles: Sendable, Equatable {
 public struct PBAANextflowParameters: Codable, Sendable, Equatable {
     public let guide: String
     public let reads: String
+    public let readsFormat: String
     public let outdir: String
     public let prefix: String
     public let threads: Int
@@ -24,6 +26,7 @@ public struct PBAANextflowParameters: Codable, Sendable, Equatable {
     public init(
         guide: String,
         reads: String,
+        readsFormat: String = "fastq",
         outdir: String,
         prefix: String,
         threads: Int,
@@ -32,11 +35,23 @@ public struct PBAANextflowParameters: Codable, Sendable, Equatable {
     ) {
         self.guide = guide
         self.reads = reads
+        self.readsFormat = readsFormat
         self.outdir = outdir
         self.prefix = prefix
         self.threads = threads
         self.seed = seed
         self.extraArguments = extraArguments
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case guide
+        case reads
+        case readsFormat = "reads_format"
+        case outdir
+        case prefix
+        case threads
+        case seed
+        case extraArguments
     }
 }
 
@@ -52,12 +67,13 @@ public struct PBAANextflowWorkflowWriter: Sendable {
         let configURL = directory.appendingPathComponent("nextflow.config")
         let paramsURL = directory.appendingPathComponent("params.json")
 
-        try mainNF().write(to: mainURL, atomically: true, encoding: .utf8)
+        try mainNF(readsFormat: request.inputFormat).write(to: mainURL, atomically: true, encoding: .utf8)
         try config(pins: request.containerPins).write(to: configURL, atomically: true, encoding: .utf8)
 
         let params = PBAANextflowParameters(
             guide: request.guideSourceURL.path,
             reads: request.inputFASTQURL.path,
+            readsFormat: request.inputFormat.rawValue,
             outdir: request.rawPBAAOutputDirectory.path,
             prefix: request.prefix,
             threads: request.threads,
@@ -70,8 +86,12 @@ public struct PBAANextflowWorkflowWriter: Sendable {
         return PBAANextflowWorkflowFiles(mainNFURL: mainURL, configURL: configURL, paramsURL: paramsURL)
     }
 
-    private func mainNF() -> String {
-        #"""
+    private func mainNF(readsFormat: SequenceFormat) -> String {
+        let readsFilename = readsFormat == .fasta ? "reads.fasta" : "reads.fastq"
+        let indexCommand = readsFormat == .fasta
+            ? "samtools faidx reads.fasta"
+            : "samtools fqidx reads.fastq"
+        return #"""
         nextflow.enable.dsl = 2
 
         process INDEX_GUIDE {
@@ -94,11 +114,11 @@ public struct PBAANextflowWorkflowWriter: Sendable {
           input:
           path reads
           output:
-          tuple path("reads.fastq"), path("reads.fastq.fai")
+          tuple path("\#(readsFilename)"), path("\#(readsFilename).fai")
           script:
           """
-          cp "${reads}" reads.fastq
-          samtools fqidx reads.fastq
+          cp "${reads}" \#(readsFilename)
+          \#(indexCommand)
           """
         }
 
@@ -115,7 +135,7 @@ public struct PBAANextflowWorkflowWriter: Sendable {
           def shellQuote = { value -> "'" + value.toString().replace("'", "'\\''") + "'" }
           def extra = (params.extraArguments ?: []).collect { shellQuote(it) }.join(' ')
           """
-          pbaa cluster -j ${params.threads} --seed ${params.seed} ${extra} guide.fasta reads.fastq ${params.prefix}
+          pbaa cluster -j ${params.threads} --seed ${params.seed} ${extra} guide.fasta \#(readsFilename) ${params.prefix}
           """
         }
 
@@ -136,6 +156,7 @@ public struct PBAANextflowWorkflowWriter: Sendable {
         process.containerOptions = '--platform linux/amd64'
         params.pbaa_container = '\(pins.pbaa.pinnedReference)'
         params.samtools_container = '\(pins.samtools.pinnedReference)'
+        params.reads_format = 'fastq'
         params.extraArguments = []
         """
     }

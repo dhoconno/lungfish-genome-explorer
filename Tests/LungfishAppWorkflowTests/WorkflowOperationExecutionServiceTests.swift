@@ -66,7 +66,7 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
         XCTAssertTrue(bamImporter.invocations.isEmpty)
 
         let item = try XCTUnwrap(operationCenter.items.first)
-        XCTAssertEqual(item.title, "Amplicon Genotyping")
+        XCTAssertEqual(item.title, "miSeq amplicon ONT MHC genotyping")
         XCTAssertEqual(item.state, .completed)
         XCTAssertTrue(item.cliCommand?.contains("lungfish-cli fastq genotype") == true)
         XCTAssertTrue(item.outputURLs.contains(request.workbookURL.standardizedFileURL))
@@ -75,6 +75,74 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
             resultRefresher.invocations,
             [request.outputDirectory.standardizedFileURL]
         )
+    }
+
+    func testFullLengthONTMHCGenotypingRunsCLIWithGuideAndPrimerArguments() async throws {
+        let temp = try temporaryDirectory()
+        let readsURL = temp.appendingPathComponent("NB13.lungfishfastq", isDirectory: true)
+        let referenceURL = temp.appendingPathComponent("Mamu-class-I.lungfishmhcref", isDirectory: true)
+        let guideURL = temp.appendingPathComponent("guide.lungfishref", isDirectory: true)
+        let orientReferenceURL = temp.appendingPathComponent("MHC_class_I_orient.fasta")
+        let forwardPrimerURL = temp.appendingPathComponent("MHC_class_I_F.fasta")
+        let reversePrimerURL = temp.appendingPathComponent("MHC_class_I_R.fasta")
+        let outputURL = temp.appendingPathComponent("Analyses/nb13-full-length.lungfishgenotype", isDirectory: true)
+        for url in [readsURL, referenceURL, guideURL, outputURL] {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        }
+        for url in [orientReferenceURL, forwardPrimerURL, reversePrimerURL] {
+            try ">x\nACGT\n".write(to: url, atomically: true, encoding: .utf8)
+        }
+        let request = FullLengthONTMHCGenotypingRunRequest(
+            inputFASTQURLs: [readsURL],
+            referenceSourceURL: referenceURL,
+            guideSourceURL: guideURL,
+            orientReferenceURL: orientReferenceURL,
+            forwardPrimerURL: forwardPrimerURL,
+            reversePrimerURL: reversePrimerURL,
+            outputDirectory: outputURL,
+            outputName: "nb13-full-length",
+            projectURL: temp,
+            threads: 8,
+            minimumLength: 2000,
+            maximumLength: 4000
+        )
+        let operationCenter = OperationCenter()
+        let runner = StubWorkflowOperationCLIProcessRunner()
+        let resultRefresher = StubWorkflowOperationResultRefresher()
+        let service = WorkflowOperationExecutionService(
+            operationCenter: operationCenter,
+            processRunner: runner,
+            viewerBundlePreparer: StubWorkflowOperationViewerBundlePreparer(),
+            bamImporter: StubWorkflowOperationBAMImporter(),
+            resultRefresher: resultRefresher
+        )
+
+        let outputs = try await service.run(.fullLengthONTMHCGenotyping(request))
+
+        let invocation = try XCTUnwrap(runner.invocations.first)
+        XCTAssertEqual(invocation.arguments.prefix(2), ["fastq", "full-length-ont-mhc-genotype"])
+        XCTAssertTrue(invocation.arguments.contains(readsURL.standardizedFileURL.path))
+        XCTAssertEqual(try testValue(after: "--reference", in: invocation.arguments), referenceURL.standardizedFileURL.path)
+        XCTAssertEqual(try testValue(after: "--guide", in: invocation.arguments), guideURL.standardizedFileURL.path)
+        XCTAssertEqual(try testValue(after: "--orient-reference", in: invocation.arguments), orientReferenceURL.standardizedFileURL.path)
+        XCTAssertEqual(try testValue(after: "--forward-primer", in: invocation.arguments), forwardPrimerURL.standardizedFileURL.path)
+        XCTAssertEqual(try testValue(after: "--reverse-primer", in: invocation.arguments), reversePrimerURL.standardizedFileURL.path)
+        XCTAssertEqual(try testValue(after: "--min-length", in: invocation.arguments), "2000")
+        XCTAssertEqual(try testValue(after: "--max-length", in: invocation.arguments), "4000")
+        XCTAssertEqual(try testValue(after: "--threads", in: invocation.arguments), "8")
+        XCTAssertEqual(invocation.workingDirectory, outputURL.standardizedFileURL)
+        XCTAssertTrue(outputs.contains(request.workbookURL.standardizedFileURL))
+        XCTAssertTrue(outputs.contains(request.reportCSVURL.standardizedFileURL))
+        XCTAssertTrue(outputs.contains(request.sampleSummaryCSVURL.standardizedFileURL))
+        XCTAssertTrue(outputs.contains(request.statsJSONURL.standardizedFileURL))
+        XCTAssertTrue(outputs.contains(request.provenanceURL.standardizedFileURL))
+        XCTAssertTrue(outputs.contains(request.outputDirectory.standardizedFileURL))
+
+        let item = try XCTUnwrap(operationCenter.items.first)
+        XCTAssertEqual(item.title, "Full-length ONT MHC genotyping")
+        XCTAssertEqual(item.state, .completed)
+        XCTAssertTrue(item.cliCommand?.contains("lungfish-cli fastq full-length-ont-mhc-genotype") == true)
+        XCTAssertEqual(resultRefresher.invocations, [request.outputDirectory.standardizedFileURL])
     }
 
     func testONTGenotypingFailureReportsCLIExitStatusAndStderr() async throws {
@@ -106,8 +174,8 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
         let item = try XCTUnwrap(operationCenter.items.first)
         XCTAssertEqual(item.state, .failed)
         XCTAssertEqual(item.progress, 0.45, accuracy: 0.001)
-        XCTAssertEqual(item.detail, "Amplicon genotyping failed with exit code 5")
-        XCTAssertEqual(item.errorMessage, "Amplicon genotyping failed")
+        XCTAssertEqual(item.detail, "miSeq amplicon ONT MHC genotyping failed with exit code 5")
+        XCTAssertEqual(item.errorMessage, "miSeq amplicon ONT MHC genotyping failed")
         XCTAssertTrue(item.errorDetail?.contains("exit code 5") == true)
         XCTAssertTrue(item.errorDetail?.contains("could not load resource bundle") == true)
         XCTAssertTrue(item.logEntries.contains { $0.message == "Mapping ONT reads with minimap2." })
@@ -739,6 +807,65 @@ private final class StubWorkflowOperationCLIProcessRunner: LocalWorkflowCLIProce
             return LocalWorkflowCLIProcessResult(
                 exitCode: exitCode,
                 standardOutput: "12S amplicon result bundle written to \(bundleURL.path)\n",
+                standardError: stderr,
+                didStreamOutput: outputHandler != nil
+            )
+        }
+        if arguments.prefix(2) == ["fastq", "full-length-ont-mhc-genotype"] {
+            let outputDirectory = URL(fileURLWithPath: try value(after: "--output-dir", in: arguments))
+                .standardizedFileURL
+            let outputName = try value(after: "--output-name", in: arguments)
+            let workbookURL = outputDirectory.appendingPathComponent("\(outputName).full-length-ont-mhc-genotypes.xlsx")
+            let reportCSVURL = outputDirectory.appendingPathComponent("\(outputName).full-length-ont-mhc-genotypes.csv")
+            let sampleSummaryCSVURL = outputDirectory.appendingPathComponent("\(outputName).full-length-ont-mhc-samples.csv")
+            let statsJSONURL = outputDirectory.appendingPathComponent("\(outputName).full-length-ont-mhc-stats.json")
+            let unmatchedURL = outputDirectory.appendingPathComponent("unmatched_clusters.fasta")
+            let cdnaURL = outputDirectory.appendingPathComponent("cdna_clusters.fasta")
+            let provenanceURL = outputDirectory.appendingPathComponent("full-length-ont-mhc-genotyping-provenance.json")
+            try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+            try "sample,genotype,passed_alignments,passed_unique_reads\n".write(
+                to: reportCSVURL,
+                atomically: true,
+                encoding: .utf8
+            )
+            try "sample,passed_alignments,passed_unique_reads\n".write(
+                to: sampleSummaryCSVURL,
+                atomically: true,
+                encoding: .utf8
+            )
+            try #"{"totalInputReads":100,"retainedUniqueReads":12}"#.write(
+                to: statsJSONURL,
+                atomically: true,
+                encoding: .utf8
+            )
+            try Data("workbook".utf8).write(to: workbookURL)
+            try Data().write(to: unmatchedURL)
+            try Data().write(to: cdnaURL)
+            try #"{"workflowName":"lungfish fastq full-length-ont-mhc-genotype","exitStatus":0}"#.write(
+                to: provenanceURL,
+                atomically: true,
+                encoding: .utf8
+            )
+            let payload = """
+            {
+              "outputDirectory": "\(outputDirectory.path)",
+              "referenceFASTAPath": "/tmp/reference.fa",
+              "guideFASTAPath": "/tmp/guide.fasta",
+              "reportCSVPath": "\(reportCSVURL.path)",
+              "sampleSummaryCSVPath": "\(sampleSummaryCSVURL.path)",
+              "statsJSONPath": "\(statsJSONURL.path)",
+              "workbookPath": "\(workbookURL.path)",
+              "unmatchedClustersFASTAPath": "\(unmatchedURL.path)",
+              "cdnaClustersFASTAPath": "\(cdnaURL.path)",
+              "provenancePath": "\(provenanceURL.path)"
+            }
+            """
+            for line in payload.split(whereSeparator: \.isNewline).map(String.init) {
+                outputHandler?(.standardOutput(line))
+            }
+            return LocalWorkflowCLIProcessResult(
+                exitCode: exitCode,
+                standardOutput: payload,
                 standardError: stderr,
                 didStreamOutput: outputHandler != nil
             )

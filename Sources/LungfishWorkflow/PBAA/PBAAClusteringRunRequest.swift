@@ -1,7 +1,9 @@
 import Foundation
+import LungfishIO
 
 public struct PBAAClusteringRunRequest: Sendable, Codable, Equatable {
     public let inputFASTQURL: URL
+    public let inputFormat: SequenceFormat
     public let guideSourceURL: URL
     public let outputDirectory: URL
     public let outputName: String
@@ -23,11 +25,13 @@ public struct PBAAClusteringRunRequest: Sendable, Codable, Equatable {
         outputName: String,
         threads: Int = max(1, ProcessInfo.processInfo.activeProcessorCount),
         seed: Int = 1984,
+        inputFormat: SequenceFormat = .fastq,
         extraArgumentsText: String = "",
         containerPins: PBAAContainerPins = .current
     ) throws {
         let sanitizedName = Self.sanitizePrefix(outputName)
         self.inputFASTQURL = inputFASTQURL.standardizedFileURL
+        self.inputFormat = inputFormat
         self.guideSourceURL = guideSourceURL.standardizedFileURL
         self.outputDirectory = outputDirectory.standardizedFileURL
         self.outputName = sanitizedName
