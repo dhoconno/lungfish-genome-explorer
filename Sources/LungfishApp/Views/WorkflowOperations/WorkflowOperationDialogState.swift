@@ -77,6 +77,7 @@ final class WorkflowOperationDialogState {
     var extraArgumentsText: String
     var advancedOptionsExpanded: Bool
     var projectReferenceCandidates: [URL]
+    var projectGuideCandidates: [URL]
     var projectBarcodeDefinitionCandidates: [URL]
     var errorMessage: String?
     var showingError: Bool
@@ -129,11 +130,13 @@ final class WorkflowOperationDialogState {
         self.extraArgumentsText = ""
         self.advancedOptionsExpanded = false
         let referenceCandidates = Self.discoverReferenceBundles(in: standardizedProjectURL)
+        let guideCandidates = Self.discoverGuideBundles(from: referenceCandidates, relativeTo: standardizedProjectURL)
         let barcodeDefinitionCandidates = Self.discoverBarcodeDefinitionFiles(in: standardizedProjectURL)
         self.projectReferenceCandidates = referenceCandidates
+        self.projectGuideCandidates = guideCandidates
         self.projectBarcodeDefinitionCandidates = barcodeDefinitionCandidates
         self.selectedReferenceURL = referenceCandidates.first
-        self.selectedGuideURL = nil
+        self.selectedGuideURL = guideCandidates.first
         self.selectedBarcodeDefinitionURL = barcodeDefinitionCandidates.first
         self.errorMessage = nil
         self.showingError = false
@@ -446,6 +449,9 @@ final class WorkflowOperationDialogState {
                 .joined(separator: "-") ?? "workflow-output"
         } else if selectedTool?.kind == .fullLengthONTMHCGenotyping {
             outputName = Self.defaultFullLengthONTMHCOutputName(for: selectedReadURLs)
+            if selectedGuideURL == nil || !projectGuideCandidates.contains(selectedGuideURL!.standardizedFileURL) {
+                setGuide(projectGuideCandidates.first)
+            }
         } else if selectedTool?.kind == .twelveSAmpliconMatching {
             outputName = Self.defaultTwelveSOutputName(for: selectedReadURLs)
         } else {
@@ -463,10 +469,14 @@ final class WorkflowOperationDialogState {
 
     func refreshProjectReferences(selecting url: URL? = nil) {
         projectReferenceCandidates = Self.discoverReferenceBundles(in: projectURL)
+        projectGuideCandidates = Self.discoverGuideBundles(from: projectReferenceCandidates, relativeTo: projectURL)
         if let url = url?.standardizedFileURL {
             setReference(url)
         } else if selectedReferenceURL == nil {
             setReference(projectReferenceCandidates.first)
+        }
+        if selectedGuideURL == nil || !projectGuideCandidates.contains(selectedGuideURL!.standardizedFileURL) {
+            setGuide(projectGuideCandidates.first)
         }
     }
 
@@ -547,7 +557,16 @@ final class WorkflowOperationDialogState {
     }
 
     func setGuide(_ url: URL?) {
-        selectedGuideURL = url?.standardizedFileURL
+        guard let url else {
+            selectedGuideURL = nil
+            return
+        }
+        let standardizedURL = url.standardizedFileURL
+        guard projectURL == nil || projectGuideCandidates.isEmpty || projectGuideCandidates.contains(standardizedURL) else {
+            selectedGuideURL = nil
+            return
+        }
+        selectedGuideURL = standardizedURL
     }
 
     private func applyBundledMHCReferenceDefaultsIfAvailable(for url: URL?) {
@@ -588,6 +607,7 @@ final class WorkflowOperationDialogState {
         self.projectURL = standardizedProjectURL
         setReads(selectedReadURLs)
         projectReferenceCandidates = Self.discoverReferenceBundles(in: standardizedProjectURL)
+        projectGuideCandidates = Self.discoverGuideBundles(from: projectReferenceCandidates, relativeTo: standardizedProjectURL)
         projectBarcodeDefinitionCandidates = Self.discoverBarcodeDefinitionFiles(in: standardizedProjectURL)
         refreshHaplotypeSelectionForCurrentProject()
 
@@ -597,8 +617,10 @@ final class WorkflowOperationDialogState {
         if projectChanged || selectedBarcodeDefinitionURL == nil {
             selectedBarcodeDefinitionURL = projectBarcodeDefinitionCandidates.first
         }
+        if projectChanged || selectedGuideURL == nil || !projectGuideCandidates.contains(selectedGuideURL!.standardizedFileURL) {
+            selectedGuideURL = projectGuideCandidates.first
+        }
         if projectChanged {
-            selectedGuideURL = nil
             fullLengthOrientReferenceURL = Self.defaultFullLengthPrimerReferenceURL(
                 filename: "MHC_class_I_orient.fasta",
                 projectURL: standardizedProjectURL
@@ -1040,6 +1062,25 @@ final class WorkflowOperationDialogState {
             displayPath(for: $0, relativeTo: projectURL)
                 .localizedStandardCompare(displayPath(for: $1, relativeTo: projectURL)) == .orderedAscending
         }
+    }
+
+    private static func discoverGuideBundles(from referenceCandidates: [URL], relativeTo projectURL: URL?) -> [URL] {
+        referenceCandidates
+            .filter { $0.pathExtension.lowercased() == "lungfishref" }
+            .sorted { lhs, rhs in
+                let lhsLikelyGuide = isLikelyPBAAGuideBundle(lhs)
+                let rhsLikelyGuide = isLikelyPBAAGuideBundle(rhs)
+                if lhsLikelyGuide != rhsLikelyGuide {
+                    return lhsLikelyGuide
+                }
+                return displayPath(for: lhs, relativeTo: projectURL)
+                    .localizedStandardCompare(displayPath(for: rhs, relativeTo: projectURL)) == .orderedAscending
+            }
+    }
+
+    private static func isLikelyPBAAGuideBundle(_ url: URL) -> Bool {
+        let name = url.deletingPathExtension().lastPathComponent.lowercased()
+        return name.contains("guide") || name.contains("pbaa")
     }
 
     private static func isTwelveSReferenceFASTA(_ url: URL) -> Bool {

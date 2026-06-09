@@ -103,7 +103,11 @@ public struct PBAANextflowWorkflowWriter: Sendable {
           tuple path("guide.fasta"), path("guide.fasta.fai")
           script:
           """
-          cp "${guide}" guide.fasta
+          if [[ "${guide}" == *.gz ]]; then
+            gzip -dc "${guide}" > guide.fasta
+          else
+            cp "${guide}" guide.fasta
+          fi
           samtools faidx guide.fasta
           """
         }

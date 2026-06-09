@@ -803,6 +803,7 @@ public class SidebarViewController: NSViewController {
 
         // Save expansion state before rebuilding (items are recreated, so match by URL)
         let expandedURLs = saveExpandedItemURLs()
+        let shouldApplyInitialExpansionDefaults = rootItems.isEmpty
 
         // Build the sidebar items from the project folder's contents (not the folder itself)
         // This shows the contents at the root level, similar to how Finder shows folder contents
@@ -811,12 +812,15 @@ public class SidebarViewController: NSViewController {
         // Reload the outline view
         reloadOutlineView()
 
-        // Expand all folders at root level
-        for item in rootItems where item.type == .folder {
-            outlineView.expandItem(item)
+        // On first project load, open top-level folders by default. On later
+        // filesystem refreshes, preserve the user's explicit collapse state.
+        if shouldApplyInitialExpansionDefaults {
+            for item in rootItems where item.type == .folder {
+                outlineView.expandItem(item)
+            }
         }
 
-        // Restore nested expansion state beyond root level
+        // Restore expansion state captured before rebuilding.
         restoreExpandedItemURLs(expandedURLs)
 
         // Restore selection if possible

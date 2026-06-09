@@ -1,4 +1,5 @@
 import Foundation
+import LungfishIO
 
 public struct FullLengthONTMHCClusterGenotypeRow: Codable, Equatable, Sendable {
     public let sample: String
@@ -154,7 +155,6 @@ public enum FullLengthONTMHCClusterGenotyper {
     }
 
     static func readFASTARecords(from url: URL) throws -> [FullLengthONTMHCClusterFASTARecord] {
-        let text = try String(contentsOf: url, encoding: .utf8)
         var records: [FullLengthONTMHCClusterFASTARecord] = []
         var currentName: String?
         var parts: [String] = []
@@ -167,14 +167,17 @@ public enum FullLengthONTMHCClusterGenotyper {
                 readCount: parseReadCount(currentName)
             ))
         }
-        for line in text.split(whereSeparator: \.isNewline).map(String.init) {
+        try url.forEachLineAutoDecompressing { line in
             if line.hasPrefix(">") {
                 flush()
                 let rawName = String(line.dropFirst())
                 currentName = rawName.split(whereSeparator: \.isWhitespace).first.map(String.init) ?? rawName
                 parts = []
             } else {
-                parts.append(line.trimmingCharacters(in: .whitespacesAndNewlines))
+                let sequenceLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                if currentName != nil || !sequenceLine.isEmpty {
+                    parts.append(sequenceLine)
+                }
             }
         }
         flush()

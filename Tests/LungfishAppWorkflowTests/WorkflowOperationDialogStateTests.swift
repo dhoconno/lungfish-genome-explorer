@@ -319,6 +319,49 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         )
     }
 
+    func testFullLengthONTMHCGuideDefaultsToProjectGuideBundle() throws {
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let fullLengthItem = try XCTUnwrap(
+            WorkflowLibraryCatalog.item(id: WorkflowLibraryCatalog.fullLengthONTMHCGenotypingID)
+        )
+        enablementStore.setWorkflow(fullLengthItem, enabled: true)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let temp = try temporaryDirectory()
+        let alleleReferenceURL = temp.appendingPathComponent("Reference Sequences/Mamu_classI_all.lungfishref", isDirectory: true)
+        let guideURL = temp.appendingPathComponent("Reference Sequences/guide.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: alleleReferenceURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: guideURL, withIntermediateDirectories: true)
+
+        let state = WorkflowOperationDialogState(
+            projectURL: temp,
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+        state.selectTool(WorkflowLibraryCatalog.fullLengthONTMHCGenotypingID)
+
+        XCTAssertEqual(state.projectGuideCandidates.first, guideURL.standardizedFileURL)
+        XCTAssertEqual(state.selectedGuideURL, guideURL.standardizedFileURL)
+    }
+
+    func testWorkflowOperationsDialogUsesProjectBundlePickerForPBAAGuides() throws {
+        let source = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationsDialog.swift"),
+            encoding: .utf8
+        )
+        let guidePicker = try sourceBlock(
+            startingAt: "    private var guidePicker: some View",
+            endingBefore: "    private var barcodePicker: some View",
+            in: source
+        )
+
+        XCTAssertTrue(guidePicker.contains("Picker(\"Project Guide\""))
+        XCTAssertTrue(guidePicker.contains("guideProjectReferenceBinding"))
+        XCTAssertFalse(guidePicker.contains("browseForGuide()"))
+        XCTAssertFalse(source.contains("private func browseForGuide()"))
+    }
+
     func testEnabledWorkflowPackageBuildsLocalWorkflowRunWithExpectedOutputs() async throws {
         let defaults = try makeDefaults()
         let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)

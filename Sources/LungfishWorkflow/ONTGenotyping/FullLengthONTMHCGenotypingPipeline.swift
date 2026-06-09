@@ -21,6 +21,8 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
     public let pbaaExtraArgumentsText: String
     public let minUnmatchedReads: Int
     public let cdnaThreshold: Int
+    public let sampleJobs: Int?
+    public let pbaaThreadsPerSample: Int?
 
     public init(
         inputFASTQURLs: [URL],
@@ -38,7 +40,9 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
         pbaaSeed: Int = 1984,
         pbaaExtraArgumentsText: String = Self.defaultPBAAExtraArgumentsText,
         minUnmatchedReads: Int = 5,
-        cdnaThreshold: Int = 2_000
+        cdnaThreshold: Int = 2_000,
+        sampleJobs: Int? = nil,
+        pbaaThreadsPerSample: Int? = nil
     ) {
         let normalizedOutputName = Self.sanitizedOutputName(outputName)
         self.inputFASTQURLs = inputFASTQURLs.map(\.standardizedFileURL)
@@ -57,6 +61,8 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
         self.pbaaExtraArgumentsText = pbaaExtraArgumentsText
         self.minUnmatchedReads = max(1, minUnmatchedReads)
         self.cdnaThreshold = max(1, cdnaThreshold)
+        self.sampleJobs = sampleJobs.map { max(1, $0) }
+        self.pbaaThreadsPerSample = pbaaThreadsPerSample.map { max(1, $0) }
     }
 
     public var reportCSVURL: URL {
@@ -121,6 +127,12 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
         if let projectURL {
             values += ["--project", projectURL.path]
         }
+        if let sampleJobs {
+            values += ["--sample-jobs", String(sampleJobs)]
+        }
+        if let pbaaThreadsPerSample {
+            values += ["--pbaa-threads-per-sample", String(pbaaThreadsPerSample)]
+        }
         return values
     }
 
@@ -141,7 +153,9 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
             pbaaSeed: pbaaSeed,
             pbaaExtraArgumentsText: pbaaExtraArgumentsText,
             minUnmatchedReads: minUnmatchedReads,
-            cdnaThreshold: cdnaThreshold
+            cdnaThreshold: cdnaThreshold,
+            sampleJobs: sampleJobs,
+            pbaaThreadsPerSample: pbaaThreadsPerSample
         )
     }
 
@@ -223,6 +237,12 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         try validateInputs(request)
         let referenceFASTAURL = try resolveMHCReferenceFASTA(request.referenceSourceURL)
         let guideFASTAURL = try resolveGuideFASTA(request.guideSourceURL)
+        let executionPlan = FullLengthONTMHCSampleExecutionPlan.automatic(
+            totalThreads: request.threads,
+            sampleCount: request.inputFASTQURLs.count,
+            requestedSampleJobs: request.sampleJobs,
+            requestedPBAAThreadsPerSample: request.pbaaThreadsPerSample
+        )
 
         try FileManager.default.createDirectory(at: request.outputDirectory, withIntermediateDirectories: true)
         let workDirectory = request.outputDirectory.appendingPathComponent("workflow", isDirectory: true)
@@ -232,93 +252,89 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             withIntermediateDirectories: true
         )
 
-        var allGenotypeRows: [FullLengthONTMHCClusterGenotypeRow] = []
-        var sampleCounts: [String: Int] = [:]
-        var sampleSummaries: [FullLengthONTMHCSampleSummary] = []
-        var pipelineSteps: [FullLengthONTMHCProvenanceStep] = []
-        var sampleNameCounts: [String: Int] = [:]
         try Data().write(to: request.unmatchedClustersFASTAURL, options: .atomic)
         try Data().write(to: request.cdnaClustersFASTAURL, options: .atomic)
 
-        for (index, inputURL) in request.inputFASTQURLs.enumerated() {
-            let sampleBaseName = sampleName(for: inputURL, fallbackIndex: index)
-            let sampleOccurrence = (sampleNameCounts[sampleBaseName] ?? 0) + 1
-            sampleNameCounts[sampleBaseName] = sampleOccurrence
-            let sample = sampleOccurrence == 1 ? sampleBaseName : "\(sampleBaseName)-\(sampleOccurrence)"
-            progressHandler?(0.05 + Double(index) / max(1.0, Double(request.inputFASTQURLs.count)) * 0.72, "Processing \(sample).")
-            let sampleDirectory = workDirectory.appendingPathComponent(sample, isDirectory: true)
-            try FileManager.default.createDirectory(at: sampleDirectory, withIntermediateDirectories: true)
+        progressHandler?(
+            0.02,
+            "Planning \(request.inputFASTQURLs.count) \(sampleLabel(request.inputFASTQURLs.count)): \(executionPlan.sampleJobs) concurrent sample \(jobLabel(executionPlan.sampleJobs)), pbAA \(executionPlan.pbaaThreadsPerSample) thread/sample."
+        )
+        let stagedSamples = try stageSamples(
+            request: request,
+            workDirectory: workDirectory,
+            progressHandler: progressHandler
+        )
+        let orderedSamples = FullLengthONTMHCSampleScheduler.processingOrder(for: stagedSamples)
+        let totalReadCount = stagedSamples.reduce(0) { $0 + max(1, $1.readCount) }
+        progressHandler?(
+            FullLengthONTMHCSampleScheduler.processingStartProgress,
+            "Processing \(orderedSamples.count) \(sampleLabel(orderedSamples.count)) largest-first across \(executionPlan.sampleJobs) concurrent sample \(jobLabel(executionPlan.sampleJobs))."
+        )
 
-            let materializedFASTQ = try materializeFASTQ(
-                inputURL: inputURL,
-                sample: sample,
-                sampleDirectory: sampleDirectory
-            )
-            sampleCounts[sample] = fastqReadCount(materializedFASTQ)
+        let sampleExecution = FullLengthONTMHCSampleExecutionConfiguration(
+            workerThreads: executionPlan.workerThreadsPerSample,
+            pbaaThreads: executionPlan.pbaaThreadsPerSample
+        )
+        var sampleResults: [FullLengthONTMHCSampleResult] = []
+        var completedReadCount = 0
+        var completedSampleCount = 0
+        var nextSampleIndex = 0
 
-            let preparedFASTA = try await prepareReadsForPBAA(
-                inputFASTQ: materializedFASTQ,
-                sample: sample,
-                sampleDirectory: sampleDirectory,
-                request: request,
-                steps: &pipelineSteps
-            )
+        try await withThrowingTaskGroup(of: FullLengthONTMHCSampleResult.self) { group in
+            func enqueueNextSample() {
+                guard nextSampleIndex < orderedSamples.count else { return }
+                let scheduled = orderedSamples[nextSampleIndex]
+                let processingRank = nextSampleIndex + 1
+                nextSampleIndex += 1
+                progressHandler?(
+                    FullLengthONTMHCSampleScheduler.processingProgress(
+                        completedReadCount: completedReadCount,
+                        totalReadCount: totalReadCount
+                    ),
+                    "Started \(scheduled.sample) (\(processingRank)/\(orderedSamples.count), \(formattedReadCount(scheduled.readCount)) reads)."
+                )
+                group.addTask {
+                    try await processSample(
+                        scheduled,
+                        processingRank: processingRank,
+                        request: request,
+                        guideFASTAURL: guideFASTAURL,
+                        referenceFASTAURL: referenceFASTAURL,
+                        execution: sampleExecution
+                    )
+                }
+            }
 
-            let pbaaRequest = try PBAAClusteringRunRequest(
-                inputFASTQURL: preparedFASTA,
-                guideSourceURL: guideFASTAURL,
-                outputDirectory: request.outputDirectory
-                    .appendingPathComponent("samples", isDirectory: true)
-                    .appendingPathComponent(sample, isDirectory: true)
-                    .appendingPathComponent("pbaa", isDirectory: true),
-                outputName: sample,
-                threads: request.threads,
-                seed: request.pbaaSeed,
-                inputFormat: .fasta,
-                extraArgumentsText: request.pbaaExtraArgumentsText
-            )
-            let pbaaStartedAt = Date()
-            let pbaaResult = try await pbaaPipeline.run(pbaaRequest)
-            let pbaaCompletedAt = Date()
-            pipelineSteps.append(FullLengthONTMHCProvenanceStep(
-                toolName: "pbaa",
-                toolVersion: pbaaRequest.containerPins.pbaa.toolVersion,
-                argv: [
-                    "pbaa", "cluster",
-                    "-j", String(pbaaRequest.threads),
-                    "--seed", String(pbaaRequest.seed),
-                ] + pbaaRequest.extraArguments + ["guide.fasta", "reads.fasta", pbaaRequest.prefix],
-                inputs: [preparedFASTA, guideFASTAURL],
-                outputs: [pbaaResult.rawOutputDirectory, pbaaResult.passedConsensusFASTAURL],
-                exitStatus: 0,
-                stderr: nil,
-                startedAt: pbaaStartedAt,
-                completedAt: pbaaCompletedAt
-            ))
+            for _ in 0..<min(executionPlan.sampleJobs, orderedSamples.count) {
+                enqueueNextSample()
+            }
+            while let result = try await group.next() {
+                sampleResults.append(result)
+                completedReadCount += max(1, result.readCount)
+                completedSampleCount += 1
+                progressHandler?(
+                    FullLengthONTMHCSampleScheduler.processingProgress(
+                        completedReadCount: completedReadCount,
+                        totalReadCount: totalReadCount
+                    ),
+                    "Completed \(completedSampleCount)/\(orderedSamples.count): \(result.sample) (\(formattedReadCount(result.readCount)) reads)."
+                )
+                enqueueNextSample()
+            }
+        }
 
-            let genotyped = try await genotypeClusters(
-                sample: sample,
-                clustersFASTAURL: pbaaResult.passedConsensusFASTAURL,
-                referenceFASTAURL: referenceFASTAURL,
-                sampleDirectory: sampleDirectory,
-                request: request,
-                steps: &pipelineSteps
-            )
-            allGenotypeRows += genotyped.rows
-            let clusterRecords = try FullLengthONTMHCClusterGenotyper.readFASTARecords(
-                from: pbaaResult.passedConsensusFASTAURL
-            )
-            sampleSummaries.append(FullLengthONTMHCSampleSummary(
-                sample: sample,
-                totalInputReads: sampleCounts[sample] ?? 0,
-                clusterCount: clusterRecords.count,
-                clusteredReads: clusterRecords.reduce(0) { $0 + $1.readCount },
-                assignedReads: genotyped.rows.reduce(0) { $0 + $1.clusterReads },
-                unmatchedClusters: genotyped.unmatchedClusters.count,
-                cdnaClusters: genotyped.cdnaMatchedClusters.count
-            ))
-            try append(records: genotyped.unmatchedClusters, sample: sample, to: request.unmatchedClustersFASTAURL)
-            try append(records: genotyped.cdnaMatchedClusters, sample: sample, to: request.cdnaClustersFASTAURL)
+        let orderedResults = sampleResults.sorted { lhs, rhs in
+            lhs.originalIndex < rhs.originalIndex
+        }
+        let allGenotypeRows = orderedResults.flatMap(\.genotypeRows)
+        let sampleCounts = Dictionary(uniqueKeysWithValues: orderedResults.map { ($0.sample, $0.readCount) })
+        let sampleSummaries = orderedResults.map(\.sampleSummary)
+        let pipelineSteps = sampleResults
+            .flatMap(\.steps)
+            .sorted { lhs, rhs in lhs.startedAt < rhs.startedAt }
+        for result in orderedResults {
+            try append(records: result.unmatchedClusters, sample: result.sample, to: request.unmatchedClustersFASTAURL)
+            try append(records: result.cdnaMatchedClusters, sample: result.sample, to: request.cdnaClustersFASTAURL)
         }
 
         progressHandler?(0.86, "Writing full-length ONT MHC genotype reports.")
@@ -344,6 +360,9 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             request: request,
             referenceFASTAURL: referenceFASTAURL,
             guideFASTAURL: guideFASTAURL,
+            executionPlan: executionPlan,
+            stagedSamples: stagedSamples,
+            processingOrder: orderedSamples,
             steps: pipelineSteps,
             startedAt: startedAt,
             completedAt: Date()
@@ -409,21 +428,141 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         sampleDirectory: URL
     ) throws -> URL {
         let outputURL = sampleDirectory.appendingPathComponent("00-input.fastq")
-        if let allURLs = FASTQBundle.resolveAllFASTQURLs(for: inputURL), !allURLs.isEmpty {
-            try concatenate(files: allURLs, to: outputURL)
-            return outputURL
-        }
-        if let fastqURL = FASTQBundle.resolvePrimaryFASTQURL(for: inputURL) {
-            try copyOrLink(source: fastqURL, destination: outputURL)
-            return outputURL
-        }
-        guard SequenceInputResolver.inputSequenceFormat(for: inputURL) == .fastq,
-              let fastqURL = SequenceInputResolver.resolvePrimarySequenceURL(for: inputURL) else {
-            throw FullLengthONTMHCGenotypingError.invalidFASTQ(inputURL.path)
-        }
-        try copyOrLink(source: fastqURL, destination: outputURL)
         _ = sample
-        return outputURL
+        return try FullLengthONTMHCFASTQMaterializer.materializePlainFASTQ(
+            inputURL: inputURL,
+            outputURL: outputURL
+        )
+    }
+
+    private func stageSamples(
+        request: FullLengthONTMHCGenotypingRunRequest,
+        workDirectory: URL,
+        progressHandler: (@Sendable (Double, String) -> Void)?
+    ) throws -> [FullLengthONTMHCScheduledSample] {
+        var sampleNameCounts: [String: Int] = [:]
+        var stagedSamples: [FullLengthONTMHCScheduledSample] = []
+        let totalCount = request.inputFASTQURLs.count
+        for (index, inputURL) in request.inputFASTQURLs.enumerated() {
+            let sampleBaseName = sampleName(for: inputURL, fallbackIndex: index)
+            let sampleOccurrence = (sampleNameCounts[sampleBaseName] ?? 0) + 1
+            sampleNameCounts[sampleBaseName] = sampleOccurrence
+            let sample = sampleOccurrence == 1 ? sampleBaseName : "\(sampleBaseName)-\(sampleOccurrence)"
+            progressHandler?(
+                FullLengthONTMHCSampleScheduler.stagingProgress(
+                    stagedSampleCount: index,
+                    totalSampleCount: totalCount
+                ),
+                "Staging FASTQ \(index + 1)/\(totalCount): \(sample)."
+            )
+            let sampleDirectory = workDirectory.appendingPathComponent(sample, isDirectory: true)
+            try FileManager.default.createDirectory(at: sampleDirectory, withIntermediateDirectories: true)
+            let materializedFASTQ = try materializeFASTQ(
+                inputURL: inputURL,
+                sample: sample,
+                sampleDirectory: sampleDirectory
+            )
+            let readCount = fastqReadCount(materializedFASTQ)
+            stagedSamples.append(FullLengthONTMHCScheduledSample(
+                originalIndex: index,
+                inputURL: inputURL,
+                sample: sample,
+                sampleDirectory: sampleDirectory,
+                materializedFASTQURL: materializedFASTQ,
+                readCount: readCount
+            ))
+            progressHandler?(
+                FullLengthONTMHCSampleScheduler.stagingProgress(
+                    stagedSampleCount: index + 1,
+                    totalSampleCount: totalCount
+                ),
+                "Staged \(index + 1)/\(totalCount): \(sample) (\(formattedReadCount(readCount)) reads)."
+            )
+        }
+        return stagedSamples
+    }
+
+    private func processSample(
+        _ scheduled: FullLengthONTMHCScheduledSample,
+        processingRank: Int,
+        request: FullLengthONTMHCGenotypingRunRequest,
+        guideFASTAURL: URL,
+        referenceFASTAURL: URL,
+        execution: FullLengthONTMHCSampleExecutionConfiguration
+    ) async throws -> FullLengthONTMHCSampleResult {
+        var steps: [FullLengthONTMHCProvenanceStep] = []
+        let preparedFASTQ = try await prepareReadsForPBAA(
+            inputFASTQ: scheduled.materializedFASTQURL,
+            sample: scheduled.sample,
+            sampleDirectory: scheduled.sampleDirectory,
+            request: request,
+            execution: execution,
+            steps: &steps
+        )
+
+        let pbaaRequest = try PBAAClusteringRunRequest(
+            inputFASTQURL: preparedFASTQ,
+            guideSourceURL: guideFASTAURL,
+            outputDirectory: request.outputDirectory
+                .appendingPathComponent("samples", isDirectory: true)
+                .appendingPathComponent(scheduled.sample, isDirectory: true)
+                .appendingPathComponent("pbaa", isDirectory: true),
+            outputName: scheduled.sample,
+            threads: execution.pbaaThreads,
+            seed: request.pbaaSeed,
+            extraArgumentsText: request.pbaaExtraArgumentsText
+        )
+        let pbaaStartedAt = Date()
+        let pbaaResult = try await pbaaPipeline.run(pbaaRequest)
+        let pbaaCompletedAt = Date()
+        steps.append(FullLengthONTMHCProvenanceStep(
+            toolName: "pbaa",
+            toolVersion: pbaaRequest.containerPins.pbaa.toolVersion,
+            argv: [
+                "pbaa", "cluster",
+                "-j", String(pbaaRequest.threads),
+                "--seed", String(pbaaRequest.seed),
+            ] + pbaaRequest.extraArguments + ["guide.fasta", "reads.fastq", pbaaRequest.prefix],
+            inputs: [preparedFASTQ, guideFASTAURL],
+            outputs: [pbaaResult.rawOutputDirectory, pbaaResult.passedConsensusFASTAURL],
+            exitStatus: 0,
+            stderr: nil,
+            startedAt: pbaaStartedAt,
+            completedAt: pbaaCompletedAt
+        ))
+
+        let genotyped = try await genotypeClusters(
+            sample: scheduled.sample,
+            clustersFASTAURL: pbaaResult.passedConsensusFASTAURL,
+            referenceFASTAURL: referenceFASTAURL,
+            sampleDirectory: scheduled.sampleDirectory,
+            request: request,
+            execution: execution,
+            steps: &steps
+        )
+        let clusterRecords = try FullLengthONTMHCClusterGenotyper.readFASTARecords(
+            from: pbaaResult.passedConsensusFASTAURL
+        )
+        let sampleSummary = FullLengthONTMHCSampleSummary(
+            sample: scheduled.sample,
+            totalInputReads: scheduled.readCount,
+            clusterCount: clusterRecords.count,
+            clusteredReads: clusterRecords.reduce(0) { $0 + $1.readCount },
+            assignedReads: genotyped.rows.reduce(0) { $0 + $1.clusterReads },
+            unmatchedClusters: genotyped.unmatchedClusters.count,
+            cdnaClusters: genotyped.cdnaMatchedClusters.count
+        )
+        return FullLengthONTMHCSampleResult(
+            originalIndex: scheduled.originalIndex,
+            processingRank: processingRank,
+            sample: scheduled.sample,
+            readCount: scheduled.readCount,
+            genotypeRows: genotyped.rows,
+            sampleSummary: sampleSummary,
+            unmatchedClusters: genotyped.unmatchedClusters,
+            cdnaMatchedClusters: genotyped.cdnaMatchedClusters,
+            steps: steps
+        )
     }
 
     private func prepareReadsForPBAA(
@@ -431,6 +570,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         sample: String,
         sampleDirectory: URL,
         request: FullLengthONTMHCGenotypingRunRequest,
+        execution: FullLengthONTMHCSampleExecutionConfiguration,
         steps: inout [FullLengthONTMHCProvenanceStep]
     ) async throws -> URL {
         var currentFASTQ = inputFASTQ
@@ -440,7 +580,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 "--orient", currentFASTQ.path,
                 "--db", orientReferenceURL.path,
                 "--fastqout", output.path,
-                "--threads", String(request.threads),
+                "--threads", String(execution.workerThreads),
             ]
             try await runNativeTool(
                 .vsearch,
@@ -517,21 +657,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             steps: &steps
         )
 
-        let fasta = sampleDirectory.appendingPathComponent("\(sample).reads.fasta")
-        try await runNativeTool(
-            .reformat,
-            arguments: [
-                "in=\(filtered.path)",
-                "out=\(fasta.path)",
-                "fastawrap=0",
-                "threads=1",
-            ],
-            inputs: [filtered],
-            outputs: [fasta],
-            workingDirectory: sampleDirectory,
-            steps: &steps
-        )
-        return fasta
+        _ = sample
+        return filtered
     }
 
     private func runNativeTool(
@@ -576,6 +703,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         referenceFASTAURL: URL,
         sampleDirectory: URL,
         request: FullLengthONTMHCGenotypingRunRequest,
+        execution: FullLengthONTMHCSampleExecutionConfiguration,
         steps: inout [FullLengthONTMHCProvenanceStep]
     ) async throws -> FullLengthONTMHCClusterGenotypingSummary {
         let samURL = sampleDirectory.appendingPathComponent("\(sample).genotypes.sam")
@@ -584,7 +712,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             "-a",
             "-x", "splice",
             "--eqx",
-            "-t", String(max(1, request.threads)),
+            "-t", String(max(1, execution.workerThreads)),
             "-N", "100",
             "--secondary=yes",
             clustersFASTAURL.path,
@@ -834,6 +962,9 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         request: FullLengthONTMHCGenotypingRunRequest,
         referenceFASTAURL: URL,
         guideFASTAURL: URL,
+        executionPlan: FullLengthONTMHCSampleExecutionPlan,
+        stagedSamples: [FullLengthONTMHCScheduledSample],
+        processingOrder: [FullLengthONTMHCScheduledSample],
         steps: [FullLengthONTMHCProvenanceStep],
         startedAt: Date,
         completedAt: Date
@@ -846,6 +977,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             "pbaaExtraArguments": .string(FullLengthONTMHCGenotypingRunRequest.defaultPBAAExtraArgumentsText),
             "minUnmatchedReads": .integer(5),
             "cdnaThreshold": .integer(2_000),
+            "sampleJobs": .string("auto"),
+            "pbaaThreadsPerSample": .string("auto"),
         ]
         let resolved: [String: ParameterValue] = [
             "threads": .integer(request.threads),
@@ -855,8 +988,13 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             "pbaaExtraArguments": .string(request.pbaaExtraArgumentsText),
             "minUnmatchedReads": .integer(request.minUnmatchedReads),
             "cdnaThreshold": .integer(request.cdnaThreshold),
+            "sampleJobs": .integer(executionPlan.sampleJobs),
+            "pbaaThreadsPerSample": .integer(executionPlan.pbaaThreadsPerSample),
+            "workerThreadsPerSample": .integer(executionPlan.workerThreadsPerSample),
         ]
         var explicit = resolved
+        explicit["requestedSampleJobs"] = request.sampleJobs.map(ParameterValue.integer) ?? .string("auto")
+        explicit["requestedPBAAThreadsPerSample"] = request.pbaaThreadsPerSample.map(ParameterValue.integer) ?? .string("auto")
         explicit["inputFASTQs"] = .array(request.inputFASTQURLs.map(ParameterValue.file))
         explicit["reference"] = .file(request.referenceSourceURL)
         explicit["resolvedReferenceFASTA"] = .file(referenceFASTAURL)
@@ -864,6 +1002,10 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         explicit["resolvedGuideFASTA"] = .file(guideFASTAURL)
         explicit["outputDirectory"] = .file(request.outputDirectory)
         explicit["outputName"] = .string(request.outputName)
+        explicit["sampleReadCounts"] = .dictionary(Dictionary(uniqueKeysWithValues: stagedSamples.map {
+            ($0.sample, ParameterValue.integer($0.readCount))
+        }))
+        explicit["sampleProcessingOrder"] = .array(processingOrder.map { .string($0.sample) })
         if let orientReferenceURL = request.orientReferenceURL {
             explicit["orientReference"] = .file(orientReferenceURL)
         }
@@ -933,38 +1075,16 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         }
     }
 
-    private func concatenate(files: [URL], to outputURL: URL) throws {
-        if FileManager.default.fileExists(atPath: outputURL.path) {
-            try FileManager.default.removeItem(at: outputURL)
-        }
-        FileManager.default.createFile(atPath: outputURL.path, contents: nil)
-        let output = try FileHandle(forWritingTo: outputURL)
-        defer { try? output.close() }
-        for file in files {
-            let input = try FileHandle(forReadingFrom: file)
-            defer { try? input.close() }
-            while autoreleasepool(invoking: {
-                let data = input.readData(ofLength: 1024 * 1024)
-                guard !data.isEmpty else { return false }
-                output.write(data)
-                return true
-            }) {}
-        }
-    }
-
-    private func copyOrLink(source: URL, destination: URL) throws {
-        if FileManager.default.fileExists(atPath: destination.path) {
-            try FileManager.default.removeItem(at: destination)
-        }
-        try FileManager.default.copyItem(at: source, to: destination)
-    }
-
     private func fastqReadCount(_ url: URL) -> Int {
-        guard url.pathExtension.lowercased() != "gz",
-              let text = try? String(contentsOf: url, encoding: .utf8) else {
+        var lineCount = 0
+        do {
+            try url.forEachLineAutoDecompressing { _ in
+                lineCount += 1
+            }
+            return lineCount / 4
+        } catch {
             return 0
         }
-        return text.split(whereSeparator: \.isNewline).count / 4
     }
 
     private func sampleName(for url: URL, fallbackIndex: Int) -> String {
@@ -992,6 +1112,18 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
 
     private func optionalString<T>(_ value: T?) -> String {
         value.map { "\($0)" } ?? ""
+    }
+
+    private func formattedReadCount(_ value: Int) -> String {
+        value.formatted(.number)
+    }
+
+    private func sampleLabel(_ count: Int) -> String {
+        count == 1 ? "sample" : "samples"
+    }
+
+    private func jobLabel(_ count: Int) -> String {
+        count == 1 ? "job" : "jobs"
     }
 
     private func relativePath(from baseURL: URL, to targetURL: URL) -> String {
@@ -1051,6 +1183,23 @@ private struct FullLengthONTMHCSampleSummary: Sendable, Codable, Equatable {
     let assignedReads: Int
     let unmatchedClusters: Int
     let cdnaClusters: Int
+}
+
+private struct FullLengthONTMHCSampleExecutionConfiguration: Sendable, Equatable {
+    let workerThreads: Int
+    let pbaaThreads: Int
+}
+
+private struct FullLengthONTMHCSampleResult: Sendable {
+    let originalIndex: Int
+    let processingRank: Int
+    let sample: String
+    let readCount: Int
+    let genotypeRows: [FullLengthONTMHCClusterGenotypeRow]
+    let sampleSummary: FullLengthONTMHCSampleSummary
+    let unmatchedClusters: [FullLengthONTMHCClusterFASTARecord]
+    let cdnaMatchedClusters: [FullLengthONTMHCClusterFASTARecord]
+    let steps: [FullLengthONTMHCProvenanceStep]
 }
 
 private struct FullLengthONTMHCProvenanceStep: Sendable {

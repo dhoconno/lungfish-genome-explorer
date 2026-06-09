@@ -618,6 +618,47 @@ final class SidebarViewControllerSelectionTests: XCTestCase {
         XCTAssertFalse(sidebar.selectItem(forURL: provenanceURL))
     }
 
+    func testFilesystemReloadPreservesCollapsedTopLevelFolder() throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SidebarCollapsedFolder-\(UUID().uuidString)", isDirectory: true)
+        let projectURL = tempRoot.appendingPathComponent("Fixture.lungfish", isDirectory: true)
+        let importsURL = projectURL.appendingPathComponent("Imports", isDirectory: true)
+        let readsURL = importsURL.appendingPathComponent("reads.fastq")
+
+        try FileManager.default.createDirectory(at: importsURL, withIntermediateDirectories: true)
+        try "@r1\nACGT\n+\nIIII\n".write(to: readsURL, atomically: true, encoding: .utf8)
+
+        let sidebar = SidebarViewController()
+        sidebar.loadViewIfNeeded()
+
+        defer {
+            sidebar.closeProject()
+            try? FileManager.default.removeItem(at: tempRoot)
+        }
+
+        sidebar.openProject(at: projectURL)
+        let importsItem = try XCTUnwrap(sidebar.rootItems.first {
+            $0.url?.standardizedFileURL == importsURL.standardizedFileURL
+        })
+        XCTAssertTrue(
+            sidebar.outlineView.isItemExpanded(importsItem),
+            "Top-level project folders should still default to expanded on first open."
+        )
+
+        sidebar.outlineView.collapseItem(importsItem)
+        XCTAssertFalse(sidebar.outlineView.isItemExpanded(importsItem))
+
+        sidebar.reloadFromFilesystem()
+
+        let reloadedImportsItem = try XCTUnwrap(sidebar.rootItems.first {
+            $0.url?.standardizedFileURL == importsURL.standardizedFileURL
+        })
+        XCTAssertFalse(
+            sidebar.outlineView.isItemExpanded(reloadedImportsItem),
+            "Filesystem reload must preserve the user's collapsed state."
+        )
+    }
+
     func testPackageBundlesUnderAnalysesAreRecognizedBeforeFolderRecursion() throws {
         let tempRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("SidebarAnalysisBundles-\(UUID().uuidString)", isDirectory: true)

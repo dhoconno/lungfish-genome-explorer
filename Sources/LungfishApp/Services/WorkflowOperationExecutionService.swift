@@ -511,6 +511,12 @@ final class WorkflowOperationExecutionService {
         if let projectURL = request.projectURL {
             arguments += ["--project", projectURL.path]
         }
+        if let sampleJobs = request.sampleJobs {
+            arguments += ["--sample-jobs", String(sampleJobs)]
+        }
+        if let pbaaThreadsPerSample = request.pbaaThreadsPerSample {
+            arguments += ["--pbaa-threads-per-sample", String(pbaaThreadsPerSample)]
+        }
         return arguments
     }
 

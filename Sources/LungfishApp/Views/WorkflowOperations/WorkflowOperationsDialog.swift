@@ -173,15 +173,22 @@ private struct WorkflowOperationsDetailPane: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("pbAA Guides")
                 .font(.subheadline.weight(.medium))
+            if !state.projectGuideCandidates.isEmpty {
+                Picker("Project Guide", selection: guideProjectReferenceBinding) {
+                    Text("Choose guide").tag(URL?.none)
+                    ForEach(state.projectGuideCandidates, id: \.self) { url in
+                        Text(WorkflowOperationDialogState.displayPath(for: url, relativeTo: state.projectURL))
+                            .tag(URL?.some(url))
+                    }
+                }
+                .pickerStyle(.menu)
+            }
             HStack(spacing: 10) {
                 Text(state.selectedGuideDisplay)
                     .font(.caption)
                     .foregroundStyle(state.selectedGuideURL == nil ? Color.lungfishOrangeFallback : Color.lungfishSecondaryText)
                     .lineLimit(2)
                 Spacer()
-                Button(state.selectedGuideURL == nil ? "Choose…" : "Replace…") {
-                    browseForGuide()
-                }
                 if state.selectedGuideURL != nil {
                     Button("Clear") {
                         state.setGuide(nil)
@@ -489,6 +496,19 @@ private struct WorkflowOperationsDetailPane: View {
         )
     }
 
+    private var guideProjectReferenceBinding: Binding<URL?> {
+        Binding(
+            get: {
+                guard let selected = state.selectedGuideURL,
+                      state.projectGuideCandidates.contains(selected) else {
+                    return nil
+                }
+                return selected
+            },
+            set: { state.setGuide($0) }
+        )
+    }
+
     private var haplotypeDefinitionBinding: Binding<String> {
         Binding(
             get: { state.selectedHaplotypeDefinitionSetID ?? "" },
@@ -633,24 +653,6 @@ private struct WorkflowOperationsDetailPane: View {
         let completion: (NSApplication.ModalResponse) -> Void = { response in
             guard response == .OK else { return }
             state.setReference(panel.url)
-        }
-        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
-            panel.beginSheetModal(for: window, completionHandler: completion)
-        } else {
-            panel.begin(completionHandler: completion)
-        }
-    }
-
-    private func browseForGuide() {
-        let panel = NSOpenPanel()
-        panel.title = "Choose pbAA Guides"
-        panel.message = "Select a guide FASTA file or .lungfishref bundle."
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        let completion: (NSApplication.ModalResponse) -> Void = { response in
-            guard response == .OK else { return }
-            state.setGuide(panel.url)
         }
         if let window = NSApp.keyWindow ?? NSApp.mainWindow {
             panel.beginSheetModal(for: window, completionHandler: completion)

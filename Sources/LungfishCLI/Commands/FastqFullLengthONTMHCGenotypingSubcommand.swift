@@ -38,6 +38,12 @@ struct FastqFullLengthONTMHCGenotypingSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("threads"), help: "Worker threads for vsearch, minimap2, and pbAA")
     var threads: Int = max(1, ProcessInfo.processInfo.activeProcessorCount)
 
+    @Option(name: .customLong("sample-jobs"), help: "Concurrent sample workflows. Defaults to an automatic sample-level parallel strategy.")
+    var sampleJobs: Int?
+
+    @Option(name: .customLong("pbaa-threads-per-sample"), help: "pbAA threads per concurrently processed sample. Defaults to all threads for one sample and one thread per sample for batches.")
+    var pbaaThreadsPerSample: Int?
+
     @Option(name: .customLong("min-length"), help: "Minimum post-primer read length retained for pbAA")
     var minLength: Int = 2_000
 
@@ -76,7 +82,9 @@ struct FastqFullLengthONTMHCGenotypingSubcommand: AsyncParsableCommand {
             pbaaSeed: pbaaSeed,
             pbaaExtraArgumentsText: pbaaExtraArgs,
             minUnmatchedReads: minUnmatchedReads,
-            cdnaThreshold: cdnaThreshold
+            cdnaThreshold: cdnaThreshold,
+            sampleJobs: sampleJobs,
+            pbaaThreadsPerSample: pbaaThreadsPerSample
         )
         let result = try await FullLengthONTMHCGenotypingPipeline().run(request) { fraction, message in
             let percent = Int((fraction * 100.0).rounded())

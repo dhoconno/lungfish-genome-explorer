@@ -37,19 +37,18 @@ final class PBAANextflowWorkflowWriterTests: XCTestCase {
         XCTAssertEqual(params.extraArguments, ["--min-cluster-read-count", "2"])
     }
 
-    func testWriterCanIndexAndClusterFASTAReadsForFullLengthONTWorkflow() throws {
+    func testWriterIndexesAndClustersFASTQReadsForPBAA() throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("pbaa-writer-fasta-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("pbaa-writer-fastq-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
         let request = try PBAAClusteringRunRequest(
-            inputFASTQURL: URL(fileURLWithPath: "/data/reads.fasta"),
+            inputFASTQURL: URL(fileURLWithPath: "/data/reads.fastq"),
             guideSourceURL: URL(fileURLWithPath: "/data/guide.fasta"),
             outputDirectory: root.appendingPathComponent("result", isDirectory: true),
             outputName: "sample",
             threads: 4,
             seed: 7,
-            inputFormat: .fasta,
             extraArgumentsText: "--min-cluster-read-count 3"
         )
 
@@ -57,11 +56,30 @@ final class PBAANextflowWorkflowWriterTests: XCTestCase {
         let main = try String(contentsOf: files.mainNFURL, encoding: .utf8)
         let params = try JSONDecoder().decode(PBAANextflowParameters.self, from: Data(contentsOf: files.paramsURL))
 
-        XCTAssertTrue(main.contains("samtools faidx reads.fasta"))
-        XCTAssertFalse(main.contains("samtools fqidx reads.fastq"))
-        XCTAssertTrue(main.contains("pbaa cluster -j ${params.threads} --seed ${params.seed} ${extra} guide.fasta reads.fasta ${params.prefix}"))
-        XCTAssertEqual(params.reads, "/data/reads.fasta")
-        XCTAssertEqual(params.readsFormat, "fasta")
+        XCTAssertTrue(main.contains("samtools fqidx reads.fastq"))
+        XCTAssertFalse(main.contains("samtools faidx reads.fasta"))
+        XCTAssertTrue(main.contains("pbaa cluster -j ${params.threads} --seed ${params.seed} ${extra} guide.fasta reads.fastq ${params.prefix}"))
+        XCTAssertEqual(params.reads, "/data/reads.fastq")
+        XCTAssertEqual(params.readsFormat, "fastq")
+    }
+
+    func testWriterDecompressesGzippedGuideBeforeIndexing() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pbaa-writer-gz-guide-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let request = try PBAAClusteringRunRequest(
+            inputFASTQURL: URL(fileURLWithPath: "/data/reads.fastq"),
+            guideSourceURL: URL(fileURLWithPath: "/project/Reference Sequences/guide.lungfishref/genome/sequence.fa.gz"),
+            outputDirectory: root.appendingPathComponent("result", isDirectory: true),
+            outputName: "sample"
+        )
+
+        let files = try PBAANextflowWorkflowWriter().writeWorkflow(for: request, to: root)
+        let main = try String(contentsOf: files.mainNFURL, encoding: .utf8)
+
+        XCTAssertTrue(main.contains("gzip -dc \"${guide}\" > guide.fasta"))
+        XCTAssertTrue(main.contains("samtools faidx guide.fasta"))
     }
 
     func testNextflowArgumentsUseAbsoluteWorkflowFilesForLocalLaunchDirectory() {
