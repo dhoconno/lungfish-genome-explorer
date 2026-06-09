@@ -85,6 +85,7 @@ extension InspectorViewController {
 
         // Clear provenance state for empty sidebar selections.
         viewModel.provenanceSectionViewModel.clear()
+        viewModel.fastqPBAAArtifactsSectionViewModel.clear()
     }
 
     public func clearSelection() {
@@ -125,6 +126,7 @@ extension InspectorViewController {
 
         // Clear FASTQ metadata section
         viewModel.fastqMetadataSectionViewModel.clear()
+        viewModel.fastqPBAAArtifactsSectionViewModel.clear()
 
         inspectorLogger.info("clearSelection: Inspector reset to empty state")
     }
@@ -245,6 +247,7 @@ extension InspectorViewController {
                 from: bundleURL,
                 readTypeTargetBundleURLs: readTypeTargets
             )
+            viewModel.fastqPBAAArtifactsSectionViewModel.load(from: bundleURL)
             updateProvenanceTarget(
                 url: bundleURL,
                 sidebarType: .fastqBundle,

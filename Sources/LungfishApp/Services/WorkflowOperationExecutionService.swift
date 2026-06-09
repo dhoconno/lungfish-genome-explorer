@@ -498,7 +498,9 @@ final class WorkflowOperationExecutionService {
             "--pbaa-extra-args", request.pbaaExtraArgumentsText,
             "--min-unmatched-reads", String(request.minUnmatchedReads),
             "--cdna-threshold", String(request.cdnaThreshold),
+            "--pbaa-cluster-source", request.pbaaClusterSourceMode.rawValue,
         ]
+        request.appendHaplotypeThresholdArguments(to: &arguments)
         if let orientReferenceURL = request.orientReferenceURL {
             arguments += ["--orient-reference", orientReferenceURL.path]
         }
@@ -516,6 +518,18 @@ final class WorkflowOperationExecutionService {
         }
         if let pbaaThreadsPerSample = request.pbaaThreadsPerSample {
             arguments += ["--pbaa-threads-per-sample", String(pbaaThreadsPerSample)]
+        }
+        if let haplotypeDefinitionSetID = request.haplotypeDefinitionSetID {
+            if let haplotypeAssayID = request.haplotypeAssayID {
+                arguments += ["--haplotype-assay", haplotypeAssayID]
+            }
+            if let haplotypeSpeciesCode = request.haplotypeSpeciesCode {
+                arguments += ["--haplotype-species", haplotypeSpeciesCode]
+            }
+            if let haplotypeDefinitionScope = request.haplotypeDefinitionScope {
+                arguments += ["--haplotype-definition-scope", haplotypeDefinitionScope.rawValue]
+            }
+            arguments += ["--haplotype-definition", haplotypeDefinitionSetID]
         }
         return arguments
     }
@@ -652,6 +666,10 @@ final class WorkflowOperationExecutionService {
             urls.append(cliPayload.provenanceURL)
         }
         urls.append(request.workbookURL)
+        urls.append(request.currentWorkbookURL)
+        if request.haplotypeDefinitionSetID != nil {
+            urls.append(request.haplotypeAnalysisURL)
+        }
         urls.append(request.reportCSVURL)
         urls.append(request.sampleSummaryCSVURL)
         urls.append(request.statsJSONURL)
@@ -667,6 +685,12 @@ final class WorkflowOperationExecutionService {
         var urls: [URL] = []
         if let cliPayload {
             urls.append(cliPayload.workbookURL)
+            if let primaryWorkbookURL = cliPayload.primaryWorkbookURL {
+                urls.append(primaryWorkbookURL)
+            }
+            if let haplotypeAnalysisURL = cliPayload.haplotypeAnalysisURL {
+                urls.append(haplotypeAnalysisURL)
+            }
             urls.append(cliPayload.reportCSVURL)
             urls.append(cliPayload.sampleSummaryCSVURL)
             urls.append(cliPayload.statsJSONURL)
@@ -675,6 +699,10 @@ final class WorkflowOperationExecutionService {
             urls.append(cliPayload.provenanceURL)
         }
         urls.append(request.workbookURL)
+        urls.append(request.currentWorkbookURL)
+        if request.haplotypeDefinitionSetID != nil {
+            urls.append(request.haplotypeAnalysisURL)
+        }
         urls.append(request.reportCSVURL)
         urls.append(request.sampleSummaryCSVURL)
         urls.append(request.statsJSONURL)
@@ -1080,6 +1108,8 @@ private struct FullLengthONTMHCGenotypingCLIPayload: Decodable {
     let sampleSummaryCSVPath: String
     let statsJSONPath: String
     let workbookPath: String
+    let primaryWorkbookPath: String?
+    let haplotypeAnalysisPath: String?
     let unmatchedClustersFASTAPath: String
     let cdnaClustersFASTAPath: String
     let provenancePath: String
@@ -1091,6 +1121,8 @@ private struct FullLengthONTMHCGenotypingCLIPayload: Decodable {
     var sampleSummaryCSVURL: URL { URL(fileURLWithPath: sampleSummaryCSVPath).standardizedFileURL }
     var statsJSONURL: URL { URL(fileURLWithPath: statsJSONPath).standardizedFileURL }
     var workbookURL: URL { URL(fileURLWithPath: workbookPath).standardizedFileURL }
+    var primaryWorkbookURL: URL? { primaryWorkbookPath.map { URL(fileURLWithPath: $0).standardizedFileURL } }
+    var haplotypeAnalysisURL: URL? { haplotypeAnalysisPath.map { URL(fileURLWithPath: $0).standardizedFileURL } }
     var unmatchedClustersFASTAURL: URL { URL(fileURLWithPath: unmatchedClustersFASTAPath).standardizedFileURL }
     var cdnaClustersFASTAURL: URL { URL(fileURLWithPath: cdnaClustersFASTAPath).standardizedFileURL }
     var provenanceURL: URL { URL(fileURLWithPath: provenancePath).standardizedFileURL }

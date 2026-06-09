@@ -70,6 +70,7 @@ final class WorkflowOperationDialogState {
     var fullLengthReversePrimerURL: URL?
     var fullLengthMinimumLength: Int
     var fullLengthMaximumLength: Int
+    var fullLengthPBAAClusterSourceMode: FullLengthONTPBAAClusterSourceMode
     var selectedHaplotypeAssayID: String?
     var selectedHaplotypeSpeciesCode: String?
     var selectedHaplotypeDefinitionScope: HaplotypeDefinitionScope?
@@ -123,6 +124,7 @@ final class WorkflowOperationDialogState {
         )
         self.fullLengthMinimumLength = 2_000
         self.fullLengthMaximumLength = 4_000
+        self.fullLengthPBAAClusterSourceMode = .useCompatible
         self.selectedHaplotypeAssayID = Self.defaultHaplotypeAssayID()
         self.selectedHaplotypeSpeciesCode = nil
         self.selectedHaplotypeDefinitionScope = nil
@@ -389,7 +391,7 @@ final class WorkflowOperationDialogState {
         if selectedTool?.kind == .ontGenotyping, minSupport < 1 {
             return "Minimum read threshold must be at least 1."
         }
-        if selectedTool?.kind == .ontGenotyping,
+        if (selectedTool?.kind == .ontGenotyping || selectedTool?.kind == .fullLengthONTMHCGenotyping),
            haplotypeDropoutLocusPercent < 0 || haplotypeDropoutLocusPercent > 100 {
             return "Locus percent threshold must be between 0 and 100."
         }
@@ -451,6 +453,9 @@ final class WorkflowOperationDialogState {
             outputName = Self.defaultFullLengthONTMHCOutputName(for: selectedReadURLs)
             if selectedGuideURL == nil || !projectGuideCandidates.contains(selectedGuideURL!.standardizedFileURL) {
                 setGuide(projectGuideCandidates.first)
+            }
+            if selectedHaplotypeAssayID == nil {
+                selectedHaplotypeAssayID = Self.defaultHaplotypeAssayID()
             }
         } else if selectedTool?.kind == .twelveSAmpliconMatching {
             outputName = Self.defaultTwelveSOutputName(for: selectedReadURLs)
@@ -721,7 +726,17 @@ final class WorkflowOperationDialogState {
                 projectURL: projectURL,
                 threads: threads,
                 minimumLength: fullLengthMinimumLength,
-                maximumLength: fullLengthMaximumLength
+                maximumLength: fullLengthMaximumLength,
+                pbaaClusterSourceMode: fullLengthPBAAClusterSourceMode,
+                haplotypeDropoutSampleFraction: nil,
+                haplotypeDropoutLocusFraction: selectedHaplotypeDefinitionSetID == nil
+                    ? nil
+                    : Self.fraction(fromPercent: haplotypeDropoutLocusPercent),
+                haplotypeDropoutLocusFractionOverrides: [:],
+                haplotypeAssayID: selectedHaplotypeDefinitionSetID == nil ? nil : selectedHaplotypeAssayID,
+                haplotypeSpeciesCode: selectedHaplotypeDefinitionSetID == nil ? nil : selectedHaplotypeSpeciesCode,
+                haplotypeDefinitionScope: selectedHaplotypeDefinitionSetID == nil ? nil : selectedHaplotypeDefinitionScope,
+                haplotypeDefinitionSetID: selectedHaplotypeDefinitionSetID
             )
             return .fullLengthONTMHCGenotyping(request)
 

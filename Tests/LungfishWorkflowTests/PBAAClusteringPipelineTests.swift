@@ -3,6 +3,79 @@ import LungfishCore
 @testable import LungfishWorkflow
 
 final class PBAAClusteringPipelineTests: XCTestCase {
+    func testProcessRunnerUsesManagedNextflowWhenPATHDoesNotContainNextflow() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pbaa-managed-nextflow-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let managedBin = home
+            .appendingPathComponent(".lungfish", isDirectory: true)
+            .appendingPathComponent("conda", isDirectory: true)
+            .appendingPathComponent("envs", isDirectory: true)
+            .appendingPathComponent("nextflow", isDirectory: true)
+            .appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: managedBin, withIntermediateDirectories: true)
+        let managedNextflow = managedBin.appendingPathComponent("nextflow")
+        try """
+        #!/bin/bash
+        set -euo pipefail
+        params=""
+        while [[ $# -gt 0 ]]; do
+          case "$1" in
+            -params-file)
+              params="$2"
+              shift 2
+              ;;
+            *)
+              shift
+              ;;
+          esac
+        done
+        outdir="$(/usr/bin/sed -n 's/.*"outdir" : "\\([^"]*\\)".*/\\1/p' "$params" | /usr/bin/sed 's#\\\\/#/#g' | /usr/bin/head -n 1)"
+        prefix="$(/usr/bin/sed -n 's/.*"prefix" : "\\([^"]*\\)".*/\\1/p' "$params" | /usr/bin/sed 's#\\\\/#/#g' | /usr/bin/head -n 1)"
+        /bin/mkdir -p "$outdir"
+        /usr/bin/printf "%s\\n" "$PATH" > "$outdir/launch-path.txt"
+        /usr/bin/printf ">cluster1_ReadCount-4\\nACGT\\n" > "$outdir/${prefix}_passed_cluster_sequences.fasta"
+        /usr/bin/printf "managed nextflow\\n"
+        """.write(to: managedNextflow, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: managedNextflow.path
+        )
+
+        let reads = root.appendingPathComponent("reads.fastq")
+        let guide = root.appendingPathComponent("guide.fasta")
+        try "@r1\nACGT\n+\nIIII\n".write(to: reads, atomically: true, encoding: .utf8)
+        try ">g1|target\nACGT\n".write(to: guide, atomically: true, encoding: .utf8)
+        let request = try PBAAClusteringRunRequest(
+            inputFASTQURL: reads,
+            guideSourceURL: guide,
+            outputDirectory: root.appendingPathComponent("out", isDirectory: true),
+            outputName: "sample"
+        )
+
+        let originalPATH = ProcessInfo.processInfo.environment["PATH"]
+        setenv("PATH", "/usr/bin:/bin:/usr/sbin:/sbin", 1)
+        defer {
+            if let originalPATH {
+                setenv("PATH", originalPATH, 1)
+            } else {
+                unsetenv("PATH")
+            }
+        }
+
+        let runner = ProcessPBAANextflowRunner(homeDirectoryProvider: { home })
+        let result = try await PBAAClusteringPipeline(nextflowRunner: runner).run(request)
+
+        XCTAssertEqual(try String(contentsOf: result.passedConsensusFASTAURL, encoding: .utf8), ">cluster1_ReadCount-4\nACGT\n")
+        XCTAssertEqual(result.rawOutputDirectory.path, request.rawPBAAOutputDirectory.path)
+        let launchPath = try String(
+            contentsOf: result.rawOutputDirectory.appendingPathComponent("launch-path.txt"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(launchPath.components(separatedBy: ":").contains("/usr/local/bin"))
+    }
+
     func testPipelineImportsPassedFastaAsReferenceBundleAndWritesProvenance() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("pbaa-pipeline-\(UUID().uuidString)", isDirectory: true)

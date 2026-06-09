@@ -111,6 +111,7 @@ public struct InspectorView: View {
             // Show FASTQ metadata in Document tab when in FASTQ mode
             if viewModel.contentMode == .fastq {
                 FASTQMetadataSection(viewModel: viewModel.fastqMetadataSectionViewModel)
+                FASTQPBAAArtifactsSection(viewModel: viewModel.fastqPBAAArtifactsSectionViewModel)
             }
 
         case .selectedItem:

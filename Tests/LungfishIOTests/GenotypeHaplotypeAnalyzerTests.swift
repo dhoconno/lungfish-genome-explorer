@@ -2,6 +2,25 @@ import XCTest
 import LungfishIO
 
 final class GenotypeHaplotypeAnalyzerTests: XCTestCase {
+    func testCanonicalLocusNameNormalizesFullLengthMacaqueAlleles() {
+        XCTAssertEqual(
+            GenotypeHaplotypeLocusResolver.canonicalLocusName("Mamu-A1*004:01:01:01"),
+            "MHC-A"
+        )
+        XCTAssertEqual(
+            GenotypeHaplotypeLocusResolver.canonicalLocusName("Mamu-A4*14:03:01:01"),
+            "MHC-A"
+        )
+        XCTAssertEqual(
+            GenotypeHaplotypeLocusResolver.canonicalLocusName("Mamu-B02Ps*01:07:01:01"),
+            "MHC-B"
+        )
+        XCTAssertEqual(
+            GenotypeHaplotypeLocusResolver.canonicalLocusName("Mamu-AG3*02:06:02:01"),
+            "MHC-AG"
+        )
+    }
+
     func testMCMClassIIDPUsesLinkedDQToResolveM5M6Ambiguity() throws {
         let definition = GenotypeHaplotypeDefinitionSet(
             id: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques.test",

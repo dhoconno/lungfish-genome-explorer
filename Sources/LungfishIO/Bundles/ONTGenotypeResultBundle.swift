@@ -203,27 +203,10 @@ public struct ONTGenotypeCall: Codable, Equatable, Sendable {
         guard let token = locusToken?.trimmingCharacters(in: .whitespacesAndNewlines), !token.isEmpty else {
             return "Unknown"
         }
-        let uppercased = token.uppercased()
-        if uppercased == "AG" {
-            return "MHC-AG"
+        if let classIILocusGroup = Self.preciseClassIILocusGroup(from: token) {
+            return classIILocusGroup
         }
-        if uppercased == "A" || (uppercased.hasPrefix("A") && uppercased.dropFirst().allSatisfy(\.isNumber)) {
-            return "MHC-A"
-        }
-        if uppercased == "B" || (uppercased.hasPrefix("B") && uppercased.dropFirst().allSatisfy(\.isNumber)) {
-            return "MHC-B"
-        }
-        if uppercased.hasPrefix("DRB") || uppercased.hasPrefix("DQA") || uppercased.hasPrefix("DQB")
-            || uppercased.hasPrefix("DPA") || uppercased.hasPrefix("DPB") {
-            return "MHC-\(uppercased)"
-        }
-        if uppercased.hasPrefix("KIR") {
-            return "KIR-\(uppercased)"
-        }
-        if uppercased == "F" || uppercased == "G" {
-            return "MHC-\(uppercased)"
-        }
-        return "MHC-\(uppercased)"
+        return GenotypeHaplotypeLocusResolver.canonicalLocusName(token)
     }
 
     private static func genotypeParts(_ genotype: String) -> [String] {
@@ -287,6 +270,21 @@ public struct ONTGenotypeCall: Codable, Equatable, Sendable {
             "mafa", "mamu", "mane", "mafu", "mnem", "mfas", "mton", "mleu", "mthi",
             "macaque", "macaca",
         ].contains(normalized)
+    }
+
+    private static func preciseClassIILocusGroup(from token: String) -> String? {
+        let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        let speciesFree = trimmed.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
+            .last
+            .map(String.init) ?? trimmed
+        let uppercased = speciesFree.uppercased()
+        for prefix in ["DQA", "DQB", "DPA", "DPB"] where uppercased.hasPrefix(prefix) {
+            let suffix = uppercased.dropFirst(prefix.count)
+            guard suffix.first?.isNumber == true else { return nil }
+            let digits = suffix.prefix(while: \.isNumber)
+            return "MHC-\(prefix)\(digits)"
+        }
+        return nil
     }
 }
 

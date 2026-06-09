@@ -268,10 +268,10 @@ public enum GenotypeHaplotypeLocusResolver {
         if uppercased == "AG" || uppercased.hasPrefix("AG") {
             return "MHC-AG"
         }
-        if uppercased == "A" || (uppercased.hasPrefix("A") && uppercased.dropFirst().allSatisfy(\.isNumber)) {
+        if uppercased == "A" || alleleToken(uppercased, belongsTo: "A") {
             return "MHC-A"
         }
-        if uppercased == "B" || (uppercased.hasPrefix("B") && uppercased.dropFirst().allSatisfy(\.isNumber)) {
+        if uppercased == "B" || alleleToken(uppercased, belongsTo: "B") {
             return "MHC-B"
         }
         if uppercased.hasPrefix("DRB") {
@@ -287,6 +287,13 @@ public enum GenotypeHaplotypeLocusResolver {
             return "KIR-\(uppercased)"
         }
         return "MHC-\(uppercased)"
+    }
+
+    private static func alleleToken(_ token: String, belongsTo locus: Character) -> Bool {
+        guard token.first == locus else { return false }
+        let suffix = token.dropFirst()
+        guard let first = suffix.first else { return true }
+        return first.isNumber || first == "*"
     }
 
     public static func canonicalLocus(

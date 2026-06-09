@@ -132,6 +132,7 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(try testValue(after: "--threads", in: invocation.arguments), "8")
         XCTAssertEqual(invocation.workingDirectory, outputURL.standardizedFileURL)
         XCTAssertTrue(outputs.contains(request.workbookURL.standardizedFileURL))
+        XCTAssertTrue(outputs.contains(request.currentWorkbookURL.standardizedFileURL))
         XCTAssertTrue(outputs.contains(request.reportCSVURL.standardizedFileURL))
         XCTAssertTrue(outputs.contains(request.sampleSummaryCSVURL.standardizedFileURL))
         XCTAssertTrue(outputs.contains(request.statsJSONURL.standardizedFileURL))
@@ -143,6 +144,46 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(item.state, .completed)
         XCTAssertTrue(item.cliCommand?.contains("lungfish-cli fastq full-length-ont-mhc-genotype") == true)
         XCTAssertEqual(resultRefresher.invocations, [request.outputDirectory.standardizedFileURL])
+    }
+
+    func testFullLengthONTMHCGenotypingPassesPBAAClusterSourceModeToCLI() throws {
+        let temp = try temporaryDirectory()
+        let request = FullLengthONTMHCGenotypingRunRequest(
+            inputFASTQURLs: [temp.appendingPathComponent("NB13.lungfishfastq", isDirectory: true)],
+            referenceSourceURL: temp.appendingPathComponent("Mamu-class-I.lungfishmhcref", isDirectory: true),
+            guideSourceURL: temp.appendingPathComponent("guide.lungfishref", isDirectory: true),
+            outputDirectory: temp.appendingPathComponent("Analyses/nb13-full-length.lungfishgenotype", isDirectory: true),
+            outputName: "nb13-full-length",
+            pbaaClusterSourceMode: .requireExisting
+        )
+
+        let arguments = WorkflowOperationExecutionService().fullLengthONTMHCGenotypingArguments(for: request)
+
+        XCTAssertEqual(try testValue(after: "--pbaa-cluster-source", in: arguments), "require-existing")
+    }
+
+    func testFullLengthONTMHCGenotypingPassesHaplotypeArgumentsToCLI() throws {
+        let temp = try temporaryDirectory()
+        let request = FullLengthONTMHCGenotypingRunRequest(
+            inputFASTQURLs: [temp.appendingPathComponent("NB13.lungfishfastq", isDirectory: true)],
+            referenceSourceURL: temp.appendingPathComponent("Mamu-class-I.lungfishmhcref", isDirectory: true),
+            guideSourceURL: temp.appendingPathComponent("guide.lungfishref", isDirectory: true),
+            outputDirectory: temp.appendingPathComponent("Analyses/nb13-full-length.lungfishgenotype", isDirectory: true),
+            outputName: "nb13-full-length",
+            haplotypeDropoutLocusFraction: 0.12,
+            haplotypeAssayID: "MHC-full-length-ONT",
+            haplotypeSpeciesCode: "MAMU",
+            haplotypeDefinitionScope: .project,
+            haplotypeDefinitionSetID: "MHC-full-length-ONT.mamu"
+        )
+
+        let arguments = WorkflowOperationExecutionService().fullLengthONTMHCGenotypingArguments(for: request)
+
+        XCTAssertEqual(try testValue(after: "--haplotype-min-locus-percent", in: arguments), "12")
+        XCTAssertEqual(try testValue(after: "--haplotype-assay", in: arguments), "MHC-full-length-ONT")
+        XCTAssertEqual(try testValue(after: "--haplotype-species", in: arguments), "MAMU")
+        XCTAssertEqual(try testValue(after: "--haplotype-definition-scope", in: arguments), "project")
+        XCTAssertEqual(try testValue(after: "--haplotype-definition", in: arguments), "MHC-full-length-ONT.mamu")
     }
 
     func testONTGenotypingFailureReportsCLIExitStatusAndStderr() async throws {
@@ -816,6 +857,10 @@ private final class StubWorkflowOperationCLIProcessRunner: LocalWorkflowCLIProce
                 .standardizedFileURL
             let outputName = try value(after: "--output-name", in: arguments)
             let workbookURL = outputDirectory.appendingPathComponent("\(outputName).full-length-ont-mhc-genotypes.xlsx")
+            let currentWorkbookURL = outputDirectory
+                .appendingPathComponent("artifacts/workbooks", isDirectory: true)
+                .appendingPathComponent("current.xlsx")
+            let haplotypeAnalysisURL = outputDirectory.appendingPathComponent("\(outputName).haplotype-analysis.json")
             let reportCSVURL = outputDirectory.appendingPathComponent("\(outputName).full-length-ont-mhc-genotypes.csv")
             let sampleSummaryCSVURL = outputDirectory.appendingPathComponent("\(outputName).full-length-ont-mhc-samples.csv")
             let statsJSONURL = outputDirectory.appendingPathComponent("\(outputName).full-length-ont-mhc-stats.json")
@@ -823,6 +868,10 @@ private final class StubWorkflowOperationCLIProcessRunner: LocalWorkflowCLIProce
             let cdnaURL = outputDirectory.appendingPathComponent("cdna_clusters.fasta")
             let provenanceURL = outputDirectory.appendingPathComponent("full-length-ont-mhc-genotyping-provenance.json")
             try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(
+                at: currentWorkbookURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
             try "sample,genotype,passed_alignments,passed_unique_reads\n".write(
                 to: reportCSVURL,
                 atomically: true,
@@ -839,6 +888,18 @@ private final class StubWorkflowOperationCLIProcessRunner: LocalWorkflowCLIProce
                 encoding: .utf8
             )
             try Data("workbook".utf8).write(to: workbookURL)
+            try Data("current workbook".utf8).write(to: currentWorkbookURL)
+            let haplotypePayloadLine: String
+            if arguments.contains("--haplotype-definition") {
+                try #"{"assayID":"MHC-full-length-ONT","samples":[]}"#.write(
+                    to: haplotypeAnalysisURL,
+                    atomically: true,
+                    encoding: .utf8
+                )
+                haplotypePayloadLine = #"  "haplotypeAnalysisPath": "\#(haplotypeAnalysisURL.path)","# + "\n"
+            } else {
+                haplotypePayloadLine = #"  "haplotypeAnalysisPath": null,"# + "\n"
+            }
             try Data().write(to: unmatchedURL)
             try Data().write(to: cdnaURL)
             try #"{"workflowName":"lungfish fastq full-length-ont-mhc-genotype","exitStatus":0}"#.write(
@@ -854,7 +915,11 @@ private final class StubWorkflowOperationCLIProcessRunner: LocalWorkflowCLIProce
               "reportCSVPath": "\(reportCSVURL.path)",
               "sampleSummaryCSVPath": "\(sampleSummaryCSVURL.path)",
               "statsJSONPath": "\(statsJSONURL.path)",
-              "workbookPath": "\(workbookURL.path)",
+              "workbookPath": "\(currentWorkbookURL.path)",
+              "primaryWorkbookPath": "\(workbookURL.path)",
+            """
+            + haplotypePayloadLine
+            + """
               "unmatchedClustersFASTAPath": "\(unmatchedURL.path)",
               "cdnaClustersFASTAPath": "\(cdnaURL.path)",
               "provenancePath": "\(provenanceURL.path)"

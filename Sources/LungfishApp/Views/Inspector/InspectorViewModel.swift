@@ -133,6 +133,9 @@ public final class InspectorViewModel {
     /// View model for FASTQ sample metadata section (Document tab)
     let fastqMetadataSectionViewModel = FASTQMetadataSectionViewModel()
 
+    /// View model for saved FASTQ pbAA cluster artifacts.
+    let fastqPBAAArtifactsSectionViewModel = FASTQPBAAArtifactsSectionViewModel()
+
     /// View model for generic reproducibility provenance in the Inspector.
     let provenanceSectionViewModel = ProvenanceInspectorViewModel()
 

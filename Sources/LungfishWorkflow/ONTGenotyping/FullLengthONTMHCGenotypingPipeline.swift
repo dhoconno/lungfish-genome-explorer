@@ -2,6 +2,16 @@ import Foundation
 import LungfishCore
 import LungfishIO
 
+public enum FullLengthONTPBAAClusterSourceMode: String, Sendable, Codable, Equatable, CaseIterable {
+    case useCompatible = "use-compatible"
+    case requireExisting = "require-existing"
+    case rerunAll = "rerun-all"
+
+    public init?(cliValue: String) {
+        self.init(rawValue: cliValue)
+    }
+}
+
 public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable {
     public static let defaultPBAAExtraArgumentsText = "--min-cluster-read-count 3 --min-cluster-frequency 0.01"
 
@@ -23,6 +33,14 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
     public let cdnaThreshold: Int
     public let sampleJobs: Int?
     public let pbaaThreadsPerSample: Int?
+    public let pbaaClusterSourceMode: FullLengthONTPBAAClusterSourceMode
+    public let haplotypeDropoutSampleFraction: Double?
+    public let haplotypeDropoutLocusFraction: Double?
+    public let haplotypeDropoutLocusFractionOverrides: [String: Double]
+    public let haplotypeAssayID: String?
+    public let haplotypeSpeciesCode: String?
+    public let haplotypeDefinitionScope: HaplotypeDefinitionScope?
+    public let haplotypeDefinitionSetID: String?
 
     public init(
         inputFASTQURLs: [URL],
@@ -42,7 +60,15 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
         minUnmatchedReads: Int = 5,
         cdnaThreshold: Int = 2_000,
         sampleJobs: Int? = nil,
-        pbaaThreadsPerSample: Int? = nil
+        pbaaThreadsPerSample: Int? = nil,
+        pbaaClusterSourceMode: FullLengthONTPBAAClusterSourceMode = .useCompatible,
+        haplotypeDropoutSampleFraction: Double? = nil,
+        haplotypeDropoutLocusFraction: Double? = nil,
+        haplotypeDropoutLocusFractionOverrides: [String: Double] = [:],
+        haplotypeAssayID: String? = nil,
+        haplotypeSpeciesCode: String? = nil,
+        haplotypeDefinitionScope: HaplotypeDefinitionScope? = nil,
+        haplotypeDefinitionSetID: String? = nil
     ) {
         let normalizedOutputName = Self.sanitizedOutputName(outputName)
         self.inputFASTQURLs = inputFASTQURLs.map(\.standardizedFileURL)
@@ -63,6 +89,25 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
         self.cdnaThreshold = max(1, cdnaThreshold)
         self.sampleJobs = sampleJobs.map { max(1, $0) }
         self.pbaaThreadsPerSample = pbaaThreadsPerSample.map { max(1, $0) }
+        self.pbaaClusterSourceMode = pbaaClusterSourceMode
+        self.haplotypeDropoutSampleFraction = Self.normalizedFraction(haplotypeDropoutSampleFraction)
+        self.haplotypeDropoutLocusFraction = Self.normalizedFraction(haplotypeDropoutLocusFraction)
+        self.haplotypeDropoutLocusFractionOverrides = Self.normalizedFractionOverrides(
+            haplotypeDropoutLocusFractionOverrides
+        )
+        let trimmedHaplotypeAssayID = haplotypeAssayID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.haplotypeAssayID = trimmedHaplotypeAssayID?.isEmpty == true
+            ? nil
+            : trimmedHaplotypeAssayID
+        let trimmedHaplotypeSpeciesCode = haplotypeSpeciesCode?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.haplotypeSpeciesCode = trimmedHaplotypeSpeciesCode?.isEmpty == true
+            ? nil
+            : trimmedHaplotypeSpeciesCode
+        self.haplotypeDefinitionScope = haplotypeDefinitionScope
+        let trimmedHaplotypeDefinitionSetID = haplotypeDefinitionSetID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.haplotypeDefinitionSetID = trimmedHaplotypeDefinitionSetID?.isEmpty == true
+            ? nil
+            : trimmedHaplotypeDefinitionSetID
     }
 
     public var reportCSVURL: URL {
@@ -79,6 +124,16 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
 
     public var workbookURL: URL {
         outputDirectory.appendingPathComponent("\(outputName).full-length-ont-mhc-genotypes.xlsx")
+    }
+
+    public var currentWorkbookURL: URL {
+        outputDirectory
+            .appendingPathComponent("artifacts/workbooks", isDirectory: true)
+            .appendingPathComponent("current.xlsx")
+    }
+
+    public var haplotypeAnalysisURL: URL {
+        outputDirectory.appendingPathComponent("\(outputName).haplotype-analysis.json")
     }
 
     public var unmatchedClustersFASTAURL: URL {
@@ -114,7 +169,9 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
             "--pbaa-extra-args", pbaaExtraArgumentsText,
             "--min-unmatched-reads", String(minUnmatchedReads),
             "--cdna-threshold", String(cdnaThreshold),
+            "--pbaa-cluster-source", pbaaClusterSourceMode.rawValue,
         ]
+        appendHaplotypeThresholdArguments(to: &values)
         if let orientReferenceURL {
             values += ["--orient-reference", orientReferenceURL.path]
         }
@@ -133,7 +190,55 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
         if let pbaaThreadsPerSample {
             values += ["--pbaa-threads-per-sample", String(pbaaThreadsPerSample)]
         }
+        if let haplotypeDefinitionSetID {
+            if let haplotypeAssayID {
+                values += ["--haplotype-assay", haplotypeAssayID]
+            }
+            if let haplotypeSpeciesCode {
+                values += ["--haplotype-species", haplotypeSpeciesCode]
+            }
+            if let haplotypeDefinitionScope {
+                values += ["--haplotype-definition-scope", haplotypeDefinitionScope.rawValue]
+            }
+            values += ["--haplotype-definition", haplotypeDefinitionSetID]
+        }
         return values
+    }
+
+    public var haplotypeDropoutEvaluator: GenotypeDropoutEvaluator? {
+        guard haplotypeDropoutSampleFraction != nil
+                || haplotypeDropoutLocusFraction != nil
+                || !haplotypeDropoutLocusFractionOverrides.isEmpty else {
+            return nil
+        }
+        return GenotypeDropoutEvaluator(
+            absolute: 1,
+            sampleFraction: haplotypeDropoutSampleFraction,
+            locusFraction: haplotypeDropoutLocusFraction,
+            locusFractionOverrides: haplotypeDropoutLocusFractionOverrides
+        )
+    }
+
+    public func appendHaplotypeThresholdArguments(to values: inout [String]) {
+        if let haplotypeDropoutSampleFraction {
+            values += [
+                "--haplotype-min-sample-percent",
+                Self.percentArgument(forFraction: haplotypeDropoutSampleFraction),
+            ]
+        }
+        if let haplotypeDropoutLocusFraction {
+            values += [
+                "--haplotype-min-locus-percent",
+                Self.percentArgument(forFraction: haplotypeDropoutLocusFraction),
+            ]
+        }
+        for key in haplotypeDropoutLocusFractionOverrides.keys.sorted() {
+            guard let fraction = haplotypeDropoutLocusFractionOverrides[key] else { continue }
+            values += [
+                "--haplotype-min-locus-percent-override",
+                "\(key)=\(Self.percentArgument(forFraction: fraction))",
+            ]
+        }
     }
 
     public func replacingOutput(outputDirectory: URL, outputName: String) -> FullLengthONTMHCGenotypingRunRequest {
@@ -155,8 +260,36 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
             minUnmatchedReads: minUnmatchedReads,
             cdnaThreshold: cdnaThreshold,
             sampleJobs: sampleJobs,
-            pbaaThreadsPerSample: pbaaThreadsPerSample
+            pbaaThreadsPerSample: pbaaThreadsPerSample,
+            pbaaClusterSourceMode: pbaaClusterSourceMode,
+            haplotypeDropoutSampleFraction: haplotypeDropoutSampleFraction,
+            haplotypeDropoutLocusFraction: haplotypeDropoutLocusFraction,
+            haplotypeDropoutLocusFractionOverrides: haplotypeDropoutLocusFractionOverrides,
+            haplotypeAssayID: haplotypeAssayID,
+            haplotypeSpeciesCode: haplotypeSpeciesCode,
+            haplotypeDefinitionScope: haplotypeDefinitionScope,
+            haplotypeDefinitionSetID: haplotypeDefinitionSetID
         )
+    }
+
+    private static func normalizedFraction(_ value: Double?) -> Double? {
+        guard let value, value.isFinite, value > 0 else { return nil }
+        return min(value, 1.0)
+    }
+
+    private static func normalizedFractionOverrides(_ values: [String: Double]) -> [String: Double] {
+        var normalized: [String: Double] = [:]
+        for (key, value) in values {
+            let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  let fraction = normalizedFraction(value) else { continue }
+            normalized[trimmed] = fraction
+        }
+        return normalized
+    }
+
+    private static func percentArgument(forFraction fraction: Double) -> String {
+        String(format: "%g", fraction * 100.0)
     }
 
     private static func sanitizedOutputName(_ value: String) -> String {
@@ -177,6 +310,8 @@ public struct FullLengthONTMHCGenotypingResult: Sendable, Codable, Equatable {
     public let sampleSummaryCSVURL: URL
     public let statsJSONURL: URL
     public let workbookURL: URL
+    public let primaryWorkbookURL: URL
+    public let haplotypeAnalysisURL: URL?
     public let unmatchedClustersFASTAURL: URL
     public let cdnaClustersFASTAURL: URL
     public let provenanceURL: URL
@@ -189,6 +324,9 @@ public enum FullLengthONTMHCGenotypingError: Error, LocalizedError, Sendable, Eq
     case invalidReference(String)
     case invalidGuide(String)
     case invalidFASTQ(String)
+    case invalidHaplotypeDefinition(String)
+    case invalidHaplotypeDefinitionForAssay(definitionID: String, assayID: String)
+    case ambiguousHaplotypeDefinition(definitionID: String)
     case processFailed(tool: String, status: Int32, stderr: String)
     case reportFailed(String)
 
@@ -202,6 +340,12 @@ public enum FullLengthONTMHCGenotypingError: Error, LocalizedError, Sendable, Eq
             return "Could not resolve a guide FASTA from \(path)."
         case .invalidFASTQ(let path):
             return "Could not resolve a FASTQ payload from \(path)."
+        case .invalidHaplotypeDefinition(let id):
+            return "Could not find haplotype definition \(id)."
+        case .invalidHaplotypeDefinitionForAssay(let definitionID, let assayID):
+            return "Haplotype definition \(definitionID) is not registered for assay \(assayID)."
+        case .ambiguousHaplotypeDefinition(let definitionID):
+            return "Multiple haplotype definitions match \(definitionID); choose an assay, species, or scope."
         case .processFailed(let tool, let status, let stderr):
             let detail = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
             return detail.isEmpty
@@ -329,9 +473,19 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         let allGenotypeRows = orderedResults.flatMap(\.genotypeRows)
         let sampleCounts = Dictionary(uniqueKeysWithValues: orderedResults.map { ($0.sample, $0.readCount) })
         let sampleSummaries = orderedResults.map(\.sampleSummary)
-        let pipelineSteps = sampleResults
+        var pipelineSteps = sampleResults
             .flatMap(\.steps)
             .sorted { lhs, rhs in lhs.startedAt < rhs.startedAt }
+        let unmatchedClusterRows = orderedResults.flatMap { result in
+            result.unmatchedClusters.map { record in
+                FullLengthONTMHCUnmatchedClusterWorkbookRow(
+                    sample: result.sample,
+                    cluster: record.name,
+                    clusterReads: record.readCount,
+                    sequence: record.sequence
+                )
+            }
+        }
         for result in orderedResults {
             try append(records: result.unmatchedClusters, sample: result.sample, to: request.unmatchedClustersFASTAURL)
             try append(records: result.cdnaMatchedClusters, sample: result.sample, to: request.cdnaClustersFASTAURL)
@@ -353,9 +507,22 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             reportRows: reportRows,
             sampleSummaries: sampleSummaries,
             genotypeRows: allGenotypeRows,
+            unmatchedClusterRows: unmatchedClusterRows,
             to: request.workbookURL
         )
-        try writeManifest(request: request, createdAt: Date())
+        let haplotypeAnalysis = try writeHaplotypeAnalysisIfRequested(
+            request: request,
+            supportDirectory: request.outputDirectory.appendingPathComponent(".full-length-ont-mhc", isDirectory: true),
+            generatedAt: Date()
+        )
+        let workbookCopy = try createInitialCurrentWorkbookCopy(for: request)
+        pipelineSteps.append(workbookCopy.step)
+        let completedAt = Date()
+        try writeManifest(
+            request: request,
+            workbookRevision: workbookCopy.revision,
+            createdAt: completedAt
+        )
         try writeProvenance(
             request: request,
             referenceFASTAURL: referenceFASTAURL,
@@ -365,7 +532,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             processingOrder: orderedSamples,
             steps: pipelineSteps,
             startedAt: startedAt,
-            completedAt: Date()
+            completedAt: completedAt
         )
 
         progressHandler?(1.0, "Full-length ONT MHC genotyping complete.")
@@ -374,7 +541,9 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             reportCSVURL: request.reportCSVURL,
             sampleSummaryCSVURL: request.sampleSummaryCSVURL,
             statsJSONURL: request.statsJSONURL,
-            workbookURL: request.workbookURL,
+            workbookURL: request.currentWorkbookURL,
+            primaryWorkbookURL: request.workbookURL,
+            haplotypeAnalysisURL: haplotypeAnalysis == nil ? nil : request.haplotypeAnalysisURL,
             unmatchedClustersFASTAURL: request.unmatchedClustersFASTAURL,
             cdnaClustersFASTAURL: request.cdnaClustersFASTAURL,
             provenanceURL: request.provenanceURL,
@@ -512,28 +681,31 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             seed: request.pbaaSeed,
             extraArgumentsText: request.pbaaExtraArgumentsText
         )
-        let pbaaStartedAt = Date()
-        let pbaaResult = try await pbaaPipeline.run(pbaaRequest)
-        let pbaaCompletedAt = Date()
-        steps.append(FullLengthONTMHCProvenanceStep(
-            toolName: "pbaa",
-            toolVersion: pbaaRequest.containerPins.pbaa.toolVersion,
-            argv: [
-                "pbaa", "cluster",
-                "-j", String(pbaaRequest.threads),
-                "--seed", String(pbaaRequest.seed),
-            ] + pbaaRequest.extraArguments + ["guide.fasta", "reads.fastq", pbaaRequest.prefix],
-            inputs: [preparedFASTQ, guideFASTAURL],
-            outputs: [pbaaResult.rawOutputDirectory, pbaaResult.passedConsensusFASTAURL],
-            exitStatus: 0,
-            stderr: nil,
-            startedAt: pbaaStartedAt,
-            completedAt: pbaaCompletedAt
-        ))
+        let pbaaSignature = try FullLengthONTPBAAArtifactPlanner.signature(
+            inputURL: scheduled.inputURL,
+            preparedFASTQURL: preparedFASTQ,
+            guideFASTAURL: guideFASTAURL,
+            request: request,
+            pbaaRequest: pbaaRequest
+        )
+        let pbaaDecision = try FullLengthONTPBAAArtifactPlanner.decision(
+            inputURL: scheduled.inputURL,
+            signature: pbaaSignature,
+            mode: request.pbaaClusterSourceMode
+        )
+        let clustersFASTAURL = try await resolvePBAAClusters(
+            decision: pbaaDecision,
+            signature: pbaaSignature,
+            scheduled: scheduled,
+            preparedFASTQ: preparedFASTQ,
+            guideFASTAURL: guideFASTAURL,
+            pbaaRequest: pbaaRequest,
+            steps: &steps
+        )
 
         let genotyped = try await genotypeClusters(
             sample: scheduled.sample,
-            clustersFASTAURL: pbaaResult.passedConsensusFASTAURL,
+            clustersFASTAURL: clustersFASTAURL,
             referenceFASTAURL: referenceFASTAURL,
             sampleDirectory: scheduled.sampleDirectory,
             request: request,
@@ -541,7 +713,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             steps: &steps
         )
         let clusterRecords = try FullLengthONTMHCClusterGenotyper.readFASTARecords(
-            from: pbaaResult.passedConsensusFASTAURL
+            from: clustersFASTAURL
         )
         let sampleSummary = FullLengthONTMHCSampleSummary(
             sample: scheduled.sample,
@@ -563,6 +735,139 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             cdnaMatchedClusters: genotyped.cdnaMatchedClusters,
             steps: steps
         )
+    }
+
+    private func resolvePBAAClusters(
+        decision: FullLengthONTPBAAArtifactDecision,
+        signature: FASTQPBAAArtifactSignature,
+        scheduled: FullLengthONTMHCScheduledSample,
+        preparedFASTQ: URL,
+        guideFASTAURL: URL,
+        pbaaRequest: PBAAClusteringRunRequest,
+        steps: inout [FullLengthONTMHCProvenanceStep]
+    ) async throws -> URL {
+        switch decision {
+        case .reuse(let artifact):
+            let startedAt = Date()
+            let completedAt = Date()
+            steps.append(FullLengthONTMHCProvenanceStep(
+                toolName: "lungfish-pbaa-artifact-reuse",
+                toolVersion: FASTQPBAAArtifactManifest.schemaVersion,
+                argv: [
+                    "lungfish", "pbaa-artifact", "reuse",
+                    artifact.manifest.id,
+                    "--source", scheduled.inputURL.path,
+                    "--prepared-fastq", preparedFASTQ.path,
+                    "--guide", guideFASTAURL.path,
+                ],
+                inputs: [
+                    preparedFASTQ,
+                    guideFASTAURL,
+                    artifact.manifestURL,
+                    artifact.passedConsensusFASTAURL,
+                    artifact.provenanceURL,
+                ],
+                outputs: [],
+                exitStatus: 0,
+                stderr: nil,
+                startedAt: startedAt,
+                completedAt: completedAt
+            ))
+            return artifact.passedConsensusFASTAURL
+
+        case .runAndSave, .runWithoutSaving:
+            let pbaaResult = try await runPBAAClustering(
+                request: pbaaRequest,
+                preparedFASTQ: preparedFASTQ,
+                guideFASTAURL: guideFASTAURL,
+                steps: &steps
+            )
+            guard case .runAndSave = decision else {
+                return pbaaResult.passedConsensusFASTAURL
+            }
+            try savePBAAArtifact(
+                pbaaResult: pbaaResult,
+                signature: signature,
+                scheduled: scheduled,
+                steps: &steps
+            )
+            return pbaaResult.passedConsensusFASTAURL
+        }
+    }
+
+    private func runPBAAClustering(
+        request pbaaRequest: PBAAClusteringRunRequest,
+        preparedFASTQ: URL,
+        guideFASTAURL: URL,
+        steps: inout [FullLengthONTMHCProvenanceStep]
+    ) async throws -> PBAAClusteringResult {
+        let pbaaStartedAt = Date()
+        let pbaaResult = try await pbaaPipeline.run(pbaaRequest)
+        let pbaaCompletedAt = Date()
+        steps.append(FullLengthONTMHCProvenanceStep(
+            toolName: "pbaa",
+            toolVersion: pbaaRequest.containerPins.pbaa.toolVersion,
+            argv: [
+                "pbaa", "cluster",
+                "-j", String(pbaaRequest.threads),
+                "--seed", String(pbaaRequest.seed),
+            ] + pbaaRequest.extraArguments + ["guide.fasta", "reads.fastq", pbaaRequest.prefix],
+            inputs: [preparedFASTQ, guideFASTAURL],
+            outputs: [pbaaResult.rawOutputDirectory, pbaaResult.passedConsensusFASTAURL],
+            exitStatus: 0,
+            stderr: nil,
+            startedAt: pbaaStartedAt,
+            completedAt: pbaaCompletedAt
+        ))
+        return pbaaResult
+    }
+
+    private func savePBAAArtifact(
+        pbaaResult: PBAAClusteringResult,
+        signature: FASTQPBAAArtifactSignature,
+        scheduled: FullLengthONTMHCScheduledSample,
+        steps: inout [FullLengthONTMHCProvenanceStep]
+    ) throws {
+        let provenanceURL = pbaaResult.rawOutputDirectory
+            .appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let startedAt = Date()
+        let stored = try FASTQPBAAArtifactStore.saveArtifact(FASTQPBAAArtifactWriteRequest(
+            bundleURL: scheduled.inputURL,
+            displayName: "\(scheduled.sample) pbAA clusters",
+            sampleName: scheduled.sample,
+            signature: signature,
+            passedConsensusFASTAURL: pbaaResult.passedConsensusFASTAURL,
+            rawOutputDirectoryURL: nil,
+            provenanceURL: provenanceURL,
+            createdAt: startedAt
+        ))
+        let completedAt = Date()
+        let outputs = [
+            stored.artifactDirectoryURL,
+            stored.manifestURL,
+            stored.passedConsensusFASTAURL,
+            stored.provenanceURL,
+        ] + (stored.rawOutputDirectoryURL.map { [$0] } ?? [])
+        steps.append(FullLengthONTMHCProvenanceStep(
+            toolName: "lungfish-pbaa-artifact-store",
+            toolVersion: FASTQPBAAArtifactManifest.schemaVersion,
+            argv: [
+                "lungfish", "pbaa-artifact", "save",
+                "--source", scheduled.inputURL.path,
+                "--artifact-id", stored.manifest.id,
+                "--passed-clusters", pbaaResult.passedConsensusFASTAURL.path,
+                "--provenance", provenanceURL.path,
+            ],
+            inputs: [
+                pbaaResult.passedConsensusFASTAURL,
+                provenanceURL,
+            ],
+            outputs: outputs,
+            exitStatus: 0,
+            stderr: nil,
+            startedAt: startedAt,
+            completedAt: completedAt
+        ))
     }
 
     private func prepareReadsForPBAA(
@@ -880,70 +1185,33 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         reportRows: [FullLengthONTMHCReportRow],
         sampleSummaries: [FullLengthONTMHCSampleSummary],
         genotypeRows: [FullLengthONTMHCClusterGenotypeRow],
+        unmatchedClusterRows: [FullLengthONTMHCUnmatchedClusterWorkbookRow],
         to url: URL
     ) throws {
-        let temp = try ProjectTempDirectory.create(
-            prefix: "lungfish-full-length-mhc-xlsx-",
-            contextURL: url,
-            policy: .systemOnly
+        try FullLengthONTMHCXLSXPackageWriter.write(
+            sheets: [
+                .init(name: "Genotypes", rows: genotypeWorkbookRows(reportRows)),
+                .init(name: "Samples", rows: sampleWorkbookRows(sampleSummaries)),
+                .init(name: "Cluster Alignments", rows: clusterWorkbookRows(genotypeRows)),
+                .init(name: "Unmatched Clusters", rows: unmatchedClusterWorkbookRows(unmatchedClusterRows)),
+            ],
+            to: url
         )
-        defer { try? FileManager.default.removeItem(at: temp) }
-        let rels = temp.appendingPathComponent("_rels", isDirectory: true)
-        let xl = temp.appendingPathComponent("xl", isDirectory: true)
-        let xlRels = xl.appendingPathComponent("_rels", isDirectory: true)
-        let worksheets = xl.appendingPathComponent("worksheets", isDirectory: true)
-        for directory in [rels, xlRels, worksheets] {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        }
-        try contentTypesXML(sheetCount: 3).write(
-            to: temp.appendingPathComponent("[Content_Types].xml"),
-            atomically: true,
-            encoding: .utf8
-        )
-        try rootRelsXML.write(to: rels.appendingPathComponent(".rels"), atomically: true, encoding: .utf8)
-        try workbookXML(sheetNames: ["Genotypes", "Samples", "Clusters"]).write(
-            to: xl.appendingPathComponent("workbook.xml"),
-            atomically: true,
-            encoding: .utf8
-        )
-        try workbookRelsXML(sheetCount: 3).write(
-            to: xlRels.appendingPathComponent("workbook.xml.rels"),
-            atomically: true,
-            encoding: .utf8
-        )
-        try worksheetXML(rows: genotypeWorkbookRows(reportRows)).write(
-            to: worksheets.appendingPathComponent("sheet1.xml"),
-            atomically: true,
-            encoding: .utf8
-        )
-        try worksheetXML(rows: sampleWorkbookRows(sampleSummaries)).write(
-            to: worksheets.appendingPathComponent("sheet2.xml"),
-            atomically: true,
-            encoding: .utf8
-        )
-        try worksheetXML(rows: clusterWorkbookRows(genotypeRows)).write(
-            to: worksheets.appendingPathComponent("sheet3.xml"),
-            atomically: true,
-            encoding: .utf8
-        )
-        if FileManager.default.fileExists(atPath: url.path) {
-            try FileManager.default.removeItem(at: url)
-        }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
-        process.arguments = ["-qr", url.path, "."]
-        process.currentDirectoryURL = temp
-        try process.run()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            throw FullLengthONTMHCGenotypingError.reportFailed("zip exited with \(process.terminationStatus)")
-        }
     }
 
-    private func writeManifest(
+    private func writeHaplotypeAnalysisIfRequested(
         request: FullLengthONTMHCGenotypingRunRequest,
-        createdAt: Date
-    ) throws {
+        supportDirectory: URL,
+        generatedAt: Date
+    ) throws -> GenotypeHaplotypeAnalysis? {
+        guard let definitionSetID = request.haplotypeDefinitionSetID else {
+            return nil
+        }
+        guard let definitionSet = try resolveHaplotypeDefinitionSet(for: request) else {
+            throw FullLengthONTMHCGenotypingError.invalidHaplotypeDefinition(definitionSetID)
+        }
+        try writeHaplotypeDefinitionSnapshot(definitionSet, supportDirectory: supportDirectory)
+
         let manifest = ONTGenotypeResultBundleManifest(
             kind: "full-length-ont-mhc-genotype",
             outputName: request.outputName,
@@ -953,6 +1221,184 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             sampleSummaryCSVPath: relativePath(from: request.outputDirectory, to: request.sampleSummaryCSVURL),
             statsJSONPath: relativePath(from: request.outputDirectory, to: request.statsJSONURL),
             provenancePath: relativePath(from: request.outputDirectory, to: request.provenanceURL),
+            haplotypeDefinitionSetID: definitionSetID,
+            haplotypeAssayID: definitionSet.assayID
+        )
+        let result = try ONTGenotypeResultBundle.loadResult(from: request.outputDirectory, manifest: manifest)
+        let analysis = GenotypeHaplotypeAnalyzer.analyze(
+            calls: result.calls,
+            definitionSet: definitionSet,
+            generatedAt: ISO8601DateFormatter().string(from: generatedAt),
+            dropoutFilter: request.haplotypeDropoutEvaluator
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(analysis).write(to: request.haplotypeAnalysisURL, options: .atomic)
+        return analysis
+    }
+
+    private func resolveHaplotypeDefinitionSet(
+        for request: FullLengthONTMHCGenotypingRunRequest
+    ) throws -> GenotypeHaplotypeDefinitionSet? {
+        guard let definitionSetID = request.haplotypeDefinitionSetID else {
+            return nil
+        }
+        if let bundledDefinition = try bundledHaplotypeDefinitionSet(
+            for: request,
+            definitionSetID: definitionSetID
+        ) {
+            return bundledDefinition
+        }
+        if request.haplotypeSpeciesCode != nil || request.haplotypeDefinitionScope != nil {
+            let matchingRecords = haplotypeDefinitionLibrary(for: request)
+                .activeRecords(
+                    assayID: request.haplotypeAssayID,
+                    speciesCode: request.haplotypeSpeciesCode,
+                    scope: request.haplotypeDefinitionScope
+                )
+                .filter { $0.definitionSet.id == definitionSetID }
+            if matchingRecords.count == 1 {
+                return matchingRecords[0].definitionSet
+            }
+            if matchingRecords.isEmpty {
+                throw FullLengthONTMHCGenotypingError.invalidHaplotypeDefinition(definitionSetID)
+            }
+            throw FullLengthONTMHCGenotypingError.ambiguousHaplotypeDefinition(definitionID: definitionSetID)
+        }
+        let registry = haplotypeDefinitionRegistry(for: request)
+        if let assayID = request.haplotypeAssayID {
+            guard registry.assay(id: assayID) != nil else {
+                throw FullLengthONTMHCGenotypingError.invalidHaplotypeDefinitionForAssay(
+                    definitionID: definitionSetID,
+                    assayID: assayID
+                )
+            }
+            guard let definitionSet = registry.definitionSet(id: definitionSetID, assayID: assayID) else {
+                if registry.definitionSet(id: definitionSetID) == nil {
+                    throw FullLengthONTMHCGenotypingError.invalidHaplotypeDefinition(definitionSetID)
+                }
+                throw FullLengthONTMHCGenotypingError.invalidHaplotypeDefinitionForAssay(
+                    definitionID: definitionSetID,
+                    assayID: assayID
+                )
+            }
+            return definitionSet
+        }
+
+        let matchingSets = registry.definitionSets(id: definitionSetID)
+        if matchingSets.count == 1 {
+            return matchingSets[0]
+        }
+        if matchingSets.isEmpty {
+            throw FullLengthONTMHCGenotypingError.invalidHaplotypeDefinition(definitionSetID)
+        }
+        throw FullLengthONTMHCGenotypingError.ambiguousHaplotypeDefinition(definitionID: definitionSetID)
+    }
+
+    private func bundledHaplotypeDefinitionSet(
+        for request: FullLengthONTMHCGenotypingRunRequest,
+        definitionSetID: String
+    ) throws -> GenotypeHaplotypeDefinitionSet? {
+        guard MHCAmpliconReferenceBundle.isBundleURL(request.referenceSourceURL) else {
+            return nil
+        }
+        return try MHCAmpliconReferenceBundle.haplotypeDefinition(
+            id: definitionSetID,
+            assayID: request.haplotypeAssayID,
+            speciesCode: request.haplotypeSpeciesCode,
+            in: request.referenceSourceURL
+        )
+    }
+
+    private func haplotypeDefinitionRegistry(
+        for request: FullLengthONTMHCGenotypingRunRequest
+    ) -> GenotypeHaplotypeDefinitionRegistry {
+        haplotypeDefinitionLibrary(for: request).mergedRegistry()
+    }
+
+    private func haplotypeDefinitionLibrary(
+        for request: FullLengthONTMHCGenotypingRunRequest
+    ) -> HaplotypeDefinitionLibrary {
+        HaplotypeDefinitionLibrary(projectRoot: request.projectURL)
+    }
+
+    @discardableResult
+    private func writeHaplotypeDefinitionSnapshot(
+        _ definitionSet: GenotypeHaplotypeDefinitionSet,
+        supportDirectory: URL
+    ) throws -> URL {
+        let inputsDirectory = supportDirectory.appendingPathComponent("inputs", isDirectory: true)
+        try FileManager.default.createDirectory(at: inputsDirectory, withIntermediateDirectories: true)
+        let url = inputsDirectory.appendingPathComponent("haplotype-definition.json")
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(definitionSet).write(to: url, options: .atomic)
+        return url
+    }
+
+    private func createInitialCurrentWorkbookCopy(
+        for request: FullLengthONTMHCGenotypingRunRequest
+    ) throws -> FullLengthONTMHCWorkbookCopyResult {
+        let startedAt = Date()
+        let destinationURL = request.currentWorkbookURL
+        try FileManager.default.createDirectory(
+            at: destinationURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        if FileManager.default.fileExists(atPath: destinationURL.path) {
+            try FileManager.default.removeItem(at: destinationURL)
+        }
+        try FileManager.default.copyItem(at: request.workbookURL, to: destinationURL)
+        let completedAt = Date()
+        let revision = ONTGenotypeWorkbookRevision(
+            id: "initial-current-copy",
+            role: .initialCurrentCopy,
+            path: relativePath(from: request.outputDirectory, to: destinationURL),
+            label: "Initial editable workbook",
+            sourceFilename: request.workbookURL.lastPathComponent,
+            createdAt: ISO8601DateFormatter().string(from: completedAt),
+            user: NSUserName(),
+            predecessorPath: relativePath(from: request.outputDirectory, to: request.workbookURL),
+            sha256: try ProvenanceFileHasher.sha256(of: destinationURL),
+            sizeBytes: Int64(try ProvenanceFileHasher.fileSize(of: destinationURL)),
+            provenancePath: nil
+        )
+        let step = FullLengthONTMHCProvenanceStep(
+            toolName: "lungfish genotype workbook initial-current-copy",
+            toolVersion: WorkflowRun.currentAppVersion,
+            argv: request.argv + ["--create-current-workbook", destinationURL.path],
+            inputs: [request.workbookURL],
+            outputs: [destinationURL],
+            exitStatus: 0,
+            stderr: nil,
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+        return FullLengthONTMHCWorkbookCopyResult(revision: revision, step: step)
+    }
+
+    private func writeManifest(
+        request: FullLengthONTMHCGenotypingRunRequest,
+        workbookRevision: ONTGenotypeWorkbookRevision,
+        createdAt: Date
+    ) throws {
+        let resolvedHaplotypeDefinitionSet = try resolveHaplotypeDefinitionSet(for: request)
+        let manifest = ONTGenotypeResultBundleManifest(
+            kind: "full-length-ont-mhc-genotype",
+            outputName: request.outputName,
+            analysisName: request.outputName,
+            primaryWorkbookPath: relativePath(from: request.outputDirectory, to: request.workbookURL),
+            currentWorkbookPath: relativePath(from: request.outputDirectory, to: request.currentWorkbookURL),
+            workbookRevisions: [workbookRevision],
+            longSummaryCSVPath: relativePath(from: request.outputDirectory, to: request.reportCSVURL),
+            sampleSummaryCSVPath: relativePath(from: request.outputDirectory, to: request.sampleSummaryCSVURL),
+            statsJSONPath: relativePath(from: request.outputDirectory, to: request.statsJSONURL),
+            provenancePath: relativePath(from: request.outputDirectory, to: request.provenanceURL),
+            haplotypeAnalysisPath: request.haplotypeDefinitionSetID == nil
+                ? nil
+                : relativePath(from: request.outputDirectory, to: request.haplotypeAnalysisURL),
+            haplotypeDefinitionSetID: request.haplotypeDefinitionSetID,
+            haplotypeAssayID: resolvedHaplotypeDefinitionSet?.assayID,
             createdAt: ISO8601DateFormatter().string(from: createdAt)
         )
         try ONTGenotypeResultBundle.writeManifest(manifest, to: request.outputDirectory)
@@ -979,6 +1425,11 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             "cdnaThreshold": .integer(2_000),
             "sampleJobs": .string("auto"),
             "pbaaThreadsPerSample": .string("auto"),
+            "pbaaClusterSourceMode": .string(FullLengthONTPBAAClusterSourceMode.useCompatible.rawValue),
+            "haplotypeDropoutSampleFraction": .string("disabled"),
+            "haplotypeDropoutLocusFraction": .string("disabled"),
+            "haplotypeDropoutLocusFractionOverrides": .dictionary([:]),
+            "haplotypeDefinition": .string("disabled"),
         ]
         let resolved: [String: ParameterValue] = [
             "threads": .integer(request.threads),
@@ -991,6 +1442,16 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             "sampleJobs": .integer(executionPlan.sampleJobs),
             "pbaaThreadsPerSample": .integer(executionPlan.pbaaThreadsPerSample),
             "workerThreadsPerSample": .integer(executionPlan.workerThreadsPerSample),
+            "pbaaClusterSourceMode": .string(request.pbaaClusterSourceMode.rawValue),
+            "haplotypeDropoutSampleFraction": request.haplotypeDropoutSampleFraction
+                .map(ParameterValue.number) ?? .string("disabled"),
+            "haplotypeDropoutLocusFraction": request.haplotypeDropoutLocusFraction
+                .map(ParameterValue.number) ?? .string("disabled"),
+            "haplotypeDropoutLocusFractionOverrides": .dictionary(
+                request.haplotypeDropoutLocusFractionOverrides.mapValues(ParameterValue.number)
+            ),
+            "haplotypeDefinition": request.haplotypeDefinitionSetID
+                .map(ParameterValue.string) ?? .string("disabled"),
         ]
         var explicit = resolved
         explicit["requestedSampleJobs"] = request.sampleJobs.map(ParameterValue.integer) ?? .string("auto")
@@ -1002,10 +1463,23 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         explicit["resolvedGuideFASTA"] = .file(guideFASTAURL)
         explicit["outputDirectory"] = .file(request.outputDirectory)
         explicit["outputName"] = .string(request.outputName)
+        explicit["currentWorkbook"] = .file(request.currentWorkbookURL)
         explicit["sampleReadCounts"] = .dictionary(Dictionary(uniqueKeysWithValues: stagedSamples.map {
             ($0.sample, ParameterValue.integer($0.readCount))
         }))
         explicit["sampleProcessingOrder"] = .array(processingOrder.map { .string($0.sample) })
+        if let haplotypeAssayID = request.haplotypeAssayID {
+            explicit["haplotypeAssay"] = .string(haplotypeAssayID)
+        }
+        if let haplotypeSpeciesCode = request.haplotypeSpeciesCode {
+            explicit["haplotypeSpecies"] = .string(haplotypeSpeciesCode)
+        }
+        if let haplotypeDefinitionScope = request.haplotypeDefinitionScope {
+            explicit["haplotypeDefinitionScope"] = .string(haplotypeDefinitionScope.rawValue)
+        }
+        if request.haplotypeDefinitionSetID != nil {
+            explicit["haplotypeAnalysis"] = .file(request.haplotypeAnalysisURL)
+        }
         if let orientReferenceURL = request.orientReferenceURL {
             explicit["orientReference"] = .file(orientReferenceURL)
         }
@@ -1036,9 +1510,14 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         .output(request.sampleSummaryCSVURL, format: .text, role: .report)
         .output(request.statsJSONURL, format: .json, role: .report)
         .output(request.workbookURL, format: .unknown, role: .report)
+        .output(request.currentWorkbookURL, format: .unknown, role: .report)
         .output(request.manifestURL, format: .json, role: .output)
         .output(request.unmatchedClustersFASTAURL, format: .fasta, role: .output)
         .output(request.cdnaClustersFASTAURL, format: .fasta, role: .output)
+
+        if request.haplotypeDefinitionSetID != nil {
+            builder = try builder.output(request.haplotypeAnalysisURL, format: .json, role: .report)
+        }
 
         for input in request.inputFASTQURLs where !isDirectory(input) {
             builder = try builder.input(input, format: .fastq, role: .input)
@@ -1135,9 +1614,31 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
     }
 
     private func genotypeWorkbookRows(_ rows: [FullLengthONTMHCReportRow]) -> [[String]] {
-        var result = [["sample", "genotype", "passed_alignments", "passed_unique_reads"]]
+        var result = [[
+            "sample",
+            "genotype",
+            "passed_alignments",
+            "passed_unique_reads",
+            "sample_total_reads",
+            "sample_unique_retained_reads",
+            "sample_unique_retained_percent",
+            "overall_input_reads",
+            "overall_unique_retained_reads",
+            "overall_unique_retained_percent",
+        ]]
         result += rows.map {
-            [$0.sample, $0.genotype, String($0.passedAlignments), String($0.passedUniqueReads)]
+            [
+                $0.sample,
+                $0.genotype,
+                String($0.passedAlignments),
+                String($0.passedUniqueReads),
+                optionalString($0.sampleTotalReads),
+                String($0.sampleUniqueRetainedReads),
+                optionalString($0.sampleUniqueRetainedPercent),
+                String($0.overallInputReads),
+                String($0.overallUniqueRetainedReads),
+                optionalString($0.overallUniqueRetainedPercent),
+            ]
         }
         return result
     }
@@ -1173,6 +1674,31 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         }
         return result
     }
+
+    private func unmatchedClusterWorkbookRows(_ rows: [FullLengthONTMHCUnmatchedClusterWorkbookRow]) -> [[String]] {
+        var result = [["sample", "cluster", "cluster_reads", "sequence"]]
+        result += rows.map {
+            [
+                $0.sample,
+                $0.cluster,
+                String($0.clusterReads),
+                $0.sequence,
+            ]
+        }
+        return result
+    }
+}
+
+private struct FullLengthONTMHCWorkbookCopyResult: Sendable {
+    let revision: ONTGenotypeWorkbookRevision
+    let step: FullLengthONTMHCProvenanceStep
+}
+
+private struct FullLengthONTMHCUnmatchedClusterWorkbookRow: Sendable, Equatable {
+    let sample: String
+    let cluster: String
+    let clusterReads: Int
+    let sequence: String
 }
 
 private struct FullLengthONTMHCSampleSummary: Sendable, Codable, Equatable {
@@ -1219,14 +1745,10 @@ private struct FullLengthONTMHCProvenanceStep: Sendable {
             toolVersion: toolVersion,
             argv: argv,
             inputs: inputs.map {
-                try ProvenanceFileDescriptor.file(
-                    url: $0,
-                    format: SequenceFormat.from(url: $0) == .fasta ? .fasta : .fastq,
-                    role: .input
-                )
+                try fileDescriptor(url: $0, format: fileFormat(for: $0), role: .input)
             },
             outputs: outputs.map {
-                try fileDescriptor(url: $0, format: outputFormat(for: $0), role: .output)
+                try fileDescriptor(url: $0, format: fileFormat(for: $0), role: .output)
             },
             exitStatus: Int(exitStatus),
             wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
@@ -1236,7 +1758,7 @@ private struct FullLengthONTMHCProvenanceStep: Sendable {
         )
     }
 
-    private func outputFormat(for url: URL) -> FileFormat {
+    private func fileFormat(for url: URL) -> FileFormat {
         if SequenceFormat.from(url: url) == .fasta {
             return .fasta
         }
@@ -1266,6 +1788,67 @@ private struct FullLengthONTMHCProvenanceStep: Sendable {
 private func isDirectory(_ url: URL) -> Bool {
     var isDirectory: ObjCBool = false
     return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
+}
+
+enum FullLengthONTMHCXLSXPackageWriter {
+    struct Sheet: Sendable, Equatable {
+        let name: String
+        let rows: [[String]]
+
+        init(name: String, rows: [[String]]) {
+            self.name = name
+            self.rows = rows
+        }
+    }
+
+    static func write(sheets: [Sheet], to url: URL) throws {
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lungfish-full-length-mhc-xlsx-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let rels = temp.appendingPathComponent("_rels", isDirectory: true)
+        let xl = temp.appendingPathComponent("xl", isDirectory: true)
+        let xlRels = xl.appendingPathComponent("_rels", isDirectory: true)
+        let worksheets = xl.appendingPathComponent("worksheets", isDirectory: true)
+        for directory in [rels, xlRels, worksheets] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        try contentTypesXML(sheetCount: sheets.count).write(
+            to: temp.appendingPathComponent("[Content_Types].xml"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try rootRelsXML.write(to: rels.appendingPathComponent(".rels"), atomically: true, encoding: .utf8)
+        try workbookXML(sheetNames: sheets.map(\.name)).write(
+            to: xl.appendingPathComponent("workbook.xml"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try workbookRelsXML(sheetCount: sheets.count).write(
+            to: xlRels.appendingPathComponent("workbook.xml.rels"),
+            atomically: true,
+            encoding: .utf8
+        )
+        for (index, sheet) in sheets.enumerated() {
+            try worksheetXML(rows: sheet.rows).write(
+                to: worksheets.appendingPathComponent("sheet\(index + 1).xml"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+        if FileManager.default.fileExists(atPath: url.path) {
+            try FileManager.default.removeItem(at: url)
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
+        process.arguments = ["-X", "-q", "-r", url.path, "[Content_Types].xml", "_rels", "xl"]
+        process.currentDirectoryURL = temp
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw FullLengthONTMHCGenotypingError.reportFailed("zip exited with \(process.terminationStatus)")
+        }
+    }
 }
 
 private let rootRelsXML = """
@@ -1317,6 +1900,9 @@ private func workbookRelsXML(sheetCount: Int) -> String {
 }
 
 private func worksheetXML(rows: [[String]]) -> String {
+    let rowCount = max(rows.count, 1)
+    let columnCount = max(rows.map(\.count).max() ?? 1, 1)
+    let dimension = "A1:\(xlsxColumn(columnCount))\(rowCount)"
     let body = rows.enumerated().map { rowIndex, row in
         let cells = row.enumerated().map { columnIndex, value in
             let ref = "\(xlsxColumn(columnIndex + 1))\(rowIndex + 1)"
@@ -1327,6 +1913,7 @@ private func worksheetXML(rows: [[String]]) -> String {
     return """
     <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
     <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+      <dimension ref="\(dimension)"/>
       <sheetData>
     \(body)
       </sheetData>

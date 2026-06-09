@@ -286,6 +286,17 @@ private struct WorkflowOperationsDetailPane: View {
                     labeledCompactTextField("Min Length", value: $state.fullLengthMinimumLength)
                     labeledCompactTextField("Max Length", value: $state.fullLengthMaximumLength)
                 }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Call Thresholds")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    labeledCompactDoubleTextField("Locus %", value: $state.haplotypeDropoutLocusPercent)
+                    Text("Used for haplotype calls and Excel output. Inspector filters only change what is shown.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                haplotypeDefinitionPicker
+                pbaaClusterSourcePicker
             }
         case .twelveSAmpliconMatching:
             VStack(alignment: .leading, spacing: 10) {
@@ -303,6 +314,22 @@ private struct WorkflowOperationsDetailPane: View {
             }
         case .none:
             Text("No runnable workflow selected.")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var pbaaClusterSourcePicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("pbAA Clusters")
+                .font(.subheadline.weight(.medium))
+            Picker("pbAA Clusters", selection: pbaaClusterSourceBinding) {
+                ForEach(FullLengthONTPBAAClusterSourceMode.allCases, id: \.rawValue) { mode in
+                    Text(mode.workflowDialogDisplayName).tag(mode.rawValue)
+                }
+            }
+            .pickerStyle(.segmented)
+            Text(state.fullLengthPBAAClusterSourceMode.workflowDialogSummary)
+                .font(.caption)
                 .foregroundStyle(.secondary)
         }
     }
@@ -480,6 +507,17 @@ private struct WorkflowOperationsDetailPane: View {
         Binding(
             get: { state.selectedReferenceURL },
             set: { state.setReference($0) }
+        )
+    }
+
+    private var pbaaClusterSourceBinding: Binding<String> {
+        Binding(
+            get: { state.fullLengthPBAAClusterSourceMode.rawValue },
+            set: { value in
+                if let mode = FullLengthONTPBAAClusterSourceMode(cliValue: value) {
+                    state.fullLengthPBAAClusterSourceMode = mode
+                }
+            }
         )
     }
 
@@ -1029,5 +1067,29 @@ private struct TwelveSReferenceBundleBuilderSheet: View {
             }
         }
         return contentTypes
+    }
+}
+
+private extension FullLengthONTPBAAClusterSourceMode {
+    var workflowDialogDisplayName: String {
+        switch self {
+        case .useCompatible:
+            return "Use Compatible"
+        case .requireExisting:
+            return "Require Existing"
+        case .rerunAll:
+            return "Rerun All"
+        }
+    }
+
+    var workflowDialogSummary: String {
+        switch self {
+        case .useCompatible:
+            return "Reuse saved clusters when provenance and checksums match; run pbAA for missing samples."
+        case .requireExisting:
+            return "Use only compatible saved clusters carried by each FASTQ bundle."
+        case .rerunAll:
+            return "Ignore saved clusters and save new pbAA artifacts into FASTQ bundles."
+        }
     }
 }

@@ -1,5 +1,6 @@
 import ArgumentParser
 import Foundation
+import LungfishIO
 import LungfishWorkflow
 
 struct FastqFullLengthONTMHCGenotypingSubcommand: AsyncParsableCommand {
@@ -35,14 +36,20 @@ struct FastqFullLengthONTMHCGenotypingSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("project"), help: "Optional Lungfish project root for provenance context")
     var project: String?
 
-    @Option(name: .customLong("threads"), help: "Worker threads for vsearch, minimap2, and pbAA")
-    var threads: Int = max(1, ProcessInfo.processInfo.activeProcessorCount)
+    @OptionGroup var globalOptions: GlobalOptions
+
+    var threads: Int {
+        max(1, globalOptions.threads ?? ProcessInfo.processInfo.activeProcessorCount)
+    }
 
     @Option(name: .customLong("sample-jobs"), help: "Concurrent sample workflows. Defaults to an automatic sample-level parallel strategy.")
     var sampleJobs: Int?
 
     @Option(name: .customLong("pbaa-threads-per-sample"), help: "pbAA threads per concurrently processed sample. Defaults to all threads for one sample and one thread per sample for batches.")
     var pbaaThreadsPerSample: Int?
+
+    @Option(name: .customLong("pbaa-cluster-source"), help: "pbAA cluster source: use-compatible, require-existing, or rerun-all")
+    var pbaaClusterSource: FullLengthONTPBAAClusterSourceMode = .useCompatible
 
     @Option(name: .customLong("min-length"), help: "Minimum post-primer read length retained for pbAA")
     var minLength: Int = 2_000
@@ -62,13 +69,57 @@ struct FastqFullLengthONTMHCGenotypingSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("cdna-threshold"), help: "Alleles shorter than this length are treated as cDNA references")
     var cdnaThreshold: Int = 2_000
 
+    @Option(name: .customLong("haplotype-min-sample-percent"), help: "Drop genotype rows below this percent of retained genotyping reads for the sample; 0 disables")
+    var haplotypeMinSamplePercent: Double = 0
+
+    @Option(name: .customLong("haplotype-min-locus-percent"), help: "Drop genotype rows below this percent of retained genotyping reads for the sample/locus; 0 disables")
+    var haplotypeMinLocusPercent: Double = 0
+
+    @Option(name: .customLong("haplotype-min-locus-percent-override"), parsing: .upToNextOption, help: "Per-locus percent override such as MHC-A=10; may be repeated")
+    var haplotypeMinLocusPercentOverrides: [String] = []
+
+    @Option(name: .customLong("haplotype-assay"), help: "Assay/amplicon set for haplotyping; disambiguates --haplotype-definition")
+    var haplotypeAssay: String?
+
+    @Option(name: .customLong("haplotype-species"), help: "Species code used to restrict compatible haplotype definitions, such as MCM or MAMU")
+    var haplotypeSpecies: String?
+
+    @Option(name: .customLong("haplotype-definition-scope"), help: "Haplotype definition scope: project")
+    var haplotypeDefinitionScope: String?
+
+    @Option(name: .customLong("haplotype-definition"), help: "Optional assay-scoped haplotype definition set ID; omit to skip haplotyping")
+    var haplotypeDefinition: String?
+
     func run() async throws {
         guard !inputs.isEmpty else {
             throw ValidationError("At least one FASTQ input is required.")
         }
+        guard globalOptions.threads.map({ $0 > 0 }) ?? true else {
+            throw ValidationError("--threads must be positive.")
+        }
+        guard haplotypeMinSamplePercent >= 0 && haplotypeMinSamplePercent <= 100 else {
+            throw ValidationError("--haplotype-min-sample-percent must be between 0 and 100.")
+        }
+        guard haplotypeMinLocusPercent >= 0 && haplotypeMinLocusPercent <= 100 else {
+            throw ValidationError("--haplotype-min-locus-percent must be between 0 and 100.")
+        }
+        let parsedLocusOverrides = try FastqGenotypingSubcommand.parseLocusPercentOverrides(
+            haplotypeMinLocusPercentOverrides
+        )
+        let parsedHaplotypeDefinitionScope = try FastqGenotypingSubcommand.parseHaplotypeDefinitionScope(
+            haplotypeDefinitionScope
+        )
+        let referenceURL = URL(fileURLWithPath: reference)
+        let bundledHaplotype = try MHCReferenceBundleResolution.resolveBundleHaplotypeDefinition(
+            referenceURL: referenceURL,
+            explicitID: haplotypeDefinition
+        )
+        let effectiveHaplotypeDefinition = bundledHaplotype?.id ?? haplotypeDefinition
+        let effectiveHaplotypeAssay = bundledHaplotype?.assayID ?? haplotypeAssay
+        let effectiveHaplotypeSpecies = bundledHaplotype?.speciesCode ?? haplotypeSpecies
         let request = FullLengthONTMHCGenotypingRunRequest(
             inputFASTQURLs: inputs.map { URL(fileURLWithPath: $0) },
-            referenceSourceURL: URL(fileURLWithPath: reference),
+            referenceSourceURL: referenceURL,
             guideSourceURL: URL(fileURLWithPath: guide),
             orientReferenceURL: orientReference.map { URL(fileURLWithPath: $0) },
             forwardPrimerURL: forwardPrimer.map { URL(fileURLWithPath: $0) },
@@ -84,7 +135,21 @@ struct FastqFullLengthONTMHCGenotypingSubcommand: AsyncParsableCommand {
             minUnmatchedReads: minUnmatchedReads,
             cdnaThreshold: cdnaThreshold,
             sampleJobs: sampleJobs,
-            pbaaThreadsPerSample: pbaaThreadsPerSample
+            pbaaThreadsPerSample: pbaaThreadsPerSample,
+            pbaaClusterSourceMode: pbaaClusterSource,
+            haplotypeDropoutSampleFraction: FastqGenotypingSubcommand.fraction(
+                fromPercent: haplotypeMinSamplePercent
+            ),
+            haplotypeDropoutLocusFraction: FastqGenotypingSubcommand.fraction(
+                fromPercent: haplotypeMinLocusPercent
+            ),
+            haplotypeDropoutLocusFractionOverrides: parsedLocusOverrides,
+            haplotypeAssayID: effectiveHaplotypeAssay,
+            haplotypeSpeciesCode: effectiveHaplotypeSpecies,
+            haplotypeDefinitionScope: effectiveHaplotypeDefinition == nil
+                ? nil
+                : (parsedHaplotypeDefinitionScope ?? .project),
+            haplotypeDefinitionSetID: effectiveHaplotypeDefinition
         )
         let result = try await FullLengthONTMHCGenotypingPipeline().run(request) { fraction, message in
             let percent = Int((fraction * 100.0).rounded())
@@ -96,6 +161,8 @@ struct FastqFullLengthONTMHCGenotypingSubcommand: AsyncParsableCommand {
             sampleSummaryCSVPath: result.sampleSummaryCSVURL.path,
             statsJSONPath: result.statsJSONURL.path,
             workbookPath: result.workbookURL.path,
+            primaryWorkbookPath: result.primaryWorkbookURL.path,
+            haplotypeAnalysisPath: result.haplotypeAnalysisURL?.path,
             unmatchedClustersFASTAPath: result.unmatchedClustersFASTAURL.path,
             cdnaClustersFASTAPath: result.cdnaClustersFASTAURL.path,
             provenancePath: result.provenanceURL.path,
@@ -109,12 +176,20 @@ struct FastqFullLengthONTMHCGenotypingSubcommand: AsyncParsableCommand {
     }
 }
 
+extension FullLengthONTPBAAClusterSourceMode: ExpressibleByArgument {
+    public init?(argument: String) {
+        self.init(cliValue: argument)
+    }
+}
+
 private struct FastqFullLengthONTMHCGenotypingPayload: Encodable {
     let outputDirectory: String
     let reportCSVPath: String
     let sampleSummaryCSVPath: String
     let statsJSONPath: String
     let workbookPath: String
+    let primaryWorkbookPath: String
+    let haplotypeAnalysisPath: String?
     let unmatchedClustersFASTAPath: String
     let cdnaClustersFASTAPath: String
     let provenancePath: String

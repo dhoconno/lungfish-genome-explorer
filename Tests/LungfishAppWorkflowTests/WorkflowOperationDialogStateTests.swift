@@ -296,6 +296,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         state.fullLengthReversePrimerURL = reversePrimerURL
         state.fullLengthMinimumLength = 2000
         state.fullLengthMaximumLength = 4000
+        state.fullLengthPBAAClusterSourceMode = .requireExisting
         state.threads = 8
 
         XCTAssertEqual(state.readinessText, "Ready to run.")
@@ -312,6 +313,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertEqual(request.reversePrimerURL, reversePrimerURL.standardizedFileURL)
         XCTAssertEqual(request.minimumLength, 2000)
         XCTAssertEqual(request.maximumLength, 4000)
+        XCTAssertEqual(request.pbaaClusterSourceMode, .requireExisting)
         XCTAssertEqual(request.threads, 8)
         XCTAssertEqual(
             request.outputDirectory,
