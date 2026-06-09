@@ -299,6 +299,48 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         )
     }
 
+    func testSavontRunSupportCopiesCompletedScratchOutputIntoBundle() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-savont-scratch-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let scratchRaw = root.appendingPathComponent("scratch/raw", isDirectory: true)
+        let finalRaw = root.appendingPathComponent("bundle/sample/savont/raw", isDirectory: true)
+        try FileManager.default.createDirectory(at: scratchRaw, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: finalRaw, withIntermediateDirectories: true)
+        try ">final_consensus_0_depth_5\nACGT\n".write(
+            to: scratchRaw.appendingPathComponent("final_asvs.fasta"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "temporary detail\n".write(
+            to: scratchRaw.appendingPathComponent("savont.log"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "stale\n".write(
+            to: finalRaw.appendingPathComponent("stale.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        try FullLengthONTMHCSavontRunSupport.materializeCompletedRawOutput(
+            from: scratchRaw,
+            to: finalRaw
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: finalRaw.appendingPathComponent("final_asvs.fasta").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: finalRaw.appendingPathComponent("savont.log").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: finalRaw.appendingPathComponent("stale.txt").path))
+    }
+
+    func testSavontRunSupportRetriesSignalCrashWithSingleThreadFallback() {
+        XCTAssertTrue(FullLengthONTMHCSavontRunSupport.shouldRetry(exitCode: 139, attemptedThreads: 3))
+        XCTAssertTrue(FullLengthONTMHCSavontRunSupport.shouldRetry(exitCode: 138, attemptedThreads: 3))
+        XCTAssertFalse(FullLengthONTMHCSavontRunSupport.shouldRetry(exitCode: 139, attemptedThreads: 1))
+        XCTAssertFalse(FullLengthONTMHCSavontRunSupport.shouldRetry(exitCode: 1, attemptedThreads: 3))
+        XCTAssertFalse(FullLengthONTMHCSavontRunSupport.shouldRetry(exitCode: 143, attemptedThreads: 3))
+    }
+
     func testClusterGenotyperKeepsBestZeroSNPAllelesAndCarriesPBAAReadCounts() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("full-length-ont-mhc-\(UUID().uuidString)", isDirectory: true)

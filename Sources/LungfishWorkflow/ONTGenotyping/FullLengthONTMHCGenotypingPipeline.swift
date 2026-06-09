@@ -347,6 +347,26 @@ public enum FullLengthONTMHCGenotypingError: Error, LocalizedError, Sendable, Eq
     }
 }
 
+private final class FullLengthONTMHCProgressRelay: @unchecked Sendable {
+    private let lock = NSLock()
+    private var latestFraction: Double = 0
+    private let handler: (@Sendable (Double, String) -> Void)?
+
+    init(_ handler: (@Sendable (Double, String) -> Void)?) {
+        self.handler = handler
+    }
+
+    func emit(_ fraction: Double, _ message: String) {
+        guard let handler else { return }
+        let clampedFraction = min(1, max(0, fraction))
+        lock.lock()
+        let emittedFraction = max(latestFraction, clampedFraction)
+        latestFraction = emittedFraction
+        lock.unlock()
+        handler(emittedFraction, message)
+    }
+}
+
 public struct FullLengthONTMHCGenotypingPipeline: Sendable {
     private let nativeToolRunner: NativeToolRunner
     private let condaManager: CondaManager
@@ -363,8 +383,9 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         _ request: FullLengthONTMHCGenotypingRunRequest,
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> FullLengthONTMHCGenotypingResult {
+        let progress = FullLengthONTMHCProgressRelay(progressHandler)
         let startedAt = Date()
-        progressHandler?(0.01, "Validating full-length ONT MHC genotyping inputs.")
+        progress.emit(0.01, "Validating full-length ONT MHC genotyping inputs.")
         try validateInputs(request)
         let referenceFASTAURL = try resolveMHCReferenceFASTA(request.referenceSourceURL)
         let executionPlan = FullLengthONTMHCSampleExecutionPlan.automatic(
@@ -385,18 +406,20 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         try Data().write(to: request.unmatchedClustersFASTAURL, options: .atomic)
         try Data().write(to: request.cdnaClustersFASTAURL, options: .atomic)
 
-        progressHandler?(
+        progress.emit(
             0.02,
             "Planning \(request.inputFASTQURLs.count) \(sampleLabel(request.inputFASTQURLs.count)): \(executionPlan.sampleJobs) concurrent sample \(jobLabel(executionPlan.sampleJobs)), Savont \(executionPlan.savontThreadsPerSample) thread/sample."
         )
         let stagedSamples = try stageSamples(
             request: request,
             workDirectory: workDirectory,
-            progressHandler: progressHandler
+            progressHandler: { fraction, message in
+                progress.emit(fraction, message)
+            }
         )
         let orderedSamples = FullLengthONTMHCSampleScheduler.processingOrder(for: stagedSamples)
         let totalReadCount = stagedSamples.reduce(0) { $0 + max(1, $1.readCount) }
-        progressHandler?(
+        progress.emit(
             FullLengthONTMHCSampleScheduler.processingStartProgress,
             "Processing \(orderedSamples.count) \(sampleLabel(orderedSamples.count)) largest-first across \(executionPlan.sampleJobs) concurrent sample \(jobLabel(executionPlan.sampleJobs))."
         )
@@ -416,12 +439,16 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 let scheduled = orderedSamples[nextSampleIndex]
                 let processingRank = nextSampleIndex + 1
                 nextSampleIndex += 1
-                progressHandler?(
+                progress.emit(
                     FullLengthONTMHCSampleScheduler.processingProgress(
                         completedReadCount: completedReadCount,
                         totalReadCount: totalReadCount
                     ),
                     "Started \(scheduled.sample) (\(processingRank)/\(orderedSamples.count), \(formattedReadCount(scheduled.readCount)) reads)."
+                )
+                let sampleProgressFraction = FullLengthONTMHCSampleScheduler.processingProgress(
+                    completedReadCount: completedReadCount,
+                    totalReadCount: totalReadCount
                 )
                 group.addTask {
                     try await processSample(
@@ -429,7 +456,11 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                         processingRank: processingRank,
                         request: request,
                         referenceFASTAURL: referenceFASTAURL,
-                        execution: sampleExecution
+                        execution: sampleExecution,
+                        progressFraction: sampleProgressFraction,
+                        progressHandler: { fraction, message in
+                            progress.emit(fraction, message)
+                        }
                     )
                 }
             }
@@ -441,7 +472,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 sampleResults.append(result)
                 completedReadCount += max(1, result.readCount)
                 completedSampleCount += 1
-                progressHandler?(
+                progress.emit(
                     FullLengthONTMHCSampleScheduler.processingProgress(
                         completedReadCount: completedReadCount,
                         totalReadCount: totalReadCount
@@ -476,7 +507,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             try append(records: result.cdnaMatchedClusters, sample: result.sample, to: request.cdnaClustersFASTAURL)
         }
 
-        progressHandler?(0.86, "Writing full-length ONT MHC genotype reports.")
+        progress.emit(0.86, "Writing full-length ONT MHC genotype reports.")
         let reportRows = FullLengthONTMHCClusterReportBuilder.reportRows(
             genotypeRows: allGenotypeRows,
             sampleReadCounts: sampleCounts
@@ -519,7 +550,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             completedAt: completedAt
         )
 
-        progressHandler?(1.0, "Full-length ONT MHC genotyping complete.")
+        progress.emit(1.0, "Full-length ONT MHC genotyping complete.")
         return FullLengthONTMHCGenotypingResult(
             outputDirectory: request.outputDirectory,
             reportCSVURL: request.reportCSVURL,
@@ -630,7 +661,9 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         processingRank: Int,
         request: FullLengthONTMHCGenotypingRunRequest,
         referenceFASTAURL: URL,
-        execution: FullLengthONTMHCSampleExecutionConfiguration
+        execution: FullLengthONTMHCSampleExecutionConfiguration,
+        progressFraction: Double,
+        progressHandler: (@Sendable (Double, String) -> Void)?
     ) async throws -> FullLengthONTMHCSampleResult {
         var steps: [FullLengthONTMHCProvenanceStep] = []
         let preparedFASTQ = try await prepareReadsForSavont(
@@ -646,6 +679,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             preparedFASTQ: preparedFASTQ,
             request: request,
             execution: execution,
+            progressFraction: progressFraction,
+            progressHandler: progressHandler,
             steps: &steps
         )
 
@@ -688,6 +723,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         preparedFASTQ: URL,
         request: FullLengthONTMHCGenotypingRunRequest,
         execution: FullLengthONTMHCSampleExecutionConfiguration,
+        progressFraction: Double,
+        progressHandler: (@Sendable (Double, String) -> Void)?,
         steps: inout [FullLengthONTMHCProvenanceStep]
     ) async throws -> URL {
         let sampleOutputDirectory = request.outputDirectory
@@ -701,11 +738,97 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         try FileManager.default.createDirectory(at: sampleOutputDirectory, withIntermediateDirectories: true)
         let normalizedFASTAURL = sampleOutputDirectory
             .appendingPathComponent("\(scheduled.sample).savont-clusters.fasta")
+
+        let firstAttempt = try await runSavontClusteringAttempt(
+            scheduled: scheduled,
+            preparedFASTQ: preparedFASTQ,
+            sampleOutputDirectory: sampleOutputDirectory,
+            finalRawOutputDirectory: rawOutputDirectory,
+            request: request,
+            savontThreads: max(1, execution.savontThreads),
+            attempt: 1
+        )
+        if firstAttempt.exitCode == 0 {
+            try finishSavontClusteringAttempt(
+                firstAttempt,
+                normalizedFASTAURL: normalizedFASTAURL,
+                preparedFASTQ: preparedFASTQ,
+                steps: &steps
+            )
+            return normalizedFASTAURL
+        }
+        steps.append(savontProvenanceStep(
+            for: firstAttempt,
+            preparedFASTQ: preparedFASTQ,
+            outputs: []
+        ))
+
+        if FullLengthONTMHCSavontRunSupport.shouldRetry(
+            exitCode: firstAttempt.exitCode,
+            attemptedThreads: firstAttempt.savontThreads
+        ) {
+            progressHandler?(
+                progressFraction,
+                "Retrying \(scheduled.sample) after Savont exited with status \(firstAttempt.exitCode); using 1 Savont thread."
+            )
+            let retryAttempt = try await runSavontClusteringAttempt(
+                scheduled: scheduled,
+                preparedFASTQ: preparedFASTQ,
+                sampleOutputDirectory: sampleOutputDirectory,
+                finalRawOutputDirectory: rawOutputDirectory,
+                request: request,
+                savontThreads: 1,
+                attempt: 2
+            )
+            if retryAttempt.exitCode == 0 {
+                try finishSavontClusteringAttempt(
+                    retryAttempt,
+                    normalizedFASTAURL: normalizedFASTAURL,
+                    preparedFASTQ: preparedFASTQ,
+                    steps: &steps
+                )
+                return normalizedFASTAURL
+            }
+            steps.append(savontProvenanceStep(
+                for: retryAttempt,
+                preparedFASTQ: preparedFASTQ,
+                outputs: []
+            ))
+            throw FullLengthONTMHCGenotypingError.processFailed(
+                tool: "savont",
+                status: retryAttempt.exitCode,
+                stderr: retryAttempt.stderr
+            )
+        }
+
+        throw FullLengthONTMHCGenotypingError.processFailed(
+            tool: "savont",
+            status: firstAttempt.exitCode,
+            stderr: firstAttempt.stderr
+        )
+    }
+
+    private func runSavontClusteringAttempt(
+        scheduled: FullLengthONTMHCScheduledSample,
+        preparedFASTQ: URL,
+        sampleOutputDirectory: URL,
+        finalRawOutputDirectory: URL,
+        request: FullLengthONTMHCGenotypingRunRequest,
+        savontThreads: Int,
+        attempt: Int
+    ) async throws -> FullLengthONTMHCSavontAttemptResult {
+        let plan = FullLengthONTMHCSavontRunSupport.makePlan(
+            sample: scheduled.sample,
+            finalRawOutputDirectory: finalRawOutputDirectory,
+            attempt: attempt
+        )
+        try FileManager.default.createDirectory(at: plan.scratchRootDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: plan.scratchRootDirectory) }
         let arguments = [
             "asv",
             preparedFASTQ.path,
-            "-o", rawOutputDirectory.path,
-            "-t", String(max(1, execution.savontThreads)),
+            "-o", plan.scratchRawOutputDirectory.path,
+            "-t", String(max(1, savontThreads)),
             "--min-read-length", String(request.minimumLength),
             "--max-read-length", String(request.maximumLength),
             "--quality-value-cutoff", String(request.savontQualityValueCutoff),
@@ -719,38 +842,60 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             workingDirectory: sampleOutputDirectory,
             timeout: 7_200
         )
-        let finalASVFASTAURL = rawOutputDirectory.appendingPathComponent("final_asvs.fasta")
         if result.exitCode == 0 {
-            guard FileManager.default.fileExists(atPath: finalASVFASTAURL.path) else {
-                throw FullLengthONTMHCGenotypingError.reportFailed(
-                    "Savont did not write final_asvs.fasta for \(scheduled.sample)."
-                )
-            }
-            try FullLengthONTMHCSavontClusterNormalizer.normalize(
-                savontFinalASVFASTAURL: finalASVFASTAURL,
-                outputFASTAURL: normalizedFASTAURL
+            try FullLengthONTMHCSavontRunSupport.materializeCompletedRawOutput(
+                from: plan.scratchRawOutputDirectory,
+                to: plan.finalRawOutputDirectory
             )
         }
-        let completedAt = Date()
-        steps.append(FullLengthONTMHCProvenanceStep(
+        return FullLengthONTMHCSavontAttemptResult(
+            plan: plan,
+            savontThreads: max(1, savontThreads),
+            arguments: arguments,
+            stderr: result.stderr,
+            exitCode: result.exitCode,
+            startedAt: startedAt,
+            completedAt: Date()
+        )
+    }
+
+    private func finishSavontClusteringAttempt(
+        _ attempt: FullLengthONTMHCSavontAttemptResult,
+        normalizedFASTAURL: URL,
+        preparedFASTQ: URL,
+        steps: inout [FullLengthONTMHCProvenanceStep]
+    ) throws {
+        try FullLengthONTMHCSavontClusterNormalizer.normalize(
+            savontFinalASVFASTAURL: attempt.plan.finalASVFASTAURL,
+            outputFASTAURL: normalizedFASTAURL
+        )
+        steps.append(savontProvenanceStep(
+            for: attempt,
+            preparedFASTQ: preparedFASTQ,
+            outputs: [
+                attempt.plan.finalRawOutputDirectory,
+                attempt.plan.finalASVFASTAURL,
+                normalizedFASTAURL,
+            ]
+        ))
+    }
+
+    private func savontProvenanceStep(
+        for attempt: FullLengthONTMHCSavontAttemptResult,
+        preparedFASTQ: URL,
+        outputs: [URL]
+    ) -> FullLengthONTMHCProvenanceStep {
+        FullLengthONTMHCProvenanceStep(
             toolName: "savont",
             toolVersion: FullLengthONTMHCGenotypingRunRequest.savontToolVersion,
-            argv: ["savont"] + arguments,
+            argv: ["savont"] + attempt.arguments,
             inputs: [preparedFASTQ],
-            outputs: [rawOutputDirectory, finalASVFASTAURL, normalizedFASTAURL],
-            exitStatus: result.exitCode,
-            stderr: result.stderr,
-            startedAt: startedAt,
-            completedAt: completedAt
-        ))
-        guard result.exitCode == 0 else {
-            throw FullLengthONTMHCGenotypingError.processFailed(
-                tool: "savont",
-                status: result.exitCode,
-                stderr: result.stderr
-            )
-        }
-        return normalizedFASTAURL
+            outputs: outputs,
+            exitStatus: attempt.exitCode,
+            stderr: attempt.stderr,
+            startedAt: attempt.startedAt,
+            completedAt: attempt.completedAt
+        )
     }
 
     private func prepareReadsForSavont(
@@ -1597,6 +1742,16 @@ private struct FullLengthONTMHCSampleSummary: Sendable, Codable, Equatable {
 private struct FullLengthONTMHCSampleExecutionConfiguration: Sendable, Equatable {
     let workerThreads: Int
     let savontThreads: Int
+}
+
+private struct FullLengthONTMHCSavontAttemptResult: Sendable {
+    let plan: FullLengthONTMHCSavontRunPlan
+    let savontThreads: Int
+    let arguments: [String]
+    let stderr: String
+    let exitCode: Int32
+    let startedAt: Date
+    let completedAt: Date
 }
 
 private struct FullLengthONTMHCSampleResult: Sendable {
