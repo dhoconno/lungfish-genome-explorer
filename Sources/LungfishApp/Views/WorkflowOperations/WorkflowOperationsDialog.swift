@@ -68,9 +68,6 @@ private struct WorkflowOperationsDetailPane: View {
 
                 section(DatasetOperationSection.inputs.title) {
                     referencePicker
-                    if case .fullLengthONTMHCGenotyping = state.selectedTool?.kind {
-                        guidePicker
-                    }
                     if case .ontGenotyping = state.selectedTool?.kind,
                        state.effectiveGenotypingMode == .ontBarcodeDemux {
                         barcodePicker
@@ -165,35 +162,6 @@ private struct WorkflowOperationsDetailPane: View {
                     .foregroundStyle(state.selectedReadURLs.isEmpty ? Color.lungfishOrangeFallback : Color.lungfishSecondaryText)
                     .lineLimit(3)
                 Spacer()
-            }
-        }
-    }
-
-    private var guidePicker: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("pbAA Guides")
-                .font(.subheadline.weight(.medium))
-            if !state.projectGuideCandidates.isEmpty {
-                Picker("Project Guide", selection: guideProjectReferenceBinding) {
-                    Text("Choose guide").tag(URL?.none)
-                    ForEach(state.projectGuideCandidates, id: \.self) { url in
-                        Text(WorkflowOperationDialogState.displayPath(for: url, relativeTo: state.projectURL))
-                            .tag(URL?.some(url))
-                    }
-                }
-                .pickerStyle(.menu)
-            }
-            HStack(spacing: 10) {
-                Text(state.selectedGuideDisplay)
-                    .font(.caption)
-                    .foregroundStyle(state.selectedGuideURL == nil ? Color.lungfishOrangeFallback : Color.lungfishSecondaryText)
-                    .lineLimit(2)
-                Spacer()
-                if state.selectedGuideURL != nil {
-                    Button("Clear") {
-                        state.setGuide(nil)
-                    }
-                }
             }
         }
     }
@@ -296,7 +264,6 @@ private struct WorkflowOperationsDetailPane: View {
                         .foregroundStyle(.secondary)
                 }
                 haplotypeDefinitionPicker
-                pbaaClusterSourcePicker
             }
         case .twelveSAmpliconMatching:
             VStack(alignment: .leading, spacing: 10) {
@@ -314,22 +281,6 @@ private struct WorkflowOperationsDetailPane: View {
             }
         case .none:
             Text("No runnable workflow selected.")
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var pbaaClusterSourcePicker: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("pbAA Clusters")
-                .font(.subheadline.weight(.medium))
-            Picker("pbAA Clusters", selection: pbaaClusterSourceBinding) {
-                ForEach(FullLengthONTPBAAClusterSourceMode.allCases, id: \.rawValue) { mode in
-                    Text(mode.workflowDialogDisplayName).tag(mode.rawValue)
-                }
-            }
-            .pickerStyle(.segmented)
-            Text(state.fullLengthPBAAClusterSourceMode.workflowDialogSummary)
-                .font(.caption)
                 .foregroundStyle(.secondary)
         }
     }
@@ -510,17 +461,6 @@ private struct WorkflowOperationsDetailPane: View {
         )
     }
 
-    private var pbaaClusterSourceBinding: Binding<String> {
-        Binding(
-            get: { state.fullLengthPBAAClusterSourceMode.rawValue },
-            set: { value in
-                if let mode = FullLengthONTPBAAClusterSourceMode(cliValue: value) {
-                    state.fullLengthPBAAClusterSourceMode = mode
-                }
-            }
-        )
-    }
-
     private var barcodeDefinitionProjectFileBinding: Binding<URL?> {
         Binding(
             get: {
@@ -531,19 +471,6 @@ private struct WorkflowOperationsDetailPane: View {
                 return selected
             },
             set: { state.setBarcodeDefinition($0) }
-        )
-    }
-
-    private var guideProjectReferenceBinding: Binding<URL?> {
-        Binding(
-            get: {
-                guard let selected = state.selectedGuideURL,
-                      state.projectGuideCandidates.contains(selected) else {
-                    return nil
-                }
-                return selected
-            },
-            set: { state.setGuide($0) }
         )
     }
 
@@ -1067,29 +994,5 @@ private struct TwelveSReferenceBundleBuilderSheet: View {
             }
         }
         return contentTypes
-    }
-}
-
-private extension FullLengthONTPBAAClusterSourceMode {
-    var workflowDialogDisplayName: String {
-        switch self {
-        case .useCompatible:
-            return "Use Compatible"
-        case .requireExisting:
-            return "Require Existing"
-        case .rerunAll:
-            return "Rerun All"
-        }
-    }
-
-    var workflowDialogSummary: String {
-        switch self {
-        case .useCompatible:
-            return "Reuse saved clusters when provenance and checksums match; run pbAA for missing samples."
-        case .requireExisting:
-            return "Use only compatible saved clusters carried by each FASTQ bundle."
-        case .rerunAll:
-            return "Ignore saved clusters and save new pbAA artifacts into FASTQ bundles."
-        }
     }
 }

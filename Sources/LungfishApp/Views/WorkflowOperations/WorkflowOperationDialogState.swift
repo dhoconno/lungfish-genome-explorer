@@ -70,7 +70,6 @@ final class WorkflowOperationDialogState {
     var fullLengthReversePrimerURL: URL?
     var fullLengthMinimumLength: Int
     var fullLengthMaximumLength: Int
-    var fullLengthPBAAClusterSourceMode: FullLengthONTPBAAClusterSourceMode
     var selectedHaplotypeAssayID: String?
     var selectedHaplotypeSpeciesCode: String?
     var selectedHaplotypeDefinitionScope: HaplotypeDefinitionScope?
@@ -124,7 +123,6 @@ final class WorkflowOperationDialogState {
         )
         self.fullLengthMinimumLength = 2_000
         self.fullLengthMaximumLength = 4_000
-        self.fullLengthPBAAClusterSourceMode = .useCompatible
         self.selectedHaplotypeAssayID = Self.defaultHaplotypeAssayID()
         self.selectedHaplotypeSpeciesCode = nil
         self.selectedHaplotypeDefinitionScope = nil
@@ -358,10 +356,6 @@ final class WorkflowOperationDialogState {
            Self.twelveSReferenceInput(for: selectedReferenceURL) == nil {
             return "Select a 12S reference FASTA file or reference bundle."
         }
-        if selectedTool?.kind == .fullLengthONTMHCGenotyping,
-           selectedGuideURL == nil {
-            return "Select guide sequences for pbAA clustering."
-        }
         if selectedTool?.kind == .twelveSAmpliconMatching,
            let twelveSSampleMetadataURL,
            !FileManager.default.fileExists(atPath: twelveSSampleMetadataURL.path) {
@@ -451,9 +445,6 @@ final class WorkflowOperationDialogState {
                 .joined(separator: "-") ?? "workflow-output"
         } else if selectedTool?.kind == .fullLengthONTMHCGenotyping {
             outputName = Self.defaultFullLengthONTMHCOutputName(for: selectedReadURLs)
-            if selectedGuideURL == nil || !projectGuideCandidates.contains(selectedGuideURL!.standardizedFileURL) {
-                setGuide(projectGuideCandidates.first)
-            }
             if selectedHaplotypeAssayID == nil {
                 selectedHaplotypeAssayID = Self.defaultHaplotypeAssayID()
             }
@@ -622,9 +613,6 @@ final class WorkflowOperationDialogState {
         if projectChanged || selectedBarcodeDefinitionURL == nil {
             selectedBarcodeDefinitionURL = projectBarcodeDefinitionCandidates.first
         }
-        if projectChanged || selectedGuideURL == nil || !projectGuideCandidates.contains(selectedGuideURL!.standardizedFileURL) {
-            selectedGuideURL = projectGuideCandidates.first
-        }
         if projectChanged {
             fullLengthOrientReferenceURL = Self.defaultFullLengthPrimerReferenceURL(
                 filename: "MHC_class_I_orient.fasta",
@@ -707,14 +695,12 @@ final class WorkflowOperationDialogState {
             return .ontGenotyping(request)
 
         case .fullLengthONTMHCGenotyping:
-            guard !selectedReadURLs.isEmpty,
-                  let selectedGuideURL else {
+            guard !selectedReadURLs.isEmpty else {
                 throw WorkflowOperationError.incompleteConfiguration(readinessText)
             }
             let request = FullLengthONTMHCGenotypingRunRequest(
                 inputFASTQURLs: selectedReadURLs,
                 referenceSourceURL: selectedReferenceURL,
-                guideSourceURL: selectedGuideURL,
                 orientReferenceURL: fullLengthOrientReferenceURL,
                 forwardPrimerURL: fullLengthForwardPrimerURL,
                 reversePrimerURL: fullLengthReversePrimerURL,
@@ -727,7 +713,6 @@ final class WorkflowOperationDialogState {
                 threads: threads,
                 minimumLength: fullLengthMinimumLength,
                 maximumLength: fullLengthMaximumLength,
-                pbaaClusterSourceMode: fullLengthPBAAClusterSourceMode,
                 haplotypeDropoutSampleFraction: nil,
                 haplotypeDropoutLocusFraction: selectedHaplotypeDefinitionSetID == nil
                     ? nil

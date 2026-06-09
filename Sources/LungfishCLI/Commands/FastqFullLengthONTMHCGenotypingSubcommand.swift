@@ -6,7 +6,7 @@ import LungfishWorkflow
 struct FastqFullLengthONTMHCGenotypingSubcommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "full-length-ont-mhc-genotype",
-        abstract: "Run full-length ONT MHC genotyping from per-sample FASTQ bundles using pbAA clusters"
+        abstract: "Run full-length ONT MHC genotyping from per-sample FASTQ bundles using Savont clusters"
     )
 
     @Argument(help: "One or more per-sample ONT FASTQ files or .lungfishfastq bundles")
@@ -14,9 +14,6 @@ struct FastqFullLengthONTMHCGenotypingSubcommand: AsyncParsableCommand {
 
     @Option(name: .customLong("reference"), help: "MHC allele FASTA, .lungfishref bundle, or .lungfishmhcref bundle")
     var reference: String
-
-    @Option(name: .customLong("guide"), help: "Guide FASTA file or .lungfishref bundle used by pbAA")
-    var guide: String
 
     @Option(name: .customLong("orient-reference"), help: "Optional FASTA used by vsearch --orient")
     var orientReference: String?
@@ -45,25 +42,22 @@ struct FastqFullLengthONTMHCGenotypingSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("sample-jobs"), help: "Concurrent sample workflows. Defaults to an automatic sample-level parallel strategy.")
     var sampleJobs: Int?
 
-    @Option(name: .customLong("pbaa-threads-per-sample"), help: "pbAA threads per concurrently processed sample. Defaults to all threads for one sample and one thread per sample for batches.")
-    var pbaaThreadsPerSample: Int?
+    @Option(name: .customLong("savont-threads-per-sample"), help: "Savont threads per concurrently processed sample. Defaults to an automatic batch-aware value.")
+    var savontThreadsPerSample: Int?
 
-    @Option(name: .customLong("pbaa-cluster-source"), help: "pbAA cluster source: use-compatible, require-existing, or rerun-all")
-    var pbaaClusterSource: FullLengthONTPBAAClusterSourceMode = .useCompatible
-
-    @Option(name: .customLong("min-length"), help: "Minimum post-primer read length retained for pbAA")
+    @Option(name: .customLong("min-length"), help: "Minimum post-primer read length retained for Savont")
     var minLength: Int = 2_000
 
-    @Option(name: .customLong("max-length"), help: "Maximum post-primer read length retained for pbAA")
+    @Option(name: .customLong("max-length"), help: "Maximum post-primer read length retained for Savont")
     var maxLength: Int = 4_000
 
-    @Option(name: .customLong("pbaa-seed"), help: "pbAA random seed")
-    var pbaaSeed: Int = 1984
+    @Option(name: .customLong("savont-quality-value-cutoff"), help: "Minimum estimated read accuracy percent retained for Savont clustering")
+    var savontQualityValueCutoff: Int = FullLengthONTMHCGenotypingRunRequest.defaultSavontQualityValueCutoff
 
-    @Option(name: .customLong("pbaa-extra-args"), parsing: .unconditional, help: "Additional pbAA arguments")
-    var pbaaExtraArgs: String = FullLengthONTMHCGenotypingRunRequest.defaultPBAAExtraArgumentsText
+    @Option(name: .customLong("savont-min-cluster-size"), help: "Minimum number of reads required to keep a Savont cluster")
+    var savontMinimumClusterSize: Int = FullLengthONTMHCGenotypingRunRequest.defaultSavontMinimumClusterSize
 
-    @Option(name: .customLong("min-unmatched-reads"), help: "Minimum pbaa cluster read count written to unmatched FASTA")
+    @Option(name: .customLong("min-unmatched-reads"), help: "Minimum cluster read count written to unmatched FASTA")
     var minUnmatchedReads: Int = 5
 
     @Option(name: .customLong("cdna-threshold"), help: "Alleles shorter than this length are treated as cDNA references")
@@ -120,7 +114,6 @@ struct FastqFullLengthONTMHCGenotypingSubcommand: AsyncParsableCommand {
         let request = FullLengthONTMHCGenotypingRunRequest(
             inputFASTQURLs: inputs.map { URL(fileURLWithPath: $0) },
             referenceSourceURL: referenceURL,
-            guideSourceURL: URL(fileURLWithPath: guide),
             orientReferenceURL: orientReference.map { URL(fileURLWithPath: $0) },
             forwardPrimerURL: forwardPrimer.map { URL(fileURLWithPath: $0) },
             reversePrimerURL: reversePrimer.map { URL(fileURLWithPath: $0) },
@@ -130,13 +123,12 @@ struct FastqFullLengthONTMHCGenotypingSubcommand: AsyncParsableCommand {
             threads: threads,
             minimumLength: minLength,
             maximumLength: maxLength,
-            pbaaSeed: pbaaSeed,
-            pbaaExtraArgumentsText: pbaaExtraArgs,
+            savontQualityValueCutoff: savontQualityValueCutoff,
+            savontMinimumClusterSize: savontMinimumClusterSize,
             minUnmatchedReads: minUnmatchedReads,
             cdnaThreshold: cdnaThreshold,
             sampleJobs: sampleJobs,
-            pbaaThreadsPerSample: pbaaThreadsPerSample,
-            pbaaClusterSourceMode: pbaaClusterSource,
+            savontThreadsPerSample: savontThreadsPerSample,
             haplotypeDropoutSampleFraction: FastqGenotypingSubcommand.fraction(
                 fromPercent: haplotypeMinSamplePercent
             ),
@@ -166,19 +158,12 @@ struct FastqFullLengthONTMHCGenotypingSubcommand: AsyncParsableCommand {
             unmatchedClustersFASTAPath: result.unmatchedClustersFASTAURL.path,
             cdnaClustersFASTAPath: result.cdnaClustersFASTAURL.path,
             provenancePath: result.provenanceURL.path,
-            referenceFASTAPath: result.referenceFASTAURL.path,
-            guideFASTAPath: result.guideFASTAURL.path
+            referenceFASTAPath: result.referenceFASTAURL.path
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         FileHandle.standardOutput.write(try encoder.encode(payload))
         FileHandle.standardOutput.write(Data("\n".utf8))
-    }
-}
-
-extension FullLengthONTPBAAClusterSourceMode: ExpressibleByArgument {
-    public init?(argument: String) {
-        self.init(cliValue: argument)
     }
 }
 
@@ -194,5 +179,4 @@ private struct FastqFullLengthONTMHCGenotypingPayload: Encodable {
     let cdnaClustersFASTAPath: String
     let provenancePath: String
     let referenceFASTAPath: String
-    let guideFASTAPath: String
 }

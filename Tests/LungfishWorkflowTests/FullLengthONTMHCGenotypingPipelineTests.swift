@@ -3,29 +3,29 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
-    func testBatchSchedulerUsesThreeSampleJobsAndThreePBAAThreadsOnFourteenCoreBatch() {
+    func testBatchSchedulerUsesThreeSampleJobsAndThreeSavontThreadsOnFourteenCoreBatch() {
         let plan = FullLengthONTMHCSampleExecutionPlan.automatic(
             totalThreads: 14,
             sampleCount: 48,
             requestedSampleJobs: nil,
-            requestedPBAAThreadsPerSample: nil
+            requestedSavontThreadsPerSample: nil
         )
 
         XCTAssertEqual(plan.sampleJobs, 3)
-        XCTAssertEqual(plan.pbaaThreadsPerSample, 3)
+        XCTAssertEqual(plan.savontThreadsPerSample, 3)
         XCTAssertEqual(plan.workerThreadsPerSample, 4)
     }
 
-    func testSingleSampleSchedulerKeepsAllThreadsForPBAA() {
+    func testSingleSampleSchedulerKeepsAllThreadsForSavont() {
         let plan = FullLengthONTMHCSampleExecutionPlan.automatic(
             totalThreads: 14,
             sampleCount: 1,
             requestedSampleJobs: nil,
-            requestedPBAAThreadsPerSample: nil
+            requestedSavontThreadsPerSample: nil
         )
 
         XCTAssertEqual(plan.sampleJobs, 1)
-        XCTAssertEqual(plan.pbaaThreadsPerSample, 14)
+        XCTAssertEqual(plan.savontThreadsPerSample, 14)
         XCTAssertEqual(plan.workerThreadsPerSample, 14)
     }
 
@@ -93,15 +93,12 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         let runRequest = FullLengthONTMHCGenotypingRunRequest(
             inputFASTQURLs: [bundleURL],
             referenceSourceURL: root.appendingPathComponent("ref.fasta"),
-            guideSourceURL: guideURL,
             orientReferenceURL: orientURL,
             forwardPrimerURL: forwardURL,
             reversePrimerURL: reverseURL,
             outputDirectory: root.appendingPathComponent("out.lungfishgenotype", isDirectory: true),
             minimumLength: 2_100,
-            maximumLength: 3_900,
-            pbaaSeed: 7,
-            pbaaExtraArgumentsText: "--min-cluster-read-count 2"
+            maximumLength: 3_900
         )
         let pbaaRequest = try PBAAClusteringRunRequest(
             inputFASTQURL: preparedURL,
@@ -261,6 +258,42 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             TGCA
             +
             JJJJ
+
+            """
+        )
+    }
+
+    func testSavontClusterNormalizerAddsReadCountFromDepthHeaders() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-savont-normalize-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let inputURL = root.appendingPathComponent("final_asvs.fasta")
+        let outputURL = root.appendingPathComponent("savont-clusters.fasta")
+        try """
+        >final_consensus_0_depth_71
+        ACGT
+        >already_ReadCount-12
+        TGCA
+        >no_depth_header
+        CCCC
+
+        """.write(to: inputURL, atomically: true, encoding: .utf8)
+
+        try FullLengthONTMHCSavontClusterNormalizer.normalize(
+            savontFinalASVFASTAURL: inputURL,
+            outputFASTAURL: outputURL
+        )
+
+        XCTAssertEqual(
+            try String(contentsOf: outputURL, encoding: .utf8),
+            """
+            >final_consensus_0_depth_71_ReadCount-71
+            ACGT
+            >already_ReadCount-12
+            TGCA
+            >no_depth_header_ReadCount-0
+            CCCC
 
             """
         )

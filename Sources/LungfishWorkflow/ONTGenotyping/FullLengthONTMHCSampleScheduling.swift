@@ -4,14 +4,14 @@ struct FullLengthONTMHCSampleExecutionPlan: Sendable, Equatable {
     let totalThreads: Int
     let sampleCount: Int
     let sampleJobs: Int
-    let pbaaThreadsPerSample: Int
+    let savontThreadsPerSample: Int
     let workerThreadsPerSample: Int
 
     static func automatic(
         totalThreads: Int,
         sampleCount: Int,
         requestedSampleJobs: Int?,
-        requestedPBAAThreadsPerSample: Int?
+        requestedSavontThreadsPerSample: Int?
     ) -> FullLengthONTMHCSampleExecutionPlan {
         let normalizedThreads = max(1, totalThreads)
         let normalizedSampleCount = max(1, sampleCount)
@@ -21,14 +21,14 @@ struct FullLengthONTMHCSampleExecutionPlan: Sendable, Equatable {
         )
         let requestedJobs = requestedSampleJobs.map { max(1, $0) } ?? automaticJobs
         let jobs = min(normalizedSampleCount, requestedJobs)
-        let defaultPBAAThreads = jobs == 1 ? normalizedThreads : max(1, normalizedThreads / (jobs + 1))
-        let pbaaThreads = max(1, requestedPBAAThreadsPerSample ?? defaultPBAAThreads)
+        let defaultSavontThreads = jobs == 1 ? normalizedThreads : max(1, normalizedThreads / (jobs + 1))
+        let savontThreads = max(1, requestedSavontThreadsPerSample ?? defaultSavontThreads)
         let workerThreads = jobs == 1 ? normalizedThreads : max(1, normalizedThreads / jobs)
         return FullLengthONTMHCSampleExecutionPlan(
             totalThreads: normalizedThreads,
             sampleCount: normalizedSampleCount,
             sampleJobs: jobs,
-            pbaaThreadsPerSample: pbaaThreads,
+            savontThreadsPerSample: savontThreads,
             workerThreadsPerSample: workerThreads
         )
     }

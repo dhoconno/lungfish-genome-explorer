@@ -516,7 +516,6 @@ public struct ProcessPBAANextflowRunner: PBAANextflowRunning {
             executableURL.deletingLastPathComponent().path,
             condaBin.path,
             "/usr/local/bin",
-            "/opt/homebrew/bin",
         ]
         for path in toolPaths + existingPaths
             where !mergedPaths.contains(path) {

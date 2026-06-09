@@ -227,7 +227,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertGreaterThan(state.workflowAvailabilityRevision, initialRevision)
     }
 
-    func testFullLengthONTMHCGenotypingLaunchRequestUsesGuideAndAdvancedInputs() throws {
+    func testFullLengthONTMHCGenotypingLaunchRequestUsesSavontAndAdvancedInputsWithoutGuide() throws {
         let defaults = try makeDefaults()
         let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
         let fullLengthItem = try XCTUnwrap(
@@ -239,18 +239,14 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         let referenceURL = temp.appendingPathComponent("Reference Sequences/Mamu-class-I.lungfishmhcref", isDirectory: true)
         let referenceFASTAURL = referenceURL.appendingPathComponent("reference.fa")
         let readsURL = temp.appendingPathComponent("Reads/NB13.lungfishfastq", isDirectory: true)
-        let guideURL = temp.appendingPathComponent("Reference Sequences/guide.lungfishref", isDirectory: true)
-        let guideFASTAURL = guideURL.appendingPathComponent("guide.fasta")
         let orientReferenceURL = temp.appendingPathComponent("Reference Sequences/MHC_class_I_orient.fasta")
         let forwardPrimerURL = temp.appendingPathComponent("Reference Sequences/MHC_class_I_F.fasta")
         let reversePrimerURL = temp.appendingPathComponent("Reference Sequences/MHC_class_I_R.fasta")
         let outputURL = temp.appendingPathComponent("Analyses", isDirectory: true)
         try FileManager.default.createDirectory(at: referenceURL, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: readsURL, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: guideURL, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
         try ">Mamu-A1*001\nACGT\n".write(to: referenceFASTAURL, atomically: true, encoding: .utf8)
-        try ">guide\nACGT\n".write(to: guideFASTAURL, atomically: true, encoding: .utf8)
         try ">orient\nACGT\n".write(to: orientReferenceURL, atomically: true, encoding: .utf8)
         try ">F\nACGT\n".write(to: forwardPrimerURL, atomically: true, encoding: .utf8)
         try ">R\nTGCA\n".write(to: reversePrimerURL, atomically: true, encoding: .utf8)
@@ -265,21 +261,6 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             ),
             to: referenceURL
         )
-        try BundleManifest(
-            name: "guide",
-            identifier: "org.lungfish.test.guide",
-            source: SourceInfo(organism: "Macaca mulatta", assembly: "guide"),
-            genome: GenomeInfo(
-                path: "guide.fasta",
-                indexPath: "guide.fasta.fai",
-                totalLength: 4,
-                chromosomes: [
-                    ChromosomeInfo(name: "guide", length: 4, offset: 0, lineBases: 4, lineWidth: 5),
-                ]
-            )
-        ).save(to: guideURL)
-        try Data().write(to: guideURL.appendingPathComponent("guide.fasta.fai"))
-
         let state = WorkflowOperationDialogState(
             projectURL: temp,
             selectedReadURLs: [readsURL],
@@ -288,7 +269,6 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         )
         state.selectTool(WorkflowLibraryCatalog.fullLengthONTMHCGenotypingID)
         state.setReference(referenceURL)
-        state.setGuide(guideURL)
         state.setOutputDirectory(outputURL)
         state.outputName = "nb13-full-length"
         state.fullLengthOrientReferenceURL = orientReferenceURL
@@ -296,7 +276,6 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         state.fullLengthReversePrimerURL = reversePrimerURL
         state.fullLengthMinimumLength = 2000
         state.fullLengthMaximumLength = 4000
-        state.fullLengthPBAAClusterSourceMode = .requireExisting
         state.threads = 8
 
         XCTAssertEqual(state.readinessText, "Ready to run.")
@@ -307,13 +286,13 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
 
         XCTAssertEqual(request.inputFASTQURLs, [readsURL.standardizedFileURL])
         XCTAssertEqual(request.referenceSourceURL, referenceURL.standardizedFileURL)
-        XCTAssertEqual(request.guideSourceURL, guideURL.standardizedFileURL)
         XCTAssertEqual(request.orientReferenceURL, orientReferenceURL.standardizedFileURL)
         XCTAssertEqual(request.forwardPrimerURL, forwardPrimerURL.standardizedFileURL)
         XCTAssertEqual(request.reversePrimerURL, reversePrimerURL.standardizedFileURL)
         XCTAssertEqual(request.minimumLength, 2000)
         XCTAssertEqual(request.maximumLength, 4000)
-        XCTAssertEqual(request.pbaaClusterSourceMode, .requireExisting)
+        XCTAssertEqual(request.savontQualityValueCutoff, 90)
+        XCTAssertEqual(request.savontMinimumClusterSize, 3)
         XCTAssertEqual(request.threads, 8)
         XCTAssertEqual(
             request.outputDirectory,
@@ -321,7 +300,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         )
     }
 
-    func testFullLengthONTMHCGuideDefaultsToProjectGuideBundle() throws {
+    func testFullLengthONTMHCDoesNotRequireProjectGuideBundle() throws {
         let defaults = try makeDefaults()
         let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
         let fullLengthItem = try XCTUnwrap(
@@ -331,9 +310,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
         let temp = try temporaryDirectory()
         let alleleReferenceURL = temp.appendingPathComponent("Reference Sequences/Mamu_classI_all.lungfishref", isDirectory: true)
-        let guideURL = temp.appendingPathComponent("Reference Sequences/guide.lungfishref", isDirectory: true)
         try FileManager.default.createDirectory(at: alleleReferenceURL, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: guideURL, withIntermediateDirectories: true)
 
         let state = WorkflowOperationDialogState(
             projectURL: temp,
@@ -342,26 +319,20 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         )
         state.selectTool(WorkflowLibraryCatalog.fullLengthONTMHCGenotypingID)
 
-        XCTAssertEqual(state.projectGuideCandidates.first, guideURL.standardizedFileURL)
-        XCTAssertEqual(state.selectedGuideURL, guideURL.standardizedFileURL)
+        XCTAssertEqual(state.readinessText, "Select one or more FASTQ bundles.")
     }
 
-    func testWorkflowOperationsDialogUsesProjectBundlePickerForPBAAGuides() throws {
+    func testWorkflowOperationsDialogDoesNotExposePBAAControlsForFullLengthONTMHC() throws {
         let source = try String(
             contentsOf: repositoryRoot()
                 .appendingPathComponent("Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationsDialog.swift"),
             encoding: .utf8
         )
-        let guidePicker = try sourceBlock(
-            startingAt: "    private var guidePicker: some View",
-            endingBefore: "    private var barcodePicker: some View",
-            in: source
-        )
 
-        XCTAssertTrue(guidePicker.contains("Picker(\"Project Guide\""))
-        XCTAssertTrue(guidePicker.contains("guideProjectReferenceBinding"))
-        XCTAssertFalse(guidePicker.contains("browseForGuide()"))
-        XCTAssertFalse(source.contains("private func browseForGuide()"))
+        XCTAssertFalse(source.contains("guidePicker"))
+        XCTAssertFalse(source.contains("pbaaClusterSourcePicker"))
+        XCTAssertFalse(source.contains("pbAA Guides"))
+        XCTAssertFalse(source.contains("pbAA Clusters"))
     }
 
     func testEnabledWorkflowPackageBuildsLocalWorkflowRunWithExpectedOutputs() async throws {
@@ -1272,7 +1243,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         )
         let readPicker = try sourceBlock(
             startingAt: "    private var readPicker: some View",
-            endingBefore: "    private var guidePicker: some View",
+            endingBefore: "    private var barcodePicker: some View",
             in: source
         )
         let referencePicker = try sourceBlock(

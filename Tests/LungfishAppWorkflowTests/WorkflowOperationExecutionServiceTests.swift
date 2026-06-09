@@ -77,16 +77,15 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
         )
     }
 
-    func testFullLengthONTMHCGenotypingRunsCLIWithGuideAndPrimerArguments() async throws {
+    func testFullLengthONTMHCGenotypingRunsCLIWithSavontAndPrimerArguments() async throws {
         let temp = try temporaryDirectory()
         let readsURL = temp.appendingPathComponent("NB13.lungfishfastq", isDirectory: true)
         let referenceURL = temp.appendingPathComponent("Mamu-class-I.lungfishmhcref", isDirectory: true)
-        let guideURL = temp.appendingPathComponent("guide.lungfishref", isDirectory: true)
         let orientReferenceURL = temp.appendingPathComponent("MHC_class_I_orient.fasta")
         let forwardPrimerURL = temp.appendingPathComponent("MHC_class_I_F.fasta")
         let reversePrimerURL = temp.appendingPathComponent("MHC_class_I_R.fasta")
         let outputURL = temp.appendingPathComponent("Analyses/nb13-full-length.lungfishgenotype", isDirectory: true)
-        for url in [readsURL, referenceURL, guideURL, outputURL] {
+        for url in [readsURL, referenceURL, outputURL] {
             try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         }
         for url in [orientReferenceURL, forwardPrimerURL, reversePrimerURL] {
@@ -95,7 +94,6 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
         let request = FullLengthONTMHCGenotypingRunRequest(
             inputFASTQURLs: [readsURL],
             referenceSourceURL: referenceURL,
-            guideSourceURL: guideURL,
             orientReferenceURL: orientReferenceURL,
             forwardPrimerURL: forwardPrimerURL,
             reversePrimerURL: reversePrimerURL,
@@ -123,12 +121,15 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(invocation.arguments.prefix(2), ["fastq", "full-length-ont-mhc-genotype"])
         XCTAssertTrue(invocation.arguments.contains(readsURL.standardizedFileURL.path))
         XCTAssertEqual(try testValue(after: "--reference", in: invocation.arguments), referenceURL.standardizedFileURL.path)
-        XCTAssertEqual(try testValue(after: "--guide", in: invocation.arguments), guideURL.standardizedFileURL.path)
+        XCTAssertFalse(invocation.arguments.contains("--guide"))
+        XCTAssertFalse(invocation.arguments.contains { $0.contains("pbaa") || $0.contains("pbAA") })
         XCTAssertEqual(try testValue(after: "--orient-reference", in: invocation.arguments), orientReferenceURL.standardizedFileURL.path)
         XCTAssertEqual(try testValue(after: "--forward-primer", in: invocation.arguments), forwardPrimerURL.standardizedFileURL.path)
         XCTAssertEqual(try testValue(after: "--reverse-primer", in: invocation.arguments), reversePrimerURL.standardizedFileURL.path)
         XCTAssertEqual(try testValue(after: "--min-length", in: invocation.arguments), "2000")
         XCTAssertEqual(try testValue(after: "--max-length", in: invocation.arguments), "4000")
+        XCTAssertEqual(try testValue(after: "--savont-quality-value-cutoff", in: invocation.arguments), "90")
+        XCTAssertEqual(try testValue(after: "--savont-min-cluster-size", in: invocation.arguments), "3")
         XCTAssertEqual(try testValue(after: "--threads", in: invocation.arguments), "8")
         XCTAssertEqual(invocation.workingDirectory, outputURL.standardizedFileURL)
         XCTAssertTrue(outputs.contains(request.workbookURL.standardizedFileURL))
@@ -146,20 +147,19 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(resultRefresher.invocations, [request.outputDirectory.standardizedFileURL])
     }
 
-    func testFullLengthONTMHCGenotypingPassesPBAAClusterSourceModeToCLI() throws {
+    func testFullLengthONTMHCGenotypingDoesNotPassPBAAClusterSourceModeToCLI() throws {
         let temp = try temporaryDirectory()
         let request = FullLengthONTMHCGenotypingRunRequest(
             inputFASTQURLs: [temp.appendingPathComponent("NB13.lungfishfastq", isDirectory: true)],
             referenceSourceURL: temp.appendingPathComponent("Mamu-class-I.lungfishmhcref", isDirectory: true),
-            guideSourceURL: temp.appendingPathComponent("guide.lungfishref", isDirectory: true),
             outputDirectory: temp.appendingPathComponent("Analyses/nb13-full-length.lungfishgenotype", isDirectory: true),
-            outputName: "nb13-full-length",
-            pbaaClusterSourceMode: .requireExisting
+            outputName: "nb13-full-length"
         )
 
         let arguments = WorkflowOperationExecutionService().fullLengthONTMHCGenotypingArguments(for: request)
 
-        XCTAssertEqual(try testValue(after: "--pbaa-cluster-source", in: arguments), "require-existing")
+        XCTAssertFalse(arguments.contains("--pbaa-cluster-source"))
+        XCTAssertFalse(arguments.contains("--guide"))
     }
 
     func testFullLengthONTMHCGenotypingPassesHaplotypeArgumentsToCLI() throws {
@@ -167,7 +167,6 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
         let request = FullLengthONTMHCGenotypingRunRequest(
             inputFASTQURLs: [temp.appendingPathComponent("NB13.lungfishfastq", isDirectory: true)],
             referenceSourceURL: temp.appendingPathComponent("Mamu-class-I.lungfishmhcref", isDirectory: true),
-            guideSourceURL: temp.appendingPathComponent("guide.lungfishref", isDirectory: true),
             outputDirectory: temp.appendingPathComponent("Analyses/nb13-full-length.lungfishgenotype", isDirectory: true),
             outputName: "nb13-full-length",
             haplotypeDropoutLocusFraction: 0.12,
@@ -911,7 +910,6 @@ private final class StubWorkflowOperationCLIProcessRunner: LocalWorkflowCLIProce
             {
               "outputDirectory": "\(outputDirectory.path)",
               "referenceFASTAPath": "/tmp/reference.fa",
-              "guideFASTAPath": "/tmp/guide.fasta",
               "reportCSVPath": "\(reportCSVURL.path)",
               "sampleSummaryCSVPath": "\(sampleSummaryCSVURL.path)",
               "statsJSONPath": "\(statsJSONURL.path)",

@@ -488,17 +488,15 @@ final class WorkflowOperationExecutionService {
         var arguments = ["fastq", "full-length-ont-mhc-genotype"] + request.inputFASTQURLs.map(\.path)
         arguments += [
             "--reference", request.referenceSourceURL.path,
-            "--guide", request.guideSourceURL.path,
             "--output-dir", request.outputDirectory.path,
             "--output-name", request.outputName,
             "--threads", String(request.threads),
             "--min-length", String(request.minimumLength),
             "--max-length", String(request.maximumLength),
-            "--pbaa-seed", String(request.pbaaSeed),
-            "--pbaa-extra-args", request.pbaaExtraArgumentsText,
+            "--savont-quality-value-cutoff", String(request.savontQualityValueCutoff),
+            "--savont-min-cluster-size", String(request.savontMinimumClusterSize),
             "--min-unmatched-reads", String(request.minUnmatchedReads),
             "--cdna-threshold", String(request.cdnaThreshold),
-            "--pbaa-cluster-source", request.pbaaClusterSourceMode.rawValue,
         ]
         request.appendHaplotypeThresholdArguments(to: &arguments)
         if let orientReferenceURL = request.orientReferenceURL {
@@ -516,8 +514,8 @@ final class WorkflowOperationExecutionService {
         if let sampleJobs = request.sampleJobs {
             arguments += ["--sample-jobs", String(sampleJobs)]
         }
-        if let pbaaThreadsPerSample = request.pbaaThreadsPerSample {
-            arguments += ["--pbaa-threads-per-sample", String(pbaaThreadsPerSample)]
+        if let savontThreadsPerSample = request.savontThreadsPerSample {
+            arguments += ["--savont-threads-per-sample", String(savontThreadsPerSample)]
         }
         if let haplotypeDefinitionSetID = request.haplotypeDefinitionSetID {
             if let haplotypeAssayID = request.haplotypeAssayID {
@@ -1114,7 +1112,6 @@ private struct FullLengthONTMHCGenotypingCLIPayload: Decodable {
     let cdnaClustersFASTAPath: String
     let provenancePath: String
     let referenceFASTAPath: String
-    let guideFASTAPath: String
 
     var outputDirectoryURL: URL { URL(fileURLWithPath: outputDirectory).standardizedFileURL }
     var reportCSVURL: URL { URL(fileURLWithPath: reportCSVPath).standardizedFileURL }

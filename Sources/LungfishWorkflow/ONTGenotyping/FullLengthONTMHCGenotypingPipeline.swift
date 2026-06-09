@@ -13,11 +13,14 @@ public enum FullLengthONTPBAAClusterSourceMode: String, Sendable, Codable, Equat
 }
 
 public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable {
-    public static let defaultPBAAExtraArgumentsText = "--min-cluster-read-count 3 --min-cluster-frequency 0.01"
+    public static let defaultSavontQualityValueCutoff = 90
+    public static let defaultSavontMinimumClusterSize = 3
+    public static let savontToolVersion = "0.5.0"
+    public static let savontCondaEnvironment = "savont"
+    public static let savontPackageSpec = "bioconda::savont=0.5.0=ha819e4a_0"
 
     public let inputFASTQURLs: [URL]
     public let referenceSourceURL: URL
-    public let guideSourceURL: URL
     public let orientReferenceURL: URL?
     public let forwardPrimerURL: URL?
     public let reversePrimerURL: URL?
@@ -27,13 +30,12 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
     public let threads: Int
     public let minimumLength: Int
     public let maximumLength: Int
-    public let pbaaSeed: Int
-    public let pbaaExtraArgumentsText: String
+    public let savontQualityValueCutoff: Int
+    public let savontMinimumClusterSize: Int
     public let minUnmatchedReads: Int
     public let cdnaThreshold: Int
     public let sampleJobs: Int?
-    public let pbaaThreadsPerSample: Int?
-    public let pbaaClusterSourceMode: FullLengthONTPBAAClusterSourceMode
+    public let savontThreadsPerSample: Int?
     public let haplotypeDropoutSampleFraction: Double?
     public let haplotypeDropoutLocusFraction: Double?
     public let haplotypeDropoutLocusFractionOverrides: [String: Double]
@@ -45,7 +47,6 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
     public init(
         inputFASTQURLs: [URL],
         referenceSourceURL: URL,
-        guideSourceURL: URL,
         orientReferenceURL: URL? = nil,
         forwardPrimerURL: URL? = nil,
         reversePrimerURL: URL? = nil,
@@ -55,13 +56,12 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
         threads: Int = max(1, ProcessInfo.processInfo.activeProcessorCount),
         minimumLength: Int = 2_000,
         maximumLength: Int = 4_000,
-        pbaaSeed: Int = 1984,
-        pbaaExtraArgumentsText: String = Self.defaultPBAAExtraArgumentsText,
+        savontQualityValueCutoff: Int = Self.defaultSavontQualityValueCutoff,
+        savontMinimumClusterSize: Int = Self.defaultSavontMinimumClusterSize,
         minUnmatchedReads: Int = 5,
         cdnaThreshold: Int = 2_000,
         sampleJobs: Int? = nil,
-        pbaaThreadsPerSample: Int? = nil,
-        pbaaClusterSourceMode: FullLengthONTPBAAClusterSourceMode = .useCompatible,
+        savontThreadsPerSample: Int? = nil,
         haplotypeDropoutSampleFraction: Double? = nil,
         haplotypeDropoutLocusFraction: Double? = nil,
         haplotypeDropoutLocusFractionOverrides: [String: Double] = [:],
@@ -73,7 +73,6 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
         let normalizedOutputName = Self.sanitizedOutputName(outputName)
         self.inputFASTQURLs = inputFASTQURLs.map(\.standardizedFileURL)
         self.referenceSourceURL = referenceSourceURL.standardizedFileURL
-        self.guideSourceURL = guideSourceURL.standardizedFileURL
         self.orientReferenceURL = orientReferenceURL?.standardizedFileURL
         self.forwardPrimerURL = forwardPrimerURL?.standardizedFileURL
         self.reversePrimerURL = reversePrimerURL?.standardizedFileURL
@@ -83,13 +82,12 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
         self.threads = max(1, threads)
         self.minimumLength = max(1, minimumLength)
         self.maximumLength = max(self.minimumLength, maximumLength)
-        self.pbaaSeed = pbaaSeed
-        self.pbaaExtraArgumentsText = pbaaExtraArgumentsText
+        self.savontQualityValueCutoff = max(0, min(100, savontQualityValueCutoff))
+        self.savontMinimumClusterSize = max(1, savontMinimumClusterSize)
         self.minUnmatchedReads = max(1, minUnmatchedReads)
         self.cdnaThreshold = max(1, cdnaThreshold)
         self.sampleJobs = sampleJobs.map { max(1, $0) }
-        self.pbaaThreadsPerSample = pbaaThreadsPerSample.map { max(1, $0) }
-        self.pbaaClusterSourceMode = pbaaClusterSourceMode
+        self.savontThreadsPerSample = savontThreadsPerSample.map { max(1, $0) }
         self.haplotypeDropoutSampleFraction = Self.normalizedFraction(haplotypeDropoutSampleFraction)
         self.haplotypeDropoutLocusFraction = Self.normalizedFraction(haplotypeDropoutLocusFraction)
         self.haplotypeDropoutLocusFractionOverrides = Self.normalizedFractionOverrides(
@@ -159,17 +157,15 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
             "full-length-ont-mhc-genotype",
         ] + inputFASTQURLs.map(\.path) + [
             "--reference", referenceSourceURL.path,
-            "--guide", guideSourceURL.path,
             "--output-dir", outputDirectory.path,
             "--output-name", outputName,
             "--threads", String(threads),
             "--min-length", String(minimumLength),
             "--max-length", String(maximumLength),
-            "--pbaa-seed", String(pbaaSeed),
-            "--pbaa-extra-args", pbaaExtraArgumentsText,
+            "--savont-quality-value-cutoff", String(savontQualityValueCutoff),
+            "--savont-min-cluster-size", String(savontMinimumClusterSize),
             "--min-unmatched-reads", String(minUnmatchedReads),
             "--cdna-threshold", String(cdnaThreshold),
-            "--pbaa-cluster-source", pbaaClusterSourceMode.rawValue,
         ]
         appendHaplotypeThresholdArguments(to: &values)
         if let orientReferenceURL {
@@ -187,8 +183,8 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
         if let sampleJobs {
             values += ["--sample-jobs", String(sampleJobs)]
         }
-        if let pbaaThreadsPerSample {
-            values += ["--pbaa-threads-per-sample", String(pbaaThreadsPerSample)]
+        if let savontThreadsPerSample {
+            values += ["--savont-threads-per-sample", String(savontThreadsPerSample)]
         }
         if let haplotypeDefinitionSetID {
             if let haplotypeAssayID {
@@ -245,7 +241,6 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
         FullLengthONTMHCGenotypingRunRequest(
             inputFASTQURLs: inputFASTQURLs,
             referenceSourceURL: referenceSourceURL,
-            guideSourceURL: guideSourceURL,
             orientReferenceURL: orientReferenceURL,
             forwardPrimerURL: forwardPrimerURL,
             reversePrimerURL: reversePrimerURL,
@@ -255,13 +250,12 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
             threads: threads,
             minimumLength: minimumLength,
             maximumLength: maximumLength,
-            pbaaSeed: pbaaSeed,
-            pbaaExtraArgumentsText: pbaaExtraArgumentsText,
+            savontQualityValueCutoff: savontQualityValueCutoff,
+            savontMinimumClusterSize: savontMinimumClusterSize,
             minUnmatchedReads: minUnmatchedReads,
             cdnaThreshold: cdnaThreshold,
             sampleJobs: sampleJobs,
-            pbaaThreadsPerSample: pbaaThreadsPerSample,
-            pbaaClusterSourceMode: pbaaClusterSourceMode,
+            savontThreadsPerSample: savontThreadsPerSample,
             haplotypeDropoutSampleFraction: haplotypeDropoutSampleFraction,
             haplotypeDropoutLocusFraction: haplotypeDropoutLocusFraction,
             haplotypeDropoutLocusFractionOverrides: haplotypeDropoutLocusFractionOverrides,
@@ -316,13 +310,11 @@ public struct FullLengthONTMHCGenotypingResult: Sendable, Codable, Equatable {
     public let cdnaClustersFASTAURL: URL
     public let provenanceURL: URL
     public let referenceFASTAURL: URL
-    public let guideFASTAURL: URL
 }
 
 public enum FullLengthONTMHCGenotypingError: Error, LocalizedError, Sendable, Equatable {
     case missingInput(String)
     case invalidReference(String)
-    case invalidGuide(String)
     case invalidFASTQ(String)
     case invalidHaplotypeDefinition(String)
     case invalidHaplotypeDefinitionForAssay(definitionID: String, assayID: String)
@@ -336,8 +328,6 @@ public enum FullLengthONTMHCGenotypingError: Error, LocalizedError, Sendable, Eq
             return "Input does not exist: \(path)"
         case .invalidReference(let path):
             return "Could not resolve an MHC reference FASTA from \(path)."
-        case .invalidGuide(let path):
-            return "Could not resolve a guide FASTA from \(path)."
         case .invalidFASTQ(let path):
             return "Could not resolve a FASTQ payload from \(path)."
         case .invalidHaplotypeDefinition(let id):
@@ -360,16 +350,13 @@ public enum FullLengthONTMHCGenotypingError: Error, LocalizedError, Sendable, Eq
 public struct FullLengthONTMHCGenotypingPipeline: Sendable {
     private let nativeToolRunner: NativeToolRunner
     private let condaManager: CondaManager
-    private let pbaaPipeline: PBAAClusteringPipeline
 
     public init(
         nativeToolRunner: NativeToolRunner = .shared,
-        condaManager: CondaManager = .shared,
-        pbaaPipeline: PBAAClusteringPipeline = PBAAClusteringPipeline()
+        condaManager: CondaManager = .shared
     ) {
         self.nativeToolRunner = nativeToolRunner
         self.condaManager = condaManager
-        self.pbaaPipeline = pbaaPipeline
     }
 
     public func run(
@@ -380,12 +367,11 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         progressHandler?(0.01, "Validating full-length ONT MHC genotyping inputs.")
         try validateInputs(request)
         let referenceFASTAURL = try resolveMHCReferenceFASTA(request.referenceSourceURL)
-        let guideFASTAURL = try resolveGuideFASTA(request.guideSourceURL)
         let executionPlan = FullLengthONTMHCSampleExecutionPlan.automatic(
             totalThreads: request.threads,
             sampleCount: request.inputFASTQURLs.count,
             requestedSampleJobs: request.sampleJobs,
-            requestedPBAAThreadsPerSample: request.pbaaThreadsPerSample
+            requestedSavontThreadsPerSample: request.savontThreadsPerSample
         )
 
         try FileManager.default.createDirectory(at: request.outputDirectory, withIntermediateDirectories: true)
@@ -401,7 +387,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
 
         progressHandler?(
             0.02,
-            "Planning \(request.inputFASTQURLs.count) \(sampleLabel(request.inputFASTQURLs.count)): \(executionPlan.sampleJobs) concurrent sample \(jobLabel(executionPlan.sampleJobs)), pbAA \(executionPlan.pbaaThreadsPerSample) thread/sample."
+            "Planning \(request.inputFASTQURLs.count) \(sampleLabel(request.inputFASTQURLs.count)): \(executionPlan.sampleJobs) concurrent sample \(jobLabel(executionPlan.sampleJobs)), Savont \(executionPlan.savontThreadsPerSample) thread/sample."
         )
         let stagedSamples = try stageSamples(
             request: request,
@@ -417,7 +403,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
 
         let sampleExecution = FullLengthONTMHCSampleExecutionConfiguration(
             workerThreads: executionPlan.workerThreadsPerSample,
-            pbaaThreads: executionPlan.pbaaThreadsPerSample
+            savontThreads: executionPlan.savontThreadsPerSample
         )
         var sampleResults: [FullLengthONTMHCSampleResult] = []
         var completedReadCount = 0
@@ -442,7 +428,6 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                         scheduled,
                         processingRank: processingRank,
                         request: request,
-                        guideFASTAURL: guideFASTAURL,
                         referenceFASTAURL: referenceFASTAURL,
                         execution: sampleExecution
                     )
@@ -526,7 +511,6 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         try writeProvenance(
             request: request,
             referenceFASTAURL: referenceFASTAURL,
-            guideFASTAURL: guideFASTAURL,
             executionPlan: executionPlan,
             stagedSamples: stagedSamples,
             processingOrder: orderedSamples,
@@ -547,15 +531,13 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             unmatchedClustersFASTAURL: request.unmatchedClustersFASTAURL,
             cdnaClustersFASTAURL: request.cdnaClustersFASTAURL,
             provenanceURL: request.provenanceURL,
-            referenceFASTAURL: referenceFASTAURL,
-            guideFASTAURL: guideFASTAURL
+            referenceFASTAURL: referenceFASTAURL
         )
     }
 
     private func validateInputs(_ request: FullLengthONTMHCGenotypingRunRequest) throws {
         let paths = request.inputFASTQURLs + [
             request.referenceSourceURL,
-            request.guideSourceURL,
         ] + [
             request.orientReferenceURL,
             request.forwardPrimerURL,
@@ -579,14 +561,6 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         guard let fastaURL = SequenceInputResolver.resolvePrimarySequenceURL(for: sourceURL),
               (SequenceInputResolver.inputSequenceFormat(for: sourceURL) ?? SequenceFormat.from(url: fastaURL)) == .fasta else {
             throw FullLengthONTMHCGenotypingError.invalidReference(sourceURL.path)
-        }
-        return fastaURL.standardizedFileURL
-    }
-
-    private func resolveGuideFASTA(_ sourceURL: URL) throws -> URL {
-        guard let fastaURL = SequenceInputResolver.resolvePrimarySequenceURL(for: sourceURL),
-              (SequenceInputResolver.inputSequenceFormat(for: sourceURL) ?? SequenceFormat.from(url: fastaURL)) == .fasta else {
-            throw FullLengthONTMHCGenotypingError.invalidGuide(sourceURL.path)
         }
         return fastaURL.standardizedFileURL
     }
@@ -655,12 +629,11 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         _ scheduled: FullLengthONTMHCScheduledSample,
         processingRank: Int,
         request: FullLengthONTMHCGenotypingRunRequest,
-        guideFASTAURL: URL,
         referenceFASTAURL: URL,
         execution: FullLengthONTMHCSampleExecutionConfiguration
     ) async throws -> FullLengthONTMHCSampleResult {
         var steps: [FullLengthONTMHCProvenanceStep] = []
-        let preparedFASTQ = try await prepareReadsForPBAA(
+        let preparedFASTQ = try await prepareReadsForSavont(
             inputFASTQ: scheduled.materializedFASTQURL,
             sample: scheduled.sample,
             sampleDirectory: scheduled.sampleDirectory,
@@ -668,38 +641,11 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             execution: execution,
             steps: &steps
         )
-
-        let pbaaRequest = try PBAAClusteringRunRequest(
-            inputFASTQURL: preparedFASTQ,
-            guideSourceURL: guideFASTAURL,
-            outputDirectory: request.outputDirectory
-                .appendingPathComponent("samples", isDirectory: true)
-                .appendingPathComponent(scheduled.sample, isDirectory: true)
-                .appendingPathComponent("pbaa", isDirectory: true),
-            outputName: scheduled.sample,
-            threads: execution.pbaaThreads,
-            seed: request.pbaaSeed,
-            extraArgumentsText: request.pbaaExtraArgumentsText
-        )
-        let pbaaSignature = try FullLengthONTPBAAArtifactPlanner.signature(
-            inputURL: scheduled.inputURL,
-            preparedFASTQURL: preparedFASTQ,
-            guideFASTAURL: guideFASTAURL,
-            request: request,
-            pbaaRequest: pbaaRequest
-        )
-        let pbaaDecision = try FullLengthONTPBAAArtifactPlanner.decision(
-            inputURL: scheduled.inputURL,
-            signature: pbaaSignature,
-            mode: request.pbaaClusterSourceMode
-        )
-        let clustersFASTAURL = try await resolvePBAAClusters(
-            decision: pbaaDecision,
-            signature: pbaaSignature,
+        let clustersFASTAURL = try await runSavontClustering(
             scheduled: scheduled,
             preparedFASTQ: preparedFASTQ,
-            guideFASTAURL: guideFASTAURL,
-            pbaaRequest: pbaaRequest,
+            request: request,
+            execution: execution,
             steps: &steps
         )
 
@@ -737,140 +683,77 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         )
     }
 
-    private func resolvePBAAClusters(
-        decision: FullLengthONTPBAAArtifactDecision,
-        signature: FASTQPBAAArtifactSignature,
+    private func runSavontClustering(
         scheduled: FullLengthONTMHCScheduledSample,
         preparedFASTQ: URL,
-        guideFASTAURL: URL,
-        pbaaRequest: PBAAClusteringRunRequest,
+        request: FullLengthONTMHCGenotypingRunRequest,
+        execution: FullLengthONTMHCSampleExecutionConfiguration,
         steps: inout [FullLengthONTMHCProvenanceStep]
     ) async throws -> URL {
-        switch decision {
-        case .reuse(let artifact):
-            let startedAt = Date()
-            let completedAt = Date()
-            steps.append(FullLengthONTMHCProvenanceStep(
-                toolName: "lungfish-pbaa-artifact-reuse",
-                toolVersion: FASTQPBAAArtifactManifest.schemaVersion,
-                argv: [
-                    "lungfish", "pbaa-artifact", "reuse",
-                    artifact.manifest.id,
-                    "--source", scheduled.inputURL.path,
-                    "--prepared-fastq", preparedFASTQ.path,
-                    "--guide", guideFASTAURL.path,
-                ],
-                inputs: [
-                    preparedFASTQ,
-                    guideFASTAURL,
-                    artifact.manifestURL,
-                    artifact.passedConsensusFASTAURL,
-                    artifact.provenanceURL,
-                ],
-                outputs: [],
-                exitStatus: 0,
-                stderr: nil,
-                startedAt: startedAt,
-                completedAt: completedAt
-            ))
-            return artifact.passedConsensusFASTAURL
-
-        case .runAndSave, .runWithoutSaving:
-            let pbaaResult = try await runPBAAClustering(
-                request: pbaaRequest,
-                preparedFASTQ: preparedFASTQ,
-                guideFASTAURL: guideFASTAURL,
-                steps: &steps
-            )
-            guard case .runAndSave = decision else {
-                return pbaaResult.passedConsensusFASTAURL
-            }
-            try savePBAAArtifact(
-                pbaaResult: pbaaResult,
-                signature: signature,
-                scheduled: scheduled,
-                steps: &steps
-            )
-            return pbaaResult.passedConsensusFASTAURL
+        let sampleOutputDirectory = request.outputDirectory
+            .appendingPathComponent("samples", isDirectory: true)
+            .appendingPathComponent(scheduled.sample, isDirectory: true)
+            .appendingPathComponent("savont", isDirectory: true)
+        let rawOutputDirectory = sampleOutputDirectory.appendingPathComponent("raw", isDirectory: true)
+        if FileManager.default.fileExists(atPath: rawOutputDirectory.path) {
+            try FileManager.default.removeItem(at: rawOutputDirectory)
         }
-    }
-
-    private func runPBAAClustering(
-        request pbaaRequest: PBAAClusteringRunRequest,
-        preparedFASTQ: URL,
-        guideFASTAURL: URL,
-        steps: inout [FullLengthONTMHCProvenanceStep]
-    ) async throws -> PBAAClusteringResult {
-        let pbaaStartedAt = Date()
-        let pbaaResult = try await pbaaPipeline.run(pbaaRequest)
-        let pbaaCompletedAt = Date()
-        steps.append(FullLengthONTMHCProvenanceStep(
-            toolName: "pbaa",
-            toolVersion: pbaaRequest.containerPins.pbaa.toolVersion,
-            argv: [
-                "pbaa", "cluster",
-                "-j", String(pbaaRequest.threads),
-                "--seed", String(pbaaRequest.seed),
-            ] + pbaaRequest.extraArguments + ["guide.fasta", "reads.fastq", pbaaRequest.prefix],
-            inputs: [preparedFASTQ, guideFASTAURL],
-            outputs: [pbaaResult.rawOutputDirectory, pbaaResult.passedConsensusFASTAURL],
-            exitStatus: 0,
-            stderr: nil,
-            startedAt: pbaaStartedAt,
-            completedAt: pbaaCompletedAt
-        ))
-        return pbaaResult
-    }
-
-    private func savePBAAArtifact(
-        pbaaResult: PBAAClusteringResult,
-        signature: FASTQPBAAArtifactSignature,
-        scheduled: FullLengthONTMHCScheduledSample,
-        steps: inout [FullLengthONTMHCProvenanceStep]
-    ) throws {
-        let provenanceURL = pbaaResult.rawOutputDirectory
-            .appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        try FileManager.default.createDirectory(at: sampleOutputDirectory, withIntermediateDirectories: true)
+        let normalizedFASTAURL = sampleOutputDirectory
+            .appendingPathComponent("\(scheduled.sample).savont-clusters.fasta")
+        let arguments = [
+            "asv",
+            preparedFASTQ.path,
+            "-o", rawOutputDirectory.path,
+            "-t", String(max(1, execution.savontThreads)),
+            "--min-read-length", String(request.minimumLength),
+            "--max-read-length", String(request.maximumLength),
+            "--quality-value-cutoff", String(request.savontQualityValueCutoff),
+            "--min-cluster-size", String(request.savontMinimumClusterSize),
+        ]
         let startedAt = Date()
-        let stored = try FASTQPBAAArtifactStore.saveArtifact(FASTQPBAAArtifactWriteRequest(
-            bundleURL: scheduled.inputURL,
-            displayName: "\(scheduled.sample) pbAA clusters",
-            sampleName: scheduled.sample,
-            signature: signature,
-            passedConsensusFASTAURL: pbaaResult.passedConsensusFASTAURL,
-            rawOutputDirectoryURL: nil,
-            provenanceURL: provenanceURL,
-            createdAt: startedAt
-        ))
+        let result = try await condaManager.runTool(
+            name: "savont",
+            arguments: arguments,
+            environment: FullLengthONTMHCGenotypingRunRequest.savontCondaEnvironment,
+            workingDirectory: sampleOutputDirectory,
+            timeout: 7_200
+        )
+        let finalASVFASTAURL = rawOutputDirectory.appendingPathComponent("final_asvs.fasta")
+        if result.exitCode == 0 {
+            guard FileManager.default.fileExists(atPath: finalASVFASTAURL.path) else {
+                throw FullLengthONTMHCGenotypingError.reportFailed(
+                    "Savont did not write final_asvs.fasta for \(scheduled.sample)."
+                )
+            }
+            try FullLengthONTMHCSavontClusterNormalizer.normalize(
+                savontFinalASVFASTAURL: finalASVFASTAURL,
+                outputFASTAURL: normalizedFASTAURL
+            )
+        }
         let completedAt = Date()
-        let outputs = [
-            stored.artifactDirectoryURL,
-            stored.manifestURL,
-            stored.passedConsensusFASTAURL,
-            stored.provenanceURL,
-        ] + (stored.rawOutputDirectoryURL.map { [$0] } ?? [])
         steps.append(FullLengthONTMHCProvenanceStep(
-            toolName: "lungfish-pbaa-artifact-store",
-            toolVersion: FASTQPBAAArtifactManifest.schemaVersion,
-            argv: [
-                "lungfish", "pbaa-artifact", "save",
-                "--source", scheduled.inputURL.path,
-                "--artifact-id", stored.manifest.id,
-                "--passed-clusters", pbaaResult.passedConsensusFASTAURL.path,
-                "--provenance", provenanceURL.path,
-            ],
-            inputs: [
-                pbaaResult.passedConsensusFASTAURL,
-                provenanceURL,
-            ],
-            outputs: outputs,
-            exitStatus: 0,
-            stderr: nil,
+            toolName: "savont",
+            toolVersion: FullLengthONTMHCGenotypingRunRequest.savontToolVersion,
+            argv: ["savont"] + arguments,
+            inputs: [preparedFASTQ],
+            outputs: [rawOutputDirectory, finalASVFASTAURL, normalizedFASTAURL],
+            exitStatus: result.exitCode,
+            stderr: result.stderr,
             startedAt: startedAt,
             completedAt: completedAt
         ))
+        guard result.exitCode == 0 else {
+            throw FullLengthONTMHCGenotypingError.processFailed(
+                tool: "savont",
+                status: result.exitCode,
+                stderr: result.stderr
+            )
+        }
+        return normalizedFASTAURL
     }
 
-    private func prepareReadsForPBAA(
+    private func prepareReadsForSavont(
         inputFASTQ: URL,
         sample: String,
         sampleDirectory: URL,
@@ -1407,7 +1290,6 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
     private func writeProvenance(
         request: FullLengthONTMHCGenotypingRunRequest,
         referenceFASTAURL: URL,
-        guideFASTAURL: URL,
         executionPlan: FullLengthONTMHCSampleExecutionPlan,
         stagedSamples: [FullLengthONTMHCScheduledSample],
         processingOrder: [FullLengthONTMHCScheduledSample],
@@ -1419,13 +1301,15 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             "threads": .integer(max(1, ProcessInfo.processInfo.activeProcessorCount)),
             "minimumLength": .integer(2_000),
             "maximumLength": .integer(4_000),
-            "pbaaSeed": .integer(1984),
-            "pbaaExtraArguments": .string(FullLengthONTMHCGenotypingRunRequest.defaultPBAAExtraArgumentsText),
+            "savontQualityValueCutoff": .integer(FullLengthONTMHCGenotypingRunRequest.defaultSavontQualityValueCutoff),
+            "savontMinimumClusterSize": .integer(FullLengthONTMHCGenotypingRunRequest.defaultSavontMinimumClusterSize),
+            "savontCondaEnvironment": .string(FullLengthONTMHCGenotypingRunRequest.savontCondaEnvironment),
+            "savontPackageSpec": .string(FullLengthONTMHCGenotypingRunRequest.savontPackageSpec),
+            "savontToolVersion": .string(FullLengthONTMHCGenotypingRunRequest.savontToolVersion),
             "minUnmatchedReads": .integer(5),
             "cdnaThreshold": .integer(2_000),
             "sampleJobs": .string("auto"),
-            "pbaaThreadsPerSample": .string("auto"),
-            "pbaaClusterSourceMode": .string(FullLengthONTPBAAClusterSourceMode.useCompatible.rawValue),
+            "savontThreadsPerSample": .string("auto"),
             "haplotypeDropoutSampleFraction": .string("disabled"),
             "haplotypeDropoutLocusFraction": .string("disabled"),
             "haplotypeDropoutLocusFractionOverrides": .dictionary([:]),
@@ -1435,14 +1319,16 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             "threads": .integer(request.threads),
             "minimumLength": .integer(request.minimumLength),
             "maximumLength": .integer(request.maximumLength),
-            "pbaaSeed": .integer(request.pbaaSeed),
-            "pbaaExtraArguments": .string(request.pbaaExtraArgumentsText),
+            "savontQualityValueCutoff": .integer(request.savontQualityValueCutoff),
+            "savontMinimumClusterSize": .integer(request.savontMinimumClusterSize),
+            "savontCondaEnvironment": .string(FullLengthONTMHCGenotypingRunRequest.savontCondaEnvironment),
+            "savontPackageSpec": .string(FullLengthONTMHCGenotypingRunRequest.savontPackageSpec),
+            "savontToolVersion": .string(FullLengthONTMHCGenotypingRunRequest.savontToolVersion),
             "minUnmatchedReads": .integer(request.minUnmatchedReads),
             "cdnaThreshold": .integer(request.cdnaThreshold),
             "sampleJobs": .integer(executionPlan.sampleJobs),
-            "pbaaThreadsPerSample": .integer(executionPlan.pbaaThreadsPerSample),
+            "savontThreadsPerSample": .integer(executionPlan.savontThreadsPerSample),
             "workerThreadsPerSample": .integer(executionPlan.workerThreadsPerSample),
-            "pbaaClusterSourceMode": .string(request.pbaaClusterSourceMode.rawValue),
             "haplotypeDropoutSampleFraction": request.haplotypeDropoutSampleFraction
                 .map(ParameterValue.number) ?? .string("disabled"),
             "haplotypeDropoutLocusFraction": request.haplotypeDropoutLocusFraction
@@ -1455,12 +1341,10 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         ]
         var explicit = resolved
         explicit["requestedSampleJobs"] = request.sampleJobs.map(ParameterValue.integer) ?? .string("auto")
-        explicit["requestedPBAAThreadsPerSample"] = request.pbaaThreadsPerSample.map(ParameterValue.integer) ?? .string("auto")
+        explicit["requestedSavontThreadsPerSample"] = request.savontThreadsPerSample.map(ParameterValue.integer) ?? .string("auto")
         explicit["inputFASTQs"] = .array(request.inputFASTQURLs.map(ParameterValue.file))
         explicit["reference"] = .file(request.referenceSourceURL)
         explicit["resolvedReferenceFASTA"] = .file(referenceFASTAURL)
-        explicit["guide"] = .file(request.guideSourceURL)
-        explicit["resolvedGuideFASTA"] = .file(guideFASTAURL)
         explicit["outputDirectory"] = .file(request.outputDirectory)
         explicit["outputName"] = .string(request.outputName)
         explicit["currentWorkbook"] = .file(request.currentWorkbookURL)
@@ -1505,7 +1389,6 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         .options(explicit: explicit, defaults: defaults, resolved: resolved)
         .runtime(ProvenanceRuntimeIdentity())
         .input(referenceFASTAURL, format: .fasta, role: .reference)
-        .input(guideFASTAURL, format: .fasta, role: .reference)
         .output(request.reportCSVURL, format: .text, role: .report)
         .output(request.sampleSummaryCSVURL, format: .text, role: .report)
         .output(request.statsJSONURL, format: .json, role: .report)
@@ -1713,7 +1596,7 @@ private struct FullLengthONTMHCSampleSummary: Sendable, Codable, Equatable {
 
 private struct FullLengthONTMHCSampleExecutionConfiguration: Sendable, Equatable {
     let workerThreads: Int
-    let pbaaThreads: Int
+    let savontThreads: Int
 }
 
 private struct FullLengthONTMHCSampleResult: Sendable {

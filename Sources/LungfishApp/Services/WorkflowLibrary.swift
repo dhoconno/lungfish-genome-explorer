@@ -142,7 +142,7 @@ enum WorkflowLibraryCatalog {
     static let fullLengthONTMHCGenotypingItem = WorkflowLibraryItem(
         id: fullLengthONTMHCGenotypingID,
         title: "Full-length ONT MHC genotyping",
-        subtitle: "Cluster full-length ONT MHC amplicons with pbAA and genotype cluster consensus sequences against an MHC allele library.",
+        subtitle: "Cluster full-length ONT MHC amplicons with Savont and genotype cluster consensus sequences against an MHC allele library.",
         categoryID: .classification,
         maturity: .specialized,
         requiredPluginPackIDs: ["lungfish-tools", "read-mapping"],
