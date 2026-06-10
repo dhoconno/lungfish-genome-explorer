@@ -504,6 +504,11 @@ public class SidebarViewController: NSViewController {
     }
 
     func reloadOutlineView() {
+        // Named `Sidebar.OutlineRefresh` (not `Delete.*`): reloadOutlineView has many
+        // callers, only one of which is the delete path. The enclosing `Sidebar.Delete`
+        // interval identifies a refresh that belongs to a delete.
+        let state = PerfSignpost.sidebar.begin("Sidebar.OutlineRefresh")
+        defer { PerfSignpost.sidebar.end("Sidebar.OutlineRefresh", state) }
         outlineView.reloadData()
         postPreferredSidebarWidthIfNeeded()
     }
