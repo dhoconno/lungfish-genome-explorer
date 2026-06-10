@@ -806,6 +806,80 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
         XCTAssertLessThan(viewModel.copyableText.count, 25_000)
     }
 
+    func testFullLengthGenotypeBundleLoadsWorkflowNamedRootProvenanceSidecar() throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let resultBundle = dir.appendingPathComponent("CP2656.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: resultBundle, withIntermediateDirectories: true)
+
+        let input = resultBundle.appendingPathComponent("CP2656.fastq")
+        let workbook = resultBundle.appendingPathComponent("CP2656.full-length-ont-mhc-genotypes.xlsx")
+        let clusters = resultBundle.appendingPathComponent("samples/CP2656/savont/CP2656.savont-clusters.fasta")
+        try FileManager.default.createDirectory(
+            at: clusters.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("@r\nACGT\n+\n!!!!\n".utf8).write(to: input)
+        try Data("xlsx".utf8).write(to: workbook)
+        try Data(">cluster_1;size=42\nACGT\n".utf8).write(to: clusters)
+
+        let inputDescriptor = try ProvenanceFileDescriptor.file(url: input, format: .fastq, role: .input)
+        let workbookDescriptor = try ProvenanceFileDescriptor.file(url: workbook, format: .unknown, role: .report)
+        let clusterDescriptor = try ProvenanceFileDescriptor.file(url: clusters, format: .fasta, role: .output)
+        let savontStep = ProvenanceStep(
+            toolName: "savont",
+            toolVersion: "0.1.0",
+            argv: ["savont", "asv", input.path, "-o", clusters.deletingLastPathComponent().path],
+            inputs: [inputDescriptor],
+            outputs: [clusterDescriptor],
+            exitStatus: 0,
+            wallTimeSeconds: 7.5
+        )
+        let envelope = ProvenanceEnvelope(
+            workflowName: "lungfish fastq full-length-ont-mhc-genotype",
+            workflowVersion: "Lungfish test",
+            toolName: "lungfish-cli",
+            toolVersion: "Lungfish test",
+            argv: [
+                "lungfish",
+                "fastq",
+                "full-length-ont-mhc-genotype",
+                input.path,
+                "--output-dir",
+                resultBundle.path,
+            ],
+            runtimeIdentity: ProvenanceRuntimeIdentity.fixture(),
+            files: [inputDescriptor, workbookDescriptor, clusterDescriptor],
+            output: nil,
+            outputs: [workbookDescriptor, clusterDescriptor],
+            steps: [savontStep],
+            wallTimeSeconds: 8.0,
+            exitStatus: 0
+        )
+        let data = try ProvenanceJSON.encoder.encode(envelope)
+        try data.write(
+            to: resultBundle.appendingPathComponent("full-length-ont-mhc-genotyping-provenance.json"),
+            options: .atomic
+        )
+
+        let viewModel = ProvenanceInspectorViewModel()
+        viewModel.load(
+            item: ProvenanceInspectableItem(
+                url: resultBundle,
+                sidebarType: .genotypeResultBundle,
+                contentMode: .genotype,
+                displayName: "CP2656"
+            )
+        )
+
+        XCTAssertEqual(viewModel.audit.status, .present)
+        XCTAssertEqual(viewModel.summary.workflowName, "lungfish fastq full-length-ont-mhc-genotype")
+        XCTAssertEqual(viewModel.lineageRuns.first?.steps.map(\.toolName), ["savont"])
+        XCTAssertTrue(viewModel.summary.sidecarPath?.hasSuffix("full-length-ont-mhc-genotyping-provenance.json") == true)
+        XCTAssertTrue(viewModel.copyableText.contains("full-length-ont-mhc-genotype"))
+    }
+
     private func makeTempDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("provenance-inspector-\(UUID().uuidString)", isDirectory: true)

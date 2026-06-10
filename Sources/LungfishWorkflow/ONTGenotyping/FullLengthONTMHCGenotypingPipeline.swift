@@ -519,17 +519,22 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             genotypeRows: allGenotypeRows,
             to: request.statsJSONURL
         )
+        let haplotypeAnalysis = try writeHaplotypeAnalysisIfRequested(
+            request: request,
+            supportDirectory: request.outputDirectory.appendingPathComponent(".full-length-ont-mhc", isDirectory: true),
+            generatedAt: Date()
+        )
+        let orderedAlleles = try FullLengthONTMHCClusterGenotyper
+            .readFASTARecords(from: referenceFASTAURL)
+            .map(\.name)
         try writeWorkbook(
             reportRows: reportRows,
             sampleSummaries: sampleSummaries,
             genotypeRows: allGenotypeRows,
             unmatchedClusterRows: unmatchedClusterRows,
+            orderedAlleles: orderedAlleles,
+            haplotypeAnalysis: haplotypeAnalysis,
             to: request.workbookURL
-        )
-        let haplotypeAnalysis = try writeHaplotypeAnalysisIfRequested(
-            request: request,
-            supportDirectory: request.outputDirectory.appendingPathComponent(".full-length-ont-mhc", isDirectory: true),
-            generatedAt: Date()
         )
         let workbookCopy = try createInitialCurrentWorkbookCopy(for: request)
         pipelineSteps.append(workbookCopy.step)
@@ -683,6 +688,31 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             progressHandler: progressHandler,
             steps: &steps
         )
+        let clusterRecords = try FullLengthONTMHCClusterGenotyper.readFASTARecords(
+            from: clustersFASTAURL
+        )
+        guard !clusterRecords.isEmpty else {
+            let sampleSummary = FullLengthONTMHCSampleSummary(
+                sample: scheduled.sample,
+                totalInputReads: scheduled.readCount,
+                clusterCount: 0,
+                clusteredReads: 0,
+                assignedReads: 0,
+                unmatchedClusters: 0,
+                cdnaClusters: 0
+            )
+            return FullLengthONTMHCSampleResult(
+                originalIndex: scheduled.originalIndex,
+                processingRank: processingRank,
+                sample: scheduled.sample,
+                readCount: scheduled.readCount,
+                genotypeRows: [],
+                sampleSummary: sampleSummary,
+                unmatchedClusters: [],
+                cdnaMatchedClusters: [],
+                steps: steps
+            )
+        }
 
         let genotyped = try await genotypeClusters(
             sample: scheduled.sample,
@@ -692,9 +722,6 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             request: request,
             execution: execution,
             steps: &steps
-        )
-        let clusterRecords = try FullLengthONTMHCClusterGenotyper.readFASTARecords(
-            from: clustersFASTAURL
         )
         let sampleSummary = FullLengthONTMHCSampleSummary(
             sample: scheduled.sample,
@@ -746,6 +773,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             finalRawOutputDirectory: rawOutputDirectory,
             request: request,
             savontThreads: max(1, execution.savontThreads),
+            singleStrand: false,
             attempt: 1
         )
         if firstAttempt.exitCode == 0 {
@@ -763,13 +791,38 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             outputs: []
         ))
 
-        if FullLengthONTMHCSavontRunSupport.shouldRetry(
+        let retryDecision = FullLengthONTMHCSavontRunSupport.retryDecision(
             exitCode: firstAttempt.exitCode,
-            attemptedThreads: firstAttempt.savontThreads
-        ) {
+            attemptedThreads: firstAttempt.savontThreads,
+            attemptedSingleStrand: firstAttempt.savontSingleStrand,
+            stderr: firstAttempt.stderr
+        )
+        switch retryDecision {
+        case .singleThread, .singleStrand:
+            let retryThreads: Int
+            let retrySingleStrand: Bool
+            let retryDetail: String
+            switch retryDecision {
+            case .singleThread:
+                retryThreads = 1
+                retrySingleStrand = firstAttempt.savontSingleStrand
+                retryDetail = "using 1 Savont thread"
+            case .singleStrand:
+                retryThreads = firstAttempt.savontThreads
+                retrySingleStrand = true
+                retryDetail = "using Savont --single-strand"
+            case .none:
+                retryThreads = firstAttempt.savontThreads
+                retrySingleStrand = firstAttempt.savontSingleStrand
+                retryDetail = "retrying"
+            case .emptyClusters:
+                retryThreads = firstAttempt.savontThreads
+                retrySingleStrand = firstAttempt.savontSingleStrand
+                retryDetail = "continuing with empty clusters"
+            }
             progressHandler?(
                 progressFraction,
-                "Retrying \(scheduled.sample) after Savont exited with status \(firstAttempt.exitCode); using 1 Savont thread."
+                "Retrying \(scheduled.sample) after Savont exited with status \(firstAttempt.exitCode); \(retryDetail)."
             )
             let retryAttempt = try await runSavontClusteringAttempt(
                 scheduled: scheduled,
@@ -777,7 +830,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 sampleOutputDirectory: sampleOutputDirectory,
                 finalRawOutputDirectory: rawOutputDirectory,
                 request: request,
-                savontThreads: 1,
+                savontThreads: retryThreads,
+                singleStrand: retrySingleStrand,
                 attempt: 2
             )
             if retryAttempt.exitCode == 0 {
@@ -794,11 +848,44 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 preparedFASTQ: preparedFASTQ,
                 outputs: []
             ))
+            if FullLengthONTMHCSavontRunSupport.isLowCoverageNoClusterFailure(
+                exitCode: retryAttempt.exitCode,
+                attemptedSingleStrand: retryAttempt.savontSingleStrand,
+                stderr: retryAttempt.stderr
+            ) {
+                try writeEmptySavontClusters(
+                    normalizedFASTAURL: normalizedFASTAURL,
+                    sample: scheduled.sample,
+                    preparedFASTQ: preparedFASTQ,
+                    stderr: retryAttempt.stderr,
+                    steps: &steps
+                )
+                progressHandler?(
+                    progressFraction,
+                    "No Savont ASVs for \(scheduled.sample) after single-strand retry; continuing with empty cluster set."
+                )
+                return normalizedFASTAURL
+            }
             throw FullLengthONTMHCGenotypingError.processFailed(
                 tool: "savont",
                 status: retryAttempt.exitCode,
                 stderr: retryAttempt.stderr
             )
+        case .emptyClusters:
+            try writeEmptySavontClusters(
+                normalizedFASTAURL: normalizedFASTAURL,
+                sample: scheduled.sample,
+                preparedFASTQ: preparedFASTQ,
+                stderr: firstAttempt.stderr,
+                steps: &steps
+            )
+            progressHandler?(
+                progressFraction,
+                "No Savont ASVs for \(scheduled.sample); continuing with empty cluster set."
+            )
+            return normalizedFASTAURL
+        case .none:
+            break
         }
 
         throw FullLengthONTMHCGenotypingError.processFailed(
@@ -815,6 +902,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         finalRawOutputDirectory: URL,
         request: FullLengthONTMHCGenotypingRunRequest,
         savontThreads: Int,
+        singleStrand: Bool,
         attempt: Int
     ) async throws -> FullLengthONTMHCSavontAttemptResult {
         let plan = FullLengthONTMHCSavontRunSupport.makePlan(
@@ -824,7 +912,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         )
         try FileManager.default.createDirectory(at: plan.scratchRootDirectory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: plan.scratchRootDirectory) }
-        let arguments = [
+        var arguments = [
             "asv",
             preparedFASTQ.path,
             "-o", plan.scratchRawOutputDirectory.path,
@@ -834,6 +922,9 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             "--quality-value-cutoff", String(request.savontQualityValueCutoff),
             "--min-cluster-size", String(request.savontMinimumClusterSize),
         ]
+        if singleStrand {
+            arguments.append("--single-strand")
+        }
         let startedAt = Date()
         let result = try await condaManager.runTool(
             name: "savont",
@@ -851,6 +942,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         return FullLengthONTMHCSavontAttemptResult(
             plan: plan,
             savontThreads: max(1, savontThreads),
+            savontSingleStrand: singleStrand,
             arguments: arguments,
             stderr: result.stderr,
             exitCode: result.exitCode,
@@ -896,6 +988,34 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             startedAt: attempt.startedAt,
             completedAt: attempt.completedAt
         )
+    }
+
+    private func writeEmptySavontClusters(
+        normalizedFASTAURL: URL,
+        sample: String,
+        preparedFASTQ: URL,
+        stderr: String,
+        steps: inout [FullLengthONTMHCProvenanceStep]
+    ) throws {
+        try Data().write(to: normalizedFASTAURL, options: .atomic)
+        let completedAt = Date()
+        steps.append(FullLengthONTMHCProvenanceStep(
+            toolName: "lungfish empty Savont clusters",
+            toolVersion: FullLengthONTMHCGenotypingRunRequest.savontToolVersion,
+            argv: [
+                "lungfish",
+                "fastq",
+                "full-length-ont-mhc-genotype",
+                "empty-savont-clusters",
+                sample,
+            ],
+            inputs: [preparedFASTQ],
+            outputs: [normalizedFASTAURL],
+            exitStatus: 0,
+            stderr: stderr,
+            startedAt: completedAt,
+            completedAt: completedAt
+        ))
     }
 
     private func prepareReadsForSavont(
@@ -1214,6 +1334,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         sampleSummaries: [FullLengthONTMHCSampleSummary],
         genotypeRows: [FullLengthONTMHCClusterGenotypeRow],
         unmatchedClusterRows: [FullLengthONTMHCUnmatchedClusterWorkbookRow],
+        orderedAlleles: [String],
+        haplotypeAnalysis: GenotypeHaplotypeAnalysis?,
         to url: URL
     ) throws {
         try FullLengthONTMHCXLSXPackageWriter.write(
@@ -1222,6 +1344,25 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 .init(name: "Samples", rows: sampleWorkbookRows(sampleSummaries)),
                 .init(name: "Cluster Alignments", rows: clusterWorkbookRows(genotypeRows)),
                 .init(name: "Unmatched Clusters", rows: unmatchedClusterWorkbookRows(unmatchedClusterRows)),
+                .init(
+                    name: "Full Sequencing Results 1",
+                    rows: FullLengthONTMHCPivotWorkbookBuilder.buildRows(
+                        reportRows: reportRows,
+                        samples: sampleSummaries.map {
+                            let retainedPercent = $0.totalInputReads > 0
+                                ? Double($0.assignedReads) / Double($0.totalInputReads) * 100.0
+                                : nil
+                            return FullLengthONTMHCPivotSample(
+                                sample: $0.sample,
+                                mappedReadCount: $0.assignedReads,
+                                totalReadCount: $0.totalInputReads,
+                                retainedPercent: retainedPercent
+                            )
+                        },
+                        orderedAlleles: orderedAlleles,
+                        haplotypeAnalysis: haplotypeAnalysis
+                    )
+                ),
             ],
             to: url
         )
@@ -1717,6 +1858,303 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
     }
 }
 
+struct FullLengthONTMHCPivotSample: Sendable, Equatable {
+    let sample: String
+    let mappedReadCount: Int?
+    let totalReadCount: Int?
+    let retainedPercent: Double?
+}
+
+enum FullLengthONTMHCPivotWorkbookBuilder {
+    private static let canonicalLoci = [
+        "MHC-A", "MHC-B", "MHC-DRB", "MHC-DQA", "MHC-DQB", "MHC-DPA", "MHC-DPB",
+    ]
+
+    private static let sectionSuffixOrder = [
+        "-F alleles",
+        "-G alleles",
+        "-AG alleles",
+        "-A major alleles",
+        "-A minor alleles",
+        "-70 alleles",
+        "-L alleles",
+        "-E alleles",
+        "-B alleles",
+        "-DRB alleles",
+        "-DQA/DQB alleles",
+        "-DPA/DPB alleles",
+    ]
+
+    static func buildRows(
+        reportRows: [FullLengthONTMHCReportRow],
+        samples: [FullLengthONTMHCPivotSample],
+        orderedAlleles: [String],
+        haplotypeAnalysis: GenotypeHaplotypeAnalysis?
+    ) -> [[String]] {
+        let pivotSamples = completeSamples(samples, with: reportRows)
+        let sampleNames = pivotSamples.map(\.sample)
+        let speciesPrefix = inferSpeciesPrefix(reportRows: reportRows, haplotypeAnalysis: haplotypeAnalysis)
+        let callsBySampleLocus = haplotypeCallsBySampleLocus(haplotypeAnalysis)
+        let countsBySampleAllele = alleleCounts(reportRows)
+        let observedAlleles = Set(countsBySampleAllele.keys)
+        let orderedObservedAlleles = orderedObservedAlleles(
+            observedAlleles: observedAlleles,
+            orderedAlleles: orderedAlleles
+        )
+
+        var rows: [[String]] = []
+        rows.append(["Client ID", "", ""] + sampleNames)
+        rows.append(["GS ID", "Total", "Average"] + sampleNames)
+
+        let mappedCounts = pivotSamples.map(\.mappedReadCount)
+        rows.append(
+            ["Mapped Read Count", formatNumber(mappedCounts.compactMap { $0 }.reduce(0, +)), formatNumber(average(mappedCounts))]
+            + mappedCounts.map { formatNumber($0) }
+        )
+        rows.append(["total_read_count", "", ""] + pivotSamples.map { formatNumber($0.totalReadCount) })
+        rows.append(
+            ["percent_reads_unmapped", "", ""]
+            + pivotSamples.map { sample in
+                sample.retainedPercent.map { formatNumber(max(0.0, min(100.0, 100.0 - $0))) } ?? ""
+            }
+        )
+
+        for locus in canonicalLoci {
+            for slot in 1...2 {
+                rows.append(
+                    ["\(locus) Haplotype \(slot)", "", ""]
+                    + sampleNames.map { sample in
+                        haplotypeValue(callsBySampleLocus[sample]?[locus], slot: slot) ?? ""
+                    }
+                )
+            }
+        }
+
+        rows.append(
+            ["Comments", "Subtotal", "# Obs."]
+            + sampleNames.map { sample in haplotypeComments(callsBySampleLocus[sample] ?? [:]) }
+        )
+
+        let sectionOrder = sectionSuffixOrder.map { speciesPrefix + $0 }
+        let observedBySection = Dictionary(grouping: orderedObservedAlleles) {
+            sectionLabel(for: $0, speciesPrefix: speciesPrefix)
+        }
+
+        for section in sectionOrder {
+            guard let alleles = observedBySection[section], !alleles.isEmpty else { continue }
+            rows.append([section, "", ""] + Array(repeating: "", count: sampleNames.count))
+            for allele in alleles {
+                rows.append(alleleRow(allele, sampleNames: sampleNames, countsBySampleAllele: countsBySampleAllele))
+            }
+        }
+
+        for section in observedBySection.keys.sorted().filter({ !sectionOrder.contains($0) }) {
+            guard let alleles = observedBySection[section], !alleles.isEmpty else { continue }
+            rows.append([section, "", ""] + Array(repeating: "", count: sampleNames.count))
+            for allele in alleles {
+                rows.append(alleleRow(allele, sampleNames: sampleNames, countsBySampleAllele: countsBySampleAllele))
+            }
+        }
+
+        return rows
+    }
+
+    private static func completeSamples(
+        _ samples: [FullLengthONTMHCPivotSample],
+        with reportRows: [FullLengthONTMHCReportRow]
+    ) -> [FullLengthONTMHCPivotSample] {
+        var result = samples
+        var seen = Set(samples.map(\.sample))
+        let missingSamples = Set(reportRows.map(\.sample))
+            .subtracting(seen)
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        for sample in missingSamples {
+            let sampleRows = reportRows.filter { $0.sample == sample }
+            let mapped = sampleRows.reduce(0) { $0 + $1.passedUniqueReads }
+            let first = sampleRows.first
+            result.append(FullLengthONTMHCPivotSample(
+                sample: sample,
+                mappedReadCount: mapped,
+                totalReadCount: first?.sampleTotalReads,
+                retainedPercent: first?.sampleUniqueRetainedPercent
+            ))
+            seen.insert(sample)
+        }
+        return result
+    }
+
+    private static func alleleCounts(_ reportRows: [FullLengthONTMHCReportRow]) -> [String: [String: Int]] {
+        var counts: [String: [String: Int]] = [:]
+        for row in reportRows {
+            counts[row.genotype, default: [:]][row.sample, default: 0] += row.passedUniqueReads
+        }
+        return counts
+    }
+
+    private static func orderedObservedAlleles(
+        observedAlleles: Set<String>,
+        orderedAlleles: [String]
+    ) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for allele in orderedAlleles where observedAlleles.contains(allele) && seen.insert(allele).inserted {
+            result.append(allele)
+        }
+        let remaining = observedAlleles
+            .filter { !seen.contains($0) }
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        result.append(contentsOf: remaining)
+        return result
+    }
+
+    private static func haplotypeCallsBySampleLocus(
+        _ analysis: GenotypeHaplotypeAnalysis?
+    ) -> [String: [String: GenotypeHaplotypeLocusCall]] {
+        guard let analysis else { return [:] }
+        var calls: [String: [String: GenotypeHaplotypeLocusCall]] = [:]
+        for sample in analysis.samples {
+            for call in sample.calls {
+                calls[sample.sample, default: [:]][call.locus] = call
+            }
+        }
+        return calls
+    }
+
+    private static func haplotypeValue(_ call: GenotypeHaplotypeLocusCall?, slot: Int) -> String? {
+        guard let call else { return nil }
+        let value = slot == 1 ? call.haplotype1 : call.haplotype2
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func haplotypeComments(_ callsByLocus: [String: GenotypeHaplotypeLocusCall]) -> String {
+        let comments = callsByLocus
+            .values
+            .sorted { $0.locus.localizedStandardCompare($1.locus) == .orderedAscending }
+            .compactMap { call -> String? in
+                guard call.status != .called, call.status != .notAssayed else { return nil }
+                let first = call.haplotype1.trimmingCharacters(in: .whitespacesAndNewlines)
+                let second = call.haplotype2.trimmingCharacters(in: .whitespacesAndNewlines)
+                let label: String
+                if first.isEmpty {
+                    label = second
+                } else if second.isEmpty || first == second {
+                    label = first
+                } else {
+                    label = "\(first)/\(second)"
+                }
+                return label.isEmpty ? "\(call.locus): \(call.status.rawValue)" : "\(call.locus): \(label)"
+            }
+        return comments.joined(separator: "; ")
+    }
+
+    private static func alleleRow(
+        _ allele: String,
+        sampleNames: [String],
+        countsBySampleAllele: [String: [String: Int]]
+    ) -> [String] {
+        let counts = countsBySampleAllele[allele] ?? [:]
+        let perSample = sampleNames.map { sample in counts[sample] ?? 0 }
+        let subtotal = perSample.reduce(0, +)
+        let observed = perSample.filter { $0 > 0 }.count
+        return [
+            allele,
+            subtotal > 0 ? formatNumber(subtotal) : "",
+            observed > 0 ? formatNumber(observed) : "",
+        ] + perSample.map { $0 > 0 ? formatNumber($0) : "" }
+    }
+
+    private static func sectionLabel(for allele: String, speciesPrefix: String) -> String {
+        let trimmed = allele.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("01_") { return speciesPrefix + "-F alleles" }
+        if trimmed.hasPrefix("02_") { return speciesPrefix + "-G alleles" }
+        if trimmed.hasPrefix("04_") || trimmed.hasPrefix("AG_") { return speciesPrefix + "-AG alleles" }
+        if trimmed.hasPrefix("05_") { return speciesPrefix + "-A major alleles" }
+        if trimmed.hasPrefix("06_") { return speciesPrefix + "-A minor alleles" }
+        if trimmed.hasPrefix("07_") { return speciesPrefix + "-70 alleles" }
+        if trimmed.hasPrefix("10_") { return speciesPrefix + "-L alleles" }
+        if trimmed.hasPrefix("11_") || trimmed.hasPrefix("E_") { return speciesPrefix + "-E alleles" }
+        if trimmed.hasPrefix("12_") || trimmed.hasPrefix("B") || trimmed.hasPrefix("I_") {
+            return speciesPrefix + "-B alleles"
+        }
+        if trimmed.hasPrefix("13_") { return speciesPrefix + "-DRB alleles" }
+        if trimmed.hasPrefix("14_") { return speciesPrefix + "-DQA/DQB alleles" }
+        if trimmed.hasPrefix("15_") { return speciesPrefix + "-DPA/DPB alleles" }
+
+        let gene = alleleGeneToken(trimmed)
+        if gene == "F" { return speciesPrefix + "-F alleles" }
+        if gene == "G" { return speciesPrefix + "-G alleles" }
+        if gene == "AG" { return speciesPrefix + "-AG alleles" }
+        if gene == "A1" { return speciesPrefix + "-A major alleles" }
+        if gene.hasPrefix("A") { return speciesPrefix + "-A minor alleles" }
+        if gene == "L" { return speciesPrefix + "-L alleles" }
+        if gene == "E" { return speciesPrefix + "-E alleles" }
+        if gene.hasPrefix("B") || gene == "I" { return speciesPrefix + "-B alleles" }
+        if gene.hasPrefix("DRB") { return speciesPrefix + "-DRB alleles" }
+        if gene.hasPrefix("DQA") || gene.hasPrefix("DQB") { return speciesPrefix + "-DQA/DQB alleles" }
+        if gene.hasPrefix("DPA") || gene.hasPrefix("DPB") { return speciesPrefix + "-DPA/DPB alleles" }
+        return "Other alleles"
+    }
+
+    private static func alleleGeneToken(_ allele: String) -> String {
+        let name = allele.split(whereSeparator: \.isWhitespace).first.map(String.init) ?? allele
+        let afterSpecies = name.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false).last.map(String.init) ?? name
+        let beforeStar = afterSpecies.split(separator: "*", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? afterSpecies
+        let beforeColon = beforeStar.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? beforeStar
+        return beforeColon.uppercased()
+    }
+
+    private static func inferSpeciesPrefix(
+        reportRows: [FullLengthONTMHCReportRow],
+        haplotypeAnalysis: GenotypeHaplotypeAnalysis?
+    ) -> String {
+        for genotype in reportRows.map(\.genotype) {
+            let prefix = genotype.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? ""
+            if prefix.count == 4, prefix.allSatisfy(\.isLetter) {
+                return prefix
+            }
+        }
+        let speciesName = haplotypeAnalysis?.speciesName.lowercased() ?? ""
+        if speciesName.contains("fascicularis") { return "Mafa" }
+        if speciesName.contains("mulatta") { return "Mamu" }
+        if speciesName.contains("nemestrina") { return "Mane" }
+        if speciesName.contains("fuscata") { return "Mafu" }
+        if speciesName.contains("tonkeana") { return "Mato" }
+        if speciesName.contains("leonina") { return "Male" }
+        if speciesName.contains("thibetana") { return "Math" }
+        return "Mafa"
+    }
+
+    private static func average(_ values: [Int?]) -> Double? {
+        let present = values.compactMap { $0 }
+        guard !present.isEmpty else { return nil }
+        return Double(present.reduce(0, +)) / Double(present.count)
+    }
+
+    private static func formatNumber(_ value: Int?) -> String {
+        value.map { String($0) } ?? ""
+    }
+
+    private static func formatNumber(_ value: Int) -> String {
+        String(value)
+    }
+
+    private static func formatNumber(_ value: Double?) -> String {
+        guard let value else { return "" }
+        if value.rounded() == value && abs(value) < 1e15 {
+            return String(Int64(value))
+        }
+        var text = String(format: "%.6f", value)
+        while text.last == "0" {
+            text.removeLast()
+        }
+        if text.last == "." {
+            text.removeLast()
+        }
+        return text
+    }
+}
+
 private struct FullLengthONTMHCWorkbookCopyResult: Sendable {
     let revision: ONTGenotypeWorkbookRevision
     let step: FullLengthONTMHCProvenanceStep
@@ -1747,6 +2185,7 @@ private struct FullLengthONTMHCSampleExecutionConfiguration: Sendable, Equatable
 private struct FullLengthONTMHCSavontAttemptResult: Sendable {
     let plan: FullLengthONTMHCSavontRunPlan
     let savontThreads: Int
+    let savontSingleStrand: Bool
     let arguments: [String]
     let stderr: String
     let exitCode: Int32

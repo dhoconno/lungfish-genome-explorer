@@ -15,6 +15,13 @@ struct FullLengthONTMHCSavontRunPlan: Sendable, Equatable {
     }
 }
 
+enum FullLengthONTMHCSavontRetryDecision: Sendable, Equatable {
+    case none
+    case singleThread
+    case singleStrand
+    case emptyClusters
+}
+
 enum FullLengthONTMHCSavontRunSupport {
     static func makePlan(
         sample: String,
@@ -36,6 +43,23 @@ enum FullLengthONTMHCSavontRunSupport {
     }
 
     static func shouldRetry(exitCode: Int32, attemptedThreads: Int) -> Bool {
+        retryDecision(
+            exitCode: exitCode,
+            attemptedThreads: attemptedThreads,
+            attemptedSingleStrand: false,
+            stderr: ""
+        ) == .singleThread
+    }
+
+    static func retryDecision(
+        exitCode: Int32,
+        attemptedThreads: Int,
+        attemptedSingleStrand: Bool,
+        stderr: String
+    ) -> FullLengthONTMHCSavontRetryDecision {
+        if isLowBidirectionalSNPmerFailure(exitCode: exitCode, stderr: stderr) {
+            return attemptedSingleStrand ? .emptyClusters : .singleStrand
+        }
         let retryableCrashStatuses: Set<Int32> = [
             -11,
             11,
@@ -45,7 +69,10 @@ enum FullLengthONTMHCSavontRunSupport {
             138,
             139,
         ]
-        return attemptedThreads > 1 && retryableCrashStatuses.contains(exitCode)
+        if attemptedThreads > 1 && retryableCrashStatuses.contains(exitCode) {
+            return .singleThread
+        }
+        return .none
     }
 
     static func materializeCompletedRawOutput(from scratchRawOutputDirectory: URL, to finalRawOutputDirectory: URL) throws {
@@ -75,5 +102,20 @@ enum FullLengthONTMHCSavontRunSupport {
         }
         let value = String(sanitized)
         return value.isEmpty ? "sample" : value
+    }
+
+    static func isLowCoverageNoClusterFailure(
+        exitCode: Int32,
+        attemptedSingleStrand: Bool,
+        stderr: String
+    ) -> Bool {
+        attemptedSingleStrand && isLowBidirectionalSNPmerFailure(exitCode: exitCode, stderr: stderr)
+    }
+
+    private static func isLowBidirectionalSNPmerFailure(exitCode: Int32, stderr: String) -> Bool {
+        guard exitCode != 0 else { return false }
+        let normalized = stderr.lowercased()
+        return normalized.contains("less than 0.1% of snpmers")
+            && normalized.contains("--single-strand")
     }
 }

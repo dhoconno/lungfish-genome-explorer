@@ -339,6 +339,40 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertFalse(FullLengthONTMHCSavontRunSupport.shouldRetry(exitCode: 139, attemptedThreads: 1))
         XCTAssertFalse(FullLengthONTMHCSavontRunSupport.shouldRetry(exitCode: 1, attemptedThreads: 3))
         XCTAssertFalse(FullLengthONTMHCSavontRunSupport.shouldRetry(exitCode: 143, attemptedThreads: 3))
+        XCTAssertEqual(
+            FullLengthONTMHCSavontRunSupport.retryDecision(
+                exitCode: 139,
+                attemptedThreads: 3,
+                attemptedSingleStrand: false,
+                stderr: ""
+            ),
+            .singleThread
+        )
+    }
+
+    func testSavontRunSupportRetriesLowBidirectionalSNPmersWithSingleStrandFallback() {
+        let stderr = """
+        ERROR [savont::seq_parse] Less than 0.1% of SNPmers have counts > 1 in both strands and > 2 multiplicity. This may indicate a problem with the input data or very low coverage. Consider using --single-strand
+        """
+
+        XCTAssertEqual(
+            FullLengthONTMHCSavontRunSupport.retryDecision(
+                exitCode: 1,
+                attemptedThreads: 3,
+                attemptedSingleStrand: false,
+                stderr: stderr
+            ),
+            .singleStrand
+        )
+        XCTAssertEqual(
+            FullLengthONTMHCSavontRunSupport.retryDecision(
+                exitCode: 1,
+                attemptedThreads: 3,
+                attemptedSingleStrand: true,
+                stderr: stderr
+            ),
+            .emptyClusters
+        )
     }
 
     func testClusterGenotyperKeepsBestZeroSNPAllelesAndCarriesPBAAReadCounts() throws {
@@ -437,6 +471,117 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(reportRows[0].passedUniqueReads, 34)
     }
 
+    func testFullLengthPivotWorkbookRowsMatchMiSeqFullSequencingFormatAndSorting() {
+        let rows = FullLengthONTMHCPivotWorkbookBuilder.buildRows(
+            reportRows: [
+                FullLengthONTMHCReportRow(
+                    sample: "DL47",
+                    genotype: "Mamu-B*007:01",
+                    passedAlignments: 12,
+                    passedUniqueReads: 12,
+                    sampleTotalReads: 100,
+                    sampleUniqueRetainedReads: 42,
+                    sampleUniqueRetainedPercent: 42.0,
+                    overallInputReads: 300,
+                    overallUniqueRetainedReads: 82,
+                    overallUniqueRetainedPercent: 27.333333
+                ),
+                FullLengthONTMHCReportRow(
+                    sample: "DL47",
+                    genotype: "Mamu-A1*004:01",
+                    passedAlignments: 30,
+                    passedUniqueReads: 30,
+                    sampleTotalReads: 100,
+                    sampleUniqueRetainedReads: 42,
+                    sampleUniqueRetainedPercent: 42.0,
+                    overallInputReads: 300,
+                    overallUniqueRetainedReads: 82,
+                    overallUniqueRetainedPercent: 27.333333
+                ),
+                FullLengthONTMHCReportRow(
+                    sample: "DL48",
+                    genotype: "Mamu-A1*004:01",
+                    passedAlignments: 40,
+                    passedUniqueReads: 40,
+                    sampleTotalReads: 200,
+                    sampleUniqueRetainedReads: 40,
+                    sampleUniqueRetainedPercent: 20.0,
+                    overallInputReads: 300,
+                    overallUniqueRetainedReads: 82,
+                    overallUniqueRetainedPercent: 27.333333
+                ),
+            ],
+            samples: [
+                FullLengthONTMHCPivotSample(
+                    sample: "DL47",
+                    mappedReadCount: 42,
+                    totalReadCount: 100,
+                    retainedPercent: 42.0
+                ),
+                FullLengthONTMHCPivotSample(
+                    sample: "DL48",
+                    mappedReadCount: 40,
+                    totalReadCount: 200,
+                    retainedPercent: 20.0
+                ),
+            ],
+            orderedAlleles: [
+                "Mamu-B*007:01",
+                "Mamu-A1*004:01",
+            ],
+            haplotypeAnalysis: GenotypeHaplotypeAnalysis(
+                assayID: "full-length-ont-mhc",
+                definitionSetID: "mamu-test",
+                definitionSetName: "Mamu test",
+                speciesName: "Macaca mulatta",
+                samples: [
+                    GenotypeHaplotypeSampleAnalysis(
+                        sample: "DL47",
+                        calls: [
+                            GenotypeHaplotypeLocusCall(
+                                locus: "MHC-A",
+                                sourceLocus: "Mamu-A",
+                                haplotype1: "Mamu-A-H1",
+                                haplotype2: "Mamu-A-H2",
+                                status: .called,
+                                matchedHaplotypes: [],
+                                observedGenotypeCount: 1,
+                                observedGenotypes: ["Mamu-A1*004:01"]
+                            ),
+                            GenotypeHaplotypeLocusCall(
+                                locus: "MHC-B",
+                                sourceLocus: "Mamu-B",
+                                haplotype1: "ERR: NO HAP",
+                                haplotype2: "ERR: NO HAP",
+                                status: .noHaplotype,
+                                matchedHaplotypes: [],
+                                observedGenotypeCount: 1,
+                                observedGenotypes: ["Mamu-B*007:01"]
+                            ),
+                        ]
+                    ),
+                ]
+            )
+        )
+
+        XCTAssertEqual(rows[0], ["Client ID", "", "", "DL47", "DL48"])
+        XCTAssertEqual(rows[1], ["GS ID", "Total", "Average", "DL47", "DL48"])
+        XCTAssertEqual(rows[2], ["Mapped Read Count", "82", "41", "42", "40"])
+        XCTAssertEqual(rows[3], ["total_read_count", "", "", "100", "200"])
+        XCTAssertEqual(rows[4], ["percent_reads_unmapped", "", "", "58", "80"])
+        XCTAssertEqual(rows[5], ["MHC-A Haplotype 1", "", "", "Mamu-A-H1", ""])
+        XCTAssertEqual(rows[6], ["MHC-A Haplotype 2", "", "", "Mamu-A-H2", ""])
+        XCTAssertEqual(rows[19], ["Comments", "Subtotal", "# Obs.", "MHC-B: ERR: NO HAP", ""])
+
+        let aMajorHeader = try? XCTUnwrap(rows.firstIndex { $0.first == "Mamu-A major alleles" })
+        let bHeader = try? XCTUnwrap(rows.firstIndex { $0.first == "Mamu-B alleles" })
+        XCTAssertNotNil(aMajorHeader)
+        XCTAssertNotNil(bHeader)
+        XCTAssertLessThan(aMajorHeader ?? 0, bHeader ?? 0)
+        XCTAssertEqual(rows[(aMajorHeader ?? 0) + 1], ["Mamu-A1*004:01", "70", "2", "30", "40"])
+        XCTAssertEqual(rows[(bHeader ?? 0) + 1], ["Mamu-B*007:01", "12", "1", "12", ""])
+    }
+
     func testXLSXPackageWriterDoesNotIncludeTempMetadataAndWritesUnmatchedSheet() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("full-length-ont-mhc-xlsx-\(UUID().uuidString)", isDirectory: true)
@@ -450,6 +595,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                 .init(name: "Samples", rows: [["sample", "total_input_reads"], ["DL47", "1966"]]),
                 .init(name: "Cluster Alignments", rows: [["sample", "cluster"], ["DL47", "Cluster0"]]),
                 .init(name: "Unmatched Clusters", rows: [["sample", "cluster", "sequence"], ["DL47", "Cluster9", "ACGT"]]),
+                .init(name: "Full Sequencing Results 1", rows: [["Client ID", "", "", "DL47"]]),
             ],
             to: workbookURL
         )
@@ -457,11 +603,12 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         let entries = try Self.zipEntries(workbookURL)
         XCTAssertFalse(entries.contains(".lungfish-temp-origin.json"))
         XCTAssertTrue(entries.contains("[Content_Types].xml"))
-        XCTAssertTrue(entries.contains("xl/worksheets/sheet4.xml"))
+        XCTAssertTrue(entries.contains("xl/worksheets/sheet5.xml"))
 
         let workbookXML = try Self.unzippedText(path: "xl/workbook.xml", from: workbookURL)
         XCTAssertTrue(workbookXML.contains("Unmatched Clusters"))
         XCTAssertTrue(workbookXML.contains("Cluster Alignments"))
+        XCTAssertTrue(workbookXML.contains("Full Sequencing Results 1"))
     }
 
     func testClusterGenotyperReadsGzippedFASTARecords() throws {

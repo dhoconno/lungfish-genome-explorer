@@ -341,7 +341,33 @@ public actor ProvenanceRecorder {
                 .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
                 .appendingPathComponent(provenanceFilename),
         ]
-        return operationCandidates + canonicalCandidates
+        return operationCandidates + canonicalCandidates + workflowNamedRootSidecarCandidates(for: directory)
+    }
+
+    private static func workflowNamedRootSidecarCandidates(for directory: URL) -> [URL] {
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey]
+        ) else {
+            return []
+        }
+        let canonicalFilenames: Set<String> = [
+            provenanceFilename,
+            ProvenanceWriter.bundleRollupFilename,
+            MappingProvenance.filename,
+        ]
+        return contents
+            .filter { url in
+                let filename = url.lastPathComponent
+                guard !canonicalFilenames.contains(filename) else { return false }
+                guard filename.hasSuffix(".lungfish-provenance.json")
+                    || filename.hasSuffix("-provenance.json") else {
+                    return false
+                }
+                let values = try? url.resourceValues(forKeys: [.isRegularFileKey])
+                return values?.isRegularFile == true
+            }
+            .sorted { $0.path < $1.path }
     }
 
     private static func fileSidecarCandidates(for fileURL: URL) -> [URL] {
