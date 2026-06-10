@@ -168,13 +168,13 @@ public final class ONTPacBioBarcodeDemuxMaterializer: Sendable {
             0.02 + (0.88 * Double(processed) / Double(max(1, inputFASTQs.count)))
         }
 
-        func consume(_ chunk: ChunkMaterialization) throws {
+        func consume(_ chunk: ChunkMaterialization) async throws {
             executedChunkCount += 1
             cutadaptRuns.append(chunk.cutadaptRun)
             assignedReadCount += chunk.assignedReadCount
             unassignedReadCount += chunk.unassignedReadCount
             inputReadCount += chunk.inputReadCount
-            try appendSampleOutputs(
+            try await appendSampleOutputs(
                 from: chunk.result,
                 into: request.outputDirectory,
                 buildersBySample: &buildersBySample
@@ -219,7 +219,7 @@ public final class ONTPacBioBarcodeDemuxMaterializer: Sendable {
                     )
                     pendingChunks[chunk.ordinal] = chunk
                     while let ready = pendingChunks.removeValue(forKey: nextAppendOrdinal) {
-                        try consume(ready)
+                        try await consume(ready)
                         nextAppendOrdinal += 1
                     }
                     if submittedInputIndex < inputFASTQs.count {
@@ -273,7 +273,7 @@ public final class ONTPacBioBarcodeDemuxMaterializer: Sendable {
                     sliceCount += 1
                     chunkAssignedReadCount += chunk.assignedReadCount
                     chunkUnassignedReadCount += chunk.unassignedReadCount
-                    try consume(chunk)
+                    try await consume(chunk)
                 }
                 processedInputChunks += 1
                 progress(
@@ -506,7 +506,7 @@ public final class ONTPacBioBarcodeDemuxMaterializer: Sendable {
         from chunkResult: DemultiplexResult,
         into outputDirectory: URL,
         buildersBySample: inout [String: SampleBuilder]
-    ) throws {
+    ) async throws {
         let countsByBarcode = Dictionary(uniqueKeysWithValues: chunkResult.manifest.barcodes.map {
             ($0.barcodeID, (readCount: $0.readCount, baseCount: $0.baseCount))
         })
@@ -525,7 +525,7 @@ public final class ONTPacBioBarcodeDemuxMaterializer: Sendable {
                 builder = try SampleBuilder(sampleID: sampleID, outputDirectory: outputDirectory)
                 buildersBySample[sampleID] = builder
             }
-            try builder.append(payloadURL, readCount: counts.readCount, baseCount: counts.baseCount)
+            try await builder.append(payloadURL, readCount: counts.readCount, baseCount: counts.baseCount)
         }
     }
 
@@ -533,6 +533,7 @@ public final class ONTPacBioBarcodeDemuxMaterializer: Sendable {
         let sampleID: String
         let bundleURL: URL
         let fastqURL: URL
+        private let statisticsCollector = FASTQStatisticsCollector()
         private(set) var readCount = 0
         private(set) var baseCount: Int64 = 0
 
@@ -547,7 +548,12 @@ public final class ONTPacBioBarcodeDemuxMaterializer: Sendable {
             FileManager.default.createFile(atPath: fastqURL.path, contents: nil)
         }
 
-        func append(_ sourceURL: URL, readCount: Int, baseCount: Int64) throws {
+        func append(_ sourceURL: URL, readCount: Int, baseCount: Int64) async throws {
+            let reader = FASTQReader(validateSequence: false)
+            for try await record in reader.records(from: sourceURL) {
+                statisticsCollector.process(record)
+            }
+
             let input = try FileHandle(forReadingFrom: sourceURL)
             defer { try? input.close() }
             let output = try FileHandle(forWritingTo: fastqURL)
@@ -584,7 +590,7 @@ public final class ONTPacBioBarcodeDemuxMaterializer: Sendable {
                 payload: .full(fastqFilename: fastqURL.lastPathComponent),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: readCount, baseCount: baseCount),
+                cachedStatistics: statisticsCollector.finalize(),
                 pairingMode: nil,
                 sequenceFormat: .fastq,
                 provenance: SampleProvenance(

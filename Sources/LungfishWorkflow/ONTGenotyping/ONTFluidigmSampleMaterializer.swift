@@ -330,6 +330,7 @@ public final class ONTFluidigmSampleMaterializer: Sendable {
         let bundleURL: URL
         let rawFASTQURL: URL
         private let writer: FASTQWriter
+        private let statisticsCollector = FASTQStatisticsCollector()
         private(set) var readCount = 0
         private(set) var baseCount = 0
         private var isClosed = false
@@ -350,6 +351,7 @@ public final class ONTFluidigmSampleMaterializer: Sendable {
 
         func write(_ record: FASTQRecord) throws {
             try writer.write(record)
+            statisticsCollector.process(record)
             readCount += 1
             baseCount += record.sequence.count
         }
@@ -379,7 +381,7 @@ public final class ONTFluidigmSampleMaterializer: Sendable {
                 payload: .full(fastqFilename: payloadURL.lastPathComponent),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: readCount, baseCount: Int64(baseCount)),
+                cachedStatistics: statisticsCollector.finalize(),
                 pairingMode: nil,
                 sequenceFormat: .fastq,
                 provenance: SampleProvenance(

@@ -524,10 +524,7 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
             payload: .full(fastqFilename: fastqFilename),
             lineage: [operation],
             operation: operation,
-            cachedStatistics: .placeholder(
-                readCount: accumulator.extractedReadCount,
-                baseCount: Int64(countedResult.weightedBaseCount)
-            ),
+            cachedStatistics: Self.countedInsertStatistics(for: accumulator.sequenceCounts),
             pairingMode: nil,
             sequenceFormat: .fastq,
             provenance: SampleProvenance(
@@ -551,6 +548,89 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
             uniqueBaseCount: countedResult.uniqueBaseCount,
             weightedBaseCount: countedResult.weightedBaseCount
         )
+    }
+
+    private static func countedInsertStatistics(for sequenceCounts: [String: Int]) -> FASTQDatasetStatistics {
+        var readCount = 0
+        var baseCount: Int64 = 0
+        var gcCount: Int64 = 0
+        var minReadLength = Int.max
+        var maxReadLength = 0
+        var readLengthHistogram: [Int: Int] = [:]
+
+        for (sequence, count) in sequenceCounts where count > 0 {
+            let length = sequence.count
+            readCount += count
+            baseCount += Int64(length * count)
+            minReadLength = min(minReadLength, length)
+            maxReadLength = max(maxReadLength, length)
+            readLengthHistogram[length, default: 0] += count
+            for byte in sequence.utf8 {
+                let upper = byte & 0xDF
+                if upper == UInt8(ascii: "G") || upper == UInt8(ascii: "C") {
+                    gcCount += Int64(count)
+                }
+            }
+        }
+
+        guard readCount > 0 else {
+            return .empty
+        }
+
+        let trackedPositions = min(maxReadLength, 1_000)
+        let perPositionQuality = (0..<trackedPositions).map { position in
+            PositionQualitySummary(
+                position: position,
+                mean: 40,
+                median: 40,
+                lowerQuartile: 40,
+                upperQuartile: 40,
+                percentile10: 40,
+                percentile90: 40
+            )
+        }
+
+        return FASTQDatasetStatistics(
+            readCount: readCount,
+            baseCount: baseCount,
+            meanReadLength: Double(baseCount) / Double(readCount),
+            minReadLength: minReadLength == Int.max ? 0 : minReadLength,
+            maxReadLength: maxReadLength,
+            medianReadLength: medianReadLength(from: readLengthHistogram, readCount: readCount),
+            n50ReadLength: n50ReadLength(from: readLengthHistogram, baseCount: baseCount),
+            meanQuality: 40,
+            q20Percentage: 100,
+            q30Percentage: 100,
+            gcContent: baseCount > 0 ? Double(gcCount) / Double(baseCount) : 0,
+            readLengthHistogram: readLengthHistogram,
+            qualityScoreHistogram: [40: Int(clamping: baseCount)],
+            perPositionQuality: perPositionQuality
+        )
+    }
+
+    private static func medianReadLength(from histogram: [Int: Int], readCount: Int) -> Int {
+        let target = (readCount + 1) / 2
+        var cumulative = 0
+        for length in histogram.keys.sorted() {
+            cumulative += histogram[length] ?? 0
+            if cumulative >= target {
+                return length
+            }
+        }
+        return 0
+    }
+
+    private static func n50ReadLength(from histogram: [Int: Int], baseCount: Int64) -> Int {
+        guard baseCount > 0 else { return 0 }
+        let target = baseCount / 2
+        var cumulative: Int64 = 0
+        for length in histogram.keys.sorted(by: >) {
+            cumulative += Int64(length) * Int64(histogram[length] ?? 0)
+            if cumulative >= target {
+                return length
+            }
+        }
+        return 0
     }
 
     private static func gzipCompress(_ url: URL) throws -> URL {

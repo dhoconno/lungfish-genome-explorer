@@ -417,26 +417,21 @@ private struct FASTQOperationPrimarySettingsSection: View {
                     .foregroundStyle(.secondary)
 
             case .ontGenotyping:
-                labeledTextField("Report Name", text: $state.ontGenotypingOutputName)
-                labeledTextField("Analysis Name", text: $state.ontGenotypingAnalysisName)
-                HStack(spacing: 12) {
-                    labeledCompactTextField("Threads", text: Self.intBinding(state, \.ontGenotypingThreads))
-                    labeledCompactTextField("Min Reads", text: Self.intBinding(state, \.ontGenotypingMinSupport))
+                workflowFormGroup("Report") {
+                    labeledTextField("Report Name", text: $state.ontGenotypingOutputName)
+                    labeledTextField("Analysis Name", text: $state.ontGenotypingAnalysisName)
                 }
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Call Thresholds")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                workflowFormGroup("Run Parameters") {
                     HStack(spacing: 12) {
-                        labeledCompactTextField("Locus %", text: Self.doubleBinding(state, \.ontGenotypingHaplotypeDropoutLocusPercent))
+                        labeledCompactTextField("Threads", text: Self.intBinding(state, \.ontGenotypingThreads))
+                        labeledCompactTextField("Min Reads", text: Self.intBinding(state, \.ontGenotypingMinSupport))
                     }
-                    Text("Used for haplotype calls and Excel output. Inspector filters only change what is shown.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
-                Text("Select a MiSeq allele reference and barcode definition in the Inputs section. The workflow retains exact+indel full-amplicon mappings, then demultiplexes retained reads.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                workflowFormGroup("Call Thresholds") {
+                    labeledCompactTextField("Locus %", text: Self.doubleBinding(state, \.ontGenotypingHaplotypeDropoutLocusPercent))
+                    helperText("Used for haplotype calls and Excel output. Inspector filters only change what is shown.")
+                }
+                helperText("Select a MiSeq allele reference and barcode definition in the Inputs section. The workflow retains exact+indel full-amplicon mappings, then demultiplexes retained reads.")
 
             case .correctSequencingErrors:
                 labeledCompactTextField("K-mer Size", text: Self.intBinding(state, \.correctSequencingErrorsKmerSize))
@@ -571,6 +566,24 @@ private struct FASTQOperationPrimarySettingsSection: View {
                 .textFieldStyle(.roundedBorder)
                 .frame(maxWidth: 160)
         }
+    }
+
+    private func workflowFormGroup<Content: View>(
+        _ title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.subheadline.weight(.medium))
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func helperText(_ text: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
     }
 
     private static func intBinding(_ state: FASTQOperationDialogState, _ keyPath: WritableKeyPath<FASTQOperationDialogState, Int>) -> Binding<String> {

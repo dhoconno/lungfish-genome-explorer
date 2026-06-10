@@ -166,7 +166,7 @@ struct DatasetOperationsDialog<Detail: View>: View {
     }
 
     private func sidebarCardBackground(for tool: DatasetOperationToolSidebarItem) -> some View {
-        RoundedRectangle(cornerRadius: 10, style: .continuous)
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
             .fill(
                 selectedToolID == tool.id
                 ? Color.lungfishCreamsicleFallback.opacity(0.18)
@@ -175,7 +175,7 @@ struct DatasetOperationsDialog<Detail: View>: View {
     }
 
     private func sidebarCardBorder(for tool: DatasetOperationToolSidebarItem) -> some View {
-        RoundedRectangle(cornerRadius: 10, style: .continuous)
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
             .stroke(
                 selectedToolID == tool.id
                 ? Color.lungfishCreamsicleFallback.opacity(0.35)

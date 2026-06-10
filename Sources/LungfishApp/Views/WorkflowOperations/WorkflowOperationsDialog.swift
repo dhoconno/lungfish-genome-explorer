@@ -116,8 +116,7 @@ private struct WorkflowOperationsDetailPane: View {
 
     private var referencePicker: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Reference")
-                .font(.subheadline.weight(.medium))
+            groupLabel("Reference")
             if !state.projectReferenceCandidates.isEmpty {
                 Picker("Project Reference", selection: referenceBinding) {
                     Text("Choose reference").tag(URL?.none)
@@ -154,8 +153,7 @@ private struct WorkflowOperationsDetailPane: View {
 
     private var readPicker: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("FASTQ Bundles")
-                .font(.subheadline.weight(.medium))
+            groupLabel("FASTQ Bundles")
             HStack(spacing: 10) {
                 Text(state.selectedReadsDisplay)
                     .font(.caption)
@@ -168,8 +166,7 @@ private struct WorkflowOperationsDetailPane: View {
 
     private var barcodePicker: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Barcode Definition")
-                .font(.subheadline.weight(.medium))
+            groupLabel("Barcode Definition")
             if !state.projectBarcodeDefinitionCandidates.isEmpty {
                 Picker("Project File", selection: barcodeDefinitionProjectFileBinding) {
                     Text("Choose project file").tag(URL?.none)
@@ -202,8 +199,7 @@ private struct WorkflowOperationsDetailPane: View {
 
     private var twelveSSampleMetadataPicker: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Analysis Metadata")
-                .font(.subheadline.weight(.medium))
+            groupLabel("Analysis Metadata")
             HStack(spacing: 10) {
                 Text(state.twelveSSampleMetadataDisplay)
                     .font(.caption)
@@ -226,42 +222,40 @@ private struct WorkflowOperationsDetailPane: View {
     private var primarySettings: some View {
         switch state.selectedTool?.kind {
         case .ontGenotyping:
-            VStack(alignment: .leading, spacing: 10) {
-                genotypingModePicker
-                labeledTextField("Report Name", text: $state.outputName)
-                HStack(spacing: 12) {
-                    labeledCompactTextField("Threads", value: $state.threads)
-                    labeledCompactTextField("Min Reads", value: $state.minSupport)
+            VStack(alignment: .leading, spacing: 12) {
+                workflowFormGroup("Report") {
+                    labeledTextField("Report Name", text: $state.outputName)
                 }
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Call Thresholds")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                workflowFormGroup("Run Parameters") {
+                    genotypingModePicker
                     HStack(spacing: 12) {
-                        labeledCompactDoubleTextField("Locus %", value: $state.haplotypeDropoutLocusPercent)
+                        labeledCompactTextField("Threads", value: $state.threads)
+                        labeledCompactTextField("Min Reads", value: $state.minSupport)
                     }
-                    Text("Used for haplotype calls and Excel output. Inspector filters only change what is shown.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                }
+                workflowFormGroup("Call Thresholds") {
+                    labeledCompactDoubleTextField("Locus %", value: $state.haplotypeDropoutLocusPercent)
+                    helperText("Used for haplotype calls and Excel output. Inspector filters only change what is shown.")
                 }
                 haplotypeDefinitionPicker
             }
         case .fullLengthONTMHCGenotyping:
-            VStack(alignment: .leading, spacing: 10) {
-                labeledTextField("Report Name", text: $state.outputName)
-                HStack(spacing: 12) {
-                    labeledCompactTextField("Threads", value: $state.threads)
-                    labeledCompactTextField("Min Length", value: $state.fullLengthMinimumLength)
-                    labeledCompactTextField("Max Length", value: $state.fullLengthMaximumLength)
+            VStack(alignment: .leading, spacing: 12) {
+                workflowFormGroup("Report") {
+                    labeledTextField("Report Name", text: $state.outputName)
                 }
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Call Thresholds")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                workflowFormGroup("Run Parameters") {
+                    labeledCompactTextField("Threads", value: $state.threads)
+                }
+                workflowFormGroup("Length Filter") {
+                    HStack(spacing: 12) {
+                        labeledCompactTextField("Min Length", value: $state.fullLengthMinimumLength)
+                        labeledCompactTextField("Max Length", value: $state.fullLengthMaximumLength)
+                    }
+                }
+                workflowFormGroup("Call Thresholds") {
                     labeledCompactDoubleTextField("Locus %", value: $state.haplotypeDropoutLocusPercent)
-                    Text("Used for haplotype calls and Excel output. Inspector filters only change what is shown.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                    helperText("Used for haplotype calls and Excel output. Inspector filters only change what is shown.")
                 }
                 haplotypeDefinitionPicker
             }
@@ -287,8 +281,7 @@ private struct WorkflowOperationsDetailPane: View {
 
     private var twelveSMatchingModePicker: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Read Platform")
-                .font(.subheadline.weight(.medium))
+            groupLabel("Read Platform")
             Picker("Read Platform", selection: twelveSMatchingModeBinding) {
                 ForEach(TwelveSAmpliconMatchingMode.allCases, id: \.rawValue) { mode in
                     Text(mode.displayName).tag(mode.rawValue)
@@ -301,8 +294,7 @@ private struct WorkflowOperationsDetailPane: View {
 
     private var genotypingModePicker: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Read Type")
-                .font(.subheadline.weight(.medium))
+            groupLabel("Read Type")
             Picker("Read Type", selection: genotypingReadTypeBinding) {
                 ForEach(AmpliconGenotypingReadType.allCases, id: \.rawValue) { readType in
                     Text(readType.displayName).tag(readType.rawValue)
@@ -310,7 +302,7 @@ private struct WorkflowOperationsDetailPane: View {
             }
             .pickerStyle(.menu)
             Text(state.effectiveGenotypingMode.displayName)
-                .font(.caption2)
+                .font(.caption)
                 .foregroundStyle(.secondary)
         }
     }
@@ -318,8 +310,7 @@ private struct WorkflowOperationsDetailPane: View {
     private var haplotypeDefinitionPicker: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("Haplotype Definition")
-                    .font(.subheadline.weight(.medium))
+                groupLabel("Haplotype Definition")
                 Spacer()
                 Button("Manage\u{2026}") {
                     NSApp.sendAction(#selector(ToolsMenuActions.showHaplotypeDefinitions(_:)), to: nil, from: nil)
@@ -439,8 +430,7 @@ private struct WorkflowOperationsDetailPane: View {
 
     private var outputPicker: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Directory")
-                .font(.subheadline.weight(.medium))
+            groupLabel("Directory")
             HStack(spacing: 10) {
                 Text(state.outputDirectoryDisplay)
                     .font(.caption)
@@ -546,11 +536,37 @@ private struct WorkflowOperationsDetailPane: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    private func workflowFormGroup<Content: View>(
+        _ title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            groupLabel(title)
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func groupLabel(_ label: String) -> some View {
+        Text(label)
+            .font(.subheadline.weight(.medium))
+    }
+
+    private func fieldLabel(_ label: String) -> some View {
+        Text(label)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+    }
+
+    private func helperText(_ text: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+    }
+
     private func labeledTextField(_ label: String, text: Binding<String>) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            fieldLabel(label)
             TextField(label, text: text)
                 .textFieldStyle(.roundedBorder)
                 .labelsHidden()
@@ -559,9 +575,7 @@ private struct WorkflowOperationsDetailPane: View {
 
     private func labeledCompactTextField(_ label: String, value: Binding<Int>) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            fieldLabel(label)
             TextField(label, value: value, format: .number)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 96)
@@ -571,9 +585,7 @@ private struct WorkflowOperationsDetailPane: View {
 
     private func labeledCompactDoubleTextField(_ label: String, value: Binding<Double>) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            fieldLabel(label)
             TextField(label, value: value, format: .number.precision(.fractionLength(0...2)))
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 76)
@@ -588,9 +600,7 @@ private struct WorkflowOperationsDetailPane: View {
     ) -> some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                groupLabel(title)
                 Text(url.map { WorkflowOperationDialogState.displayPath(for: $0, relativeTo: state.projectURL) } ?? "None")
                     .font(.caption)
                     .foregroundStyle(.secondary)

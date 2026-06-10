@@ -335,6 +335,24 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertFalse(source.contains("pbAA Clusters"))
     }
 
+    func testWorkflowOperationsDialogUsesCommonMacOSFormTypography() throws {
+        let root = repositoryRoot()
+        let workflowDialogSource = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationsDialog.swift"),
+            encoding: .utf8
+        )
+        let datasetDialogSource = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Operations/DatasetOperationsDialog.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(workflowDialogSource.contains("private func workflowFormGroup"))
+        XCTAssertTrue(workflowDialogSource.contains("workflowFormGroup(\"Length Filter\")"))
+        XCTAssertFalse(workflowDialogSource.contains(".caption2"))
+        XCTAssertTrue(datasetDialogSource.contains("RoundedRectangle(cornerRadius: 8"))
+        XCTAssertFalse(datasetDialogSource.contains("RoundedRectangle(cornerRadius: 10"))
+    }
+
     func testEnabledWorkflowPackageBuildsLocalWorkflowRunWithExpectedOutputs() async throws {
         let defaults = try makeDefaults()
         let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)

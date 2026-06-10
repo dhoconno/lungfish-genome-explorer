@@ -299,13 +299,14 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         )
     }
 
-    func testSavontRunSupportCopiesCompletedScratchOutputIntoBundle() throws {
+    func testSavontRunSupportKeepsFinalASVAndLogsOnly() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("full-length-ont-mhc-savont-scratch-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let scratchRaw = root.appendingPathComponent("scratch/raw", isDirectory: true)
+        let scratchTemp = scratchRaw.appendingPathComponent("temp", isDirectory: true)
         let finalRaw = root.appendingPathComponent("bundle/sample/savont/raw", isDirectory: true)
-        try FileManager.default.createDirectory(at: scratchRaw, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: scratchTemp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: finalRaw, withIntermediateDirectories: true)
         try ">final_consensus_0_depth_5\nACGT\n".write(
             to: scratchRaw.appendingPathComponent("final_asvs.fasta"),
@@ -314,6 +315,21 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         )
         try "temporary detail\n".write(
             to: scratchRaw.appendingPathComponent("savont.log"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "timestamped detail\n".write(
+            to: scratchRaw.appendingPathComponent("savont_2026-06-10_05-09-37.log"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "regenerable table\n".write(
+            to: scratchRaw.appendingPathComponent("feature-table.tsv"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "regenerable temp\n".write(
+            to: scratchTemp.appendingPathComponent("read_to_asv_mappings.tsv"),
             atomically: true,
             encoding: .utf8
         )
@@ -330,7 +346,190 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: finalRaw.appendingPathComponent("final_asvs.fasta").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: finalRaw.appendingPathComponent("savont.log").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: finalRaw.appendingPathComponent("savont_2026-06-10_05-09-37.log").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: finalRaw.appendingPathComponent("feature-table.tsv").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: finalRaw.appendingPathComponent("temp", isDirectory: true).path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: finalRaw.appendingPathComponent("stale.txt").path))
+    }
+
+    func testRunRemovesRegenerableWorkflowIntermediatesButKeepsSavontLogs() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-cleanup-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let homeDirectory = root.appendingPathComponent("home", isDirectory: true)
+        let condaRoot = CoreToolLocator.condaRoot(homeDirectory: homeDirectory)
+        let bundledMicromamba = try makeFakeFullLengthCondaRoot(at: condaRoot)
+        let inputFASTQ = root.appendingPathComponent("DL46.fastq")
+        let referenceFASTA = root.appendingPathComponent("reference.fasta")
+        let outputDirectory = root.appendingPathComponent("full-length.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try "@read-1\nACGTACGT\n+\nIIIIIIII\n".write(to: inputFASTQ, atomically: true, encoding: .utf8)
+        try ">allele1\nACGTACGT\n".write(to: referenceFASTA, atomically: true, encoding: .utf8)
+
+        let request = FullLengthONTMHCGenotypingRunRequest(
+            inputFASTQURLs: [inputFASTQ],
+            referenceSourceURL: referenceFASTA,
+            outputDirectory: outputDirectory,
+            outputName: "full-length",
+            threads: 2,
+            minimumLength: 4,
+            maximumLength: 12
+        )
+        let pipeline = FullLengthONTMHCGenotypingPipeline(
+            nativeToolRunner: NativeToolRunner(toolsDirectory: nil, homeDirectory: homeDirectory),
+            condaManager: CondaManager(
+                rootPrefix: condaRoot,
+                bundledMicromambaProvider: { bundledMicromamba },
+                bundledMicromambaVersionProvider: { "test-micromamba" }
+            )
+        )
+
+        _ = try await pipeline.run(request)
+
+        let workflowDirectory = outputDirectory.appendingPathComponent("workflow", isDirectory: true)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: workflowDirectory.path),
+            "Regenerable full-length ONT MHC workflow intermediates should be removed after provenance is written."
+        )
+        let savontDirectory = outputDirectory
+            .appendingPathComponent("samples", isDirectory: true)
+            .appendingPathComponent("DL46", isDirectory: true)
+            .appendingPathComponent("savont", isDirectory: true)
+        let rawDirectory = savontDirectory.appendingPathComponent("raw", isDirectory: true)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: savontDirectory.appendingPathComponent("DL46.savont-clusters.fasta").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: rawDirectory.appendingPathComponent("final_asvs.fasta").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: rawDirectory.appendingPathComponent("savont_2026-06-10_05-09-37.log").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: rawDirectory.appendingPathComponent("temp", isDirectory: true).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: rawDirectory.appendingPathComponent("feature-table.tsv").path))
+
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: request.provenanceURL))
+        XCTAssertFalse(
+            envelope.outputs.contains { $0.path.contains("/workflow/") },
+            "Regenerable workflow intermediates must not be top-level durable provenance outputs."
+        )
+        let retainedLogSuffix = "/samples/DL46/savont/raw/savont_2026-06-10_05-09-37.log"
+        XCTAssertTrue(
+            envelope.outputs.contains { $0.path.hasSuffix(retainedLogSuffix) },
+            "Expected retained Savont log in outputs. Outputs: \(envelope.outputs.map(\.path))"
+        )
+    }
+
+    func testRunRetriesStrictNoClusterSampleWithHiddenQV90MinClusterOneFallback() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-fallback-rescue-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let savontScript = #"""
+        #!/bin/sh
+        set -eu
+        if [ "${1:-}" = "--version" ]; then
+          echo "savont 0.5.0"
+          exit 0
+        fi
+        shift
+        input="$1"
+        shift
+        output=""
+        qv=""
+        min_cluster=""
+        while [ "$#" -gt 0 ]; do
+          case "$1" in
+            -o) output="$2"; shift 2 ;;
+            --quality-value-cutoff) qv="$2"; shift 2 ;;
+            --min-cluster-size) min_cluster="$2"; shift 2 ;;
+            *) shift ;;
+          esac
+        done
+        mkdir -p "$output"
+        printf 'qv=%s min_cluster=%s input=%s\n' "$qv" "$min_cluster" "$input" > "$output/savont.log"
+        if [ "$qv" = "90" ] && [ "$min_cluster" = "3" ]; then
+          : > "$output/final_asvs.fasta"
+          exit 0
+        fi
+        if [ "$qv" = "90" ] && [ "$min_cluster" = "1" ]; then
+          cat > "$output/final_asvs.fasta" <<'EOF'
+        >final_consensus_0_depth_7
+        ACGTACGT
+        EOF
+          exit 0
+        fi
+        echo "unexpected Savont preset qv=$qv min_cluster=$min_cluster" >&2
+        exit 2
+        """#
+        let (request, pipeline) = try makeFakeFullLengthRun(
+            root: root,
+            savontScript: savontScript
+        )
+
+        _ = try await pipeline.run(request)
+
+        let report = try String(contentsOf: request.reportCSVURL, encoding: .utf8)
+        XCTAssertTrue(report.contains("DL46,allele1,7,7,1,7"))
+
+        let sampleSummary = try String(contentsOf: request.sampleSummaryCSVURL, encoding: .utf8)
+        XCTAssertTrue(sampleSummary.contains("savont_preset,savont_status,savont_fallback_reason"))
+        XCTAssertTrue(sampleSummary.contains("fallback-qv90-min1,called,strict-no-clusters"))
+
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: request.provenanceURL))
+        let savontSteps = envelope.steps.filter { $0.toolName == "savont" }
+        XCTAssertEqual(savontSteps.count, 2)
+        XCTAssertTrue(savontSteps.contains { value(after: "--min-cluster-size", in: $0.argv) == "3" })
+        XCTAssertTrue(savontSteps.contains { value(after: "--min-cluster-size", in: $0.argv) == "1" })
+        XCTAssertTrue(savontSteps.allSatisfy { value(after: "--quality-value-cutoff", in: $0.argv) == "90" })
+        XCTAssertFalse(savontSteps.contains { value(after: "--quality-value-cutoff", in: $0.argv) == "0" })
+    }
+
+    func testRunHandlesSavontPanicDuringHiddenFallbackAsSampleNoCall() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-fallback-panic-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let savontScript = #"""
+        #!/bin/sh
+        set -eu
+        if [ "${1:-}" = "--version" ]; then
+          echo "savont 0.5.0"
+          exit 0
+        fi
+        shift
+        input="$1"
+        shift
+        output=""
+        min_cluster=""
+        while [ "$#" -gt 0 ]; do
+          case "$1" in
+            -o) output="$2"; shift 2 ;;
+            --min-cluster-size) min_cluster="$2"; shift 2 ;;
+            *) shift ;;
+          esac
+        done
+        mkdir -p "$output"
+        printf 'input=%s min_cluster=%s\n' "$input" "$min_cluster" > "$output/savont.log"
+        if [ "$min_cluster" = "3" ]; then
+          : > "$output/final_asvs.fasta"
+          exit 0
+        fi
+        echo "thread 'main' panicked at src/main.rs:518: called Option::unwrap()" >&2
+        exit 101
+        """#
+        let (request, pipeline) = try makeFakeFullLengthRun(
+            root: root,
+            savontScript: savontScript
+        )
+
+        _ = try await pipeline.run(request)
+
+        let report = try String(contentsOf: request.reportCSVURL, encoding: .utf8)
+        XCTAssertEqual(report.split(separator: "\n").count, 1)
+
+        let sampleSummary = try String(contentsOf: request.sampleSummaryCSVURL, encoding: .utf8)
+        XCTAssertTrue(sampleSummary.contains("DL46,0,0,1,0,0.0,0,0,0,0,fallback-qv90-min1,handled-savont-failure,strict-no-clusters"))
+
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: request.provenanceURL))
+        XCTAssertTrue(envelope.steps.contains {
+            $0.toolName == "savont"
+                && value(after: "--min-cluster-size", in: $0.argv) == "1"
+                && $0.exitStatus == 101
+                && ($0.stderr?.contains("panicked") == true)
+        })
     }
 
     func testSavontRunSupportRetriesSignalCrashWithSingleThreadFallback() {
@@ -664,6 +863,169 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         try compressed.write(to: gzipURL)
     }
 
+    private func makeFakeFullLengthRun(
+        root: URL,
+        savontScript: String? = nil
+    ) throws -> (
+        FullLengthONTMHCGenotypingRunRequest,
+        FullLengthONTMHCGenotypingPipeline
+    ) {
+        let homeDirectory = root.appendingPathComponent("home", isDirectory: true)
+        let condaRoot = CoreToolLocator.condaRoot(homeDirectory: homeDirectory)
+        let bundledMicromamba = try makeFakeFullLengthCondaRoot(at: condaRoot, savontScript: savontScript)
+        let inputFASTQ = root.appendingPathComponent("DL46.fastq")
+        let referenceFASTA = root.appendingPathComponent("reference.fasta")
+        let outputDirectory = root.appendingPathComponent("full-length.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try "@read-1\nACGTACGT\n+\nIIIIIIII\n".write(to: inputFASTQ, atomically: true, encoding: .utf8)
+        try ">allele1\nACGTACGT\n".write(to: referenceFASTA, atomically: true, encoding: .utf8)
+        let request = FullLengthONTMHCGenotypingRunRequest(
+            inputFASTQURLs: [inputFASTQ],
+            referenceSourceURL: referenceFASTA,
+            outputDirectory: outputDirectory,
+            outputName: "full-length",
+            threads: 2,
+            minimumLength: 4,
+            maximumLength: 12
+        )
+        let pipeline = FullLengthONTMHCGenotypingPipeline(
+            nativeToolRunner: NativeToolRunner(toolsDirectory: nil, homeDirectory: homeDirectory),
+            condaManager: CondaManager(
+                rootPrefix: condaRoot,
+                bundledMicromambaProvider: { bundledMicromamba },
+                bundledMicromambaVersionProvider: { "test-micromamba" }
+            )
+        )
+        return (request, pipeline)
+    }
+
+    private func makeFakeFullLengthCondaRoot(at root: URL, savontScript: String? = nil) throws -> URL {
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let micromambaScript = #"""
+        #!/bin/sh
+        set -eu
+        if [ "${1:-}" = "--version" ] || [ "${1:-}" = "-v" ]; then
+          echo "test-micromamba"
+          exit 0
+        fi
+        if [ "${1:-}" != "run" ]; then
+          echo "unsupported micromamba invocation: $*" >&2
+          exit 2
+        fi
+        shift
+        if [ "${1:-}" != "-n" ]; then
+          echo "missing environment" >&2
+          exit 2
+        fi
+        env_name="$2"
+        shift 2
+        tool="$1"
+        shift
+        exec "$MAMBA_ROOT_PREFIX/envs/$env_name/bin/$tool" "$@"
+        """#
+        let bundledMicromamba = root.deletingLastPathComponent().appendingPathComponent("bundled-micromamba")
+        try writeExecutable(micromambaScript, to: bundledMicromamba)
+        try writeExecutable(micromambaScript, to: bin.appendingPathComponent("micromamba"))
+
+        let bbtoolsBin = root.appendingPathComponent("envs/bbtools/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bbtoolsBin, withIntermediateDirectories: true)
+        try writeExecutable(
+            #"""
+            #!/bin/sh
+            set -eu
+            if [ "${1:-}" = "--version" ]; then
+              echo "reformat.sh 39.01"
+              exit 0
+            fi
+            input=""
+            output=""
+            for arg in "$@"; do
+              case "$arg" in
+                in=*) input="${arg#in=}" ;;
+                out=*) output="${arg#out=}" ;;
+              esac
+            done
+            if [ -z "$input" ] || [ -z "$output" ]; then
+              echo "missing in= or out=" >&2
+              exit 2
+            fi
+            cp "$input" "$output"
+            """#,
+            to: bbtoolsBin.appendingPathComponent("reformat.sh")
+        )
+
+        let savontBin = root.appendingPathComponent("envs/savont/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: savontBin, withIntermediateDirectories: true)
+        try writeExecutable(
+            savontScript ?? #"""
+            #!/bin/sh
+            set -eu
+            if [ "${1:-}" = "--version" ]; then
+              echo "savont 0.5.0"
+              exit 0
+            fi
+            if [ "${1:-}" != "asv" ]; then
+              echo "unsupported savont invocation: $*" >&2
+              exit 2
+            fi
+            shift
+            input="$1"
+            shift
+            output=""
+            while [ "$#" -gt 0 ]; do
+              case "$1" in
+                -o)
+                  output="$2"
+                  shift 2
+                  ;;
+                *)
+                  shift
+                  ;;
+              esac
+            done
+            if [ -z "$output" ]; then
+              echo "missing -o" >&2
+              exit 2
+            fi
+            mkdir -p "$output/temp"
+            cat > "$output/final_asvs.fasta" <<'EOF'
+            >final_consensus_0_depth_7
+            ACGTACGT
+            EOF
+            printf 'savont log for %s\n' "$input" > "$output/savont_2026-06-10_05-09-37.log"
+            printf 'feature table\n' > "$output/feature-table.tsv"
+            printf 'final clusters\n' > "$output/final_clusters.tsv"
+            printf 'read mappings\n' > "$output/temp/read_to_asv_mappings.tsv"
+            """#,
+            to: savontBin.appendingPathComponent("savont")
+        )
+
+        let minimap2Bin = root.appendingPathComponent("envs/minimap2/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: minimap2Bin, withIntermediateDirectories: true)
+        try writeExecutable(
+            #"""
+            #!/bin/sh
+            set -eu
+            if [ "${1:-}" = "--version" ]; then
+              echo "minimap2 2.28"
+              exit 0
+            fi
+            printf '@SQ\tSN:final_consensus_0_depth_7_ReadCount-7\tLN:8\n'
+            printf 'allele1\t0\tfinal_consensus_0_depth_7_ReadCount-7\t1\t60\t8=\t*\t0\t0\tACGTACGT\t*\n'
+            """#,
+            to: minimap2Bin.appendingPathComponent("minimap2")
+        )
+
+        return bundledMicromamba
+    }
+
+    private func writeExecutable(_ text: String, to url: URL) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try text.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+
     private static func zipEntries(_ url: URL) throws -> [String] {
         let output = try runProcess(
             executable: "/usr/bin/unzip",
@@ -702,5 +1064,13 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             )
         }
         return String(data: outputData, encoding: .utf8) ?? ""
+    }
+
+    private func value(after flag: String, in arguments: [String]) -> String? {
+        guard let index = arguments.firstIndex(of: flag),
+              arguments.indices.contains(index + 1) else {
+            return nil
+        }
+        return arguments[index + 1]
     }
 }

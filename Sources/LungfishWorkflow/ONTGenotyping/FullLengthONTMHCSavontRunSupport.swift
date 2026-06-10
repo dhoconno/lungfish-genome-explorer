@@ -90,7 +90,24 @@ enum FullLengthONTMHCSavontRunSupport {
         if fileManager.fileExists(atPath: finalRawOutputDirectory.path) {
             try fileManager.removeItem(at: finalRawOutputDirectory)
         }
-        try fileManager.copyItem(at: scratchRawOutputDirectory, to: finalRawOutputDirectory)
+        try fileManager.createDirectory(at: finalRawOutputDirectory, withIntermediateDirectories: true)
+        try fileManager.copyItem(
+            at: scratchFinalASV,
+            to: finalRawOutputDirectory.appendingPathComponent(scratchFinalASV.lastPathComponent)
+        )
+        let logURLs = try fileManager.contentsOfDirectory(
+            at: scratchRawOutputDirectory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
+        .filter { $0.pathExtension.lowercased() == "log" }
+        .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        for logURL in logURLs {
+            try fileManager.copyItem(
+                at: logURL,
+                to: finalRawOutputDirectory.appendingPathComponent(logURL.lastPathComponent)
+            )
+        }
     }
 
     private static func safePathComponent(_ sample: String) -> String {
