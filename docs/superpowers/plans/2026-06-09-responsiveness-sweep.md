@@ -41,15 +41,17 @@ it in the plan. Do not optimize on speculation.
 
 | File | Responsibility | Action |
 | --- | --- | --- |
+| `Package.swift` | Add a new `LungfishKitTests` test target (the kernel currently has none). | Modify |
 | `Sources/LungfishKit/PerfSignpost.swift` | Shared signpost helper: named `OSSignposter` handles + interval begin/end. The sweep's one piece of shared infra. | Create |
-| `Tests/LungfishKitUITests/PerfSignpostTests.swift` | Unit tests for the helper's API (state lifecycle, naming). | Create |
+| `Tests/LungfishKitTests/PerfSignpostTests.swift` | Unit tests for the helper's API (state lifecycle, naming). | Create |
 | `Sources/LungfishApp/Views/Sidebar/SidebarViewController+OutlineDataSource.swift` | `performDelete` / `removeItemFromSidebar` / `findParent`. Add signposts; later, surgical removal + single-pass lookup. | Modify |
 | `Sources/LungfishApp/Views/Sidebar/SidebarViewController.swift` | `reloadOutlineView` / `recommendedSidebarWidth` / `maxLabelWidth`. Add signpost; later, width cache. | Modify |
-| `Tests/LungfishAppUITests/SidebarDeletePerformanceTests.swift` | Regression tests for the delete-refresh contract (surgical removal, width-cache invalidation). | Create |
+| `Tests/LungfishAppTests/SidebarDeletePerformanceTests.swift` | Regression tests for the delete-refresh contract (surgical removal, width-cache invalidation). | Create |
 
-Note: confirm the exact test target directory names with
-`ls Tests/` before creating test files; the table uses the documented
-`Tests/Lungfish<X>UITests/` convention.
+Verified target layout (2026-06-09): `LungfishKit` has **no** test target (all leaf
+test targets depend on it, but there is no `LungfishKitTests`). App tests live in
+`Tests/LungfishAppTests` (NOT `LungfishAppUITests`). Task 1 adds the
+`LungfishKitTests` target to `Package.swift`.
 
 ---
 
@@ -77,8 +79,25 @@ do not proceed onto instrumentation on a red baseline.
 ### Task 1: Create the `PerfSignpost` kernel helper
 
 **Files:**
+- Modify: `Package.swift` (add `LungfishKitTests` test target)
 - Create: `Sources/LungfishKit/PerfSignpost.swift`
-- Test: `Tests/LungfishKitUITests/PerfSignpostTests.swift`
+- Test: `Tests/LungfishKitTests/PerfSignpostTests.swift`
+
+- [ ] **Step 0: Add a `LungfishKitTests` target to `Package.swift`**
+
+The kernel has no test target. Immediately after the `LungfishKit` `.target(...)`
+block (the one with `path: "Sources/LungfishKit"`, around line 198) and before the
+`// MARK: - LungfishTwelveSUI` comment, insert:
+
+```swift
+        .testTarget(
+            name: "LungfishKitTests",
+            dependencies: ["LungfishKit"],
+            path: "Tests/LungfishKitTests"
+        ),
+```
+
+Create the directory: `mkdir -p Tests/LungfishKitTests`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -167,7 +186,7 @@ Expected: PASS (2 tests).
 - [ ] **Step 5: Commit**
 
 ```bash
-git add Sources/LungfishKit/PerfSignpost.swift Tests/LungfishKitUITests/PerfSignpostTests.swift
+git add Sources/LungfishKit/PerfSignpost.swift Tests/LungfishKitTests/PerfSignpostTests.swift
 git commit -m "feat(kit): add PerfSignpost helper for responsiveness profiling"
 ```
 
@@ -350,7 +369,7 @@ Profiler attributes it to `NSOutlineView.reloadData` / cell re-creation.
 **Files:**
 - Modify: `Sources/LungfishApp/Views/Sidebar/SidebarViewController+OutlineDataSource.swift`
   (`performDelete` ~line 578-587, `removeItemFromSidebar` ~line 638, `findParent` ~line 668)
-- Test: `Tests/LungfishAppUITests/SidebarDeletePerformanceTests.swift`
+- Test: `Tests/LungfishAppTests/SidebarDeletePerformanceTests.swift`
 
 Background: the surgical primitive already exists and is proven in
 `SidebarViewController.applySubtreeDiff` (line 987 uses
@@ -390,7 +409,7 @@ Note: `makeControllerWithRootItems`, `outlineViewRowCountForTesting`,
 `rootItemsForTesting`, and `removeItemFromSidebarSurgically` are test-support
 surface added in Steps 3-4. If a sidebar test helper already exists in the target,
 reuse it instead of adding `makeControllerWithRootItems` (check
-`Tests/LungfishAppUITests/` for existing `SidebarViewController` test fixtures
+`Tests/LungfishAppTests/` for existing `SidebarViewController` test fixtures
 first; repeat the helper here only if none exists).
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -497,7 +516,7 @@ Sidebar, so expect fully green here).
 - [ ] **Step 8: Commit**
 
 ```bash
-git add Sources/LungfishApp/Views/Sidebar/SidebarViewController+OutlineDataSource.swift Tests/LungfishAppUITests/SidebarDeletePerformanceTests.swift
+git add Sources/LungfishApp/Views/Sidebar/SidebarViewController+OutlineDataSource.swift Tests/LungfishAppTests/SidebarDeletePerformanceTests.swift
 git commit -m "perf(sidebar): delete via surgical outline removal, no full reload"
 ```
 
@@ -519,7 +538,7 @@ the full-tree font-metric walk shows up in the Time Profiler heaviest stack.
 - Modify: `Sources/LungfishApp/Views/Sidebar/SidebarViewController.swift`
   (`postPreferredSidebarWidthIfNeeded` ~line 511, `recommendedSidebarWidth` ~line 526,
   `maxLabelWidth` ~line 532)
-- Test: `Tests/LungfishAppUITests/SidebarDeletePerformanceTests.swift`
+- Test: `Tests/LungfishAppTests/SidebarDeletePerformanceTests.swift`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -631,7 +650,7 @@ Expected: fully green.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add Sources/LungfishApp/Views/Sidebar/SidebarViewController.swift Sources/LungfishApp/Views/Sidebar/SidebarViewController+OutlineDataSource.swift Tests/LungfishAppUITests/SidebarDeletePerformanceTests.swift
+git add Sources/LungfishApp/Views/Sidebar/SidebarViewController.swift Sources/LungfishApp/Views/Sidebar/SidebarViewController+OutlineDataSource.swift Tests/LungfishAppTests/SidebarDeletePerformanceTests.swift
 git commit -m "perf(sidebar): memoize recommended width, invalidate on mutation"
 ```
 
@@ -717,7 +736,7 @@ Expected: fully green.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add Sources/LungfishApp/Views/Sidebar/SidebarViewController+OutlineDataSource.swift Tests/LungfishAppUITests/SidebarDeletePerformanceTests.swift
+git add Sources/LungfishApp/Views/Sidebar/SidebarViewController+OutlineDataSource.swift Tests/LungfishAppTests/SidebarDeletePerformanceTests.swift
 git commit -m "perf(sidebar): index tree once for deletion lookup"
 ```
 
@@ -879,7 +898,7 @@ Expected: fully green.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add Sources/LungfishApp/Views/Sidebar/SidebarViewController+OutlineDataSource.swift Tests/LungfishAppUITests/SidebarDeletePerformanceTests.swift
+git add Sources/LungfishApp/Views/Sidebar/SidebarViewController+OutlineDataSource.swift Tests/LungfishAppTests/SidebarDeletePerformanceTests.swift
 git commit -m "perf(sidebar): trash files off the main thread, reconcile on main"
 ```
 
