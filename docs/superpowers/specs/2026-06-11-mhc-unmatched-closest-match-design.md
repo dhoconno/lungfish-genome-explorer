@@ -62,4 +62,3 @@ The workbook keeps existing sheets unchanged, including `Unmatched Clusters` for
 ## Provenance
 
 This is part of the existing `lungfish-cli fastq full-length-ont-mhc-genotype` workflow. The generated workbook already belongs to the provenance-tracked output bundle. No new external tool is introduced. The new sheets are deterministic derived report content from retained inputs and existing minimap2/Savont workflow evidence.
-
