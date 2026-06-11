@@ -7,6 +7,7 @@ import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 import os.log
+import LungfishKit
 
 // MARK: - NSOutlineViewDataSource
 
@@ -513,6 +514,9 @@ extension SidebarViewController: NSOutlineViewDataSource {
             return
         }
 
+        let deleteSignpost = PerfSignpost.sidebar.begin("Sidebar.Delete")
+        defer { PerfSignpost.sidebar.end("Sidebar.Delete", deleteSignpost) }
+
         let planner = ProjectDeletionPlanner()
         let selectedItemsByPath = Dictionary(
             uniqueKeysWithValues: items.compactMap { item -> (String, SidebarItem)? in
@@ -528,6 +532,9 @@ extension SidebarViewController: NSOutlineViewDataSource {
         }
         var failedItems: [(String, Error)] = []
 
+        // Paired with end() below; do not add an early return between here and it,
+        // or the interval leaks and the trace is silently wrong.
+        let trashSignpost = PerfSignpost.sidebar.begin("Delete.FilesystemTrash")
         for url in deletionURLs {
             let item = selectedItemsByPath[url.standardizedFileURL.path] ?? findItem(byPath: url.standardizedFileURL.path)
             let label = item?.title ?? url.lastPathComponent
@@ -579,11 +586,15 @@ extension SidebarViewController: NSOutlineViewDataSource {
                 removeItemFromSidebar(item)
             }
         }
+        PerfSignpost.sidebar.end("Delete.FilesystemTrash", trashSignpost)
 
+        // Paired with end() below; do not add an early return between here and it.
+        let modelSignpost = PerfSignpost.sidebar.begin("Delete.ModelMutation")
         for item in items where item.url == nil {
             removeItemFromSidebar(item)
         }
 
+        PerfSignpost.sidebar.end("Delete.ModelMutation", modelSignpost)
         reloadOutlineView()
 
         // Show error if some items failed
@@ -599,6 +610,8 @@ extension SidebarViewController: NSOutlineViewDataSource {
         }
 
         // Post notification about deletion
+        let notifySignpost = PerfSignpost.sidebar.begin("Delete.Notify")
+        defer { PerfSignpost.sidebar.end("Delete.Notify", notifySignpost) }
         NotificationCenter.default.post(
             name: .sidebarItemsDeleted,
             object: self,

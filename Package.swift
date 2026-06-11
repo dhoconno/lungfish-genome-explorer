@@ -196,6 +196,11 @@ let package = Package(
             ],
             path: "Sources/LungfishKit"
         ),
+        .testTarget(
+            name: "LungfishKitTests",
+            dependencies: ["LungfishKit"],
+            path: "Tests/LungfishKitTests"
+        ),
 
         // MARK: - LungfishTwelveSUI (12S amplicon results UI leaf)
         .target(
