@@ -1106,34 +1106,38 @@ extension SidebarViewController: NSMenuDelegate {
         let movingURLs = movingURLs.map(\.standardizedFileURL)
         var destinations: [URL] = []
 
-        func isExcluded(_ url: URL) -> Bool {
-            movingURLs.contains { movingURL in
-                sidebarMoveMenuURL(movingURL, covers: url)
-            }
-        }
+        var pendingItems = Array(rootItems.reversed())
+        while let item = pendingItems.popLast() {
+            let itemType = item.type
+            let itemURL = item.url?.standardizedFileURL
+            let itemChildren = item.children
 
-        func collect(from items: [SidebarItem]) {
-            for item in items {
-                if let url = item.url?.standardizedFileURL, isExcluded(url) {
+            if let itemURL {
+                var excluded = false
+                for movingURL in movingURLs where sidebarMoveMenuURL(movingURL, covers: itemURL) {
+                    excluded = true
+                    break
+                }
+                if excluded {
                     continue
                 }
+            }
 
-                if (item.type == .folder || item.type == .project),
-                   let url = item.url?.standardizedFileURL {
-                    destinations.append(url)
-                }
+            if (itemType == .folder || itemType == .project), let itemURL {
+                destinations.append(itemURL)
+            }
 
-                if !item.type.isBundle, !item.children.isEmpty {
-                    collect(from: item.children)
+            if !itemType.isBundle, !itemChildren.isEmpty {
+                for child in itemChildren.reversed() {
+                    pendingItems.append(child)
                 }
             }
         }
 
-        collect(from: rootItems)
         return destinations
     }
 
-    private static func sidebarMoveMenuURL(_ ancestor: URL, covers descendant: URL) -> Bool {
+    nonisolated private static func sidebarMoveMenuURL(_ ancestor: URL, covers descendant: URL) -> Bool {
         let ancestorPath = ancestor.standardizedFileURL.path
         let descendantPath = descendant.standardizedFileURL.path
         if ancestorPath == descendantPath { return true }
