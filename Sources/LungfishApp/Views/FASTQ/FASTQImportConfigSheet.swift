@@ -19,17 +19,20 @@ public struct FASTQImportSheetRecipeOption: Sendable, Equatable {
     public let name: String
     public let presentationText: String
     public let requiresBarcodeDefinition: Bool
+    public let usesDemultiplexOutputFolder: Bool
 
     public init(
         id: String,
         name: String,
         presentationText: String,
-        requiresBarcodeDefinition: Bool = false
+        requiresBarcodeDefinition: Bool = false,
+        usesDemultiplexOutputFolder: Bool = false
     ) {
         self.id = id
         self.name = name
         self.presentationText = presentationText
         self.requiresBarcodeDefinition = requiresBarcodeDefinition
+        self.usesDemultiplexOutputFolder = usesDemultiplexOutputFolder
     }
 
     public init(recipe: Recipe) {
@@ -65,7 +68,8 @@ public struct FASTQImportSheetRecipeOption: Sendable, Equatable {
             "Workflow: detect CS1-CS2 insert \u{2192} assign Fluidigm sample barcode \u{2192} write counted sample FASTQ bundles",
             "Input: ONT run folder"
         ].joined(separator: "\n"),
-        requiresBarcodeDefinition: true
+        requiresBarcodeDefinition: true,
+        usesDemultiplexOutputFolder: true
     )
 
     public static let ontPacBioBarcodeDemux = FASTQImportSheetRecipeOption(
@@ -76,7 +80,8 @@ public struct FASTQImportSheetRecipeOption: Sendable, Equatable {
             "Workflow: demultiplex physical chunks \u{2192} concatenate per-sample FASTQ bundles",
             "Input: ONT run folder"
         ].joined(separator: "\n"),
-        requiresBarcodeDefinition: true
+        requiresBarcodeDefinition: true,
+        usesDemultiplexOutputFolder: true
     )
 }
 
@@ -122,6 +127,8 @@ public final class FASTQImportConfigSheet: NSViewController {
     private let barcodeDefinitionPopup = NSPopUpButton()
     private let chooseBarcodeDefinitionButton = NSButton(title: "Choose...", target: nil, action: nil)
     private let barcodeDefinitionStatusLabel = NSTextField(wrappingLabelWithString: "")
+    private let demultiplexFolderLabel = NSTextField(labelWithString: "Demux Folder:")
+    private let demultiplexFolderField = NSTextField(string: "")
     private let importButton = NSButton(title: "Import", target: nil, action: nil)
     private let cancelButton = NSButton(title: "Cancel", target: nil, action: nil)
     private var binningBelowPairingConstraint: NSLayoutConstraint?
@@ -153,10 +160,18 @@ public final class FASTQImportConfigSheet: NSViewController {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
+    nonisolated static func defaultDemultiplexFolderName(for sourceURL: URL) -> String {
+        FASTQDemultiplexOutputFolderName.defaultName(for: sourceURL)
+    }
+
+    nonisolated static func sanitizedDemultiplexFolderName(_ value: String) -> String {
+        FASTQDemultiplexOutputFolderName.sanitize(value)
+    }
+
     // MARK: - View Lifecycle
 
     public override func loadView() {
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: 480))
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: 520))
         container.translatesAutoresizingMaskIntoConstraints = false
         self.view = container
         setupUI()
@@ -323,6 +338,23 @@ public final class FASTQImportConfigSheet: NSViewController {
         barcodeDefinitionStatusLabel.isHidden = true
         view.addSubview(barcodeDefinitionStatusLabel)
 
+        // Parent folder for ONT demultiplexing recipe outputs.
+        demultiplexFolderLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        demultiplexFolderLabel.alignment = .right
+        demultiplexFolderLabel.translatesAutoresizingMaskIntoConstraints = false
+        demultiplexFolderLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        demultiplexFolderLabel.isHidden = true
+        view.addSubview(demultiplexFolderLabel)
+
+        demultiplexFolderField.font = .systemFont(ofSize: 12)
+        demultiplexFolderField.toolTip = "Subfolder under the project where demultiplexed FASTQ bundles will be written."
+        demultiplexFolderField.stringValue = pairs.first
+            .map { Self.defaultDemultiplexFolderName(for: $0.r1) }
+            ?? FASTQDemultiplexOutputFolderName.fallback
+        demultiplexFolderField.translatesAutoresizingMaskIntoConstraints = false
+        demultiplexFolderField.isHidden = true
+        view.addSubview(demultiplexFolderField)
+
         // Bottom buttons
         importButton.bezelStyle = .rounded
         importButton.keyEquivalent = "\r"
@@ -417,6 +449,14 @@ public final class FASTQImportConfigSheet: NSViewController {
             barcodeDefinitionStatusLabel.topAnchor.constraint(equalTo: barcodeDefinitionRow.bottomAnchor, constant: 4),
             barcodeDefinitionStatusLabel.leadingAnchor.constraint(equalTo: recipePopup.leadingAnchor),
             barcodeDefinitionStatusLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -margin),
+
+            demultiplexFolderLabel.topAnchor.constraint(equalTo: barcodeDefinitionStatusLabel.bottomAnchor, constant: 8),
+            demultiplexFolderLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: margin),
+            demultiplexFolderLabel.widthAnchor.constraint(equalToConstant: labelWidth),
+            demultiplexFolderField.centerYAnchor.constraint(equalTo: demultiplexFolderLabel.centerYAnchor),
+            demultiplexFolderField.leadingAnchor.constraint(equalTo: demultiplexFolderLabel.trailingAnchor, constant: 8),
+            demultiplexFolderField.widthAnchor.constraint(greaterThanOrEqualToConstant: 260),
+            demultiplexFolderField.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -margin),
 
             // Bottom buttons
             importButton.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -margin),
@@ -560,6 +600,15 @@ public final class FASTQImportConfigSheet: NSViewController {
         let requiresBarcodeDefinition = showRecipe && (selectedRecipeOption?.requiresBarcodeDefinition == true)
         barcodeDefinitionRow.isHidden = !requiresBarcodeDefinition
         barcodeDefinitionStatusLabel.isHidden = !requiresBarcodeDefinition
+        let usesDemultiplexOutputFolder = showRecipe && (selectedRecipeOption?.usesDemultiplexOutputFolder == true)
+        demultiplexFolderLabel.isHidden = !usesDemultiplexOutputFolder
+        demultiplexFolderField.isHidden = !usesDemultiplexOutputFolder
+        demultiplexFolderField.isEnabled = usesDemultiplexOutputFolder
+        if usesDemultiplexOutputFolder,
+           demultiplexFolderField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           let sourceURL = pairs.first?.r1 {
+            demultiplexFolderField.stringValue = Self.defaultDemultiplexFolderName(for: sourceURL)
+        }
 
         if requiresBarcodeDefinition {
             barcodeDefinitionPopup.isEnabled = !barcodeDefinitionCandidates.isEmpty
@@ -648,6 +697,9 @@ public final class FASTQImportConfigSheet: NSViewController {
            let barcodeDefinitionURL = selectedBarcodeDefinitionURL {
             resolvedPlaceholders["barcodeDefinition"] = barcodeDefinitionURL.path
         }
+        let demultiplexOutputFolderName = chosenRecipeOption?.usesDemultiplexOutputFolder == true
+            ? Self.sanitizedDemultiplexFolderName(demultiplexFolderField.stringValue)
+            : nil
 
         let compressionLevel: CompressionLevel = {
             switch compressionPopup.indexOfSelectedItem {
@@ -671,7 +723,8 @@ public final class FASTQImportConfigSheet: NSViewController {
             postImportRecipe: recipe,
             resolvedPlaceholders: resolvedPlaceholders,
             recipeName: selectedRecipeName,
-            compressionLevel: compressionLevel
+            compressionLevel: compressionLevel,
+            demultiplexOutputFolderName: demultiplexOutputFolderName
         )
 
         onImport?(config)

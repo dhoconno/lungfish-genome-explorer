@@ -384,7 +384,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             )
         )
 
-        _ = try await pipeline.run(request)
+        let result = try await pipeline.run(request)
 
         let workflowDirectory = outputDirectory.appendingPathComponent("workflow", isDirectory: true)
         XCTAssertFalse(
@@ -412,6 +412,10 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             envelope.outputs.contains { $0.path.hasSuffix(retainedLogSuffix) },
             "Expected retained Savont log in outputs. Outputs: \(envelope.outputs.map(\.path))"
         )
+
+        let workbookXML = try Self.unzippedText(path: "xl/workbook.xml", from: result.workbookURL)
+        XCTAssertTrue(workbookXML.contains("Unmatched Closest Matches"))
+        XCTAssertTrue(workbookXML.contains("Unmatched Shared Pivot"))
     }
 
     func testRunRetriesStrictNoClusterSampleWithHiddenQV90MinClusterOneFallback() async throws {
@@ -636,6 +640,105 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(reportRows.map(\.passedAlignments), [12])
     }
 
+    func testClusterGenotyperReportsSNPClosestMatchForUnmatchedCluster() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-closest-snp-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let clusters = root.appendingPathComponent("clusters.fasta")
+        let reference = root.appendingPathComponent("reference.fasta")
+        try """
+        >ClusterSNP_ReadCount-9
+        ACGTACGT
+        """.write(to: clusters, atomically: true, encoding: .utf8)
+        try """
+        >Mamu-A1*001
+        ACGTACGT
+        >Mamu-B*001
+        ACGTACGT
+        """.write(to: reference, atomically: true, encoding: .utf8)
+        let sam = """
+        @SQ\tSN:ClusterSNP_ReadCount-9\tLN:8
+        Mamu-A1*001\t0\tClusterSNP_ReadCount-9\t1\t60\t6=2X\t*\t0\t0\tACGTACGT\t*
+        Mamu-B*001\t0\tClusterSNP_ReadCount-9\t1\t60\t5=3X\t*\t0\t0\tACGTACGT\t*
+        """
+
+        let summary = try FullLengthONTMHCClusterGenotyper.genotypeSummary(
+            sampleID: "DL47",
+            clustersFASTAURL: clusters,
+            referenceFASTAURL: reference,
+            samText: sam,
+            cdnaThreshold: 2_000,
+            minUnmatchedReads: 5
+        )
+
+        XCTAssertEqual(summary.rows, [])
+        XCTAssertEqual(summary.unmatchedClusters.map(\.name), ["ClusterSNP_ReadCount-9"])
+        XCTAssertEqual(summary.closestMatches, [
+            FullLengthONTMHCClosestMatch(
+                sample: "DL47",
+                cluster: "ClusterSNP_ReadCount-9",
+                clusterReads: 9,
+                closestReference: "Mamu-A1*001",
+                matchClass: .snpDifferent,
+                closestMatchID: "Mamu-A1*001_2SNP",
+                nucleotidesDifferent: 2,
+                snpDifferences: 2,
+                indelBases: 0,
+                alignedBases: 6,
+                score: -194
+            ),
+        ])
+    }
+
+    func testClusterGenotyperTreatsZeroSNPIndelOnlyHitAsExtension() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-closest-extension-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let clusters = root.appendingPathComponent("clusters.fasta")
+        let reference = root.appendingPathComponent("reference.fasta")
+        try """
+        >ClusterExtension_ReadCount-11
+        ACGTACGTAA
+        """.write(to: clusters, atomically: true, encoding: .utf8)
+        try """
+        >Mamu-cDNA*001
+        ACGTACGT
+        """.write(to: reference, atomically: true, encoding: .utf8)
+        let sam = """
+        @SQ\tSN:ClusterExtension_ReadCount-11\tLN:10
+        Mamu-cDNA*001\t0\tClusterExtension_ReadCount-11\t1\t60\t8=2I\t*\t0\t0\tACGTACGTAA\t*
+        """
+
+        let summary = try FullLengthONTMHCClusterGenotyper.genotypeSummary(
+            sampleID: "DL48",
+            clustersFASTAURL: clusters,
+            referenceFASTAURL: reference,
+            samText: sam,
+            cdnaThreshold: 2_000,
+            minUnmatchedReads: 5
+        )
+
+        XCTAssertEqual(summary.rows, [])
+        XCTAssertEqual(summary.unmatchedClusters.map(\.name), ["ClusterExtension_ReadCount-11"])
+        XCTAssertEqual(summary.closestMatches, [
+            FullLengthONTMHCClosestMatch(
+                sample: "DL48",
+                cluster: "ClusterExtension_ReadCount-11",
+                clusterReads: 11,
+                closestReference: "Mamu-cDNA*001",
+                matchClass: .extension,
+                closestMatchID: "Mamu-cDNA*001_extension",
+                nucleotidesDifferent: 0,
+                snpDifferences: 0,
+                indelBases: 2,
+                alignedBases: 8,
+                score: -12
+            ),
+        ])
+    }
+
     func testReportRowsConsolidateMultipleClustersMatchingSameAllele() {
         let genotypeRows = [
             FullLengthONTMHCClusterGenotypeRow(
@@ -781,6 +884,99 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(rows[(bHeader ?? 0) + 1], ["Mamu-B*007:01", "12", "1", "12", ""])
     }
 
+    func testUnmatchedClosestMatchWorkbookRowsBuildDetailAndSamplePivot() {
+        let rows = [
+            FullLengthONTMHCUnmatchedClosestMatchWorkbookRow(
+                sample: "DL47",
+                cluster: "ClusterA_ReadCount-9",
+                clusterReads: 9,
+                sequence: "ACGT",
+                closestMatch: FullLengthONTMHCClosestMatch(
+                    sample: "DL47",
+                    cluster: "ClusterA_ReadCount-9",
+                    clusterReads: 9,
+                    closestReference: "Mamu-A1*001",
+                    matchClass: .snpDifferent,
+                    closestMatchID: "Mamu-A1*001_2SNP",
+                    nucleotidesDifferent: 2,
+                    snpDifferences: 2,
+                    indelBases: 0,
+                    alignedBases: 6,
+                    score: -194
+                )
+            ),
+            FullLengthONTMHCUnmatchedClosestMatchWorkbookRow(
+                sample: "DL48",
+                cluster: "ClusterB_ReadCount-11",
+                clusterReads: 11,
+                sequence: "ACGTAA",
+                closestMatch: FullLengthONTMHCClosestMatch(
+                    sample: "DL48",
+                    cluster: "ClusterB_ReadCount-11",
+                    clusterReads: 11,
+                    closestReference: "Mamu-A1*001",
+                    matchClass: .snpDifferent,
+                    closestMatchID: "Mamu-A1*001_2SNP",
+                    nucleotidesDifferent: 2,
+                    snpDifferences: 2,
+                    indelBases: 1,
+                    alignedBases: 6,
+                    score: -204
+                )
+            ),
+            FullLengthONTMHCUnmatchedClosestMatchWorkbookRow(
+                sample: "DL48",
+                cluster: "ClusterC_ReadCount-5",
+                clusterReads: 5,
+                sequence: "TTTT",
+                closestMatch: FullLengthONTMHCClosestMatch(
+                    sample: "DL48",
+                    cluster: "ClusterC_ReadCount-5",
+                    clusterReads: 5,
+                    closestReference: "Mamu-cDNA*001",
+                    matchClass: .extension,
+                    closestMatchID: "Mamu-cDNA*001_extension",
+                    nucleotidesDifferent: 0,
+                    snpDifferences: 0,
+                    indelBases: 2,
+                    alignedBases: 8,
+                    score: -12
+                )
+            ),
+        ]
+
+        XCTAssertEqual(
+            FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder.detailRows(rows),
+            [
+                [
+                    "sample",
+                    "cluster",
+                    "cluster_reads",
+                    "closest_reference",
+                    "match_class",
+                    "closest_match_id",
+                    "nucleotides_different",
+                    "snp_differences",
+                    "indel_bases",
+                    "aligned_bases",
+                    "score",
+                    "sequence",
+                ],
+                ["DL47", "ClusterA_ReadCount-9", "9", "Mamu-A1*001", "snp-different", "Mamu-A1*001_2SNP", "2", "2", "0", "6", "-194", "ACGT"],
+                ["DL48", "ClusterB_ReadCount-11", "11", "Mamu-A1*001", "snp-different", "Mamu-A1*001_2SNP", "2", "2", "1", "6", "-204", "ACGTAA"],
+                ["DL48", "ClusterC_ReadCount-5", "5", "Mamu-cDNA*001", "extension", "Mamu-cDNA*001_extension", "0", "0", "2", "8", "-12", "TTTT"],
+            ]
+        )
+        XCTAssertEqual(
+            FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder.pivotRows(rows, sampleOrder: ["DL47", "DL48"]),
+            [
+                ["closest_match_id", "closest_reference", "match_class", "nucleotides_different", "DL47", "DL48"],
+                ["Mamu-A1*001_2SNP", "Mamu-A1*001", "snp-different", "2", "9", "11"],
+                ["Mamu-cDNA*001_extension", "Mamu-cDNA*001", "extension", "0", "", "5"],
+            ]
+        )
+    }
+
     func testXLSXPackageWriterDoesNotIncludeTempMetadataAndWritesUnmatchedSheet() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("full-length-ont-mhc-xlsx-\(UUID().uuidString)", isDirectory: true)
@@ -794,6 +990,8 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                 .init(name: "Samples", rows: [["sample", "total_input_reads"], ["DL47", "1966"]]),
                 .init(name: "Cluster Alignments", rows: [["sample", "cluster"], ["DL47", "Cluster0"]]),
                 .init(name: "Unmatched Clusters", rows: [["sample", "cluster", "sequence"], ["DL47", "Cluster9", "ACGT"]]),
+                .init(name: "Unmatched Closest Matches", rows: [["sample", "closest_reference"], ["DL47", "Mamu-A1*004"]]),
+                .init(name: "Unmatched Shared Pivot", rows: [["closest_match_id", "DL47"], ["Mamu-A1*004_2SNP", "8"]]),
                 .init(name: "Full Sequencing Results 1", rows: [["Client ID", "", "", "DL47"]]),
             ],
             to: workbookURL
@@ -802,10 +1000,12 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         let entries = try Self.zipEntries(workbookURL)
         XCTAssertFalse(entries.contains(".lungfish-temp-origin.json"))
         XCTAssertTrue(entries.contains("[Content_Types].xml"))
-        XCTAssertTrue(entries.contains("xl/worksheets/sheet5.xml"))
+        XCTAssertTrue(entries.contains("xl/worksheets/sheet7.xml"))
 
         let workbookXML = try Self.unzippedText(path: "xl/workbook.xml", from: workbookURL)
         XCTAssertTrue(workbookXML.contains("Unmatched Clusters"))
+        XCTAssertTrue(workbookXML.contains("Unmatched Closest Matches"))
+        XCTAssertTrue(workbookXML.contains("Unmatched Shared Pivot"))
         XCTAssertTrue(workbookXML.contains("Cluster Alignments"))
         XCTAssertTrue(workbookXML.contains("Full Sequencing Results 1"))
     }

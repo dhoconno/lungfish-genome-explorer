@@ -125,6 +125,19 @@ struct FASTQImportConfigurationTests {
         #expect(pair.sampleName == "MySample")
     }
 
+    @Test("ONT demux folder default comes from run folder for fastq_pass")
+    func ontDemuxFolderDefaultUsesRunFolderForFastqPass() {
+        let sourceURL = URL(fileURLWithPath: "/data/Run 42/fastq_pass", isDirectory: true)
+
+        #expect(FASTQImportConfigSheet.defaultDemultiplexFolderName(for: sourceURL) == "Run 42")
+    }
+
+    @Test("ONT demux folder default sanitizes path separators and punctuation")
+    func ontDemuxFolderDefaultSanitizesNames() {
+        #expect(FASTQImportConfigSheet.sanitizedDemultiplexFolderName(" Plate:A/Run#42 ") == "Plate-A-Run-42")
+        #expect(FASTQImportConfigSheet.sanitizedDemultiplexFolderName("   ") == "ONT Demultiplexed FASTQs")
+    }
+
     @MainActor
     @Test("ONT import sheet hides paired-end choices and imports as single-end")
     func ontImportSheetHidesPairedEndChoices() {
@@ -159,6 +172,72 @@ struct FASTQImportConfigurationTests {
         importButton?.performClick(nil)
 
         #expect(capturedConfig?.pairingMode == .singleEnd)
+    }
+
+    @MainActor
+    @Test("ONT demux recipe import captures user folder override")
+    func ontDemuxRecipeImportCapturesUserFolderOverride() {
+        let sourceURL = URL(fileURLWithPath: "/data/Run42/fastq_pass", isDirectory: true)
+        let barcodeURL = URL(fileURLWithPath: "/data/Run42/barcodes.csv")
+        let pair = FASTQFilePair(r1: sourceURL, r2: nil)
+        var capturedConfig: FASTQImportConfiguration?
+        let sheet = FASTQImportConfigSheet(
+            pairs: [pair],
+            detectedPlatform: .oxfordNanopore,
+            recipeOptions: [.ontPacBioBarcodeDemux],
+            projectURL: URL(fileURLWithPath: "/project", isDirectory: true),
+            barcodeDefinitionCandidates: [barcodeURL],
+            onImport: { configuration in
+                capturedConfig = configuration
+            }
+        )
+
+        sheet.loadViewIfNeeded()
+
+        let recipeCheckbox = sheet.view.fastqImportDescendants(of: NSButton.self)
+            .first { $0.title == "Apply processing recipe after import" }
+        recipeCheckbox?.performClick(nil)
+
+        let demuxFolderField = sheet.view.fastqImportDescendants(of: NSTextField.self)
+            .first { $0.isEditable }
+        #expect(demuxFolderField?.stringValue == "Run42")
+        demuxFolderField?.stringValue = "Custom Batch 7"
+
+        let importButton = sheet.view.fastqImportDescendants(of: NSButton.self)
+            .first { $0.title == "Import" }
+        importButton?.performClick(nil)
+
+        #expect(capturedConfig?.recipeName == FASTQImportSheetRecipeOption.ontPacBioBarcodeDemux.id)
+        #expect(capturedConfig?.resolvedPlaceholders["barcodeDefinition"] == barcodeURL.path)
+        #expect(capturedConfig?.demultiplexOutputFolderName == "Custom Batch 7")
+    }
+
+    @MainActor
+    @Test("ONT demux working directory uses requested subfolder and unique suffix")
+    func ontDemuxWorkingDirectoryUsesRequestedSubfolder() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("demux-folder-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let existing = root.appendingPathComponent("Run 42", isDirectory: true)
+        try FileManager.default.createDirectory(at: existing, withIntermediateDirectories: true)
+        let controller = MainSplitViewController()
+        let request = FASTQOperationLaunchRequest.ontPacBioBarcodeDemux(
+            inputFASTQURL: URL(fileURLWithPath: "/data/Run42/fastq_pass", isDirectory: true),
+            barcodeDefinitionsURL: URL(fileURLWithPath: "/data/Run42/barcodes.csv"),
+            threads: 1,
+            chunkJobs: 2,
+            maxReadsPerSlice: 100_000,
+            maxBytesPerCutadapt: 536_870_912
+        )
+
+        let outputURL = controller.uniqueFASTQOperationOutputDirectory(
+            in: root,
+            request: request,
+            preferredFolderName: "Run 42"
+        )
+
+        #expect(outputURL.lastPathComponent == "Run 42-2")
     }
 }
 

@@ -68,6 +68,11 @@ struct ProjectDeletionDependencyListPresentation: Equatable {
 }
 
 final class ProjectDeletionPlanner {
+    private struct ProjectObjectRecord {
+        let url: URL
+        let dependencyURLs: [URL]
+    }
+
     private let fileManager: FileManager
     private let maxMetadataFileBytes: UInt64 = 5 * 1024 * 1024
 
@@ -102,34 +107,44 @@ final class ProjectDeletionPlanner {
             return ProjectDeletionImpact(selectedURLs: [], dependentURLs: [])
         }
 
-        let objects = collectProjectObjects(in: projectURL)
-            .filter { objectURL in
-                !isCoveredByDeletionTargets(objectURL, targets: normalizedSelected)
+        let records = collectProjectObjectRecords(in: projectURL)
+            .filter { record in
+                !isCoveredByDeletionTargets(record.url, targets: normalizedSelected)
             }
+        let objectKeySet = Set(records.map { urlKey($0.url) })
+        let dependentsByDependencyKey = buildReverseDependencyIndex(
+            records: records,
+            objectKeySet: objectKeySet,
+            projectURL: projectURL
+        )
 
-        var allTargets = normalizedSelected
-        var frontier = normalizedSelected
+        var queue = normalizedSelected.map(urlKey)
+        var queueIndex = 0
         var dependentURLs: [URL] = []
         var dependentSet = Set<String>()
 
-        while !frontier.isEmpty {
-            let newDependents = objects.filter { objectURL in
-                let key = urlKey(objectURL)
-                guard !dependentSet.contains(key),
-                      !isCoveredByDeletionTargets(objectURL, targets: allTargets) else {
-                    return false
-                }
-                return object(objectURL, isAffectedByDeletingAnyOf: frontier, projectURL: projectURL)
-                    || object(objectURL, isAffectedByDeletingAnyOf: allTargets, projectURL: projectURL)
+        func addDependent(_ url: URL) {
+            let key = urlKey(url)
+            guard !dependentSet.contains(key),
+                  !isCoveredByDeletionTargets(url, targets: normalizedSelected) else {
+                return
             }
+            dependentSet.insert(key)
+            dependentURLs.append(url)
+            queue.append(key)
+        }
 
-            if newDependents.isEmpty { break }
-            for url in newDependents.sorted(by: stableURLSort) {
-                dependentSet.insert(urlKey(url))
-                dependentURLs.append(url)
+        for record in records where dependencyURLs(record.dependencyURLs, areCoveredByAnyOf: normalizedSelected) {
+            addDependent(record.url)
+        }
+
+        while queueIndex < queue.count {
+            let targetKey = queue[queueIndex]
+            queueIndex += 1
+
+            for dependent in dependentsByDependencyKey[targetKey] ?? [] {
+                addDependent(dependent)
             }
-            frontier = newDependents
-            allTargets.append(contentsOf: newDependents)
         }
 
         return ProjectDeletionImpact(
@@ -170,6 +185,15 @@ final class ProjectDeletionPlanner {
         return uniqueURLs(adjacentSidecars + appleDoubleSidecars + [appleDoubleObject])
     }
 
+    private func collectProjectObjectRecords(in projectURL: URL) -> [ProjectObjectRecord] {
+        collectProjectObjects(in: projectURL).map { objectURL in
+            ProjectObjectRecord(
+                url: objectURL,
+                dependencyURLs: structuredDependencyURLs(for: objectURL, projectURL: projectURL)
+            )
+        }
+    }
+
     private func collectProjectObjects(in projectURL: URL) -> [URL] {
         guard let enumerator = fileManager.enumerator(
             at: projectURL,
@@ -208,39 +232,62 @@ final class ProjectDeletionPlanner {
         return uniqueURLs(objects).sorted(by: stableURLSort)
     }
 
-    private func object(
-        _ objectURL: URL,
-        isAffectedByDeletingAnyOf targetURLs: [URL],
+    private func buildReverseDependencyIndex(
+        records: [ProjectObjectRecord],
+        objectKeySet: Set<String>,
         projectURL: URL
-    ) -> Bool {
-        for targetURL in targetURLs {
-            if Self.isAncestor(targetURL, of: objectURL) {
-                return true
+    ) -> [String: [URL]] {
+        var index: [String: Set<String>] = [:]
+        var urlsByKey: [String: URL] = [:]
+
+        for record in records {
+            let recordKey = urlKey(record.url)
+            urlsByKey[recordKey] = record.url
+
+            for dependencyURL in record.dependencyURLs {
+                let dependencyKey = canonicalDependencyKey(
+                    for: dependencyURL,
+                    objectKeySet: objectKeySet,
+                    projectURL: projectURL
+                )
+                index[dependencyKey, default: []].insert(recordKey)
             }
         }
 
-        let dependencyURLs = structuredDependencyURLs(for: objectURL, projectURL: projectURL)
-        for dependencyURL in dependencyURLs {
-            if targetURLs.contains(where: { Self.isAncestor($0, of: dependencyURL) || sameURL($0, dependencyURL) }) {
-                return true
+        return index.mapValues { keys in
+            keys.compactMap { urlsByKey[$0] }.sorted(by: stableURLSort)
+        }
+    }
+
+    private func canonicalDependencyKey(
+        for dependencyURL: URL,
+        objectKeySet: Set<String>,
+        projectURL: URL
+    ) -> String {
+        let projectPath = projectURL.standardizedFileURL.path
+        let normalizedProjectPath = projectPath.hasSuffix("/") ? projectPath : projectPath + "/"
+        var candidate = dependencyURL.standardizedFileURL
+
+        while candidate.path == projectPath || candidate.path.hasPrefix(normalizedProjectPath) {
+            let key = urlKey(candidate)
+            if objectKeySet.contains(key) {
+                return key
             }
+
+            let parent = candidate.deletingLastPathComponent()
+            guard parent.path != candidate.path else { break }
+            candidate = parent
         }
 
-        let searchTokens = targetURLs.flatMap { textualReferenceTokens(for: $0, projectURL: projectURL) }
-        guard !searchTokens.isEmpty else { return false }
+        return urlKey(dependencyURL)
+    }
 
-        for metadataURL in metadataFiles(in: objectURL) {
-            guard let data = try? Data(contentsOf: metadataURL),
-                  UInt64(data.count) <= maxMetadataFileBytes,
-                  let text = String(data: data, encoding: .utf8) else {
-                continue
-            }
-            if searchTokens.contains(where: { !$0.isEmpty && text.contains($0) }) {
-                return true
+    private func dependencyURLs(_ dependencyURLs: [URL], areCoveredByAnyOf targetURLs: [URL]) -> Bool {
+        dependencyURLs.contains { dependencyURL in
+            targetURLs.contains { targetURL in
+                Self.isAncestor(targetURL, of: dependencyURL) || sameURL(targetURL, dependencyURL)
             }
         }
-
-        return false
     }
 
     private func structuredDependencyURLs(for objectURL: URL, projectURL: URL) -> [URL] {
@@ -252,7 +299,7 @@ final class ProjectDeletionPlanner {
                   let json = try? JSONSerialization.jsonObject(with: data) else {
                 continue
             }
-            let strings = dependencyStrings(in: json)
+            let strings = dependencyStrings(in: json, dependencyContext: false)
             dependencies.append(contentsOf: strings.compactMap {
                 resolveDependencyString($0, objectURL: objectURL, metadataURL: metadataURL, projectURL: projectURL)
             })
@@ -325,28 +372,33 @@ final class ProjectDeletionPlanner {
         .sorted(by: stableURLSort)
     }
 
-    private func dependencyStrings(in value: Any) -> [String] {
+    private func dependencyStrings(in value: Any, dependencyContext: Bool) -> [String] {
         if let string = value as? String {
-            guard looksLikeDependencyString(string) else { return [] }
+            guard dependencyContext, looksLikeDependencyString(string) else { return [] }
             return [string]
         }
         if let array = value as? [Any] {
-            return array.flatMap(dependencyStrings(in:))
+            return array.flatMap { dependencyStrings(in: $0, dependencyContext: dependencyContext) }
         }
         if let dictionary = value as? [String: Any] {
             return dictionary.flatMap { key, nestedValue -> [String] in
-                if key.lowercased().contains("path")
-                    || key.lowercased().contains("url")
-                    || key.lowercased().contains("file")
-                    || key.lowercased().contains("bundle")
-                    || key.lowercased().contains("input")
-                    || key.lowercased().contains("source") {
-                    return dependencyStrings(in: nestedValue)
-                }
-                return dependencyStrings(in: nestedValue).filter(looksLikeDependencyString)
+                dependencyStrings(
+                    in: nestedValue,
+                    dependencyContext: dependencyContext || isDependencyKey(key)
+                )
             }
         }
         return []
+    }
+
+    private func isDependencyKey(_ key: String) -> Bool {
+        let lowercased = key.lowercased()
+        return lowercased.contains("path")
+            || lowercased.contains("url")
+            || lowercased.contains("file")
+            || lowercased.contains("bundle")
+            || lowercased.contains("input")
+            || lowercased.contains("source")
     }
 
     private func resolveDependencyString(
@@ -379,28 +431,6 @@ final class ProjectDeletionPlanner {
         return URL(fileURLWithPath: trimmed, relativeTo: metadataURL.deletingLastPathComponent())
             .standardizedFileURL
             .absoluteURL
-    }
-
-    private func textualReferenceTokens(for targetURL: URL, projectURL: URL) -> [String] {
-        var tokens = [
-            targetURL.standardizedFileURL.path,
-            targetURL.standardizedFileURL.resolvingSymlinksInPath().path,
-        ]
-
-        let projectPath = projectURL.standardizedFileURL.path
-        let normalizedProjectPath = projectPath.hasSuffix("/") ? projectPath : projectPath + "/"
-        let targetPath = targetURL.standardizedFileURL.path
-        if targetPath.hasPrefix(normalizedProjectPath) {
-            let relative = String(targetPath.dropFirst(normalizedProjectPath.count))
-            tokens.append("@/\(relative)")
-            tokens.append(relative)
-        }
-
-        if targetURL.pathExtension.lowercased().hasPrefix("lungfish") {
-            tokens.append(targetURL.lastPathComponent)
-        }
-
-        return Array(Set(tokens)).filter { !$0.isEmpty }
     }
 
     private func isProjectObjectDirectory(_ url: URL) -> Bool {

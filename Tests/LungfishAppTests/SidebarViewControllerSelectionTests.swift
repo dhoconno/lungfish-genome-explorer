@@ -199,6 +199,34 @@ final class SidebarViewControllerSelectionTests: XCTestCase {
         )
     }
 
+    func testMoveMenuDestinationsComeFromSidebarFoldersAndExcludeMovingSubtree() {
+        let projectURL = URL(fileURLWithPath: "/tmp/project.lungfish", isDirectory: true)
+        let readsURL = projectURL.appendingPathComponent("Reads", isDirectory: true)
+        let nestedURL = readsURL.appendingPathComponent("Nested", isDirectory: true)
+        let resultsURL = projectURL.appendingPathComponent("Results", isDirectory: true)
+        let bundleURL = projectURL.appendingPathComponent("Sample.lungfishfastq", isDirectory: true)
+
+        let rootItems = [
+            SidebarItem(
+                title: "Reads",
+                type: .folder,
+                children: [
+                    SidebarItem(title: "Nested", type: .folder, url: nestedURL),
+                ],
+                url: readsURL
+            ),
+            SidebarItem(title: "Results", type: .folder, url: resultsURL),
+            SidebarItem(title: "Sample", type: .fastqBundle, url: bundleURL),
+        ]
+
+        let destinations = SidebarViewController.moveMenuFolderDestinations(
+            from: rootItems,
+            excludingURLs: [readsURL.standardizedFileURL]
+        )
+
+        XCTAssertEqual(destinations, [resultsURL.standardizedFileURL])
+    }
+
     func testInternalDropWithNoDestinationTargetsProjectRoot() {
         let projectURL = URL(fileURLWithPath: "/tmp/project.lungfish", isDirectory: true)
 

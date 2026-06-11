@@ -1082,7 +1082,10 @@ extension SidebarViewController: NSMenuDelegate {
         submenu.addItem(NSMenuItem.separator())
 
         // Recursively find all folders in the project
-        let folders = findAllFolders(in: projectURL, excludingURLs: movingURLs)
+        let folders = Self.moveMenuFolderDestinations(
+            from: rootItems,
+            excludingURLs: Array(movingURLs)
+        )
 
         for folder in folders {
             // Create relative path for display
@@ -1096,35 +1099,46 @@ extension SidebarViewController: NSMenuDelegate {
         return submenu
     }
 
-    /// Finds all folders recursively in a directory
-    private func findAllFolders(in directory: URL, excludingURLs: Set<URL>) -> [URL] {
-        var folders: [URL] = []
-        let fileManager = FileManager.default
+    static func moveMenuFolderDestinations(
+        from rootItems: [SidebarItem],
+        excludingURLs movingURLs: [URL]
+    ) -> [URL] {
+        let movingURLs = movingURLs.map(\.standardizedFileURL)
+        var destinations: [URL] = []
 
-        guard let enumerator = fileManager.enumerator(
-            at: directory,
-            includingPropertiesForKeys: [.isDirectoryKey, .isHiddenKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return folders
-        }
-
-        for case let url as URL in enumerator {
-            // Skip excluded URLs and their children
-            if excludingURLs.contains(url.standardizedFileURL) {
-                enumerator.skipDescendants()
-                continue
-            }
-
-            // Check if it's a directory
-            var isDirectory: ObjCBool = false
-            if fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue {
-                folders.append(url)
+        func isExcluded(_ url: URL) -> Bool {
+            movingURLs.contains { movingURL in
+                sidebarMoveMenuURL(movingURL, covers: url)
             }
         }
 
-        // Sort alphabetically
-        return folders.sorted { $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending }
+        func collect(from items: [SidebarItem]) {
+            for item in items {
+                if let url = item.url?.standardizedFileURL, isExcluded(url) {
+                    continue
+                }
+
+                if (item.type == .folder || item.type == .project),
+                   let url = item.url?.standardizedFileURL {
+                    destinations.append(url)
+                }
+
+                if !item.type.isBundle, !item.children.isEmpty {
+                    collect(from: item.children)
+                }
+            }
+        }
+
+        collect(from: rootItems)
+        return destinations
+    }
+
+    private static func sidebarMoveMenuURL(_ ancestor: URL, covers descendant: URL) -> Bool {
+        let ancestorPath = ancestor.standardizedFileURL.path
+        let descendantPath = descendant.standardizedFileURL.path
+        if ancestorPath == descendantPath { return true }
+        let normalizedAncestor = ancestorPath.hasSuffix("/") ? ancestorPath : ancestorPath + "/"
+        return descendantPath.hasPrefix(normalizedAncestor)
     }
 
     @objc private func contextMenuMoveToFolder(_ sender: NSMenuItem) {

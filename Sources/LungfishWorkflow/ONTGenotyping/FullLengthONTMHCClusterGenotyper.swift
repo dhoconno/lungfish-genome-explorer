@@ -41,19 +41,67 @@ public struct FullLengthONTMHCClusterFASTARecord: Codable, Equatable, Sendable {
     }
 }
 
+public enum FullLengthONTMHCClosestMatchClass: String, Codable, Equatable, Sendable {
+    case `extension` = "extension"
+    case snpDifferent = "snp-different"
+}
+
+public struct FullLengthONTMHCClosestMatch: Codable, Equatable, Sendable {
+    public let sample: String
+    public let cluster: String
+    public let clusterReads: Int
+    public let closestReference: String
+    public let matchClass: FullLengthONTMHCClosestMatchClass
+    public let closestMatchID: String
+    public let nucleotidesDifferent: Int
+    public let snpDifferences: Int
+    public let indelBases: Int
+    public let alignedBases: Int
+    public let score: Int
+
+    public init(
+        sample: String,
+        cluster: String,
+        clusterReads: Int,
+        closestReference: String,
+        matchClass: FullLengthONTMHCClosestMatchClass,
+        closestMatchID: String,
+        nucleotidesDifferent: Int,
+        snpDifferences: Int,
+        indelBases: Int,
+        alignedBases: Int,
+        score: Int
+    ) {
+        self.sample = sample
+        self.cluster = cluster
+        self.clusterReads = clusterReads
+        self.closestReference = closestReference
+        self.matchClass = matchClass
+        self.closestMatchID = closestMatchID
+        self.nucleotidesDifferent = nucleotidesDifferent
+        self.snpDifferences = snpDifferences
+        self.indelBases = indelBases
+        self.alignedBases = alignedBases
+        self.score = score
+    }
+}
+
 public struct FullLengthONTMHCClusterGenotypingSummary: Codable, Equatable, Sendable {
     public let rows: [FullLengthONTMHCClusterGenotypeRow]
     public let unmatchedClusters: [FullLengthONTMHCClusterFASTARecord]
     public let cdnaMatchedClusters: [FullLengthONTMHCClusterFASTARecord]
+    public let closestMatches: [FullLengthONTMHCClosestMatch]
 
     public init(
         rows: [FullLengthONTMHCClusterGenotypeRow],
         unmatchedClusters: [FullLengthONTMHCClusterFASTARecord],
-        cdnaMatchedClusters: [FullLengthONTMHCClusterFASTARecord]
+        cdnaMatchedClusters: [FullLengthONTMHCClusterFASTARecord],
+        closestMatches: [FullLengthONTMHCClosestMatch] = []
     ) {
         self.rows = rows
         self.unmatchedClusters = unmatchedClusters
         self.cdnaMatchedClusters = cdnaMatchedClusters
+        self.closestMatches = closestMatches
     }
 }
 
@@ -73,6 +121,7 @@ public struct FullLengthONTMHCReportRow: Codable, Equatable, Sendable {
 public enum FullLengthONTMHCClusterGenotyper {
     private struct Hit {
         let allele: String
+        let snps: Int
         let matchedBases: Int
         let indelBases: Int
         let score: Int
@@ -104,10 +153,10 @@ public enum FullLengthONTMHCClusterGenotyper {
             let cigar = fields[5]
             guard cluster != "*", flag & 4 == 0 else { continue }
             let parsed = parseCIGAR(cigar)
-            guard parsed.snps == 0 else { continue }
-            let score = parsed.matchedBases - 10 * parsed.indelBases
+            let score = parsed.matchedBases - 10 * parsed.indelBases - 100 * parsed.snps
             clusterHits[cluster, default: []].append(Hit(
                 allele: allele,
+                snps: parsed.snps,
                 matchedBases: parsed.matchedBases,
                 indelBases: parsed.indelBases,
                 score: score
@@ -119,8 +168,10 @@ public enum FullLengthONTMHCClusterGenotyper {
         var cdnaClusters = Set<String>()
         var seen = Set<String>()
         for cluster in clusterHits.keys.sorted(by: localizedStandardLessThan) {
-            guard let hits = clusterHits[cluster], let bestScore = hits.map(\.score).max() else { continue }
-            for hit in hits where hit.score == bestScore {
+            guard let hits = clusterHits[cluster] else { continue }
+            let exactHits = hits.filter { $0.snps == 0 && $0.indelBases == 0 }
+            guard let bestScore = exactHits.map(\.score).max() else { continue }
+            for hit in exactHits where hit.score == bestScore {
                 let key = "\(cluster)\u{0}\(hit.allele)"
                 guard seen.insert(key).inserted else { continue }
                 matchedClusters.insert(cluster)
@@ -142,6 +193,16 @@ public enum FullLengthONTMHCClusterGenotyper {
 
         let unmatched = clusterRecords
             .filter { !matchedClusters.contains($0.name) && $0.readCount >= minUnmatchedReads }
+        let closestMatches = unmatched.compactMap { record -> FullLengthONTMHCClosestMatch? in
+            guard let hit = bestClosestHit(clusterHits[record.name] ?? []) else {
+                return nil
+            }
+            return closestMatch(
+                sampleID: sampleID,
+                cluster: record,
+                hit: hit
+            )
+        }
         let cdna = cdnaClusters.sorted(by: localizedStandardLessThan).compactMap { clusterRecordByName[$0] }
         return FullLengthONTMHCClusterGenotypingSummary(
             rows: rows.sorted {
@@ -150,7 +211,49 @@ public enum FullLengthONTMHCClusterGenotyper {
                 return $0.allele.localizedStandardCompare($1.allele) == .orderedAscending
             },
             unmatchedClusters: unmatched,
-            cdnaMatchedClusters: cdna
+            cdnaMatchedClusters: cdna,
+            closestMatches: closestMatches.sorted {
+                if $0.sample != $1.sample { return $0.sample.localizedStandardCompare($1.sample) == .orderedAscending }
+                if $0.closestMatchID != $1.closestMatchID {
+                    return $0.closestMatchID.localizedStandardCompare($1.closestMatchID) == .orderedAscending
+                }
+                return $0.cluster.localizedStandardCompare($1.cluster) == .orderedAscending
+            }
+        )
+    }
+
+    private static func bestClosestHit(_ hits: [Hit]) -> Hit? {
+        hits.sorted { lhs, rhs in
+            if lhs.snps != rhs.snps { return lhs.snps < rhs.snps }
+            if lhs.indelBases != rhs.indelBases { return lhs.indelBases < rhs.indelBases }
+            if lhs.matchedBases != rhs.matchedBases { return lhs.matchedBases > rhs.matchedBases }
+            if lhs.score != rhs.score { return lhs.score > rhs.score }
+            return lhs.allele.localizedStandardCompare(rhs.allele) == .orderedAscending
+        }.first
+    }
+
+    private static func closestMatch(
+        sampleID: String,
+        cluster: FullLengthONTMHCClusterFASTARecord,
+        hit: Hit
+    ) -> FullLengthONTMHCClosestMatch {
+        let matchClass: FullLengthONTMHCClosestMatchClass = hit.snps == 0 ? .extension : .snpDifferent
+        let closestMatchID = hit.snps == 0
+            ? "\(hit.allele)_extension"
+            : "\(hit.allele)_\(hit.snps)SNP"
+        let nucleotidesDifferent = hit.snps == 0 ? 0 : hit.snps
+        return FullLengthONTMHCClosestMatch(
+            sample: sampleID,
+            cluster: cluster.name,
+            clusterReads: cluster.readCount,
+            closestReference: hit.allele,
+            matchClass: matchClass,
+            closestMatchID: closestMatchID,
+            nucleotidesDifferent: nucleotidesDifferent,
+            snpDifferences: hit.snps,
+            indelBases: hit.indelBases,
+            alignedBases: hit.matchedBases,
+            score: hit.score
         )
     }
 
@@ -208,7 +311,7 @@ public enum FullLengthONTMHCClusterGenotyper {
             switch character {
             case "X":
                 snps += count
-            case "=":
+            case "=", "M":
                 matched += count
             case "I", "D":
                 indels += count

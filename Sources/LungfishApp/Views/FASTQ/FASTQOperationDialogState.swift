@@ -41,6 +41,7 @@ final class FASTQOperationDialogState {
     var embeddedRunTrigger: Int
     var projectURL: URL?
     var outputDirectoryURL: URL?
+    var projectBarcodeDefinitionCandidates: [URL]
     var pendingLaunchRequest: FASTQOperationLaunchRequest?
     var pendingMinimap2Config: Minimap2Config?
     var pendingMappingRequest: MappingRunRequest?
@@ -176,6 +177,7 @@ final class FASTQOperationDialogState {
             projectURL: projectURL,
             selectedInputURLs: selectedInputURLs
         )
+        self.projectBarcodeDefinitionCandidates = Self.projectBarcodeDefinitionCandidates(in: projectURL)
         self.pendingLaunchRequest = nil
         self.pendingMinimap2Config = nil
         self.pendingMappingRequest = nil
@@ -918,10 +920,6 @@ final class FASTQOperationDialogState {
         let kits = BarcodeKitRegistry.builtinKits()
         guard demultiplexEngine == .exactBareBarcode else { return kits }
         return kits.filter(Self.isExactBareBarcodeCompatible(_:))
-    }
-
-    var projectBarcodeDefinitionCandidates: [URL] {
-        Self.projectBarcodeDefinitionCandidates(in: projectURL)
     }
 
     var detectedAssemblyReadType: AssemblyReadType? {

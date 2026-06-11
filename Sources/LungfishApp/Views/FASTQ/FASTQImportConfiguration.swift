@@ -32,6 +32,67 @@ public struct FASTQImportConfiguration: Sendable {
     public let recipeName: String?
     /// Compression level for bgzip / clumpify output.
     public let compressionLevel: CompressionLevel?
+    /// Optional subfolder name for ONT demultiplexing recipe outputs.
+    public let demultiplexOutputFolderName: String?
+
+    public init(
+        inputFiles: [URL],
+        detectedPlatform: LungfishIO.SequencingPlatform,
+        confirmedPlatform: LungfishIO.SequencingPlatform,
+        pairingMode: FASTQIngestionConfig.PairingMode,
+        qualityBinning: QualityBinningScheme,
+        skipClumpify: Bool,
+        deleteOriginals: Bool,
+        postImportRecipe: ProcessingRecipe?,
+        resolvedPlaceholders: [String: String],
+        recipeName: String?,
+        compressionLevel: CompressionLevel?,
+        demultiplexOutputFolderName: String? = nil
+    ) {
+        self.inputFiles = inputFiles
+        self.detectedPlatform = detectedPlatform
+        self.confirmedPlatform = confirmedPlatform
+        self.pairingMode = pairingMode
+        self.qualityBinning = qualityBinning
+        self.skipClumpify = skipClumpify
+        self.deleteOriginals = deleteOriginals
+        self.postImportRecipe = postImportRecipe
+        self.resolvedPlaceholders = resolvedPlaceholders
+        self.recipeName = recipeName
+        self.compressionLevel = compressionLevel
+        self.demultiplexOutputFolderName = demultiplexOutputFolderName
+    }
+}
+
+enum FASTQDemultiplexOutputFolderName {
+    static let fallback = "ONT Demultiplexed FASTQs"
+
+    static func defaultName(for sourceURL: URL) -> String {
+        let name = sourceURL.lastPathComponent
+        let lowercased = name.lowercased()
+        let suggested: String
+        if lowercased == "fastq_pass"
+            || lowercased.hasPrefix("barcode")
+            || lowercased == "unclassified" {
+            suggested = sourceURL.deletingLastPathComponent().lastPathComponent
+        } else {
+            suggested = sourceURL.deletingPathExtension().lastPathComponent
+        }
+        return sanitize(suggested)
+    }
+
+    static func sanitize(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return fallback }
+        let sanitized = trimmed
+            .replacingOccurrences(
+                of: #"[^A-Za-z0-9 ._-]+"#,
+                with: "-",
+                options: .regularExpression
+            )
+            .trimmingCharacters(in: CharacterSet(charactersIn: " ._-"))
+        return sanitized.isEmpty ? fallback : sanitized
+    }
 }
 
 /// A detected R1/R2 pair (or unpaired single file) from a batch of dropped FASTQ files.

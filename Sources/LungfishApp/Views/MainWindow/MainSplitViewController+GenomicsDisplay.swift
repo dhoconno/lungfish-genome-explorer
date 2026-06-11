@@ -1168,13 +1168,20 @@ extension MainSplitViewController {
 
     func uniqueFASTQOperationOutputDirectory(
         in parentDirectory: URL,
-        request: FASTQOperationLaunchRequest
+        request: FASTQOperationLaunchRequest,
+        preferredFolderName: String? = nil
     ) -> URL {
-        let baseName = request.operationDisplayTitle
-            .lowercased()
-            .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
-        let stem = baseName.isEmpty ? "fastq-operation" : baseName
+        let stem: String
+        if let preferredFolderName,
+           !preferredFolderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            stem = FASTQDemultiplexOutputFolderName.sanitize(preferredFolderName)
+        } else {
+            let baseName = request.operationDisplayTitle
+                .lowercased()
+                .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+            stem = baseName.isEmpty ? "fastq-operation" : baseName
+        }
 
         var candidate = parentDirectory.appendingPathComponent(stem, isDirectory: true)
         var counter = 2

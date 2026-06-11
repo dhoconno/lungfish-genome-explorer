@@ -83,6 +83,9 @@ final class WorkflowOperationDialogState {
     var showingError: Bool
     var workflowAvailabilityRevision: Int
     private var cachedTools: [WorkflowOperationTool]
+    private var cachedHaplotypeRecords: [HaplotypeDefinitionRecord]
+    private var cachedHaplotypeRegistry: GenotypeHaplotypeDefinitionRegistry
+    private var cachedReferenceBundleSummaries: [URL: String]
 
     init(
         projectURL: URL?,
@@ -144,6 +147,10 @@ final class WorkflowOperationDialogState {
 
         let initialTools = Self.makeTools(enablementStore: enablementStore, packageStore: packageStore)
         self.cachedTools = initialTools
+        let initialHaplotypeRecords = Self.loadHaplotypeRecords(projectURL: standardizedProjectURL)
+        self.cachedHaplotypeRecords = initialHaplotypeRecords
+        self.cachedHaplotypeRegistry = Self.makeHaplotypeRegistry(from: initialHaplotypeRecords)
+        self.cachedReferenceBundleSummaries = Self.referenceBundleSummaries(from: initialHaplotypeRecords)
         let initialToolID = initialTools.first(where: { $0.availability == .available })?.id
             ?? initialTools.first?.id
             ?? Self.ontGenotypingID
@@ -155,6 +162,7 @@ final class WorkflowOperationDialogState {
         if initialToolID == Self.ontGenotypingID {
             applyBundledMHCReferenceDefaultsIfAvailable(for: self.selectedReferenceURL)
         }
+        cacheReferenceBundleSummaryIfNeeded(self.selectedReferenceURL)
         self.enablementObserver = WorkflowOperationNotificationObserver(
             NotificationCenter.default.addObserver(
                 forName: .workflowLibraryEnablementDidChange,
@@ -189,16 +197,12 @@ final class WorkflowOperationDialogState {
     }
 
     var haplotypeDefinitionRegistry: GenotypeHaplotypeDefinitionRegistry {
-        haplotypeDefinitionLibrary.mergedRegistry(includeReferenceBundles: selectedMHCReferenceBundleURL != nil)
-    }
-
-    var haplotypeDefinitionLibrary: HaplotypeDefinitionLibrary {
-        HaplotypeDefinitionLibrary(projectRoot: projectURL)
+        cachedHaplotypeRegistry
     }
 
     var compatibleHaplotypeDefinitionRecords: [HaplotypeDefinitionRecord] {
         if let bundleURL = selectedMHCReferenceBundleURL {
-            return haplotypeDefinitionLibrary.records(includeReferenceBundles: true).filter { record in
+            return cachedHaplotypeRecords.filter { record in
                 guard record.referenceBundleURL == bundleURL else { return false }
                 if let assayID = selectedHaplotypeAssayID,
                    !assayID.isEmpty,
@@ -213,7 +217,7 @@ final class WorkflowOperationDialogState {
                 return true
             }
         }
-        return haplotypeDefinitionLibrary.activeRecords(
+        return activeCachedHaplotypeRecords(
             assayID: selectedHaplotypeAssayID,
             speciesCode: selectedHaplotypeSpeciesCode,
             scope: selectedHaplotypeDefinitionScope
@@ -223,12 +227,12 @@ final class WorkflowOperationDialogState {
     var haplotypeSpeciesOptions: [(code: String, label: String)] {
         let records: [HaplotypeDefinitionRecord]
         if let bundleURL = selectedMHCReferenceBundleURL {
-            records = haplotypeDefinitionLibrary.records(includeReferenceBundles: true).filter {
+            records = cachedHaplotypeRecords.filter {
                 $0.referenceBundleURL == bundleURL
                     && (selectedHaplotypeAssayID == nil || $0.definitionSet.assayID == selectedHaplotypeAssayID)
             }
         } else {
-            records = haplotypeDefinitionLibrary.activeRecords(
+            records = activeCachedHaplotypeRecords(
                 assayID: selectedHaplotypeAssayID,
                 scope: selectedHaplotypeDefinitionScope
             )
@@ -246,7 +250,7 @@ final class WorkflowOperationDialogState {
             return []
         }
         let scopes = Set(
-            haplotypeDefinitionLibrary.activeRecords(
+            activeCachedHaplotypeRecords(
                 assayID: selectedHaplotypeAssayID,
                 speciesCode: selectedHaplotypeSpeciesCode
             )
@@ -296,11 +300,8 @@ final class WorkflowOperationDialogState {
     /// "From bundle: <name>" caption shown in place of the haplotype picker stack when an
     /// `.lungfishmhcref` bundle is selected; `nil` otherwise.
     var referenceBundleSummary: String? {
-        guard let bundleURL = selectedMHCReferenceBundleURL,
-              let manifest = try? MHCAmpliconReferenceBundle.loadManifest(from: bundleURL) else {
-            return nil
-        }
-        return "From bundle: \(manifest.name)"
+        guard let bundleURL = selectedMHCReferenceBundleURL else { return nil }
+        return cachedReferenceBundleSummaries[bundleURL]
     }
 
     var datasetLabel: String {
@@ -463,9 +464,51 @@ final class WorkflowOperationDialogState {
         workflowAvailabilityRevision &+= 1
     }
 
+    private func refreshCachedHaplotypeDefinitions() {
+        cachedHaplotypeRecords = Self.loadHaplotypeRecords(projectURL: projectURL)
+        cachedHaplotypeRegistry = Self.makeHaplotypeRegistry(from: cachedHaplotypeRecords)
+        cachedReferenceBundleSummaries = Self.referenceBundleSummaries(from: cachedHaplotypeRecords)
+        cacheReferenceBundleSummaryIfNeeded(selectedReferenceURL)
+    }
+
+    private func activeCachedHaplotypeRecords(
+        assayID: String? = nil,
+        speciesCode: String? = nil,
+        scope: HaplotypeDefinitionScope? = nil
+    ) -> [HaplotypeDefinitionRecord] {
+        cachedHaplotypeRecords.filter { record in
+            guard !record.isShadowed else { return false }
+            if let assayID, !assayID.isEmpty, record.definitionSet.assayID != assayID {
+                return false
+            }
+            if let speciesCode = speciesCode?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !speciesCode.isEmpty,
+               record.definitionSet.speciesCode.caseInsensitiveCompare(speciesCode) != .orderedSame {
+                return false
+            }
+            if let scope, record.scope != scope {
+                return false
+            }
+            return true
+        }
+    }
+
+    private func cacheReferenceBundleSummaryIfNeeded(_ url: URL?) {
+        guard let url,
+              MHCAmpliconReferenceBundle.isBundleURL(url) else {
+            return
+        }
+        let bundleURL = url.standardizedFileURL
+        if cachedReferenceBundleSummaries[bundleURL] == nil,
+           let summary = Self.referenceBundleSummary(for: bundleURL) {
+            cachedReferenceBundleSummaries[bundleURL] = summary
+        }
+    }
+
     func refreshProjectReferences(selecting url: URL? = nil) {
         projectReferenceCandidates = Self.discoverReferenceBundles(in: projectURL)
         projectGuideCandidates = Self.discoverGuideBundles(from: projectReferenceCandidates, relativeTo: projectURL)
+        refreshCachedHaplotypeDefinitions()
         if let url = url?.standardizedFileURL {
             setReference(url)
         } else if selectedReferenceURL == nil {
@@ -474,6 +517,7 @@ final class WorkflowOperationDialogState {
         if selectedGuideURL == nil || !projectGuideCandidates.contains(selectedGuideURL!.standardizedFileURL) {
             setGuide(projectGuideCandidates.first)
         }
+        refreshHaplotypeSelectionForCurrentProject()
     }
 
     func setHaplotypeAssay(_ assayID: String?) {
@@ -512,9 +556,7 @@ final class WorkflowOperationDialogState {
             selectedHaplotypeDefinitionSetID = id
             return
         }
-        if let record = haplotypeDefinitionLibrary.activeRecords(
-            includeReferenceBundles: selectedMHCReferenceBundleURL != nil
-        ).first(where: { $0.definitionSet.id == id }) {
+        if let record = activeCachedHaplotypeRecords().first(where: { $0.definitionSet.id == id }) {
             selectedHaplotypeAssayID = record.definitionSet.assayID
             selectedHaplotypeSpeciesCode = record.definitionSet.speciesCode
             selectedHaplotypeDefinitionScope = record.referenceBundleURL == nil ? record.scope : nil
@@ -547,6 +589,7 @@ final class WorkflowOperationDialogState {
 
     func setReference(_ url: URL?) {
         selectedReferenceURL = url?.standardizedFileURL
+        cacheReferenceBundleSummaryIfNeeded(selectedReferenceURL)
         if selectedToolID == Self.ontGenotypingID {
             applyBundledMHCReferenceDefaultsIfAvailable(for: selectedReferenceURL)
         }
@@ -605,10 +648,15 @@ final class WorkflowOperationDialogState {
         projectReferenceCandidates = Self.discoverReferenceBundles(in: standardizedProjectURL)
         projectGuideCandidates = Self.discoverGuideBundles(from: projectReferenceCandidates, relativeTo: standardizedProjectURL)
         projectBarcodeDefinitionCandidates = Self.discoverBarcodeDefinitionFiles(in: standardizedProjectURL)
-        refreshHaplotypeSelectionForCurrentProject()
 
         if projectChanged || selectedReferenceURL == nil {
             selectedReferenceURL = projectReferenceCandidates.first
+        }
+        refreshCachedHaplotypeDefinitions()
+        cacheReferenceBundleSummaryIfNeeded(selectedReferenceURL)
+        refreshHaplotypeSelectionForCurrentProject()
+        if selectedToolID == Self.ontGenotypingID {
+            applyBundledMHCReferenceDefaultsIfAvailable(for: selectedReferenceURL)
         }
         if projectChanged || selectedBarcodeDefinitionURL == nil {
             selectedBarcodeDefinitionURL = projectBarcodeDefinitionCandidates.first
@@ -1036,6 +1084,48 @@ final class WorkflowOperationDialogState {
             $0.required && $0.bundleTypes.contains(.lungfishfastq)
         }
         return hasReferenceInput && hasFASTQInput && !package.manifest.outputs.isEmpty
+    }
+
+    private static func loadHaplotypeRecords(projectURL: URL?) -> [HaplotypeDefinitionRecord] {
+        HaplotypeDefinitionLibrary(projectRoot: projectURL).records(includeReferenceBundles: true)
+    }
+
+    private static func makeHaplotypeRegistry(
+        from records: [HaplotypeDefinitionRecord]
+    ) -> GenotypeHaplotypeDefinitionRegistry {
+        let activeRecords = records.filter { !$0.isShadowed }
+        let groupedRecords = Dictionary(grouping: activeRecords, by: { $0.definitionSet.assayID })
+        let assays = groupedRecords.keys.sorted().map { assayID in
+            let recordsForAssay = groupedRecords[assayID] ?? []
+            return GenotypeHaplotypeAssay(
+                id: assayID,
+                displayName: recordsForAssay.first?.assayDisplayName ?? assayID,
+                definitionSets: recordsForAssay.map(\.definitionSet).sorted {
+                    $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending
+                }
+            )
+        }
+        return GenotypeHaplotypeDefinitionRegistry(
+            assays: assays,
+            defaultDefinitionSetID: nil
+        )
+    }
+
+    private static func referenceBundleSummaries(
+        from records: [HaplotypeDefinitionRecord]
+    ) -> [URL: String] {
+        var summaries: [URL: String] = [:]
+        for bundleURL in records.compactMap(\.referenceBundleURL) where summaries[bundleURL] == nil {
+            summaries[bundleURL] = referenceBundleSummary(for: bundleURL)
+        }
+        return summaries
+    }
+
+    private static func referenceBundleSummary(for bundleURL: URL) -> String? {
+        guard let manifest = try? MHCAmpliconReferenceBundle.loadManifest(from: bundleURL) else {
+            return nil
+        }
+        return "From bundle: \(manifest.name)"
     }
 
     private static func discoverReferenceBundles(in projectURL: URL?) -> [URL] {

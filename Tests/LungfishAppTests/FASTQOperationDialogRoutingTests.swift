@@ -780,6 +780,34 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         )
     }
 
+    func testProjectBarcodeDefinitionCandidatesDoNotRefreshDuringUnrelatedTextEdits() throws {
+        let projectURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FASTQOperationDialogRouting-\(UUID().uuidString).lungfish", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: projectURL) }
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        let firstBarcodeURL = projectURL.appendingPathComponent("initial-barcodes.tsv")
+        let laterBarcodeURL = projectURL.appendingPathComponent("later-barcodes.tsv")
+        try "FLD0001\tGTATCGTCGT\n".write(to: firstBarcodeURL, atomically: true, encoding: .utf8)
+
+        let state = FASTQOperationDialogState(
+            initialCategory: .mapping,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")],
+            projectURL: projectURL
+        )
+        state.selectTool(.ontGenotyping)
+
+        XCTAssertEqual(state.projectBarcodeDefinitionCandidates, [firstBarcodeURL.standardizedFileURL])
+
+        try "FLD0002\tGTGTATGCGT\n".write(to: laterBarcodeURL, atomically: true, encoding: .utf8)
+        state.ontGenotypingOutputName = "typed-report-name"
+
+        XCTAssertEqual(
+            state.projectBarcodeDefinitionCandidates,
+            [firstBarcodeURL.standardizedFileURL],
+            "Typing into MHC genotyping fields should not rescan the whole project for barcode files."
+        )
+    }
+
     func testDeduplicatePresetSynthesizesCliCompatibleValues() {
         let state = FASTQOperationDialogState(
             initialCategory: .decontamination,

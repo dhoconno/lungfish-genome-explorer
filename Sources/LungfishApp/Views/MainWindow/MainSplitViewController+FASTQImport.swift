@@ -722,6 +722,7 @@ extension MainSplitViewController {
                             sourceURL: sourceURL,
                             projectURL: projectURL,
                             barcodeDefinitionsURL: URL(fileURLWithPath: barcodePath),
+                            demultiplexOutputFolderName: config.demultiplexOutputFolderName,
                             viewerController: viewerController,
                             requestID: requestID
                         )
@@ -740,6 +741,7 @@ extension MainSplitViewController {
                             sourceURL: sourceURL,
                             projectURL: projectURL,
                             barcodeDefinitionsURL: URL(fileURLWithPath: barcodePath),
+                            demultiplexOutputFolderName: config.demultiplexOutputFolderName,
                             viewerController: viewerController,
                             requestID: requestID
                         )
@@ -824,6 +826,7 @@ extension MainSplitViewController {
         sourceURL: URL,
         projectURL: URL,
         barcodeDefinitionsURL: URL,
+        demultiplexOutputFolderName: String? = nil,
         viewerController: ViewerViewController,
         requestID: String?
     ) {
@@ -833,12 +836,26 @@ extension MainSplitViewController {
             threads: max(1, ProcessInfo.processInfo.activeProcessorCount)
         )
         let destinationRoot = projectURL.standardizedFileURL
-        let workingDirectory = uniqueFASTQOperationOutputDirectory(in: destinationRoot, request: request)
+        let workingDirectory = uniqueFASTQOperationOutputDirectory(
+            in: destinationRoot,
+            request: request,
+            preferredFolderName: demultiplexOutputFolderName
+        )
         let executionService = FASTQOperationExecutionService(
             directImporter: BundleFASTQOperationImporter(destinationDirectory: destinationRoot)
         )
         let cliCommand: String? = try? {
-            let invocation = try executionService.buildInvocation(for: request)
+            let outputTarget = FASTQOperationPlanner()
+                .makeExecutionPlans(
+                    originalRequest: request,
+                    resolvedRequest: request,
+                    baseOutputDirectory: workingDirectory
+                )
+                .first?
+                .outputTarget
+                .path ?? workingDirectory.path
+            let invocation = try FASTQOperationCLIInvocationBuilder()
+                .buildInvocation(for: request, outputTargetPath: outputTarget)
             return ([ "lungfish-cli", invocation.subcommand ] + invocation.arguments).joined(separator: " ")
         }()
         let opTitle = "FASTQ: \(request.operationDisplayTitle)"
@@ -931,6 +948,7 @@ extension MainSplitViewController {
         sourceURL: URL,
         projectURL: URL,
         barcodeDefinitionsURL: URL,
+        demultiplexOutputFolderName: String? = nil,
         viewerController: ViewerViewController,
         requestID: String?
     ) {
@@ -943,12 +961,26 @@ extension MainSplitViewController {
             maxBytesPerCutadapt: 512 * 1024 * 1024
         )
         let destinationRoot = projectURL.standardizedFileURL
-        let workingDirectory = uniqueFASTQOperationOutputDirectory(in: destinationRoot, request: request)
+        let workingDirectory = uniqueFASTQOperationOutputDirectory(
+            in: destinationRoot,
+            request: request,
+            preferredFolderName: demultiplexOutputFolderName
+        )
         let executionService = FASTQOperationExecutionService(
             directImporter: BundleFASTQOperationImporter(destinationDirectory: destinationRoot)
         )
         let cliCommand: String? = try? {
-            let invocation = try executionService.buildInvocation(for: request)
+            let outputTarget = FASTQOperationPlanner()
+                .makeExecutionPlans(
+                    originalRequest: request,
+                    resolvedRequest: request,
+                    baseOutputDirectory: workingDirectory
+                )
+                .first?
+                .outputTarget
+                .path ?? workingDirectory.path
+            let invocation = try FASTQOperationCLIInvocationBuilder()
+                .buildInvocation(for: request, outputTargetPath: outputTarget)
             return ([ "lungfish-cli", invocation.subcommand ] + invocation.arguments).joined(separator: " ")
         }()
         let opTitle = "FASTQ: \(request.operationDisplayTitle)"

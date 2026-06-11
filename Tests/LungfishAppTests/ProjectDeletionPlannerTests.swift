@@ -90,6 +90,34 @@ final class ProjectDeletionPlannerTests: XCTestCase {
         XCTAssertEqual(impact.urlsForCascadingDeletion.map(\.standardizedFileURL), [selectedURL.standardizedFileURL])
     }
 
+    func testDeletionImpactIgnoresIncidentalPathTextOutsideDependencyFields() throws {
+        let selectedURL = projectURL.appendingPathComponent("selected.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: selectedURL, withIntermediateDirectories: true)
+
+        let resultURL = projectURL
+            .appendingPathComponent("Analyses", isDirectory: true)
+            .appendingPathComponent("report-with-text-note", isDirectory: true)
+        try FileManager.default.createDirectory(at: resultURL, withIntermediateDirectories: true)
+        try """
+        {
+          "tool": "reporter",
+          "notes": "This report mentions \(selectedURL.path), but it does not consume that bundle."
+        }
+        """.write(
+            to: resultURL.appendingPathComponent("analysis-metadata.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let impact = ProjectDeletionPlanner(fileManager: .default)
+            .impact(ofDeleting: [selectedURL], in: projectURL)
+
+        XCTAssertTrue(
+            impact.dependentURLs.isEmpty,
+            "Only structured dependency fields should participate in deletion impact planning."
+        )
+    }
+
     func testCompanionSidecarCleanupIncludesFASTQMetadataAndAppleDoubleFiles() throws {
         let bundleURL = projectURL.appendingPathComponent("barcode08.lungfishfastq", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
