@@ -424,6 +424,8 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                 "Genotyping pivot",
                 "Unmatched Clusters",
                 "Unmatched Shared Pivot",
+                "MHC-like Unmatched Clusters",
+                "MHC-like Unmatched Pivot",
             ]
         )
         XCTAssertFalse(workbookXML.contains("Cluster Alignments"))
@@ -435,6 +437,8 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertTrue(guideSheetXML.contains("score = aligned_bases - (100 * snp_differences) - (10 * indel_bases)"))
         XCTAssertTrue(guideSheetXML.contains("Exact genotype calls require zero SNP differences and zero indel bases."))
         XCTAssertTrue(guideSheetXML.contains("Blank closest-match fields mean the unmatched cluster had no mapped SAM hit."))
+        XCTAssertTrue(guideSheetXML.contains("MHC-like unmatched rescue"))
+        XCTAssertTrue(guideSheetXML.contains("local-blast-rescue"))
 
         let samplesSheetXML = try Self.unzippedText(path: "xl/worksheets/sheet2.xml", from: result.workbookURL)
         XCTAssertTrue(samplesSheetXML.contains("sample_unique_retained_percent"))
@@ -1031,6 +1035,136 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                 ["3fd8b2c4-aea7-54d9-90ec-b00284070196", "1", "5", "Mamu-cDNA*001_extension", "extension", "0", "0", "2", "8", "-12", "", "5", ""],
             ]
         )
+    }
+
+    func testMHCLikeWorkbookRowsIncludeOriginalAndBlastRescuedMatchesOnly() {
+        let original = FullLengthONTMHCClosestMatch(
+            sample: "DL47",
+            cluster: "ClusterA_ReadCount-9",
+            clusterReads: 9,
+            closestReference: "Mamu-A1*001",
+            matchClass: .snpDifferent,
+            closestMatchID: "Mamu-A1*001_2SNP",
+            nucleotidesDifferent: 2,
+            snpDifferences: 2,
+            indelBases: 0,
+            alignedBases: 6,
+            score: -194
+        )
+        let rescue = FullLengthONTMHCBlastRescueMatch(
+            sample: "DL48",
+            cluster: "ClusterB_ReadCount-11",
+            clusterReads: 11,
+            closestReference: "Mamu-G*02_nov01b",
+            percentIdentity: 99.966,
+            queryCoverage: 98.0,
+            alignedBases: 2_892,
+            mismatches: 1,
+            gapOpens: 0,
+            eValue: 0,
+            bitScore: 5_341,
+            closestMatchID: "Mamu-G*02_nov01b_blast-rescue"
+        )
+        let rows = [
+            FullLengthONTMHCUnmatchedClosestMatchWorkbookRow(
+                sample: "DL47",
+                cluster: "ClusterA_ReadCount-9",
+                clusterReads: 9,
+                sequence: "ACGT",
+                closestMatch: original
+            ),
+            FullLengthONTMHCUnmatchedClosestMatchWorkbookRow(
+                sample: "DL48",
+                cluster: "ClusterB_ReadCount-11",
+                clusterReads: 11,
+                sequence: "TTTT",
+                closestMatch: nil,
+                rescueMatch: rescue
+            ),
+            FullLengthONTMHCUnmatchedClosestMatchWorkbookRow(
+                sample: "DL49",
+                cluster: "ClusterC_ReadCount-7",
+                clusterReads: 7,
+                sequence: "GGGG",
+                closestMatch: nil
+            ),
+        ]
+
+        XCTAssertEqual(
+            FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder.mhcLikeDetailRows(rows),
+            [
+                [
+                    "unmatched_sequence_id",
+                    "sample",
+                    "cluster",
+                    "cluster_reads",
+                    "match_source",
+                    "closest_match_id",
+                    "closest_reference",
+                    "match_class",
+                    "nucleotides_different",
+                    "snp_differences",
+                    "indel_bases",
+                    "aligned_bases",
+                    "score",
+                    "percent_identity",
+                    "query_coverage",
+                    "evalue",
+                    "bitscore",
+                    "sequence",
+                ],
+                ["1dff3e84-fe78-57e0-a73b-69bbddcf4012", "DL47", "ClusterA_ReadCount-9", "9", "genotyping-sam", "Mamu-A1*001_2SNP", "Mamu-A1*001", "snp-different", "2", "2", "0", "6", "-194", "", "", "", "", "ACGT"],
+                ["3fd8b2c4-aea7-54d9-90ec-b00284070196", "DL48", "ClusterB_ReadCount-11", "11", "local-blast-rescue", "Mamu-G*02_nov01b_blast-rescue", "Mamu-G*02_nov01b", "blast-rescue", "", "", "", "2892", "", "99.966", "98", "0", "5341", "TTTT"],
+            ]
+        )
+        XCTAssertEqual(
+            FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder.mhcLikePivotRows(rows, sampleOrder: ["DL47", "DL48"]),
+            [
+                [
+                    "unmatched_sequence_id",
+                    "occurrence_count",
+                    "total_cluster_reads",
+                    "match_source",
+                    "closest_match_id",
+                    "closest_reference",
+                    "match_class",
+                    "nucleotides_different",
+                    "percent_identity",
+                    "query_coverage",
+                    "evalue",
+                    "bitscore",
+                    "DL47",
+                    "DL48",
+                ],
+                ["3fd8b2c4-aea7-54d9-90ec-b00284070196", "1", "11", "local-blast-rescue", "Mamu-G*02_nov01b_blast-rescue", "Mamu-G*02_nov01b", "blast-rescue", "", "99.966", "98", "0", "5341", "", "11"],
+                ["1dff3e84-fe78-57e0-a73b-69bbddcf4012", "1", "9", "genotyping-sam", "Mamu-A1*001_2SNP", "Mamu-A1*001", "snp-different", "2", "", "", "", "", "9", ""],
+            ]
+        )
+    }
+
+    func testBlastRescueParserAppliesThresholdsAndChoosesBestHit() throws {
+        let tsv = """
+        ClusterA_ReadCount-9\tMamu-B*001\t80.0\t1200\t240\t2\t1\t1200\t1\t1200\t1e-40\t900\t1500\t1800
+        ClusterA_ReadCount-9\tMamu-A*001\t80.0\t1200\t240\t2\t1\t1200\t1\t1200\t1e-50\t910\t1500\t1800
+        ClusterB_ReadCount-7\tMamu-C*001\t90.0\t600\t60\t0\t1\t600\t1\t600\t1e-80\t700\t1500\t1800
+        ClusterC_ReadCount-5\tMamu-D*001\t70.0\t1300\t390\t4\t1\t1300\t1\t1300\t1e-80\t700\t1500\t1800
+        """
+        let records = [
+            FullLengthONTMHCClusterFASTARecord(name: "ClusterA_ReadCount-9", sequence: String(repeating: "A", count: 1_500), readCount: 9),
+            FullLengthONTMHCClusterFASTARecord(name: "ClusterB_ReadCount-7", sequence: String(repeating: "C", count: 1_500), readCount: 7),
+            FullLengthONTMHCClusterFASTARecord(name: "ClusterC_ReadCount-5", sequence: String(repeating: "G", count: 1_500), readCount: 5),
+        ]
+
+        let matches = try FullLengthONTMHCBlastRescueParser.acceptedMatches(
+            sample: "DL47",
+            recordsByCluster: Dictionary(uniqueKeysWithValues: records.map { ($0.name, $0) }),
+            tsv: tsv
+        )
+
+        XCTAssertEqual(matches.map(\.cluster), ["ClusterA_ReadCount-9"])
+        XCTAssertEqual(matches.first?.closestReference, "Mamu-A*001")
+        XCTAssertEqual(matches.first?.queryCoverage, 80.0)
+        XCTAssertEqual(matches.first?.closestMatchID, "Mamu-A*001_blast-rescue")
     }
 
     func testXLSXPackageWriterDoesNotIncludeTempMetadataAndWritesUnmatchedSheet() throws {

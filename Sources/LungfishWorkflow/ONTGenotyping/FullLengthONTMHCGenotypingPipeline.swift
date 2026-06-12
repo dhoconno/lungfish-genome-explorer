@@ -526,6 +526,31 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         var pipelineSteps = sampleResults
             .flatMap(\.steps)
             .sorted { lhs, rhs in lhs.startedAt < rhs.startedAt }
+        let blastRescueDirectory = request.outputDirectory
+            .appendingPathComponent(".full-length-ont-mhc", isDirectory: true)
+            .appendingPathComponent("blast-rescue", isDirectory: true)
+        let blastReferenceURL = try prepareBlastRescueReference(
+            referenceFASTAURL,
+            rescueDirectory: blastRescueDirectory
+        )
+        var rescueBySampleCluster: [String: FullLengthONTMHCBlastRescueMatch] = [:]
+        for result in orderedResults {
+            let closestClusters = Set(result.closestMatches.map(\.cluster))
+            let rescueCandidates = result.unmatchedClusters.filter { !closestClusters.contains($0.name) }
+            let sampleDirectory = request.outputDirectory
+                .appendingPathComponent("samples", isDirectory: true)
+                .appendingPathComponent(result.sample, isDirectory: true)
+            let rescueMatches = try await rescueUnmatchedMHCMatches(
+                sample: result.sample,
+                records: rescueCandidates,
+                referenceFASTAURL: blastReferenceURL,
+                sampleDirectory: sampleDirectory,
+                steps: &pipelineSteps
+            )
+            for match in rescueMatches {
+                rescueBySampleCluster[sampleClusterKey(sample: match.sample, cluster: match.cluster)] = match
+            }
+        }
         let unmatchedClosestMatchRows = orderedResults.flatMap { result in
             let closestByCluster = Dictionary(uniqueKeysWithValues: result.closestMatches.map { ($0.cluster, $0) })
             return result.unmatchedClusters.map { record in
@@ -534,7 +559,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                     cluster: record.name,
                     clusterReads: record.readCount,
                     sequence: record.sequence,
-                    closestMatch: closestByCluster[record.name]
+                    closestMatch: closestByCluster[record.name],
+                    rescueMatch: rescueBySampleCluster[sampleClusterKey(sample: result.sample, cluster: record.name)]
                 )
             }
         }
@@ -1535,6 +1561,159 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         return summary
     }
 
+    private func prepareBlastRescueReference(
+        _ referenceFASTAURL: URL,
+        rescueDirectory: URL
+    ) throws -> URL {
+        try FileManager.default.createDirectory(at: rescueDirectory, withIntermediateDirectories: true)
+        let outputURL = rescueDirectory.appendingPathComponent("reference.fa")
+        let records = try FullLengthONTMHCClusterGenotyper.readFASTARecords(from: referenceFASTAURL)
+        try writeFASTARecords(records, to: outputURL)
+        return outputURL
+    }
+
+    private func rescueUnmatchedMHCMatches(
+        sample: String,
+        records: [FullLengthONTMHCClusterFASTARecord],
+        referenceFASTAURL: URL,
+        sampleDirectory: URL,
+        steps: inout [FullLengthONTMHCProvenanceStep]
+    ) async throws -> [FullLengthONTMHCBlastRescueMatch] {
+        guard !records.isEmpty else { return [] }
+        let rescueDirectory = sampleDirectory.appendingPathComponent("blast-rescue", isDirectory: true)
+        try FileManager.default.createDirectory(at: rescueDirectory, withIntermediateDirectories: true)
+        let queryURL = rescueDirectory.appendingPathComponent("\(sample).unmatched-no-closest.fasta")
+        let tsvURL = rescueDirectory.appendingPathComponent("\(sample).unmatched-blast-rescue.tsv")
+        try writeFASTARecords(records, to: queryURL)
+        let outfmt = [
+            "6",
+            "qseqid",
+            "sseqid",
+            "pident",
+            "length",
+            "mismatch",
+            "gapopen",
+            "qstart",
+            "qend",
+            "sstart",
+            "send",
+            "evalue",
+            "bitscore",
+            "qlen",
+            "slen",
+        ].joined(separator: " ")
+        let arguments = [
+            "-query", queryURL.path,
+            "-subject", referenceFASTAURL.path,
+            "-task", "blastn",
+            "-dust", "no",
+            "-evalue", String(FullLengthONTMHCBlastRescueMatch.maximumEValue),
+            "-outfmt", outfmt,
+        ]
+        let startedAt = Date()
+        let result = try runExecutable(
+            executable: "blastn",
+            arguments: arguments,
+            standardOutputURL: tsvURL,
+            workingDirectory: rescueDirectory
+        )
+        let completedAt = Date()
+        steps.append(FullLengthONTMHCProvenanceStep(
+            toolName: "blastn",
+            toolVersion: detectExecutableVersion(executable: "blastn", arguments: ["-version"]) ?? "unknown",
+            argv: ["blastn"] + arguments,
+            inputs: [queryURL, referenceFASTAURL],
+            outputs: [tsvURL],
+            exitStatus: result.exitCode,
+            stderr: result.stderr,
+            startedAt: startedAt,
+            completedAt: completedAt
+        ))
+        guard result.exitCode == 0 else {
+            throw FullLengthONTMHCGenotypingError.processFailed(
+                tool: "blastn",
+                status: result.exitCode,
+                stderr: result.stderr
+            )
+        }
+        let tsv = try String(contentsOf: tsvURL, encoding: .utf8)
+        return try FullLengthONTMHCBlastRescueParser.acceptedMatches(
+            sample: sample,
+            recordsByCluster: Dictionary(uniqueKeysWithValues: records.map { ($0.name, $0) }),
+            tsv: tsv
+        )
+    }
+
+    private func writeFASTARecords(
+        _ records: [FullLengthONTMHCClusterFASTARecord],
+        to url: URL
+    ) throws {
+        var text = ""
+        for record in records {
+            text += ">\(record.name)\n"
+            var sequence = record.sequence
+            while !sequence.isEmpty {
+                let chunk = String(sequence.prefix(80))
+                text += chunk + "\n"
+                sequence.removeFirst(chunk.count)
+            }
+        }
+        try text.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func sampleClusterKey(sample: String, cluster: String) -> String {
+        "\(sample)\u{0}\(cluster)"
+    }
+
+    private struct ExecutableRunResult {
+        let exitCode: Int32
+        let stderr: String
+    }
+
+    private func runExecutable(
+        executable: String,
+        arguments: [String],
+        standardOutputURL: URL,
+        workingDirectory: URL
+    ) throws -> ExecutableRunResult {
+        FileManager.default.createFile(atPath: standardOutputURL.path, contents: nil)
+        let outputHandle = try FileHandle(forWritingTo: standardOutputURL)
+        defer { try? outputHandle.close() }
+        let stderrPipe = Pipe()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = [executable] + arguments
+        process.currentDirectoryURL = workingDirectory
+        process.standardOutput = outputHandle
+        process.standardError = stderrPipe
+        try process.run()
+        process.waitUntilExit()
+        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        return ExecutableRunResult(exitCode: process.terminationStatus, stderr: stderr)
+    }
+
+    private func detectExecutableVersion(executable: String, arguments: [String]) -> String? {
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = [executable] + arguments
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+        process.waitUntilExit()
+        let outputData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        let output = String(data: outputData + stderrData, encoding: .utf8) ?? ""
+        return output.split(whereSeparator: \.isNewline)
+            .first
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+    }
+
     private func writeClusterGenotypeTSV(
         _ rows: [FullLengthONTMHCClusterGenotypeRow],
         to url: URL
@@ -1709,6 +1888,19 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                         sampleOrder: sampleSummaries.map(\.sample)
                     )
                 ),
+                .init(
+                    name: "MHC-like Unmatched Clusters",
+                    rows: FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder.mhcLikeDetailRows(
+                        unmatchedClosestMatchRows
+                    )
+                ),
+                .init(
+                    name: "MHC-like Unmatched Pivot",
+                    rows: FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder.mhcLikePivotRows(
+                        unmatchedClosestMatchRows,
+                        sampleOrder: sampleSummaries.map(\.sample)
+                    )
+                ),
             ],
             to: url
         )
@@ -1730,6 +1922,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             ["Score interpretation", "Higher scores are better. Exact calls have score equal to aligned_bases; each SNP subtracts 100 and each indel base subtracts 10."],
             ["Unmatched closest match", "For unmatched clusters, closest-match fields describe the best non-exact mapped reference hit when one exists."],
             ["Blank closest-match fields", "Blank closest-match fields mean the unmatched cluster had no mapped SAM hit."],
+            ["MHC-like unmatched rescue", "Blank unmatched clusters are compared to the resolved MHC reference FASTA with local blastn; accepted rescue hits use match_source=local-blast-rescue."],
+            ["MHC-like rescue thresholds", "query_coverage>=\(oneDecimalString(FullLengthONTMHCBlastRescueMatch.minimumQueryCoverage))%; aligned_bases>=\(FullLengthONTMHCBlastRescueMatch.minimumAlignedBases); percent_identity>=\(oneDecimalString(FullLengthONTMHCBlastRescueMatch.minimumPercentIdentity))%; evalue<=\(FullLengthONTMHCBlastRescueMatch.maximumEValue)"],
             ["Unmatched sequence ID", "A deterministic UUID derived from the normalized unmatched sequence links detail rows to the shared pivot."],
             ["Haplotype assay", haplotypeAnalysis?.assayID ?? request.haplotypeAssayID ?? ""],
             ["Haplotype definition", haplotypeAnalysis?.definitionSetID ?? request.haplotypeDefinitionSetID ?? ""],
@@ -1740,6 +1934,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             ["Genotyping pivot worksheet", "Sample-by-genotype pivot formatted for review of full-length genotyping calls and haplotype summaries."],
             ["Unmatched Clusters worksheet", "One row per unmatched cluster with sequence, read support, deterministic unmatched_sequence_id, and closest-match metadata when available."],
             ["Unmatched Shared Pivot worksheet", "One row per unique unmatched sequence with occurrence count, total supporting reads, closest-match summary, and per-sample read counts."],
+            ["MHC-like Unmatched Clusters worksheet", "One row per unmatched cluster with either genotyping SAM closest-match evidence or accepted local BLAST rescue evidence."],
+            ["MHC-like Unmatched Pivot worksheet", "One row per unique MHC-like unmatched sequence with occurrence count, total supporting reads, best evidence summary, and per-sample read counts."],
         ]
     }
 
@@ -1970,6 +2166,11 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             "savontToolVersion": .string(FullLengthONTMHCGenotypingRunRequest.savontToolVersion),
             "minUnmatchedReads": .integer(5),
             "cdnaThreshold": .integer(2_000),
+            "mhcLikeBlastRescue": .string("enabled"),
+            "mhcLikeBlastRescueMinimumQueryCoverage": .number(FullLengthONTMHCBlastRescueMatch.minimumQueryCoverage),
+            "mhcLikeBlastRescueMinimumAlignedBases": .integer(FullLengthONTMHCBlastRescueMatch.minimumAlignedBases),
+            "mhcLikeBlastRescueMinimumPercentIdentity": .number(FullLengthONTMHCBlastRescueMatch.minimumPercentIdentity),
+            "mhcLikeBlastRescueMaximumEValue": .number(FullLengthONTMHCBlastRescueMatch.maximumEValue),
             "sampleJobs": .string("auto"),
             "savontThreadsPerSample": .string("auto"),
             "haplotypeDropoutSampleFraction": .string("disabled"),
@@ -1991,6 +2192,11 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             "savontToolVersion": .string(FullLengthONTMHCGenotypingRunRequest.savontToolVersion),
             "minUnmatchedReads": .integer(request.minUnmatchedReads),
             "cdnaThreshold": .integer(request.cdnaThreshold),
+            "mhcLikeBlastRescue": .string("enabled"),
+            "mhcLikeBlastRescueMinimumQueryCoverage": .number(FullLengthONTMHCBlastRescueMatch.minimumQueryCoverage),
+            "mhcLikeBlastRescueMinimumAlignedBases": .integer(FullLengthONTMHCBlastRescueMatch.minimumAlignedBases),
+            "mhcLikeBlastRescueMinimumPercentIdentity": .number(FullLengthONTMHCBlastRescueMatch.minimumPercentIdentity),
+            "mhcLikeBlastRescueMaximumEValue": .number(FullLengthONTMHCBlastRescueMatch.maximumEValue),
             "sampleJobs": .integer(executionPlan.sampleJobs),
             "savontThreadsPerSample": .integer(executionPlan.savontThreadsPerSample),
             "workerThreadsPerSample": .integer(executionPlan.workerThreadsPerSample),
@@ -2543,6 +2749,124 @@ struct FullLengthONTMHCUnmatchedClosestMatchWorkbookRow: Sendable, Equatable {
     let clusterReads: Int
     let sequence: String
     let closestMatch: FullLengthONTMHCClosestMatch?
+    let rescueMatch: FullLengthONTMHCBlastRescueMatch?
+
+    init(
+        sample: String,
+        cluster: String,
+        clusterReads: Int,
+        sequence: String,
+        closestMatch: FullLengthONTMHCClosestMatch?,
+        rescueMatch: FullLengthONTMHCBlastRescueMatch? = nil
+    ) {
+        self.sample = sample
+        self.cluster = cluster
+        self.clusterReads = clusterReads
+        self.sequence = sequence
+        self.closestMatch = closestMatch
+        self.rescueMatch = rescueMatch
+    }
+}
+
+struct FullLengthONTMHCBlastRescueMatch: Sendable, Equatable {
+    static let minimumQueryCoverage = 70.0
+    static let minimumAlignedBases = 1_000
+    static let minimumPercentIdentity = 75.0
+    static let maximumEValue = 1e-20
+
+    let sample: String
+    let cluster: String
+    let clusterReads: Int
+    let closestReference: String
+    let percentIdentity: Double
+    let queryCoverage: Double
+    let alignedBases: Int
+    let mismatches: Int
+    let gapOpens: Int
+    let eValue: Double
+    let bitScore: Double
+    let closestMatchID: String
+}
+
+enum FullLengthONTMHCBlastRescueParser {
+    static func acceptedMatches(
+        sample: String,
+        recordsByCluster: [String: FullLengthONTMHCClusterFASTARecord],
+        tsv: String
+    ) throws -> [FullLengthONTMHCBlastRescueMatch] {
+        let candidates = tsv
+            .split(whereSeparator: \.isNewline)
+            .compactMap { line -> FullLengthONTMHCBlastRescueMatch? in
+                parseLine(String(line), sample: sample, recordsByCluster: recordsByCluster)
+            }
+            .filter(passesThresholds)
+        let grouped = Dictionary(grouping: candidates, by: \.cluster)
+        return grouped.values.compactMap { group in
+            group.sorted(by: rescueSort).first
+        }
+        .sorted {
+            if $0.sample != $1.sample {
+                return $0.sample.localizedStandardCompare($1.sample) == .orderedAscending
+            }
+            return $0.cluster.localizedStandardCompare($1.cluster) == .orderedAscending
+        }
+    }
+
+    private static func parseLine(
+        _ line: String,
+        sample: String,
+        recordsByCluster: [String: FullLengthONTMHCClusterFASTARecord]
+    ) -> FullLengthONTMHCBlastRescueMatch? {
+        let fields = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+        guard fields.count >= 14,
+              let record = recordsByCluster[fields[0]],
+              let percentIdentity = Double(fields[2]),
+              let alignedBases = Int(fields[3]),
+              let mismatches = Int(fields[4]),
+              let gapOpens = Int(fields[5]),
+              let eValue = Double(fields[10]),
+              let bitScore = Double(fields[11]),
+              let queryLength = Double(fields[12]),
+              queryLength > 0
+        else {
+            return nil
+        }
+        let queryCoverage = Double(alignedBases) / queryLength * 100.0
+        let closestReference = fields[1]
+        return FullLengthONTMHCBlastRescueMatch(
+            sample: sample,
+            cluster: record.name,
+            clusterReads: record.readCount,
+            closestReference: closestReference,
+            percentIdentity: percentIdentity,
+            queryCoverage: queryCoverage,
+            alignedBases: alignedBases,
+            mismatches: mismatches,
+            gapOpens: gapOpens,
+            eValue: eValue,
+            bitScore: bitScore,
+            closestMatchID: "\(closestReference)_blast-rescue"
+        )
+    }
+
+    private static func passesThresholds(_ match: FullLengthONTMHCBlastRescueMatch) -> Bool {
+        match.queryCoverage >= FullLengthONTMHCBlastRescueMatch.minimumQueryCoverage
+            && match.alignedBases >= FullLengthONTMHCBlastRescueMatch.minimumAlignedBases
+            && match.percentIdentity >= FullLengthONTMHCBlastRescueMatch.minimumPercentIdentity
+            && match.eValue <= FullLengthONTMHCBlastRescueMatch.maximumEValue
+    }
+
+    static func rescueSort(
+        _ lhs: FullLengthONTMHCBlastRescueMatch,
+        _ rhs: FullLengthONTMHCBlastRescueMatch
+    ) -> Bool {
+        if lhs.eValue != rhs.eValue { return lhs.eValue < rhs.eValue }
+        if lhs.bitScore != rhs.bitScore { return lhs.bitScore > rhs.bitScore }
+        if lhs.queryCoverage != rhs.queryCoverage { return lhs.queryCoverage > rhs.queryCoverage }
+        if lhs.percentIdentity != rhs.percentIdentity { return lhs.percentIdentity > rhs.percentIdentity }
+        if lhs.alignedBases != rhs.alignedBases { return lhs.alignedBases > rhs.alignedBases }
+        return lhs.closestReference.localizedStandardCompare(rhs.closestReference) == .orderedAscending
+    }
 }
 
 enum FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder {
@@ -2636,6 +2960,113 @@ enum FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder {
         return result
     }
 
+    static func mhcLikeDetailRows(_ rows: [FullLengthONTMHCUnmatchedClosestMatchWorkbookRow]) -> [[String]] {
+        var result = [[
+            "unmatched_sequence_id",
+            "sample",
+            "cluster",
+            "cluster_reads",
+            "match_source",
+            "closest_match_id",
+            "closest_reference",
+            "match_class",
+            "nucleotides_different",
+            "snp_differences",
+            "indel_bases",
+            "aligned_bases",
+            "score",
+            "percent_identity",
+            "query_coverage",
+            "evalue",
+            "bitscore",
+            "sequence",
+        ]]
+        result += rows.filter(isMHCLike).sorted(by: rowSort).map { row in
+            let metadata = mhcLikeMetadata(for: row)
+            return [
+                unmatchedSequenceID(for: row.sequence),
+                row.sample,
+                row.cluster,
+                String(row.clusterReads),
+                metadata.matchSource,
+                metadata.closestMatchID,
+                metadata.closestReference,
+                metadata.matchClass,
+                metadata.nucleotidesDifferent,
+                metadata.snpDifferences,
+                metadata.indelBases,
+                metadata.alignedBases,
+                metadata.score,
+                metadata.percentIdentity,
+                metadata.queryCoverage,
+                metadata.eValue,
+                metadata.bitScore,
+                row.sequence,
+            ]
+        }
+        return result
+    }
+
+    static func mhcLikePivotRows(
+        _ rows: [FullLengthONTMHCUnmatchedClosestMatchWorkbookRow],
+        sampleOrder: [String]
+    ) -> [[String]] {
+        let sampleNames = completeSampleOrder(sampleOrder, with: rows.filter(isMHCLike))
+        var result = [[
+            "unmatched_sequence_id",
+            "occurrence_count",
+            "total_cluster_reads",
+            "match_source",
+            "closest_match_id",
+            "closest_reference",
+            "match_class",
+            "nucleotides_different",
+            "percent_identity",
+            "query_coverage",
+            "evalue",
+            "bitscore",
+        ] + sampleNames]
+        let grouped = Dictionary(grouping: rows.filter(isMHCLike)) { unmatchedSequenceID(for: $0.sequence) }
+        let orderedGroups = grouped.keys.sorted { lhs, rhs in
+            let left = grouped[lhs] ?? []
+            let right = grouped[rhs] ?? []
+            let leftReads = left.reduce(0) { $0 + $1.clusterReads }
+            let rightReads = right.reduce(0) { $0 + $1.clusterReads }
+            if leftReads != rightReads { return leftReads > rightReads }
+            if left.count != right.count { return left.count > right.count }
+            return lhs.localizedStandardCompare(rhs) == .orderedAscending
+        }
+        for unmatchedSequenceID in orderedGroups {
+            guard let group = grouped[unmatchedSequenceID] else {
+                continue
+            }
+            let representative = group.sorted(by: mhcLikeSort).first
+            let metadata = representative.map(mhcLikeMetadata)
+            let totalReads = group.reduce(0) { $0 + $1.clusterReads }
+            let readsBySample = group.reduce(into: [String: Int]()) { totals, item in
+                totals[item.sample, default: 0] += item.clusterReads
+            }
+            result.append([
+                unmatchedSequenceID,
+                String(group.count),
+                String(totalReads),
+                metadata?.matchSource ?? "",
+                metadata?.closestMatchID ?? "",
+                metadata?.closestReference ?? "",
+                metadata?.matchClass ?? "",
+                metadata?.nucleotidesDifferent ?? "",
+                metadata?.percentIdentity ?? "",
+                metadata?.queryCoverage ?? "",
+                metadata?.eValue ?? "",
+                metadata?.bitScore ?? "",
+            ] + sampleNames.map { sample in
+                guard let count = readsBySample[sample], count > 0 else { return "" }
+                return String(count)
+            })
+        }
+        return result
+    }
+
     private static func completeSampleOrder(
         _ sampleOrder: [String],
         with rows: [FullLengthONTMHCUnmatchedClosestMatchWorkbookRow]
@@ -2667,6 +3098,93 @@ enum FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder {
         return lhs.cluster.localizedStandardCompare(rhs.cluster) == .orderedAscending
     }
 
+    private static func isMHCLike(_ row: FullLengthONTMHCUnmatchedClosestMatchWorkbookRow) -> Bool {
+        row.closestMatch != nil || row.rescueMatch != nil
+    }
+
+    private struct MHCLikeMetadata {
+        let matchSource: String
+        let closestMatchID: String
+        let closestReference: String
+        let matchClass: String
+        let nucleotidesDifferent: String
+        let snpDifferences: String
+        let indelBases: String
+        let alignedBases: String
+        let score: String
+        let percentIdentity: String
+        let queryCoverage: String
+        let eValue: String
+        let bitScore: String
+    }
+
+    private static func mhcLikeMetadata(for row: FullLengthONTMHCUnmatchedClosestMatchWorkbookRow) -> MHCLikeMetadata {
+        if let closest = row.closestMatch {
+            return MHCLikeMetadata(
+                matchSource: "genotyping-sam",
+                closestMatchID: closest.closestMatchID,
+                closestReference: closest.closestReference,
+                matchClass: closest.matchClass.rawValue,
+                nucleotidesDifferent: optionalNumber(closest.nucleotidesDifferent),
+                snpDifferences: optionalNumber(closest.snpDifferences),
+                indelBases: optionalNumber(closest.indelBases),
+                alignedBases: optionalNumber(closest.alignedBases),
+                score: optionalNumber(closest.score),
+                percentIdentity: "",
+                queryCoverage: "",
+                eValue: "",
+                bitScore: ""
+            )
+        }
+        guard let rescue = row.rescueMatch else {
+            return MHCLikeMetadata(
+                matchSource: "",
+                closestMatchID: "",
+                closestReference: "",
+                matchClass: "",
+                nucleotidesDifferent: "",
+                snpDifferences: "",
+                indelBases: "",
+                alignedBases: "",
+                score: "",
+                percentIdentity: "",
+                queryCoverage: "",
+                eValue: "",
+                bitScore: ""
+            )
+        }
+        return MHCLikeMetadata(
+            matchSource: "local-blast-rescue",
+            closestMatchID: rescue.closestMatchID,
+            closestReference: rescue.closestReference,
+            matchClass: "blast-rescue",
+            nucleotidesDifferent: "",
+            snpDifferences: "",
+            indelBases: "",
+            alignedBases: optionalNumber(rescue.alignedBases),
+            score: "",
+            percentIdentity: formatNumber(rescue.percentIdentity),
+            queryCoverage: formatNumber(rescue.queryCoverage),
+            eValue: formatNumber(rescue.eValue),
+            bitScore: formatNumber(rescue.bitScore)
+        )
+    }
+
+    private static func mhcLikeSort(
+        _ lhs: FullLengthONTMHCUnmatchedClosestMatchWorkbookRow,
+        _ rhs: FullLengthONTMHCUnmatchedClosestMatchWorkbookRow
+    ) -> Bool {
+        if lhs.closestMatch != nil && rhs.closestMatch == nil { return true }
+        if lhs.closestMatch == nil && rhs.closestMatch != nil { return false }
+        if let left = lhs.closestMatch, let right = rhs.closestMatch {
+            return closestSort(left, right)
+        }
+        if let left = lhs.rescueMatch, let right = rhs.rescueMatch {
+            return FullLengthONTMHCBlastRescueParser.rescueSort(left, right)
+        }
+        return lhs.cluster.localizedStandardCompare(rhs.cluster) == .orderedAscending
+    }
+
     private static func closestSort(
         _ lhs: FullLengthONTMHCClosestMatch,
         _ rhs: FullLengthONTMHCClosestMatch
@@ -2686,6 +3204,20 @@ enum FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder {
 
     private static func optionalNumber(_ value: Int?) -> String {
         value.map(String.init) ?? ""
+    }
+
+    private static func formatNumber(_ value: Double) -> String {
+        if value.rounded() == value && abs(value) < 1e15 {
+            return String(Int64(value))
+        }
+        var text = String(format: "%.3f", value)
+        while text.last == "0" {
+            text.removeLast()
+        }
+        if text.last == "." {
+            text.removeLast()
+        }
+        return text
     }
 
     private static func unmatchedSequenceID(for sequence: String) -> String {
