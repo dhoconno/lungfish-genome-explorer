@@ -25,7 +25,7 @@
 - Modify `Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationsDialog.swift`
   - Renders resolved-input summary text, duplicate/empty-folder messages, details, and `Include subfolders`.
 - Modify `Tests/LungfishAppTests/SidebarViewControllerSelectionTests.swift`
-  - Adds resolver tests using lightweight `SidebarItem` trees.
+  - Adds resolver tests using lightweight `SidebarItem` trees, including mode-aware duplicate summaries and detail rows.
 - Modify `Tests/LungfishAppWorkflowTests/WorkflowOperationDialogStateTests.swift`
   - Adds state/toggle/package/run-request tests.
 
@@ -550,7 +550,7 @@ Add:
     }
 
     var folderDuplicateNoticeText: String? {
-        sidebarInputSelection?.duplicateSummaryText
+        sidebarInputSelection?.duplicateSummaryText(includeSubfolders: includeSubfolderBundles)
     }
 
     var folderEmptyNoticeText: String? {
@@ -558,7 +558,7 @@ Add:
     }
 
     var resolvedReadDetailRows: [WorkflowSidebarInputSelection.DetailRow] {
-        sidebarInputSelection?.detailRows ?? selectedReadURLs.map {
+        sidebarInputSelection?.detailRows(includeSubfolders: includeSubfolderBundles) ?? selectedReadURLs.map {
             WorkflowSidebarInputSelection.DetailRow(
                 url: $0,
                 displayPath: Self.displayPath(for: $0, relativeTo: projectURL)
