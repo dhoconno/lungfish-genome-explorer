@@ -1420,6 +1420,9 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertTrue(source.contains("folderEmptyNoticeText"))
         XCTAssertTrue(source.contains("resolvedReadDetailRows"))
         XCTAssertTrue(source.contains("workflow-operations-include-subfolders"))
+        XCTAssertTrue(source.contains("workflow-operations-empty-folder-notice"))
+        XCTAssertTrue(source.contains("workflow-operations-subfolder-notice"))
+        XCTAssertTrue(source.contains("workflow-operations-duplicate-folder-inputs"))
     }
 
     func testWorkflowOperationsDialogShowsProjectBarcodeDefinitionPicker() throws {

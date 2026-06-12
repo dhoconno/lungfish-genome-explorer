@@ -161,9 +161,11 @@ private struct WorkflowOperationsDetailPane: View {
                 .accessibilityIdentifier("workflow-operations-resolved-input-summary")
             if let folderEmptyNoticeText = state.folderEmptyNoticeText {
                 helperText(folderEmptyNoticeText)
+                    .accessibilityIdentifier("workflow-operations-empty-folder-notice")
             }
             if let folderSubfolderNoticeText = state.folderSubfolderNoticeText {
                 helperText(folderSubfolderNoticeText)
+                    .accessibilityIdentifier("workflow-operations-subfolder-notice")
                 Toggle(
                     "Include subfolders",
                     isOn: Binding(
@@ -178,6 +180,7 @@ private struct WorkflowOperationsDetailPane: View {
             }
             if let folderDuplicateNoticeText = state.folderDuplicateNoticeText {
                 helperText(folderDuplicateNoticeText)
+                    .accessibilityIdentifier("workflow-operations-duplicate-folder-inputs")
             }
             if state.resolvedReadDetailRows.count > 1 {
                 DisclosureGroup("Resolved inputs") {
