@@ -810,4 +810,129 @@ final class SidebarViewControllerSelectionTests: XCTestCase {
         XCTAssertEqual(item.title, "Sample-CZ-001")
         XCTAssertEqual(item.subtitle, "CZ-ID · Sample-CZ-001")
     }
+
+    func testWorkflowInputSelectionExpandsDirectFolderFASTQBundlesOnly() {
+        let folderURL = URL(fileURLWithPath: "/tmp/project/Runs", isDirectory: true)
+        let first = folderURL.appendingPathComponent("A.lungfishfastq", isDirectory: true)
+        let second = folderURL.appendingPathComponent("B.lungfishfastq", isDirectory: true)
+        let ignoredNonBundleRow = folderURL.appendingPathComponent("Ignored.lungfishfastq", isDirectory: true)
+        let nested = folderURL
+            .appendingPathComponent("Nested", isDirectory: true)
+            .appendingPathComponent("C.lungfishfastq", isDirectory: true)
+        let folder = SidebarItem(
+            title: "Runs",
+            type: .folder,
+            children: [
+                SidebarItem(title: "A", type: .fastqBundle, url: first),
+                SidebarItem(title: "B", type: .fastqBundle, url: second),
+                SidebarItem(title: "Ignored", type: .document, url: ignoredNonBundleRow),
+                SidebarItem(
+                    title: "Nested",
+                    type: .folder,
+                    children: [
+                        SidebarItem(title: "C", type: .fastqBundle, url: nested),
+                    ],
+                    url: folderURL.appendingPathComponent("Nested", isDirectory: true)
+                ),
+            ],
+            url: folderURL
+        )
+
+        let selection = WorkflowSidebarInputSelection.resolve(
+            items: [folder],
+            projectURL: URL(fileURLWithPath: "/tmp/project", isDirectory: true)
+        )
+
+        XCTAssertEqual(selection.directReadURLs, [first.standardizedFileURL, second.standardizedFileURL])
+        XCTAssertEqual(selection.recursiveReadURLs, [first.standardizedFileURL, second.standardizedFileURL, nested.standardizedFileURL])
+        XCTAssertEqual(selection.selectedReadURLs(includeSubfolders: false), [first.standardizedFileURL, second.standardizedFileURL])
+        XCTAssertEqual(selection.selectedReadURLs(includeSubfolders: true), [first.standardizedFileURL, second.standardizedFileURL, nested.standardizedFileURL])
+        XCTAssertEqual(selection.folderSelectionCount, 1)
+        XCTAssertEqual(selection.additionalDescendantBundleCount, 1)
+        XCTAssertTrue(selection.hasAdditionalDescendantBundles)
+        XCTAssertEqual(selection.summaryText(includeSubfolders: false), "Folder \"Runs\" expands to 2 eligible FASTQ bundles.")
+    }
+
+    func testWorkflowInputSelectionCombinesMultipleFoldersAsOneDeduplicatedBatch() {
+        let projectURL = URL(fileURLWithPath: "/tmp/project", isDirectory: true)
+        let shared = projectURL.appendingPathComponent("A.lungfishfastq", isDirectory: true)
+        let unique = projectURL.appendingPathComponent("B.lungfishfastq", isDirectory: true)
+        let runs = SidebarItem(
+            title: "Runs",
+            type: .folder,
+            children: [
+                SidebarItem(title: "A", type: .fastqBundle, url: shared),
+                SidebarItem(title: "B", type: .fastqBundle, url: unique),
+            ],
+            url: projectURL.appendingPathComponent("Runs", isDirectory: true)
+        )
+        let selectedAgain = SidebarItem(title: "A", type: .fastqBundle, url: shared)
+
+        let selection = WorkflowSidebarInputSelection.resolve(items: [runs, selectedAgain], projectURL: projectURL)
+
+        XCTAssertEqual(selection.directReadURLs, [shared.standardizedFileURL, unique.standardizedFileURL])
+        XCTAssertEqual(selection.explicitBundleCount, 1)
+        XCTAssertEqual(selection.folderSelectionCount, 1)
+        XCTAssertEqual(selection.selectedFolderNames, ["Runs"])
+        XCTAssertEqual(selection.duplicateBundleCount, 1)
+        XCTAssertEqual(selection.duplicateSummaryText, "Skipped 1 duplicate bundle already included by another selected item.")
+        XCTAssertEqual(selection.summaryText(includeSubfolders: false), "2 FASTQ bundles selected from 1 folder and 1 explicit bundle.")
+    }
+
+    func testWorkflowInputSelectionDoesNotRecurseIntoFASTQBundleChildren() {
+        let projectURL = URL(fileURLWithPath: "/tmp/project", isDirectory: true)
+        let top = projectURL.appendingPathComponent("Top.lungfishfastq", isDirectory: true)
+        let demuxChild = top
+            .appendingPathComponent("demux", isDirectory: true)
+            .appendingPathComponent("Barcode01.lungfishfastq", isDirectory: true)
+        let folder = SidebarItem(
+            title: "Runs",
+            type: .folder,
+            children: [
+                SidebarItem(
+                    title: "Top",
+                    type: .fastqBundle,
+                    children: [
+                        SidebarItem(title: "Barcode01", type: .fastqBundle, url: demuxChild),
+                    ],
+                    url: top
+                ),
+            ],
+            url: projectURL.appendingPathComponent("Runs", isDirectory: true)
+        )
+
+        let selection = WorkflowSidebarInputSelection.resolve(items: [folder], projectURL: projectURL)
+
+        XCTAssertEqual(selection.directReadURLs, [top.standardizedFileURL])
+        XCTAssertEqual(selection.recursiveReadURLs, [top.standardizedFileURL])
+        XCTAssertEqual(selection.additionalDescendantBundleCount, 0)
+    }
+
+    func testWorkflowInputSelectionReportsEmptyFolderWithSubfolderBundles() {
+        let projectURL = URL(fileURLWithPath: "/tmp/project", isDirectory: true)
+        let nestedBundle = projectURL
+            .appendingPathComponent("Runs/Nested/C.lungfishfastq", isDirectory: true)
+        let folder = SidebarItem(
+            title: "Runs",
+            type: .folder,
+            children: [
+                SidebarItem(
+                    title: "Nested",
+                    type: .folder,
+                    children: [
+                        SidebarItem(title: "C", type: .fastqBundle, url: nestedBundle),
+                    ],
+                    url: projectURL.appendingPathComponent("Runs/Nested", isDirectory: true)
+                ),
+            ],
+            url: projectURL.appendingPathComponent("Runs", isDirectory: true)
+        )
+
+        let selection = WorkflowSidebarInputSelection.resolve(items: [folder], projectURL: projectURL)
+
+        XCTAssertTrue(selection.directReadURLs.isEmpty)
+        XCTAssertEqual(selection.recursiveReadURLs, [nestedBundle.standardizedFileURL])
+        XCTAssertEqual(selection.emptyFolderSummaryText, "No eligible FASTQ bundles were found directly in \"Runs\".")
+        XCTAssertEqual(selection.subfolderSummaryText, "Subfolders contain 1 additional eligible FASTQ bundle.")
+    }
 }
