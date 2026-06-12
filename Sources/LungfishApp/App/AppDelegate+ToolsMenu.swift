@@ -207,6 +207,25 @@ extension AppDelegate {
         )
     }
 
+    static func resolveWorkflowSidebarInputSelectionForOperations(
+        items: [SidebarItem],
+        projectURL: URL?
+    ) -> (selectedReadURLs: [URL], sidebarInputSelection: WorkflowSidebarInputSelection?) {
+        let sidebarInputSelection = WorkflowSidebarInputSelection.resolve(items: items, projectURL: projectURL)
+        let selectedReadURLs = sidebarInputSelection.selectedReadURLs(includeSubfolders: false)
+        if sidebarInputSelection.folderSelectionCount > 0 || !selectedReadURLs.isEmpty {
+            return (selectedReadURLs, sidebarInputSelection)
+        }
+
+        return (
+            resolveWorkflowOperationReadInputURLs(
+                selectedURLs: items.compactMap(\.url),
+                currentFASTQURL: nil
+            ),
+            nil
+        )
+    }
+
     static func resolveWorkflowOperationReadInputURLs(
         selectedURLs: [URL],
         currentFASTQURL _: URL?
@@ -1537,11 +1556,17 @@ extension AppDelegate {
         let routeContext = sourceController.map { currentOperationRouteContext(for: $0) } ?? nil
         let projectURL = routeContext?.projectURL
             ?? sourceController?.mainSplitViewController?.sidebarController?.currentProjectURL
-        let selectedReadURLs = sourceController.map { gatherWorkflowOperationReadInputURLs(controller: $0) } ?? []
+        let sidebarController = sourceController?.mainSplitViewController?.sidebarController
+        let sidebarResolution = sidebarController.map {
+            Self.resolveWorkflowSidebarInputSelectionForOperations(items: $0.selectedItems(), projectURL: projectURL)
+        }
+        let selectedReadURLs = sidebarResolution?.selectedReadURLs
+            ?? (sourceController.map { gatherWorkflowOperationReadInputURLs(controller: $0) } ?? [])
         WorkflowOperationsWindowController.show(
             projectURL: projectURL,
             routeContext: routeContext,
-            selectedReadURLs: selectedReadURLs
+            selectedReadURLs: selectedReadURLs,
+            sidebarInputSelection: sidebarResolution?.sidebarInputSelection
         )
     }
 
