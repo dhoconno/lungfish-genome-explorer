@@ -14,19 +14,22 @@ final class WorkflowOperationsWindowController: NSWindowController {
     static func show(
         projectURL: URL?,
         routeContext: OperationRouteContext? = nil,
-        selectedReadURLs: [URL] = []
+        selectedReadURLs: [URL] = [],
+        sidebarInputSelection: WorkflowSidebarInputSelection? = nil
     ) {
         if shared == nil {
             shared = WorkflowOperationsWindowController(
                 projectURL: projectURL,
                 routeContext: routeContext,
-                selectedReadURLs: selectedReadURLs
+                selectedReadURLs: selectedReadURLs,
+                sidebarInputSelection: sidebarInputSelection
             )
         } else {
             shared?.configure(
                 projectURL: projectURL,
                 routeContext: routeContext,
-                selectedReadURLs: selectedReadURLs
+                selectedReadURLs: selectedReadURLs,
+                sidebarInputSelection: sidebarInputSelection
             )
         }
         shared?.showWindow(nil)
@@ -36,11 +39,13 @@ final class WorkflowOperationsWindowController: NSWindowController {
         projectURL: URL?,
         routeContext: OperationRouteContext?,
         selectedReadURLs: [URL],
+        sidebarInputSelection: WorkflowSidebarInputSelection?,
         service: WorkflowOperationExecutionService = WorkflowOperationExecutionService()
     ) {
         self.state = WorkflowOperationDialogState(
             projectURL: projectURL,
-            selectedReadURLs: selectedReadURLs
+            selectedReadURLs: selectedReadURLs,
+            sidebarInputSelection: sidebarInputSelection
         )
         self.routeContext = routeContext
         self.service = service
@@ -90,10 +95,15 @@ final class WorkflowOperationsWindowController: NSWindowController {
     private func configure(
         projectURL: URL?,
         routeContext: OperationRouteContext?,
-        selectedReadURLs: [URL]
+        selectedReadURLs: [URL],
+        sidebarInputSelection: WorkflowSidebarInputSelection?
     ) {
         self.routeContext = routeContext
-        state.configureProject(projectURL: projectURL, selectedReadURLs: selectedReadURLs)
+        state.configureProject(
+            projectURL: projectURL,
+            selectedReadURLs: selectedReadURLs,
+            sidebarInputSelection: sidebarInputSelection
+        )
     }
 
     private func run(_ request: WorkflowOperationLaunchRequest) {

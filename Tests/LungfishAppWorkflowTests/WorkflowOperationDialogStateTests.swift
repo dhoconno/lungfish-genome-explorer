@@ -1193,6 +1193,112 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertEqual(state.selectedBarcodeDefinitionURL, secondBarcodesURL.standardizedFileURL)
     }
 
+    func testWorkflowOperationDialogStateUsesDirectFolderSelectionByDefaultAndCanIncludeSubfolders() throws {
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let temp = try temporaryDirectory()
+        let directReadsURL = temp.appendingPathComponent("Reads/direct.lungfishfastq", isDirectory: true)
+        let nestedReadsURL = temp.appendingPathComponent("Reads/Nested/nested.lungfishfastq", isDirectory: true)
+        let selection = WorkflowSidebarInputSelection(
+            directReadURLs: [directReadsURL.standardizedFileURL],
+            recursiveReadURLs: [directReadsURL.standardizedFileURL, nestedReadsURL.standardizedFileURL],
+            detailRows: [
+                .init(url: directReadsURL.standardizedFileURL, displayPath: "Reads/direct.lungfishfastq")
+            ],
+            recursiveDetailRows: [
+                .init(url: directReadsURL.standardizedFileURL, displayPath: "Reads/direct.lungfishfastq"),
+                .init(url: nestedReadsURL.standardizedFileURL, displayPath: "Reads/Nested/nested.lungfishfastq")
+            ],
+            folderSelectionCount: 1,
+            explicitBundleCount: 0,
+            duplicateBundleCount: 0,
+            recursiveDuplicateBundleCount: 0,
+            skippedItemCount: 0,
+            selectedFolderNames: ["Reads"],
+            emptyFolderNames: [],
+            additionalDescendantBundleCount: 1
+        )
+
+        let state = WorkflowOperationDialogState(
+            projectURL: temp,
+            selectedReadURLs: [],
+            sidebarInputSelection: selection,
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+
+        XCTAssertEqual(state.selectedReadURLs, [directReadsURL.standardizedFileURL])
+        XCTAssertFalse(state.includeSubfolderBundles)
+        XCTAssertEqual(state.selectedReadsDisplay, "Folder \"Reads\" expands to 1 eligible FASTQ bundle.")
+        XCTAssertEqual(state.folderSubfolderNoticeText, "Subfolders contain 1 additional eligible FASTQ bundle.")
+
+        state.setIncludeSubfolderBundles(true)
+
+        XCTAssertEqual(state.selectedReadURLs, [
+            directReadsURL.standardizedFileURL,
+            nestedReadsURL.standardizedFileURL,
+        ])
+        XCTAssertTrue(state.includeSubfolderBundles)
+        XCTAssertEqual(state.selectedReadsDisplay, "Folder \"Reads\" expands to 2 eligible FASTQ bundles.")
+    }
+
+    func testWorkflowOperationDialogConfigureProjectReplacesSidebarInputSelection() throws {
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let temp = try temporaryDirectory()
+        let firstProjectURL = temp.appendingPathComponent("first.lungfish", isDirectory: true)
+        let secondProjectURL = temp.appendingPathComponent("second.lungfish", isDirectory: true)
+        let firstReadsURL = firstProjectURL.appendingPathComponent("Reads/first.lungfishfastq", isDirectory: true)
+        let secondReadsURL = secondProjectURL.appendingPathComponent("Reads/second.lungfishfastq", isDirectory: true)
+        let firstSelection = WorkflowSidebarInputSelection(
+            directReadURLs: [firstReadsURL.standardizedFileURL],
+            recursiveReadURLs: [firstReadsURL.standardizedFileURL],
+            detailRows: [
+                .init(url: firstReadsURL.standardizedFileURL, displayPath: "Reads/first.lungfishfastq")
+            ],
+            folderSelectionCount: 1,
+            explicitBundleCount: 0,
+            duplicateBundleCount: 0,
+            skippedItemCount: 0,
+            selectedFolderNames: ["First Reads"],
+            emptyFolderNames: [],
+            additionalDescendantBundleCount: 0
+        )
+        let secondSelection = WorkflowSidebarInputSelection(
+            directReadURLs: [secondReadsURL.standardizedFileURL],
+            recursiveReadURLs: [secondReadsURL.standardizedFileURL],
+            detailRows: [
+                .init(url: secondReadsURL.standardizedFileURL, displayPath: "Reads/second.lungfishfastq")
+            ],
+            folderSelectionCount: 1,
+            explicitBundleCount: 0,
+            duplicateBundleCount: 0,
+            skippedItemCount: 0,
+            selectedFolderNames: ["Second Reads"],
+            emptyFolderNames: [],
+            additionalDescendantBundleCount: 0
+        )
+
+        let state = WorkflowOperationDialogState(
+            projectURL: firstProjectURL,
+            selectedReadURLs: [],
+            sidebarInputSelection: firstSelection,
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+
+        state.configureProject(
+            projectURL: secondProjectURL,
+            selectedReadURLs: [],
+            sidebarInputSelection: secondSelection
+        )
+
+        XCTAssertEqual(state.selectedReadURLs, [secondReadsURL.standardizedFileURL])
+        XCTAssertEqual(state.selectedReadsDisplay, "Folder \"Second Reads\" expands to 1 eligible FASTQ bundle.")
+    }
+
     func testReconfiguringForNewProjectResetsReferenceAndOutputDirectory() throws {
         let defaults = try makeDefaults()
         let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)

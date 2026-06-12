@@ -1537,11 +1537,17 @@ extension AppDelegate {
         let routeContext = sourceController.map { currentOperationRouteContext(for: $0) } ?? nil
         let projectURL = routeContext?.projectURL
             ?? sourceController?.mainSplitViewController?.sidebarController?.currentProjectURL
-        let selectedReadURLs = sourceController.map { gatherWorkflowOperationReadInputURLs(controller: $0) } ?? []
+        let sidebarController = sourceController?.mainSplitViewController?.sidebarController
+        let sidebarInputSelection = sidebarController.map {
+            WorkflowSidebarInputSelection.resolve(items: $0.selectedItems(), projectURL: projectURL)
+        }
+        let selectedReadURLs = sidebarInputSelection?.selectedReadURLs(includeSubfolders: false)
+            ?? (sourceController.map { gatherWorkflowOperationReadInputURLs(controller: $0) } ?? [])
         WorkflowOperationsWindowController.show(
             projectURL: projectURL,
             routeContext: routeContext,
-            selectedReadURLs: selectedReadURLs
+            selectedReadURLs: selectedReadURLs,
+            sidebarInputSelection: sidebarInputSelection
         )
     }
 

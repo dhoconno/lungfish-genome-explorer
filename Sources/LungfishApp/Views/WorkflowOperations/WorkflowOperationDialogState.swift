@@ -50,6 +50,8 @@ final class WorkflowOperationDialogState {
     var selectedReferenceURL: URL?
     var selectedGuideURL: URL?
     var selectedBarcodeDefinitionURL: URL?
+    var sidebarInputSelection: WorkflowSidebarInputSelection?
+    var includeSubfolderBundles: Bool
     var selectedReadURLs: [URL]
     var outputDirectoryURL: URL?
     var outputName: String
@@ -90,14 +92,18 @@ final class WorkflowOperationDialogState {
     init(
         projectURL: URL?,
         selectedReadURLs: [URL] = [],
+        sidebarInputSelection: WorkflowSidebarInputSelection? = nil,
         enablementStore: WorkflowLibraryEnablementStore = .shared,
         packageStore: WorkflowLibraryImportedPackageStore = .shared
     ) {
-        let standardizedReadURLs = Self.deduplicated(selectedReadURLs.map(\.standardizedFileURL))
+        let resolvedReadURLs = sidebarInputSelection?.selectedReadURLs(includeSubfolders: false) ?? selectedReadURLs
+        let standardizedReadURLs = Self.deduplicated(resolvedReadURLs.map(\.standardizedFileURL))
         let standardizedProjectURL = projectURL?.standardizedFileURL
         self.projectURL = standardizedProjectURL
         self.enablementStore = enablementStore
         self.packageStore = packageStore
+        self.sidebarInputSelection = sidebarInputSelection
+        self.includeSubfolderBundles = false
         self.selectedReadURLs = standardizedReadURLs
         self.outputName = Self.defaultONTGenotypingOutputName(for: standardizedReadURLs)
         self.threads = max(1, ProcessInfo.processInfo.activeProcessorCount)
@@ -323,10 +329,37 @@ final class WorkflowOperationDialogState {
     }
 
     var selectedReadsDisplay: String {
+        if let sidebarInputSelection {
+            return sidebarInputSelection.summaryText(includeSubfolders: includeSubfolderBundles)
+        }
         guard !selectedReadURLs.isEmpty else { return "No read bundles selected" }
         return selectedReadURLs
             .map { Self.displayPath(for: $0, relativeTo: projectURL) }
             .joined(separator: ", ")
+    }
+
+    var folderSubfolderNoticeText: String? {
+        sidebarInputSelection?.subfolderSummaryText
+    }
+
+    var folderDuplicateNoticeText: String? {
+        sidebarInputSelection?.duplicateSummaryText(includeSubfolders: includeSubfolderBundles)
+    }
+
+    var folderEmptyNoticeText: String? {
+        sidebarInputSelection?.emptyFolderSummaryText
+    }
+
+    var resolvedReadDetailRows: [WorkflowSidebarInputSelection.DetailRow] {
+        if let sidebarInputSelection {
+            return sidebarInputSelection.detailRows(includeSubfolders: includeSubfolderBundles)
+        }
+        return selectedReadURLs.map {
+            WorkflowSidebarInputSelection.DetailRow(
+                url: $0,
+                displayPath: Self.displayPath(for: $0, relativeTo: projectURL)
+            )
+        }
     }
 
     var outputDirectoryDisplay: String {
@@ -631,6 +664,12 @@ final class WorkflowOperationDialogState {
         }
     }
 
+    func setIncludeSubfolderBundles(_ include: Bool) {
+        includeSubfolderBundles = include
+        guard let sidebarInputSelection else { return }
+        setReads(sidebarInputSelection.selectedReadURLs(includeSubfolders: include))
+    }
+
     func setOutputDirectory(_ url: URL?) {
         outputDirectoryURL = url?.standardizedFileURL
     }
@@ -639,12 +678,19 @@ final class WorkflowOperationDialogState {
         twelveSSampleMetadataURL = url?.standardizedFileURL
     }
 
-    func configureProject(projectURL: URL?, selectedReadURLs: [URL]) {
+    func configureProject(
+        projectURL: URL?,
+        selectedReadURLs: [URL],
+        sidebarInputSelection: WorkflowSidebarInputSelection? = nil
+    ) {
         let standardizedProjectURL = projectURL?.standardizedFileURL
         let projectChanged = self.projectURL != standardizedProjectURL
+        let resolvedReadURLs = sidebarInputSelection?.selectedReadURLs(includeSubfolders: false) ?? selectedReadURLs
 
         self.projectURL = standardizedProjectURL
-        setReads(selectedReadURLs)
+        self.sidebarInputSelection = sidebarInputSelection
+        includeSubfolderBundles = false
+        setReads(resolvedReadURLs)
         projectReferenceCandidates = Self.discoverReferenceBundles(in: standardizedProjectURL)
         projectGuideCandidates = Self.discoverGuideBundles(from: projectReferenceCandidates, relativeTo: standardizedProjectURL)
         projectBarcodeDefinitionCandidates = Self.discoverBarcodeDefinitionFiles(in: standardizedProjectURL)
