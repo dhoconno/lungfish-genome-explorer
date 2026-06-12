@@ -1299,6 +1299,26 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertEqual(state.selectedReadsDisplay, "Folder \"Second Reads\" expands to 1 eligible FASTQ bundle.")
     }
 
+    func testWorkflowOperationsPreserveEnclosingFASTQFallbackForNonFolderSidebarSelection() throws {
+        let temp = try temporaryDirectory()
+        let projectURL = temp.appendingPathComponent("project.lungfish", isDirectory: true)
+        let bundleURL = projectURL.appendingPathComponent("Sample.lungfishfastq", isDirectory: true)
+        let readFileURL = bundleURL.appendingPathComponent("reads.fastq")
+        let selectedItem = SidebarItem(
+            title: "reads.fastq",
+            type: .sequence,
+            url: readFileURL
+        )
+
+        let result = AppDelegate.resolveWorkflowSidebarInputSelectionForOperations(
+            items: [selectedItem],
+            projectURL: projectURL
+        )
+
+        XCTAssertEqual(result.selectedReadURLs, [bundleURL.standardizedFileURL])
+        XCTAssertNil(result.sidebarInputSelection)
+    }
+
     func testReconfiguringForNewProjectResetsReferenceAndOutputDirectory() throws {
         let defaults = try makeDefaults()
         let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
