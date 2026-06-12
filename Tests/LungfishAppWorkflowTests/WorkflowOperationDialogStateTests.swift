@@ -400,6 +400,34 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertTrue(request.cliArguments(bundlePath: bundleRoot.appendingPathComponent("run.lungfishrun")).contains("--expected-output"))
     }
 
+    func testWorkflowPackageIsNotRunnableWithFolderBatchMultiReadSelection() {
+        let state = WorkflowOperationDialogState(
+            projectURL: URL(fileURLWithPath: "/tmp/project", isDirectory: true),
+            selectedReadURLs: [
+                URL(fileURLWithPath: "/tmp/project/A.lungfishfastq", isDirectory: true),
+                URL(fileURLWithPath: "/tmp/project/B.lungfishfastq", isDirectory: true),
+            ]
+        )
+        state.setReference(URL(fileURLWithPath: "/tmp/project/ref.lungfishref", isDirectory: true))
+        state.outputDirectoryURL = URL(fileURLWithPath: "/tmp/project/Analyses", isDirectory: true)
+        state.testingReplaceTools([
+            WorkflowOperationTool(
+                id: "package-test",
+                title: "Package Test",
+                subtitle: "Fixture package",
+                kind: .workflowPackage(makeRunnableWorkflowPackage()),
+                availability: .available
+            ),
+        ])
+        state.selectTool("package-test")
+
+        XCTAssertFalse(state.isRunEnabled)
+        XCTAssertEqual(
+            state.readinessText,
+            "Imported workflow packages currently accept one FASTQ bundle. Select one bundle, or choose a built-in workflow for folder batches."
+        )
+    }
+
     func testONTGenotypingLaunchRequestUsesConfiguredSimpleOptions() throws {
         let defaults = try makeDefaults()
         let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
@@ -1571,6 +1599,30 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Examples/WorkflowPackages/hello-world-nextflow.lungfishflowpkg", isDirectory: true)
+    }
+
+    private func makeRunnableWorkflowPackage(id: String = "package-test") -> WorkflowPackageValidationResult {
+        let temp = URL(fileURLWithPath: "/tmp/\(id)", isDirectory: true)
+        let manifest = WorkflowPackageManifest(
+            id: id,
+            name: "Package Test",
+            version: "1.0.0",
+            category: "Test",
+            runner: WorkflowPackageRunner(kind: .nextflow, entrypoint: "main.nf"),
+            inputs: [
+                WorkflowPackageInput(id: "reference", name: "Reference", bundleTypes: [.lungfishref], required: true),
+                WorkflowPackageInput(id: "reads", name: "Reads", bundleTypes: [.lungfishfastq], required: true),
+            ],
+            outputs: [
+                WorkflowPackageOutput(id: "out", name: "Output", bundleType: .lungfishref, pathTemplate: "out.lungfishref"),
+            ]
+        )
+        return WorkflowPackageValidationResult(
+            packageURL: temp,
+            manifestURL: temp.appendingPathComponent("manifest.json"),
+            manifest: manifest,
+            warnings: []
+        )
     }
 
     private func temporaryDirectory() throws -> URL {

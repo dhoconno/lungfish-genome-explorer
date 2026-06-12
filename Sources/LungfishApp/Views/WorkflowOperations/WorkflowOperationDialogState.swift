@@ -413,6 +413,10 @@ final class WorkflowOperationDialogState {
            !Self.packageIsRunnable(package) {
             return "This package must declare a Nextflow or Snakemake runner with lungfishref and lungfishfastq inputs."
         }
+        if case .workflowPackage = selectedTool?.kind,
+           selectedReadURLs.count > 1 {
+            return "Imported workflow packages currently accept one FASTQ bundle. Select one bundle, or choose a built-in workflow for folder batches."
+        }
         if threads < 1 {
             return "Threads must be at least 1."
         }
@@ -496,6 +500,14 @@ final class WorkflowOperationDialogState {
         cachedTools = Self.makeTools(enablementStore: enablementStore, packageStore: packageStore)
         workflowAvailabilityRevision &+= 1
     }
+
+#if DEBUG
+    func testingReplaceTools(_ tools: [WorkflowOperationTool]) {
+        cachedTools = tools
+        selectedToolID = tools.first?.id ?? Self.ontGenotypingID
+        workflowAvailabilityRevision &+= 1
+    }
+#endif
 
     private func refreshCachedHaplotypeDefinitions() {
         cachedHaplotypeRecords = Self.loadHaplotypeRecords(projectURL: projectURL)
