@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import LungfishCore
 import LungfishIO
@@ -525,16 +526,6 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         var pipelineSteps = sampleResults
             .flatMap(\.steps)
             .sorted { lhs, rhs in lhs.startedAt < rhs.startedAt }
-        let unmatchedClusterRows = orderedResults.flatMap { result in
-            result.unmatchedClusters.map { record in
-                FullLengthONTMHCUnmatchedClusterWorkbookRow(
-                    sample: result.sample,
-                    cluster: record.name,
-                    clusterReads: record.readCount,
-                    sequence: record.sequence
-                )
-            }
-        }
         let unmatchedClosestMatchRows = orderedResults.flatMap { result in
             let closestByCluster = Dictionary(uniqueKeysWithValues: result.closestMatches.map { ($0.cluster, $0) })
             return result.unmatchedClusters.map { record in
@@ -573,10 +564,10 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             .readFASTARecords(from: referenceFASTAURL)
             .map(\.name)
         try writeWorkbook(
+            request: request,
             reportRows: reportRows,
             sampleSummaries: sampleSummaries,
             genotypeRows: allGenotypeRows,
-            unmatchedClusterRows: unmatchedClusterRows,
             unmatchedClosestMatchRows: unmatchedClosestMatchRows,
             orderedAlleles: orderedAlleles,
             haplotypeAnalysis: haplotypeAnalysis,
@@ -1667,10 +1658,10 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
     }
 
     private func writeWorkbook(
+        request: FullLengthONTMHCGenotypingRunRequest,
         reportRows: [FullLengthONTMHCReportRow],
         sampleSummaries: [FullLengthONTMHCSampleSummary],
         genotypeRows: [FullLengthONTMHCClusterGenotypeRow],
-        unmatchedClusterRows: [FullLengthONTMHCUnmatchedClusterWorkbookRow],
         unmatchedClosestMatchRows: [FullLengthONTMHCUnmatchedClosestMatchWorkbookRow],
         orderedAlleles: [String],
         haplotypeAnalysis: GenotypeHaplotypeAnalysis?,
@@ -1678,23 +1669,18 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
     ) throws {
         try FullLengthONTMHCXLSXPackageWriter.write(
             sheets: [
-                .init(name: "Genotypes", rows: genotypeWorkbookRows(reportRows)),
-                .init(name: "Samples", rows: sampleWorkbookRows(sampleSummaries)),
-                .init(name: "Cluster Alignments", rows: clusterWorkbookRows(genotypeRows)),
-                .init(name: "Unmatched Clusters", rows: unmatchedClusterWorkbookRows(unmatchedClusterRows)),
                 .init(
-                    name: "Unmatched Closest Matches",
-                    rows: FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder.detailRows(unmatchedClosestMatchRows)
-                ),
-                .init(
-                    name: "Unmatched Shared Pivot",
-                    rows: FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder.pivotRows(
-                        unmatchedClosestMatchRows,
-                        sampleOrder: sampleSummaries.map(\.sample)
+                    name: "Interpretation Guide",
+                    rows: interpretationWorkbookRows(
+                        request: request,
+                        sampleSummaries: sampleSummaries,
+                        haplotypeAnalysis: haplotypeAnalysis
                     )
                 ),
+                .init(name: "Samples", rows: sampleWorkbookRows(sampleSummaries)),
+                .init(name: "Genotypes", rows: genotypeWorkbookRows(genotypeRows)),
                 .init(
-                    name: "Full Sequencing Results 1",
+                    name: "Genotyping pivot",
                     rows: FullLengthONTMHCPivotWorkbookBuilder.buildRows(
                         reportRows: reportRows,
                         samples: sampleSummaries.map {
@@ -1712,9 +1698,49 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                         haplotypeAnalysis: haplotypeAnalysis
                     )
                 ),
+                .init(
+                    name: "Unmatched Clusters",
+                    rows: FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder.detailRows(unmatchedClosestMatchRows)
+                ),
+                .init(
+                    name: "Unmatched Shared Pivot",
+                    rows: FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder.pivotRows(
+                        unmatchedClosestMatchRows,
+                        sampleOrder: sampleSummaries.map(\.sample)
+                    )
+                ),
             ],
             to: url
         )
+    }
+
+    private func interpretationWorkbookRows(
+        request: FullLengthONTMHCGenotypingRunRequest,
+        sampleSummaries: [FullLengthONTMHCSampleSummary],
+        haplotypeAnalysis: GenotypeHaplotypeAnalysis?
+    ) -> [[String]] {
+        [
+            ["Field", "Interpretation"],
+            ["Workflow", "Full-length ONT MHC genotyping"],
+            ["Read preparation", "Input reads are materialized as plain FASTQ, optionally oriented and primer-trimmed, length-filtered, then clustered into Savont ASVs."],
+            ["Savont settings", "quality_value_cutoff=\(request.savontQualityValueCutoff); min_cluster_size=\(request.savontMinimumClusterSize); min_length=\(request.minimumLength); max_length=\(request.maximumLength)"],
+            ["Sample presets", sampleSummaries.map { "\($0.sample): \($0.savontPreset) (\($0.savontStatus.rawValue))" }.joined(separator: "; ")],
+            ["Genotype call rule", "Exact genotype calls require zero SNP differences and zero indel bases."],
+            ["Score formula", "score = aligned_bases - (100 * snp_differences) - (10 * indel_bases)"],
+            ["Score interpretation", "Higher scores are better. Exact calls have score equal to aligned_bases; each SNP subtracts 100 and each indel base subtracts 10."],
+            ["Unmatched closest match", "For unmatched clusters, closest-match fields describe the best non-exact mapped reference hit when one exists."],
+            ["Blank closest-match fields", "Blank closest-match fields mean the unmatched cluster had no mapped SAM hit."],
+            ["Unmatched sequence ID", "A deterministic UUID derived from the normalized unmatched sequence links detail rows to the shared pivot."],
+            ["Haplotype assay", haplotypeAnalysis?.assayID ?? request.haplotypeAssayID ?? ""],
+            ["Haplotype definition", haplotypeAnalysis?.definitionSetID ?? request.haplotypeDefinitionSetID ?? ""],
+            ["Haplotype filtering scope", "Haplotype thresholds affect haplotype assignment only; genotype and unmatched worksheets retain observed cluster evidence."],
+            ["", ""],
+            ["Samples worksheet", "One row per sample with input reads, retained/assigned read summaries, unmatched counts, cDNA counts, and Savont status."],
+            ["Genotypes worksheet", "Cluster-level exact genotype evidence. Each row is one sample cluster assigned to one exact reference genotype."],
+            ["Genotyping pivot worksheet", "Sample-by-genotype pivot formatted for review of full-length genotyping calls and haplotype summaries."],
+            ["Unmatched Clusters worksheet", "One row per unmatched cluster with sequence, read support, deterministic unmatched_sequence_id, and closest-match metadata when available."],
+            ["Unmatched Shared Pivot worksheet", "One row per unique unmatched sequence with occurrence count, total supporting reads, closest-match summary, and per-sample read counts."],
+        ]
     }
 
     private func writeHaplotypeAnalysisIfRequested(
@@ -2121,6 +2147,11 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         value.map { "\($0)" } ?? ""
     }
 
+    private func oneDecimalString(_ value: Double?) -> String {
+        guard let value else { return "" }
+        return String(format: "%.1f", value)
+    }
+
     private func formattedReadCount(_ value: Int) -> String {
         value.formatted(.number)
     }
@@ -2141,74 +2172,14 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         return String(targetPath.dropFirst(normalizedBase.count))
     }
 
-    private func genotypeWorkbookRows(_ rows: [FullLengthONTMHCReportRow]) -> [[String]] {
-        var result = [[
-            "sample",
-            "genotype",
-            "passed_alignments",
-            "passed_unique_reads",
-            "sample_total_reads",
-            "sample_unique_retained_reads",
-            "sample_unique_retained_percent",
-            "overall_input_reads",
-            "overall_unique_retained_reads",
-            "overall_unique_retained_percent",
-        ]]
+    private func genotypeWorkbookRows(_ rows: [FullLengthONTMHCClusterGenotypeRow]) -> [[String]] {
+        var result = [["sample", "genotype", "cluster", "cluster_reads", "allele_length", "aligned_bases", "score"]]
         result += rows.map {
             [
                 $0.sample,
-                $0.genotype,
-                String($0.passedAlignments),
-                String($0.passedUniqueReads),
-                optionalString($0.sampleTotalReads),
-                String($0.sampleUniqueRetainedReads),
-                optionalString($0.sampleUniqueRetainedPercent),
-                String($0.overallInputReads),
-                String($0.overallUniqueRetainedReads),
-                optionalString($0.overallUniqueRetainedPercent),
-            ]
-        }
-        return result
-    }
-
-    private func sampleWorkbookRows(_ rows: [FullLengthONTMHCSampleSummary]) -> [[String]] {
-        var result = [[
-            "sample",
-            "total_input_reads",
-            "cluster_count",
-            "clustered_reads",
-            "assigned_reads",
-            "unmatched_clusters",
-            "cdna_clusters",
-            "savont_preset",
-            "savont_status",
-            "savont_fallback_reason",
-        ]]
-        result += rows.map {
-            [
-                $0.sample,
-                String($0.totalInputReads),
-                String($0.clusterCount),
-                String($0.clusteredReads),
-                String($0.assignedReads),
-                String($0.unmatchedClusters),
-                String($0.cdnaClusters),
-                $0.savontPreset,
-                $0.savontStatus.rawValue,
-                $0.savontFallbackReason ?? "",
-            ]
-        }
-        return result
-    }
-
-    private func clusterWorkbookRows(_ rows: [FullLengthONTMHCClusterGenotypeRow]) -> [[String]] {
-        var result = [["sample", "cluster", "cluster_reads", "allele", "allele_length", "aligned_bases", "score"]]
-        result += rows.map {
-            [
-                $0.sample,
+                $0.allele,
                 $0.cluster,
                 String($0.clusterReads),
-                $0.allele,
                 String($0.alleleLength),
                 String($0.alignedBases),
                 String($0.score),
@@ -2217,14 +2188,47 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         return result
     }
 
-    private func unmatchedClusterWorkbookRows(_ rows: [FullLengthONTMHCUnmatchedClusterWorkbookRow]) -> [[String]] {
-        var result = [["sample", "cluster", "cluster_reads", "sequence"]]
+    private func sampleWorkbookRows(_ rows: [FullLengthONTMHCSampleSummary]) -> [[String]] {
+        let overallInputReads = rows.reduce(0) { $0 + $1.totalInputReads }
+        let overallRetainedReads = rows.reduce(0) { $0 + $1.assignedReads }
+        let overallRetainedPercent = overallInputReads > 0
+            ? Double(overallRetainedReads) / Double(overallInputReads) * 100.0
+            : nil
+        var result = [[
+            "sample",
+            "total_input_reads",
+            "cluster_count",
+            "clustered_reads",
+            "sample_unique_retained_reads",
+            "sample_unique_retained_percent",
+            "overall_input_reads",
+            "overall_unique_retained_reads",
+            "overall_unique_retained_percent",
+            "unmatched_clusters",
+            "cdna_clusters",
+            "savont_preset",
+            "savont_status",
+            "savont_fallback_reason",
+        ]]
         result += rows.map {
-            [
+            let samplePercent = $0.totalInputReads > 0
+                ? Double($0.assignedReads) / Double($0.totalInputReads) * 100.0
+                : nil
+            return [
                 $0.sample,
-                $0.cluster,
-                String($0.clusterReads),
-                $0.sequence,
+                String($0.totalInputReads),
+                String($0.clusterCount),
+                String($0.clusteredReads),
+                String($0.assignedReads),
+                oneDecimalString(samplePercent),
+                String(overallInputReads),
+                String(overallRetainedReads),
+                oneDecimalString(overallRetainedPercent),
+                String($0.unmatchedClusters),
+                String($0.cdnaClusters),
+                $0.savontPreset,
+                $0.savontStatus.rawValue,
+                $0.savontFallbackReason ?? "",
             ]
         }
         return result
@@ -2517,7 +2521,7 @@ enum FullLengthONTMHCPivotWorkbookBuilder {
         if value.rounded() == value && abs(value) < 1e15 {
             return String(Int64(value))
         }
-        var text = String(format: "%.6f", value)
+        var text = String(format: "%.1f", value)
         while text.last == "0" {
             text.removeLast()
         }
@@ -2533,13 +2537,6 @@ private struct FullLengthONTMHCWorkbookCopyResult: Sendable {
     let step: FullLengthONTMHCProvenanceStep
 }
 
-private struct FullLengthONTMHCUnmatchedClusterWorkbookRow: Sendable, Equatable {
-    let sample: String
-    let cluster: String
-    let clusterReads: Int
-    let sequence: String
-}
-
 struct FullLengthONTMHCUnmatchedClosestMatchWorkbookRow: Sendable, Equatable {
     let sample: String
     let cluster: String
@@ -2551,12 +2548,12 @@ struct FullLengthONTMHCUnmatchedClosestMatchWorkbookRow: Sendable, Equatable {
 enum FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder {
     static func detailRows(_ rows: [FullLengthONTMHCUnmatchedClosestMatchWorkbookRow]) -> [[String]] {
         var result = [[
+            "unmatched_sequence_id",
             "sample",
             "cluster",
             "cluster_reads",
-            "closest_reference",
-            "match_class",
             "closest_match_id",
+            "match_class",
             "nucleotides_different",
             "snp_differences",
             "indel_bases",
@@ -2567,12 +2564,12 @@ enum FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder {
         result += rows.sorted(by: rowSort).map { row in
             let closest = row.closestMatch
             return [
+                unmatchedSequenceID(for: row.sequence),
                 row.sample,
                 row.cluster,
                 String(row.clusterReads),
-                closest?.closestReference ?? "",
-                closest?.matchClass.rawValue ?? "",
                 closest?.closestMatchID ?? "",
+                closest?.matchClass.rawValue ?? "",
                 optionalNumber(closest?.nucleotidesDifferent),
                 optionalNumber(closest?.snpDifferences),
                 optionalNumber(closest?.indelBases),
@@ -2589,24 +2586,48 @@ enum FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder {
         sampleOrder: [String]
     ) -> [[String]] {
         let sampleNames = completeSampleOrder(sampleOrder, with: rows)
-        var result = [["closest_match_id", "closest_reference", "match_class", "nucleotides_different"] + sampleNames]
-        let matchedRows = rows.compactMap { row -> (FullLengthONTMHCUnmatchedClosestMatchWorkbookRow, FullLengthONTMHCClosestMatch)? in
-            guard let closestMatch = row.closestMatch else { return nil }
-            return (row, closestMatch)
+        var result = [[
+            "unmatched_sequence_id",
+            "occurrence_count",
+            "total_cluster_reads",
+            "closest_match_id",
+            "match_class",
+            "nucleotides_different",
+            "snp_differences",
+            "indel_bases",
+            "aligned_bases",
+            "score",
+        ] + sampleNames]
+        let grouped = Dictionary(grouping: rows) { unmatchedSequenceID(for: $0.sequence) }
+        let orderedGroups = grouped.keys.sorted { lhs, rhs in
+            let left = grouped[lhs] ?? []
+            let right = grouped[rhs] ?? []
+            let leftReads = left.reduce(0) { $0 + $1.clusterReads }
+            let rightReads = right.reduce(0) { $0 + $1.clusterReads }
+            if leftReads != rightReads { return leftReads > rightReads }
+            if left.count != right.count { return left.count > right.count }
+            return lhs.localizedStandardCompare(rhs) == .orderedAscending
         }
-        let grouped = Dictionary(grouping: matchedRows) { $0.1.closestMatchID }
-        for closestMatchID in grouped.keys.sorted(by: localizedStandardLessThan) {
-            guard let group = grouped[closestMatchID], let metadata = group.map(\.1).sorted(by: closestSort).first else {
+        for unmatchedSequenceID in orderedGroups {
+            guard let group = grouped[unmatchedSequenceID] else {
                 continue
             }
+            let metadata = group.compactMap(\.closestMatch).sorted(by: closestSort).first
+            let totalReads = group.reduce(0) { $0 + $1.clusterReads }
             let readsBySample = group.reduce(into: [String: Int]()) { totals, item in
-                totals[item.0.sample, default: 0] += item.0.clusterReads
+                totals[item.sample, default: 0] += item.clusterReads
             }
             result.append([
-                closestMatchID,
-                metadata.closestReference,
-                metadata.matchClass.rawValue,
-                String(metadata.nucleotidesDifferent),
+                unmatchedSequenceID,
+                String(group.count),
+                String(totalReads),
+                metadata?.closestMatchID ?? "",
+                metadata?.matchClass.rawValue ?? "",
+                optionalNumber(metadata?.nucleotidesDifferent),
+                optionalNumber(metadata?.snpDifferences),
+                optionalNumber(metadata?.indelBases),
+                optionalNumber(metadata?.alignedBases),
+                optionalNumber(metadata?.score),
             ] + sampleNames.map { sample in
                 guard let count = readsBySample[sample], count > 0 else { return "" }
                 return String(count)
@@ -2665,6 +2686,34 @@ enum FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder {
 
     private static func optionalNumber(_ value: Int?) -> String {
         value.map(String.init) ?? ""
+    }
+
+    private static func unmatchedSequenceID(for sequence: String) -> String {
+        let normalized = sequence
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+        var bytes = Array(SHA256.hash(data: Data(normalized.utf8)).prefix(16))
+        bytes[6] = (bytes[6] & 0x0f) | 0x50
+        bytes[8] = (bytes[8] & 0x3f) | 0x80
+        let uuid = UUID(uuid: (
+            bytes[0],
+            bytes[1],
+            bytes[2],
+            bytes[3],
+            bytes[4],
+            bytes[5],
+            bytes[6],
+            bytes[7],
+            bytes[8],
+            bytes[9],
+            bytes[10],
+            bytes[11],
+            bytes[12],
+            bytes[13],
+            bytes[14],
+            bytes[15]
+        ))
+        return uuid.uuidString.lowercased()
     }
 }
 
