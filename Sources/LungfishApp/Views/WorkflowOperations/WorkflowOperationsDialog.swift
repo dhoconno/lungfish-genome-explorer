@@ -154,12 +154,44 @@ private struct WorkflowOperationsDetailPane: View {
     private var readPicker: some View {
         VStack(alignment: .leading, spacing: 8) {
             groupLabel("FASTQ Bundles")
-            HStack(spacing: 10) {
-                Text(state.selectedReadsDisplay)
-                    .font(.caption)
-                    .foregroundStyle(state.selectedReadURLs.isEmpty ? Color.lungfishOrangeFallback : Color.lungfishSecondaryText)
-                    .lineLimit(3)
-                Spacer()
+            Text(state.selectedReadsDisplay)
+                .font(.caption)
+                .foregroundStyle(state.selectedReadURLs.isEmpty ? Color.lungfishOrangeFallback : Color.lungfishSecondaryText)
+                .lineLimit(3)
+                .accessibilityIdentifier("workflow-operations-resolved-input-summary")
+            if let folderEmptyNoticeText = state.folderEmptyNoticeText {
+                helperText(folderEmptyNoticeText)
+            }
+            if let folderSubfolderNoticeText = state.folderSubfolderNoticeText {
+                helperText(folderSubfolderNoticeText)
+                Toggle(
+                    "Include subfolders",
+                    isOn: Binding(
+                        get: { state.includeSubfolderBundles },
+                        set: { state.setIncludeSubfolderBundles($0) }
+                    )
+                )
+                .toggleStyle(.checkbox)
+                .accessibilityIdentifier("workflow-operations-include-subfolders")
+                helperText("When enabled, all eligible bundles in descendant folders are added to this batch.")
+                    .accessibilityIdentifier("workflow-operations-include-subfolders-help")
+            }
+            if let folderDuplicateNoticeText = state.folderDuplicateNoticeText {
+                helperText(folderDuplicateNoticeText)
+            }
+            if state.resolvedReadDetailRows.count > 1 {
+                DisclosureGroup("Resolved inputs") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(state.resolvedReadDetailRows, id: \.url) { row in
+                            Text(row.displayPath)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    .padding(.top, 4)
+                }
+                .accessibilityIdentifier("workflow-operations-resolved-input-details")
             }
         }
     }

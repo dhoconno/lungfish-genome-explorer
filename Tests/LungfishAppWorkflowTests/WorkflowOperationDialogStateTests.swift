@@ -1406,6 +1406,22 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertTrue(referencePicker.contains("Button("), "Reference selection should remain editable.")
     }
 
+    func testWorkflowOperationsDialogShowsFolderBatchSummaryAndSubfolderToggleText() throws {
+        let source = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationsDialog.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("Include subfolders"))
+        XCTAssertTrue(source.contains("When enabled, all eligible bundles in descendant folders are added to this batch."))
+        XCTAssertTrue(source.contains("folderSubfolderNoticeText"))
+        XCTAssertTrue(source.contains("folderDuplicateNoticeText"))
+        XCTAssertTrue(source.contains("folderEmptyNoticeText"))
+        XCTAssertTrue(source.contains("resolvedReadDetailRows"))
+        XCTAssertTrue(source.contains("workflow-operations-include-subfolders"))
+    }
+
     func testWorkflowOperationsDialogShowsProjectBarcodeDefinitionPicker() throws {
         let source = try String(
             contentsOf: repositoryRoot()
