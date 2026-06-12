@@ -10,22 +10,50 @@ struct WorkflowSidebarInputSelection: Equatable {
     let directReadURLs: [URL]
     let recursiveReadURLs: [URL]
     let detailRows: [DetailRow]
+    let recursiveDetailRows: [DetailRow]
     let folderSelectionCount: Int
     let explicitBundleCount: Int
     let duplicateBundleCount: Int
+    let recursiveDuplicateBundleCount: Int
     let skippedItemCount: Int
     let selectedFolderNames: [String]
     let emptyFolderNames: [String]
     let additionalDescendantBundleCount: Int
+
+    init(
+        directReadURLs: [URL],
+        recursiveReadURLs: [URL],
+        detailRows: [DetailRow],
+        recursiveDetailRows: [DetailRow]? = nil,
+        folderSelectionCount: Int,
+        explicitBundleCount: Int,
+        duplicateBundleCount: Int,
+        recursiveDuplicateBundleCount: Int? = nil,
+        skippedItemCount: Int,
+        selectedFolderNames: [String],
+        emptyFolderNames: [String],
+        additionalDescendantBundleCount: Int
+    ) {
+        self.directReadURLs = directReadURLs
+        self.recursiveReadURLs = recursiveReadURLs
+        self.detailRows = detailRows
+        self.recursiveDetailRows = recursiveDetailRows ?? detailRows
+        self.folderSelectionCount = folderSelectionCount
+        self.explicitBundleCount = explicitBundleCount
+        self.duplicateBundleCount = duplicateBundleCount
+        self.recursiveDuplicateBundleCount = recursiveDuplicateBundleCount ?? duplicateBundleCount
+        self.skippedItemCount = skippedItemCount
+        self.selectedFolderNames = selectedFolderNames
+        self.emptyFolderNames = emptyFolderNames
+        self.additionalDescendantBundleCount = additionalDescendantBundleCount
+    }
 
     var hasAdditionalDescendantBundles: Bool {
         additionalDescendantBundleCount > 0
     }
 
     var duplicateSummaryText: String? {
-        guard duplicateBundleCount > 0 else { return nil }
-        let noun = duplicateBundleCount == 1 ? "bundle" : "bundles"
-        return "Skipped \(duplicateBundleCount) duplicate \(noun) already included by another selected item."
+        duplicateSummaryText(includeSubfolders: false)
     }
 
     var emptyFolderSummaryText: String? {
@@ -44,6 +72,17 @@ struct WorkflowSidebarInputSelection: Equatable {
 
     func selectedReadURLs(includeSubfolders: Bool) -> [URL] {
         includeSubfolders ? recursiveReadURLs : directReadURLs
+    }
+
+    func detailRows(includeSubfolders: Bool) -> [DetailRow] {
+        includeSubfolders ? recursiveDetailRows : detailRows
+    }
+
+    func duplicateSummaryText(includeSubfolders: Bool) -> String? {
+        let count = includeSubfolders ? recursiveDuplicateBundleCount : duplicateBundleCount
+        guard count > 0 else { return nil }
+        let noun = count == 1 ? "bundle" : "bundles"
+        return "Skipped \(count) duplicate \(noun) already included by another selected item."
     }
 
     func summaryText(includeSubfolders: Bool) -> String {
@@ -71,23 +110,30 @@ struct WorkflowSidebarInputSelection: Equatable {
     static func resolve(items: [SidebarItem], projectURL: URL?) -> WorkflowSidebarInputSelection {
         var directURLs: [URL] = []
         var recursiveURLs: [URL] = []
-        var detailRows: [DetailRow] = []
+        var directDetailRows: [DetailRow] = []
+        var recursiveDetailRows: [DetailRow] = []
         var directSeen = Set<String>()
         var recursiveSeen = Set<String>()
-        var duplicateCount = 0
+        var directDuplicateCount = 0
+        var recursiveDuplicateCount = 0
         var skippedCount = 0
         var folderCount = 0
         var folderNames: [String] = []
         var explicitCount = 0
         var emptyFolders: [String] = []
-        var additionalDescendantCount = 0
 
         func appendDirect(_ url: URL) {
             let standardized = url.standardizedFileURL
             if directSeen.insert(standardized.path).inserted {
                 directURLs.append(standardized)
+                directDetailRows.append(
+                    DetailRow(
+                        url: standardized,
+                        displayPath: WorkflowSidebarInputSelection.displayPath(for: standardized, relativeTo: projectURL)
+                    )
+                )
             } else {
-                duplicateCount += 1
+                directDuplicateCount += 1
             }
         }
 
@@ -95,12 +141,14 @@ struct WorkflowSidebarInputSelection: Equatable {
             let standardized = url.standardizedFileURL
             if recursiveSeen.insert(standardized.path).inserted {
                 recursiveURLs.append(standardized)
-                detailRows.append(
+                recursiveDetailRows.append(
                     DetailRow(
                         url: standardized,
                         displayPath: WorkflowSidebarInputSelection.displayPath(for: standardized, relativeTo: projectURL)
                     )
                 )
+            } else {
+                recursiveDuplicateCount += 1
             }
         }
 
@@ -139,8 +187,8 @@ struct WorkflowSidebarInputSelection: Equatable {
                 let directPaths = Set(directChildren.compactMap { fastqBundleURL(for: $0)?.standardizedFileURL.path })
                 for child in recursiveChildren {
                     guard let url = fastqBundleURL(for: child) else { continue }
-                    if !directPaths.contains(url.standardizedFileURL.path) {
-                        additionalDescendantCount += 1
+                    if directPaths.contains(url.standardizedFileURL.path) {
+                        continue
                     }
                     appendRecursive(url)
                 }
@@ -150,13 +198,17 @@ struct WorkflowSidebarInputSelection: Equatable {
             skippedCount += 1
         }
 
+        let additionalDescendantCount = recursiveURLs.filter { !directSeen.contains($0.path) }.count
+
         return WorkflowSidebarInputSelection(
             directReadURLs: directURLs,
             recursiveReadURLs: recursiveURLs,
-            detailRows: detailRows,
+            detailRows: directDetailRows,
+            recursiveDetailRows: recursiveDetailRows,
             folderSelectionCount: folderCount,
             explicitBundleCount: explicitCount,
-            duplicateBundleCount: duplicateCount,
+            duplicateBundleCount: directDuplicateCount,
+            recursiveDuplicateBundleCount: recursiveDuplicateCount,
             skippedItemCount: skippedCount,
             selectedFolderNames: folderNames,
             emptyFolderNames: emptyFolders,
