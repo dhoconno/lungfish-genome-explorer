@@ -529,6 +529,65 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertFalse(configuration.forceOverwrite)
     }
 
+    func testFolderResolvedBuiltInWorkflowLaunchRequestUsesConcreteBundleURLs() throws {
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        try enableTwelveSAmpliconMatching(in: enablementStore)
+
+        let projectURL = try temporaryDirectory()
+        let folderURL = projectURL.appendingPathComponent("Runs", isDirectory: true)
+        let direct = folderURL.appendingPathComponent("A.lungfishfastq", isDirectory: true)
+        let nested = folderURL.appendingPathComponent("Nested/B.lungfishfastq", isDirectory: true)
+        let referenceURL = projectURL.appendingPathComponent("ref.fasta")
+        let outputURL = projectURL.appendingPathComponent("Analyses", isDirectory: true)
+        try Data(">target\nACGT\n".utf8).write(to: referenceURL)
+        for url in [direct, nested, outputURL] {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        }
+
+        let selection = WorkflowSidebarInputSelection(
+            directReadURLs: [direct.standardizedFileURL],
+            recursiveReadURLs: [direct.standardizedFileURL, nested.standardizedFileURL],
+            detailRows: [
+                .init(url: direct.standardizedFileURL, displayPath: "Runs/A.lungfishfastq"),
+            ],
+            recursiveDetailRows: [
+                .init(url: direct.standardizedFileURL, displayPath: "Runs/A.lungfishfastq"),
+                .init(url: nested.standardizedFileURL, displayPath: "Runs/Nested/B.lungfishfastq"),
+            ],
+            folderSelectionCount: 1,
+            explicitBundleCount: 0,
+            duplicateBundleCount: 0,
+            recursiveDuplicateBundleCount: 0,
+            skippedItemCount: 0,
+            selectedFolderNames: ["Runs"],
+            emptyFolderNames: [],
+            additionalDescendantBundleCount: 1
+        )
+        let state = WorkflowOperationDialogState(
+            projectURL: projectURL,
+            selectedReadURLs: [],
+            sidebarInputSelection: selection,
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+        let twelveSTool = try XCTUnwrap(state.tools.first { $0.title == "12S Amplicon Matching" })
+        state.selectTool(twelveSTool.id)
+        state.setReference(referenceURL)
+        state.outputDirectoryURL = outputURL
+        state.outputName = "folder-batch"
+        state.setIncludeSubfolderBundles(true)
+
+        let request = try state.makeLaunchRequest()
+
+        guard case .twelveSAmpliconMatching(let config) = request else {
+            return XCTFail("Expected 12S amplicon matching launch request")
+        }
+        XCTAssertEqual(config.inputFASTQs, [direct.standardizedFileURL, nested.standardizedFileURL])
+        XCTAssertFalse(config.inputFASTQs.contains(folderURL.standardizedFileURL))
+    }
+
     func testTwelveSAmpliconMatchingLaunchRequestCarriesAnalysisSampleMetadata() throws {
         let defaults = try makeDefaults()
         let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
