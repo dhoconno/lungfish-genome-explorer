@@ -1611,17 +1611,18 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             "-outfmt", outfmt,
         ]
         let startedAt = Date()
-        let result = try runExecutable(
-            executable: "blastn",
+        let result = try await nativeToolRunner.run(
+            .blastn,
             arguments: arguments,
-            standardOutputURL: tsvURL,
-            workingDirectory: rescueDirectory
+            workingDirectory: rescueDirectory,
+            timeout: 3_600
         )
+        try result.stdout.write(to: tsvURL, atomically: true, encoding: .utf8)
         let completedAt = Date()
         steps.append(FullLengthONTMHCProvenanceStep(
             toolName: "blastn",
-            toolVersion: detectExecutableVersion(executable: "blastn", arguments: ["-version"]) ?? "unknown",
-            argv: ["blastn"] + arguments,
+            toolVersion: await nativeToolRunner.getToolVersion(.blastn) ?? "unknown",
+            argv: result.arguments.isEmpty ? ["blastn"] + arguments : result.arguments,
             inputs: [queryURL, referenceFASTAURL],
             outputs: [tsvURL],
             exitStatus: result.exitCode,
@@ -1663,55 +1664,6 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
 
     private func sampleClusterKey(sample: String, cluster: String) -> String {
         "\(sample)\u{0}\(cluster)"
-    }
-
-    private struct ExecutableRunResult {
-        let exitCode: Int32
-        let stderr: String
-    }
-
-    private func runExecutable(
-        executable: String,
-        arguments: [String],
-        standardOutputURL: URL,
-        workingDirectory: URL
-    ) throws -> ExecutableRunResult {
-        FileManager.default.createFile(atPath: standardOutputURL.path, contents: nil)
-        let outputHandle = try FileHandle(forWritingTo: standardOutputURL)
-        defer { try? outputHandle.close() }
-        let stderrPipe = Pipe()
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [executable] + arguments
-        process.currentDirectoryURL = workingDirectory
-        process.standardOutput = outputHandle
-        process.standardError = stderrPipe
-        try process.run()
-        process.waitUntilExit()
-        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        return ExecutableRunResult(exitCode: process.terminationStatus, stderr: stderr)
-    }
-
-    private func detectExecutableVersion(executable: String, arguments: [String]) -> String? {
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [executable] + arguments
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-        do {
-            try process.run()
-        } catch {
-            return nil
-        }
-        process.waitUntilExit()
-        let outputData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-        let output = String(data: outputData + stderrData, encoding: .utf8) ?? ""
-        return output.split(whereSeparator: \.isNewline)
-            .first
-            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
     }
 
     private func writeClusterGenotypeTSV(

@@ -380,6 +380,49 @@ public extension PluginPack {
             estimatedSizeMB: 260
         ),
         PluginPack(
+            id: "full-length-mhc-genotyping",
+            name: "Full-length MHC Genotyping",
+            description: "Savont clustering and local BLAST rescue for full-length ONT MHC genotyping workflows",
+            sfSymbol: "scope",
+            packages: ["savont", "blast"],
+            category: "Specialized Workflows",
+            isActive: true,
+            requirements: [
+                PackToolRequirement(
+                    id: "savont",
+                    displayName: "Savont",
+                    environment: "savont",
+                    installPackages: ["bioconda::savont=0.5.0=ha819e4a_0"],
+                    executables: ["savont"],
+                    smokeTest: .command(
+                        arguments: ["--help"],
+                        timeoutSeconds: 10,
+                        requiredOutputSubstring: "Turn >~ 98% accuracy long reads into ASVs"
+                    ),
+                    version: "0.5.0",
+                    license: "MIT",
+                    sourceURL: "https://github.com/bluenote-1577/savont"
+                ),
+                PackToolRequirement(
+                    id: "blast",
+                    displayName: "NCBI BLAST+",
+                    environment: "blast",
+                    installPackages: ["bioconda::blast=2.16.0=hb260f6e_5"],
+                    executables: ["blastn"],
+                    smokeTest: .command(
+                        executable: "blastn",
+                        arguments: ["-help"],
+                        timeoutSeconds: 10,
+                        requiredOutputSubstring: "Nucleotide-Nucleotide BLAST"
+                    ),
+                    version: "2.16.0",
+                    license: "Public Domain",
+                    sourceURL: "https://blast.ncbi.nlm.nih.gov/"
+                ),
+            ],
+            estimatedSizeMB: 650
+        ),
+        PluginPack(
             id: "variant-calling",
             name: "Variant Calling",
             description: "Viral BAM variant calling from bundle-owned alignment tracks",

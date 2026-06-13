@@ -356,6 +356,7 @@ public enum NativeTool: String, CaseIterable, Sendable {
     case seqkit
     case fastp
     case vsearch
+    case blastn
     case cutadapt
     case ribodetector
     case clumpify
@@ -390,6 +391,7 @@ public enum NativeTool: String, CaseIterable, Sendable {
         case .seqkit: return "seqkit"
         case .fastp: return "fastp"
         case .vsearch: return "vsearch"
+        case .blastn: return "blastn"
         case .cutadapt: return "cutadapt"
         case .ribodetector: return "ribodetector_cpu"
         case .clumpify: return "clumpify.sh"
@@ -427,6 +429,8 @@ public enum NativeTool: String, CaseIterable, Sendable {
             return ["version"]
         case .ribodetector:
             return ["-v"]
+        case .blastn:
+            return ["-version"]
         case .whatshap, .freyja:
             return ["--version"]
         default:
@@ -454,6 +458,8 @@ public enum NativeTool: String, CaseIterable, Sendable {
             return .managed(environment: "fastp", executableName: "fastp")
         case .vsearch:
             return .managed(environment: "vsearch", executableName: "vsearch")
+        case .blastn:
+            return .managed(environment: "blast", executableName: "blastn")
         case .cutadapt:
             return .managed(environment: "cutadapt", executableName: "cutadapt")
         case .ribodetector:
@@ -544,6 +550,7 @@ public enum NativeTool: String, CaseIterable, Sendable {
         case .seqkit: return "seqkit"
         case .fastp: return "fastp"
         case .vsearch: return "vsearch"
+        case .blastn: return "ncbi-blast"
         case .cutadapt: return "cutadapt"
         case .ribodetector: return "ribodetector"
         case .clumpify, .bbduk, .bbmerge, .repair, .tadpole, .reformat, .bbmap, .mapPacBio: return "bbmap"
@@ -583,6 +590,8 @@ public enum NativeTool: String, CaseIterable, Sendable {
             return "MIT License"
         case .vsearch:
             return "GPL-3.0 or BSD-2-Clause (dual)"
+        case .blastn:
+            return "Public Domain (NCBI)"
         case .cutadapt:
             return "MIT License"
         case .ribodetector:

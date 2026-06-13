@@ -15,7 +15,7 @@ final class PluginPackRegistryTests: XCTestCase {
             [
                 "nextflow", "snakemake", "bbtools", "fastp", "deacon",
                 "samtools", "bcftools", "htslib", "seqkit", "cutadapt",
-                "vsearch", "savont", "pigz", "sra-tools", "ucsc-bedgraphtobigwig", "pysam", "openpyxl",
+                "vsearch", "pigz", "sra-tools", "ucsc-bedgraphtobigwig", "pysam", "openpyxl",
             ]
         )
     }
@@ -27,7 +27,7 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertEqual(environments, [
             "nextflow", "snakemake", "bbtools", "fastp", "deacon",
             "samtools", "bcftools", "htslib", "seqkit", "cutadapt",
-            "vsearch", "savont", "pigz", "sra-tools", "ucsc-bedgraphtobigwig", "pysam", "openpyxl",
+            "vsearch", "pigz", "sra-tools", "ucsc-bedgraphtobigwig", "pysam", "openpyxl",
             "deacon-panhuman", "deacon-ribokmers",
         ])
         XCTAssertEqual(pack.estimatedSizeMB, 2700)
@@ -61,8 +61,29 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertEqual(lock.displayName, "Third-Party Tools")
         XCTAssertEqual(pack.name, lock.displayName)
         XCTAssertEqual(pack.packages, lock.tools.map(\.environment))
-        XCTAssertEqual(lock.tools.count, 17)
+        XCTAssertEqual(lock.tools.count, 16)
         XCTAssertEqual(lock.managedData.count, 2)
+    }
+
+    func testFullLengthMHCGenotypingPackDefinesSavontAndBlastnOnly() throws {
+        let pack = try XCTUnwrap(PluginPack.builtInPack(id: "full-length-mhc-genotyping"))
+
+        XCTAssertEqual(pack.name, "Full-length MHC Genotyping")
+        XCTAssertEqual(pack.category, "Specialized Workflows")
+        XCTAssertTrue(pack.isActive)
+        XCTAssertEqual(pack.packages, ["savont", "blast"])
+        XCTAssertEqual(pack.toolRequirements.map(\.environment), ["savont", "blast"])
+
+        let savont = try XCTUnwrap(pack.toolRequirements.first { $0.id == "savont" })
+        XCTAssertEqual(savont.installPackages, ["bioconda::savont=0.5.0=ha819e4a_0"])
+        XCTAssertEqual(savont.executables, ["savont"])
+        XCTAssertEqual(savont.smokeTest?.arguments, ["--help"])
+
+        let blast = try XCTUnwrap(pack.toolRequirements.first { $0.id == "blast" })
+        XCTAssertEqual(blast.installPackages, ["bioconda::blast=2.16.0=hb260f6e_5"])
+        XCTAssertEqual(blast.executables, ["blastn"])
+        XCTAssertEqual(blast.smokeTest?.executable, "blastn")
+        XCTAssertEqual(blast.smokeTest?.arguments, ["-help"])
     }
 
     func testRequiredSetupPackExposesPinnedAboutMetadata() throws {
@@ -371,9 +392,10 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertFalse(PluginPack.builtIn.contains { $0.id == "amplicon-genotyping" })
     }
 
-    func testActiveOptionalPacksExposeReadMappingVariantCallingAssemblyAndMetagenomics() {
+    func testActiveOptionalPacksExposeReadMappingFullLengthMHCVariantCallingAssemblyAndMetagenomics() {
         XCTAssertEqual(PluginPack.activeOptionalPacks.map(\.id), [
             "read-mapping",
+            "full-length-mhc-genotyping",
             "variant-calling",
             "assembly",
             "multiple-sequence-alignment",
@@ -394,6 +416,7 @@ final class PluginPackRegistryTests: XCTestCase {
     func testOptionalPacksCanIncludeExperimentalWhenRequested() {
         XCTAssertEqual(PluginPack.activeOptionalPacks(includeExperimental: true).map(\.id), [
             "read-mapping",
+            "full-length-mhc-genotyping",
             "variant-calling",
             "gatk-core",
             "phasing",
@@ -418,6 +441,7 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertEqual(PluginPack.visibleForCLI.map(\.id), [
             "lungfish-tools",
             "read-mapping",
+            "full-length-mhc-genotyping",
             "variant-calling",
             "assembly",
             "multiple-sequence-alignment",

@@ -42,6 +42,7 @@ public struct ManagedToolLock: Sendable, Codable, Hashable {
             case "seqkit": return "SeqKit"
             case "cutadapt": return "Cutadapt"
             case "vsearch": return "VSEARCH"
+            case "blast": return "NCBI BLAST+"
             case "savont": return "Savont"
             case "pigz": return "pigz"
             case "sra-tools": return "SRA Tools"
@@ -100,6 +101,13 @@ public struct ManagedToolLock: Sendable, Codable, Hashable {
                     arguments: ["--help"],
                     timeoutSeconds: 10,
                     requiredOutputSubstring: "Turn >~ 98% accuracy long reads into ASVs"
+                )
+            case "blast":
+                return .command(
+                    executable: "blastn",
+                    arguments: ["-help"],
+                    timeoutSeconds: 10,
+                    requiredOutputSubstring: "Nucleotide-Nucleotide BLAST"
                 )
             case "ucsc-bedgraphtobigwig":
                 return .usage(executable: executables.first, timeoutSeconds: 10)

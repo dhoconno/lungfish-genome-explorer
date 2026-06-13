@@ -169,6 +169,7 @@ public enum ScientificProvenancePolicy {
         "seqkit": dataWriting("native.seqkit", writer: "NativeToolRunner/ProvenanceRunBuilder"),
         "fastp": dataWriting("native.fastp", writer: "NativeToolRunner/ProvenanceRunBuilder"),
         "vsearch": dataWriting("native.vsearch", writer: "NativeToolRunner/ProvenanceRunBuilder"),
+        "blastn": dataWriting("native.blastn", writer: "NativeToolRunner/ProvenanceRunBuilder"),
         "cutadapt": dataWriting("native.cutadapt", writer: "NativeToolRunner/ProvenanceRunBuilder"),
         "ribodetector": dataWriting("native.ribodetector", writer: "NativeToolRunner/ProvenanceRunBuilder"),
         "clumpify": dataWriting("native.clumpify", writer: "NativeToolRunner/ProvenanceRunBuilder"),

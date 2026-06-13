@@ -145,7 +145,11 @@ enum WorkflowLibraryCatalog {
         subtitle: "Cluster full-length ONT MHC amplicons with Savont and genotype cluster consensus sequences against an MHC allele library.",
         categoryID: .classification,
         maturity: .specialized,
-        requiredPluginPackIDs: ["lungfish-tools", "read-mapping"],
+        requiredPluginPackIDs: [
+            "lungfish-tools",
+            "read-mapping",
+            "full-length-mhc-genotyping",
+        ],
         capabilities: [.workflowOperations, .haplotypeDefinitions]
     )
 

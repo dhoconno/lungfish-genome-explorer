@@ -40,7 +40,11 @@ final class WorkflowLibraryTests: XCTestCase {
         XCTAssertEqual(workflow.title, "Full-length ONT MHC genotyping")
         XCTAssertEqual(workflow.maturity, .specialized)
         XCTAssertEqual(workflow.categoryID, .classification)
-        XCTAssertEqual(workflow.requiredPluginPackIDs, ["lungfish-tools", "read-mapping"])
+        XCTAssertEqual(workflow.requiredPluginPackIDs, [
+            "lungfish-tools",
+            "read-mapping",
+            "full-length-mhc-genotyping",
+        ])
         XCTAssertTrue(workflow.capabilities.contains(.workflowOperations))
         XCTAssertTrue(workflow.capabilities.contains(.haplotypeDefinitions))
     }
@@ -163,6 +167,33 @@ final class WorkflowLibraryTests: XCTestCase {
         XCTAssertTrue(store.isWorkflowEnabled(.ontGenotyping))
     }
 
+    func testEnablingFullLengthMHCWorkflowRequiresSpecializedSavontBlastPack() async throws {
+        let defaults = try makeDefaults()
+        let store = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let workflow = try XCTUnwrap(
+            WorkflowLibraryCatalog.item(id: WorkflowLibraryCatalog.fullLengthONTMHCGenotypingID)
+        )
+        store.setWorkflow(workflow, enabled: false)
+
+        let blockedProvider = StubWorkflowLibraryPluginStatusProvider(states: [
+            "lungfish-tools": .ready,
+            "read-mapping": .ready,
+            "full-length-mhc-genotyping": .needsInstall,
+        ])
+        let blocked = await store.enableWorkflow(workflow, using: blockedProvider)
+        XCTAssertEqual(blocked, .blocked(missingPackIDs: ["full-length-mhc-genotyping"]))
+        XCTAssertFalse(store.isWorkflowEnabled(workflow))
+
+        let readyProvider = StubWorkflowLibraryPluginStatusProvider(states: [
+            "lungfish-tools": .ready,
+            "read-mapping": .ready,
+            "full-length-mhc-genotyping": .ready,
+        ])
+        let enabled = await store.enableWorkflow(workflow, using: readyProvider)
+        XCTAssertEqual(enabled, .enabled)
+        XCTAssertTrue(store.isWorkflowEnabled(workflow))
+    }
+
     func testViewModelInstallsMissingDependenciesBeforeEnablingSpecializedWorkflow() async throws {
         let defaults = try makeDefaults()
         let store = WorkflowLibraryEnablementStore(userDefaults: defaults)
@@ -186,6 +217,35 @@ final class WorkflowLibraryTests: XCTestCase {
         XCTAssertEqual(statusProvider.installedPackIDs, ["read-mapping"])
         XCTAssertTrue(store.isWorkflowEnabled(.ontGenotyping))
         XCTAssertTrue(viewModel.missingRequiredPluginPackIDs(for: ont).isEmpty)
+    }
+
+    func testViewModelInstallsFullLengthMHCPluginPackBeforeEnablingWorkflow() async throws {
+        let defaults = try makeDefaults()
+        let store = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let workflow = try XCTUnwrap(
+            WorkflowLibraryCatalog.item(id: WorkflowLibraryCatalog.fullLengthONTMHCGenotypingID)
+        )
+        store.setWorkflow(workflow, enabled: false)
+        let statusProvider = InstallingWorkflowLibraryPluginStatusProvider(states: [
+            "lungfish-tools": .ready,
+            "read-mapping": .ready,
+            "full-length-mhc-genotyping": .needsInstall,
+        ])
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let viewModel = WorkflowLibraryViewModel(
+            store: store,
+            packageStore: packageStore,
+            statusProvider: statusProvider
+        )
+
+        await viewModel.refreshDependencyStatuses()
+        XCTAssertEqual(viewModel.missingRequiredPluginPackIDs(for: workflow), ["full-length-mhc-genotyping"])
+
+        await viewModel.installDependenciesAndEnable(workflow)
+
+        XCTAssertEqual(statusProvider.installedPackIDs, ["full-length-mhc-genotyping"])
+        XCTAssertTrue(store.isWorkflowEnabled(workflow))
+        XCTAssertTrue(viewModel.missingRequiredPluginPackIDs(for: workflow).isEmpty)
     }
 
     func testViewModelImportsValidatedUserWorkflowPackages() async throws {

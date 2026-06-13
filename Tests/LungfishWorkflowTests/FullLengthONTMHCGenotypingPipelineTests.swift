@@ -519,6 +519,88 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertFalse(savontSteps.contains { value(after: "--quality-value-cutoff", in: $0.argv) == "0" })
     }
 
+    func testRunUsesManagedBlastForMhcLikeRescueWhenPathDoesNotContainBlastn() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-managed-blast-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let originalPATH = ProcessInfo.processInfo.environment["PATH"]
+        setenv("PATH", "/usr/bin:/bin:/usr/sbin:/sbin", 1)
+        defer {
+            if let originalPATH {
+                setenv("PATH", originalPATH, 1)
+            } else {
+                unsetenv("PATH")
+            }
+        }
+        let savontScript = #"""
+        #!/bin/sh
+        set -eu
+        if [ "${1:-}" = "--version" ]; then
+          echo "savont 0.5.0"
+          exit 0
+        fi
+        shift
+        input="$1"
+        shift
+        output=""
+        while [ "$#" -gt 0 ]; do
+          case "$1" in
+            -o) output="$2"; shift 2 ;;
+            *) shift ;;
+          esac
+        done
+        mkdir -p "$output"
+        cat > "$output/final_asvs.fasta" <<'EOF'
+        >final_consensus_0_depth_7
+        TTTTTTTT
+        EOF
+        printf 'savont log for %s\n' "$input" > "$output/savont_2026-06-10_05-09-37.log"
+        """#
+        let minimap2Script = #"""
+        #!/bin/sh
+        set -eu
+        if [ "${1:-}" = "--version" ]; then
+          echo "minimap2 2.28"
+          exit 0
+        fi
+        printf '@SQ\tSN:final_consensus_0_depth_7_ReadCount-7\tLN:8\n'
+        """#
+        let blastnScript = #"""
+        #!/bin/sh
+        set -eu
+        if [ "${1:-}" = "-version" ]; then
+          echo "blastn: 2.16.0+"
+          exit 0
+        fi
+        outfmt=""
+        while [ "$#" -gt 0 ]; do
+          case "$1" in
+            -outfmt) outfmt="$2"; shift 2 ;;
+            *) shift ;;
+          esac
+        done
+        if [ -z "$outfmt" ]; then
+          echo "missing -outfmt" >&2
+          exit 2
+        fi
+        printf 'final_consensus_0_depth_7_ReadCount-7\tallele1\t100.0\t8\t0\t0\t1\t8\t1\t8\t1e-20\t60\t8\t8\n'
+        """#
+        let (request, pipeline) = try makeFakeFullLengthRun(
+            root: root,
+            savontScript: savontScript,
+            minimap2Script: minimap2Script,
+            blastnScript: blastnScript
+        )
+
+        _ = try await pipeline.run(request)
+
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: request.provenanceURL))
+        let blastStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "blastn" })
+        XCTAssertEqual(blastStep.toolVersion, "2.16.0")
+        XCTAssertEqual(blastStep.exitStatus, 0)
+        XCTAssertTrue(blastStep.argv.first?.hasSuffix("blastn") == true)
+    }
+
     func testRunHandlesSavontPanicDuringHiddenFallbackAsSampleNoCall() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("full-length-ont-mhc-fallback-panic-\(UUID().uuidString)", isDirectory: true)
@@ -1264,14 +1346,21 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
 
     private func makeFakeFullLengthRun(
         root: URL,
-        savontScript: String? = nil
+        savontScript: String? = nil,
+        minimap2Script: String? = nil,
+        blastnScript: String? = nil
     ) throws -> (
         FullLengthONTMHCGenotypingRunRequest,
         FullLengthONTMHCGenotypingPipeline
     ) {
         let homeDirectory = root.appendingPathComponent("home", isDirectory: true)
         let condaRoot = CoreToolLocator.condaRoot(homeDirectory: homeDirectory)
-        let bundledMicromamba = try makeFakeFullLengthCondaRoot(at: condaRoot, savontScript: savontScript)
+        let bundledMicromamba = try makeFakeFullLengthCondaRoot(
+            at: condaRoot,
+            savontScript: savontScript,
+            minimap2Script: minimap2Script,
+            blastnScript: blastnScript
+        )
         let inputFASTQ = root.appendingPathComponent("DL46.fastq")
         let referenceFASTA = root.appendingPathComponent("reference.fasta")
         let outputDirectory = root.appendingPathComponent("full-length.lungfishgenotype", isDirectory: true)
@@ -1298,7 +1387,12 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         return (request, pipeline)
     }
 
-    private func makeFakeFullLengthCondaRoot(at root: URL, savontScript: String? = nil) throws -> URL {
+    private func makeFakeFullLengthCondaRoot(
+        at root: URL,
+        savontScript: String? = nil,
+        minimap2Script: String? = nil,
+        blastnScript: String? = nil
+    ) throws -> URL {
         let bin = root.appendingPathComponent("bin", isDirectory: true)
         try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
         let micromambaScript = #"""
@@ -1403,7 +1497,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         let minimap2Bin = root.appendingPathComponent("envs/minimap2/bin", isDirectory: true)
         try FileManager.default.createDirectory(at: minimap2Bin, withIntermediateDirectories: true)
         try writeExecutable(
-            #"""
+            minimap2Script ?? #"""
             #!/bin/sh
             set -eu
             if [ "${1:-}" = "--version" ]; then
@@ -1414,6 +1508,21 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             printf 'allele1\t0\tfinal_consensus_0_depth_7_ReadCount-7\t1\t60\t8=\t*\t0\t0\tACGTACGT\t*\n'
             """#,
             to: minimap2Bin.appendingPathComponent("minimap2")
+        )
+
+        let blastBin = root.appendingPathComponent("envs/blast/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: blastBin, withIntermediateDirectories: true)
+        try writeExecutable(
+            blastnScript ?? #"""
+            #!/bin/sh
+            set -eu
+            if [ "${1:-}" = "-version" ]; then
+              echo "blastn: 2.16.0+"
+              exit 0
+            fi
+            exit 0
+            """#,
+            to: blastBin.appendingPathComponent("blastn")
         )
 
         return bundledMicromamba
