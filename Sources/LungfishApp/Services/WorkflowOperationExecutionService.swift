@@ -517,6 +517,12 @@ final class WorkflowOperationExecutionService {
         if let savontThreadsPerSample = request.savontThreadsPerSample {
             arguments += ["--savont-threads-per-sample", String(savontThreadsPerSample)]
         }
+        if request.keepIntermediates {
+            arguments += ["--keep-intermediates"]
+        }
+        if request.reuseCompatibleCheckpoints {
+            arguments += ["--reuse-compatible-checkpoints"]
+        }
         if let haplotypeDefinitionSetID = request.haplotypeDefinitionSetID {
             if let haplotypeAssayID = request.haplotypeAssayID {
                 arguments += ["--haplotype-assay", haplotypeAssayID]

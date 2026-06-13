@@ -185,6 +185,23 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(try testValue(after: "--haplotype-definition", in: arguments), "MHC-full-length-ONT.mamu")
     }
 
+    func testFullLengthONTMHCGenotypingPassesCheckpointArgumentsToCLI() throws {
+        let temp = try temporaryDirectory()
+        let request = FullLengthONTMHCGenotypingRunRequest(
+            inputFASTQURLs: [temp.appendingPathComponent("NB13.lungfishfastq", isDirectory: true)],
+            referenceSourceURL: temp.appendingPathComponent("Mamu-class-I.lungfishmhcref", isDirectory: true),
+            outputDirectory: temp.appendingPathComponent("Analyses/nb13-full-length.lungfishgenotype", isDirectory: true),
+            outputName: "nb13-full-length",
+            keepIntermediates: true,
+            reuseCompatibleCheckpoints: true
+        )
+
+        let arguments = WorkflowOperationExecutionService().fullLengthONTMHCGenotypingArguments(for: request)
+
+        XCTAssertTrue(arguments.contains("--keep-intermediates"))
+        XCTAssertTrue(arguments.contains("--reuse-compatible-checkpoints"))
+    }
+
     func testONTGenotypingFailureReportsCLIExitStatusAndStderr() async throws {
         let temp = try temporaryDirectory()
         let request = try makeONTGenotypingRequest(temp: temp)

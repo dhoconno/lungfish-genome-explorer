@@ -37,6 +37,8 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
     public let cdnaThreshold: Int
     public let sampleJobs: Int?
     public let savontThreadsPerSample: Int?
+    public let keepIntermediates: Bool
+    public let reuseCompatibleCheckpoints: Bool
     public let haplotypeDropoutSampleFraction: Double?
     public let haplotypeDropoutLocusFraction: Double?
     public let haplotypeDropoutLocusFractionOverrides: [String: Double]
@@ -63,6 +65,8 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
         cdnaThreshold: Int = 2_000,
         sampleJobs: Int? = nil,
         savontThreadsPerSample: Int? = nil,
+        keepIntermediates: Bool = false,
+        reuseCompatibleCheckpoints: Bool = false,
         haplotypeDropoutSampleFraction: Double? = nil,
         haplotypeDropoutLocusFraction: Double? = nil,
         haplotypeDropoutLocusFractionOverrides: [String: Double] = [:],
@@ -89,6 +93,8 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
         self.cdnaThreshold = max(1, cdnaThreshold)
         self.sampleJobs = sampleJobs.map { max(1, $0) }
         self.savontThreadsPerSample = savontThreadsPerSample.map { max(1, $0) }
+        self.keepIntermediates = keepIntermediates
+        self.reuseCompatibleCheckpoints = reuseCompatibleCheckpoints
         self.haplotypeDropoutSampleFraction = Self.normalizedFraction(haplotypeDropoutSampleFraction)
         self.haplotypeDropoutLocusFraction = Self.normalizedFraction(haplotypeDropoutLocusFraction)
         self.haplotypeDropoutLocusFractionOverrides = Self.normalizedFractionOverrides(
@@ -187,6 +193,12 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
         if let savontThreadsPerSample {
             values += ["--savont-threads-per-sample", String(savontThreadsPerSample)]
         }
+        if keepIntermediates {
+            values += ["--keep-intermediates"]
+        }
+        if reuseCompatibleCheckpoints {
+            values += ["--reuse-compatible-checkpoints"]
+        }
         if let haplotypeDefinitionSetID {
             if let haplotypeAssayID {
                 values += ["--haplotype-assay", haplotypeAssayID]
@@ -257,6 +269,8 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
             cdnaThreshold: cdnaThreshold,
             sampleJobs: sampleJobs,
             savontThreadsPerSample: savontThreadsPerSample,
+            keepIntermediates: keepIntermediates,
+            reuseCompatibleCheckpoints: reuseCompatibleCheckpoints,
             haplotypeDropoutSampleFraction: haplotypeDropoutSampleFraction,
             haplotypeDropoutLocusFraction: haplotypeDropoutLocusFraction,
             haplotypeDropoutLocusFractionOverrides: haplotypeDropoutLocusFractionOverrides,

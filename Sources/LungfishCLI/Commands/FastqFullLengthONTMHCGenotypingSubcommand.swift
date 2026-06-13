@@ -63,6 +63,12 @@ struct FastqFullLengthONTMHCGenotypingSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("cdna-threshold"), help: "Alleles shorter than this length are treated as cDNA references")
     var cdnaThreshold: Int = 2_000
 
+    @Flag(name: .customLong("keep-intermediates"), help: "Preserve regenerable full-length ONT MHC workflow intermediates for debugging")
+    var keepIntermediates: Bool = false
+
+    @Flag(name: .customLong("reuse-compatible-checkpoints"), help: "Reuse compatible full-length ONT MHC sample checkpoints when present")
+    var reuseCompatibleCheckpoints: Bool = false
+
     @Option(name: .customLong("haplotype-min-sample-percent"), help: "Drop genotype rows below this percent of retained genotyping reads for the sample; 0 disables")
     var haplotypeMinSamplePercent: Double = 0
 
@@ -129,6 +135,8 @@ struct FastqFullLengthONTMHCGenotypingSubcommand: AsyncParsableCommand {
             cdnaThreshold: cdnaThreshold,
             sampleJobs: sampleJobs,
             savontThreadsPerSample: savontThreadsPerSample,
+            keepIntermediates: keepIntermediates,
+            reuseCompatibleCheckpoints: reuseCompatibleCheckpoints,
             haplotypeDropoutSampleFraction: FastqGenotypingSubcommand.fraction(
                 fromPercent: haplotypeMinSamplePercent
             ),

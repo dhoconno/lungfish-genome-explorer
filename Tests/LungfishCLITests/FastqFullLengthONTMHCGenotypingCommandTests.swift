@@ -38,6 +38,19 @@ final class FastqFullLengthONTMHCGenotypingCommandTests: XCTestCase {
         XCTAssertEqual(command.threads, 4)
     }
 
+    func testFullLengthONTMHCCommandParsesCheckpointFlags() throws {
+        let command = try FastqFullLengthONTMHCGenotypingSubcommand.parse([
+            "/tmp/sample.lungfishfastq",
+            "--reference", "/tmp/ref.lungfishref",
+            "--output-dir", "/tmp/out.lungfishgenotype",
+            "--keep-intermediates",
+            "--reuse-compatible-checkpoints",
+        ])
+
+        XCTAssertTrue(command.keepIntermediates)
+        XCTAssertTrue(command.reuseCompatibleCheckpoints)
+    }
+
     func testFullLengthONTMHCRunRequestArgvUsesSavontAndOmitsGuideAndPBAAOptions() {
         let request = FullLengthONTMHCGenotypingRunRequest(
             inputFASTQURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq", isDirectory: true)],
@@ -49,6 +62,19 @@ final class FastqFullLengthONTMHCGenotypingCommandTests: XCTestCase {
         XCTAssertFalse(request.argv.contains { $0.contains("pbaa") || $0.contains("pbAA") })
         XCTAssertEqual(value(after: "--savont-quality-value-cutoff", in: request.argv), "90")
         XCTAssertEqual(value(after: "--savont-min-cluster-size", in: request.argv), "3")
+    }
+
+    func testFullLengthONTMHCRunRequestArgvIncludesCheckpointFlagsWhenEnabled() {
+        let request = FullLengthONTMHCGenotypingRunRequest(
+            inputFASTQURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq", isDirectory: true)],
+            referenceSourceURL: URL(fileURLWithPath: "/tmp/ref.lungfishref", isDirectory: true),
+            outputDirectory: URL(fileURLWithPath: "/tmp/out.lungfishgenotype", isDirectory: true),
+            keepIntermediates: true,
+            reuseCompatibleCheckpoints: true
+        )
+
+        XCTAssertTrue(request.argv.contains("--keep-intermediates"))
+        XCTAssertTrue(request.argv.contains("--reuse-compatible-checkpoints"))
     }
 
     private func value(after flag: String, in arguments: [String]) -> String? {
