@@ -11,6 +11,7 @@ final class CondaPacksCommandTests: XCTestCase {
             [
                 "lungfish-tools",
                 "read-mapping",
+                "full-length-mhc-genotyping",
                 "variant-calling",
                 "assembly",
                 "multiple-sequence-alignment",

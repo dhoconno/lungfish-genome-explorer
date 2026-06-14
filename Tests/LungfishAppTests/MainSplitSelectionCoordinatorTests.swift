@@ -393,12 +393,13 @@ final class MainSplitSelectionCoordinatorTests: XCTestCase {
         XCTAssertTrue(delegate.selectedItems.isEmpty)
     }
 
-    func testFilesystemRescanDoesNotRefreshUnchangedSelectedBundle() throws {
+    func testFilesystemRescanDoesNotRefreshUnchangedSelectedBundle() async throws {
         let tempRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("SidebarBundleRescanRefresh-\(UUID().uuidString)", isDirectory: true)
         let projectURL = tempRoot.appendingPathComponent("Fixture.lungfish", isDirectory: true)
         let bundleURL = projectURL.appendingPathComponent("Reference.lungfishref", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        ProjectFilesystemRefreshCoordinator.shared.testingSetFullReloadDebounce(.milliseconds(50))
 
         let sidebar = SidebarViewController()
         sidebar.loadViewIfNeeded()
@@ -407,6 +408,7 @@ final class MainSplitSelectionCoordinatorTests: XCTestCase {
 
         defer {
             sidebar.closeProject()
+            ProjectFilesystemRefreshCoordinator.shared.testingSetFullReloadDebounce(.milliseconds(500))
             try? FileManager.default.removeItem(at: tempRoot)
         }
 
@@ -419,6 +421,8 @@ final class MainSplitSelectionCoordinatorTests: XCTestCase {
             projectURL: projectURL,
             changedPaths: FileSystemWatcher.ChangedPaths(nonSidecar: [], all: [])
         )
+
+        try await Task.sleep(for: .milliseconds(120))
 
         XCTAssertTrue(delegate.refreshedItems.isEmpty)
         XCTAssertTrue(delegate.selectedItems.isEmpty)

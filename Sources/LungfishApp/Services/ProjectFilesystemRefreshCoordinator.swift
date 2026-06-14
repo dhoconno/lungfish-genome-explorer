@@ -12,6 +12,7 @@ public final class ProjectFilesystemRefreshCoordinator {
         let projectURL: URL
         let watcher: FileSystemWatcher
         var handlers: [SubscriptionID: Handler] = [:]
+        var pendingFullReloadTask: Task<Void, Never>?
 
         init(projectURL: URL, watcher: FileSystemWatcher) {
             self.projectURL = projectURL
@@ -25,6 +26,7 @@ public final class ProjectFilesystemRefreshCoordinator {
 
     private var watchersByProjectKey: [String: ProjectWatcher] = [:]
     private var subscriptionsByID: [SubscriptionID: SubscriptionRecord] = [:]
+    private var fullReloadDebounce: Duration = .milliseconds(500)
 
     public init() {}
 
@@ -65,6 +67,7 @@ public final class ProjectFilesystemRefreshCoordinator {
 
         projectWatcher.handlers.removeValue(forKey: subscriptionID)
         if projectWatcher.handlers.isEmpty {
+            projectWatcher.pendingFullReloadTask?.cancel()
             projectWatcher.watcher.stopWatching()
             watchersByProjectKey.removeValue(forKey: record.projectKey)
         }
@@ -72,6 +75,7 @@ public final class ProjectFilesystemRefreshCoordinator {
 
     public func unregisterAll() {
         for projectWatcher in watchersByProjectKey.values {
+            projectWatcher.pendingFullReloadTask?.cancel()
             projectWatcher.watcher.stopWatching()
         }
         watchersByProjectKey.removeAll()
@@ -94,15 +98,49 @@ public final class ProjectFilesystemRefreshCoordinator {
         removeWatcher(projectKey: Self.canonicalProjectURL(projectURL).path)
     }
 
+    func testingSetFullReloadDebounce(_ duration: Duration) {
+        fullReloadDebounce = duration
+    }
+
     private func fanOut(projectKey: String, changedPaths: FileSystemWatcher.ChangedPaths) {
         guard let projectWatcher = watchersByProjectKey[projectKey] else { return }
+        if changedPaths.nonSidecar.isEmpty && changedPaths.all.isEmpty {
+            scheduleCoalescedFullReload(projectKey: projectKey, changedPaths: changedPaths)
+            return
+        }
         for handler in projectWatcher.handlers.values {
             handler(changedPaths)
         }
     }
 
+    private func scheduleCoalescedFullReload(projectKey: String, changedPaths: FileSystemWatcher.ChangedPaths) {
+        guard let projectWatcher = watchersByProjectKey[projectKey] else { return }
+        projectWatcher.pendingFullReloadTask?.cancel()
+
+        let delay = fullReloadDebounce
+        projectWatcher.pendingFullReloadTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: delay)
+            } catch {
+                return
+            }
+
+            guard let self,
+                  let projectWatcher = self.watchersByProjectKey[projectKey],
+                  !Task.isCancelled else {
+                return
+            }
+
+            projectWatcher.pendingFullReloadTask = nil
+            for handler in projectWatcher.handlers.values {
+                handler(changedPaths)
+            }
+        }
+    }
+
     private func removeWatcher(projectKey: String) {
         guard let projectWatcher = watchersByProjectKey.removeValue(forKey: projectKey) else { return }
+        projectWatcher.pendingFullReloadTask?.cancel()
         projectWatcher.watcher.stopWatching()
         for subscriptionID in projectWatcher.handlers.keys {
             subscriptionsByID.removeValue(forKey: subscriptionID)

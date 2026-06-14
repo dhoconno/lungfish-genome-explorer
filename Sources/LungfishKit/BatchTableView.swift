@@ -164,6 +164,9 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
     /// Subclasses should override to declare which columns are numeric.
     open var columnTypeHints: [String: Bool] { [:] }
 
+    /// Delay before applying user-typed free-text filters.
+    open var filterDebounceDelay: Duration { .milliseconds(180) }
+
     // MARK: - State
 
     /// The rows currently displayed (after any filter and sort).
@@ -188,6 +191,9 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
 
     /// Current filter text applied to rows.
     private var filterText: String = ""
+
+    /// Pending user-typed free-text filter application.
+    private var pendingFilterTask: Task<Void, Never>?
 
     /// Stable selection IDs for the current table.
     private var selectionIdentities = SelectionIdentityStore<String>()
@@ -235,6 +241,10 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
     public required init?(coder: NSCoder) {
         super.init(coder: coder)
         setupTableView()
+    }
+
+    deinit {
+        pendingFilterTask?.cancel()
     }
 
     // MARK: - Setup
@@ -415,7 +425,28 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
 
     @objc private func filterChanged(_ sender: NSSearchField) {
         filterText = sender.stringValue
-        applyFilter()
+        if filterText.isEmpty {
+            pendingFilterTask?.cancel()
+            pendingFilterTask = nil
+            applyFilter()
+            return
+        }
+        scheduleFilterApply()
+    }
+
+    private func scheduleFilterApply() {
+        pendingFilterTask?.cancel()
+        let delay = filterDebounceDelay
+        pendingFilterTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: delay)
+            } catch {
+                return
+            }
+            guard let self, !Task.isCancelled else { return }
+            self.pendingFilterTask = nil
+            self.applyFilter()
+        }
     }
 
     private func applyFilter() {
@@ -478,6 +509,8 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
 
     /// Applies a new free-text filter query and refreshes the table.
     public func setFilterText(_ text: String) {
+        pendingFilterTask?.cancel()
+        pendingFilterTask = nil
         searchField.stringValue = text
         filterText = text
         applyFilter()
