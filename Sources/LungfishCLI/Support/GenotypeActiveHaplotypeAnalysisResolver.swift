@@ -7,6 +7,10 @@ enum GenotypeActiveHaplotypeAnalysisResolver {
         bundleURL: URL? = nil,
         sidecar: GenotypeAnnotationSidecar?
     ) -> GenotypeHaplotypeAnalysis? {
+        if !hasSidecarDefinitionOverride(sidecar),
+           result.haplotypeAnalysis?.source == .ai {
+            return result.haplotypeAnalysis
+        }
         guard let definitionSet = activeDefinitionSet(for: result, bundleURL: bundleURL, sidecar: sidecar) else {
             return result.haplotypeAnalysis
         }
@@ -23,6 +27,11 @@ enum GenotypeActiveHaplotypeAnalysisResolver {
             generatedAt: nil,
             dropoutFilter: evaluator
         )
+    }
+
+    private static func hasSidecarDefinitionOverride(_ sidecar: GenotypeAnnotationSidecar?) -> Bool {
+        let id = sidecar?.settings.activeHaplotypeDefinitionSetID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return id?.isEmpty == false
     }
 
     static func activeDefinitionSet(

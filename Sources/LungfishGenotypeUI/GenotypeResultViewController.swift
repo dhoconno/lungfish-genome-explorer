@@ -3142,6 +3142,11 @@ public final class GenotypeResultViewController: NSViewController {
            let definition = registry.definitionSet(id: id, assayID: result.haplotypeAnalysis?.assayID) {
             return (definition, .bundleAnalysis)
         }
+        if result.haplotypeAnalysis?.source == .ai,
+           let recorded = result.haplotypeAnalysis,
+           let synthesized = Self.synthesizedDefinitionSet(from: recorded) {
+            return (synthesized, .bundleAnalysis)
+        }
         if let id = result.manifest.haplotypeDefinitionSetID,
            let definition = registry.definitionSet(id: id, assayID: result.manifest.haplotypeAssayID) {
             return (definition, .bundleManifest)
@@ -3200,6 +3205,13 @@ public final class GenotypeResultViewController: NSViewController {
                     let existing = haplotypesByLocus[call.locus]?[matched.name] ?? []
                     if matched.diagnosticAlleles.count >= existing.count {
                         haplotypesByLocus[call.locus]?[matched.name] = matched.diagnosticAlleles
+                    }
+                }
+                for label in [call.haplotype1, call.haplotype2] {
+                    guard label != "-", !label.hasPrefix("ERR:") else { continue }
+                    if haplotypesByLocus[call.locus]?[label] == nil {
+                        haplotypeOrderByLocus[call.locus]?.append(label)
+                        haplotypesByLocus[call.locus]?[label] = []
                     }
                 }
             }

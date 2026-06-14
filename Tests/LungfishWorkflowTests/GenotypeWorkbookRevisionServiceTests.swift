@@ -123,6 +123,65 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
         ))
     }
 
+    func testImportRevisedWorkbookPreservesActiveAIHaplotypeRevisionFields() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeBundle(in: root, outputName: "cohort", includeCurrent: true)
+        let aiRevision = ONTGenotypeHaplotypeAnalysisRevision(
+            id: "haprev-ai-0001",
+            method: .aiRefinement,
+            path: "artifacts/ai-haplotyping/revisions/haprev-ai-0001/haplotype-analysis.json",
+            predecessorID: nil,
+            predecessorPath: fixture.manifest.haplotypeAnalysisPath,
+            createdAt: "2026-06-14T18:00:00Z",
+            reviewState: .needsReview,
+            sha256: String(repeating: "a", count: 64),
+            sizeBytes: 123,
+            provenancePath: "artifacts/ai-haplotyping/revisions/haprev-ai-0001/ai-haplotyping.lungfish-provenance.json",
+            provider: "openai",
+            model: "gpt-5-mini",
+            promptTemplateID: "lungfish.ai-haplotyping.refinement",
+            promptTemplateVersion: "2026-06-14.1",
+            promptHash: "sha256:\(String(repeating: "b", count: 64))",
+            evidenceSnapshotPath: "artifacts/ai-haplotyping/revisions/haprev-ai-0001/evidence-registry.json",
+            validationReportPath: "artifacts/ai-haplotyping/revisions/haprev-ai-0001/validation-report.json"
+        )
+        let manifestWithAIRevision = ONTGenotypeResultBundleManifest(
+            schemaVersion: fixture.manifest.schemaVersion,
+            kind: fixture.manifest.kind,
+            outputName: fixture.manifest.outputName,
+            analysisName: fixture.manifest.analysisName,
+            primaryWorkbookPath: fixture.manifest.primaryWorkbookPath,
+            currentWorkbookPath: fixture.manifest.currentWorkbookPath,
+            workbookRevisions: fixture.manifest.workbookRevisions,
+            longSummaryCSVPath: fixture.manifest.longSummaryCSVPath,
+            sampleSummaryCSVPath: fixture.manifest.sampleSummaryCSVPath,
+            statsJSONPath: fixture.manifest.statsJSONPath,
+            provenancePath: fixture.manifest.provenancePath,
+            haplotypeAnalysisPath: aiRevision.path,
+            haplotypeDefinitionSetID: fixture.manifest.haplotypeDefinitionSetID,
+            haplotypeAssayID: fixture.manifest.haplotypeAssayID,
+            createdAt: fixture.manifest.createdAt,
+            activeHaplotypeAnalysisRevisionID: aiRevision.id,
+            haplotypeAnalysisRevisions: [aiRevision]
+        )
+        try ONTGenotypeResultBundle.writeManifest(manifestWithAIRevision, to: fixture.bundleURL)
+        let importedURL = root.appendingPathComponent("collaborator.xlsx")
+        try workbookData("collaborator edit").write(to: importedURL)
+
+        let updatedManifest = try GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 1_900) },
+            userProvider: { "tester" }
+        ).importRevisedWorkbook(from: importedURL, into: fixture.bundleURL, label: "Collaborator edit")
+        let persistedManifest = try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
+
+        for manifest in [updatedManifest, persistedManifest] {
+            XCTAssertEqual(manifest.haplotypeAnalysisPath, aiRevision.path)
+            XCTAssertEqual(manifest.activeHaplotypeAnalysisRevisionID, aiRevision.id)
+            XCTAssertEqual(manifest.haplotypeAnalysisRevisions, [aiRevision])
+        }
+    }
+
     func testImportMigratesOldPrimaryOnlyBundleBeforeReplacingCurrent() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
