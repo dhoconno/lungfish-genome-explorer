@@ -285,9 +285,58 @@ final class WorkflowLibraryTests: XCTestCase {
 
         XCTAssertTrue(viewModelSource.contains("Task.detached(priority: .userInitiated)"))
         XCTAssertTrue(viewModelSource.contains("packageStore.addValidatedPackage(result)"))
+        XCTAssertTrue(viewModelSource.contains("packageStore.cachedValidatedPackages()"))
+        XCTAssertTrue(viewModelSource.contains("packageStore.validatedPackagesInBackground()"))
         XCTAssertTrue(storeSource.contains("private var validationCache"))
         XCTAssertTrue(storeSource.contains("func addValidatedPackage(_ result: WorkflowPackageValidationResult)"))
+        XCTAssertTrue(storeSource.contains("func cachedValidatedPackages()"))
+        XCTAssertTrue(storeSource.contains("func validatedPackagesInBackground() async"))
+        XCTAssertTrue(storeSource.contains("let fingerprint = Self.packageFingerprint(for: url)"))
+        XCTAssertTrue(storeSource.contains("cache(result, fingerprint: fingerprint)"))
+        XCTAssertTrue(storeSource.contains("withTaskCancellationHandler"))
         XCTAssertTrue(storeSource.contains("manifestSHA256"))
+    }
+
+    func testViewModelLoadsColdImportedWorkflowPackagesAsynchronously() async throws {
+        let defaults = try makeDefaults()
+        let store = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        packageStore.addPackage(at: helloWorldNextflowPackageURL())
+        let viewModel = WorkflowLibraryViewModel(
+            store: store,
+            packageStore: packageStore,
+            statusProvider: StubWorkflowLibraryPluginStatusProvider(states: [:]),
+            automaticallyRefreshUserWorkflowPackages: false
+        )
+
+        XCTAssertTrue(viewModel.userWorkflowPackages.isEmpty)
+
+        await viewModel.refreshUserWorkflowPackages()
+
+        XCTAssertEqual(
+            viewModel.userWorkflowPackages.map(\.manifest.id),
+            ["org.lungfish.templates.hello-world-nextflow"]
+        )
+    }
+
+    func testImportCancelsStartupPackageRefreshAndClearsLoadingState() async throws {
+        let defaults = try makeDefaults()
+        let store = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        packageStore.addPackage(at: helloWorldNextflowPackageURL())
+        let viewModel = WorkflowLibraryViewModel(
+            store: store,
+            packageStore: packageStore,
+            statusProvider: StubWorkflowLibraryPluginStatusProvider(states: [:])
+        )
+
+        try await viewModel.importWorkflowPackage(at: helloWorldNextflowPackageURL())
+
+        XCTAssertFalse(viewModel.isLoadingUserWorkflowPackages)
+        XCTAssertEqual(
+            viewModel.userWorkflowPackages.map(\.manifest.id),
+            ["org.lungfish.templates.hello-world-nextflow"]
+        )
     }
 
     func testWorkflowPackageValidationCacheInvalidatesManifestContentChanges() throws {
@@ -336,6 +385,7 @@ final class WorkflowLibraryTests: XCTestCase {
             packageStore: reloadedPackageStore,
             statusProvider: StubWorkflowLibraryPluginStatusProvider(states: [:])
         )
+        await reloadedViewModel.refreshUserWorkflowPackages()
 
         XCTAssertEqual(
             reloadedViewModel.userWorkflowPackages.map(\.manifest.id),

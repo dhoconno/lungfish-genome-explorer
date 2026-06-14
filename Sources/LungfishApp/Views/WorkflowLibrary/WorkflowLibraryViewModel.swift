@@ -33,10 +33,13 @@ final class WorkflowLibraryViewModel {
     private let store: WorkflowLibraryEnablementStore
     private let packageStore: WorkflowLibraryImportedPackageStore
     private let statusProvider: any PluginPackStatusProviding
+    @ObservationIgnored private var userWorkflowPackageRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var userWorkflowPackageRefreshGeneration: UInt64 = 0
 
     var selectedTab: Tab = .library
     var pluginStatusesByPackID: [String: PluginPackStatus] = [:]
     var isRefreshing: Bool = false
+    var isLoadingUserWorkflowPackages: Bool = false
     var installingWorkflowIDs: Set<String> = []
     var errorMessage: String?
     var showingError: Bool = false
@@ -56,7 +59,8 @@ final class WorkflowLibraryViewModel {
         items: [WorkflowLibraryItem] = WorkflowLibraryCatalog.builtIn,
         store: WorkflowLibraryEnablementStore = .shared,
         packageStore: WorkflowLibraryImportedPackageStore = .shared,
-        statusProvider: any PluginPackStatusProviding = PluginPackStatusService.shared
+        statusProvider: any PluginPackStatusProviding = PluginPackStatusService.shared,
+        automaticallyRefreshUserWorkflowPackages: Bool = true
     ) {
         self.items = items
         self.store = store
@@ -64,7 +68,14 @@ final class WorkflowLibraryViewModel {
         self.statusProvider = statusProvider
         self.enabledWorkflowIDs = store.enabledWorkflowIDSnapshot
         self.enabledUserWorkflowIDs = store.enabledUserWorkflowIDSnapshot
-        self.userWorkflowPackages = packageStore.validatedPackages()
+        self.userWorkflowPackages = packageStore.cachedValidatedPackages()
+        if automaticallyRefreshUserWorkflowPackages {
+            startUserWorkflowPackageRefresh()
+        }
+    }
+
+    deinit {
+        userWorkflowPackageRefreshTask?.cancel()
     }
 
     func isEnabled(_ item: WorkflowLibraryItem) -> Bool {
@@ -116,7 +127,27 @@ final class WorkflowLibraryViewModel {
         pluginStatusesByPackID = statuses
     }
 
+    func refreshUserWorkflowPackages() async {
+        userWorkflowPackageRefreshTask?.cancel()
+        userWorkflowPackageRefreshGeneration &+= 1
+        let generation = userWorkflowPackageRefreshGeneration
+        isLoadingUserWorkflowPackages = true
+        let packages = await packageStore.validatedPackagesInBackground()
+        if generation == userWorkflowPackageRefreshGeneration {
+            isLoadingUserWorkflowPackages = false
+        }
+        guard !Task.isCancelled,
+              generation == userWorkflowPackageRefreshGeneration else {
+            return
+        }
+        userWorkflowPackages = packages
+        await refreshDependencyStatuses()
+    }
+
     func importWorkflowPackage(at packageURL: URL) async throws {
+        userWorkflowPackageRefreshTask?.cancel()
+        userWorkflowPackageRefreshGeneration &+= 1
+        isLoadingUserWorkflowPackages = false
         let result = try await Task.detached(priority: .userInitiated) {
             try WorkflowPackageValidator.validatePackage(at: packageURL)
         }.value
@@ -230,4 +261,27 @@ final class WorkflowLibraryViewModel {
         enabledWorkflowIDs = store.enabledWorkflowIDSnapshot
         enabledUserWorkflowIDs = store.enabledUserWorkflowIDSnapshot
     }
+
+    private func startUserWorkflowPackageRefresh() {
+        userWorkflowPackageRefreshTask?.cancel()
+        userWorkflowPackageRefreshGeneration &+= 1
+        let generation = userWorkflowPackageRefreshGeneration
+        let packageStore = packageStore
+        userWorkflowPackageRefreshTask = Task { @MainActor [weak self, packageStore] in
+            guard !Task.isCancelled else { return }
+            self?.isLoadingUserWorkflowPackages = true
+            let packages = await packageStore.validatedPackagesInBackground()
+            guard let self else { return }
+            if generation == self.userWorkflowPackageRefreshGeneration {
+                self.isLoadingUserWorkflowPackages = false
+            }
+            guard !Task.isCancelled,
+                  generation == self.userWorkflowPackageRefreshGeneration else {
+                return
+            }
+            self.userWorkflowPackages = packages
+            await self.refreshDependencyStatuses()
+        }
+    }
+
 }

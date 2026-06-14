@@ -480,11 +480,11 @@ final class WorkflowLibraryImportedPackageStore {
 
     private static let importedPackagePathsKey = "WorkflowLibrary.importedWorkflowPackagePaths"
 
-    private struct PackageValidationFingerprint: Equatable {
+    private struct PackageValidationFingerprint: Equatable, Sendable {
         let manifestSHA256: String?
     }
 
-    private struct CachedPackageValidation {
+    private struct CachedPackageValidation: Sendable {
         let fingerprint: PackageValidationFingerprint
         let result: WorkflowPackageValidationResult
     }
@@ -506,8 +506,44 @@ final class WorkflowLibraryImportedPackageStore {
         packagePaths.map { URL(fileURLWithPath: $0).standardizedFileURL }
     }
 
+    func cachedValidatedPackages() -> [WorkflowPackageValidationResult] {
+        packageURLSnapshot.compactMap { url in
+            let packageURL = url.standardizedFileURL
+            guard let cached = validationCache[packageURL],
+                  cached.fingerprint == Self.packageFingerprint(for: packageURL),
+                  cachedValidationStillHasRequiredFiles(cached.result) else {
+                return nil
+            }
+            return cached.result
+        }
+    }
+
     func validatedPackages() -> [WorkflowPackageValidationResult] {
         packageURLSnapshot.compactMap { try? validatedPackage(at: $0) }
+    }
+
+    func validatedPackagesInBackground() async -> [WorkflowPackageValidationResult] {
+        let packageURLs = packageURLSnapshot
+        let workerTask = Task.detached(priority: .userInitiated) {
+            packageURLs.compactMap { url -> (WorkflowPackageValidationResult, PackageValidationFingerprint)? in
+                guard !Task.isCancelled else { return nil }
+                let fingerprint = Self.packageFingerprint(for: url)
+                guard let result = try? WorkflowPackageValidator.validatePackage(at: url) else {
+                    return nil
+                }
+                guard !Task.isCancelled else { return nil }
+                return (result, fingerprint)
+            }
+        }
+        let validationResults = await withTaskCancellationHandler {
+            await workerTask.value
+        } onCancel: {
+            workerTask.cancel()
+        }
+        for (result, fingerprint) in validationResults {
+            cache(result, fingerprint: fingerprint)
+        }
+        return validationResults.map(\.0)
     }
 
     func addPackage(at packageURL: URL) {
@@ -531,7 +567,7 @@ final class WorkflowLibraryImportedPackageStore {
 
     private func validatedPackage(at packageURL: URL) throws -> WorkflowPackageValidationResult {
         let packageURL = packageURL.standardizedFileURL
-        let fingerprint = packageFingerprint(for: packageURL)
+        let fingerprint = Self.packageFingerprint(for: packageURL)
         if let cached = validationCache[packageURL],
            cached.fingerprint == fingerprint,
            cachedValidationStillHasRequiredFiles(cached.result) {
@@ -547,12 +583,12 @@ final class WorkflowLibraryImportedPackageStore {
         fingerprint: PackageValidationFingerprint? = nil
     ) {
         validationCache[result.packageURL.standardizedFileURL] = CachedPackageValidation(
-            fingerprint: fingerprint ?? packageFingerprint(for: result.packageURL),
+            fingerprint: fingerprint ?? Self.packageFingerprint(for: result.packageURL),
             result: result
         )
     }
 
-    private func packageFingerprint(for packageURL: URL) -> PackageValidationFingerprint {
+    private nonisolated static func packageFingerprint(for packageURL: URL) -> PackageValidationFingerprint {
         let manifestURL = packageURL
             .standardizedFileURL
             .appendingPathComponent(WorkflowPackageValidator.manifestFilename)

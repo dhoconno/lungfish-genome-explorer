@@ -425,8 +425,8 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
         let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
         let packageURL = helloWorldNextflowPackageURL()
-        packageStore.addPackage(at: packageURL)
         let package = try WorkflowPackageValidator.validatePackage(at: packageURL)
+        packageStore.addValidatedPackage(package)
         enablementStore.setUserWorkflow(package, enabled: true)
 
         let temp = try temporaryDirectory()
@@ -465,6 +465,48 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertEqual(request.params["outdir"], outputURL.standardizedFileURL.path)
         XCTAssertEqual(bundleRoot, outputURL.appendingPathComponent("Workflow Runs", isDirectory: true).standardizedFileURL)
         XCTAssertTrue(request.cliArguments(bundlePath: bundleRoot.appendingPathComponent("run.lungfishrun")).contains("--expected-output"))
+    }
+
+    func testWorkflowOperationDialogLoadsColdImportedPackagesAsynchronously() async throws {
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        packageStore.addPackage(at: helloWorldNextflowPackageURL())
+
+        let state = WorkflowOperationDialogState(
+            projectURL: nil,
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+
+        XCTAssertFalse(state.tools.contains { $0.id == "package.org.lungfish.templates.hello-world-nextflow" })
+
+        try await waitForWorkflowPackageTool(state, id: "package.org.lungfish.templates.hello-world-nextflow")
+
+        XCTAssertTrue(state.tools.contains { $0.id == "package.org.lungfish.templates.hello-world-nextflow" })
+    }
+
+    func testWorkflowOperationDialogSelectsColdEnabledPackageWhenCurrentSelectionIsDisabled() async throws {
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        enablementStore.setWorkflow(.ontGenotyping, enabled: false)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let package = try WorkflowPackageValidator.validatePackage(at: helloWorldNextflowPackageURL())
+        packageStore.addPackage(at: package.packageURL)
+        enablementStore.setUserWorkflow(package, enabled: true)
+
+        let state = WorkflowOperationDialogState(
+            projectURL: nil,
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+
+        XCTAssertNotEqual(state.selectedToolID, "package.org.lungfish.templates.hello-world-nextflow")
+
+        try await waitForWorkflowPackageTool(state, id: "package.org.lungfish.templates.hello-world-nextflow")
+
+        XCTAssertEqual(state.selectedToolID, "package.org.lungfish.templates.hello-world-nextflow")
+        XCTAssertEqual(state.outputName, "hello-world-nextflow")
     }
 
     func testWorkflowPackageIsNotRunnableWithFolderBatchMultiReadSelection() {
@@ -1657,6 +1699,8 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         )
 
         XCTAssertTrue(source.contains("private var cachedTools: [WorkflowOperationTool]"))
+        XCTAssertTrue(source.contains("packageStore.cachedValidatedPackages()"))
+        XCTAssertTrue(source.contains("packageStore.validatedPackagesInBackground()"))
         XCTAssertTrue(toolsProperty.contains("cachedTools"))
         XCTAssertFalse(
             toolsProperty.contains("Self.makeTools"),
@@ -1772,6 +1816,13 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
     private func waitForProjectDiscovery(_ state: WorkflowOperationDialogState) async throws {
         let deadline = Date().addingTimeInterval(2)
         while state.isDiscoveringProjectResources && Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
+    private func waitForWorkflowPackageTool(_ state: WorkflowOperationDialogState, id: String) async throws {
+        let deadline = Date().addingTimeInterval(2)
+        while !state.tools.contains(where: { $0.id == id }) && Date() < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }
     }

@@ -277,6 +277,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     var genotypeFetchGeneration: Int = 0
     /// Generation counter for stale annotation filter refreshes.
     var annotationQueryGeneration: Int = 0
+    var activeAnnotationQueryCancelToken: VariantQueryCancellationToken?
 
     /// Total annotation count in the database (annotation tab only).
     var totalAnnotationCount: Int = 0
@@ -4511,6 +4512,126 @@ final class VariantQueryCancellationToken: @unchecked Sendable {
     }
 }
 
+/// Snapshot of annotation database state needed for background annotation-table queries.
+/// Stores database URLs, not live handles, so each background query uses its own
+/// read-only SQLite connection instead of sharing the main actor's NOMUTEX handle.
+struct AnnotationQueryContext: @unchecked Sendable {
+    let databases: [(trackId: String, databaseURL: URL)]
+    let trackNames: [String: String]
+
+    func queryAnnotationsOnly(
+        nameFilter: String = "",
+        types: Set<String> = [],
+        chromosome: String? = nil,
+        regionStart: Int? = nil,
+        regionEnd: Int? = nil,
+        strand: String? = nil,
+        columnFilters: [AnnotationDatabase.ColumnFilterClause] = [],
+        limit: Int = 5000,
+        shouldCancel: (() -> Bool)? = nil
+    ) -> [AnnotationSearchIndex.SearchResult] {
+        let databaseColumnFilters = columnFilters.filter { !Self.isTrackColumnFilter($0.key) }
+        var results: [AnnotationSearchIndex.SearchResult] = []
+        for handle in databases {
+            if shouldCancel?() == true { break }
+            guard Self.annotationTrackMatchesFilters(
+                trackId: handle.trackId,
+                trackName: trackNames[handle.trackId],
+                filters: columnFilters
+            ) else { continue }
+            let remaining = limit - results.count
+            guard remaining > 0 else { break }
+            guard let database = try? AnnotationDatabase(url: handle.databaseURL) else {
+                continue
+            }
+            if shouldCancel?() == true { break }
+            let records = database.queryForTable(
+                nameFilter: nameFilter,
+                types: types,
+                chromosome: chromosome,
+                regionStart: regionStart,
+                regionEnd: regionEnd,
+                strand: strand,
+                columnFilters: databaseColumnFilters,
+                limit: remaining
+            )
+            if shouldCancel?() == true { break }
+            results.append(contentsOf: records.map { record in
+                Self.searchResult(from: record, trackId: handle.trackId, trackName: trackNames[handle.trackId])
+            })
+        }
+        return results
+    }
+
+    private static func searchResult(
+        from record: AnnotationDatabaseRecord,
+        trackId: String,
+        trackName: String?
+    ) -> AnnotationSearchIndex.SearchResult {
+        let parsedAttributes = record.attributes.map(AnnotationDatabase.parseAttributes).flatMap { attributes in
+            attributes.isEmpty ? nil : attributes
+        }
+        return AnnotationSearchIndex.SearchResult(
+            name: record.name,
+            chromosome: record.chromosome,
+            start: record.start,
+            end: record.end,
+            trackId: trackId,
+            trackName: trackName,
+            type: record.type,
+            strand: record.strand,
+            attributes: parsedAttributes,
+            annotationRowId: record.rowID
+        )
+    }
+
+    private static func isTrackColumnFilter(_ key: String) -> Bool {
+        key == "track_id" || key == "track_name"
+    }
+
+    private static func annotationTrackMatchesFilters(
+        trackId: String,
+        trackName: String?,
+        filters: [AnnotationDatabase.ColumnFilterClause]
+    ) -> Bool {
+        filters.allSatisfy { filter in
+            switch filter.key {
+            case "track_id":
+                return trackColumnMatches(actual: trackId, op: filter.op, expected: filter.value)
+            case "track_name":
+                return trackColumnMatches(actual: trackName ?? trackId, op: filter.op, expected: filter.value)
+            default:
+                return true
+            }
+        }
+    }
+
+    private static func trackColumnMatches(actual: String, op: String, expected: String) -> Bool {
+        let normalizedActual = actual.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedExpected = expected.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch op {
+        case "=":
+            if normalizedExpected.isEmpty { return normalizedActual.isEmpty }
+            return normalizedActual.caseInsensitiveCompare(normalizedExpected) == .orderedSame
+        case "!=":
+            if normalizedExpected.isEmpty { return !normalizedActual.isEmpty }
+            return normalizedActual.caseInsensitiveCompare(normalizedExpected) != .orderedSame
+        case "!~":
+            if normalizedExpected.isEmpty { return true }
+            return !normalizedActual.localizedCaseInsensitiveContains(normalizedExpected)
+        case "^=":
+            if normalizedExpected.isEmpty { return true }
+            return normalizedActual.lowercased().hasPrefix(normalizedExpected.lowercased())
+        case "$=":
+            if normalizedExpected.isEmpty { return true }
+            return normalizedActual.lowercased().hasSuffix(normalizedExpected.lowercased())
+        default:
+            if normalizedExpected.isEmpty { return true }
+            return normalizedActual.localizedCaseInsensitiveContains(normalizedExpected)
+        }
+    }
+}
+
 /// Snapshot of variant database state needed for background queries.
 /// All fields are `Sendable` (VariantDatabase/AnnotationDatabase are @unchecked Sendable).
 struct AnnotationVariantQueryContext: @unchecked Sendable {
@@ -4834,6 +4955,180 @@ func fetchVariantsAdaptive(
     }
 
     return Array(filtered.prefix(maxDisplayCount))
+}
+
+/// Annotation-table fetch loop for background database queries.
+func fetchAnnotationRowsForDisplayOffMain(
+    context: AnnotationQueryContext,
+    nameFilter: String,
+    typeFilter: Set<String>,
+    query annotationQuery: AnnotationTableDrawerView.AnnotationFilterQuery,
+    databaseColumnFilters: [AnnotationDatabase.ColumnFilterClause],
+    allColumnFilters: [AnnotationTableDrawerView.ColumnFilterClause],
+    requiresPostOnlyColumnFiltering: Bool,
+    maxDisplayCount: Int,
+    shouldCancel: (() -> Bool)? = nil
+) -> [AnnotationSearchIndex.SearchResult] {
+    let targetCount = maxDisplayCount + 1
+    var fetchLimit = targetCount
+
+    while true {
+        if shouldCancel?() == true { return [] }
+        let results = context.queryAnnotationsOnly(
+            nameFilter: nameFilter,
+            types: typeFilter,
+            chromosome: annotationQuery.chromosome,
+            regionStart: annotationQuery.start,
+            regionEnd: annotationQuery.end,
+            strand: annotationQuery.strand,
+            columnFilters: databaseColumnFilters,
+            limit: fetchLimit,
+            shouldCancel: shouldCancel
+        )
+        if shouldCancel?() == true { return [] }
+        let filtered = applyAnnotationColumnFiltersOffMain(
+            to: applyAnnotationAdvancedFiltersOffMain(results, query: annotationQuery),
+            clauses: allColumnFilters
+        )
+        if shouldCancel?() == true { return [] }
+
+        if !requiresPostOnlyColumnFiltering
+            || filtered.count >= targetCount
+            || results.count < fetchLimit {
+            return Array(filtered.prefix(targetCount))
+        }
+
+        fetchLimit = max(fetchLimit * 2, fetchLimit + targetCount)
+    }
+}
+
+func applyAnnotationAdvancedFiltersOffMain(
+    _ results: [AnnotationSearchIndex.SearchResult],
+    query: AnnotationTableDrawerView.AnnotationFilterQuery
+) -> [AnnotationSearchIndex.SearchResult] {
+    results.filter { row in
+        if let chr = query.chromosome, row.chromosome.caseInsensitiveCompare(chr) != .orderedSame { return false }
+        if let strand = query.strand, row.strand.caseInsensitiveCompare(strand) != .orderedSame { return false }
+        if let start = query.start, row.end <= start { return false }
+        if let end = query.end, row.start >= end { return false }
+        return true
+    }
+}
+
+func applyAnnotationColumnFiltersOffMain(
+    to rows: [AnnotationSearchIndex.SearchResult],
+    clauses: [AnnotationTableDrawerView.ColumnFilterClause]
+) -> [AnnotationSearchIndex.SearchResult] {
+    guard !clauses.isEmpty else { return rows }
+    return rows.filter { row in
+        clauses.allSatisfy { clause in
+            let actual = annotationColumnValueOffMain(row, key: clause.key)
+            return annotationColumnMatchesOffMain(
+                actual: actual,
+                op: clause.op,
+                expected: clause.value,
+                key: clause.key
+            )
+        }
+    }
+}
+
+func annotationColumnValueOffMain(_ row: AnnotationSearchIndex.SearchResult, key: String) -> String {
+    switch key {
+    case "name":
+        return row.name
+    case "track_id":
+        return row.trackId
+    case "track_name":
+        return row.trackName ?? row.trackId
+    case "type":
+        return row.type
+    case "chromosome":
+        return row.chromosome
+    case "start":
+        return String(row.start)
+    case "end":
+        return String(row.end)
+    case "size":
+        return String(row.end - row.start)
+    case "strand":
+        return row.strand
+    default:
+        if key.hasPrefix("attr_") {
+            let attributeKey = String(key.dropFirst(5))
+            return row.attributes?[attributeKey] ?? ""
+        }
+        return ""
+    }
+}
+
+func annotationColumnMatchesOffMain(actual: String, op: String, expected: String, key: String) -> Bool {
+    let normalizedActual = actual.trimmingCharacters(in: .whitespacesAndNewlines)
+    let normalizedExpected = expected.trimmingCharacters(in: .whitespacesAndNewlines)
+    if isAnnotationFilterNumericKeyOffMain(key),
+       let lhs = Double(normalizedActual),
+       let rhs = Double(normalizedExpected) {
+        switch op {
+        case ">": return lhs > rhs
+        case ">=": return lhs >= rhs
+        case "<": return lhs < rhs
+        case "<=": return lhs <= rhs
+        case "=": return lhs == rhs
+        case "!=": return lhs != rhs
+        default: break
+        }
+    }
+    return textColumnMatchesOffMain(actual: normalizedActual, op: op, expected: normalizedExpected)
+}
+
+func isAnnotationFilterNumericKeyOffMain(_ key: String) -> Bool {
+    switch key {
+    case "start", "end", "size":
+        return true
+    default:
+        if key.hasPrefix("attr_") {
+            let attributeKey = String(key.dropFirst(5))
+            return isNumericAnnotationAttributeKeyOffMain(attributeKey)
+        }
+        return false
+    }
+}
+
+func isNumericAnnotationAttributeKeyOffMain(_ key: String) -> Bool {
+    switch key {
+    case "flag", "mapq", "pos_1_based", "alignment_start", "alignment_end",
+         "reference_length", "query_length", "mate_position_1_based", "template_length",
+         "tag_NM", "tag_AS":
+        return true
+    default:
+        return false
+    }
+}
+
+func textColumnMatchesOffMain(actual: String, op: String, expected: String) -> Bool {
+    switch op {
+    case "=":
+        if expected.isEmpty { return actual.isEmpty }
+        return actual.caseInsensitiveCompare(expected) == .orderedSame
+    case "!=":
+        if expected.isEmpty { return !actual.isEmpty }
+        return actual.caseInsensitiveCompare(expected) != .orderedSame
+    case "~", ":":
+        if expected.isEmpty { return true }
+        return actual.localizedCaseInsensitiveContains(expected)
+    case "!~":
+        if expected.isEmpty { return true }
+        return !actual.localizedCaseInsensitiveContains(expected)
+    case "^=":
+        if expected.isEmpty { return true }
+        return actual.lowercased().hasPrefix(expected.lowercased())
+    case "$=":
+        if expected.isEmpty { return true }
+        return actual.lowercased().hasSuffix(expected.lowercased())
+    default:
+        if expected.isEmpty { return true }
+        return actual.localizedCaseInsensitiveContains(expected)
+    }
 }
 
 /// Pure variant advanced filters (free function, safe to call from any thread).

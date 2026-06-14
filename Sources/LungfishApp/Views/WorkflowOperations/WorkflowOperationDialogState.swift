@@ -76,6 +76,8 @@ final class WorkflowOperationDialogState {
     @ObservationIgnored private let projectDiscoveryMode: WorkflowOperationProjectDiscoveryMode
     @ObservationIgnored private var projectDiscoveryTask: Task<Void, Never>?
     @ObservationIgnored private var projectDiscoveryGeneration: UInt64 = 0
+    @ObservationIgnored private var workflowPackageRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var workflowPackageRefreshGeneration: UInt64 = 0
     #if DEBUG
     @ObservationIgnored static var testingProjectDiscoveryDelay: Duration?
     #endif
@@ -182,7 +184,10 @@ final class WorkflowOperationDialogState {
         self.showingError = false
         self.workflowAvailabilityRevision = 0
 
-        let initialTools = Self.makeTools(enablementStore: enablementStore, packageStore: packageStore)
+        let initialTools = Self.makeTools(
+            enablementStore: enablementStore,
+            packages: packageStore.cachedValidatedPackages()
+        )
         self.cachedTools = initialTools
         self.cachedHaplotypeRecords = initialDiscovery.haplotypeRecords
         self.cachedHaplotypeRegistry = Self.makeHaplotypeRegistry(from: initialDiscovery.haplotypeRecords)
@@ -219,10 +224,12 @@ final class WorkflowOperationDialogState {
                 updateFullLengthDefaults: true
             )
         }
+        startWorkflowPackageRefresh()
     }
 
     deinit {
         projectDiscoveryTask?.cancel()
+        workflowPackageRefreshTask?.cancel()
     }
 
     var tools: [WorkflowOperationTool] {
@@ -540,12 +547,18 @@ final class WorkflowOperationDialogState {
     }
 
     func refreshWorkflowAvailability() {
-        cachedTools = Self.makeTools(enablementStore: enablementStore, packageStore: packageStore)
+        cachedTools = Self.makeTools(
+            enablementStore: enablementStore,
+            packages: packageStore.cachedValidatedPackages()
+        )
         workflowAvailabilityRevision &+= 1
+        startWorkflowPackageRefresh()
     }
 
 #if DEBUG
     func testingReplaceTools(_ tools: [WorkflowOperationTool]) {
+        workflowPackageRefreshTask?.cancel()
+        workflowPackageRefreshGeneration &+= 1
         cachedTools = tools
         selectedToolID = tools.first?.id ?? Self.ontGenotypingID
         workflowAvailabilityRevision &+= 1
@@ -677,6 +690,30 @@ final class WorkflowOperationDialogState {
                 updateFullLengthDefaults: updateFullLengthDefaults && fullLengthDefaultsUnchanged
             )
             self.isDiscoveringProjectResources = false
+        }
+    }
+
+    private func startWorkflowPackageRefresh() {
+        workflowPackageRefreshTask?.cancel()
+        workflowPackageRefreshGeneration &+= 1
+        let generation = workflowPackageRefreshGeneration
+        let packageStore = packageStore
+        workflowPackageRefreshTask = Task { @MainActor [weak self, packageStore] in
+            let packages = await packageStore.validatedPackagesInBackground()
+            guard let self else { return }
+            guard !Task.isCancelled,
+                  generation == self.workflowPackageRefreshGeneration else {
+                return
+            }
+            self.cachedTools = Self.makeTools(
+                enablementStore: self.enablementStore,
+                packages: packages
+            )
+            if self.cachedTools.first(where: { $0.id == self.selectedToolID })?.availability != .available,
+               let firstAvailable = self.cachedTools.first(where: { $0.availability == .available }) {
+                self.selectTool(firstAvailable.id)
+            }
+            self.workflowAvailabilityRevision &+= 1
         }
     }
 
@@ -1246,7 +1283,7 @@ final class WorkflowOperationDialogState {
 
     private static func makeTools(
         enablementStore: WorkflowLibraryEnablementStore,
-        packageStore: WorkflowLibraryImportedPackageStore
+        packages: [WorkflowPackageValidationResult]
     ) -> [WorkflowOperationTool] {
         var tools: [WorkflowOperationTool] = []
         if let ont = WorkflowLibraryCatalog.item(for: .ontGenotyping) {
@@ -1283,7 +1320,7 @@ final class WorkflowOperationDialogState {
             ))
         }
 
-        tools += packageStore.validatedPackages().map { package in
+        tools += packages.map { package in
             let enabled = enablementStore.isUserWorkflowEnabled(package)
             let runnable = packageIsRunnable(package)
             return WorkflowOperationTool(

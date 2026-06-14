@@ -71,30 +71,80 @@ extension AnnotationTableDrawerView {
                 tooManyLabel.stringValue = "\(total) \(entityName) — use the search field or type filters to narrow to \(max) or fewer"
                 tooManyLabel.isHidden = false
                 annotationSearchRegion = nil
-            } else {
+            } else if !hasNarrowingFilter {
                 let filtered = fetchAnnotationRowsForDisplay(
                     index: index,
                     nameFilter: nameFilter,
                     typeFilter: mergedTypeFilter,
                     query: annotationQuery,
                     databaseColumnFilters: databaseColumnFilters,
-                    requiresPostOnlyColumnFiltering: hasPostOnlyAnnotationColumnFilters()
+                    requiresPostOnlyColumnFiltering: false
                 )
-                if filtered.count > Self.maxDisplayCount {
-                    setAnnotationBaseResults([])
-                    tableView.reloadData()
-                    scrollView.isHidden = false
-                    let max = numberFormatter.string(from: NSNumber(value: Self.maxDisplayCount)) ?? "\(Self.maxDisplayCount)"
-                    tooManyLabel.stringValue = "\(max)+ \(entityName) match — use the search field or type filters to narrow to \(max) or fewer"
-                    tooManyLabel.isHidden = false
-                    annotationSearchRegion = nil
-                } else {
-                    setAnnotationBaseResults(filtered)
-                    tableView.reloadData()
-                    scrollView.isHidden = false
-                    tooManyLabel.isHidden = true
-                    updateAnnotationSearchRegion()
+                setAnnotationBaseResults(filtered)
+                tableView.reloadData()
+                scrollView.isHidden = false
+                tooManyLabel.isHidden = true
+                updateAnnotationSearchRegion()
+            } else {
+                let allColumnFilters = annotationColumnFilterClauses
+                let requiresPostOnlyColumnFiltering = hasPostOnlyAnnotationColumnFilters()
+                let maxDisplay = Self.maxDisplayCount
+                let generation = annotationQueryGeneration
+                var trackNames: [String: String] = [:]
+                for handle in index.annotationDatabaseHandles {
+                    if let name = index.annotationTrackName(for: handle.trackId) {
+                        trackNames[handle.trackId] = name
+                    }
                 }
+                let context = AnnotationQueryContext(
+                    databases: index.annotationDatabaseHandles.map {
+                        (trackId: $0.trackId, databaseURL: $0.db.databaseURL)
+                    },
+                    trackNames: trackNames
+                )
+                let cancelToken = VariantQueryCancellationToken()
+                activeAnnotationQueryCancelToken = cancelToken
+
+                DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                    let filtered = fetchAnnotationRowsForDisplayOffMain(
+                        context: context,
+                        nameFilter: nameFilter,
+                        typeFilter: mergedTypeFilter,
+                        query: annotationQuery,
+                        databaseColumnFilters: databaseColumnFilters,
+                        allColumnFilters: allColumnFilters,
+                        requiresPostOnlyColumnFiltering: requiresPostOnlyColumnFiltering,
+                        maxDisplayCount: maxDisplay,
+                        shouldCancel: { cancelToken.isCancelled }
+                    )
+
+                    DispatchQueue.main.async { [weak self] in
+                        MainActor.assumeIsolated {
+                            guard let self,
+                                  self.activeAnnotationQueryCancelToken === cancelToken,
+                                  self.annotationQueryGeneration == generation,
+                                  self.activeTab == .annotations else { return }
+                            self.activeAnnotationQueryCancelToken = nil
+                            if filtered.count > maxDisplay {
+                                self.setAnnotationBaseResults([])
+                                self.tableView.reloadData()
+                                self.scrollView.isHidden = false
+                                let max = self.numberFormatter.string(from: NSNumber(value: maxDisplay)) ?? "\(maxDisplay)"
+                                self.tooManyLabel.stringValue = "\(max)+ \(entityName) match — use the search field or type filters to narrow to \(max) or fewer"
+                                self.tooManyLabel.isHidden = false
+                                self.annotationSearchRegion = nil
+                            } else {
+                                self.setAnnotationBaseResults(filtered)
+                                self.tableView.reloadData()
+                                self.scrollView.isHidden = false
+                                self.tooManyLabel.isHidden = true
+                                self.updateAnnotationSearchRegion()
+                            }
+                            self.updateCountLabel()
+                        }
+                    }
+                }
+                return
             }
             updateCountLabel()
             return
@@ -206,6 +256,8 @@ extension AnnotationTableDrawerView {
     func invalidatePendingAnnotationQuery() {
         annotationQueryWorkItem?.cancel()
         annotationQueryWorkItem = nil
+        activeAnnotationQueryCancelToken?.cancel()
+        activeAnnotationQueryCancelToken = nil
         annotationQueryGeneration += 1
     }
 
@@ -1097,7 +1149,7 @@ extension AnnotationTableDrawerView {
         )
     }
 
-    struct AnnotationFilterQuery {
+    struct AnnotationFilterQuery: Sendable {
         var nameFilter: String = ""
         var typeFilter: Set<String>?
         var chromosome: String?
@@ -1139,7 +1191,7 @@ extension AnnotationTableDrawerView {
         var metadataFilters: [(field: String, op: String, value: String)] = []
     }
 
-    struct ColumnFilterClause {
+    struct ColumnFilterClause: Sendable {
         var key: String
         var op: String
         var value: String

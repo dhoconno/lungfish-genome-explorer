@@ -26,6 +26,32 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
         super.tearDown()
     }
 
+    func testAnnotationDatabaseFilteringRunsOffMainWithGenerationGuard() throws {
+        let root = repositoryRoot()
+        let filteringSource = try String(
+            contentsOf: root.appendingPathComponent(
+                "Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView+Filtering.swift"
+            ),
+            encoding: .utf8
+        )
+        let drawerSource = try String(
+            contentsOf: root.appendingPathComponent(
+                "Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView.swift"
+            ),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(filteringSource.contains("DispatchQueue.global(qos: .userInitiated).async"))
+        XCTAssertTrue(filteringSource.contains("fetchAnnotationRowsForDisplayOffMain"))
+        XCTAssertTrue(filteringSource.contains("self.annotationQueryGeneration == generation"))
+        XCTAssertTrue(filteringSource.contains("activeAnnotationQueryCancelToken"))
+        XCTAssertTrue(filteringSource.contains("shouldCancel: { cancelToken.isCancelled }"))
+        XCTAssertTrue(drawerSource.contains("struct AnnotationQueryContext"))
+        XCTAssertTrue(drawerSource.contains("databaseURL: URL"))
+        XCTAssertTrue(drawerSource.contains("AnnotationDatabase(url: handle.databaseURL)"))
+        XCTAssertTrue(drawerSource.contains("if shouldCancel?() == true"))
+    }
+
     // MARK: - Helpers
 
     /// Creates a drawer with both annotation and variant databases.
@@ -95,6 +121,13 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
         let drawer = AnnotationTableDrawerView(frame: NSRect(x: 0, y: 0, width: 800, height: 200))
         drawer.setSearchIndex(searchIndex)
         return drawer
+    }
+
+    private func repositoryRoot() -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
     }
 
     /// Creates a drawer with only annotations (no variants).

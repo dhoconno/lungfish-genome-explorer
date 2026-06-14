@@ -140,6 +140,19 @@ final class AnnotationTableContextMenuTests: XCTestCase {
         _ = drawer.perform(selector, with: item)
     }
 
+    private func waitForAnnotationUpdate(
+        timeout: TimeInterval = 1.0,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        until predicate: () -> Bool
+    ) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !predicate() && Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        XCTAssertTrue(predicate(), "Timed out waiting for annotation update", file: file, line: line)
+    }
+
     func testOverLimitAnnotationQueryKeepsTableHeaderVisible() throws {
         let lines = (0...AppSettings.shared.maxTableDisplayCount).map {
             makeBEDLine(name: "gene-\($0)", start: $0 * 20)
@@ -166,6 +179,9 @@ final class AnnotationTableContextMenuTests: XCTestCase {
 
         applyAnnotationColumnFilter(key: "chromosome", op: "=", value: "chr2", to: drawer)
 
+        waitForAnnotationUpdate {
+            drawer.displayedAnnotations.map(\.name) == ["target-a", "target-b"]
+        }
         XCTAssertEqual(drawer.displayedAnnotations.map(\.name), ["target-a", "target-b"])
         XCTAssertEqual(Set(drawer.displayedAnnotations.map(\.chromosome)), ["chr2"])
         XCTAssertFalse(drawer.tableView.enclosingScrollView?.isHidden ?? true)
@@ -183,6 +199,9 @@ final class AnnotationTableContextMenuTests: XCTestCase {
 
         applyAnnotationColumnFilter(key: "attr_group", op: "=", value: "target", to: drawer)
 
+        waitForAnnotationUpdate {
+            drawer.displayedAnnotations.map(\.name) == ["zz-target"]
+        }
         XCTAssertEqual(drawer.displayedAnnotations.map(\.name), ["zz-target"])
     }
 
@@ -720,6 +739,9 @@ final class AnnotationTableContextMenuTests: XCTestCase {
         drawer.debugSetAnnotationFilterText("gene-a")
         drawer.debugRefreshDisplayedAnnotations()
 
+        waitForAnnotationUpdate {
+            drawer.displayedAnnotations.map(\.name) == ["gene-a"]
+        }
         XCTAssertEqual(drawer.displayedAnnotations.map(\.name), ["gene-a"])
         XCTAssertNil(delegate.visibleAnnotationRenderKeys)
     }
@@ -736,6 +758,9 @@ final class AnnotationTableContextMenuTests: XCTestCase {
         drawer.debugSetAnnotationFilterText("gene-a")
         drawer.debugRefreshDisplayedAnnotations()
 
+        waitForAnnotationUpdate {
+            delegate.visibleAnnotationRenderKeys == ["annotations:1"]
+        }
         XCTAssertEqual(delegate.visibleAnnotationRenderKeys, ["annotations:1"])
     }
 

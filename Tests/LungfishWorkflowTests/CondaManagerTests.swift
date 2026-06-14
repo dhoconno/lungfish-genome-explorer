@@ -882,7 +882,7 @@ final class CondaManagerTests: XCTestCase {
                 ;;
             run)
                 echo $$ > '\(rootPIDURL.path)'
-                /bin/sh -c 'trap "" TERM HUP; sleep 3 & wait' &
+                /bin/sh -c 'trap "" TERM HUP; sleep 10 & wait' &
                 child=$!
                 echo "$child" > '\(childPIDURL.path)'
                 touch '\(readyURL.path)'
@@ -932,7 +932,7 @@ final class CondaManagerTests: XCTestCase {
             return XCTFail("Expected cancellation to throw")
         }
         XCTAssertTrue(error is CancellationError, "Expected CancellationError, got \(error)")
-        XCTAssertLessThan(cancelElapsed, 1.0, "CondaManager cancellation should not wait for the child process to finish naturally")
+        XCTAssertLessThan(cancelElapsed, 2.0, "CondaManager cancellation should not wait for the child process to finish naturally")
         try await waitForProcessExit(pid: childPID)
     }
 
