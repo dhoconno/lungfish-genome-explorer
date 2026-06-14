@@ -144,6 +144,32 @@ final class BAMPrimerTrimDialogStateTests: XCTestCase {
         XCTAssertTrue(state.isRunEnabled)
     }
 
+    func testAlignmentTrackOptionsExposeEligibleBamsAndSelectionRefreshesDefaultOutputName() throws {
+        let scheme = try loadSampleScheme()
+        let state = BAMPrimerTrimDialogState(
+            bundle: makeStubReferenceBundle(
+                alignments: [
+                    ("aln-1", "Sample 1", true),
+                    ("aln-2", "Sample 2", true),
+                    ("aln-sam", "SAM Only", false),
+                ]
+            ),
+            availability: .available,
+            builtInSchemes: [scheme],
+            projectSchemes: []
+        )
+
+        XCTAssertEqual(state.alignmentTrackOptions.map(\.id), ["aln-1", "aln-2"])
+        XCTAssertEqual(state.alignmentTrackID, "aln-1")
+
+        state.selectScheme(id: scheme.manifest.name)
+        state.selectAlignmentTrack(id: "aln-2")
+
+        XCTAssertEqual(state.alignmentTrackID, "aln-2")
+        XCTAssertTrue(state.outputTrackName.contains("Sample 2"))
+        XCTAssertTrue(state.outputTrackName.contains("Primer-trimmed"))
+    }
+
     func testAddProjectSchemeSelectsBrowsedSchemeAndRefreshesOutputName() throws {
         let builtInScheme = try loadSampleScheme(name: "built-in", displayName: "Built In")
         let browsedScheme = try loadSampleScheme(name: "browsed", displayName: "Browsed Scheme")
@@ -194,13 +220,36 @@ final class BAMPrimerTrimDialogStateTests: XCTestCase {
 
     // MARK: - Fixture helpers
 
-    private func makeStubReferenceBundle(includeAlignment: Bool = false) -> ReferenceBundle {
+    private func makeStubReferenceBundle(
+        includeAlignment: Bool = false,
+        alignments requestedAlignments: [(id: String, name: String, eligible: Bool)]? = nil
+    ) -> ReferenceBundle {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("BAMPrimerTrimDialogStateTests-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         temporaryURLs.append(url)
         var alignments: [AlignmentTrackInfo] = []
-        if includeAlignment {
+        if let requestedAlignments {
+            let alignmentsDir = url.appendingPathComponent("alignments", isDirectory: true)
+            try? FileManager.default.createDirectory(at: alignmentsDir, withIntermediateDirectories: true)
+            alignments = requestedAlignments.map { requested in
+                let sourcePath = "alignments/\(requested.id).\(requested.eligible ? "bam" : "sam")"
+                let indexPath = "\(sourcePath).bai"
+                let sourceURL = url.appendingPathComponent(sourcePath)
+                let indexURL = url.appendingPathComponent(indexPath)
+                FileManager.default.createFile(atPath: sourceURL.path, contents: Data(), attributes: nil)
+                if requested.eligible {
+                    FileManager.default.createFile(atPath: indexURL.path, contents: Data(), attributes: nil)
+                }
+                return AlignmentTrackInfo(
+                    id: requested.id,
+                    name: requested.name,
+                    format: requested.eligible ? .bam : .sam,
+                    sourcePath: sourcePath,
+                    indexPath: indexPath
+                )
+            }
+        } else if includeAlignment {
             // Create stub BAM/BAI on disk so
             // `BAMVariantCallingEligibility.eligibleAlignmentTracks(in:)` (which
             // calls `resolveAlignmentPath` / `resolveAlignmentIndexPath`) treats

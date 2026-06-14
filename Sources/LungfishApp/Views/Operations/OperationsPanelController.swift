@@ -889,6 +889,7 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
         commandField.maximumNumberOfLines = 2
         commandField.isSelectable = true
         commandField.translatesAutoresizingMaskIntoConstraints = false
+        commandField.applyLungfishHelp(LungfishHelpContent.operationCLIReplay)
         box.addSubview(commandField)
 
         let copyButton = NSButton(title: "Copy", target: self, action: #selector(copyCLIFromButton(_:)))
@@ -896,6 +897,7 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
         copyButton.controlSize = .mini
         copyButton.font = .systemFont(ofSize: 9)
         copyButton.translatesAutoresizingMaskIntoConstraints = false
+        copyButton.applyLungfishHelp(LungfishHelpContent.operationCLIReplay)
         container.addSubview(copyButton)
 
         NSLayoutConstraint.activate([
@@ -953,6 +955,7 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
         outputField.translatesAutoresizingMaskIntoConstraints = false
         outputField.setAccessibilityIdentifier("operations-output-files")
         outputField.setAccessibilityLabel("Output files")
+        outputField.applyLungfishHelp(LungfishHelpContent.operationOutputFiles)
         box.addSubview(outputField)
 
         let revealButton = NSButton(title: "Reveal", target: self, action: #selector(revealOutputFromButton(_:)))
@@ -962,6 +965,7 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
         revealButton.translatesAutoresizingMaskIntoConstraints = false
         revealButton.setAccessibilityIdentifier("operations-output-reveal-button")
         revealButton.setAccessibilityLabel("Reveal output file")
+        revealButton.applyLungfishHelp(LungfishHelpContent.operationOutputFiles)
         container.addSubview(revealButton)
 
         NSLayoutConstraint.activate([
@@ -1011,7 +1015,7 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
         viewButton.translatesAutoresizingMaskIntoConstraints = false
         viewButton.setAccessibilityIdentifier("operations-log-view-button")
         viewButton.setAccessibilityLabel("View operation log")
-        viewButton.setAccessibilityHelp("Writes and opens a local diagnostic log for this operation.")
+        viewButton.applyLungfishHelp(LungfishHelpContent.operationDiagnosticLog)
         container.addSubview(viewButton)
 
         let revealButton = NSButton(title: "Reveal in Finder", target: self, action: #selector(revealLogFromButton(_:)))
@@ -1021,7 +1025,7 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
         revealButton.translatesAutoresizingMaskIntoConstraints = false
         revealButton.setAccessibilityIdentifier("operations-log-reveal-button")
         revealButton.setAccessibilityLabel("Reveal operation log in Finder")
-        revealButton.setAccessibilityHelp("Writes a local diagnostic log and selects it in Finder.")
+        revealButton.applyLungfishHelp(LungfishHelpContent.operationDiagnosticLog)
         container.addSubview(revealButton)
 
         let logScrollView = NSScrollView()

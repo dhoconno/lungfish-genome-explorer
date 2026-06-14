@@ -23,6 +23,10 @@ struct HelpTopic: Identifiable {
 let helpTopics: [HelpTopic] = [
     HelpTopic(id: "index", title: "Welcome", icon: "house", filename: "index", helpAnchor: "index"),
     HelpTopic(id: "getting-started", title: "Getting Started", icon: "play.circle", filename: "getting-started", helpAnchor: "getting-started"),
+    HelpTopic(id: "reads-and-workflows", title: "Reads and Workflows", icon: "waveform.path.ecg", filename: "reads-and-workflows", helpAnchor: "reads-and-workflows"),
+    HelpTopic(id: "classification-review", title: "Classification Review", icon: "scope", filename: "classification-review", helpAnchor: "classification-review"),
+    HelpTopic(id: "alignments-and-variants", title: "Alignments and Variants", icon: "point.3.connected.trianglepath.dotted", filename: "alignments-and-variants", helpAnchor: "alignments-and-variants"),
+    HelpTopic(id: "provenance", title: "Provenance", icon: "doc.badge.clock", filename: "provenance", helpAnchor: "provenance"),
     HelpTopic(id: "vcf-variants", title: "VCF Variants", icon: "chart.bar.doc.horizontal", filename: "vcf-variants", helpAnchor: "vcf-variants"),
     HelpTopic(id: "ai-assistant", title: "AI Assistant", icon: "sparkles", filename: "ai-assistant", helpAnchor: "ai-assistant"),
     HelpTopic(id: "settings", title: "Settings", icon: "gearshape", filename: "settings", helpAnchor: "settings"),

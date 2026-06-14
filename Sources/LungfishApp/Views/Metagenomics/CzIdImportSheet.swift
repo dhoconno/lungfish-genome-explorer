@@ -133,7 +133,7 @@ struct CzIdImportSheet: View {
             }
         )
         .accessibilityIdentifier("czid-import-sheet")
-        .help("dialog.CzIdImportSheet")
+        .lungfishHelp(LungfishHelpContent.metagenomicsCzIdImportSource)
     }
 
     private var contentSections: some View {
@@ -165,16 +165,19 @@ struct CzIdImportSheet: View {
                         RoundedRectangle(cornerRadius: 4)
                             .fill(Color(nsColor: .controlBackgroundColor))
                     )
+                    .lungfishHelp(LungfishHelpContent.metagenomicsCzIdImportSource)
 
                 Button("Browse\u{2026}") {
                     browseForSource()
                 }
                 .font(.system(size: 12))
+                .lungfishHelp(LungfishHelpContent.metagenomicsCzIdImportSource)
             }
 
             Text("Select a CZ-ID taxon report TSV, a ZIP export, or an extracted export folder.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .lungfishHelp(LungfishHelpContent.metagenomicsCzIdImportSource)
         }
     }
 
@@ -256,6 +259,7 @@ struct CzIdImportSheet: View {
                     RoundedRectangle(cornerRadius: 4)
                         .fill(Color(nsColor: .controlBackgroundColor))
                 )
+                .lungfishHelp(LungfishHelpContent.metagenomicsImportDestination)
         }
     }
 

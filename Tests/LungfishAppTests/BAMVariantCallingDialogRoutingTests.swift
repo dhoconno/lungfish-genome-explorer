@@ -65,6 +65,54 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
         XCTAssertFalse(source.contains(#"Text("Advanced Options")"#))
     }
 
+    func testVariantCallingDialogUsesSharedScientificHelpCatalog() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/BAM/BAMVariantCallingToolPanes.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("import LungfishKit"))
+        XCTAssertTrue(source.contains(".lungfishHelp(LungfishHelpContent.bamVariantAlignmentTrack)"))
+        XCTAssertTrue(source.contains(".lungfishHelp(LungfishHelpContent.bamVariantOutputTrack)"))
+        XCTAssertTrue(source.contains(".lungfishHelp(LungfishHelpContent.bamVariantThresholds)"))
+        XCTAssertTrue(source.contains(".lungfishHelp(LungfishHelpContent.bamVariantIvarPrimerTrim)"))
+        XCTAssertTrue(source.contains(".lungfishHelp(LungfishHelpContent.bamVariantOntModel)"))
+        XCTAssertTrue(source.contains(".lungfishHelp(LungfishHelpContent.fastqAdvancedArguments)"))
+        XCTAssertTrue(source.contains(".lungfishHelp(LungfishHelpContent.bamVariantIvarConsensusAF)"))
+        XCTAssertTrue(source.contains(".lungfishHelp(LungfishHelpContent.bamVariantIvarMergeAF)"))
+        XCTAssertTrue(source.contains(".lungfishHelp(LungfishHelpContent.bamVariantIvarBadQuality)"))
+        XCTAssertTrue(source.contains(".lungfishHelp(LungfishHelpContent.operationReadiness)"))
+    }
+
+    func testPrimerTrimDialogUsesSharedScientificHelpCatalog() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/BAM/BAMPrimerTrimToolPanes.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("import LungfishKit"))
+        XCTAssertTrue(source.contains(#"Picker("Alignment Track""#))
+        XCTAssertTrue(source.contains(#"TextField("Output Track Name""#))
+        XCTAssertTrue(source.contains("Reads without matching primers are retained"))
+        XCTAssertTrue(source.contains(".lungfishHelp(LungfishHelpContent.bamPrimerScheme)"))
+        XCTAssertTrue(source.contains(".lungfishHelp(LungfishHelpContent.bamPrimerTrimAlignmentTrack)"))
+        XCTAssertTrue(source.contains(".lungfishHelp(LungfishHelpContent.bamPrimerTrimOutputTrack)"))
+        XCTAssertTrue(source.contains(".lungfishHelp(LungfishHelpContent.bamPrimerTrimRetainsUnmatchedReads)"))
+        XCTAssertTrue(source.contains(".lungfishHelp(LungfishHelpContent.bamPrimerTrimMinReadLength)"))
+        XCTAssertTrue(source.contains(".lungfishHelp(LungfishHelpContent.bamPrimerTrimMinQuality)"))
+        XCTAssertTrue(source.contains(".lungfishHelp(LungfishHelpContent.bamPrimerTrimSlidingWindow)"))
+        XCTAssertTrue(source.contains(".lungfishHelp(LungfishHelpContent.bamPrimerTrimOffset)"))
+        XCTAssertTrue(source.contains(".lungfishHelp(LungfishHelpContent.operationReadiness)"))
+    }
+
     @MainActor
     func testDialogStateBlocksIVarUntilPrimerTrimAcknowledged() throws {
         let state = BAMVariantCallingDialogState(bundle: try makeBundleFixture())
@@ -131,6 +179,48 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
         state.prepareForRun()
 
         XCTAssertEqual(state.pendingRequest?.advancedArguments, ["--call-indels", "--tag", "sample 1"])
+    }
+
+    @MainActor
+    func testDialogStateCarriesIvarOptionsIntoPendingRequest() throws {
+        let state = BAMVariantCallingDialogState(bundle: try makeBundleFixture())
+
+        state.selectCaller(.ivar)
+        state.ivarPrimerTrimConfirmed = true
+        state.ivarConsensusAF = 0.8
+        state.ivarMergeAFThreshold = 0.2
+        state.ivarBadQualityThreshold = 25
+        state.ivarIgnoreStrandBias = false
+        state.prepareForRun()
+
+        let request = try XCTUnwrap(state.pendingRequest)
+        XCTAssertEqual(request.caller, .ivar)
+        XCTAssertEqual(request.ivarConsensusAF, 0.8)
+        XCTAssertEqual(request.ivarMergeAFThreshold, 0.2)
+        XCTAssertEqual(request.ivarBadQualityThreshold, 25)
+        XCTAssertFalse(request.ivarIgnoreStrandBias)
+    }
+
+    @MainActor
+    func testDialogStateBlocksInvalidIvarThresholdRanges() throws {
+        let state = BAMVariantCallingDialogState(bundle: try makeBundleFixture())
+
+        state.selectCaller(.ivar)
+        state.ivarPrimerTrimConfirmed = true
+
+        state.ivarConsensusAF = 1.1
+        XCTAssertFalse(state.isRunEnabled)
+        XCTAssertEqual(state.readinessText, "iVar consensus allele frequency must be between 0 and 1.")
+
+        state.ivarConsensusAF = 0.8
+        state.ivarMergeAFThreshold = -0.1
+        XCTAssertFalse(state.isRunEnabled)
+        XCTAssertEqual(state.readinessText, "iVar merge allele-frequency threshold must be between 0 and 1.")
+
+        state.ivarMergeAFThreshold = 0.2
+        state.ivarBadQualityThreshold = -1
+        XCTAssertFalse(state.isRunEnabled)
+        XCTAssertEqual(state.readinessText, "iVar bad-quality threshold must be zero or greater.")
     }
 
     @MainActor

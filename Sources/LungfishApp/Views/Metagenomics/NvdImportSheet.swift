@@ -163,16 +163,19 @@ struct NvdImportSheet: View {
                         RoundedRectangle(cornerRadius: 4)
                             .fill(Color(nsColor: .controlBackgroundColor))
                     )
+                    .lungfishHelp(LungfishHelpContent.metagenomicsNvdImportSource)
 
                 Button("Browse\u{2026}") {
                     browseForDirectory()
                 }
                 .font(.system(size: 12))
+                .lungfishHelp(LungfishHelpContent.metagenomicsNvdImportSource)
             }
 
             Text("Select the top-level NVD run directory (containing 05_labkey_bundling/).")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .lungfishHelp(LungfishHelpContent.metagenomicsNvdImportSource)
         }
     }
 

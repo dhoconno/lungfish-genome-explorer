@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Lungfish AI Assistant is a built-in chat interface that helps you explore genome data using natural language. Instead of manually searching menus or typing coordinates, ask questions like "Find all immune-related genes" or "Navigate to BRCA1" and let the AI do the work.
+The Lungfish AI Assistant is a built-in chat interface that helps you explore genome data using natural language. Instead of manually searching menus or typing coordinates, ask questions like "Find all immune-related genes" or "Navigate to BRCA1" and review the returned source data.
 
 The assistant can:
 - **Search** your loaded genome data for genes, variants, and annotations
@@ -20,9 +20,9 @@ Before using the AI Assistant, configure at least one AI provider:
 1. Open **Lungfish > Settings** (Cmd+,)
 2. Go to the **AI Services** tab
 3. Choose a provider and enter your API key:
-   - **Anthropic Claude** — claude-sonnet-4-5
-   - **OpenAI GPT** — gpt-5-mini
-   - **Google Gemini** — gemini-2.5-flash
+   - **Anthropic Claude**: claude-sonnet-4-5
+   - **OpenAI GPT**: gpt-5-mini
+   - **Google Gemini**: gemini-2.5-flash
 4. Optionally configure fallback providers for redundancy
 
 ### Where to Get API Keys
@@ -102,4 +102,4 @@ The AI automatically selects and chains these tools based on your question. You 
 
 ## Provider Fallback
 
-If your primary provider is unavailable (network issues, rate limits), the assistant automatically falls back to your next configured provider. Configure multiple providers in Settings for uninterrupted access.
+If your primary provider is unavailable because of network issues or rate limits, the assistant tries your next configured provider. Configure multiple providers in Settings if you want a fallback path.

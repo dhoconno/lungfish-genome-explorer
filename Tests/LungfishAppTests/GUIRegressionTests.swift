@@ -792,12 +792,14 @@ final class OperationsPanelTests: XCTestCase {
             outputSection.firstSubview(withAccessibilityIdentifier: "operations-output-files") as? NSTextField
         )
         XCTAssertEqual(outputField.stringValue, outputURL.path)
+        XCTAssertEqual(outputField.toolTip, "Reveal files written by this operation.")
 
         let revealButton = try XCTUnwrap(
             outputSection.firstSubview(withAccessibilityIdentifier: "operations-output-reveal-button") as? NSButton
         )
         XCTAssertEqual(revealButton.title, "Reveal")
         XCTAssertFalse(revealButton.isHidden)
+        XCTAssertEqual(revealButton.toolTip, "Reveal files written by this operation.")
     }
 
     @MainActor
@@ -856,6 +858,7 @@ final class OperationsPanelTests: XCTestCase {
         XCTAssertTrue(viewButton.isEnabled)
         XCTAssertNotNil(viewButton.target)
         XCTAssertNotNil(viewButton.action)
+        XCTAssertEqual(viewButton.toolTip, "Open local diagnostic logs for troubleshooting.")
 
         let revealButton = try XCTUnwrap(
             logSection.firstSubview(withAccessibilityIdentifier: "operations-log-reveal-button") as? NSButton
@@ -864,6 +867,7 @@ final class OperationsPanelTests: XCTestCase {
         XCTAssertTrue(revealButton.isEnabled)
         XCTAssertNotNil(revealButton.target)
         XCTAssertNotNil(revealButton.action)
+        XCTAssertEqual(revealButton.toolTip, "Open local diagnostic logs for troubleshooting.")
     }
 
     @MainActor

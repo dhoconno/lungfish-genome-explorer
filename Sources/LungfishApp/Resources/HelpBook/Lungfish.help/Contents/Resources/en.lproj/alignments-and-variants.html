@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Lungfish Help - Alignments and Variants</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+    <a id="alignments-and-variants"></a>
+    <h1>Alignments and Variants</h1>
+    <div class="nav">
+        <a href="index.html#index">Welcome</a>
+        <a href="reads-and-workflows.html#reads-and-workflows">Reads and Workflows</a>
+        <a href="classification-review.html#classification-review">Classification Review</a>
+        <a href="provenance.html#provenance">Provenance</a>
+    </div>
+
+    <p>Alignment and variant workflows turn reads into mapped evidence and candidate variants. Reference choice, BAM track, primer scheme, caller, thresholds, and model all affect results.</p>
+
+    <h2>Review Steps</h2>
+    <ol>
+        <li>Select an analysis-ready BAM track.</li>
+        <li>Confirm primer trimming when the caller requires it.</li>
+        <li>Choose caller thresholds or leave fields blank for defaults.</li>
+        <li>Inspect the resulting VCF or variant track.</li>
+    </ol>
+
+    <h2>Provenance</h2>
+    <p>Variant outputs should record the command, caller version, reference, BAM track, model, thresholds, inputs, checksums, status, and runtime.</p>
+</main>
+</body>
+</html>

@@ -120,7 +120,7 @@ public struct IVarTSVToVCFConverter: Sendable {
         buffer += #"##INFO=<ID=TYPE,Number=1,Type=String,Description="Either SNP (Single Nucleotide Polymorphism), DEL (deletion) or INS (Insertion)">"# + "\n"
         buffer += #"##FILTER=<ID=PASS,Description="All filters passed">"# + "\n"
         buffer += #"##FILTER=<ID=ft,Description="Fisher's exact test of variant frequency compared to mean error rate, p-value > 0.05">"# + "\n"
-        buffer += #"##FILTER=<ID=bq,Description="Bad quality variant: ALT_QUAL lower than 20">"# + "\n"
+        buffer += #"##FILTER=<ID=bq,Description="Bad quality variant: ALT_QUAL lower than \#(options.badQualityThreshold)">"# + "\n"
         if !options.ignoreStrandBias {
             buffer += #"##FILTER=<ID=sb,Description="Strand bias filter not passed">"# + "\n"
         }

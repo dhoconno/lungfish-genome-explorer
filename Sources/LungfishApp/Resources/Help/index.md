@@ -11,7 +11,7 @@ Learn how to open projects, download genomes from NCBI, navigate the viewer, and
 Import, view, search, and analyze genetic variants from VCF files. Understand how variants connect to gene annotations.
 
 ### AI Assistant
-Use the built-in AI chat to explore your data with natural language. Search genes, find variants, navigate the browser, and search PubMed — all by asking questions.
+Use the built-in AI chat to explore your data with natural language. Search genes, find variants, navigate the browser, and search PubMed by asking questions.
 
 ### Settings
 Configure AI providers, API keys, model selection, and application preferences.
@@ -25,9 +25,10 @@ Configure AI providers, API keys, model selection, and application preferences.
 - **VCF Variant Support**: Import, visualize, and query genetic variants
 - **AI Assistant**: Natural language genome exploration powered by Claude, GPT, or Gemini
 - **PubMed Search**: Find relevant literature connected to your genomic data
+- **Provenance**: Review commands, inputs, checksums, outputs, status, and runtime for scientific workflows
 
 ## Getting Help
 
-- **Help > Lungfish Genome Explorer Help** (Cmd+?) — Opens this documentation
-- **Help > Report an Issue** — Report bugs or request features
-- **AI Assistant** (Shift+Cmd+A) — Ask the AI for help exploring your data
+- **Help > Lungfish Genome Explorer Help** (Cmd+?): Opens this documentation
+- **Help > Report an Issue**: Report bugs or request features
+- **AI Assistant** (Shift+Cmd+A): Ask the AI for help exploring your data

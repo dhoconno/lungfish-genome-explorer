@@ -16,7 +16,7 @@ When you open Lungfish, you will see a clean interface with:
 - **Main Viewer**: The genome visualization area
 - **Status Bar**: Current bundle and position information
 
-The app is built around **genome bundles** — self-contained packages that include a reference genome sequence, annotations (genes, transcripts, exons), and optionally variant data (SNPs, indels).
+The app is built around **genome bundles**: self-contained packages that include a reference genome sequence, annotations (genes, transcripts, exons), and optionally variant data (SNPs, indels).
 
 ## Opening an Existing Bundle
 
@@ -55,9 +55,9 @@ Results display matching assemblies with:
 1. Select an assembly from the results
 2. Click **Download Genome**
 3. Choose components to include:
-   - **FASTA sequence** (required) — the reference genome
-   - **GFF3 annotations** (recommended) — gene features, exons, transcripts
-   - **VCF variants** (optional) — known genetic variants
+   - **FASTA sequence** (required): the reference genome
+   - **GFF3 annotations** (recommended): gene features, exons, transcripts
+   - **VCF variants** (optional): known genetic variants
 4. Choose a destination folder
 5. Click **Start Download**
 
@@ -66,8 +66,9 @@ The build process:
 - Imports GFF3 annotations into an indexed SQLite database for fast random access and search
 - Parses VCF variants into a searchable database (if included)
 - Packages everything into a single `.lungfish` bundle
+- Writes provenance for downloaded inputs, resolved options, checksums, and generated bundle paths
 
-Build times vary by genome size — typically 5-15 minutes.
+Build times vary by genome size. Typical reference builds take 5-15 minutes.
 
 ### Step 4: Open Your Bundle
 
@@ -98,7 +99,7 @@ Lungfish automatically adjusts the display based on zoom:
 
 **Squished view (500-50,000 bp/pixel)**: Annotations shown as compact boxes packed into rows. Gene names appear when space permits.
 
-**Expanded view (<500 bp/pixel)**: Full annotation detail — exons as thick blocks, introns as thin lines, strand direction indicators. The sequence track appears showing individual colored bases (A=green, C=blue, G=yellow, T=red).
+**Expanded view (<500 bp/pixel)**: Full annotation detail. Exons appear as thick blocks, introns as thin lines, and strand direction indicators show feature orientation. The sequence track appears showing individual colored bases.
 
 The sequence track only loads for regions smaller than 500 kb to maintain performance.
 
@@ -114,7 +115,7 @@ Open the bottom drawer to see a spreadsheet-like view of all annotations:
 
 ### Searching Annotations
 
-The search bar uses an SQLite full-text index for instant results:
+The search bar uses an SQLite full-text index for responsive results:
 
 - Type a gene name, accession, or keyword (e.g., "BRCA1", "kinase")
 - Results filter live as you type
@@ -162,13 +163,13 @@ Notes:
 
 - Use chromosome filters to hide unplaced contigs
 - Close the annotation drawer when not actively using it
-- Zoom out slowly — the density view gives context before diving in
+- Zoom out slowly. The density view gives context before diving in
 - Let downloads complete fully before building bundles
 
 ### Troubleshooting
 
 **Annotations not appearing?** Check that GFF3 was included in the download. Verify you're zoomed in enough (some features hide at low zoom). Check feature type filters.
 
-**Sequence not showing?** Zoom in more — sequence only appears at less than 500 bp/pixel for regions under 500 kb.
+**Sequence not showing?** Zoom in more. Sequence only appears at less than 500 bp/pixel for regions under 500 kb.
 
 **Search not finding genes?** Try searching by accession (e.g., "XM_012345678") instead of gene name. Some assemblies use only accession numbers.

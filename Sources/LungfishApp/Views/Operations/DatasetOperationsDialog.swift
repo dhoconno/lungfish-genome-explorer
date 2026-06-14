@@ -1,4 +1,5 @@
 import SwiftUI
+import LungfishKit
 
 struct DatasetOperationsDialog<Detail: View>: View {
     let title: String
@@ -103,6 +104,7 @@ struct DatasetOperationsDialog<Detail: View>: View {
                         .overlay(sidebarCardBorder(for: tool))
                     }
                     .lungfishAccessibilityIdentifier(scopedID("tool-\(accessibilitySlug(for: tool.title))"))
+                    .lungfishHelp(LungfishHelpContent.operationToolSidebar)
                     .buttonStyle(.plain)
                     .disabled(!canSelect(tool))
                 }
@@ -124,12 +126,14 @@ struct DatasetOperationsDialog<Detail: View>: View {
                 .lungfishAccessibilityIdentifier(scopedID("status-text"))
                 .font(.caption)
                 .foregroundStyle(isRunEnabled ? Color.lungfishSecondaryText : Color.lungfishOrangeFallback)
+                .lungfishHelp(LungfishHelpContent.operationReadiness)
             Spacer()
             Button("Cancel", action: onCancel)
                 .keyboardShortcut(.cancelAction)
                 .lungfishAccessibilityIdentifier(scopedID("cancel"))
             Button(primaryActionTitle, action: runIfEnabled)
                 .lungfishAccessibilityIdentifier(scopedID("primary-action"))
+                .lungfishHelp(LungfishHelpContent.operationRun)
                 .buttonStyle(.borderedProminent)
                 .tint(.lungfishCreamsicleFallback)
                 .disabled(!isRunEnabled)

@@ -4,6 +4,7 @@
 
 import AppKit
 import Foundation
+import LungfishKit
 import LungfishWorkflow
 import SwiftUI
 
@@ -143,6 +144,7 @@ struct ClassifierExtractionDialog: View {
                 let selectedLabel = "Selected: \(model.selectionCount) row\(model.selectionCount == 1 ? "" : "s")"
                 Text(selectedLabel)
                     .font(.system(size: 12, weight: .medium))
+                    .lungfishHelp(LungfishHelpContent.classifierExtractionSummary)
 
                 HStack(spacing: 4) {
                     Text("≈")
@@ -150,6 +152,7 @@ struct ClassifierExtractionDialog: View {
                 }
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
+                .lungfishHelp(LungfishHelpContent.classifierExtractionSummary)
 
                 Divider()
                     .padding(.vertical, 2)
@@ -167,6 +170,7 @@ struct ClassifierExtractionDialog: View {
                     .horizontalRadioGroupLayout()
                     .labelsHidden()
                     .disabled(model.isRunning)
+                    .lungfishHelp(LungfishHelpContent.classifierExtractionFormat)
                     Spacer()
                 }
 
@@ -178,6 +182,7 @@ struct ClassifierExtractionDialog: View {
                         Toggle("Include unmapped mates of mapped pairs", isOn: $model.includeUnmappedMates)
                             .toggleStyle(.checkbox)
                             .disabled(model.isRunning)
+                            .lungfishHelp(LungfishHelpContent.classifierExtractionUnmappedMates)
                     }
                     if model.estimatedUnmappedDelta != 0 {
                         HStack {
@@ -221,7 +226,8 @@ struct ClassifierExtractionDialog: View {
                                 }
                                 .buttonStyle(.plain)
                                 .disabled(disabled || model.isRunning)
-                                .help(dest == .clipboard ? (model.clipboardDisabledTooltip ?? "") : "")
+                                .help(dest == .clipboard ? (model.clipboardDisabledTooltip ?? LungfishHelpContent.classifierExtractionDestination.summary) : LungfishHelpContent.classifierExtractionDestination.summary)
+                                .accessibilityHint(LungfishHelpContent.classifierExtractionDestination.detail ?? LungfishHelpContent.classifierExtractionDestination.summary)
                             }
                         }
                     }
@@ -238,6 +244,7 @@ struct ClassifierExtractionDialog: View {
                             .textFieldStyle(.roundedBorder)
                             .font(.system(size: 12, design: .monospaced))
                             .disabled(model.isRunning)
+                            .lungfishHelp(LungfishHelpContent.classifierExtractionName)
                     }
                 }
 
@@ -272,6 +279,7 @@ struct ClassifierExtractionDialog: View {
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
                     .disabled(model.isRunning || (model.destination.showsNameField && model.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
+                    .lungfishHelp(LungfishHelpContent.classifierExtractFASTQ)
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 12)

@@ -26,6 +26,7 @@ The pipeline automatically:
 - Parses all variants into a SQLite database
 - Maps chromosome names between the VCF and reference genome
 - Indexes variants for fast region-based queries
+- Records provenance for the source VCF, resolved aliases, checksums, and bundle output paths
 
 ### Chromosome Name Mapping
 
@@ -55,7 +56,7 @@ Variant visibility adapts to zoom level:
 
 ### Using the AI Assistant
 
-The AI Assistant provides the most powerful way to search variants. Open it with **Shift+Cmd+A** or the toolbar sparkles button.
+The AI Assistant can help search variants by type, region, or nearby gene. Open it with **Shift+Cmd+A** or the toolbar sparkles button.
 
 **Find variants by type:**
 - "Find all SNPs on chromosome 1"
@@ -78,7 +79,7 @@ Ask the AI: "Show me variant statistics" to get:
 
 ## Position Conventions
 
-**Important**: VCF files use 1-based coordinates (the first base is position 1), while Lungfish stores positions internally as 0-based. This conversion is automatic — positions displayed to users follow the 1-based convention that genomicists expect.
+**Important**: VCF files use 1-based coordinates. The first base is position 1. Lungfish stores positions internally as 0-based, then displays positions with the 1-based convention that genomicists expect.
 
 ## Multi-Allelic Sites
 
@@ -96,10 +97,10 @@ A typical workflow for exploring functional variants:
 ### Variant Impact
 
 Variants in different gene regions have different potential impacts:
-- **Exonic variants**: Within coding regions — potentially highest impact
+- **Exonic variants**: Within coding regions. These often have higher potential impact
 - **Intronic variants**: Within genes but outside exons
-- **Promoter variants**: Upstream of gene start — may affect expression
-- **Intergenic variants**: Between genes — regulatory or neutral
+- **Promoter variants**: Upstream of gene start. These may affect expression
+- **Intergenic variants**: Between genes. These may be regulatory or neutral
 
 ## Tips
 

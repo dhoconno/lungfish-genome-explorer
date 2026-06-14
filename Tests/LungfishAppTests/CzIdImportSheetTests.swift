@@ -4,6 +4,28 @@ import XCTest
 
 @MainActor
 final class CzIdImportSheetTests: XCTestCase {
+    func testMetagenomicsImportSheetsUseSharedHelpInventory() throws {
+        let root = repositoryRoot()
+        let czid = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Metagenomics/CzIdImportSheet.swift"),
+            encoding: .utf8
+        )
+        let nvd = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Metagenomics/NvdImportSheet.swift"),
+            encoding: .utf8
+        )
+        let nao = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Metagenomics/NaoMgsImportSheet.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(czid.contains("LungfishHelpContent.metagenomicsCzIdImportSource"))
+        XCTAssertTrue(czid.contains("LungfishHelpContent.metagenomicsImportDestination"))
+        XCTAssertFalse(czid.contains(#".help("dialog.CzIdImportSheet")"#))
+        XCTAssertTrue(nvd.contains("LungfishHelpContent.metagenomicsNvdImportSource"))
+        XCTAssertTrue(nao.contains("LungfishHelpContent.metagenomicsNaoMgsImportSource"))
+    }
+
     func testPresentationDisablesPrimaryActionUntilSelectionHasPreview() {
         let noSelection = CzIdImportDialogPresentation(
             selectedPath: nil,
@@ -84,4 +106,11 @@ final class CzIdImportSheetTests: XCTestCase {
         rowCount: 12,
         topTaxa: []
     )
+
+    private func repositoryRoot() -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+    }
 }

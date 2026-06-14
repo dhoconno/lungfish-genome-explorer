@@ -83,6 +83,7 @@ struct FASTQOperationToolPanes: View {
                     Text(state.selectedToolSummary)
                         .font(.body)
                         .foregroundStyle(.secondary)
+                        .lungfishHelp(LungfishHelpContent.fastqOverview)
                 }
 
                 if state.visibleSections.contains(.inputs) {
@@ -111,6 +112,7 @@ struct FASTQOperationToolPanes: View {
                             }
                         }
                         .pickerStyle(.segmented)
+                        .lungfishHelp(LungfishHelpContent.fastqOutputStrategy)
                     }
                 }
 
@@ -119,6 +121,7 @@ struct FASTQOperationToolPanes: View {
                         Text(state.readinessText)
                             .font(.callout)
                             .foregroundStyle(state.isRunEnabled ? Color.lungfishSecondaryText : Color.lungfishOrangeFallback)
+                            .lungfishHelp(LungfishHelpContent.operationReadiness)
                     }
                 }
             }
@@ -146,6 +149,7 @@ private struct FASTQOperationInputsSection: View {
         VStack(alignment: .leading, spacing: 10) {
             Label(state.datasetLabel, systemImage: "doc.text")
                 .font(.body)
+                .lungfishHelp(LungfishHelpContent.fastqInputs)
 
             ForEach(state.requiredInputKinds.filter { $0 != .fastqDataset }, id: \.self) { kind in
                 if usesProjectReferencePicker(for: kind) {
@@ -153,6 +157,7 @@ private struct FASTQOperationInputsSection: View {
                         projectURL: state.projectURL,
                         selectedReferenceURL: referenceSelectionBinding(for: kind)
                     )
+                    .lungfishHelp(LungfishHelpContent.fastqInputs)
                 } else {
                     auxiliaryInputRow(for: kind)
                 }
@@ -204,6 +209,7 @@ private struct FASTQOperationInputsSection: View {
                     browsingInputKind = kind
                     isImporterPresented = true
                 }
+                .lungfishHelp(LungfishHelpContent.fastqInputs)
 
                 if state.auxiliaryInputURL(for: kind) != nil {
                     Button("Clear") {
@@ -220,6 +226,7 @@ private struct FASTQOperationInputsSection: View {
                             .tag(URL?.some(url))
                     }
                 }
+                .lungfishHelp(LungfishHelpContent.fastqInputs)
             }
         }
     }
@@ -267,33 +274,36 @@ private struct FASTQOperationPrimarySettingsSection: View {
                     .foregroundStyle(.secondary)
 
             case .fastpTrim:
-                labeledTextField("Threshold", text: Self.intBinding(state, \.qualityTrimThreshold))
-                labeledTextField("Window Size", text: Self.intBinding(state, \.qualityTrimWindowSize))
+                labeledTextField("Threshold", text: Self.intBinding(state, \.qualityTrimThreshold), help: LungfishHelpContent.fastqQualityThreshold)
+                labeledTextField("Window Size", text: Self.intBinding(state, \.qualityTrimWindowSize), help: LungfishHelpContent.fastqWindowSize)
                 Picker("Mode", selection: $state.qualityTrimMode) {
                     ForEach(FASTQQualityTrimMode.allCases, id: \.self) { mode in
                         Text(mode.displayName).tag(mode)
                     }
                 }
                 .pickerStyle(.segmented)
+                .lungfishHelp(LungfishHelpContent.fastqQualityMode)
                 Picker("Adapter Mode", selection: $state.adapterRemovalMode) {
                     Text("Auto-Detect").tag(FASTQAdapterMode.autoDetect)
                     Text("Manual Sequence").tag(FASTQAdapterMode.specified)
                 }
                 .pickerStyle(.segmented)
+                .lungfishHelp(LungfishHelpContent.fastqAdapterMode)
                 if state.adapterRemovalMode == .specified {
-                    labeledTextField("Adapter Sequence", text: $state.adapterRemovalSequence)
+                    labeledTextField("Adapter Sequence", text: $state.adapterRemovalSequence, help: LungfishHelpContent.fastqAdapterSequence)
                 }
 
             case .qualityTrim:
-                labeledTextField("Threshold", text: Self.intBinding(state, \.qualityTrimThreshold))
-                labeledTextField("Window Size", text: Self.intBinding(state, \.qualityTrimWindowSize))
+                labeledTextField("Threshold", text: Self.intBinding(state, \.qualityTrimThreshold), help: LungfishHelpContent.fastqQualityThreshold)
+                labeledTextField("Window Size", text: Self.intBinding(state, \.qualityTrimWindowSize), help: LungfishHelpContent.fastqWindowSize)
                 Picker("Mode", selection: $state.qualityTrimMode) {
                     ForEach(FASTQQualityTrimMode.allCases, id: \.self) { mode in
                         Text(mode.displayName).tag(mode)
                     }
                 }
                 .pickerStyle(.segmented)
-                labeledTextField("Extra arguments", text: $state.qualityTrimExtraArguments)
+                .lungfishHelp(LungfishHelpContent.fastqQualityMode)
+                labeledTextField("Extra arguments", text: $state.qualityTrimExtraArguments, help: LungfishHelpContent.fastqAdvancedArguments)
 
             case .adapterRemoval:
                 Picker("Adapter Mode", selection: $state.adapterRemovalMode) {
@@ -301,8 +311,9 @@ private struct FASTQOperationPrimarySettingsSection: View {
                     Text("Manual Sequence").tag(FASTQAdapterMode.specified)
                 }
                 .pickerStyle(.segmented)
+                .lungfishHelp(LungfishHelpContent.fastqAdapterMode)
                 if state.adapterRemovalMode == .specified {
-                    labeledTextField("Adapter Sequence", text: $state.adapterRemovalSequence)
+                    labeledTextField("Adapter Sequence", text: $state.adapterRemovalSequence, help: LungfishHelpContent.fastqAdapterSequence)
                 }
 
             case .primerTrimming:
@@ -311,12 +322,13 @@ private struct FASTQOperationPrimarySettingsSection: View {
                     Text("Reference FASTA").tag(FASTQPrimerSource.reference)
                 }
                 .pickerStyle(.segmented)
+                .lungfishHelp(LungfishHelpContent.fastqPrimerSource)
                 if state.primerTrimmingSource == .literal {
-                    labeledTextField("Primer Sequence", text: $state.primerTrimmingLiteralSequence)
+                    labeledTextField("Primer Sequence", text: $state.primerTrimmingLiteralSequence, help: LungfishHelpContent.fastqPrimerSequence)
                     HStack(spacing: 12) {
-                        labeledCompactTextField("k", text: Self.intBinding(state, \.primerTrimmingKmerSize))
-                        labeledCompactTextField("mink", text: Self.intBinding(state, \.primerTrimmingMinKmer))
-                        labeledCompactTextField("hdist", text: Self.intBinding(state, \.primerTrimmingHammingDistance))
+                        labeledCompactTextField("k", text: Self.intBinding(state, \.primerTrimmingKmerSize), help: LungfishHelpContent.fastqKmerSize)
+                        labeledCompactTextField("mink", text: Self.intBinding(state, \.primerTrimmingMinKmer), help: LungfishHelpContent.fastqMinimumKmer)
+                        labeledCompactTextField("hdist", text: Self.intBinding(state, \.primerTrimmingHammingDistance), help: LungfishHelpContent.fastqHammingDistance)
                     }
                 } else {
                     Text("Select the primer reference FASTA in the Inputs section.")
@@ -326,14 +338,14 @@ private struct FASTQOperationPrimarySettingsSection: View {
 
             case .trimFixedBases:
                 HStack(spacing: 12) {
-                    labeledCompactTextField("5' Trim", text: Self.intBinding(state, \.trimFixedBasesFrom5Prime))
-                    labeledCompactTextField("3' Trim", text: Self.intBinding(state, \.trimFixedBasesFrom3Prime))
+                    labeledCompactTextField("5' Trim", text: Self.intBinding(state, \.trimFixedBasesFrom5Prime), help: LungfishHelpContent.fastqFixedBaseTrim)
+                    labeledCompactTextField("3' Trim", text: Self.intBinding(state, \.trimFixedBasesFrom3Prime), help: LungfishHelpContent.fastqFixedBaseTrim)
                 }
 
             case .filterByReadLength:
                 HStack(spacing: 12) {
-                    labeledCompactTextField("Min Length", text: Self.optionalIntBinding(state, \.filterByReadLengthMin))
-                    labeledCompactTextField("Max Length", text: Self.optionalIntBinding(state, \.filterByReadLengthMax))
+                    labeledCompactTextField("Min Length", text: Self.optionalIntBinding(state, \.filterByReadLengthMin), help: LungfishHelpContent.fastqMinLength)
+                    labeledCompactTextField("Max Length", text: Self.optionalIntBinding(state, \.filterByReadLengthMax), help: LungfishHelpContent.fastqMaxLength)
                 }
 
             case .removeContaminants:
@@ -342,9 +354,10 @@ private struct FASTQOperationPrimarySettingsSection: View {
                     Text("Custom Reference").tag(FASTQContaminantFilterMode.custom)
                 }
                 .pickerStyle(.segmented)
+                .lungfishHelp(LungfishHelpContent.fastqContaminantMode)
                 HStack(spacing: 12) {
-                    labeledCompactTextField("K-mer", text: Self.intBinding(state, \.removeContaminantsKmerSize))
-                    labeledCompactTextField("Hamming Distance", text: Self.intBinding(state, \.removeContaminantsHammingDistance))
+                    labeledCompactTextField("K-mer", text: Self.intBinding(state, \.removeContaminantsKmerSize), help: LungfishHelpContent.fastqKmerSize)
+                    labeledCompactTextField("Hamming Distance", text: Self.intBinding(state, \.removeContaminantsHammingDistance), help: LungfishHelpContent.fastqHammingDistance)
                 }
                 if state.removeContaminantsMode == .custom {
                     Text("Select the contaminant reference FASTA in the Inputs section.")
@@ -359,6 +372,7 @@ private struct FASTQOperationPrimarySettingsSection: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                .lungfishHelp(LungfishHelpContent.fastqRiboRetention)
 
             case .removeDuplicates:
                 Picker("Preset", selection: $state.removeDuplicatesPreset) {
@@ -366,11 +380,13 @@ private struct FASTQOperationPrimarySettingsSection: View {
                         Text(preset.displayName).tag(preset)
                     }
                 }
+                .lungfishHelp(LungfishHelpContent.fastqDeduplicatePreset)
                 if state.removeDuplicatesPreset == .custom {
-                    labeledCompactTextField("Substitutions", text: Self.intBinding(state, \.removeDuplicatesSubstitutions))
+                    labeledCompactTextField("Substitutions", text: Self.intBinding(state, \.removeDuplicatesSubstitutions), help: LungfishHelpContent.fastqDeduplicateSubstitutions)
                     Toggle("Optical Duplicates", isOn: $state.removeDuplicatesOptical)
+                        .lungfishHelp(LungfishHelpContent.fastqOpticalDuplicates)
                     if state.removeDuplicatesOptical {
-                        labeledCompactTextField("Optical Distance", text: Self.intBinding(state, \.removeDuplicatesOpticalDistance))
+                        labeledCompactTextField("Optical Distance", text: Self.intBinding(state, \.removeDuplicatesOpticalDistance), help: LungfishHelpContent.fastqOpticalDistance)
                     }
                 }
 
@@ -380,7 +396,8 @@ private struct FASTQOperationPrimarySettingsSection: View {
                     Text("Strict").tag(FASTQMergeStrictness.strict)
                 }
                 .pickerStyle(.segmented)
-                labeledCompactTextField("Minimum Overlap", text: Self.intBinding(state, \.mergeOverlappingPairsMinOverlap))
+                .lungfishHelp(LungfishHelpContent.fastqMergeStrictness)
+                labeledCompactTextField("Minimum Overlap", text: Self.intBinding(state, \.mergeOverlappingPairsMinOverlap), help: LungfishHelpContent.fastqMinimumOverlap)
 
             case .repairPairedEndFiles:
                 Text("No additional settings are required for paired-end repair.")
@@ -395,22 +412,23 @@ private struct FASTQOperationPrimarySettingsSection: View {
                     .foregroundStyle(.secondary)
 
             case .orientReads:
-                labeledCompactTextField("Word Length", text: Self.intBinding(state, \.orientWordLength))
+                labeledCompactTextField("Word Length", text: Self.intBinding(state, \.orientWordLength), help: LungfishHelpContent.fastqOrientWordLength)
                 Picker("Database Mask", selection: $state.orientDbMask) {
                     Text("dust").tag("dust")
                     Text("none").tag("none")
                 }
                 .pickerStyle(.segmented)
-                labeledTextField("Extra arguments", text: $state.orientExtraArguments)
+                .lungfishHelp(LungfishHelpContent.fastqDatabaseMask)
+                labeledTextField("Extra arguments", text: $state.orientExtraArguments, help: LungfishHelpContent.fastqAdvancedArguments)
                 Text("Select a reference sequence in the Inputs section.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
             case .pbaa:
-                labeledTextField("Output Name", text: $state.pbaaOutputName)
+                labeledTextField("Output Name", text: $state.pbaaOutputName, help: LungfishHelpContent.fastqOutputName)
                 HStack(spacing: 12) {
-                    labeledCompactTextField("Threads", text: Self.intBinding(state, \.pbaaThreads))
-                    labeledCompactTextField("Seed", text: Self.intBinding(state, \.pbaaSeed))
+                    labeledCompactTextField("Threads", text: Self.intBinding(state, \.pbaaThreads), help: LungfishHelpContent.fastqThreads)
+                    labeledCompactTextField("Seed", text: Self.intBinding(state, \.pbaaSeed), help: LungfishHelpContent.fastqSeed)
                 }
                 Text("Select the guide sequence in the Inputs section.")
                     .font(.caption)
@@ -418,56 +436,62 @@ private struct FASTQOperationPrimarySettingsSection: View {
 
             case .ontGenotyping:
                 workflowFormGroup("Report") {
-                    labeledTextField("Report Name", text: $state.ontGenotypingOutputName)
-                    labeledTextField("Analysis Name", text: $state.ontGenotypingAnalysisName)
+                    labeledTextField("Report Name", text: $state.ontGenotypingOutputName, help: LungfishHelpContent.fastqReportName)
+                    labeledTextField("Analysis Name", text: $state.ontGenotypingAnalysisName, help: LungfishHelpContent.fastqAnalysisName)
                 }
                 workflowFormGroup("Run Parameters") {
                     HStack(spacing: 12) {
-                        labeledCompactTextField("Threads", text: Self.intBinding(state, \.ontGenotypingThreads))
-                        labeledCompactTextField("Min Reads", text: Self.intBinding(state, \.ontGenotypingMinSupport))
+                        labeledCompactTextField("Threads", text: Self.intBinding(state, \.ontGenotypingThreads), help: LungfishHelpContent.fastqThreads)
+                        labeledCompactTextField("Min Reads", text: Self.intBinding(state, \.ontGenotypingMinSupport), help: LungfishHelpContent.fastqMinReads)
                     }
                 }
                 workflowFormGroup("Call Thresholds") {
-                    labeledCompactTextField("Locus %", text: Self.doubleBinding(state, \.ontGenotypingHaplotypeDropoutLocusPercent))
+                    labeledCompactTextField("Locus %", text: Self.doubleBinding(state, \.ontGenotypingHaplotypeDropoutLocusPercent), help: LungfishHelpContent.fastqLocusPercent)
                     helperText("Used for haplotype calls and Excel output. Inspector filters only change what is shown.")
                 }
                 helperText("Select a MiSeq allele reference and barcode definition in the Inputs section. The workflow retains exact+indel full-amplicon mappings, then demultiplexes retained reads.")
 
             case .correctSequencingErrors:
-                labeledCompactTextField("K-mer Size", text: Self.intBinding(state, \.correctSequencingErrorsKmerSize))
+                labeledCompactTextField("K-mer Size", text: Self.intBinding(state, \.correctSequencingErrorsKmerSize), help: LungfishHelpContent.fastqKmerSize)
 
             case .subsampleByProportion:
-                labeledCompactTextField("Proportion", text: Self.optionalDoubleBinding(state, \.subsampleByProportionValue))
+                labeledCompactTextField("Proportion", text: Self.optionalDoubleBinding(state, \.subsampleByProportionValue), help: LungfishHelpContent.fastqProportion)
 
             case .subsampleByCount:
-                labeledCompactTextField("Count", text: Self.optionalIntBinding(state, \.subsampleByCountValue))
+                labeledCompactTextField("Count", text: Self.optionalIntBinding(state, \.subsampleByCountValue), help: LungfishHelpContent.fastqCount)
 
             case .extractReadsByID:
-                labeledTextField("Query", text: $state.extractReadsByIDQuery)
+                labeledTextField("Query", text: $state.extractReadsByIDQuery, help: LungfishHelpContent.fastqQuery)
                 Picker("Field", selection: $state.extractReadsByIDField) {
                     Text("ID").tag(FASTQSearchField.id)
                     Text("Description").tag(FASTQSearchField.description)
                 }
                 .pickerStyle(.segmented)
+                .lungfishHelp(LungfishHelpContent.fastqSearchField)
                 Toggle("Use Regular Expression", isOn: $state.extractReadsByIDRegex)
+                    .lungfishHelp(LungfishHelpContent.fastqRegex)
 
             case .extractReadsByMotif:
-                labeledTextField("Pattern", text: $state.extractReadsByMotifPattern)
+                labeledTextField("Pattern", text: $state.extractReadsByMotifPattern, help: LungfishHelpContent.fastqPattern)
                 Toggle("Use Regular Expression", isOn: $state.extractReadsByMotifRegex)
+                    .lungfishHelp(LungfishHelpContent.fastqRegex)
 
             case .selectReadsBySequence:
-                labeledTextField("Sequence or FASTA Path", text: $state.selectReadsBySequenceValue)
+                labeledTextField("Sequence or FASTA Path", text: $state.selectReadsBySequenceValue, help: LungfishHelpContent.fastqSequenceOrFasta)
                 Picker("Search End", selection: $state.selectReadsBySequenceSearchEnd) {
                     Text("5' End").tag(FASTQAdapterSearchEnd.fivePrime)
                     Text("3' End").tag(FASTQAdapterSearchEnd.threePrime)
                 }
                 .pickerStyle(.segmented)
+                .lungfishHelp(LungfishHelpContent.fastqSearchEnd)
                 HStack(spacing: 12) {
-                    labeledCompactTextField("Min Overlap", text: Self.intBinding(state, \.selectReadsBySequenceMinOverlap))
-                    labeledCompactTextField("Error Rate", text: Self.doubleBinding(state, \.selectReadsBySequenceErrorRate))
+                    labeledCompactTextField("Min Overlap", text: Self.intBinding(state, \.selectReadsBySequenceMinOverlap), help: LungfishHelpContent.fastqMinimumOverlap)
+                    labeledCompactTextField("Error Rate", text: Self.doubleBinding(state, \.selectReadsBySequenceErrorRate), help: LungfishHelpContent.fastqErrorRate)
                 }
                 Toggle("Keep Matched Reads", isOn: $state.selectReadsBySequenceKeepMatched)
+                    .lungfishHelp(LungfishHelpContent.fastqKeepMatchedReads)
                 Toggle("Search Reverse Complement", isOn: $state.selectReadsBySequenceSearchReverseComplement)
+                    .lungfishHelp(LungfishHelpContent.fastqSearchReverseComplement)
 
             case .mafft:
                 Picker("Strategy", selection: $state.mafftStrategy) {
@@ -475,6 +499,7 @@ private struct FASTQOperationPrimarySettingsSection: View {
                         Text(strategy.displayName).tag(strategy)
                     }
                 }
+                .lungfishHelp(LungfishHelpContent.fastqMAFFTStrategy)
 
                 Picker("Sequence Type", selection: $state.mafftSequenceType) {
                     ForEach(MSASequenceType.allCases, id: \.self) { sequenceType in
@@ -482,6 +507,7 @@ private struct FASTQOperationPrimarySettingsSection: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                .lungfishHelp(LungfishHelpContent.fastqMAFFTSequenceType)
 
                 Picker("Output Order", selection: $state.mafftOutputOrder) {
                     ForEach(MSAAlignmentOutputOrder.allCases, id: \.self) { outputOrder in
@@ -489,6 +515,7 @@ private struct FASTQOperationPrimarySettingsSection: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                .lungfishHelp(LungfishHelpContent.fastqMAFFTOutputOrder)
 
                 Text("MAFFT will run through lungfish-cli and write native .lungfishmsa provenance with the resolved options.")
                     .font(.caption)
@@ -500,12 +527,14 @@ private struct FASTQOperationPrimarySettingsSection: View {
                     Text("Custom Definition").tag(FASTQDemultiplexBarcodeSource.customDefinition)
                 }
                 .pickerStyle(.segmented)
+                .lungfishHelp(LungfishHelpContent.fastqBarcodeSource)
                 if state.demultiplexBarcodeSource == .builtinKit {
                     Picker("Built-In Kit", selection: $state.demultiplexKitID) {
                         ForEach(state.demultiplexBuiltInKitOptions) { kit in
                             Text(kit.displayName).tag(kit.id)
                         }
                     }
+                    .lungfishHelp(LungfishHelpContent.fastqBarcodeKit)
                 } else {
                     Text("Select a barcode definition CSV, TSV, or whitespace-delimited text file in the Inputs section. Columns: id,sequence[,secondary_sequence][,sample_name].")
                         .font(.caption)
@@ -517,6 +546,7 @@ private struct FASTQOperationPrimarySettingsSection: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                .lungfishHelp(LungfishHelpContent.fastqDemultiplexEngine)
                 Text(state.demultiplexEngine.explanation)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -527,13 +557,15 @@ private struct FASTQOperationPrimarySettingsSection: View {
                         Text("3' End").tag("threeprime")
                     }
                     .pickerStyle(.segmented)
+                    .lungfishHelp(LungfishHelpContent.fastqDemultiplexLocation)
                     HStack(spacing: 12) {
-                        labeledCompactTextField("5' Distance", text: Self.intBinding(state, \.demultiplexMaxDistanceFrom5Prime))
-                        labeledCompactTextField("3' Distance", text: Self.intBinding(state, \.demultiplexMaxDistanceFrom3Prime))
+                        labeledCompactTextField("5' Distance", text: Self.intBinding(state, \.demultiplexMaxDistanceFrom5Prime), help: LungfishHelpContent.fastqDemultiplexDistance)
+                        labeledCompactTextField("3' Distance", text: Self.intBinding(state, \.demultiplexMaxDistanceFrom3Prime), help: LungfishHelpContent.fastqDemultiplexDistance)
                     }
                     HStack(spacing: 12) {
-                        labeledCompactTextField("Error Rate", text: Self.doubleBinding(state, \.demultiplexErrorRate))
+                        labeledCompactTextField("Error Rate", text: Self.doubleBinding(state, \.demultiplexErrorRate), help: LungfishHelpContent.fastqErrorRate)
                         Toggle("Trim Barcodes", isOn: $state.demultiplexTrimBarcodes)
+                            .lungfishHelp(LungfishHelpContent.fastqDemultiplexTrimBarcodes)
                     }
                 }
 
@@ -549,16 +581,17 @@ private struct FASTQOperationPrimarySettingsSection: View {
         }
     }
 
-    private func labeledTextField(_ title: String, text: Binding<String>) -> some View {
+    private func labeledTextField(_ title: String, text: Binding<String>, help: LungfishHelpContent.HelpItem? = nil) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text(title)
                 .frame(width: 180, alignment: .leading)
             TextField("", text: text)
                 .textFieldStyle(.roundedBorder)
         }
+        .lungfishHelpIfPresent(help)
     }
 
-    private func labeledCompactTextField(_ title: String, text: Binding<String>) -> some View {
+    private func labeledCompactTextField(_ title: String, text: Binding<String>, help: LungfishHelpContent.HelpItem? = nil) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text(title)
                 .frame(width: 140, alignment: .leading)
@@ -566,6 +599,7 @@ private struct FASTQOperationPrimarySettingsSection: View {
                 .textFieldStyle(.roundedBorder)
                 .frame(maxWidth: 160)
         }
+        .lungfishHelpIfPresent(help)
     }
 
     private func workflowFormGroup<Content: View>(
@@ -687,9 +721,11 @@ private struct FASTQOperationAdvancedSettingsSection: View {
                 DisclosureGroup("Advanced Options") {
                     VStack(alignment: .leading, spacing: 8) {
                         labeledTextField("pbAA arguments", text: $state.pbaaExtraArguments)
+                            .lungfishHelp(LungfishHelpContent.fastqAdvancedArguments)
                         Text("Arguments are passed to `pbaa cluster` after the simple settings.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                            .lungfishHelp(LungfishHelpContent.fastqAdvancedArguments)
                     }
                     .padding(.top, 4)
                 }
@@ -697,9 +733,11 @@ private struct FASTQOperationAdvancedSettingsSection: View {
                 DisclosureGroup("Advanced Options") {
                     VStack(alignment: .leading, spacing: 8) {
                         labeledTextField("minimap2 arguments", text: $state.ontGenotypingExtraArguments)
+                            .lungfishHelp(LungfishHelpContent.fastqAdvancedArguments)
                         Text("Arguments are passed to minimap2 after the fixed short-read preset.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                            .lungfishHelp(LungfishHelpContent.fastqAdvancedArguments)
                     }
                     .padding(.top, 4)
                 }
@@ -720,20 +758,25 @@ private struct FASTQOperationAdvancedSettingsSection: View {
                                 Text(adjustment.displayName).tag(adjustment)
                             }
                         }
+                        .lungfishHelp(LungfishHelpContent.fastqMAFFTDirectionAdjustment)
                         Picker("Symbol Policy", selection: $state.mafftSymbolPolicy) {
                             ForEach(MSASymbolPolicy.allCases, id: \.self) { policy in
                                 Text(policy.displayName).tag(policy)
                             }
                         }
+                        .lungfishHelp(LungfishHelpContent.fastqMAFFTSymbolPolicy)
                         HStack(spacing: 12) {
-                            labeledCompactTextField("Threads", text: Self.optionalIntBinding(state, \.mafftThreads))
+                            labeledCompactTextField("Threads", text: Self.optionalIntBinding(state, \.mafftThreads), help: LungfishHelpContent.fastqThreads)
                             Toggle("Deterministic threading", isOn: $state.mafftDeterministicThreads)
+                                .lungfishHelp(LungfishHelpContent.fastqMAFFTDeterministicThreads)
                         }
                         Toggle("Treat FASTQ records as assembled or consensus sequences", isOn: $state.mafftAllowFASTQAssemblyInputs)
-                        labeledTextField("MAFFT Parameters", text: $state.mafftExtraOptionsText)
+                            .lungfishHelp(LungfishHelpContent.fastqMAFFTAllowFASTQAssemblyInputs)
+                        labeledTextField("MAFFT Parameters", text: $state.mafftExtraOptionsText, help: LungfishHelpContent.fastqAdvancedArguments)
                         Text("These arguments are passed directly to MAFFT after the selected strategy.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                            .lungfishHelp(LungfishHelpContent.fastqAdvancedArguments)
                     }
                     .padding(.top, 4)
                 }
@@ -753,16 +796,17 @@ private struct FASTQOperationAdvancedSettingsSection: View {
         }
     }
 
-    private func labeledTextField(_ title: String, text: Binding<String>) -> some View {
+    private func labeledTextField(_ title: String, text: Binding<String>, help: LungfishHelpContent.HelpItem? = nil) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text(title)
                 .frame(width: 180, alignment: .leading)
             TextField("", text: text)
                 .textFieldStyle(.roundedBorder)
         }
+        .lungfishHelpIfPresent(help)
     }
 
-    private func labeledCompactTextField(_ title: String, text: Binding<String>) -> some View {
+    private func labeledCompactTextField(_ title: String, text: Binding<String>, help: LungfishHelpContent.HelpItem? = nil) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text(title)
                 .frame(width: 140, alignment: .leading)
@@ -770,6 +814,7 @@ private struct FASTQOperationAdvancedSettingsSection: View {
                 .textFieldStyle(.roundedBorder)
                 .frame(maxWidth: 120)
         }
+        .lungfishHelpIfPresent(help)
     }
 
     private static func optionalIntBinding(_ state: FASTQOperationDialogState, _ keyPath: WritableKeyPath<FASTQOperationDialogState, Int?>) -> Binding<String> {

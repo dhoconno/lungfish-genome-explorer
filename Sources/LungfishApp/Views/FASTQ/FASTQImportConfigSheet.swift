@@ -4,6 +4,7 @@
 
 import AppKit
 import LungfishIO
+import LungfishKit
 import LungfishWorkflow
 import UniformTypeIdentifiers
 
@@ -233,6 +234,7 @@ public final class FASTQImportConfigSheet: NSViewController {
         platformPopup.translatesAutoresizingMaskIntoConstraints = false
         platformPopup.target = self
         platformPopup.action = #selector(platformChanged(_:))
+        platformPopup.applyLungfishHelp(LungfishHelpContent.fastqImportPlatform)
         view.addSubview(platformPopup)
 
         // Pairing popup
@@ -241,6 +243,7 @@ public final class FASTQImportConfigSheet: NSViewController {
         pairingPopup.selectItem(at: hasPaired ? 1 : 0)
         pairingPopup.font = .systemFont(ofSize: 12)
         pairingPopup.translatesAutoresizingMaskIntoConstraints = false
+        pairingPopup.applyLungfishHelp(LungfishHelpContent.fastqImportPairing)
         view.addSubview(pairingPopup)
 
         // Quality binning popup
@@ -248,12 +251,13 @@ public final class FASTQImportConfigSheet: NSViewController {
         binningPopup.selectItem(at: defaultBinningIndex(for: detectedPlatform))
         binningPopup.font = .systemFont(ofSize: 12)
         binningPopup.translatesAutoresizingMaskIntoConstraints = false
+        binningPopup.applyLungfishHelp(LungfishHelpContent.fastqImportQualityBinning)
         view.addSubview(binningPopup)
 
         // Clumpify checkbox
         clumpifyCheckbox.state = .on
         clumpifyCheckbox.font = .systemFont(ofSize: 12)
-        clumpifyCheckbox.toolTip = "Disable if your machine has limited memory. Reorders reads by k-mer similarity for better compression."
+        clumpifyCheckbox.applyLungfishHelp(LungfishHelpContent.fastqImportClumpify)
         clumpifyCheckbox.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(clumpifyCheckbox)
 
@@ -268,6 +272,7 @@ public final class FASTQImportConfigSheet: NSViewController {
         compressionPopup.selectItem(at: 1) // Balanced default
         compressionPopup.font = .systemFont(ofSize: 12)
         compressionPopup.translatesAutoresizingMaskIntoConstraints = false
+        compressionPopup.applyLungfishHelp(LungfishHelpContent.fastqImportCompression)
         view.addSubview(compressionPopup)
 
         // Separator 2
@@ -282,6 +287,7 @@ public final class FASTQImportConfigSheet: NSViewController {
         recipeCheckbox.translatesAutoresizingMaskIntoConstraints = false
         recipeCheckbox.target = self
         recipeCheckbox.action = #selector(recipeToggled(_:))
+        recipeCheckbox.applyLungfishHelp(LungfishHelpContent.fastqImportRecipe)
         view.addSubview(recipeCheckbox)
 
         // Recipe popup
@@ -293,6 +299,7 @@ public final class FASTQImportConfigSheet: NSViewController {
         recipePopup.isHidden = true
         recipePopup.target = self
         recipePopup.action = #selector(recipeChanged(_:))
+        recipePopup.applyLungfishHelp(LungfishHelpContent.fastqImportRecipe)
         view.addSubview(recipePopup)
 
         // Recipe description
@@ -319,7 +326,7 @@ public final class FASTQImportConfigSheet: NSViewController {
         barcodeDefinitionRow.addArrangedSubview(barcodeDefinitionLabel)
 
         barcodeDefinitionPopup.font = .systemFont(ofSize: 12)
-        barcodeDefinitionPopup.toolTip = "CSV, TSV, or text file containing sample names and barcode definitions."
+        barcodeDefinitionPopup.applyLungfishHelp(LungfishHelpContent.fastqImportBarcodeSheet)
         barcodeDefinitionPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 260).isActive = true
         barcodeDefinitionPopup.target = self
         barcodeDefinitionPopup.action = #selector(barcodeDefinitionChanged(_:))
@@ -328,6 +335,7 @@ public final class FASTQImportConfigSheet: NSViewController {
         chooseBarcodeDefinitionButton.bezelStyle = .rounded
         chooseBarcodeDefinitionButton.target = self
         chooseBarcodeDefinitionButton.action = #selector(chooseBarcodeDefinition(_:))
+        chooseBarcodeDefinitionButton.applyLungfishHelp(LungfishHelpContent.fastqImportBarcodeSheet)
         barcodeDefinitionRow.addArrangedSubview(chooseBarcodeDefinitionButton)
 
         barcodeDefinitionStatusLabel.font = .systemFont(ofSize: 11)
@@ -347,7 +355,7 @@ public final class FASTQImportConfigSheet: NSViewController {
         view.addSubview(demultiplexFolderLabel)
 
         demultiplexFolderField.font = .systemFont(ofSize: 12)
-        demultiplexFolderField.toolTip = "Subfolder under the project where demultiplexed FASTQ bundles will be written."
+        demultiplexFolderField.applyLungfishHelp(LungfishHelpContent.fastqImportDemuxFolder)
         demultiplexFolderField.stringValue = pairs.first
             .map { Self.defaultDemultiplexFolderName(for: $0.r1) }
             ?? FASTQDemultiplexOutputFolderName.fallback
@@ -361,6 +369,7 @@ public final class FASTQImportConfigSheet: NSViewController {
         importButton.translatesAutoresizingMaskIntoConstraints = false
         importButton.target = self
         importButton.action = #selector(importClicked(_:))
+        importButton.applyLungfishHelp(LungfishHelpContent.operationRun)
         view.addSubview(importButton)
 
         cancelButton.bezelStyle = .rounded

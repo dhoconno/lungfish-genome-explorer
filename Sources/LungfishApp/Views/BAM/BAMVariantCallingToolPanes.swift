@@ -1,5 +1,6 @@
 import SwiftUI
 import Observation
+import LungfishKit
 
 struct BAMVariantCallingToolPanes: View {
     @Bindable var state: BAMVariantCallingDialogState
@@ -33,9 +34,11 @@ struct BAMVariantCallingToolPanes: View {
                     }
                 }
                 .pickerStyle(.menu)
+                .lungfishHelp(LungfishHelpContent.bamVariantAlignmentTrack)
 
                 TextField("Output Variant Track Name", text: $state.outputTrackName)
                     .textFieldStyle(.roundedBorder)
+                    .lungfishHelp(LungfishHelpContent.bamVariantOutputTrack)
             }
         }
     }
@@ -52,6 +55,7 @@ struct BAMVariantCallingToolPanes: View {
                         .foregroundStyle(.secondary)
                     TextField("0.05", text: $state.minimumAlleleFrequencyText)
                         .textFieldStyle(.roundedBorder)
+                        .lungfishHelp(LungfishHelpContent.bamVariantThresholds)
                 }
 
                 VStack(alignment: .leading, spacing: 6) {
@@ -60,6 +64,7 @@ struct BAMVariantCallingToolPanes: View {
                         .foregroundStyle(.secondary)
                     TextField("10", text: $state.minimumDepthText)
                         .textFieldStyle(.roundedBorder)
+                        .lungfishHelp(LungfishHelpContent.bamVariantThresholds)
                 }
             }
         }
@@ -94,6 +99,7 @@ struct BAMVariantCallingToolPanes: View {
                         isOn: .constant(true)
                     )
                     .disabled(true)
+                    .lungfishHelp(LungfishHelpContent.bamVariantIvarPrimerTrim)
                     Text("Primer-trimmed by Lungfish on \(state.autoConfirmedDateString(auto.timestamp)) using \(auto.primerScheme.bundleName).")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -102,6 +108,7 @@ struct BAMVariantCallingToolPanes: View {
                         "This BAM has already been primer-trimmed for iVar.",
                         isOn: $state.ivarPrimerTrimConfirmed
                     )
+                    .lungfishHelp(LungfishHelpContent.bamVariantIvarPrimerTrim)
                 }
 
             case .medaka:
@@ -111,6 +118,7 @@ struct BAMVariantCallingToolPanes: View {
                         .foregroundStyle(.secondary)
                     TextField("r1041_e82_400bps_sup_v5.0.0", text: $state.medakaModel)
                         .textFieldStyle(.roundedBorder)
+                        .lungfishHelp(LungfishHelpContent.bamVariantOntModel)
                 }
 
             case .clair3:
@@ -120,6 +128,7 @@ struct BAMVariantCallingToolPanes: View {
                         .foregroundStyle(.secondary)
                     TextField("r1041_e82_400bps_sup_v5.0.0", text: $state.medakaModel)
                         .textFieldStyle(.roundedBorder)
+                        .lungfishHelp(LungfishHelpContent.bamVariantOntModel)
                 }
                 }
             }
@@ -134,6 +143,7 @@ struct BAMVariantCallingToolPanes: View {
             TextField("--call-indels", text: $state.advancedOptionsText)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(.body, design: .monospaced))
+                .lungfishHelp(LungfishHelpContent.fastqAdvancedArguments)
         }
     }
 
@@ -149,23 +159,27 @@ struct BAMVariantCallingToolPanes: View {
                     Spacer()
                     TextField("0.75", value: $state.ivarConsensusAF, format: .number)
                         .frame(width: 70)
+                        .lungfishHelp(LungfishHelpContent.bamVariantIvarConsensusAF)
                 }
                 HStack {
                     Text("Merge AF distance")
                     Spacer()
                     TextField("0.25", value: $state.ivarMergeAFThreshold, format: .number)
                         .frame(width: 70)
+                        .lungfishHelp(LungfishHelpContent.bamVariantIvarMergeAF)
                 }
                 HStack {
                     Text("Minimum ALT quality")
                     Spacer()
                     TextField("20", value: $state.ivarBadQualityThreshold, format: .number)
                         .frame(width: 70)
+                        .lungfishHelp(LungfishHelpContent.bamVariantIvarBadQuality)
                 }
                 Toggle(
                     "Ignore strand bias (recommended for amplicons)",
                     isOn: $state.ivarIgnoreStrandBias
                 )
+                .lungfishHelp(LungfishHelpContent.bamVariantIvarStrandBias)
             }
         }
     }
@@ -176,6 +190,7 @@ struct BAMVariantCallingToolPanes: View {
                 .font(.headline)
             Text(state.readinessText)
                 .foregroundStyle(.secondary)
+                .lungfishHelp(LungfishHelpContent.operationReadiness)
         }
     }
 }

@@ -87,6 +87,15 @@ actor CLIVariantCallingRunner {
             arguments.append("--ivar-primer-trimmed")
         }
 
+        if request.caller == .ivar {
+            arguments += ["--ivar-consensus-af", String(request.ivarConsensusAF)]
+            arguments += ["--ivar-merge-af-threshold", String(request.ivarMergeAFThreshold)]
+            arguments += ["--ivar-bad-quality-threshold", String(request.ivarBadQualityThreshold)]
+            if !request.ivarIgnoreStrandBias {
+                arguments.append("--ivar-no-ignore-strand-bias")
+            }
+        }
+
         let medakaModel = request.medakaModel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !medakaModel.isEmpty {
             arguments += ["--medaka-model", medakaModel]

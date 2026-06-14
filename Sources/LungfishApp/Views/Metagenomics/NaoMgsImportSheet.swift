@@ -143,16 +143,19 @@ struct NaoMgsImportSheet: View {
                         RoundedRectangle(cornerRadius: 4)
                             .fill(Color(nsColor: .controlBackgroundColor))
                     )
+                    .lungfishHelp(LungfishHelpContent.metagenomicsNaoMgsImportSource)
 
                 Button("Browse\u{2026}") {
                     browseForResults()
                 }
                 .font(.system(size: 12))
+                .lungfishHelp(LungfishHelpContent.metagenomicsNaoMgsImportSource)
             }
 
             Text("Select a directory containing virus_hits_final.tsv.gz, or the file directly.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .lungfishHelp(LungfishHelpContent.metagenomicsNaoMgsImportSource)
         }
     }
 

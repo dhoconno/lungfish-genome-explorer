@@ -17,9 +17,9 @@ Master toggle for all AI features. When disabled, the AI Assistant will not send
 ### Preferred Provider
 
 Choose which AI provider to use first:
-- **Anthropic** (default) — Uses Claude models
-- **OpenAI** — Uses GPT models
-- **Google Gemini** — Uses Gemini models
+- **Anthropic** (default): Uses Claude models
+- **OpenAI**: Uses GPT models
+- **Google Gemini**: Uses Gemini models
 
 If the preferred provider fails, the assistant automatically tries the next configured provider.
 
@@ -52,11 +52,11 @@ Lungfish follows your macOS system appearance (Light or Dark mode) automatically
 ### File Handling
 
 The app registers file associations for common genomic formats:
-- `.lungfish` / `.lungfishbundle` — Genome bundles
-- `.fa` / `.fasta` — FASTA sequence files
-- `.gff` / `.gff3` — GFF annotation files
-- `.vcf` — Variant Call Format files
-- `.gb` / `.gbk` — GenBank flat files
+- `.lungfish` / `.lungfishbundle`: Genome bundles
+- `.fa` / `.fasta`: FASTA sequence files
+- `.gff` / `.gff3`: GFF annotation files
+- `.vcf`: Variant Call Format files
+- `.gb` / `.gbk`: GenBank flat files
 
 Double-clicking these files in Finder will open them in Lungfish.
 

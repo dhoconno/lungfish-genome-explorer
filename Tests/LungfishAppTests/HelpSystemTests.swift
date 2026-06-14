@@ -48,10 +48,14 @@ final class HelpTopicTests: XCTestCase {
         XCTAssertTrue(ids.contains("vcf-variants"), "Missing vcf-variants topic")
         XCTAssertTrue(ids.contains("ai-assistant"), "Missing ai-assistant topic")
         XCTAssertTrue(ids.contains("settings"), "Missing settings topic")
+        XCTAssertTrue(ids.contains("reads-and-workflows"), "Missing reads-and-workflows topic")
+        XCTAssertTrue(ids.contains("classification-review"), "Missing classification-review topic")
+        XCTAssertTrue(ids.contains("alignments-and-variants"), "Missing alignments-and-variants topic")
+        XCTAssertTrue(ids.contains("provenance"), "Missing provenance topic")
     }
 
     func testTopicCount() {
-        XCTAssertEqual(helpTopics.count, 5)
+        XCTAssertEqual(helpTopics.count, 9)
     }
 
     func testIndexIsFirstTopic() {
@@ -211,6 +215,41 @@ final class HelpResourceTests: XCTestCase {
         }
     }
 
+    func testMarkdownFilesFollowInAppHelpStyle() throws {
+        let banned = [
+            "revolutionary",
+            "breakthrough",
+            "most powerful",
+            "cutting-edge",
+            "AI-powered",
+            "game-changing",
+            "let the AI do the work",
+            "uninterrupted access",
+            "unleash",
+            "leverages",
+            "instant results",
+        ]
+
+        for topic in helpTopics {
+            let url = try XCTUnwrap(HelpResourceLocator.markdownURL(for: topic.filename))
+            let content = try String(contentsOf: url, encoding: .utf8)
+
+            XCTAssertFalse(content.contains("—"), "\(topic.filename).md contains an em dash")
+            let bodySentences = content
+                .split(separator: "\n")
+                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("#") }
+            for sentence in bodySentences {
+                XCTAssertFalse(sentence.hasSuffix("!"), "\(topic.filename).md contains an exclamation mark")
+            }
+            for phrase in banned {
+                XCTAssertFalse(
+                    content.localizedCaseInsensitiveContains(phrase),
+                    "\(topic.filename).md contains banned phrase: \(phrase)"
+                )
+            }
+        }
+    }
+
     func testHelpBookBundleExists() {
         let helpBookURL = HelpResourceLocator.helpBookURL()
         XCTAssertNotNil(helpBookURL, "Expected Lungfish.help to be available as an app help resource")
@@ -222,7 +261,7 @@ final class HelpResourceTests: XCTestCase {
             return
         }
 
-        let expectedFiles = ["index.html", "getting-started.html", "vcf-variants.html", "ai-assistant.html", "settings.html"]
+        let expectedFiles = helpTopics.map { "\($0.filename).html" }
         let localeRoot = helpBookURL.appendingPathComponent("Contents/Resources/en.lproj")
         for file in expectedFiles {
             let path = localeRoot.appendingPathComponent(file)

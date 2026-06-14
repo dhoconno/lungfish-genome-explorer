@@ -72,9 +72,20 @@ final class BAMPrimerTrimDialogState {
         allSchemes.first { $0.manifest.name == selectedSchemeID }
     }
 
+    var alignmentTrackOptions: [AlignmentTrackInfo] {
+        BAMVariantCallingEligibility.eligibleAlignmentTracks(in: bundle)
+    }
+
     func selectScheme(id: String) {
         guard allSchemes.contains(where: { $0.manifest.name == id }) else { return }
         selectedSchemeID = id
+        refreshDefaultOutputTrackNameIfEmpty()
+    }
+
+    func selectAlignmentTrack(id: String) {
+        guard alignmentTrackOptions.contains(where: { $0.id == id }) else { return }
+        alignmentTrackID = id
+        outputTrackName = ""
         refreshDefaultOutputTrackNameIfEmpty()
     }
 

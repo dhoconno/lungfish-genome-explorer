@@ -107,6 +107,34 @@ struct IVarTSVToVCFConverterTests {
         #expect(actual.contains("\tft\t"))
     }
 
+    @Test("describes custom bad-quality threshold in VCF filter metadata")
+    func badQualityHeaderUsesConfiguredThreshold() throws {
+        let tsvURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).tsv")
+        let header = "REGION\tPOS\tREF\tALT\tREF_DP\tREF_RV\tREF_QUAL\tALT_DP\tALT_RV\tALT_QUAL\tALT_FREQ\tTOTAL_DP\tPVAL\tPASS\tGFF_FEATURE\tREF_CODON\tREF_AA\tALT_CODON\tALT_AA\tPOS_AA"
+        let row = "chr1\t44\tC\tT\t75\t75\t38\t4\t2\t24\t0.05\t79\t0.06\tTRUE\tNA\tNA\tNA\tNA\tNA\tNA"
+        try (header + "\n" + row + "\n").write(to: tsvURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tsvURL) }
+        let outURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).vcf")
+        defer { try? FileManager.default.removeItem(at: outURL) }
+
+        try IVarTSVToVCFConverter().convert(
+            tsvURL: tsvURL,
+            primaryVCFURL: outURL,
+            allHaplotypesVCFURL: nil,
+            options: .init(
+                consensusAF: 0.75, mergeAFThreshold: 0.25, badQualityThreshold: 25,
+                ignoreStrandBias: true,
+                sourceLine: "iVar 1.4.4 (TSV-to-VCF: Lungfish)",
+                contigs: [.init(name: "chr1", length: 29903)]
+            )
+        )
+
+        let actual = try String(contentsOf: outURL, encoding: .utf8)
+        #expect(actual.contains(#"##FILTER=<ID=bq,Description="Bad quality variant: ALT_QUAL lower than 25">"#))
+        #expect(actual.contains("\tbq\t"))
+        #expect(!actual.contains("ALT_QUAL lower than 20"))
+    }
+
     @Test("emits sb filter when strand bias detected and not ignored")
     func sbFilter() throws {
         let tsvURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).tsv")

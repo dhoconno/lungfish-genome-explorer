@@ -124,7 +124,16 @@ public final class ClassifierActionBar: NSView {
     /// Enable/disable BLAST button, with an optional tooltip reason shown when disabled.
     public func setBlastEnabled(_ enabled: Bool, reason: String? = nil) {
         blastButton.isEnabled = enabled
-        blastButton.toolTip = enabled ? "Verify selected taxon with BLAST" : reason
+        if enabled {
+            blastButton.applyLungfishHelp(LungfishHelpContent.classifierBlastVerify)
+        } else if let reason, !reason.isEmpty {
+            blastButton.toolTip = "\(reason). \(LungfishHelpContent.classifierBlastVerify.summary)"
+            blastButton.setAccessibilityHelp(
+                "\(reason). \(LungfishHelpContent.classifierBlastVerify.detail ?? LungfishHelpContent.classifierBlastVerify.summary)"
+            )
+        } else {
+            blastButton.applyLungfishHelp(LungfishHelpContent.classifierBlastVerify)
+        }
     }
 
     /// Enable/disable Extract FASTQ button.
@@ -159,6 +168,10 @@ public final class ClassifierActionBar: NSView {
         extractButton.action = #selector(extractTapped)
         provenanceButton.target = self
         provenanceButton.action = #selector(provenanceTapped)
+        blastButton.applyLungfishHelp(LungfishHelpContent.classifierBlastVerify)
+        exportButton.applyLungfishHelp(LungfishHelpContent.resultExport)
+        extractButton.applyLungfishHelp(LungfishHelpContent.classifierExtractFASTQ)
+        provenanceButton.applyLungfishHelp(LungfishHelpContent.resultProvenance)
 
         // Height + separator
         NSLayoutConstraint.activate([

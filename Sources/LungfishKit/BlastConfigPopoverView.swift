@@ -76,6 +76,7 @@ public struct BlastConfigPopoverView: View {
                         step: 1
                     )
                     .frame(minWidth: 80)
+                    .lungfishHelp(LungfishHelpContent.classifierBlastReadCount)
                     Text("\(Int(readCount))")
                         .font(.subheadline)
                         .monospacedDigit()
@@ -86,10 +87,11 @@ public struct BlastConfigPopoverView: View {
                     .font(.subheadline)
             }
 
-            Text("Submits a sample of classified reads to NCBI BLAST for independent verification.")
+            Text("Submits selected reads to NCBI BLASTN nt for review. Reads leave the app for NCBI.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+                .lungfishHelp(LungfishHelpContent.classifierBlastVerify)
 
             HStack {
                 Spacer()
@@ -98,6 +100,7 @@ public struct BlastConfigPopoverView: View {
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(!canRun)
+                .lungfishHelp(LungfishHelpContent.classifierBlastVerify)
             }
         }
         .padding(14)

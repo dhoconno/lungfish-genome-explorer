@@ -16,6 +16,35 @@ final class ClassifierExtractionDialogTests: XCTestCase {
         XCTAssertEqual(m.format, .fastq)
     }
 
+    func testDialogSourceUsesSharedHelpInventory() throws {
+        let source = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/Metagenomics/ClassifierExtractionDialog.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("import LungfishKit"))
+        XCTAssertTrue(source.contains("LungfishHelpContent.classifierExtractionSummary"))
+        XCTAssertTrue(source.contains("LungfishHelpContent.classifierExtractionFormat"))
+        XCTAssertTrue(source.contains("LungfishHelpContent.classifierExtractionUnmappedMates"))
+        XCTAssertTrue(source.contains("LungfishHelpContent.classifierExtractionDestination"))
+        XCTAssertTrue(source.contains("LungfishHelpContent.classifierExtractionName"))
+        XCTAssertTrue(source.contains("LungfishHelpContent.classifierExtractFASTQ"))
+    }
+
+    func testBlastPopoverAvoidsConfirmatoryLanguageAndShowsReviewParameters() throws {
+        let source = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishKit/BlastConfigPopoverView.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertFalse(source.localizedCaseInsensitiveContains("independent verification"))
+        XCTAssertTrue(source.contains("NCBI BLASTN nt for review"))
+        XCTAssertTrue(source.contains("LungfishHelpContent.classifierBlastReadCount"))
+        XCTAssertTrue(source.contains("Reads leave the app for NCBI"))
+    }
+
     func testModel_defaultIncludeUnmappedMates_isFalse() {
         let m = ClassifierExtractionDialogViewModel(tool: .esviritu, selectionCount: 1, suggestedName: "x")
         XCTAssertFalse(m.includeUnmappedMates)
@@ -402,5 +431,12 @@ final class ClassifierExtractionDialogTests: XCTestCase {
         let c2 = await s2.cancelled
         XCTAssertTrue(c1, "estimateTask should have been cancelled")
         XCTAssertTrue(c2, "extractionTask should have been cancelled")
+    }
+
+    private func repositoryRoot() -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
     }
 }

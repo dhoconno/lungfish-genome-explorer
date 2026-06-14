@@ -180,6 +180,9 @@ final class BAMVariantCallingDialogState {
         case .bcftools:
             return "Ready to run bcftools mpileup/call on \(selectedAlignmentTrack?.name ?? "the selected alignment")."
         case .ivar:
+            if let validationMessage = ivarThresholdValidationMessage {
+                return validationMessage
+            }
             if let auto = autoConfirmedPrimerTrim {
                 return "Ready to run iVar. Primer-trimmed by Lungfish on \(autoConfirmedDateString(auto.timestamp)) using \(auto.primerScheme.bundleName)."
             }
@@ -217,6 +220,7 @@ final class BAMVariantCallingDialogState {
         case .lofreq, .bcftools:
             return true
         case .ivar:
+            guard ivarThresholdValidationMessage == nil else { return false }
             return ivarPrimerTrimConfirmed
         case .medaka:
             return !trimmedMedakaModel.isEmpty
@@ -366,6 +370,20 @@ final class BAMVariantCallingDialogState {
     private var minimumDepth: Int? {
         guard !trimmedMinimumDepth.isEmpty else { return nil }
         return Int(trimmedMinimumDepth)
+    }
+
+    private var ivarThresholdValidationMessage: String? {
+        guard selectedCaller == .ivar else { return nil }
+        guard (0.0...1.0).contains(ivarConsensusAF) else {
+            return "iVar consensus allele frequency must be between 0 and 1."
+        }
+        guard (0.0...1.0).contains(ivarMergeAFThreshold) else {
+            return "iVar merge allele-frequency threshold must be between 0 and 1."
+        }
+        guard ivarBadQualityThreshold >= 0 else {
+            return "iVar bad-quality threshold must be zero or greater."
+        }
+        return nil
     }
 
     private static func makeTrackID() -> String {

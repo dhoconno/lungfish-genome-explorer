@@ -14,4 +14,86 @@ final class FASTQOperationToolPanesSourceTests: XCTestCase {
         XCTAssertTrue(source.contains("ReferenceSequencePickerView("))
         XCTAssertTrue(source.contains("selectedReferenceURL: referenceSelectionBinding(for: kind)"))
     }
+
+    func testFASTQOperationToolPanesUseSharedScientificHelpCatalog() throws {
+        let source = try String(contentsOf: toolPanesSourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("import LungfishKit"))
+        XCTAssertTrue(source.contains(".lungfishHelp(LungfishHelpContent.fastqOverview)"))
+        XCTAssertTrue(source.contains(".lungfishHelp(LungfishHelpContent.fastqInputs)"))
+        XCTAssertTrue(source.contains(".lungfishHelp(LungfishHelpContent.fastqOutputStrategy)"))
+        XCTAssertTrue(source.contains(".lungfishHelp(LungfishHelpContent.operationReadiness)"))
+        XCTAssertTrue(source.contains(".lungfishHelp(LungfishHelpContent.fastqAdvancedArguments)"))
+    }
+
+    func testFASTQOperationTextFieldsAcceptFieldLevelHelpItems() throws {
+        let source = try String(contentsOf: toolPanesSourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("help: LungfishHelpContent.HelpItem"))
+        XCTAssertTrue(source.contains("TextField(\"\", text: text)"))
+        XCTAssertTrue(source.contains(".lungfishHelpIfPresent(help)"))
+    }
+
+    func testFASTQOperationFieldsUseSpecificHelpInventory() throws {
+        let source = try String(contentsOf: toolPanesSourceURL, encoding: .utf8)
+        let requiredHelpItems = [
+            "fastqQualityThreshold",
+            "fastqWindowSize",
+            "fastqAdapterSequence",
+            "fastqPrimerSequence",
+            "fastqKmerSize",
+            "fastqHammingDistance",
+            "fastqMinLength",
+            "fastqMaxLength",
+            "fastqThreads",
+            "fastqSeed",
+            "fastqQuery",
+            "fastqPattern",
+            "fastqRegex",
+            "fastqSequenceOrFasta",
+            "fastqErrorRate",
+            "fastqDemultiplexDistance",
+        ]
+
+        for item in requiredHelpItems {
+            XCTAssertTrue(source.contains("LungfishHelpContent.\(item)"), "\(item) is not wired into FASTQ operation panes")
+        }
+    }
+
+    func testFASTQImportSheetUsesSpecificHelpInventory() throws {
+        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let source = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/FASTQ/FASTQImportConfigSheet.swift"),
+            encoding: .utf8
+        )
+        let requiredHelpItems = [
+            "fastqImportPlatform",
+            "fastqImportPairing",
+            "fastqImportQualityBinning",
+            "fastqImportClumpify",
+            "fastqImportCompression",
+            "fastqImportRecipe",
+            "fastqImportBarcodeSheet",
+            "fastqImportDemuxFolder",
+            "operationRun",
+        ]
+
+        XCTAssertTrue(source.contains("import LungfishKit"))
+        for item in requiredHelpItems {
+            XCTAssertTrue(source.contains("LungfishHelpContent.\(item)"), "\(item) is not wired into FASTQ import sheet")
+        }
+    }
+
+    func testDatasetOperationsDialogUsesSharedScientificHelpCatalog() throws {
+        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let source = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Operations/DatasetOperationsDialog.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("import LungfishKit"))
+        XCTAssertTrue(source.contains(".lungfishHelp(LungfishHelpContent.operationToolSidebar)"))
+        XCTAssertTrue(source.contains(".lungfishHelp(LungfishHelpContent.operationReadiness)"))
+        XCTAssertTrue(source.contains(".lungfishHelp(LungfishHelpContent.operationRun)"))
+    }
 }
