@@ -37,6 +37,8 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
     public let cdnaThreshold: Int
     public let sampleJobs: Int?
     public let savontThreadsPerSample: Int?
+    public let keepIntermediates: Bool
+    public let reuseCompatibleCheckpoints: Bool
     public let haplotypeDropoutSampleFraction: Double?
     public let haplotypeDropoutLocusFraction: Double?
     public let haplotypeDropoutLocusFractionOverrides: [String: Double]
@@ -63,6 +65,8 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
         cdnaThreshold: Int = 2_000,
         sampleJobs: Int? = nil,
         savontThreadsPerSample: Int? = nil,
+        keepIntermediates: Bool = false,
+        reuseCompatibleCheckpoints: Bool = false,
         haplotypeDropoutSampleFraction: Double? = nil,
         haplotypeDropoutLocusFraction: Double? = nil,
         haplotypeDropoutLocusFractionOverrides: [String: Double] = [:],
@@ -89,6 +93,8 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
         self.cdnaThreshold = max(1, cdnaThreshold)
         self.sampleJobs = sampleJobs.map { max(1, $0) }
         self.savontThreadsPerSample = savontThreadsPerSample.map { max(1, $0) }
+        self.keepIntermediates = keepIntermediates
+        self.reuseCompatibleCheckpoints = reuseCompatibleCheckpoints
         self.haplotypeDropoutSampleFraction = Self.normalizedFraction(haplotypeDropoutSampleFraction)
         self.haplotypeDropoutLocusFraction = Self.normalizedFraction(haplotypeDropoutLocusFraction)
         self.haplotypeDropoutLocusFractionOverrides = Self.normalizedFractionOverrides(
@@ -187,6 +193,12 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
         if let savontThreadsPerSample {
             values += ["--savont-threads-per-sample", String(savontThreadsPerSample)]
         }
+        if keepIntermediates {
+            values += ["--keep-intermediates"]
+        }
+        if reuseCompatibleCheckpoints {
+            values += ["--reuse-compatible-checkpoints"]
+        }
         if let haplotypeDefinitionSetID {
             if let haplotypeAssayID {
                 values += ["--haplotype-assay", haplotypeAssayID]
@@ -257,6 +269,8 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
             cdnaThreshold: cdnaThreshold,
             sampleJobs: sampleJobs,
             savontThreadsPerSample: savontThreadsPerSample,
+            keepIntermediates: keepIntermediates,
+            reuseCompatibleCheckpoints: reuseCompatibleCheckpoints,
             haplotypeDropoutSampleFraction: haplotypeDropoutSampleFraction,
             haplotypeDropoutLocusFraction: haplotypeDropoutLocusFraction,
             haplotypeDropoutLocusFractionOverrides: haplotypeDropoutLocusFractionOverrides,
@@ -617,8 +631,12 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             startedAt: startedAt,
             completedAt: completedAt
         )
-        progress.emit(0.98, "Removing regenerable full-length ONT MHC workflow intermediates.")
-        try removeGeneratedWorkflowIntermediates(workDirectory)
+        if request.keepIntermediates {
+            progress.emit(0.98, "Preserving full-length ONT MHC workflow intermediates.")
+        } else {
+            progress.emit(0.98, "Removing regenerable full-length ONT MHC workflow intermediates.")
+            try removeGeneratedWorkflowIntermediates(workDirectory)
+        }
 
         progress.emit(1.0, "Full-length ONT MHC genotyping complete.")
         return FullLengthONTMHCGenotypingResult(
@@ -744,6 +762,29 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             execution: execution,
             steps: &steps
         )
+        if request.reuseCompatibleCheckpoints,
+           let checkpoint = try loadCompatibleSampleCheckpoint(
+                scheduled: scheduled,
+                preparedFASTQ: preparedFASTQ,
+                request: request,
+                referenceFASTAURL: referenceFASTAURL,
+                execution: execution
+           ) {
+            progressHandler?(
+                progressFraction,
+                "Reused compatible full-length ONT MHC checkpoint for \(scheduled.sample)."
+            )
+            return checkpoint.result.rehydrated(
+                originalIndex: scheduled.originalIndex,
+                processingRank: processingRank,
+                readCount: scheduled.readCount,
+                prepSteps: steps,
+                reuseStep: sampleCheckpointReuseStep(
+                    checkpointURL: checkpoint.url,
+                    result: checkpoint.result
+                )
+            )
+        }
         let selectedClustering = try await selectSavontClusters(
             scheduled: scheduled,
             preparedFASTQ: preparedFASTQ,
@@ -772,7 +813,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                     : .noCall,
                 savontFallbackReason: selectedClustering.fallbackReason
             )
-            return FullLengthONTMHCSampleResult(
+            let result = FullLengthONTMHCSampleResult(
                 originalIndex: scheduled.originalIndex,
                 processingRank: processingRank,
                 sample: scheduled.sample,
@@ -783,6 +824,14 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 cdnaMatchedClusters: [],
                 closestMatches: [],
                 steps: steps
+            )
+            return try saveSampleCheckpoint(
+                result: result,
+                scheduled: scheduled,
+                preparedFASTQ: preparedFASTQ,
+                request: request,
+                referenceFASTAURL: referenceFASTAURL,
+                execution: execution
             )
         }
 
@@ -807,7 +856,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             savontStatus: genotyped.rows.isEmpty ? .noCall : .called,
             savontFallbackReason: selectedClustering.fallbackReason
         )
-        return FullLengthONTMHCSampleResult(
+        let result = FullLengthONTMHCSampleResult(
             originalIndex: scheduled.originalIndex,
             processingRank: processingRank,
             sample: scheduled.sample,
@@ -818,6 +867,158 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             cdnaMatchedClusters: genotyped.cdnaMatchedClusters,
             closestMatches: genotyped.closestMatches,
             steps: steps
+        )
+        return try saveSampleCheckpoint(
+            result: result,
+            scheduled: scheduled,
+            preparedFASTQ: preparedFASTQ,
+            request: request,
+            referenceFASTAURL: referenceFASTAURL,
+            execution: execution
+        )
+    }
+
+    private func loadCompatibleSampleCheckpoint(
+        scheduled: FullLengthONTMHCScheduledSample,
+        preparedFASTQ: URL,
+        request: FullLengthONTMHCGenotypingRunRequest,
+        referenceFASTAURL: URL,
+        execution: FullLengthONTMHCSampleExecutionConfiguration
+    ) throws -> (url: URL, result: FullLengthONTMHCSampleResult)? {
+        let checkpointURL = sampleCheckpointURL(for: scheduled.sample, request: request)
+        guard FileManager.default.fileExists(atPath: checkpointURL.path) else { return nil }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let checkpoint = try decoder.decode(
+            FullLengthONTMHCSampleCheckpoint.self,
+            from: Data(contentsOf: checkpointURL)
+        )
+        guard checkpoint.schemaVersion == FullLengthONTMHCSampleCheckpoint.schemaVersion,
+              checkpoint.signature == (try sampleCheckpointSignature(
+                scheduled: scheduled,
+                preparedFASTQ: preparedFASTQ,
+                request: request,
+                referenceFASTAURL: referenceFASTAURL,
+                execution: execution
+              )),
+              durableSampleCheckpointOutputsExist(for: checkpoint.result) else {
+            return nil
+        }
+        return (checkpointURL, checkpoint.result)
+    }
+
+    private func saveSampleCheckpoint(
+        result: FullLengthONTMHCSampleResult,
+        scheduled: FullLengthONTMHCScheduledSample,
+        preparedFASTQ: URL,
+        request: FullLengthONTMHCGenotypingRunRequest,
+        referenceFASTAURL: URL,
+        execution: FullLengthONTMHCSampleExecutionConfiguration
+    ) throws -> FullLengthONTMHCSampleResult {
+        guard request.keepIntermediates || request.reuseCompatibleCheckpoints else {
+            return result
+        }
+        let checkpointURL = sampleCheckpointURL(for: scheduled.sample, request: request)
+        try FileManager.default.createDirectory(
+            at: checkpointURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let checkpoint = FullLengthONTMHCSampleCheckpoint(
+            signature: try sampleCheckpointSignature(
+                scheduled: scheduled,
+                preparedFASTQ: preparedFASTQ,
+                request: request,
+                referenceFASTAURL: referenceFASTAURL,
+                execution: execution
+            ),
+            result: result,
+            createdAt: Date()
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(checkpoint).write(to: checkpointURL, options: .atomic)
+        return result
+    }
+
+    private func sampleCheckpointURL(
+        for sample: String,
+        request: FullLengthONTMHCGenotypingRunRequest
+    ) -> URL {
+        request.outputDirectory
+            .appendingPathComponent(".full-length-ont-mhc", isDirectory: true)
+            .appendingPathComponent("checkpoints", isDirectory: true)
+            .appendingPathComponent("samples", isDirectory: true)
+            .appendingPathComponent("\(sample).json")
+    }
+
+    private func sampleCheckpointSignature(
+        scheduled: FullLengthONTMHCScheduledSample,
+        preparedFASTQ: URL,
+        request: FullLengthONTMHCGenotypingRunRequest,
+        referenceFASTAURL: URL,
+        execution: FullLengthONTMHCSampleExecutionConfiguration
+    ) throws -> FullLengthONTMHCSampleCheckpointSignature {
+        try FullLengthONTMHCSampleCheckpointSignature(
+            sample: scheduled.sample,
+            sourceFASTQ: .fingerprint(url: scheduled.inputURL),
+            preparedFASTQ: .fingerprint(url: preparedFASTQ),
+            referenceFASTA: .fingerprint(url: referenceFASTAURL),
+            orientReference: request.orientReferenceURL.map { try .fingerprint(url: $0) },
+            forwardPrimer: request.forwardPrimerURL.map { try .fingerprint(url: $0) },
+            reversePrimer: request.reversePrimerURL.map { try .fingerprint(url: $0) },
+            minimumLength: request.minimumLength,
+            maximumLength: request.maximumLength,
+            savontQualityValueCutoff: request.savontQualityValueCutoff,
+            savontMinimumClusterSize: request.savontMinimumClusterSize,
+            minUnmatchedReads: request.minUnmatchedReads,
+            cdnaThreshold: request.cdnaThreshold,
+            workerThreads: execution.workerThreads,
+            savontThreads: execution.savontThreads,
+            savontToolVersion: FullLengthONTMHCGenotypingRunRequest.savontToolVersion,
+            savontCondaEnvironment: FullLengthONTMHCGenotypingRunRequest.savontCondaEnvironment,
+            savontPackageSpec: FullLengthONTMHCGenotypingRunRequest.savontPackageSpec
+        )
+    }
+
+    private func durableSampleCheckpointOutputsExist(
+        for result: FullLengthONTMHCSampleResult
+    ) -> Bool {
+        let urls = result.steps
+            .flatMap(\.outputs)
+            .filter { $0.path.contains("/samples/\(result.sample)/") }
+        return !urls.isEmpty && urls.allSatisfy {
+            FileManager.default.fileExists(atPath: $0.path)
+        }
+    }
+
+    private func sampleCheckpointReuseStep(
+        checkpointURL: URL,
+        result: FullLengthONTMHCSampleResult
+    ) -> FullLengthONTMHCProvenanceStep {
+        let completedAt = Date()
+        let outputs = result.steps
+            .flatMap(\.outputs)
+            .filter { $0.path.contains("/samples/\(result.sample)/") }
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+        return FullLengthONTMHCProvenanceStep(
+            toolName: "lungfish full-length ONT MHC sample checkpoint reuse",
+            toolVersion: WorkflowRun.currentAppVersion,
+            argv: [
+                "lungfish",
+                "fastq",
+                "full-length-ont-mhc-genotype",
+                "reuse-sample-checkpoint",
+                result.sample,
+                "--checkpoint",
+                checkpointURL.path,
+            ],
+            inputs: [checkpointURL],
+            outputs: outputs,
+            exitStatus: 0,
+            stderr: nil,
+            startedAt: completedAt,
+            completedAt: completedAt
         )
     }
 
@@ -2129,6 +2330,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             "haplotypeDropoutLocusFraction": .string("disabled"),
             "haplotypeDropoutLocusFractionOverrides": .dictionary([:]),
             "haplotypeDefinition": .string("disabled"),
+            "keepIntermediates": .boolean(false),
+            "reuseCompatibleCheckpoints": .boolean(false),
         ]
         let resolved: [String: ParameterValue] = [
             "threads": .integer(request.threads),
@@ -2161,6 +2364,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             ),
             "haplotypeDefinition": request.haplotypeDefinitionSetID
                 .map(ParameterValue.string) ?? .string("disabled"),
+            "keepIntermediates": .boolean(request.keepIntermediates),
+            "reuseCompatibleCheckpoints": .boolean(request.reuseCompatibleCheckpoints),
         ]
         var explicit = resolved
         explicit["requestedSampleJobs"] = request.sampleJobs.map(ParameterValue.integer) ?? .string("auto")
@@ -3243,7 +3448,7 @@ private struct FullLengthONTMHCSavontSelectedClusters: Sendable {
     let handledSavontFailure: Bool
 }
 
-private struct FullLengthONTMHCSampleResult: Sendable {
+private struct FullLengthONTMHCSampleResult: Sendable, Codable {
     let originalIndex: Int
     let processingRank: Int
     let sample: String
@@ -3254,9 +3459,126 @@ private struct FullLengthONTMHCSampleResult: Sendable {
     let cdnaMatchedClusters: [FullLengthONTMHCClusterFASTARecord]
     let closestMatches: [FullLengthONTMHCClosestMatch]
     let steps: [FullLengthONTMHCProvenanceStep]
+
+    func rehydrated(
+        originalIndex: Int,
+        processingRank: Int,
+        readCount: Int,
+        prepSteps: [FullLengthONTMHCProvenanceStep],
+        reuseStep: FullLengthONTMHCProvenanceStep
+    ) -> FullLengthONTMHCSampleResult {
+        FullLengthONTMHCSampleResult(
+            originalIndex: originalIndex,
+            processingRank: processingRank,
+            sample: sample,
+            readCount: readCount,
+            genotypeRows: genotypeRows,
+            sampleSummary: FullLengthONTMHCSampleSummary(
+                sample: sampleSummary.sample,
+                totalInputReads: readCount,
+                clusterCount: sampleSummary.clusterCount,
+                clusteredReads: sampleSummary.clusteredReads,
+                assignedReads: sampleSummary.assignedReads,
+                unmatchedClusters: sampleSummary.unmatchedClusters,
+                cdnaClusters: sampleSummary.cdnaClusters,
+                savontPreset: sampleSummary.savontPreset,
+                savontStatus: sampleSummary.savontStatus,
+                savontFallbackReason: sampleSummary.savontFallbackReason
+            ),
+            unmatchedClusters: unmatchedClusters,
+            cdnaMatchedClusters: cdnaMatchedClusters,
+            closestMatches: closestMatches,
+            steps: prepSteps + steps.filter { !$0.isRegenerablePreparationStep } + [reuseStep]
+        )
+    }
 }
 
-private struct FullLengthONTMHCProvenanceStep: Sendable {
+private struct FullLengthONTMHCSampleCheckpoint: Sendable, Codable {
+    static let schemaVersion = "full-length-ont-mhc-sample-checkpoint/1"
+
+    let schemaVersion: String
+    let signature: FullLengthONTMHCSampleCheckpointSignature
+    let result: FullLengthONTMHCSampleResult
+    let createdAt: Date
+
+    init(
+        signature: FullLengthONTMHCSampleCheckpointSignature,
+        result: FullLengthONTMHCSampleResult,
+        createdAt: Date
+    ) {
+        self.schemaVersion = Self.schemaVersion
+        self.signature = signature
+        self.result = result
+        self.createdAt = createdAt
+    }
+}
+
+private struct FullLengthONTMHCSampleCheckpointSignature: Sendable, Codable, Equatable {
+    let sample: String
+    let sourceFASTQ: FullLengthONTMHCFileFingerprint
+    let preparedFASTQ: FullLengthONTMHCFileFingerprint
+    let referenceFASTA: FullLengthONTMHCFileFingerprint
+    let orientReference: FullLengthONTMHCFileFingerprint?
+    let forwardPrimer: FullLengthONTMHCFileFingerprint?
+    let reversePrimer: FullLengthONTMHCFileFingerprint?
+    let minimumLength: Int
+    let maximumLength: Int
+    let savontQualityValueCutoff: Int
+    let savontMinimumClusterSize: Int
+    let minUnmatchedReads: Int
+    let cdnaThreshold: Int
+    let workerThreads: Int
+    let savontThreads: Int
+    let savontToolVersion: String
+    let savontCondaEnvironment: String
+    let savontPackageSpec: String
+}
+
+private struct FullLengthONTMHCFileFingerprint: Sendable, Codable, Equatable {
+    let path: String
+    let sha256: String
+    let fileSizeBytes: UInt64
+
+    static func fingerprint(url: URL) throws -> FullLengthONTMHCFileFingerprint {
+        let standardized = url.standardizedFileURL
+        if isDirectory(standardized) {
+            return try directoryFingerprint(url: standardized)
+        }
+        let data = try Data(contentsOf: standardized)
+        let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        return FullLengthONTMHCFileFingerprint(
+            path: standardized.path,
+            sha256: digest,
+            fileSizeBytes: UInt64(data.count)
+        )
+    }
+
+    private static func directoryFingerprint(url: URL) throws -> FullLengthONTMHCFileFingerprint {
+        let fileManager = FileManager.default
+        let files = try fileManager.subpathsOfDirectory(atPath: url.path)
+            .sorted()
+            .map { relativePath -> String in
+                let fileURL = url.appendingPathComponent(relativePath)
+                var isDirectory: ObjCBool = false
+                guard fileManager.fileExists(atPath: fileURL.path, isDirectory: &isDirectory),
+                      !isDirectory.boolValue else {
+                    return "\(relativePath)\tdirectory\t0"
+                }
+                let data = try Data(contentsOf: fileURL)
+                let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+                return "\(relativePath)\t\(digest)\t\(data.count)"
+            }
+        let manifest = files.joined(separator: "\n")
+        let digest = SHA256.hash(data: Data(manifest.utf8)).map { String(format: "%02x", $0) }.joined()
+        return FullLengthONTMHCFileFingerprint(
+            path: url.path,
+            sha256: digest,
+            fileSizeBytes: UInt64(manifest.utf8.count)
+        )
+    }
+}
+
+private struct FullLengthONTMHCProvenanceStep: Sendable, Codable {
     let toolName: String
     let toolVersion: String
     let argv: [String]
@@ -3266,6 +3588,15 @@ private struct FullLengthONTMHCProvenanceStep: Sendable {
     let stderr: String?
     let startedAt: Date
     let completedAt: Date
+
+    var isRegenerablePreparationStep: Bool {
+        switch toolName {
+        case "vsearch", "bbduk.sh", "reformat.sh":
+            return outputs.isEmpty
+        default:
+            return false
+        }
+    }
 
     func provenanceStep() throws -> ProvenanceStep {
         try ProvenanceStep(

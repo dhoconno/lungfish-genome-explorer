@@ -519,6 +519,99 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertFalse(savontSteps.contains { value(after: "--quality-value-cutoff", in: $0.argv) == "0" })
     }
 
+    func testRunReusesCompatibleSampleCheckpointWithoutRerunningSavont() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-checkpoint-reuse-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (baseRequest, firstPipeline) = try makeFakeFullLengthRun(root: root)
+        let request = FullLengthONTMHCGenotypingRunRequest(
+            inputFASTQURLs: baseRequest.inputFASTQURLs,
+            referenceSourceURL: baseRequest.referenceSourceURL,
+            outputDirectory: baseRequest.outputDirectory,
+            outputName: baseRequest.outputName,
+            threads: baseRequest.threads,
+            minimumLength: baseRequest.minimumLength,
+            maximumLength: baseRequest.maximumLength,
+            reuseCompatibleCheckpoints: true
+        )
+
+        _ = try await firstPipeline.run(request)
+
+        let checkpointURL = request.outputDirectory
+            .appendingPathComponent(".full-length-ont-mhc/checkpoints/samples", isDirectory: true)
+            .appendingPathComponent("DL46.json")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: checkpointURL.path))
+
+        let failingSavontScript = #"""
+        #!/bin/sh
+        set -eu
+        if [ "${1:-}" = "--version" ]; then
+          echo "savont 0.5.0"
+          exit 0
+        fi
+        echo "SavONT should not run when the sample checkpoint is compatible" >&2
+        exit 77
+        """#
+        let (_, secondPipeline) = try makeFakeFullLengthRun(
+            root: root,
+            savontScript: failingSavontScript
+        )
+
+        _ = try await secondPipeline.run(request)
+
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: request.provenanceURL))
+        let savontSteps = envelope.steps.filter { $0.toolName == "savont" }
+        XCTAssertEqual(savontSteps.count, 1)
+        let minimapSteps = envelope.steps.filter { $0.toolName == "minimap2" }
+        XCTAssertEqual(minimapSteps.count, 1)
+        let reuseStep = try XCTUnwrap(envelope.steps.first {
+            $0.toolName == "lungfish full-length ONT MHC sample checkpoint reuse"
+        })
+        XCTAssertTrue(reuseStep.inputs.contains { $0.path == checkpointURL.path })
+        XCTAssertTrue(reuseStep.outputs.contains {
+            $0.path.hasSuffix("/samples/DL46/savont/DL46.savont-clusters.fasta")
+        })
+    }
+
+    func testRunKeepsWorkflowIntermediatesAndRecordsCheckpointOptionsInProvenance() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-keep-intermediates-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (baseRequest, pipeline) = try makeFakeFullLengthRun(root: root)
+        let request = FullLengthONTMHCGenotypingRunRequest(
+            inputFASTQURLs: baseRequest.inputFASTQURLs,
+            referenceSourceURL: baseRequest.referenceSourceURL,
+            outputDirectory: baseRequest.outputDirectory,
+            outputName: baseRequest.outputName,
+            threads: baseRequest.threads,
+            minimumLength: baseRequest.minimumLength,
+            maximumLength: baseRequest.maximumLength,
+            keepIntermediates: true,
+            reuseCompatibleCheckpoints: true
+        )
+
+        _ = try await pipeline.run(request)
+
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: request.outputDirectory.appendingPathComponent("workflow", isDirectory: true).path
+            )
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: request.outputDirectory
+                    .appendingPathComponent(".full-length-ont-mhc/checkpoints/samples/DL46.json").path
+            )
+        )
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: request.provenanceURL))
+        XCTAssertEqual(envelope.options.defaults["keepIntermediates"]?.booleanValue, false)
+        XCTAssertEqual(envelope.options.defaults["reuseCompatibleCheckpoints"]?.booleanValue, false)
+        XCTAssertEqual(envelope.options.resolvedDefaults["keepIntermediates"]?.booleanValue, true)
+        XCTAssertEqual(envelope.options.resolvedDefaults["reuseCompatibleCheckpoints"]?.booleanValue, true)
+        XCTAssertEqual(envelope.options.explicit["keepIntermediates"]?.booleanValue, true)
+        XCTAssertEqual(envelope.options.explicit["reuseCompatibleCheckpoints"]?.booleanValue, true)
+    }
+
     func testRunUsesManagedBlastForMhcLikeRescueWhenPathDoesNotContainBlastn() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("full-length-ont-mhc-managed-blast-\(UUID().uuidString)", isDirectory: true)
