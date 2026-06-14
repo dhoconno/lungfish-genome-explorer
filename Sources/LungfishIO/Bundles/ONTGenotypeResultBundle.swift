@@ -5,6 +5,79 @@ public enum ONTGenotypeWorkbookRevisionRole: String, Codable, CaseIterable, Equa
     case imported
     case restored
     case externalEditSnapshot = "external-edit-snapshot"
+    case aiRefinement = "ai-refinement"
+}
+
+public enum ONTGenotypeHaplotypeAnalysisMethod: String, Codable, CaseIterable, Equatable, Sendable {
+    case deterministic
+    case aiDiscovery
+    case aiRefinement
+}
+
+public enum ONTGenotypeHaplotypeAnalysisReviewState: String, Codable, CaseIterable, Equatable, Sendable {
+    case unreviewed
+    case needsReview
+    case reviewed
+    case confirmed
+    case rejected
+}
+
+public struct ONTGenotypeHaplotypeAnalysisRevision: Codable, Equatable, Sendable {
+    public let id: String
+    public let method: ONTGenotypeHaplotypeAnalysisMethod
+    public let path: String
+    public let predecessorID: String?
+    public let predecessorPath: String?
+    public let createdAt: String
+    public let reviewState: ONTGenotypeHaplotypeAnalysisReviewState
+    public let sha256: String
+    public let sizeBytes: Int64
+    public let provenancePath: String
+    public let provider: String?
+    public let model: String?
+    public let promptTemplateID: String?
+    public let promptTemplateVersion: String?
+    public let promptHash: String?
+    public let evidenceSnapshotPath: String?
+    public let validationReportPath: String?
+
+    public init(
+        id: String,
+        method: ONTGenotypeHaplotypeAnalysisMethod,
+        path: String,
+        predecessorID: String? = nil,
+        predecessorPath: String? = nil,
+        createdAt: String,
+        reviewState: ONTGenotypeHaplotypeAnalysisReviewState,
+        sha256: String,
+        sizeBytes: Int64,
+        provenancePath: String,
+        provider: String? = nil,
+        model: String? = nil,
+        promptTemplateID: String? = nil,
+        promptTemplateVersion: String? = nil,
+        promptHash: String? = nil,
+        evidenceSnapshotPath: String? = nil,
+        validationReportPath: String? = nil
+    ) {
+        self.id = id
+        self.method = method
+        self.path = path
+        self.predecessorID = predecessorID
+        self.predecessorPath = predecessorPath
+        self.createdAt = createdAt
+        self.reviewState = reviewState
+        self.sha256 = sha256
+        self.sizeBytes = sizeBytes
+        self.provenancePath = provenancePath
+        self.provider = provider
+        self.model = model
+        self.promptTemplateID = promptTemplateID
+        self.promptTemplateVersion = promptTemplateVersion
+        self.promptHash = promptHash
+        self.evidenceSnapshotPath = evidenceSnapshotPath
+        self.validationReportPath = validationReportPath
+    }
 }
 
 public struct ONTGenotypeWorkbookRevision: Codable, Equatable, Sendable {
@@ -65,6 +138,8 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
     public let statsJSONPath: String
     public let provenancePath: String
     public let haplotypeAnalysisPath: String?
+    public let activeHaplotypeAnalysisRevisionID: String?
+    public let haplotypeAnalysisRevisions: [ONTGenotypeHaplotypeAnalysisRevision]?
     public let haplotypeDefinitionSetID: String?
     public let haplotypeAssayID: String?
     public let createdAt: String?
@@ -84,7 +159,9 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
         haplotypeAnalysisPath: String? = nil,
         haplotypeDefinitionSetID: String? = nil,
         haplotypeAssayID: String? = nil,
-        createdAt: String? = nil
+        createdAt: String? = nil,
+        activeHaplotypeAnalysisRevisionID: String? = nil,
+        haplotypeAnalysisRevisions: [ONTGenotypeHaplotypeAnalysisRevision]? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.kind = kind
@@ -98,9 +175,87 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
         self.statsJSONPath = statsJSONPath
         self.provenancePath = provenancePath
         self.haplotypeAnalysisPath = haplotypeAnalysisPath
+        self.activeHaplotypeAnalysisRevisionID = activeHaplotypeAnalysisRevisionID
+        self.haplotypeAnalysisRevisions = haplotypeAnalysisRevisions
         self.haplotypeDefinitionSetID = haplotypeDefinitionSetID
         self.haplotypeAssayID = haplotypeAssayID
         self.createdAt = createdAt
+    }
+
+    public init(
+        schemaVersion: Int = 1,
+        kind: String = "ont-barcode-genotype",
+        outputName: String,
+        analysisName: String,
+        primaryWorkbookPath: String,
+        currentWorkbookPath: String? = nil,
+        workbookRevisions: [ONTGenotypeWorkbookRevision]? = nil,
+        longSummaryCSVPath: String,
+        sampleSummaryCSVPath: String,
+        statsJSONPath: String,
+        provenancePath: String,
+        haplotypeAnalysisPath: String? = nil,
+        haplotypeDefinitionSetID: String? = nil,
+        haplotypeAssayID: String? = nil,
+        createdAt: String? = nil
+    ) {
+        self.init(
+            schemaVersion: schemaVersion,
+            kind: kind,
+            outputName: outputName,
+            analysisName: analysisName,
+            primaryWorkbookPath: primaryWorkbookPath,
+            currentWorkbookPath: currentWorkbookPath,
+            workbookRevisions: workbookRevisions,
+            longSummaryCSVPath: longSummaryCSVPath,
+            sampleSummaryCSVPath: sampleSummaryCSVPath,
+            statsJSONPath: statsJSONPath,
+            provenancePath: provenancePath,
+            haplotypeAnalysisPath: haplotypeAnalysisPath,
+            haplotypeDefinitionSetID: haplotypeDefinitionSetID,
+            haplotypeAssayID: haplotypeAssayID,
+            createdAt: createdAt,
+            activeHaplotypeAnalysisRevisionID: nil,
+            haplotypeAnalysisRevisions: nil
+        )
+    }
+
+    public init(
+        schemaVersion: Int = 1,
+        kind: String = "ont-barcode-genotype",
+        outputName: String,
+        analysisName: String,
+        primaryWorkbookPath: String,
+        longSummaryCSVPath: String,
+        sampleSummaryCSVPath: String,
+        statsJSONPath: String,
+        provenancePath: String,
+        haplotypeAnalysisPath: String? = nil,
+        haplotypeDefinitionSetID: String? = nil,
+        haplotypeAssayID: String? = nil,
+        createdAt: String? = nil,
+        activeHaplotypeAnalysisRevisionID: String? = nil,
+        haplotypeAnalysisRevisions: [ONTGenotypeHaplotypeAnalysisRevision]? = nil
+    ) {
+        self.init(
+            schemaVersion: schemaVersion,
+            kind: kind,
+            outputName: outputName,
+            analysisName: analysisName,
+            primaryWorkbookPath: primaryWorkbookPath,
+            currentWorkbookPath: nil,
+            workbookRevisions: nil,
+            longSummaryCSVPath: longSummaryCSVPath,
+            sampleSummaryCSVPath: sampleSummaryCSVPath,
+            statsJSONPath: statsJSONPath,
+            provenancePath: provenancePath,
+            haplotypeAnalysisPath: haplotypeAnalysisPath,
+            haplotypeDefinitionSetID: haplotypeDefinitionSetID,
+            haplotypeAssayID: haplotypeAssayID,
+            createdAt: createdAt,
+            activeHaplotypeAnalysisRevisionID: activeHaplotypeAnalysisRevisionID,
+            haplotypeAnalysisRevisions: haplotypeAnalysisRevisions
+        )
     }
 
     public init(
@@ -124,8 +279,6 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
             outputName: outputName,
             analysisName: analysisName,
             primaryWorkbookPath: primaryWorkbookPath,
-            currentWorkbookPath: nil,
-            workbookRevisions: nil,
             longSummaryCSVPath: longSummaryCSVPath,
             sampleSummaryCSVPath: sampleSummaryCSVPath,
             statsJSONPath: statsJSONPath,
@@ -133,7 +286,9 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
             haplotypeAnalysisPath: haplotypeAnalysisPath,
             haplotypeDefinitionSetID: haplotypeDefinitionSetID,
             haplotypeAssayID: haplotypeAssayID,
-            createdAt: createdAt
+            createdAt: createdAt,
+            activeHaplotypeAnalysisRevisionID: nil,
+            haplotypeAnalysisRevisions: nil
         )
     }
 }

@@ -377,6 +377,92 @@ public enum GenotypeHaplotypeCallStatus: String, Codable, Equatable, Sendable {
     case specialCase
 }
 
+public enum GenotypeHaplotypeAnalysisSource: String, Codable, Equatable, Sendable {
+    case legacy
+    case deterministic
+    case manual
+    case ai
+}
+
+public enum GenotypeHaplotypeAICallSourceState: String, Codable, Equatable, Sendable {
+    case raw
+    case deterministic
+    case manual
+    case current
+}
+
+public enum GenotypeHaplotypeAICallReviewState: String, Codable, Equatable, Sendable {
+    case needsReview
+    case reviewed
+    case confirmed
+    case rejected
+}
+
+public enum GenotypeHaplotypeAICallState: String, Codable, Equatable, Sendable {
+    case called
+    case novelCandidate = "novel_candidate"
+    case ambiguousTie = "ambiguous_tie"
+    case insufficientEvidence = "insufficient_evidence"
+    case lowSupportOrDropout = "low_support_or_dropout"
+    case conflictsCurrent = "conflicts_current"
+    case conflictsManual = "conflicts_manual"
+    case notAssayed = "not_assayed"
+    case outOfScope = "out_of_scope"
+    case unresolved
+}
+
+public enum GenotypeHaplotypeAIConfidenceTier: String, Codable, Equatable, Sendable {
+    case high
+    case medium
+    case low
+}
+
+public struct GenotypeHaplotypeAICallMetadata: Codable, Equatable, Sendable {
+    public let patchOpID: String
+    public let source: GenotypeHaplotypeAnalysisSource
+    public let sourceState: GenotypeHaplotypeAICallSourceState
+    public let reviewState: GenotypeHaplotypeAICallReviewState
+    public let callState: GenotypeHaplotypeAICallState
+    public let confidenceTier: GenotypeHaplotypeAIConfidenceTier
+    public let proposedHaplotypeLabel: String?
+    public let supportEvidenceRefs: [String]
+    public let counterevidenceRefs: [String]
+    public let alternates: [String]
+    public let rationaleCode: String
+    public let rationale: String
+    public let provenancePath: String
+
+    public init(
+        patchOpID: String,
+        source: GenotypeHaplotypeAnalysisSource,
+        sourceState: GenotypeHaplotypeAICallSourceState,
+        reviewState: GenotypeHaplotypeAICallReviewState,
+        callState: GenotypeHaplotypeAICallState,
+        confidenceTier: GenotypeHaplotypeAIConfidenceTier,
+        proposedHaplotypeLabel: String? = nil,
+        supportEvidenceRefs: [String],
+        counterevidenceRefs: [String],
+        alternates: [String],
+        rationaleCode: String,
+        rationale: String,
+        provenancePath: String
+    ) {
+        self.patchOpID = patchOpID
+        self.source = source
+        self.sourceState = sourceState
+        self.reviewState = reviewState
+        self.callState = callState
+        self.confidenceTier = confidenceTier
+        self.proposedHaplotypeLabel = proposedHaplotypeLabel
+        self.supportEvidenceRefs = supportEvidenceRefs
+        self.counterevidenceRefs = counterevidenceRefs
+        self.alternates = alternates
+        self.rationaleCode = rationaleCode
+        self.rationale = rationale
+        self.provenancePath = provenancePath
+    }
+}
+
 public struct GenotypeHaplotypeMatchedDefinition: Codable, Equatable, Sendable {
     public let name: String
     public let diagnosticAlleles: [String]
@@ -403,6 +489,31 @@ public struct GenotypeHaplotypeLocusCall: Codable, Equatable, Sendable {
     public let observedGenotypeCount: Int
     public let observedGenotypes: [String]
     public let notes: String
+    public let aiMetadata: GenotypeHaplotypeAICallMetadata?
+
+    public init(
+        locus: String,
+        sourceLocus: String,
+        haplotype1: String,
+        haplotype2: String,
+        status: GenotypeHaplotypeCallStatus,
+        matchedHaplotypes: [GenotypeHaplotypeMatchedDefinition],
+        observedGenotypeCount: Int,
+        observedGenotypes: [String],
+        notes: String = "",
+        aiMetadata: GenotypeHaplotypeAICallMetadata?
+    ) {
+        self.locus = locus
+        self.sourceLocus = sourceLocus
+        self.haplotype1 = haplotype1
+        self.haplotype2 = haplotype2
+        self.status = status
+        self.matchedHaplotypes = matchedHaplotypes
+        self.observedGenotypeCount = observedGenotypeCount
+        self.observedGenotypes = observedGenotypes
+        self.notes = notes
+        self.aiMetadata = aiMetadata
+    }
 
     public init(
         locus: String,
@@ -415,15 +526,18 @@ public struct GenotypeHaplotypeLocusCall: Codable, Equatable, Sendable {
         observedGenotypes: [String],
         notes: String = ""
     ) {
-        self.locus = locus
-        self.sourceLocus = sourceLocus
-        self.haplotype1 = haplotype1
-        self.haplotype2 = haplotype2
-        self.status = status
-        self.matchedHaplotypes = matchedHaplotypes
-        self.observedGenotypeCount = observedGenotypeCount
-        self.observedGenotypes = observedGenotypes
-        self.notes = notes
+        self.init(
+            locus: locus,
+            sourceLocus: sourceLocus,
+            haplotype1: haplotype1,
+            haplotype2: haplotype2,
+            status: status,
+            matchedHaplotypes: matchedHaplotypes,
+            observedGenotypeCount: observedGenotypeCount,
+            observedGenotypes: observedGenotypes,
+            notes: notes,
+            aiMetadata: nil
+        )
     }
 }
 
@@ -444,10 +558,35 @@ public struct GenotypeHaplotypeAnalysis: Codable, Equatable, Sendable {
     public let definitionSetName: String
     public let speciesName: String
     public let generatedAt: String?
+    public let analysisRevisionID: String?
+    public let source: GenotypeHaplotypeAnalysisSource
     public let samples: [GenotypeHaplotypeSampleAnalysis]
 
     private enum CodingKeys: String, CodingKey {
-        case schemaVersion, assayID, definitionSetID, definitionSetName, speciesName, generatedAt, samples
+        case schemaVersion, assayID, definitionSetID, definitionSetName, speciesName, generatedAt
+        case analysisRevisionID, source, samples
+    }
+
+    public init(
+        schemaVersion: Int = 1,
+        assayID: String,
+        definitionSetID: String,
+        definitionSetName: String,
+        speciesName: String,
+        generatedAt: String? = nil,
+        analysisRevisionID: String? = nil,
+        source: GenotypeHaplotypeAnalysisSource = .deterministic,
+        samples: [GenotypeHaplotypeSampleAnalysis]
+    ) {
+        self.schemaVersion = schemaVersion
+        self.assayID = assayID
+        self.definitionSetID = definitionSetID
+        self.definitionSetName = definitionSetName
+        self.speciesName = speciesName
+        self.generatedAt = generatedAt
+        self.analysisRevisionID = analysisRevisionID
+        self.source = source
+        self.samples = samples
     }
 
     public init(
@@ -459,13 +598,17 @@ public struct GenotypeHaplotypeAnalysis: Codable, Equatable, Sendable {
         generatedAt: String? = nil,
         samples: [GenotypeHaplotypeSampleAnalysis]
     ) {
-        self.schemaVersion = schemaVersion
-        self.assayID = assayID
-        self.definitionSetID = definitionSetID
-        self.definitionSetName = definitionSetName
-        self.speciesName = speciesName
-        self.generatedAt = generatedAt
-        self.samples = samples
+        self.init(
+            schemaVersion: schemaVersion,
+            assayID: assayID,
+            definitionSetID: definitionSetID,
+            definitionSetName: definitionSetName,
+            speciesName: speciesName,
+            generatedAt: generatedAt,
+            analysisRevisionID: nil,
+            source: .deterministic,
+            samples: samples
+        )
     }
 
     public init(from decoder: Decoder) throws {
@@ -478,6 +621,8 @@ public struct GenotypeHaplotypeAnalysis: Codable, Equatable, Sendable {
         self.definitionSetName = try container.decode(String.self, forKey: .definitionSetName)
         self.speciesName = try container.decode(String.self, forKey: .speciesName)
         self.generatedAt = try container.decodeIfPresent(String.self, forKey: .generatedAt)
+        self.analysisRevisionID = try container.decodeIfPresent(String.self, forKey: .analysisRevisionID)
+        self.source = try container.decodeIfPresent(GenotypeHaplotypeAnalysisSource.self, forKey: .source) ?? .legacy
         self.samples = try container.decode([GenotypeHaplotypeSampleAnalysis].self, forKey: .samples)
     }
 }

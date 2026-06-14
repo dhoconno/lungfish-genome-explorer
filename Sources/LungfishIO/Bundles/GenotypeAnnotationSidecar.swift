@@ -18,8 +18,17 @@ public struct GenotypeAnnotationSidecar: Codable, Equatable, Sendable {
     public var callStatusFlags: [CallStatusFlag]
     public var smartCohorts: [GenotypeCohortSmartFilter]
     public var manualHaplotypeAssignments: [ManualHaplotypeAssignment]
+    public var aiHaplotypeReviews: [AIHaplotypeReviewEntry]
+    public var activeAIHaplotypeReviewID: String?
     public var settings: Settings
     public var auditLog: [AuditEntry]
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, generatedAt, lastEditedAt, lastEditor
+        case callOverrides, cellHighlights, rowHighlights, sampleNotes, cellComments
+        case sampleStatusFlags, callStatusFlags, smartCohorts, manualHaplotypeAssignments
+        case aiHaplotypeReviews, activeAIHaplotypeReviewID, settings, auditLog
+    }
 
     public init(schemaVersion: Int, generatedAt: String,
                 lastEditedAt: String?, lastEditor: String?,
@@ -29,6 +38,8 @@ public struct GenotypeAnnotationSidecar: Codable, Equatable, Sendable {
                 sampleStatusFlags: [SampleStatusFlag], callStatusFlags: [CallStatusFlag],
                 smartCohorts: [GenotypeCohortSmartFilter],
                 manualHaplotypeAssignments: [ManualHaplotypeAssignment],
+                aiHaplotypeReviews: [AIHaplotypeReviewEntry] = [],
+                activeAIHaplotypeReviewID: String? = nil,
                 settings: Settings, auditLog: [AuditEntry]) {
         self.schemaVersion = schemaVersion
         self.generatedAt = generatedAt
@@ -43,8 +54,40 @@ public struct GenotypeAnnotationSidecar: Codable, Equatable, Sendable {
         self.callStatusFlags = callStatusFlags
         self.smartCohorts = smartCohorts
         self.manualHaplotypeAssignments = manualHaplotypeAssignments
+        self.aiHaplotypeReviews = aiHaplotypeReviews
+        self.activeAIHaplotypeReviewID = activeAIHaplotypeReviewID
         self.settings = settings
         self.auditLog = auditLog
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? Self.currentSchemaVersion
+        self.generatedAt = try container.decode(String.self, forKey: .generatedAt)
+        self.lastEditedAt = try container.decodeIfPresent(String.self, forKey: .lastEditedAt)
+        self.lastEditor = try container.decodeIfPresent(String.self, forKey: .lastEditor)
+        self.callOverrides = try container.decodeIfPresent([CallOverride].self, forKey: .callOverrides) ?? []
+        self.cellHighlights = try container.decodeIfPresent([CellHighlight].self, forKey: .cellHighlights) ?? []
+        self.rowHighlights = try container.decodeIfPresent([RowHighlight].self, forKey: .rowHighlights) ?? []
+        self.sampleNotes = try container.decodeIfPresent([SampleNote].self, forKey: .sampleNotes) ?? []
+        self.cellComments = try container.decodeIfPresent([CellComment].self, forKey: .cellComments) ?? []
+        self.sampleStatusFlags = try container.decodeIfPresent([SampleStatusFlag].self, forKey: .sampleStatusFlags) ?? []
+        self.callStatusFlags = try container.decodeIfPresent([CallStatusFlag].self, forKey: .callStatusFlags) ?? []
+        self.smartCohorts = try container.decodeIfPresent([GenotypeCohortSmartFilter].self, forKey: .smartCohorts) ?? []
+        self.manualHaplotypeAssignments = try container.decodeIfPresent(
+            [ManualHaplotypeAssignment].self,
+            forKey: .manualHaplotypeAssignments
+        ) ?? []
+        self.aiHaplotypeReviews = try container.decodeIfPresent(
+            [AIHaplotypeReviewEntry].self,
+            forKey: .aiHaplotypeReviews
+        ) ?? []
+        self.activeAIHaplotypeReviewID = try container.decodeIfPresent(
+            String.self,
+            forKey: .activeAIHaplotypeReviewID
+        )
+        self.settings = try container.decodeIfPresent(Settings.self, forKey: .settings) ?? .default
+        self.auditLog = try container.decodeIfPresent([AuditEntry].self, forKey: .auditLog) ?? []
     }
 
     public static func empty(generatedAt: String) -> GenotypeAnnotationSidecar {
@@ -55,6 +98,7 @@ public struct GenotypeAnnotationSidecar: Codable, Equatable, Sendable {
             sampleNotes: [], cellComments: [],
             sampleStatusFlags: [], callStatusFlags: [],
             smartCohorts: [], manualHaplotypeAssignments: [],
+            aiHaplotypeReviews: [], activeAIHaplotypeReviewID: nil,
             settings: .default, auditLog: []
         )
     }
@@ -258,6 +302,95 @@ public extension GenotypeAnnotationSidecar {
             self.value = value
             self.author = author
             self.timestamp = timestamp
+        }
+    }
+
+    enum AIHaplotypeReviewSource: String, Codable, Equatable, Sendable {
+        case ai
+    }
+
+    enum AIHaplotypeReviewerDecision: String, Codable, Equatable, Sendable, CaseIterable {
+        case needsReview
+        case reviewed
+        case confirmed
+        case rejected
+        case editedManually = "edited-manually"
+    }
+
+    struct AIHaplotypeCallReview: Codable, Equatable, Sendable {
+        public let sample: String
+        public let locus: String
+        public let slot: HaplotypeSlot
+        public let callState: GenotypeHaplotypeAICallState
+        public let confidenceTier: GenotypeHaplotypeAIConfidenceTier
+        public let supportEvidenceRefs: [String]
+        public let counterevidenceRefs: [String]
+        public let reviewerDecision: AIHaplotypeReviewerDecision
+        public let reviewer: String?
+        public let reviewedAt: String?
+        public let provenancePath: String
+
+        public init(
+            sample: String,
+            locus: String,
+            slot: HaplotypeSlot,
+            callState: GenotypeHaplotypeAICallState,
+            confidenceTier: GenotypeHaplotypeAIConfidenceTier,
+            supportEvidenceRefs: [String],
+            counterevidenceRefs: [String],
+            reviewerDecision: AIHaplotypeReviewerDecision,
+            reviewer: String?,
+            reviewedAt: String?,
+            provenancePath: String
+        ) {
+            self.sample = sample
+            self.locus = locus
+            self.slot = slot
+            self.callState = callState
+            self.confidenceTier = confidenceTier
+            self.supportEvidenceRefs = supportEvidenceRefs
+            self.counterevidenceRefs = counterevidenceRefs
+            self.reviewerDecision = reviewerDecision
+            self.reviewer = reviewer
+            self.reviewedAt = reviewedAt
+            self.provenancePath = provenancePath
+        }
+    }
+
+    struct AIHaplotypeReviewEntry: Codable, Equatable, Sendable {
+        public let id: String
+        public let analysisRevisionID: String
+        public let createdAt: String
+        public let source: AIHaplotypeReviewSource
+        public let reviewState: ONTGenotypeHaplotypeAnalysisReviewState
+        public let callReviews: [AIHaplotypeCallReview]
+        public let evidenceSnapshotPath: String
+        public let callsPath: String
+        public let validationReportPath: String
+        public let provenancePath: String
+
+        public init(
+            id: String,
+            analysisRevisionID: String,
+            createdAt: String,
+            source: AIHaplotypeReviewSource,
+            reviewState: ONTGenotypeHaplotypeAnalysisReviewState,
+            callReviews: [AIHaplotypeCallReview],
+            evidenceSnapshotPath: String,
+            callsPath: String,
+            validationReportPath: String,
+            provenancePath: String
+        ) {
+            self.id = id
+            self.analysisRevisionID = analysisRevisionID
+            self.createdAt = createdAt
+            self.source = source
+            self.reviewState = reviewState
+            self.callReviews = callReviews
+            self.evidenceSnapshotPath = evidenceSnapshotPath
+            self.callsPath = callsPath
+            self.validationReportPath = validationReportPath
+            self.provenancePath = provenancePath
         }
     }
 

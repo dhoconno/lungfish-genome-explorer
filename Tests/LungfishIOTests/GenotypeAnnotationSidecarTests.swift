@@ -23,6 +23,76 @@ final class GenotypeAnnotationSidecarTests: XCTestCase {
         XCTAssertEqual(decoded.callOverrides[0].overrideCall, "A1_063")
     }
 
+    func testAIHaplotypeReviewEntryRoundTripsWithoutHumanOverrides() throws {
+        let callReview = GenotypeAnnotationSidecar.AIHaplotypeCallReview(
+            sample: "DW472",
+            locus: "MHC-A",
+            slot: .h1,
+            callState: .novelCandidate,
+            confidenceTier: .medium,
+            supportEvidenceRefs: ["obs:DW472:MHC-A:M1A"],
+            counterevidenceRefs: ["dropout:DW472:MHC-A:M2A"],
+            reviewerDecision: .needsReview,
+            reviewer: nil,
+            reviewedAt: nil,
+            provenancePath: "artifacts/ai-haplotyping/provenance/ai-refine.lungfish-provenance.json"
+        )
+        let review = GenotypeAnnotationSidecar.AIHaplotypeReviewEntry(
+            id: "airev-0001",
+            analysisRevisionID: "haprev-ai-0001",
+            createdAt: "2026-06-14T18:00:00Z",
+            source: .ai,
+            reviewState: .needsReview,
+            callReviews: [callReview],
+            evidenceSnapshotPath: "artifacts/ai-haplotyping/evidence/evidence.json",
+            callsPath: "artifacts/ai-haplotyping/calls/calls.json",
+            validationReportPath: "artifacts/ai-haplotyping/validation/report.json",
+            provenancePath: "artifacts/ai-haplotyping/provenance/ai-refine.lungfish-provenance.json"
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-06-14T17:00:00Z")
+        sidecar.activeAIHaplotypeReviewID = review.id
+        sidecar.aiHaplotypeReviews = [review]
+
+        let decoded = try GenotypeAnnotationSidecar.decode(try sidecar.encoded())
+
+        XCTAssertEqual(decoded.activeAIHaplotypeReviewID, "airev-0001")
+        XCTAssertEqual(decoded.aiHaplotypeReviews, [review])
+        XCTAssertTrue(decoded.callOverrides.isEmpty)
+        XCTAssertTrue(decoded.manualHaplotypeAssignments.isEmpty)
+    }
+
+    func testLegacySidecarDecodesWithEmptyAIHaplotypeReviewFields() throws {
+        let json = """
+        {
+          "schemaVersion": 1,
+          "generatedAt": "2026-05-22T00:00:00Z",
+          "callOverrides": [],
+          "cellHighlights": [],
+          "rowHighlights": [],
+          "sampleNotes": [],
+          "cellComments": [],
+          "sampleStatusFlags": [],
+          "callStatusFlags": [],
+          "smartCohorts": [],
+          "manualHaplotypeAssignments": [],
+          "settings": {
+            "viewMode": "outline",
+            "panelLayout": "aLeading",
+            "cardDensity": "auto",
+            "cardDensityThreshold": 30,
+            "dropoutAbsolute": 50,
+            "dropoutLocusFraction": 0.01
+          },
+          "auditLog": []
+        }
+        """.data(using: .utf8)!
+
+        let decoded = try GenotypeAnnotationSidecar.decode(json)
+
+        XCTAssertTrue(decoded.aiHaplotypeReviews.isEmpty)
+        XCTAssertNil(decoded.activeAIHaplotypeReviewID)
+    }
+
     func testOverrideReasonTagsUseReviewInspectorVocabulary() {
         let rawValues = GenotypeAnnotationSidecar.OverrideReasonTag.allCases.map(\.rawValue)
         XCTAssertEqual(rawValues, [
