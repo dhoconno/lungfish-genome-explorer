@@ -19,6 +19,9 @@ public enum AIHaplotypingValidationError: Codable, Error, Equatable, Sendable {
     case conflictsManualReview(String, String, String)
     case missingCurrentConflict(String, String, String)
     case missingManualConflict(String, String, String)
+    case missingCurrentCarryForward(String, String, String)
+    case missingManualCarryForward(String, String, String)
+    case retainCurrentMismatch(String, String, String)
     case unsupportedDuplicateSlotLabel(String, String, String)
     case duplicateDiscoveredDefinition(String)
     case provisionalDefinitionCollision(String)
@@ -47,6 +50,9 @@ public enum AIHaplotypingValidationError: Codable, Error, Equatable, Sendable {
         case .conflictsManualReview: return "conflicts_manual_review"
         case .missingCurrentConflict: return "missing_current_conflict"
         case .missingManualConflict: return "missing_manual_conflict"
+        case .missingCurrentCarryForward: return "missing_current_carry_forward"
+        case .missingManualCarryForward: return "missing_manual_carry_forward"
+        case .retainCurrentMismatch: return "retain_current_mismatch"
         case .unsupportedDuplicateSlotLabel: return "unsupported_duplicate_slot_label"
         case .duplicateDiscoveredDefinition: return "duplicate_discovered_definition"
         case .provisionalDefinitionCollision: return "provisional_definition_collision"
@@ -74,7 +80,10 @@ public enum AIHaplotypingValidationError: Codable, Error, Equatable, Sendable {
              .conflictsCurrentCall(let sample, let locus, let slot),
              .conflictsManualReview(let sample, let locus, let slot),
              .missingCurrentConflict(let sample, let locus, let slot),
-             .missingManualConflict(let sample, let locus, let slot):
+             .missingManualConflict(let sample, let locus, let slot),
+             .missingCurrentCarryForward(let sample, let locus, let slot),
+             .missingManualCarryForward(let sample, let locus, let slot),
+             .retainCurrentMismatch(let sample, let locus, let slot):
             return ["sample": sample, "locus": locus, "slot": slot]
         case .missingCounterevidence(let patchOpID),
              .missingSupportEvidence(let patchOpID):
@@ -134,6 +143,12 @@ public enum AIHaplotypingValidationError: Codable, Error, Equatable, Sendable {
             return "Structured call marks conflictsCurrent for \(sample) \(locus) \(slot) without an actual current-call conflict."
         case .missingManualConflict(let sample, let locus, let slot):
             return "Structured call marks conflictsManual for \(sample) \(locus) \(slot) without an actual manual-review conflict."
+        case .missingCurrentCarryForward(let sample, let locus, let slot):
+            return "Structured call marks retainCurrent for \(sample) \(locus) \(slot) without an existing current call to carry forward."
+        case .missingManualCarryForward(let sample, let locus, let slot):
+            return "Structured call marks retainCurrent for \(sample) \(locus) \(slot) without an existing manual review to carry forward."
+        case .retainCurrentMismatch(let sample, let locus, let slot):
+            return "Structured call marks retainCurrent for \(sample) \(locus) \(slot) but does not match the carried-forward label."
         case .unsupportedDuplicateSlotLabel(let sample, let locus, let label):
             return "Structured result proposes duplicate label '\(label)' across slots for \(sample) \(locus)."
         case .duplicateDiscoveredDefinition(let definitionID):
@@ -203,6 +218,12 @@ public enum AIHaplotypingValidationError: Codable, Error, Equatable, Sendable {
             self = .missingCurrentConflict(try field("sample"), try field("locus"), try field("slot"))
         case "missing_manual_conflict":
             self = .missingManualConflict(try field("sample"), try field("locus"), try field("slot"))
+        case "missing_current_carry_forward":
+            self = .missingCurrentCarryForward(try field("sample"), try field("locus"), try field("slot"))
+        case "missing_manual_carry_forward":
+            self = .missingManualCarryForward(try field("sample"), try field("locus"), try field("slot"))
+        case "retain_current_mismatch":
+            self = .retainCurrentMismatch(try field("sample"), try field("locus"), try field("slot"))
         case "unsupported_duplicate_slot_label":
             self = .unsupportedDuplicateSlotLabel(try field("sample"), try field("locus"), try field("label"))
         case "duplicate_discovered_definition":
@@ -348,8 +369,9 @@ public struct AIHaplotypingPatchValidator: Sendable {
              .lowSupportOrDropout,
              .conflictsCurrent,
              .conflictsManual,
+             .retainCurrent,
              .unresolved:
-            return .noHaplotype
+            return callState == .retainCurrent ? .called : .noHaplotype
         case .notAssayed, .outOfScope:
             return .notAssayed
         }
@@ -465,6 +487,12 @@ public struct AIHaplotypingPatchValidator: Sendable {
             }
 
             let target = CallTarget(sample: call.sample, locus: call.locus, slot: call.slot)
+            if call.callState == .retainCurrent {
+                if let error = retainCurrentValidationError(for: call, target: target, context: context) {
+                    return error
+                }
+                continue
+            }
             if let manualReview = context.manualReviews[target] {
                 let manualConflict = isConflict(
                     existingLabel: manualReview.overrideCall,
@@ -563,11 +591,45 @@ public struct AIHaplotypingPatchValidator: Sendable {
              .lowSupportOrDropout,
              .conflictsCurrent,
              .conflictsManual,
+             .retainCurrent,
              .notAssayed,
              .outOfScope,
              .unresolved:
             return false
         }
+    }
+
+    private func retainCurrentValidationError(
+        for call: AIHaplotypingStructuredCall,
+        target: CallTarget,
+        context: ValidationContext
+    ) -> AIHaplotypingValidationError? {
+        guard context.mode == .aiRefinement else {
+            return .invalidSource(call.callState.rawValue)
+        }
+        let carriedForwardLabel: String
+        switch call.sourceState {
+        case .current, .deterministic:
+            guard let current = context.currentCalls[target] else {
+                return .missingCurrentCarryForward(call.sample, call.locus, call.slot)
+            }
+            carriedForwardLabel = current.haplotypeLabel
+        case .manual:
+            guard let manual = context.manualReviews[target] else {
+                return .missingManualCarryForward(call.sample, call.locus, call.slot)
+            }
+            carriedForwardLabel = manual.overrideCall
+        case .raw:
+            return .invalidSource(call.sourceState.rawValue)
+        }
+        guard normalizedCarryForwardLabel(carriedForwardLabel) == normalizedCarryForwardLabel(call.haplotypeLabel) else {
+            return .retainCurrentMismatch(call.sample, call.locus, call.slot)
+        }
+        return nil
+    }
+
+    private func normalizedCarryForwardLabel(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func rejected(
@@ -674,6 +736,7 @@ public struct AIHaplotypingPatchValidator: Sendable {
 }
 
 private struct ValidationContext: Sendable {
+    let mode: AIHaplotypingPromptMode
     let samples: Set<String>
     let loci: Set<String>
     let evidenceByID: [String: EvidenceRecord]
@@ -681,6 +744,7 @@ private struct ValidationContext: Sendable {
     let manualReviews: [CallTarget: ManualReviewEvidence]
 
     init(registry: AIHaplotypingEvidenceRegistry) {
+        mode = registry.mode
         samples = Set(registry.samples.map(\.sample))
         loci = Set(registry.loci.map(\.locus))
         let samplesByID = Dictionary(uniqueKeysWithValues: registry.samples.map { ($0.id, $0.sample) })

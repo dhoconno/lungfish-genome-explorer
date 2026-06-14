@@ -86,8 +86,8 @@ final class GenotypeAIHaplotypeRevisionTests: XCTestCase {
     }
 
     func testAIHaplotypeCallMetadataRoundTripsOnAnalysis() throws {
-        let metadata = GenotypeHaplotypeAICallMetadata(
-            patchOpID: "patch-call-001",
+        let h1Metadata = GenotypeHaplotypeAICallMetadata(
+            patchOpID: "patch-call-h1",
             source: .ai,
             sourceState: .deterministic,
             reviewState: .needsReview,
@@ -101,6 +101,21 @@ final class GenotypeAIHaplotypeRevisionTests: XCTestCase {
             rationale: "Repeated cohort support with one dropout signal.",
             provenancePath: "artifacts/ai-haplotyping/provenance/ai-refine.lungfish-provenance.json"
         )
+        let h2Metadata = GenotypeHaplotypeAICallMetadata(
+            patchOpID: "patch-call-h2",
+            source: .ai,
+            sourceState: .manual,
+            reviewState: .needsReview,
+            callState: .retainCurrent,
+            confidenceTier: .high,
+            proposedHaplotypeLabel: "M2A",
+            supportEvidenceRefs: ["manual:DW472:MHC-A:h2"],
+            counterevidenceRefs: ["sample:DW472"],
+            alternates: [],
+            rationaleCode: "retain_manual_review",
+            rationale: "Manual review remains the active call.",
+            provenancePath: "artifacts/ai-haplotyping/provenance/ai-refine.lungfish-provenance.json"
+        )
         let call = GenotypeHaplotypeLocusCall(
             locus: "MHC-A",
             sourceLocus: "MHC-A",
@@ -111,7 +126,11 @@ final class GenotypeAIHaplotypeRevisionTests: XCTestCase {
             observedGenotypeCount: 2,
             observedGenotypes: ["M1A", "M2A"],
             notes: "AI review required",
-            aiMetadata: metadata
+            aiMetadata: h1Metadata,
+            aiSlotMetadata: [
+                GenotypeHaplotypeAISlotMetadata(slot: .h1, metadata: h1Metadata),
+                GenotypeHaplotypeAISlotMetadata(slot: .h2, metadata: h2Metadata),
+            ]
         )
         let analysis = GenotypeHaplotypeAnalysis(
             schemaVersion: 2,
@@ -131,7 +150,10 @@ final class GenotypeAIHaplotypeRevisionTests: XCTestCase {
         XCTAssertEqual(decoded.schemaVersion, 2)
         XCTAssertEqual(decoded.analysisRevisionID, "haprev-ai-0001")
         XCTAssertEqual(decoded.source, .ai)
-        XCTAssertEqual(decoded.samples[0].calls[0].aiMetadata, metadata)
+        XCTAssertEqual(decoded.samples[0].calls[0].aiMetadata, h1Metadata)
+        XCTAssertEqual(decoded.samples[0].calls[0].aiSlotMetadata.map(\.slot), [.h1, .h2])
+        XCTAssertEqual(decoded.samples[0].calls[0].aiSlotMetadata[0].metadata, h1Metadata)
+        XCTAssertEqual(decoded.samples[0].calls[0].aiSlotMetadata[1].metadata, h2Metadata)
     }
 
     func testAIHaplotypeSourceEnumsCoverManualAndCurrentEvidenceStates() throws {
@@ -140,6 +162,7 @@ final class GenotypeAIHaplotypeRevisionTests: XCTestCase {
         XCTAssertEqual(GenotypeHaplotypeAICallSourceState.deterministic.rawValue, "deterministic")
         XCTAssertEqual(GenotypeHaplotypeAICallSourceState.manual.rawValue, "manual")
         XCTAssertEqual(GenotypeHaplotypeAICallSourceState.current.rawValue, "current")
+        XCTAssertEqual(GenotypeHaplotypeAICallState.retainCurrent.rawValue, "retain_current")
     }
 
     func testLegacyHaplotypeAnalysisDecodesWithLegacySourceDefaults() throws {

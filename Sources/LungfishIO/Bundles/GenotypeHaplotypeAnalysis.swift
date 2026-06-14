@@ -406,6 +406,7 @@ public enum GenotypeHaplotypeAICallState: String, Codable, Equatable, Sendable {
     case lowSupportOrDropout = "low_support_or_dropout"
     case conflictsCurrent = "conflicts_current"
     case conflictsManual = "conflicts_manual"
+    case retainCurrent = "retain_current"
     case notAssayed = "not_assayed"
     case outOfScope = "out_of_scope"
     case unresolved
@@ -463,6 +464,16 @@ public struct GenotypeHaplotypeAICallMetadata: Codable, Equatable, Sendable {
     }
 }
 
+public struct GenotypeHaplotypeAISlotMetadata: Codable, Equatable, Sendable {
+    public let slot: HaplotypeSlot
+    public let metadata: GenotypeHaplotypeAICallMetadata
+
+    public init(slot: HaplotypeSlot, metadata: GenotypeHaplotypeAICallMetadata) {
+        self.slot = slot
+        self.metadata = metadata
+    }
+}
+
 public struct GenotypeHaplotypeMatchedDefinition: Codable, Equatable, Sendable {
     public let name: String
     public let diagnosticAlleles: [String]
@@ -490,6 +501,21 @@ public struct GenotypeHaplotypeLocusCall: Codable, Equatable, Sendable {
     public let observedGenotypes: [String]
     public let notes: String
     public let aiMetadata: GenotypeHaplotypeAICallMetadata?
+    public let aiSlotMetadata: [GenotypeHaplotypeAISlotMetadata]
+
+    private enum CodingKeys: String, CodingKey {
+        case locus
+        case sourceLocus
+        case haplotype1
+        case haplotype2
+        case status
+        case matchedHaplotypes
+        case observedGenotypeCount
+        case observedGenotypes
+        case notes
+        case aiMetadata
+        case aiSlotMetadata
+    }
 
     public init(
         locus: String,
@@ -501,7 +527,8 @@ public struct GenotypeHaplotypeLocusCall: Codable, Equatable, Sendable {
         observedGenotypeCount: Int,
         observedGenotypes: [String],
         notes: String = "",
-        aiMetadata: GenotypeHaplotypeAICallMetadata?
+        aiMetadata: GenotypeHaplotypeAICallMetadata?,
+        aiSlotMetadata: [GenotypeHaplotypeAISlotMetadata] = []
     ) {
         self.locus = locus
         self.sourceLocus = sourceLocus
@@ -513,6 +540,7 @@ public struct GenotypeHaplotypeLocusCall: Codable, Equatable, Sendable {
         self.observedGenotypes = observedGenotypes
         self.notes = notes
         self.aiMetadata = aiMetadata
+        self.aiSlotMetadata = aiSlotMetadata
     }
 
     public init(
@@ -536,8 +564,30 @@ public struct GenotypeHaplotypeLocusCall: Codable, Equatable, Sendable {
             observedGenotypeCount: observedGenotypeCount,
             observedGenotypes: observedGenotypes,
             notes: notes,
-            aiMetadata: nil
+            aiMetadata: nil,
+            aiSlotMetadata: []
         )
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.locus = try container.decode(String.self, forKey: .locus)
+        self.sourceLocus = try container.decode(String.self, forKey: .sourceLocus)
+        self.haplotype1 = try container.decode(String.self, forKey: .haplotype1)
+        self.haplotype2 = try container.decode(String.self, forKey: .haplotype2)
+        self.status = try container.decode(GenotypeHaplotypeCallStatus.self, forKey: .status)
+        self.matchedHaplotypes = try container.decode(
+            [GenotypeHaplotypeMatchedDefinition].self,
+            forKey: .matchedHaplotypes
+        )
+        self.observedGenotypeCount = try container.decode(Int.self, forKey: .observedGenotypeCount)
+        self.observedGenotypes = try container.decode([String].self, forKey: .observedGenotypes)
+        self.notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        self.aiMetadata = try container.decodeIfPresent(GenotypeHaplotypeAICallMetadata.self, forKey: .aiMetadata)
+        self.aiSlotMetadata = try container.decodeIfPresent(
+            [GenotypeHaplotypeAISlotMetadata].self,
+            forKey: .aiSlotMetadata
+        ) ?? []
     }
 }
 

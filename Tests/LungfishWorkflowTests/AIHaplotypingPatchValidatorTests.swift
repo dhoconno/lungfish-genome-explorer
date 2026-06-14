@@ -297,6 +297,73 @@ final class AIHaplotypingPatchValidatorTests: XCTestCase {
         XCTAssertEqual(report.normalizedCalls[0].primaryHaplotypeLabel, "Manual-M8B")
     }
 
+    func testRetainCurrentIsCarryForwardOnly() throws {
+        let registry = makeRegistry()
+
+        let retainedCurrent = AIHaplotypingPatchValidator(registry: registry).validate(makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    sourceState: .current,
+                    callState: .retainCurrent,
+                    supportEvidenceRefs: ["current:DW472:MHC-B:h1"],
+                    counterevidenceRefs: ["sample:DW472"]
+                )
+            ]
+        ))
+        XCTAssertTrue(retainedCurrent.accepted)
+        XCTAssertEqual(retainedCurrent.normalizedCalls[0].status, .called)
+        XCTAssertNil(retainedCurrent.normalizedCalls[0].primaryHaplotypeLabel)
+        XCTAssertEqual(retainedCurrent.normalizedCalls[0].proposedHaplotypeLabel, "M9B")
+        XCTAssertEqual(retainedCurrent.normalizedCalls[0].aiMetadata.callState, .retainCurrent)
+
+        let retainedManual = AIHaplotypingPatchValidator(registry: registry).validate(makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    slot: "h2",
+                    haplotypeLabel: "Manual-M7B",
+                    sourceState: .manual,
+                    callState: .retainCurrent,
+                    supportEvidenceRefs: ["manual:DW472:MHC-B:h2"],
+                    counterevidenceRefs: ["sample:DW472"]
+                )
+            ]
+        ))
+        XCTAssertTrue(retainedManual.accepted)
+        XCTAssertNil(retainedManual.normalizedCalls[0].primaryHaplotypeLabel)
+
+        let missingCarryForward = AIHaplotypingPatchValidator(registry: registry).validate(makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    sample: "DW473",
+                    locus: "MHC-A",
+                    haplotypeLabel: "M7A",
+                    sourceState: .current,
+                    callState: .retainCurrent,
+                    supportEvidenceRefs: ["obs:DW473:MHC-A:12_M7_A_001_01"],
+                    counterevidenceRefs: ["sample:DW473"]
+                )
+            ]
+        ))
+        XCTAssertEqual(missingCarryForward.errors, [.missingCurrentCarryForward("DW473", "MHC-A", "h1")])
+
+        let mismatchedCarryForward = AIHaplotypingPatchValidator(registry: registry).validate(makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    haplotypeLabel: "M8B",
+                    sourceState: .current,
+                    callState: .retainCurrent,
+                    supportEvidenceRefs: ["current:DW472:MHC-B:h1"],
+                    counterevidenceRefs: ["sample:DW472"]
+                )
+            ]
+        ))
+        XCTAssertEqual(mismatchedCarryForward.errors, [.retainCurrentMismatch("DW472", "MHC-B", "h1")])
+    }
+
     func testRejectsConflictStatesWithoutActualConflictEvidence() throws {
         let registry = makeRegistry()
 
@@ -366,6 +433,7 @@ final class AIHaplotypingPatchValidatorTests: XCTestCase {
         XCTAssertEqual(AIHaplotypingPatchValidator.haplotypeStatus(for: .lowSupportOrDropout), .noHaplotype)
         XCTAssertEqual(AIHaplotypingPatchValidator.haplotypeStatus(for: .conflictsCurrent), .noHaplotype)
         XCTAssertEqual(AIHaplotypingPatchValidator.haplotypeStatus(for: .conflictsManual), .noHaplotype)
+        XCTAssertEqual(AIHaplotypingPatchValidator.haplotypeStatus(for: .retainCurrent), .called)
         XCTAssertEqual(AIHaplotypingPatchValidator.haplotypeStatus(for: .unresolved), .noHaplotype)
         XCTAssertEqual(AIHaplotypingPatchValidator.haplotypeStatus(for: .notAssayed), .notAssayed)
         XCTAssertEqual(AIHaplotypingPatchValidator.haplotypeStatus(for: .outOfScope), .notAssayed)
