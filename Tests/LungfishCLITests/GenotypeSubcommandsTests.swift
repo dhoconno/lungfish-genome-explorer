@@ -17,7 +17,7 @@ final class GenotypeSubcommandsTests: XCTestCase {
         XCTAssertEqual(
             Set(names),
             [
-                "list-samples", "list-cohorts", "apply-annotations",
+                "list-samples", "list-cohorts", "ai-haplotyping", "apply-annotations",
                 "export", "export-xlsx", "export-pivot-xlsx", "export-labkey"
             ]
         )
@@ -41,6 +41,41 @@ final class GenotypeSubcommandsTests: XCTestCase {
             "--bundle", "/tmp/example.lungfishgenotype",
         ])
         XCTAssertEqual(command.bundle, "/tmp/example.lungfishgenotype")
+    }
+
+    func testAIHaplotypingParsesModeProviderAndPromptPin() throws {
+        let command = try GenotypeAIHaplotypingSubcommand.parse([
+            "--bundle", "/tmp/example.lungfishgenotype",
+            "--mode", "ai-discovery",
+            "--provider", "openai",
+            "--model", "gpt-5-mini",
+            "--prompt-template-id", "lungfish.ai-haplotyping.discovery",
+            "--prompt-template-version", "2026-06-14.1",
+            "--max-observations-per-chunk", "64",
+            "--max-output-tokens", "2048",
+            "--temperature", "0",
+        ])
+
+        XCTAssertEqual(command.bundle, "/tmp/example.lungfishgenotype")
+        XCTAssertEqual(command.mode, .aiDiscovery)
+        XCTAssertEqual(command.provider, .openAI)
+        XCTAssertEqual(command.model, "gpt-5-mini")
+        XCTAssertEqual(command.promptTemplateID, "lungfish.ai-haplotyping.discovery")
+        XCTAssertEqual(command.promptTemplateVersion, "2026-06-14.1")
+        XCTAssertEqual(command.maxObservationsPerChunk, 64)
+        XCTAssertEqual(command.maxOutputTokens, 2048)
+        XCTAssertEqual(command.temperature, 0)
+    }
+
+    func testAIHaplotypingRequiresPromptTemplateIDAndVersionTogether() {
+        XCTAssertThrowsError(try GenotypeAIHaplotypingSubcommand.parse([
+            "--bundle", "/tmp/example.lungfishgenotype",
+            "--prompt-template-id", "lungfish.ai-haplotyping.discovery",
+        ]).validate())
+        XCTAssertThrowsError(try GenotypeAIHaplotypingSubcommand.parse([
+            "--bundle", "/tmp/example.lungfishgenotype",
+            "--prompt-template-version", "2026-06-14.1",
+        ]).validate())
     }
 
     func testApplyAnnotationsParsesBundleAndPatch() throws {

@@ -18,6 +18,25 @@ final class GenotypeActiveHaplotypeAnalysisResolverTests: XCTestCase {
         let mhcA = try XCTUnwrap(active.samples.first { $0.sample == "S1" }?.calls.first { $0.locus == "MHC-A" })
         XCTAssertEqual(mhcA.haplotype1, "AI-M9A")
     }
+
+    func testPersistedAIAnalysisWinsOverStaleSidecarDefinitionOverride() throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        var sidecar = fixture.sidecar
+        sidecar.settings.activeHaplotypeDefinitionSetID = "deterministic-defs"
+        sidecar.settings.activeHaplotypeAssayID = "assay"
+
+        let active = try XCTUnwrap(GenotypeActiveHaplotypeAnalysisResolver.activeAnalysis(
+            for: fixture.result,
+            bundleURL: fixture.result.bundleURL,
+            sidecar: sidecar
+        ))
+
+        XCTAssertEqual(active.source, .ai)
+        XCTAssertEqual(active.analysisRevisionID, "haprev-ai-0001")
+        let mhcA = try XCTUnwrap(active.samples.first { $0.sample == "S1" }?.calls.first { $0.locus == "MHC-A" })
+        XCTAssertEqual(mhcA.haplotype1, "AI-M9A")
+    }
 }
 
 private extension GenotypeActiveHaplotypeAnalysisResolverTests {

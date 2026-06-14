@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import LungfishCore
 import LungfishIO
 
@@ -180,6 +181,8 @@ public struct AIHaplotypingRevisionPublisher {
                 request: request,
                 revisionDirectory: revisionDirectory,
                 paths: paths,
+                originalManifest: originalManifest,
+                sidecarSnapshot: sidecarSnapshot,
                 sidecarURL: request.sidecarURL,
                 startedAt: request.context.startedAt,
                 completedAt: dateProvider()
@@ -227,9 +230,13 @@ public struct AIHaplotypingRevisionPublisher {
             id: revisionID,
             method: request.runnerOutput.mode == .aiRefinement ? .aiRefinement : .aiDiscovery,
             path: analysisPath,
-            predecessorID: request.result.manifest.activeHaplotypeAnalysisRevisionID
-                ?? request.result.haplotypeAnalysis?.analysisRevisionID,
-            predecessorPath: request.result.manifest.haplotypeAnalysisPath,
+            predecessorID: request.runnerOutput.mode == .aiRefinement
+                ? request.result.manifest.activeHaplotypeAnalysisRevisionID
+                    ?? request.result.haplotypeAnalysis?.analysisRevisionID
+                : nil,
+            predecessorPath: request.runnerOutput.mode == .aiRefinement
+                ? request.result.manifest.haplotypeAnalysisPath
+                : nil,
             createdAt: isoString(dateProvider()),
             reviewState: .needsReview,
             sha256: try ProvenanceFileHasher.sha256(of: analysisURL),
@@ -323,7 +330,7 @@ public struct AIHaplotypingRevisionPublisher {
         output: AIHaplotypingRunnerOutput,
         calls: [AIHaplotypingValidatedCall]
     ) throws -> GenotypeHaplotypeAnalysis {
-        let predecessor = result.haplotypeAnalysis
+        let predecessor = output.mode == .aiRefinement ? result.haplotypeAnalysis : nil
         var callsBySample: [String: [String: GenotypeHaplotypeLocusCall]] = [:]
         var sampleOrder: [String] = []
         var lociBySampleOrder: [String: [String]] = [:]
@@ -523,16 +530,33 @@ public struct AIHaplotypingRevisionPublisher {
         request: AIHaplotypingRevisionPublishRequest,
         revisionDirectory: URL,
         paths: RevisionPaths,
+        originalManifest: Data,
+        sidecarSnapshot: (url: URL, data: Data?, existed: Bool)?,
         sidecarURL: URL?,
         startedAt: Date,
         completedAt: Date
     ) throws -> ProvenanceEnvelope {
-        let inputs = try [
+        var inputs = [
+            provenanceDescriptor(
+                url: ONTGenotypeResultBundle.manifestURL(in: request.bundleURL),
+                data: originalManifest,
+                format: .json,
+                role: .input
+            )
+        ]
+        if let sidecarSnapshot, sidecarSnapshot.existed, let data = sidecarSnapshot.data {
+            inputs.append(provenanceDescriptor(
+                url: sidecarSnapshot.url,
+                data: data,
+                format: .json,
+                role: .input
+            ))
+        }
+        inputs += try [
             request.result.artifacts.longSummaryCSVURL,
             request.result.artifacts.sampleSummaryCSVURL,
             request.result.artifacts.statsJSONURL,
             request.result.artifacts.haplotypeAnalysisURL,
-            sidecarURL,
         ].compactMap { $0 }.filter { fileManager.fileExists(atPath: $0.path) }
             .map { try ProvenanceFileDescriptor.file(url: $0, format: format(for: $0), role: .input) }
         let outputs = try [
@@ -585,6 +609,22 @@ public struct AIHaplotypingRevisionPublisher {
             endedAt: completedAt
         )
         .includingOutputDescriptors(outputs)
+    }
+
+    private func provenanceDescriptor(
+        url: URL,
+        data: Data,
+        format: FileFormat?,
+        role: FileRole
+    ) -> ProvenanceFileDescriptor {
+        let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        return ProvenanceFileDescriptor(
+            path: url.standardizedFileURL.path,
+            checksumSHA256: digest,
+            fileSize: UInt64(data.count),
+            format: format,
+            role: role
+        )
     }
 
     private func provenanceOptions(

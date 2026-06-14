@@ -5,6 +5,26 @@ import LungfishIO
 import LungfishWorkflow
 import LungfishKit
 
+public enum GenotypeAIHaplotypingUIMode: String, CaseIterable, Sendable {
+    case aiDiscovery
+    case aiRefinement
+
+    public var displayName: String {
+        switch self {
+        case .aiDiscovery: return "AI Discovery"
+        case .aiRefinement: return "AI Refinement"
+        }
+    }
+}
+
+public struct GenotypeAIHaplotypingUIRequest: Equatable, Sendable {
+    public let mode: GenotypeAIHaplotypingUIMode
+
+    public init(mode: GenotypeAIHaplotypingUIMode) {
+        self.mode = mode
+    }
+}
+
 @MainActor
 public final class GenotypeResultViewController: NSViewController {
     typealias Lens = GenotypeResultViewportLens
@@ -14,6 +34,7 @@ public final class GenotypeResultViewController: NSViewController {
     public var onDisplayStateChanged: ((GenotypeResultDisplayState) -> Void)?
     public var onAnnotationSidecarChanged: ((GenotypeAnnotationSidecar) -> Void)?
     public var onCurrentWorkbookUpdateRequested: ((URL, [GenotypeWorkbookHaplotypeCall]) -> Void)?
+    public var onAIHaplotypingRequested: ((URL, GenotypeAIHaplotypingUIRequest) -> Void)?
     public var windowStateScope: WindowStateScope?
 
     private let summaryStrip = NSStackView()
@@ -81,6 +102,7 @@ public final class GenotypeResultViewController: NSViewController {
     private var nextHaplotypeSampleActionTag = 1
     private var currentWorkbookNeedsRefresh = false
     private var currentWorkbookUpdateStatus: String?
+    private var aiHaplotypingStatus: String?
     private var outlineRowsBySample: [String: GenotypeOutlineView.Row] = [:]
     private var outlineRowOrder: [String] = []
 
@@ -1622,6 +1644,7 @@ public final class GenotypeResultViewController: NSViewController {
             addAuditSection(title: "Audit Timeline", contents: [makeAuditTimelineHost(entries: entries)])
         }
         addAuditSection(title: "Share View", contents: [exportViewButton()])
+        addAuditSection(title: "AI Haplotyping", contents: [makeAIHaplotypingHost()])
         addAuditSection(title: "Current Workbook", contents: [makeCurrentWorkbookUpdateHost()])
         var artifactRows: [NSView] = [
             artifactRow(label: "Workbook", url: result.artifacts.workbookURL),
@@ -1645,6 +1668,96 @@ public final class GenotypeResultViewController: NSViewController {
         }
         addAuditSection(title: "Haplotype Thresholds", contents: [makeRunHaplotypeThresholdSummaryHost()])
         addAuditSection(title: "Haplotype Definition", contents: [makeActiveHaplotypeDefinitionRow()])
+    }
+
+    private func makeAIHaplotypingHost() -> NSView {
+        let stack = NSStackView()
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 6
+
+        let isReadOnly = annotationStore?.isReadOnly ?? false
+        let hasAnalysis = activeHaplotypeAnalysis() != nil
+        let statusText: String
+        if let aiHaplotypingStatus {
+            statusText = aiHaplotypingStatus
+        } else if isReadOnly {
+            statusText = "Bundle is read-only. Save a writable copy to run AI haplotyping."
+        } else if hasAnalysis {
+            statusText = "Run AI discovery from raw genotype observations or refine the active haplotype calls."
+        } else {
+            statusText = "Run AI discovery from raw genotype observations. Refinement becomes available after a current analysis exists."
+        }
+        stack.addArrangedSubview(caption(statusText))
+        stack.addArrangedSubview(caption("AI revisions write finalized haplotype calls and are marked for manual review."))
+
+        let row = NSStackView()
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 8
+
+        let discoveryButton = NSButton(title: "AI Discovery", target: self, action: #selector(runAIHaplotypingDiscovery))
+        discoveryButton.bezelStyle = .rounded
+        discoveryButton.controlSize = .small
+        discoveryButton.isEnabled = !isReadOnly
+        discoveryButton.toolTip = "Infer haplotype calls from genotype evidence without using deterministic definitions."
+        row.addArrangedSubview(discoveryButton)
+
+        let refinementButton = NSButton(title: "AI Refinement", target: self, action: #selector(runAIHaplotypingRefinement))
+        refinementButton.bezelStyle = .rounded
+        refinementButton.controlSize = .small
+        refinementButton.isEnabled = hasAnalysis && !isReadOnly
+        refinementButton.toolTip = "Ask AI to refine the active deterministic, manual, or AI haplotype analysis."
+        row.addArrangedSubview(refinementButton)
+
+        stack.addArrangedSubview(row)
+        return stack
+    }
+
+    @objc private func runAIHaplotypingDiscovery() {
+        requestAIHaplotyping(mode: .aiDiscovery)
+    }
+
+    @objc private func runAIHaplotypingRefinement() {
+        requestAIHaplotyping(mode: .aiRefinement)
+    }
+
+    private func requestAIHaplotyping(mode: GenotypeAIHaplotypingUIMode) {
+        guard let result else { return }
+        guard let onAIHaplotypingRequested else {
+            aiHaplotypingStatus = "AI haplotyping is not available in this app context."
+            rebuildArtifactLens()
+            return
+        }
+        aiHaplotypingStatus = "Queued \(mode.displayName) in Operations Panel."
+        rebuildArtifactLens()
+        onAIHaplotypingRequested(result.bundleURL, GenotypeAIHaplotypingUIRequest(mode: mode))
+    }
+
+    public func applyAIHaplotypingCompleted(result updatedResult: ONTGenotypeResultBundleData) {
+        result = updatedResult
+        liveHaplotypeAnalysis = nil
+        annotationStore = try? GenotypeAnnotationStore(
+            bundleURL: updatedResult.bundleURL,
+            author: NSUserName()
+        )
+        aiHaplotypingStatus = "AI haplotype revision created. Calls require manual review."
+        rebuildSummary()
+        rebuildHaplotypeLens()
+        rebuildOutline()
+        rebuildHaplotypeMatrix()
+        rebuildCohortSummary()
+        rebuildArtifactLens()
+        if let sidecar = annotationStore?.sidecar {
+            onAnnotationSidecarChanged?(sidecar)
+        }
+    }
+
+    public func applyAIHaplotypingFailed(_ error: Error) {
+        aiHaplotypingStatus = "AI haplotyping failed — see Operations Panel."
+        rebuildArtifactLens()
     }
 
     private func makeCurrentWorkbookUpdateHost() -> NSView {

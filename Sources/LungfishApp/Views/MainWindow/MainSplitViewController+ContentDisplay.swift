@@ -312,6 +312,31 @@ extension MainSplitViewController {
                     }
                 }
             }
+            controller.onAIHaplotypingRequested = { [weak self, weak controller] bundleURL, request in
+                guard let self else { return }
+                guard self.canWriteProjectOutputs(workflowName: request.mode.displayName) else { return }
+                let routeContext = OperationRouteContext(
+                    projectURL: self.sidebarController.currentProjectURL,
+                    windowStateScope: self.projectSession.windowStateScope
+                )
+                Task { @MainActor [weak self, weak controller] in
+                    guard let self else { return }
+                    do {
+                        try await GenotypeAIHaplotypingExecutionService().run(
+                            bundleURL: bundleURL,
+                            mode: Self.workflowMode(for: request.mode),
+                            routeContext: routeContext
+                        )
+                        let updated = try ONTGenotypeResultBundle.loadResult(from: bundleURL)
+                        controller?.applyAIHaplotypingCompleted(result: updated)
+                        self.inspectorController.updateGenotypeResultDocument(updated)
+                        self.sidebarController.requestReloadFromFilesystem()
+                    } catch {
+                        controller?.applyAIHaplotypingFailed(error)
+                        (NSApp.delegate as? AppDelegate)?.showOperationsPanel(nil)
+                    }
+                }
+            }
             inspectorController.onGenotypeResultDisplayStateChanged = { [weak controller] state in
                 controller?.applyDisplayState(state)
             }
@@ -343,7 +368,15 @@ extension MainSplitViewController {
 
     static func shouldPreviewPrimaryWorkbook(for result: ONTGenotypeResultBundleData) -> Bool {
         result.haplotypeAnalysis == nil
+            && result.calls.isEmpty
             && FileManager.default.fileExists(atPath: result.artifacts.workbookURL.path)
+    }
+
+    private static func workflowMode(for mode: GenotypeAIHaplotypingUIMode) -> AIHaplotypingPromptMode {
+        switch mode {
+        case .aiDiscovery: return .aiDiscovery
+        case .aiRefinement: return .aiRefinement
+        }
     }
 
     func displayTwelveSAmpliconResultBundleFromSidebar(

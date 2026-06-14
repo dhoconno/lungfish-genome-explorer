@@ -101,6 +101,25 @@ final class AIHaplotypingPatchValidatorTests: XCTestCase {
         XCTAssertEqual(cohortOnlySupport.errors, [.missingSupportEvidence("patch-001")])
     }
 
+    func testRejectsCalledPatchWithPlaceholderHaplotypeLabel() throws {
+        let registry = makeRegistry()
+
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    haplotypeLabel: "-",
+                    callState: .called,
+                    supportEvidenceRefs: ["obs:DW472:MHC-B:12_M9_B_001_01"],
+                    counterevidenceRefs: ["sample:DW472"]
+                )
+            ]
+        ))
+
+        XCTAssertFalse(report.accepted)
+        XCTAssertEqual(report.errors.first, .invalidHaplotypeLabel("DW472", "MHC-B", "h1"))
+    }
+
     func testRejectsPositiveReviewableLabelsWithoutSubstantiveSupportEvidence() throws {
         let registry = makeRegistry()
 
@@ -362,6 +381,25 @@ final class AIHaplotypingPatchValidatorTests: XCTestCase {
             ]
         ))
         XCTAssertEqual(mismatchedCarryForward.errors, [.retainCurrentMismatch("DW472", "MHC-B", "h1")])
+    }
+
+    func testRetainCurrentRejectsPlaceholderCarryForwardLabels() throws {
+        let registry = makeRegistryWithPlaceholderCurrentCall()
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    haplotypeLabel: "-",
+                    sourceState: .current,
+                    callState: .retainCurrent,
+                    supportEvidenceRefs: ["current:DW472:MHC-B:h1"],
+                    counterevidenceRefs: ["sample:DW472"]
+                )
+            ]
+        ))
+
+        XCTAssertFalse(report.accepted)
+        XCTAssertEqual(report.errors.first, .invalidCarryForwardLabel("DW472", "MHC-B", "h1"))
     }
 
     func testRejectsConflictStatesWithoutActualConflictEvidence() throws {
@@ -736,6 +774,31 @@ private extension AIHaplotypingPatchValidatorTests {
                     rationale: "Manual review supersedes current call."
                 )
             ]
+        )
+    }
+
+    func makeRegistryWithPlaceholderCurrentCall() -> AIHaplotypingEvidenceRegistry {
+        let base = makeRegistry()
+        return AIHaplotypingEvidenceRegistry(
+            schemaVersion: base.schemaVersion,
+            mode: base.mode,
+            parentRevisionID: base.parentRevisionID,
+            inputSnapshotDigest: base.inputSnapshotDigest,
+            samples: base.samples,
+            loci: base.loci,
+            observations: base.observations,
+            currentCalls: [
+                CurrentCallEvidence(
+                    id: "current:DW472:MHC-B:h1",
+                    sample: "DW472",
+                    locus: "MHC-B",
+                    slot: "h1",
+                    haplotypeLabel: "-",
+                    source: .deterministic,
+                    parentRevisionID: "analysis-rev-1"
+                ),
+            ],
+            manualReviews: base.manualReviews
         )
     }
 

@@ -56,7 +56,7 @@ public enum AIHaplotypingEvidenceBuilder {
             ))
         }
 
-        if let analysis = result.haplotypeAnalysis {
+        if mode == .aiRefinement, let analysis = result.haplotypeAnalysis {
             for sampleAnalysis in analysis.samples {
                 let sample = normalizedSampleName(sampleAnalysis.sample)
                 _ = recordSample(sample)
@@ -85,25 +85,46 @@ public enum AIHaplotypingEvidenceBuilder {
             }
         }
 
-        for override in sidecar?.callOverrides ?? [] {
-            let sample = normalizedSampleName(override.sample)
-            let locus = GenotypeHaplotypeLocusResolver.canonicalLocusName(override.locus)
-            _ = recordSample(sample)
-            _ = recordLocus(locus)
-            manualReviews.append(ManualReviewEvidence(
-                id: "manual:\(sample):\(locus):\(override.slot.rawValue)",
-                sample: sample,
-                locus: locus,
-                slot: override.slot.rawValue,
-                overrideCall: override.overrideCall,
-                rationale: override.rationale
-            ))
+        if mode == .aiRefinement {
+            var manualReviewsByID: [String: ManualReviewEvidence] = [:]
+            for override in sidecar?.callOverrides ?? [] {
+                let sample = normalizedSampleName(override.sample)
+                let locus = GenotypeHaplotypeLocusResolver.canonicalLocusName(override.locus)
+                _ = recordSample(sample)
+                _ = recordLocus(locus)
+                let review = ManualReviewEvidence(
+                    id: "manual:\(sample):\(locus):\(override.slot.rawValue)",
+                    sample: sample,
+                    locus: locus,
+                    slot: override.slot.rawValue,
+                    overrideCall: override.overrideCall,
+                    rationale: override.rationale
+                )
+                manualReviewsByID[review.id] = review
+            }
+            for assignment in sidecar?.manualHaplotypeAssignments ?? [] {
+                let sample = normalizedSampleName(assignment.sample)
+                let locus = GenotypeHaplotypeLocusResolver.canonicalLocusName(assignment.locus)
+                _ = recordSample(sample)
+                _ = recordLocus(locus)
+                let rationale = assignment.notes.trimmingCharacters(in: .whitespacesAndNewlines)
+                let review = ManualReviewEvidence(
+                    id: "manual:\(sample):\(locus):\(assignment.slot.rawValue)",
+                    sample: sample,
+                    locus: locus,
+                    slot: assignment.slot.rawValue,
+                    overrideCall: assignment.label,
+                    rationale: rationale.isEmpty ? "Manual haplotype assignment." : rationale
+                )
+                manualReviewsByID[review.id] = manualReviewsByID[review.id] ?? review
+            }
+            manualReviews = Array(manualReviewsByID.values)
         }
 
         return AIHaplotypingEvidenceRegistry(
             mode: mode,
             parentRevisionID: parentRevisionID,
-            inputSnapshotDigest: inputSnapshotDigest(result: result, sidecar: sidecar),
+            inputSnapshotDigest: inputSnapshotDigest(result: result, sidecar: sidecar, mode: mode),
             samples: Array(samplesByID.values),
             loci: Array(lociByID.values),
             observations: materializeObservationDrafts(observationDrafts),
@@ -130,10 +151,12 @@ public enum AIHaplotypingEvidenceBuilder {
 
     private static func inputSnapshotDigest(
         result: ONTGenotypeResultBundleData,
-        sidecar: GenotypeAnnotationSidecar?
+        sidecar: GenotypeAnnotationSidecar?,
+        mode: AIHaplotypingPromptMode
     ) -> String {
-        let activeAnalysisRevisionID = result.manifest.activeHaplotypeAnalysisRevisionID
-            ?? result.haplotypeAnalysis?.analysisRevisionID
+        let activeAnalysisRevisionID = mode == .aiRefinement
+            ? result.manifest.activeHaplotypeAnalysisRevisionID ?? result.haplotypeAnalysis?.analysisRevisionID
+            : nil
         let rawCalls = result.calls.map { call in
             RawCallSnapshot(
                 sample: normalizedSampleName(call.sample),
@@ -149,7 +172,7 @@ public enum AIHaplotypingEvidenceBuilder {
                 overallUniqueRetainedPercent: call.overallUniqueRetainedPercent
             )
         }.sorted()
-        let overrides = (sidecar?.callOverrides ?? []).map { override in
+        let overrides = mode == .aiRefinement ? (sidecar?.callOverrides ?? []).map { override in
             OverrideSnapshot(
                 sample: normalizedSampleName(override.sample),
                 locus: GenotypeHaplotypeLocusResolver.canonicalLocusName(override.locus),
@@ -161,11 +184,22 @@ public enum AIHaplotypingEvidenceBuilder {
                 author: override.author,
                 timestamp: override.timestamp
             )
-        }.sorted()
+        }.sorted() : []
+        let manualAssignments = mode == .aiRefinement ? (sidecar?.manualHaplotypeAssignments ?? []).map { assignment in
+            ManualAssignmentSnapshot(
+                sample: normalizedSampleName(assignment.sample),
+                locus: GenotypeHaplotypeLocusResolver.canonicalLocusName(assignment.locus),
+                slot: assignment.slot.rawValue,
+                label: assignment.label,
+                diagnosticAlleles: assignment.diagnosticAlleles,
+                notes: assignment.notes
+            )
+        }.sorted() : []
         return AIHaplotypingCanonicalJSON.sha256Digest(of: InputSnapshot(
             activeAnalysisRevisionID: activeAnalysisRevisionID,
             rawCalls: rawCalls,
-            callOverrides: overrides
+            callOverrides: overrides,
+            manualHaplotypeAssignments: manualAssignments
         ))
     }
 
@@ -185,6 +219,7 @@ public enum AIHaplotypingEvidenceBuilder {
         let activeAnalysisRevisionID: String?
         let rawCalls: [RawCallSnapshot]
         let callOverrides: [OverrideSnapshot]
+        let manualHaplotypeAssignments: [ManualAssignmentSnapshot]
     }
 
     private struct ObservationDraft {
@@ -284,6 +319,30 @@ public enum AIHaplotypingEvidenceBuilder {
                 rationale,
                 author,
                 timestamp,
+            ]
+        }
+    }
+
+    private struct ManualAssignmentSnapshot: Encodable, Comparable {
+        let sample: String
+        let locus: String
+        let slot: String
+        let label: String
+        let diagnosticAlleles: [String]
+        let notes: String
+
+        static func < (lhs: ManualAssignmentSnapshot, rhs: ManualAssignmentSnapshot) -> Bool {
+            lexicographicallyPrecedes(lhs.sortKey, rhs.sortKey)
+        }
+
+        private var sortKey: [String] {
+            [
+                sample,
+                locus,
+                slot,
+                label,
+                diagnosticAlleles.joined(separator: "\u{0}"),
+                notes,
             ]
         }
     }

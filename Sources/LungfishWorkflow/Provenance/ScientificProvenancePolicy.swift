@@ -149,7 +149,7 @@ public enum ScientificProvenancePolicy {
         "markdup": dataWriting("cli.markdup"),
         "primers": dataWriting("cli.primers"),
         "primer": dataWriting("cli.primers"),
-        "genotype": inspectOnly("cli.genotype"),
+        "genotype": dataWriting("cli.genotype", writer: "AIHaplotypingRevisionPublisher/CLIProvenanceSupport"),
         "haplotypes": dataWriting("cli.haplotypes", writer: "HaplotypeDefinitionCommandService"),
         "12s-match": dataWriting("cli.fastq.12s-match", writer: "TwelveSAmpliconMatchingWorkflow"),
         "12s-reference-metadata": dataWriting("cli.fastq.12s-reference-metadata", writer: "TwelveSReferenceMetadataBuilder"),

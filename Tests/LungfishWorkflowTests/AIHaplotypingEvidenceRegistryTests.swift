@@ -149,6 +149,118 @@ final class AIHaplotypingEvidenceRegistryTests: XCTestCase {
         )
     }
 
+    func testDiscoveryEvidenceIgnoresExistingAnalysisAndManualSidecarState() throws {
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-06-14T00:00:00Z")
+        sidecar.manualHaplotypeAssignments = [
+            ManualHaplotypeAssignment(
+                sample: "DW472",
+                locus: "MHC-B",
+                slot: .h1,
+                label: "Manual-M9B",
+                colorTokenIndex: 2,
+                diagnosticAlleles: ["12_M9_B_001_01"],
+                notes: "Manual discovery should not leak into AI discovery."
+            )
+        ]
+        let result = makeResult(
+            calls: [makeCall(sample: "DW472", genotype: "12_M9_B_001_01")],
+            activeHaplotypeAnalysisRevisionID: "analysis-rev-1",
+            haplotypeAnalysis: GenotypeHaplotypeAnalysis(
+                assayID: "test-assay",
+                definitionSetID: "test-definitions",
+                definitionSetName: "Test definitions",
+                speciesName: "Macaca fascicularis",
+                analysisRevisionID: "analysis-rev-1",
+                source: .deterministic,
+                samples: [
+                    GenotypeHaplotypeSampleAnalysis(
+                        sample: "DW472",
+                        calls: [
+                            GenotypeHaplotypeLocusCall(
+                                locus: "MHC-B",
+                                sourceLocus: "MHC-B",
+                                haplotype1: "M9B",
+                                haplotype2: "-",
+                                status: .called,
+                                matchedHaplotypes: [],
+                                observedGenotypeCount: 1,
+                                observedGenotypes: ["12_M9_B_001_01"]
+                            )
+                        ]
+                    )
+                ]
+            )
+        )
+
+        let discovery = try AIHaplotypingEvidenceBuilder.build(
+            result: result,
+            sidecar: sidecar,
+            mode: .aiDiscovery,
+            parentRevisionID: nil
+        )
+        let rawOnly = try AIHaplotypingEvidenceBuilder.build(
+            result: makeResult(calls: [makeCall(sample: "DW472", genotype: "12_M9_B_001_01")]),
+            sidecar: nil,
+            mode: .aiDiscovery,
+            parentRevisionID: nil
+        )
+
+        XCTAssertTrue(discovery.currentCalls.isEmpty)
+        XCTAssertTrue(discovery.manualReviews.isEmpty)
+        XCTAssertEqual(discovery.inputSnapshotDigest, rawOnly.inputSnapshotDigest)
+    }
+
+    func testRefinementEvidenceIncludesManualHaplotypeAssignments() throws {
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-06-14T00:00:00Z")
+        sidecar.manualHaplotypeAssignments = [
+            ManualHaplotypeAssignment(
+                sample: "DW472",
+                locus: "MHC-B",
+                slot: .h2,
+                label: "Manual-M7B",
+                colorTokenIndex: 3,
+                diagnosticAlleles: ["12_M7_B_001_01"],
+                notes: "Analyst-defined manual haplotype."
+            )
+        ]
+        let result = makeResult(
+            calls: [
+                makeCall(sample: "DW472", genotype: "12_M9_B_001_01"),
+                makeCall(sample: "DW472", genotype: "12_M7_B_001_01"),
+            ],
+            haplotypeAnalysis: GenotypeHaplotypeAnalysis(
+                assayID: "test-assay",
+                definitionSetID: "test-definitions",
+                definitionSetName: "Test definitions",
+                speciesName: "Macaca fascicularis",
+                source: .deterministic,
+                samples: []
+            )
+        )
+
+        let registry = try AIHaplotypingEvidenceBuilder.build(
+            result: result,
+            sidecar: sidecar,
+            mode: .aiRefinement,
+            parentRevisionID: nil
+        )
+
+        XCTAssertEqual(
+            registry.manualReviews,
+            [
+                ManualReviewEvidence(
+                    id: "manual:DW472:MHC-B:h2",
+                    sample: "DW472",
+                    locus: "MHC-B",
+                    slot: "h2",
+                    overrideCall: "Manual-M7B",
+                    rationale: "Analyst-defined manual haplotype."
+                )
+            ]
+        )
+        XCTAssertTrue(registry.evidenceIDs.contains("manual:DW472:MHC-B:h2"))
+    }
+
     func testChunkerCreatesDeterministicChunkIDsAndRecomputesChunkDigests() throws {
         let result = makeResult(
             calls: [

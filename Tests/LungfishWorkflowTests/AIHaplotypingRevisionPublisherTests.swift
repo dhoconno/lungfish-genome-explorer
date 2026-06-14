@@ -1,4 +1,5 @@
 import XCTest
+import CryptoKit
 import LungfishCore
 @testable import LungfishIO
 @testable import LungfishWorkflow
@@ -6,6 +7,8 @@ import LungfishCore
 final class AIHaplotypingRevisionPublisherTests: XCTestCase {
     func testPublishWritesActiveRevisionFinalProvenanceAndSidecarReview() throws {
         let fixture = try makeFixture()
+        let originalManifestData = try Data(contentsOf: ONTGenotypeResultBundle.manifestURL(in: fixture.bundleURL))
+        let originalSidecarData = try Data(contentsOf: fixture.sidecarURL)
         let publisher = AIHaplotypingRevisionPublisher(
             dateProvider: { Self.fixedDate },
             revisionIDProvider: { "haprev-ai-test" }
@@ -92,6 +95,16 @@ final class AIHaplotypingRevisionPublisherTests: XCTestCase {
         XCTAssertEqual(envelope.workflowName, "AI Haplotype Revision")
         XCTAssertEqual(envelope.argv, makeContext(bundleURL: fixture.bundleURL).argv)
         XCTAssertEqual(envelope.exitStatus, 0)
+        let stepInputs = envelope.steps.flatMap(\.inputs)
+        let inputDescriptorsByPath = Dictionary(uniqueKeysWithValues: stepInputs.map { ($0.path, $0) })
+        let originalManifestInput = try XCTUnwrap(inputDescriptorsByPath[
+            ONTGenotypeResultBundle.manifestURL(in: fixture.bundleURL).standardizedFileURL.path
+        ])
+        XCTAssertEqual(originalManifestInput.checksumSHA256, sha256(originalManifestData))
+        XCTAssertEqual(originalManifestInput.fileSize, UInt64(originalManifestData.count))
+        let originalSidecarInput = try XCTUnwrap(inputDescriptorsByPath[fixture.sidecarURL.standardizedFileURL.path])
+        XCTAssertEqual(originalSidecarInput.checksumSHA256, sha256(originalSidecarData))
+        XCTAssertEqual(originalSidecarInput.fileSize, UInt64(originalSidecarData.count))
         let outputPaths = Set(envelope.outputs.map(\.path))
         for url in [
             analysisURL,
@@ -151,6 +164,10 @@ private enum IntentionalPublisherFailure: Error {
 
 private extension AIHaplotypingRevisionPublisherTests {
     static let fixedDate = ISO8601DateFormatter().date(from: "2026-06-14T18:00:00Z")!
+
+    func sha256(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
 
     struct Fixture {
         let root: URL
@@ -281,8 +298,12 @@ private extension AIHaplotypingRevisionPublisherTests {
                 "ai-haplotyping",
                 "--bundle",
                 bundleURL.path,
-                "--credential-source",
-                "environment:OPENAI_API_KEY",
+                "--mode",
+                "ai-refinement",
+                "--provider",
+                "openai",
+                "--model",
+                "gpt-5-mini",
             ],
             durableReplayArgv: [
                 "lungfish-cli",
@@ -290,8 +311,12 @@ private extension AIHaplotypingRevisionPublisherTests {
                 "ai-haplotyping",
                 "--bundle",
                 bundleURL.path,
-                "--credential-source",
-                "environment:OPENAI_API_KEY",
+                "--mode",
+                "ai-refinement",
+                "--provider",
+                "openai",
+                "--model",
+                "gpt-5-mini",
             ],
             explicitOptions: [
                 "mode": .string("aiRefinement"),

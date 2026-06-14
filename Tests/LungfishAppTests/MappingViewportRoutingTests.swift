@@ -178,7 +178,8 @@ final class MappingViewportRoutingTests: XCTestCase {
         let bundleURL = try makeGenotypeResultBundle(
             root: root,
             name: "barcode08-mhc-newref",
-            haplotypeAnalysisPath: nil
+            haplotypeAnalysisPath: nil,
+            includeGenotypeCalls: false
         )
         let workbookURL = try XCTUnwrap(MainSplitViewController.genotypeResultWorkbookURL(forBundle: bundleURL))
         let controller = MainSplitViewController()
@@ -200,7 +201,8 @@ final class MappingViewportRoutingTests: XCTestCase {
         let bundleURL = try makeGenotypeResultBundle(
             root: root,
             name: "barcode08-mhc-newref",
-            haplotypeAnalysisPath: nil
+            haplotypeAnalysisPath: nil,
+            includeGenotypeCalls: false
         )
         let controller = MainSplitViewController()
         _ = controller.view
@@ -214,6 +216,36 @@ final class MappingViewportRoutingTests: XCTestCase {
             controller.viewerController.testQuickLookURL?.lastPathComponent,
             "barcode08-mhc-newref.xlsx"
         )
+    }
+
+    func testGenotypeResultWithoutHaplotypingButWithCallsDisplaysNativeViewportForAIHaplotyping() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeNoHapNative-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = try makeGenotypeResultBundle(
+            root: root,
+            name: "barcode08-mhc-newref",
+            haplotypeAnalysisPath: nil,
+            includeGenotypeCalls: true
+        )
+        let controller = MainSplitViewController()
+        _ = controller.view
+
+        controller.testingDisplayGenotypeResultBundle(bundleURL)
+
+        XCTAssertNotNil(controller.viewerController.genotypeResultViewController)
+        XCTAssertNil(controller.viewerController.testQuickLookURL)
+    }
+
+    func testAIHaplotypingGUIUsesReplayableCLICommandPreviewAndSanitizedFailureDetail() throws {
+        let source = try loadSource(at: "Sources/LungfishApp/Services/GenotypeAIHaplotypingExecutionService.swift")
+
+        XCTAssertTrue(source.contains("\"lungfish-cli\""))
+        XCTAssertTrue(source.contains("mode.commandLineArgument"))
+        XCTAssertFalse(source.contains("\"--credential-source\""))
+        XCTAssertFalse(source.contains("String(describing: error)"))
+        XCTAssertTrue(source.contains("AIHaplotypingRunFailure"))
+        XCTAssertTrue(source.contains("sanitizedErrorCategory"))
     }
 
     func testExternalOpenReferenceBundleWiresInspectorCallbacksAndProvenanceTarget() throws {
@@ -508,7 +540,8 @@ final class MappingViewportRoutingTests: XCTestCase {
     private func makeGenotypeResultBundle(
         root: URL,
         name: String,
-        haplotypeAnalysisPath: String?
+        haplotypeAnalysisPath: String?,
+        includeGenotypeCalls: Bool = true
     ) throws -> URL {
         let bundleURL = root.appendingPathComponent("\(name).lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
@@ -519,16 +552,23 @@ final class MappingViewportRoutingTests: XCTestCase {
         let provenanceJSON = bundleURL.appendingPathComponent("retained-demux-genotyping-provenance.json")
 
         try Data("workbook".utf8).write(to: workbookURL)
-        try """
-        sample,genotype,passed_alignments,passed_unique_reads
-        DW472,01_Mafa_A1_063g,10,8
+        if includeGenotypeCalls {
+            try """
+            sample,genotype,passed_alignments,passed_unique_reads
+            DW472,01_Mafa_A1_063g,10,8
 
-        """.write(to: genotypeCSV, atomically: true, encoding: .utf8)
-        try """
-        sample,passed_alignments,passed_unique_reads
-        DW472,10,8
+            """.write(to: genotypeCSV, atomically: true, encoding: .utf8)
+            try """
+            sample,passed_alignments,passed_unique_reads
+            DW472,10,8
 
-        """.write(to: samplesCSV, atomically: true, encoding: .utf8)
+            """.write(to: samplesCSV, atomically: true, encoding: .utf8)
+        } else {
+            try "sample,genotype,passed_alignments,passed_unique_reads\n"
+                .write(to: genotypeCSV, atomically: true, encoding: .utf8)
+            try "sample,passed_alignments,passed_unique_reads\n"
+                .write(to: samplesCSV, atomically: true, encoding: .utf8)
+        }
         try #"{"totalInputReads":10,"retainedUniqueReads":8}"#
             .write(to: statsJSON, atomically: true, encoding: .utf8)
         try #"{"workflow":"test"}"#

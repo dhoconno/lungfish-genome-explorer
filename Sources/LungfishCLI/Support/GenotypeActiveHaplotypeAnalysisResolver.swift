@@ -1,5 +1,6 @@
 import Foundation
 import LungfishIO
+import LungfishWorkflow
 
 enum GenotypeActiveHaplotypeAnalysisResolver {
     static func activeAnalysis(
@@ -7,31 +8,7 @@ enum GenotypeActiveHaplotypeAnalysisResolver {
         bundleURL: URL? = nil,
         sidecar: GenotypeAnnotationSidecar?
     ) -> GenotypeHaplotypeAnalysis? {
-        if !hasSidecarDefinitionOverride(sidecar),
-           result.haplotypeAnalysis?.source == .ai {
-            return result.haplotypeAnalysis
-        }
-        guard let definitionSet = activeDefinitionSet(for: result, bundleURL: bundleURL, sidecar: sidecar) else {
-            return result.haplotypeAnalysis
-        }
-        let settings = sidecar?.settings ?? .default
-        let evaluator = GenotypeDropoutEvaluator(
-            absolute: settings.dropoutAbsolute,
-            sampleFraction: settings.dropoutSampleFraction,
-            locusFraction: settings.dropoutLocusFraction,
-            locusFractionOverrides: settings.locusFractionOverrides ?? [:]
-        )
-        return GenotypeHaplotypeAnalyzer.analyze(
-            calls: result.calls,
-            definitionSet: definitionSet,
-            generatedAt: nil,
-            dropoutFilter: evaluator
-        )
-    }
-
-    private static func hasSidecarDefinitionOverride(_ sidecar: GenotypeAnnotationSidecar?) -> Bool {
-        let id = sidecar?.settings.activeHaplotypeDefinitionSetID?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return id?.isEmpty == false
+        GenotypeHaplotypeAnalysisResolver.activeAnalysis(for: result, bundleURL: bundleURL, sidecar: sidecar)
     }
 
     static func activeDefinitionSet(
@@ -39,21 +16,7 @@ enum GenotypeActiveHaplotypeAnalysisResolver {
         bundleURL: URL? = nil,
         sidecar: GenotypeAnnotationSidecar?
     ) -> GenotypeHaplotypeDefinitionSet? {
-        let store = HaplotypeDefinitionStore(projectRoot: projectRoot(for: bundleURL ?? result.bundleURL))
-        let registry = store.mergedRegistry()
-        let candidates = [
-            (sidecar?.settings.activeHaplotypeDefinitionSetID, sidecar?.settings.activeHaplotypeAssayID),
-            (result.haplotypeAnalysis?.definitionSetID, result.haplotypeAnalysis?.assayID),
-            (result.manifest.haplotypeDefinitionSetID, result.manifest.haplotypeAssayID),
-        ]
-        for candidate in candidates {
-            guard let id = candidate.0?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !id.isEmpty else { continue }
-            if let definition = registry.definitionSet(id: id, assayID: candidate.1) {
-                return definition
-            }
-        }
-        return nil
+        GenotypeHaplotypeAnalysisResolver.activeDefinitionSet(for: result, bundleURL: bundleURL, sidecar: sidecar)
     }
 
     static func activeDefinitionFileURL(
@@ -61,19 +24,6 @@ enum GenotypeActiveHaplotypeAnalysisResolver {
         bundleURL: URL? = nil,
         sidecar: GenotypeAnnotationSidecar?
     ) -> URL? {
-        guard let id = sidecar?.settings.activeHaplotypeDefinitionSetID else { return nil }
-        let store = HaplotypeDefinitionStore(projectRoot: projectRoot(for: bundleURL ?? result.bundleURL))
-        guard let url = store.definitionURL(for: id),
-              FileManager.default.fileExists(atPath: url.path) else {
-            return nil
-        }
-        return url
-    }
-
-    private static func projectRoot(for bundleURL: URL) -> URL {
-        bundleURL
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
+        GenotypeHaplotypeAnalysisResolver.activeDefinitionFileURL(for: result, bundleURL: bundleURL, sidecar: sidecar)
     }
 }

@@ -11,6 +11,7 @@ public enum AIHaplotypingValidationError: Codable, Error, Equatable, Sendable {
     case duplicateCallTarget(String, String, String)
     case missingCounterevidence(String)
     case missingSupportEvidence(String)
+    case invalidHaplotypeLabel(String, String, String)
     case invalidSource(String)
     case unknownCallTarget(String, String)
     case unknownDefinitionLocus(String)
@@ -21,6 +22,7 @@ public enum AIHaplotypingValidationError: Codable, Error, Equatable, Sendable {
     case missingManualConflict(String, String, String)
     case missingCurrentCarryForward(String, String, String)
     case missingManualCarryForward(String, String, String)
+    case invalidCarryForwardLabel(String, String, String)
     case retainCurrentMismatch(String, String, String)
     case unsupportedDuplicateSlotLabel(String, String, String)
     case duplicateDiscoveredDefinition(String)
@@ -42,6 +44,7 @@ public enum AIHaplotypingValidationError: Codable, Error, Equatable, Sendable {
         case .duplicateCallTarget: return "duplicate_call_target"
         case .missingCounterevidence: return "missing_counterevidence"
         case .missingSupportEvidence: return "missing_support_evidence"
+        case .invalidHaplotypeLabel: return "invalid_haplotype_label"
         case .invalidSource: return "invalid_source"
         case .unknownCallTarget: return "unknown_call_target"
         case .unknownDefinitionLocus: return "unknown_definition_locus"
@@ -52,6 +55,7 @@ public enum AIHaplotypingValidationError: Codable, Error, Equatable, Sendable {
         case .missingManualConflict: return "missing_manual_conflict"
         case .missingCurrentCarryForward: return "missing_current_carry_forward"
         case .missingManualCarryForward: return "missing_manual_carry_forward"
+        case .invalidCarryForwardLabel: return "invalid_carry_forward_label"
         case .retainCurrentMismatch: return "retain_current_mismatch"
         case .unsupportedDuplicateSlotLabel: return "unsupported_duplicate_slot_label"
         case .duplicateDiscoveredDefinition: return "duplicate_discovered_definition"
@@ -83,11 +87,14 @@ public enum AIHaplotypingValidationError: Codable, Error, Equatable, Sendable {
              .missingManualConflict(let sample, let locus, let slot),
              .missingCurrentCarryForward(let sample, let locus, let slot),
              .missingManualCarryForward(let sample, let locus, let slot),
+             .invalidCarryForwardLabel(let sample, let locus, let slot),
              .retainCurrentMismatch(let sample, let locus, let slot):
             return ["sample": sample, "locus": locus, "slot": slot]
         case .missingCounterevidence(let patchOpID),
              .missingSupportEvidence(let patchOpID):
             return ["patchOpID": patchOpID]
+        case .invalidHaplotypeLabel(let sample, let locus, let slot):
+            return ["sample": sample, "locus": locus, "slot": slot]
         case .invalidSource(let value):
             return ["value": value]
         case .unknownCallTarget(let sample, let locus):
@@ -127,6 +134,8 @@ public enum AIHaplotypingValidationError: Codable, Error, Equatable, Sendable {
             return "Structured call '\(patchOpID)' does not cite counterevidence."
         case .missingSupportEvidence(let patchOpID):
             return "Structured call or definition '\(patchOpID)' does not cite substantive support evidence."
+        case .invalidHaplotypeLabel(let sample, let locus, let slot):
+            return "Structured positive call for \(sample) \(locus) \(slot) uses a blank or placeholder haplotype label."
         case .invalidSource(let value):
             return "Structured result contains invalid source or state value '\(value)'."
         case .unknownCallTarget(let sample, let locus):
@@ -147,6 +156,8 @@ public enum AIHaplotypingValidationError: Codable, Error, Equatable, Sendable {
             return "Structured call marks retainCurrent for \(sample) \(locus) \(slot) without an existing current call to carry forward."
         case .missingManualCarryForward(let sample, let locus, let slot):
             return "Structured call marks retainCurrent for \(sample) \(locus) \(slot) without an existing manual review to carry forward."
+        case .invalidCarryForwardLabel(let sample, let locus, let slot):
+            return "Structured call marks retainCurrent for \(sample) \(locus) \(slot) with a blank or placeholder carried-forward label."
         case .retainCurrentMismatch(let sample, let locus, let slot):
             return "Structured call marks retainCurrent for \(sample) \(locus) \(slot) but does not match the carried-forward label."
         case .unsupportedDuplicateSlotLabel(let sample, let locus, let label):
@@ -202,6 +213,8 @@ public enum AIHaplotypingValidationError: Codable, Error, Equatable, Sendable {
             self = .missingCounterevidence(try field("patchOpID"))
         case "missing_support_evidence":
             self = .missingSupportEvidence(try field("patchOpID"))
+        case "invalid_haplotype_label":
+            self = .invalidHaplotypeLabel(try field("sample"), try field("locus"), try field("slot"))
         case "invalid_source":
             self = .invalidSource(try field("value"))
         case "unknown_call_target":
@@ -222,6 +235,8 @@ public enum AIHaplotypingValidationError: Codable, Error, Equatable, Sendable {
             self = .missingCurrentCarryForward(try field("sample"), try field("locus"), try field("slot"))
         case "missing_manual_carry_forward":
             self = .missingManualCarryForward(try field("sample"), try field("locus"), try field("slot"))
+        case "invalid_carry_forward_label":
+            self = .invalidCarryForwardLabel(try field("sample"), try field("locus"), try field("slot"))
         case "retain_current_mismatch":
             self = .retainCurrentMismatch(try field("sample"), try field("locus"), try field("slot"))
         case "unsupported_duplicate_slot_label":
@@ -487,6 +502,10 @@ public struct AIHaplotypingPatchValidator: Sendable {
             }
 
             let target = CallTarget(sample: call.sample, locus: call.locus, slot: call.slot)
+            if requiresPositiveHaplotypeLabel(call.callState)
+                && !isCallableCarryForwardLabel(call.haplotypeLabel) {
+                return .invalidHaplotypeLabel(call.sample, call.locus, call.slot)
+            }
             if call.callState == .retainCurrent {
                 if let error = retainCurrentValidationError(for: call, target: target, context: context) {
                     return error
@@ -599,6 +618,22 @@ public struct AIHaplotypingPatchValidator: Sendable {
         }
     }
 
+    private func requiresPositiveHaplotypeLabel(_ callState: GenotypeHaplotypeAICallState) -> Bool {
+        switch callState {
+        case .called, .novelCandidate, .ambiguousTie:
+            return true
+        case .insufficientEvidence,
+             .lowSupportOrDropout,
+             .conflictsCurrent,
+             .conflictsManual,
+             .retainCurrent,
+             .notAssayed,
+             .outOfScope,
+             .unresolved:
+            return false
+        }
+    }
+
     private func retainCurrentValidationError(
         for call: AIHaplotypingStructuredCall,
         target: CallTarget,
@@ -622,6 +657,9 @@ public struct AIHaplotypingPatchValidator: Sendable {
         case .raw:
             return .invalidSource(call.sourceState.rawValue)
         }
+        guard isCallableCarryForwardLabel(carriedForwardLabel) else {
+            return .invalidCarryForwardLabel(call.sample, call.locus, call.slot)
+        }
         guard normalizedCarryForwardLabel(carriedForwardLabel) == normalizedCarryForwardLabel(call.haplotypeLabel) else {
             return .retainCurrentMismatch(call.sample, call.locus, call.slot)
         }
@@ -630,6 +668,11 @@ public struct AIHaplotypingPatchValidator: Sendable {
 
     private func normalizedCarryForwardLabel(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func isCallableCarryForwardLabel(_ value: String) -> Bool {
+        let normalized = normalizedCarryForwardLabel(value)
+        return !normalized.isEmpty && normalized != "-"
     }
 
     private func rejected(

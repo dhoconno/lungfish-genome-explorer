@@ -15,12 +15,14 @@ struct GenotypeCommandGroup: AsyncParsableCommand {
             pipelines. All subcommands take `--bundle <path>` and either print
             to stdout (read-only inspection) or merge into the annotation
             sidecar (`annotations.json`) that lives next to the bundle's
-            primary `genotype-result.json` manifest. Pipeline output files are
-            never modified.
+            primary `genotype-result.json` manifest. The `ai-haplotyping`
+            subcommand is a scientific write workflow: it appends a versioned
+            AI haplotype analysis revision with provenance and review metadata.
             """,
         subcommands: [
             GenotypeListSamplesSubcommand.self,
             GenotypeListCohortsSubcommand.self,
+            GenotypeAIHaplotypingSubcommand.self,
             GenotypeApplyAnnotationsSubcommand.self,
             GenotypeExportSubcommand.self,
             GenotypeExportXlsxSubcommand.self,
