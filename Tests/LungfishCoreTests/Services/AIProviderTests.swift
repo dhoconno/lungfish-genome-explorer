@@ -354,4 +354,214 @@ final class AIProviderTests: XCTestCase {
         XCTAssertNotNil(payload["max_tokens"])
         XCTAssertNil(payload["max_completion_tokens"])
     }
+
+    func testOpenAIStructuredResultUsesStrictJSONSchemaResponseFormat() async throws {
+        let mockClient = MockHTTPClient()
+        await mockClient.setDefault(response: .json([
+            "id": "chatcmpl_test",
+            "choices": [[
+                "message": ["content": #"{"schemaVersion":1,"ok":true}"#],
+                "finish_reason": "stop",
+            ]],
+            "usage": ["prompt_tokens": 11, "completion_tokens": 7],
+        ]))
+        let provider = OpenAIProvider(apiKey: "test-key", modelId: "gpt-5-mini", httpClient: mockClient)
+        let request = AIStructuredRequest(
+            systemPrompt: "Return JSON only.",
+            userPrompt: "Classify this evidence.",
+            schemaName: "ai_haplotype_result",
+            schema: Self.strictHaplotypeSchema,
+            maxOutputTokens: 2048,
+            temperature: 0,
+            attemptIndex: 2,
+            fallbackIndex: 1,
+            credentialSource: "keychain"
+        )
+
+        let response = try await provider.requestStructuredResult(request)
+
+        XCTAssertEqual(response.payload["ok"]?.boolValue, true)
+        XCTAssertEqual(response.rawText, #"{"schemaVersion":1,"ok":true}"#)
+        XCTAssertEqual(response.usage?.inputTokens, 11)
+        XCTAssertEqual(response.usage?.outputTokens, 7)
+        XCTAssertEqual(response.attemptMetadata.attemptIndex, 2)
+        XCTAssertEqual(response.attemptMetadata.fallbackIndex, 1)
+        XCTAssertEqual(response.attemptMetadata.apiVersion, "chat.completions.v1")
+        XCTAssertEqual(response.attemptMetadata.credentialSource, "keychain")
+        XCTAssertEqual(response.attemptMetadata.apiKeyAvailable, true)
+        XCTAssertEqual(response.attemptMetadata.requestID, "chatcmpl_test")
+        XCTAssertEqual(response.attemptMetadata.statusCode, 200)
+
+        let requests = await mockClient.requests
+        let captured = try XCTUnwrap(requests.first?.httpBody)
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: captured) as? [String: Any])
+        XCTAssertNil(body["tools"])
+        XCTAssertNil(body["tool_choice"])
+        let responseFormat = try XCTUnwrap(body["response_format"] as? [String: Any])
+        XCTAssertEqual(responseFormat["type"] as? String, "json_schema")
+        let jsonSchema = try XCTUnwrap(responseFormat["json_schema"] as? [String: Any])
+        XCTAssertEqual(jsonSchema["name"] as? String, "ai_haplotype_result")
+        XCTAssertEqual(jsonSchema["strict"] as? Bool, true)
+        let schema = try XCTUnwrap(jsonSchema["schema"] as? [String: Any])
+        XCTAssertEqual(schema["additionalProperties"] as? Bool, false)
+    }
+
+    func testAnthropicStructuredResultForcesSingleResultTool() async throws {
+        let mockClient = MockHTTPClient()
+        await mockClient.setDefault(response: .json([
+            "id": "msg_test",
+            "content": [[
+                "type": "tool_use",
+                "id": "toolu_1",
+                "name": "ai_haplotype_result",
+                "input": ["schemaVersion": 1, "ok": true],
+            ]],
+            "stop_reason": "tool_use",
+            "usage": ["input_tokens": 13, "output_tokens": 9],
+        ]))
+        let provider = AnthropicProvider(apiKey: "test-key", modelId: "claude-sonnet-4-5-20250929", httpClient: mockClient)
+        let request = AIStructuredRequest(
+            systemPrompt: "Use the result tool.",
+            userPrompt: "Classify this evidence.",
+            schemaName: "ai_haplotype_result",
+            schema: Self.strictHaplotypeSchema,
+            maxOutputTokens: 2048,
+            temperature: 0,
+            attemptIndex: 3,
+            fallbackIndex: 2,
+            credentialSource: "environment"
+        )
+
+        let response = try await provider.requestStructuredResult(request)
+
+        XCTAssertEqual(response.payload["ok"]?.boolValue, true)
+        XCTAssertNil(response.rawText)
+        XCTAssertEqual(response.usage?.inputTokens, 13)
+        XCTAssertEqual(response.usage?.outputTokens, 9)
+        XCTAssertEqual(response.attemptMetadata.attemptIndex, 3)
+        XCTAssertEqual(response.attemptMetadata.fallbackIndex, 2)
+        XCTAssertEqual(response.attemptMetadata.apiVersion, "2023-06-01")
+        XCTAssertEqual(response.attemptMetadata.credentialSource, "environment")
+        XCTAssertEqual(response.attemptMetadata.apiKeyAvailable, true)
+        XCTAssertEqual(response.attemptMetadata.requestID, "msg_test")
+        XCTAssertEqual(response.attemptMetadata.statusCode, 200)
+
+        let requests = await mockClient.requests
+        let captured = try XCTUnwrap(requests.first?.httpBody)
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: captured) as? [String: Any])
+        let toolChoice = try XCTUnwrap(body["tool_choice"] as? [String: Any])
+        XCTAssertEqual(toolChoice["type"] as? String, "tool")
+        XCTAssertEqual(toolChoice["name"] as? String, "ai_haplotype_result")
+        let tools = try XCTUnwrap(body["tools"] as? [[String: Any]])
+        XCTAssertEqual(tools.count, 1)
+        XCTAssertEqual(tools.first?["name"] as? String, "ai_haplotype_result")
+        XCTAssertEqual(tools.first?["strict"] as? Bool, true)
+        let schema = try XCTUnwrap(tools.first?["input_schema"] as? [String: Any])
+        XCTAssertEqual(schema["additionalProperties"] as? Bool, false)
+    }
+
+    func testOpenAIStructuredResultRejectsTruncationRefusalMalformedNonObjectAndMissingContent() async throws {
+        let cases: [(String, [String: Any], String)] = [
+            ("length", [
+                "choices": [["message": ["content": #"{"schemaVersion":"#], "finish_reason": "length"]],
+            ], "truncated"),
+            ("refusal", [
+                "choices": [["message": ["refusal": "I cannot help with that"], "finish_reason": "stop"]],
+            ], "refusal"),
+            ("malformed", [
+                "choices": [["message": ["content": "not-json"], "finish_reason": "stop"]],
+            ], "valid JSON object"),
+            ("non-object", [
+                "choices": [["message": ["content": "[1,2,3]"], "finish_reason": "stop"]],
+            ], "JSON object"),
+            ("missing-content", [
+                "choices": [["message": [:], "finish_reason": "stop"]],
+            ], "content"),
+        ]
+
+        for (name, payload, expected) in cases {
+            let mockClient = MockHTTPClient()
+            await mockClient.setDefault(response: .json(payload))
+            let provider = OpenAIProvider(apiKey: "test-key", modelId: "gpt-5-mini", httpClient: mockClient)
+
+            do {
+                _ = try await provider.requestStructuredResult(.minimalHaplotypeSchemaRequest())
+                XCTFail("Expected OpenAI case \(name) to fail")
+            } catch AIProviderError.invalidResponse(let message) {
+                XCTAssertTrue(message.localizedCaseInsensitiveContains(expected), "case \(name): \(message)")
+            } catch AIProviderError.decodingError(let message) {
+                XCTAssertTrue(message.localizedCaseInsensitiveContains(expected), "case \(name): \(message)")
+            }
+        }
+    }
+
+    func testAnthropicStructuredResultRejectsMissingMultipleExtraAndTextOnlyResultBlocks() async throws {
+        let cases: [(String, [String: Any], String)] = [
+            ("missing-tool", [
+                "content": [],
+                "stop_reason": "end_turn",
+            ], "required result tool"),
+            ("multiple-tools", [
+                "content": [
+                    ["type": "tool_use", "id": "toolu_1", "name": "ai_haplotype_result", "input": ["schemaVersion": 1]],
+                    ["type": "tool_use", "id": "toolu_2", "name": "ai_haplotype_result", "input": ["schemaVersion": 1]],
+                ],
+                "stop_reason": "tool_use",
+            ], "exactly one"),
+            ("extra-text", [
+                "content": [
+                    ["type": "text", "text": "Here is a summary"],
+                    ["type": "tool_use", "id": "toolu_1", "name": "ai_haplotype_result", "input": ["schemaVersion": 1]],
+                ],
+                "stop_reason": "tool_use",
+            ], "extra content"),
+            ("text-only", [
+                "content": [["type": "text", "text": "Here is the answer."]],
+                "stop_reason": "end_turn",
+            ], "required result tool"),
+        ]
+
+        for (name, payload, expected) in cases {
+            let mockClient = MockHTTPClient()
+            await mockClient.setDefault(response: .json(payload))
+            let provider = AnthropicProvider(apiKey: "test-key", modelId: "claude-sonnet-4-5-20250929", httpClient: mockClient)
+
+            do {
+                _ = try await provider.requestStructuredResult(.minimalHaplotypeSchemaRequest())
+                XCTFail("Expected Anthropic case \(name) to fail")
+            } catch AIProviderError.invalidResponse(let message) {
+                XCTAssertTrue(message.localizedCaseInsensitiveContains(expected), "case \(name): \(message)")
+            }
+        }
+    }
+
+    private static let strictHaplotypeSchema: [String: JSONValue] = [
+        "type": .string("object"),
+        "additionalProperties": .bool(false),
+        "required": .array([.string("schemaVersion"), .string("ok")]),
+        "properties": .object([
+            "schemaVersion": .object(["type": .string("integer")]),
+            "ok": .object(["type": .string("boolean")]),
+        ]),
+    ]
+}
+
+private extension AIStructuredRequest {
+    static func minimalHaplotypeSchemaRequest() -> AIStructuredRequest {
+        AIStructuredRequest(
+            systemPrompt: "Use the schema.",
+            userPrompt: "Return the result.",
+            schemaName: "ai_haplotype_result",
+            schema: [
+                "type": .string("object"),
+                "additionalProperties": .bool(false),
+                "required": .array([.string("schemaVersion")]),
+                "properties": .object([
+                    "schemaVersion": .object(["type": .string("integer")]),
+                ]),
+            ],
+            maxOutputTokens: 512,
+            temperature: 0
+        )
+    }
 }

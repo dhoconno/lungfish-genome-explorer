@@ -33,9 +33,9 @@ func jsonValueToAny(_ value: JSONValue) -> Any {
 func anyToJSONValue(_ value: Any) -> JSONValue {
     switch value {
     case let s as String: return .string(s)
+    case let b as Bool: return .bool(b)
     case let i as Int: return .integer(i)
     case let d as Double: return .number(d)
-    case let b as Bool: return .bool(b)
     case is NSNull: return .null
     case let a as [Any]: return .array(a.map { anyToJSONValue($0) })
     case let d as [String: Any]: return .object(d.mapValues { anyToJSONValue($0) })
@@ -52,6 +52,46 @@ func anyToJSONValue(_ value: Any) -> JSONValue {
 /// - Returns: An untyped dictionary ready for JSON serialization.
 func encodeArguments(_ arguments: [String: JSONValue]) -> [String: Any] {
     arguments.mapValues { jsonValueToAny($0) }
+}
+
+/// Parses a UTF-8 JSON string and accepts only a top-level object.
+func parseJSONObjectString(_ text: String) throws -> [String: JSONValue] {
+    guard let data = text.data(using: .utf8) else {
+        throw AIProviderError.decodingError("Structured response content is not valid UTF-8")
+    }
+    guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        throw AIProviderError.invalidResponse("Structured response must be a valid JSON object")
+    }
+    return object.mapValues { anyToJSONValue($0) }
+}
+
+/// Converts common provider stop reasons to the shared response enum.
+func aiStopReason(from raw: String?, toolCallsPresent: Bool = false) -> AIResponse.StopReason {
+    switch raw {
+    case "stop", "end_turn": return .endTurn
+    case "tool_calls", "tool_use": return .toolUse
+    case "length", "max_tokens": return .maxTokens
+    case .some(let value): return .error(value)
+    case .none: return toolCallsPresent ? .toolUse : .endTurn
+    }
+}
+
+/// Extracts usage from OpenAI-style response usage.
+func openAIUsage(from json: [String: Any]) -> AIResponse.Usage? {
+    guard let usage = json["usage"] as? [String: Any] else { return nil }
+    return AIResponse.Usage(
+        inputTokens: usage["prompt_tokens"] as? Int ?? 0,
+        outputTokens: usage["completion_tokens"] as? Int ?? 0
+    )
+}
+
+/// Extracts usage from Anthropic-style response usage.
+func anthropicUsage(from json: [String: Any]) -> AIResponse.Usage? {
+    guard let usage = json["usage"] as? [String: Any] else { return nil }
+    return AIResponse.Usage(
+        inputTokens: usage["input_tokens"] as? Int ?? 0,
+        outputTokens: usage["output_tokens"] as? Int ?? 0
+    )
 }
 
 // MARK: - Error Parsing

@@ -314,6 +314,116 @@ public struct AIResponse: Sendable {
     }
 }
 
+// MARK: - Structured AI Response
+
+/// A strict structured-output request for AI workflows that require a JSON object.
+public struct AIStructuredRequest: Sendable {
+    public let systemPrompt: String
+    public let userPrompt: String
+    public let schemaName: String
+    public let schema: [String: JSONValue]
+    public let temperature: Double
+    public let maxOutputTokens: Int
+    public let attemptIndex: Int
+    public let fallbackIndex: Int
+    public let credentialSource: String?
+
+    public init(
+        systemPrompt: String,
+        userPrompt: String,
+        schemaName: String,
+        schema: [String: JSONValue],
+        maxOutputTokens: Int = 4096,
+        temperature: Double = 0,
+        attemptIndex: Int = 0,
+        fallbackIndex: Int = 0,
+        credentialSource: String? = nil
+    ) {
+        self.systemPrompt = systemPrompt
+        self.userPrompt = userPrompt
+        self.schemaName = schemaName
+        self.schema = schema
+        self.temperature = max(0, min(2, temperature))
+        self.maxOutputTokens = max(1, maxOutputTokens)
+        self.attemptIndex = max(0, attemptIndex)
+        self.fallbackIndex = max(0, fallbackIndex)
+        self.credentialSource = credentialSource
+    }
+}
+
+/// Result from a strict structured-output provider request.
+public struct AIStructuredResponse: Sendable {
+    public let payload: [String: JSONValue]
+    public let rawText: String?
+    public let usage: AIResponse.Usage?
+    public let stopReason: AIResponse.StopReason
+    public let attemptMetadata: AIProviderAttemptMetadata
+
+    public init(
+        payload: [String: JSONValue],
+        rawText: String?,
+        usage: AIResponse.Usage?,
+        stopReason: AIResponse.StopReason,
+        attemptMetadata: AIProviderAttemptMetadata
+    ) {
+        self.payload = payload
+        self.rawText = rawText
+        self.usage = usage
+        self.stopReason = stopReason
+        self.attemptMetadata = attemptMetadata
+    }
+}
+
+/// Non-secret metadata describing one provider attempt.
+public struct AIProviderAttemptMetadata: Sendable, Codable, Equatable {
+    public let attemptIndex: Int
+    public let fallbackIndex: Int
+    public let provider: String
+    public let model: String
+    public let endpoint: String
+    public let apiVersion: String?
+    public let credentialSource: String?
+    public let apiKeyAvailable: Bool
+    public let requestID: String?
+    public let statusCode: Int?
+    public let stopReason: String?
+    public let inputTokens: Int?
+    public let outputTokens: Int?
+    public let sanitizedErrorCategory: String?
+
+    public init(
+        attemptIndex: Int,
+        fallbackIndex: Int,
+        provider: String,
+        model: String,
+        endpoint: String,
+        apiVersion: String?,
+        credentialSource: String?,
+        apiKeyAvailable: Bool,
+        requestID: String?,
+        statusCode: Int?,
+        stopReason: String?,
+        inputTokens: Int?,
+        outputTokens: Int?,
+        sanitizedErrorCategory: String?
+    ) {
+        self.attemptIndex = attemptIndex
+        self.fallbackIndex = fallbackIndex
+        self.provider = provider
+        self.model = model
+        self.endpoint = endpoint
+        self.apiVersion = apiVersion
+        self.credentialSource = credentialSource
+        self.apiKeyAvailable = apiKeyAvailable
+        self.requestID = requestID
+        self.statusCode = statusCode
+        self.stopReason = stopReason
+        self.inputTokens = inputTokens
+        self.outputTokens = outputTokens
+        self.sanitizedErrorCategory = sanitizedErrorCategory
+    }
+}
+
 // MARK: - AI Provider Protocol
 
 /// Protocol for AI language model providers.
@@ -341,6 +451,11 @@ public protocol AIProvider: Sendable {
         systemPrompt: String,
         tools: [AIToolDefinition]
     ) async throws -> AIResponse
+}
+
+/// Protocol for providers that can force strict structured JSON-object results.
+public protocol StructuredAIProvider: AIProvider {
+    func requestStructuredResult(_ request: AIStructuredRequest) async throws -> AIStructuredResponse
 }
 
 public extension AIProvider {

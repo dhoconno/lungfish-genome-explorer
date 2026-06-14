@@ -12,7 +12,7 @@ private let logger = Logger(subsystem: LogSubsystem.core, category: "OpenAIProvi
 /// Supports GPT-4o, GPT-4.1, and newer models with function calling.
 /// Translates between the common `AIMessage` format and OpenAI's
 /// message/tool_calls format.
-public actor OpenAIProvider: AIProvider {
+public actor OpenAIProvider: StructuredAIProvider {
     private let apiKey: String
     public let modelId: String
     private let httpClient: HTTPClient
@@ -65,7 +65,67 @@ public actor OpenAIProvider: AIProvider {
         }
     }
 
+    public func requestStructuredResult(_ structuredRequest: AIStructuredRequest) async throws -> AIStructuredResponse {
+        let requestBody = buildStructuredRequestBody(structuredRequest)
+        let jsonData = try JSONSerialization.data(withJSONObject: requestBody)
+
+        var request = URLRequest(url: baseURL)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("Lungfish Genome Explorer", forHTTPHeaderField: "User-Agent")
+        request.httpBody = jsonData
+        request.timeoutInterval = 120
+
+        let (data, response) = try await httpClient.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw AIProviderError.networkError("Invalid response type")
+        }
+
+        switch httpResponse.statusCode {
+        case 200...299:
+            return try parseStructuredResponse(data, httpResponse: httpResponse, request: structuredRequest)
+        case 401:
+            throw AIProviderError.missingAPIKey
+        case 429:
+            let retryAfter = httpResponse.value(forHTTPHeaderField: "Retry-After").flatMap(TimeInterval.init)
+            throw AIProviderError.rateLimited(retryAfter: retryAfter)
+        case 400:
+            let errorMessage = parseErrorMessage(data) ?? "Bad request"
+            throw AIProviderError.httpError(statusCode: 400, message: errorMessage)
+        default:
+            let errorMessage = parseErrorMessage(data) ?? "Unknown error"
+            throw AIProviderError.httpError(statusCode: httpResponse.statusCode, message: errorMessage)
+        }
+    }
+
     // MARK: - Request Building
+
+    private func buildStructuredRequestBody(_ request: AIStructuredRequest) -> [String: Any] {
+        var body: [String: Any] = [
+            "model": modelId,
+            "messages": [
+                ["role": "system", "content": request.systemPrompt],
+                ["role": "user", "content": request.userPrompt],
+            ],
+            "temperature": request.temperature,
+            "response_format": [
+                "type": "json_schema",
+                "json_schema": [
+                    "name": request.schemaName,
+                    "strict": true,
+                    "schema": jsonValueToAny(.object(request.schema)),
+                ],
+            ],
+        ]
+        if usesMaxCompletionTokensParameter {
+            body["max_completion_tokens"] = request.maxOutputTokens
+        } else {
+            body["max_tokens"] = request.maxOutputTokens
+        }
+        return body
+    }
 
     private func buildRequestBody(
         messages: [AIMessage],
@@ -171,6 +231,65 @@ public actor OpenAIProvider: AIProvider {
     }
 
     // MARK: - Response Parsing
+
+    private func parseStructuredResponse(
+        _ data: Data,
+        httpResponse: HTTPURLResponse,
+        request: AIStructuredRequest
+    ) throws -> AIStructuredResponse {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = json["choices"] as? [[String: Any]],
+              let firstChoice = choices.first,
+              let message = firstChoice["message"] as? [String: Any] else {
+            throw AIProviderError.decodingError("Invalid OpenAI response structure")
+        }
+
+        let finishReason = firstChoice["finish_reason"] as? String
+        if finishReason == "length" {
+            throw AIProviderError.invalidResponse("Structured response was truncated before a complete JSON object was returned")
+        }
+
+        if let refusal = message["refusal"] as? String, !refusal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw AIProviderError.invalidResponse("OpenAI returned a refusal instead of structured content")
+        }
+        if message["refusal"] != nil, !(message["refusal"] is NSNull) {
+            throw AIProviderError.invalidResponse("OpenAI returned a refusal instead of structured content")
+        }
+
+        guard let rawText = message["content"] as? String else {
+            throw AIProviderError.invalidResponse("Structured OpenAI response is missing content")
+        }
+
+        let payload = try parseJSONObjectString(rawText)
+        let usage = openAIUsage(from: json)
+        let requestID = httpResponse.value(forHTTPHeaderField: "x-request-id")
+            ?? httpResponse.value(forHTTPHeaderField: "request-id")
+            ?? json["id"] as? String
+        let metadata = AIProviderAttemptMetadata(
+            attemptIndex: request.attemptIndex,
+            fallbackIndex: request.fallbackIndex,
+            provider: "openai",
+            model: modelId,
+            endpoint: baseURL.absoluteString,
+            apiVersion: "chat.completions.v1",
+            credentialSource: request.credentialSource,
+            apiKeyAvailable: !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            requestID: requestID,
+            statusCode: httpResponse.statusCode,
+            stopReason: finishReason,
+            inputTokens: usage?.inputTokens,
+            outputTokens: usage?.outputTokens,
+            sanitizedErrorCategory: nil
+        )
+
+        return AIStructuredResponse(
+            payload: payload,
+            rawText: rawText,
+            usage: usage,
+            stopReason: aiStopReason(from: finishReason),
+            attemptMetadata: metadata
+        )
+    }
 
     private func parseResponse(_ data: Data) throws -> AIResponse {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
