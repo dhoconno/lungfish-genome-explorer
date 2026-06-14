@@ -18,6 +18,7 @@ private let logger = Logger(subsystem: LogSubsystem.app, category: "ReferenceDis
 /// pattern — never `Task { @MainActor in }`.
 @MainActor
 public final class ReferenceDiscoveryService {
+    public typealias Scanner = @Sendable (URL) async -> [ReferenceCandidate]
 
     /// Cached candidates, grouped by source category.
     public private(set) var candidates: [ReferenceCandidate] = []
@@ -30,10 +31,16 @@ public final class ReferenceDiscoveryService {
 
     /// Last-used reference per operation kind (persisted in UserDefaults).
     private var lastUsedReferences: [String: String] = [:]
+    private let scanner: Scanner
+    private var activeScanTask: Task<[ReferenceCandidate], Never>?
+    private var scanGeneration = 0
 
     private static let lastUsedDefaultsKey = "ReferenceDiscoveryLastUsed"
 
-    public init() {
+    public init(scanner: @escaping Scanner = { projectURL in
+        ReferenceSequenceScanner.scanAll(in: projectURL)
+    }) {
+        self.scanner = scanner
         loadLastUsedFromDefaults()
     }
 
@@ -44,14 +51,32 @@ public final class ReferenceDiscoveryService {
     /// Results replace the current cache. Safe to call multiple times;
     /// a new scan cancels any in-progress scan.
     public func scan(projectURL: URL) async {
+        activeScanTask?.cancel()
+        scanGeneration += 1
+        let generation = scanGeneration
         self.projectURL = projectURL
         isScanning = true
         candidates = []
 
-        let results = await Task.detached {
-            ReferenceSequenceScanner.scanAll(in: projectURL)
-        }.value
+        let scanner = scanner
+        let task = Task.detached(priority: .userInitiated) {
+            await scanner(projectURL)
+        }
+        activeScanTask = task
+        let results = await task.value
 
+        guard !Task.isCancelled else {
+            if generation == scanGeneration {
+                activeScanTask = nil
+                isScanning = false
+            }
+            return
+        }
+        guard generation == scanGeneration else {
+            return
+        }
+
+        activeScanTask = nil
         candidates = results
         isScanning = false
 

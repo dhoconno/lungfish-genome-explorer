@@ -76,6 +76,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
     /// Setting this property rebuilds the item tree and reloads the outline view.
     public var result: EsVirituResult? {
         didSet {
+            cancelPendingFilterApplication()
             rebuildItems()
             filterText = ""
             filteredItems = nil
@@ -285,13 +286,15 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
     private var filteredItems: [ViralAssemblyItem]?
 
     /// Current filter text. Empty string means no filter.
-    private var filterText: String = "" {
-        didSet {
-            if filterText != oldValue {
-                applyFilter()
-            }
-        }
-    }
+    private var filterText: String = ""
+
+    /// Debounced work item for search-field filtering.
+    private var filterWorkItem: DispatchWorkItem?
+    private var filterGeneration = 0
+
+    #if DEBUG
+    private var debugFilterApplicationCount = 0
+    #endif
 
     /// Current sort key and direction.
     private var currentSortKey: String = ColumnID.reads
@@ -583,10 +586,47 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
     // MARK: - Search / Filter
 
     @objc private func searchFieldChanged(_ sender: NSSearchField) {
-        filterText = sender.stringValue
+        setFilterText(sender.stringValue, debounce: true)
+    }
+
+    private func setFilterText(_ text: String, debounce: Bool) {
+        guard filterText != text else { return }
+        filterText = text
+        if debounce, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            scheduleFilterApplication()
+        } else {
+            applyFilterImmediately()
+        }
+    }
+
+    private func cancelPendingFilterApplication() {
+        filterWorkItem?.cancel()
+        filterWorkItem = nil
+        filterGeneration += 1
+    }
+
+    private func applyFilterImmediately() {
+        cancelPendingFilterApplication()
+        applyFilter()
+    }
+
+    private func scheduleFilterApplication() {
+        filterWorkItem?.cancel()
+        filterGeneration += 1
+        let generation = filterGeneration
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self, self.filterGeneration == generation else { return }
+            self.filterWorkItem = nil
+            self.applyFilter()
+        }
+        filterWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16, execute: workItem)
     }
 
     private func applyFilter() {
+        #if DEBUG
+        debugFilterApplicationCount += 1
+        #endif
         let query = filterText.trimmingCharacters(in: .whitespaces).lowercased()
 
         if query.isEmpty {
@@ -1322,7 +1362,11 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
             } else {
                 rowSampleId = nil
             }
-            if let cell = metadataColumns.cellForColumn(column, sampleId: rowSampleId ?? metadataColumns.currentSampleId) {
+            if let cell = metadataColumns.cellForColumn(
+                column,
+                in: outlineView,
+                sampleId: rowSampleId ?? metadataColumns.currentSampleId
+            ) {
                 return cell
             }
         }
@@ -1838,6 +1882,13 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
     var testDisplayedAssemblyCount: Int { displayItems.count }
 
     #if DEBUG
+    var testingFilterApplicationCount: Int { debugFilterApplicationCount }
+
+    func testingSubmitSearchText(_ text: String) {
+        searchField.stringValue = text
+        searchFieldChanged(searchField)
+    }
+
     /// Test-only: the outline view's configured context menu. Equivalent to
     /// `outlineView.menu` but exposed through the view so tests don't need
     /// to reach into a private subview.

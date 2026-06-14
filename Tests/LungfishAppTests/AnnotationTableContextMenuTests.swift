@@ -171,6 +171,21 @@ final class AnnotationTableContextMenuTests: XCTestCase {
         XCTAssertFalse(drawer.tableView.enclosingScrollView?.isHidden ?? true)
     }
 
+    func testAnnotationAttributeColumnFilterCanFindRowsAfterFirstOverLimitPage() throws {
+        var lines = (0...AppSettings.shared.maxTableDisplayCount).map {
+            makeBEDLine(name: String(format: "gene-%05d", $0), start: $0 * 20)
+        }
+        lines.append(
+            "chr1\t999000\t999050\tzz-target\t0\t+\t999000\t999050\t0,0,0\t1\t50\t0\tgene\tgroup=target"
+        )
+        let drawer = try createDrawerWithDatabase(lines: lines)
+        XCTAssertTrue(drawer.displayedAnnotations.isEmpty)
+
+        applyAnnotationColumnFilter(key: "attr_group", op: "=", value: "target", to: drawer)
+
+        XCTAssertEqual(drawer.displayedAnnotations.map(\.name), ["zz-target"])
+    }
+
     func testAnnotationTrackControlsToggleVisibilityAndReorderTracks() {
         let drawer = AnnotationTableDrawerView(frame: NSRect(x: 0, y: 0, width: 800, height: 200))
         let spy = DrawerDelegateSpy()
@@ -722,6 +737,33 @@ final class AnnotationTableContextMenuTests: XCTestCase {
         drawer.debugRefreshDisplayedAnnotations()
 
         XCTAssertEqual(delegate.visibleAnnotationRenderKeys, ["annotations:1"])
+    }
+
+    func testAnnotationSearchFieldChangesAreDebounced() throws {
+        let drawer = try createDrawerWithDatabase(lines: [
+            "chr1\t100\t200\tgene-a\t0\t+\t100\t200\t0,0,0\t1\t100\t0\tgene\tgene=gene-a",
+            "chr1\t300\t400\tgene-b\t0\t+\t300\t400\t0,0,0\t1\t100\t0\tgene\tgene=gene-b",
+            "chr1\t500\t600\tother\t0\t+\t500\t600\t0,0,0\t1\t100\t0\tgene\tgene=other"
+        ])
+        let initialQueryCount = drawer.debugGetAnnotationQueryExecutionCount()
+        let searchField = NSSearchField()
+
+        searchField.stringValue = "g"
+        drawer.filterFieldChanged(searchField)
+        searchField.stringValue = "ge"
+        drawer.filterFieldChanged(searchField)
+        searchField.stringValue = "gene-a"
+        drawer.filterFieldChanged(searchField)
+
+        XCTAssertEqual(drawer.debugGetAnnotationQueryExecutionCount(), initialQueryCount)
+
+        let deadline = Date().addingTimeInterval(1.0)
+        while drawer.debugGetAnnotationQueryExecutionCount() == initialQueryCount && Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+
+        XCTAssertEqual(drawer.debugGetAnnotationQueryExecutionCount(), initialQueryCount + 1)
+        XCTAssertEqual(drawer.displayedAnnotations.map(\.name), ["gene-a"])
     }
 
     func testAnnotationViewportFilterControlRemainsVisibleInMinimalToolbarDensity() throws {

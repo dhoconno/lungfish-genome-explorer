@@ -25,6 +25,14 @@ struct MetadataColumnControllerTests {
         return table
     }
 
+    private func makeReusingTable() -> ReusingMetadataTableView {
+        let table = ReusingMetadataTableView()
+        let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("metadata_Type"))
+        col.title = "Type"
+        table.addTableColumn(col)
+        return table
+    }
+
     @Test("cellForColumn returns correct value for known sample")
     func cellReturnsValue() throws {
         let controller = MetadataColumnController()
@@ -63,6 +71,28 @@ struct MetadataColumnControllerTests {
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("metadata_Type"))
         let cell = controller.cellForColumn(column, sampleId: nil) as? NSTableCellView
         #expect(cell?.textField?.stringValue == "\u{2014}")
+    }
+
+    @Test("table-aware cellForColumn reuses metadata cells and resets dash styling")
+    func tableAwareCellReusesAndResetsMissingStyling() throws {
+        let controller = MetadataColumnController()
+        let table = makeReusingTable()
+        controller.install(on: table)
+        let store = try makeStore()
+        controller.update(store: store, sampleId: "S1")
+
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("metadata_Type"))
+        let missing = controller.cellForColumn(column, in: table, sampleId: "UNKNOWN") as? NSTableCellView
+        #expect(missing?.textField?.stringValue == "\u{2014}")
+        #expect(missing?.textField?.textColor == .tertiaryLabelColor)
+
+        table.reusableView = missing
+
+        let reused = controller.cellForColumn(column, in: table, sampleId: "S1") as? NSTableCellView
+        #expect(table.requestedIdentifiers.count == 2)
+        #expect(reused === missing)
+        #expect(reused?.textField?.stringValue == "clinical")
+        #expect(reused?.textField?.textColor == .labelColor)
     }
 
     @Test("cellForColumn with different sample IDs returns different values")
@@ -120,5 +150,17 @@ struct MetadataColumnControllerTests {
 
         let column = table.tableColumns.first { $0.identifier.rawValue == "metadata_Type" }
         #expect(column?.headerToolTip == "Sample metadata: Type")
+    }
+}
+
+@MainActor
+private final class ReusingMetadataTableView: NSTableView {
+    var reusableView: NSView?
+    var requestedIdentifiers: [NSUserInterfaceItemIdentifier] = []
+
+    override func makeView(withIdentifier identifier: NSUserInterfaceItemIdentifier, owner: Any?) -> NSView? {
+        requestedIdentifiers.append(identifier)
+        defer { reusableView = nil }
+        return reusableView
     }
 }

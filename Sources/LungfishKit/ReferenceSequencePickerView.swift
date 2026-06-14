@@ -8,7 +8,7 @@ import LungfishIO
 // MARK: - DiscoveredReference
 
 /// A reference discovered during project scanning, with its resolved FASTA URL.
-private struct DiscoveredReference: Identifiable {
+private struct DiscoveredReference: Identifiable, Sendable {
     let id: String
     let displayPath: String
     let bundleURL: URL
@@ -81,7 +81,7 @@ public struct ReferenceSequencePickerView: View {
                 }
             }
         }
-        .task { loadReferences() }
+        .task(id: projectURL) { await loadReferences() }
         .onChange(of: selectedRefID) { _, newID in
             if let ref = discoveredRefs.first(where: { $0.id == newID }) {
                 selectedReferenceURL = ref.fastaURL
@@ -91,18 +91,28 @@ public struct ReferenceSequencePickerView: View {
 
     // MARK: - Reference Loading
 
-    private func loadReferences() {
+    private func loadReferences() async {
         guard let projectURL else { return }
 
-        let refs = ReferenceSequenceScanner.scanAll(in: projectURL).map { candidate in
-            DiscoveredReference(
-                id: candidate.id,
-                displayPath: candidate.pickerDisplayName(relativeTo: projectURL),
-                bundleURL: candidate.sourceBundleURL ?? candidate.fastaURL.deletingLastPathComponent(),
-                fastaURL: candidate.fastaURL
-            )
-        }
+        let refs = await Task.detached(priority: .userInitiated) {
+            ReferenceSequenceScanner.scanAll(in: projectURL).map { candidate in
+                DiscoveredReference(
+                    id: candidate.id,
+                    displayPath: candidate.pickerDisplayName(relativeTo: projectURL),
+                    bundleURL: candidate.sourceBundleURL ?? candidate.fastaURL.deletingLastPathComponent(),
+                    fastaURL: candidate.fastaURL
+                )
+            }
+        }.value
+        guard !Task.isCancelled else { return }
 
+        await MainActor.run {
+            applyDiscoveredReferences(refs, projectURL: projectURL)
+        }
+    }
+
+    @MainActor
+    private func applyDiscoveredReferences(_ refs: [DiscoveredReference], projectURL: URL) {
         discoveredRefs = refs.sorted { $0.displayPath.localizedCaseInsensitiveCompare($1.displayPath) == .orderedAscending }
 
         // Auto-select first if nothing selected

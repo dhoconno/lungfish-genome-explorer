@@ -80,10 +80,31 @@ final class BatchTableViewTests: XCTestCase {
 
         XCTAssertEqual(table.displayedRows.map(\.name), ["alpha", "beta", "alphabet"])
     }
+
+    func testNumericColumnFiltersUseRawNumericValuesInsteadOfRoundedDisplayText() {
+        let table = NumericBatchTableView(frame: NSRect(x: 0, y: 0, width: 360, height: 240))
+        table.configure(rows: [
+            NumericBatchRow(name: "raw-1501", rawReads: 1501, displayReads: "1.5K"),
+            NumericBatchRow(name: "raw-1499", rawReads: 1499, displayReads: "1.5K")
+        ])
+
+        table.setColumnFilter(
+            ColumnFilter(columnId: "reads", op: .equal, value: "1501"),
+            for: "reads"
+        )
+
+        XCTAssertEqual(table.displayedRows.map(\.name), ["raw-1501"])
+    }
 }
 
 private struct TestBatchRow: Equatable {
     let name: String
+}
+
+private struct NumericBatchRow: Equatable {
+    let name: String
+    let rawReads: Double
+    let displayReads: String
 }
 
 @MainActor
@@ -117,6 +138,52 @@ private final class TestBatchTableView: BatchTableView<TestBatchRow> {
 
     override func didApplyDisplayedRows() {
         applyCount += 1
+    }
+}
+
+@MainActor
+private final class NumericBatchTableView: BatchTableView<NumericBatchRow> {
+    override var columnSpecs: [BatchColumnSpec] {
+        [
+            BatchColumnSpec(
+                identifier: NSUserInterfaceItemIdentifier("name"),
+                title: "Name",
+                width: 120,
+                minWidth: 80,
+                defaultAscending: true
+            ),
+            BatchColumnSpec(
+                identifier: NSUserInterfaceItemIdentifier("reads"),
+                title: "Reads",
+                width: 90,
+                minWidth: 70,
+                defaultAscending: false
+            ),
+        ]
+    }
+
+    override var columnTypeHints: [String: Bool] { ["reads": true] }
+
+    override func cellContent(
+        for column: NSUserInterfaceItemIdentifier,
+        row: NumericBatchRow
+    ) -> (text: String, alignment: NSTextAlignment, font: NSFont?) {
+        switch column.rawValue {
+        case "name":
+            return (row.name, .left, nil)
+        case "reads":
+            return (row.displayReads, .right, nil)
+        default:
+            return ("", .left, nil)
+        }
+    }
+
+    override func columnValue(for columnId: String, row: NumericBatchRow) -> String {
+        columnId == "reads" ? row.displayReads : row.name
+    }
+
+    override func columnNumericValue(for columnId: String, row: NumericBatchRow) -> Double? {
+        columnId == "reads" ? row.rawReads : nil
     }
 }
 

@@ -15,6 +15,11 @@ extension AnnotationTableDrawerView {
     func updateDisplayedAnnotations() {
         if activeTab == .variants {
             enforceMaterializedOnlyRestrictionsIfNeeded()
+        } else if activeTab == .annotations {
+            invalidatePendingAnnotationQuery()
+            #if DEBUG
+            debugAnnotationQueryExecutionCount += 1
+            #endif
         }
 
         let currentFilterText: String = switch activeTab {
@@ -49,44 +54,47 @@ extension AnnotationTableDrawerView {
                 return typeFilter.intersection(explicitType)
             }()
             let databaseColumnFilters = annotationDatabaseColumnFilters()
-            let matchingCount = index.queryAnnotationCount(
-                nameFilter: nameFilter,
-                types: mergedTypeFilter,
-                chromosome: annotationQuery.chromosome,
-                regionStart: annotationQuery.start,
-                regionEnd: annotationQuery.end,
-                strand: annotationQuery.strand,
-                columnFilters: databaseColumnFilters
-            )
+            let hasNarrowingFilter = !nameFilter.isEmpty
+                || !mergedTypeFilter.isEmpty
+                || annotationQuery.chromosome != nil
+                || annotationQuery.start != nil
+                || annotationQuery.end != nil
+                || annotationQuery.strand != nil
+                || !annotationColumnFilterClauses.isEmpty
 
-            if matchingCount > Self.maxDisplayCount {
+            if !hasNarrowingFilter && activeTotal > Self.maxDisplayCount {
                 setAnnotationBaseResults([])
                 tableView.reloadData()
                 scrollView.isHidden = false
-                let total = numberFormatter.string(from: NSNumber(value: matchingCount)) ?? "\(matchingCount)"
+                let total = numberFormatter.string(from: NSNumber(value: activeTotal)) ?? "\(activeTotal)"
                 let max = numberFormatter.string(from: NSNumber(value: Self.maxDisplayCount)) ?? "\(Self.maxDisplayCount)"
-                tooManyLabel.stringValue = "\(total) \(entityName) match — use the search field or type filters to narrow to \(max) or fewer"
+                tooManyLabel.stringValue = "\(total) \(entityName) — use the search field or type filters to narrow to \(max) or fewer"
                 tooManyLabel.isHidden = false
                 annotationSearchRegion = nil
             } else {
-                let results = index.queryAnnotationsOnly(
+                let filtered = fetchAnnotationRowsForDisplay(
+                    index: index,
                     nameFilter: nameFilter,
-                    types: mergedTypeFilter,
-                    chromosome: annotationQuery.chromosome,
-                    regionStart: annotationQuery.start,
-                    regionEnd: annotationQuery.end,
-                    strand: annotationQuery.strand,
-                    columnFilters: databaseColumnFilters,
-                    limit: Self.maxDisplayCount * 3
+                    typeFilter: mergedTypeFilter,
+                    query: annotationQuery,
+                    databaseColumnFilters: databaseColumnFilters,
+                    requiresPostOnlyColumnFiltering: hasPostOnlyAnnotationColumnFilters()
                 )
-                let filtered = applyAnnotationColumnFilters(
-                    to: applyAnnotationAdvancedFilters(results, query: annotationQuery)
-                ).prefix(Self.maxDisplayCount).map { $0 }
-                setAnnotationBaseResults(filtered)
-                tableView.reloadData()
-                scrollView.isHidden = false
-                tooManyLabel.isHidden = true
-                updateAnnotationSearchRegion()
+                if filtered.count > Self.maxDisplayCount {
+                    setAnnotationBaseResults([])
+                    tableView.reloadData()
+                    scrollView.isHidden = false
+                    let max = numberFormatter.string(from: NSNumber(value: Self.maxDisplayCount)) ?? "\(Self.maxDisplayCount)"
+                    tooManyLabel.stringValue = "\(max)+ \(entityName) match — use the search field or type filters to narrow to \(max) or fewer"
+                    tooManyLabel.isHidden = false
+                    annotationSearchRegion = nil
+                } else {
+                    setAnnotationBaseResults(filtered)
+                    tableView.reloadData()
+                    scrollView.isHidden = false
+                    tooManyLabel.isHidden = true
+                    updateAnnotationSearchRegion()
+                }
             }
             updateCountLabel()
             return
@@ -139,9 +147,85 @@ extension AnnotationTableDrawerView {
     }
 
     func annotationDatabaseColumnFilters() -> [AnnotationDatabase.ColumnFilterClause] {
-        annotationColumnFilterClauses.map {
+        annotationColumnFilterClauses
+            .filter { isAnnotationDatabasePushdownColumnFilter($0.key) }
+            .map {
             AnnotationDatabase.ColumnFilterClause(key: $0.key, op: $0.op, value: $0.value)
         }
+    }
+
+    func hasPostOnlyAnnotationColumnFilters() -> Bool {
+        annotationColumnFilterClauses.contains { !isAnnotationDatabasePushdownColumnFilter($0.key) }
+    }
+
+    func isAnnotationDatabasePushdownColumnFilter(_ key: String) -> Bool {
+        switch key {
+        case "name", "track_id", "track_name", "type", "chromosome", "start", "end", "size", "strand":
+            return true
+        default:
+            return false
+        }
+    }
+
+    func fetchAnnotationRowsForDisplay(
+        index: AnnotationSearchIndex,
+        nameFilter: String,
+        typeFilter: Set<String>,
+        query annotationQuery: AnnotationFilterQuery,
+        databaseColumnFilters: [AnnotationDatabase.ColumnFilterClause],
+        requiresPostOnlyColumnFiltering: Bool
+    ) -> [AnnotationSearchIndex.SearchResult] {
+        let targetCount = Self.maxDisplayCount + 1
+        var fetchLimit = targetCount
+
+        while true {
+            let results = index.queryAnnotationsOnly(
+                nameFilter: nameFilter,
+                types: typeFilter,
+                chromosome: annotationQuery.chromosome,
+                regionStart: annotationQuery.start,
+                regionEnd: annotationQuery.end,
+                strand: annotationQuery.strand,
+                columnFilters: databaseColumnFilters,
+                limit: fetchLimit
+            )
+            let filtered = applyAnnotationColumnFilters(
+                to: applyAnnotationAdvancedFilters(results, query: annotationQuery)
+            )
+
+            if !requiresPostOnlyColumnFiltering
+                || filtered.count >= targetCount
+                || results.count < fetchLimit {
+                return Array(filtered.prefix(targetCount))
+            }
+
+            fetchLimit = max(fetchLimit * 2, fetchLimit + targetCount)
+        }
+    }
+
+    func invalidatePendingAnnotationQuery() {
+        annotationQueryWorkItem?.cancel()
+        annotationQueryWorkItem = nil
+        annotationQueryGeneration += 1
+    }
+
+    func scheduleAnnotationQueryRefresh() {
+        annotationQueryWorkItem?.cancel()
+        annotationQueryGeneration += 1
+        let generation = annotationQueryGeneration
+        let workItem = DispatchWorkItem { [weak self] in
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self,
+                          self.annotationQueryGeneration == generation,
+                          self.activeTab == .annotations else { return }
+                    self.annotationQueryWorkItem = nil
+                    self.updateDisplayedAnnotations()
+                }
+            }
+        }
+        annotationQueryWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.annotationQueryDebounceInterval, execute: workItem)
     }
 
     /// Populates the variant table using viewport-region-filtered or global queries.
@@ -809,6 +893,12 @@ extension AnnotationTableDrawerView {
         switch activeTab {
         case .annotations:
             annotationFilterText = sender.stringValue
+            if annotationFilterText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                updateDisplayedAnnotations()
+            } else {
+                scheduleAnnotationQueryRefresh()
+            }
+            return
         case .variants:
             variantFilterText = sender.stringValue
             markVariantFilterStateMutated()
@@ -1515,6 +1605,10 @@ extension AnnotationTableDrawerView {
 
     func debugMarkViewportExploration() {
         allowViewportPostFilterDuringExploration = true
+    }
+
+    func debugGetAnnotationQueryExecutionCount() -> Int {
+        debugAnnotationQueryExecutionCount
     }
 
     func debugGetVariantQueryExecutionCount() -> Int {

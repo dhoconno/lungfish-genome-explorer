@@ -4243,7 +4243,7 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
 
         default:
             // Check for dynamic metadata columns
-            if let cell = metadataColumns.cellForColumn(column) {
+            if let cell = metadataColumns.cellForColumn(column, in: tableView, sampleId: metadataColumns.currentSampleId) {
                 return cell
             }
             return nil

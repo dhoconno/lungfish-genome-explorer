@@ -149,6 +149,126 @@ public struct ColumnFilter: Sendable, Codable, Equatable {
     }
 }
 
+public enum ColumnFilterValue: Sendable, Equatable {
+    case string(String)
+    case numeric(Double)
+}
+
+public struct PreparedColumnFilter: Sendable, Equatable {
+    public let columnId: String
+    public let op: FilterOperator
+    public let isInverted: Bool
+    public let numericValue: Double?
+    public let numericValue2: Double?
+    public let normalizedTextValue: String
+    public let metadataColumnName: String?
+    public let prefersNumeric: Bool
+
+    init(filter: ColumnFilter, typeHints: [String: Bool]) {
+        let trimmed = filter.value.trimmingCharacters(in: .whitespaces)
+        let parsedPrimary = ColumnFilter.parseNumericValue(trimmed)
+        self.columnId = filter.columnId
+        self.op = filter.op
+        self.isInverted = filter.isInverted
+        self.numericValue = parsedPrimary
+        self.numericValue2 = filter.value2.flatMap { ColumnFilter.parseNumericValue($0) }
+        self.normalizedTextValue = trimmed.lowercased()
+        self.metadataColumnName = filter.columnId.hasPrefix("metadata_")
+            ? String(filter.columnId.dropFirst("metadata_".count))
+            : nil
+        self.prefersNumeric = typeHints[filter.columnId] == true
+            || (filter.op.isNumeric && (filter.op != .equal || parsedPrimary != nil))
+    }
+
+    public func matches(_ value: ColumnFilterValue?) -> Bool {
+        guard let value else { return applyInversion(false) }
+        switch value {
+        case .numeric(let numericValue):
+            return matchesNumeric(numericValue)
+        case .string(let stringValue):
+            if prefersNumeric || (op.isNumeric && op != .equal) {
+                guard let numericValue = ColumnFilter.parseNumericValue(stringValue) else {
+                    return op.isNumeric ? applyInversion(false) : matchesString(stringValue)
+                }
+                return matchesNumeric(numericValue)
+            }
+            return matchesString(stringValue)
+        }
+    }
+
+    public func matchesNumeric(_ numericValue: Double) -> Bool {
+        guard let threshold = self.numericValue else { return true }
+
+        let result: Bool
+        switch op {
+        case .greaterOrEqual:
+            result = numericValue >= threshold
+        case .lessOrEqual:
+            result = numericValue <= threshold
+        case .equal:
+            result = numericValue == threshold
+        case .between:
+            if let upper = numericValue2 {
+                result = numericValue >= threshold && numericValue <= upper
+            } else {
+                result = numericValue >= threshold
+            }
+        case .contains, .startsWith:
+            result = true
+        }
+        return applyInversion(result)
+    }
+
+    public func matchesString(_ stringValue: String) -> Bool {
+        let normalized = stringValue.lowercased()
+        let result: Bool
+        switch op {
+        case .contains:
+            result = normalized.contains(normalizedTextValue)
+        case .equal:
+            result = normalized == normalizedTextValue
+        case .startsWith:
+            result = normalized.hasPrefix(normalizedTextValue)
+        case .greaterOrEqual, .lessOrEqual, .between:
+            guard let numericValue = ColumnFilter.parseNumericValue(stringValue) else {
+                return applyInversion(false)
+            }
+            return matchesNumeric(numericValue)
+        }
+        return applyInversion(result)
+    }
+
+    private func applyInversion(_ result: Bool) -> Bool {
+        isInverted ? !result : result
+    }
+}
+
+public struct ColumnFilterSnapshot: Sendable, Equatable {
+    public let filters: [PreparedColumnFilter]
+    public let composition: ColumnFilterComposition
+
+    public init(_ filterSet: ColumnFilterSet, typeHints: [String: Bool] = [:]) {
+        self.filters = filterSet.activeFilters.map {
+            PreparedColumnFilter(filter: $0, typeHints: typeHints)
+        }
+        self.composition = filterSet.composition
+    }
+
+    public var isActive: Bool {
+        !filters.isEmpty
+    }
+
+    public func matches(_ valueForFilter: (PreparedColumnFilter) -> ColumnFilterValue?) -> Bool {
+        guard !filters.isEmpty else { return true }
+        switch composition {
+        case .all:
+            return filters.allSatisfy { $0.matches(valueForFilter($0)) }
+        case .any:
+            return filters.contains { $0.matches(valueForFilter($0)) }
+        }
+    }
+}
+
 /// Boolean composition mode for multiple active column filters.
 public enum ColumnFilterComposition: String, Sendable, Codable, Equatable {
     case all

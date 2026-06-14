@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import Combine
 import LungfishCore
 import LungfishWorkflow
 import SwiftUI
@@ -121,6 +122,13 @@ public struct OperationRouteContext: Sendable, Codable, Equatable {
 
 @MainActor
 public final class OperationCenter: ObservableObject {
+    public enum Change: Sendable, Equatable {
+        case inserted(id: UUID, index: Int)
+        case updated(id: UUID, index: Int)
+        case removed(ids: [UUID])
+        case reloaded
+    }
+
     public struct Item: Identifiable, Sendable {
         public enum State: String, Sendable {
             case running
@@ -237,6 +245,7 @@ public final class OperationCenter: ObservableObject {
     public static let shared = OperationCenter()
 
     @Published public private(set) var items: [Item] = []
+    public let changes = PassthroughSubject<Change, Never>()
 
     /// Called when an operation completes with bundle URLs that need importing.
     /// The AppDelegate sets this once at startup to handle bundle import.
@@ -361,7 +370,8 @@ public final class OperationCenter: ObservableObject {
             at: 0
         )
         lockBundle(for: id, url: targetBundleURL)
-        trimCompletedItemsIfNeeded()
+        changes.send(.inserted(id: id, index: 0))
+        notifyRemovedItems(trimCompletedItemsIfNeeded())
         postStateChangedNotification(id: id, state: .running)
         return id
     }
@@ -371,6 +381,7 @@ public final class OperationCenter: ObservableObject {
     public func setCancelCallback(for id: UUID, callback: @escaping @Sendable () -> Void) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         items[index].onCancel = callback
+        changes.send(.updated(id: id, index: index))
     }
 
     public func update(id: UUID, progress: Double, detail: String) {
@@ -378,6 +389,7 @@ public final class OperationCenter: ObservableObject {
         guard items[index].state == .running else { return }
         items[index].progress = max(0, min(1, progress))
         items[index].detail = detail
+        changes.send(.updated(id: id, index: index))
     }
 
     /// Updates visible progress and records the same status in operation history.
@@ -399,10 +411,12 @@ public final class OperationCenter: ObservableObject {
         if deduplicateAdjacent,
            items[index].logEntries.last?.message == detail,
            items[index].logEntries.last?.level == level {
+            changes.send(.updated(id: id, index: index))
             return
         }
         let entry = OperationLogEntry(level: level, message: detail)
         items[index].logEntries.append(entry)
+        changes.send(.updated(id: id, index: index))
     }
 
     /// Updates resource usage observed for an operation.
@@ -412,6 +426,7 @@ public final class OperationCenter: ObservableObject {
             let existing = items[index].peakMemoryBytes ?? 0
             items[index].peakMemoryBytes = max(existing, peakMemoryBytes)
         }
+        changes.send(.updated(id: id, index: index))
     }
 
     /// Updates byte progress for an operation, computing the progress fraction automatically.
@@ -458,6 +473,7 @@ public final class OperationCenter: ObservableObject {
             detail += " · ETA \(etaStr)"
         }
         items[index].detail = detail
+        changes.send(.updated(id: id, index: index))
     }
 
     /// Appends a timestamped log entry to an operation's log.
@@ -473,6 +489,7 @@ public final class OperationCenter: ObservableObject {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         let entry = OperationLogEntry(level: level, message: message)
         items[index].logEntries.append(entry)
+        changes.send(.updated(id: id, index: index))
     }
 
     public func recordRetry(
@@ -499,17 +516,20 @@ public final class OperationCenter: ObservableObject {
             logMessage = "\(message): \(logMessage)"
         }
         items[index].logEntries.append(OperationLogEntry(level: .warning, message: logMessage))
+        changes.send(.updated(id: id, index: index))
     }
 
     public func complete(id: UUID, detail: String, finishedAt: Date = Date()) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         guard items[index].state == .running else { return }
+        let previousOrder = items.map(\.id)
         items[index].state = .completed
         items[index].progress = 1
         items[index].detail = detail
         finishItem(at: index, finishedAt: finishedAt)
         unlockBundle(for: id)
-        trimCompletedItemsIfNeeded()
+        _ = trimCompletedItemsIfNeeded()
+        publishTerminalChange(id: id, previousOrder: previousOrder)
         postStateChangedNotification(id: id, state: .completed)
     }
 
@@ -530,6 +550,7 @@ public final class OperationCenter: ObservableObject {
     public func complete(id: UUID, detail: String, bundleURLs: [URL], finishedAt: Date = Date()) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         guard items[index].state == .running else { return }
+        let previousOrder = items.map(\.id)
         items[index].state = .completed
         items[index].progress = 1
         items[index].detail = detail
@@ -538,7 +559,8 @@ public final class OperationCenter: ObservableObject {
         let routeContext = items[index].routeContext
         finishItem(at: index, finishedAt: finishedAt)
         unlockBundle(for: id)
-        trimCompletedItemsIfNeeded()
+        _ = trimCompletedItemsIfNeeded()
+        publishTerminalChange(id: id, previousOrder: previousOrder)
 
         if !bundleURLs.isEmpty {
             if let onBundleReadyWithContext {
@@ -564,6 +586,7 @@ public final class OperationCenter: ObservableObject {
     public func complete(id: UUID, detail: String, outputURLs: [URL], finishedAt: Date = Date()) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         guard items[index].state == .running else { return }
+        let previousOrder = items.map(\.id)
         items[index].state = .completed
         items[index].progress = 1
         items[index].detail = detail
@@ -571,7 +594,8 @@ public final class OperationCenter: ObservableObject {
         items[index].outputURLs = outputURLs
         finishItem(at: index, finishedAt: finishedAt)
         unlockBundle(for: id)
-        trimCompletedItemsIfNeeded()
+        _ = trimCompletedItemsIfNeeded()
+        publishTerminalChange(id: id, previousOrder: previousOrder)
         postStateChangedNotification(id: id, state: .completed)
     }
 
@@ -597,13 +621,15 @@ public final class OperationCenter: ObservableObject {
     ) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         guard items[index].state == .running else { return }
+        let previousOrder = items.map(\.id)
         items[index].state = .failed
         items[index].detail = detail
         items[index].errorMessage = errorMessage
         items[index].errorDetail = errorDetail
         finishItem(at: index, finishedAt: finishedAt)
         unlockBundle(for: id)
-        trimCompletedItemsIfNeeded()
+        _ = trimCompletedItemsIfNeeded()
+        publishTerminalChange(id: id, previousOrder: previousOrder)
         postStateChangedNotification(id: id, state: .failed)
     }
 
@@ -612,12 +638,14 @@ public final class OperationCenter: ObservableObject {
         guard let index = items.firstIndex(where: { $0.id == id }),
               items[index].state == .running else { return }
         let onCancel = items[index].onCancel
+        let previousOrder = items.map(\.id)
 
         items[index].state = .cancelled
         items[index].detail = "Cancelled by user"
         finishItem(at: index, finishedAt: Date())
         unlockBundle(for: id)
-        trimCompletedItemsIfNeeded()
+        _ = trimCompletedItemsIfNeeded()
+        publishTerminalChange(id: id, previousOrder: previousOrder)
         postStateChangedNotification(id: id, state: .cancelled)
 
         if let onCancel {
@@ -636,7 +664,9 @@ public final class OperationCenter: ObservableObject {
     }
 
     public func clearCompleted() {
+        let removedIDs = items.filter { $0.state != .running }.map(\.id)
         items.removeAll { $0.state != .running }
+        notifyRemovedItems(removedIDs)
     }
 
     /// Removes a single finished item by ID.
@@ -645,22 +675,44 @@ public final class OperationCenter: ObservableObject {
     ///
     /// - Parameter id: The item to remove.
     public func clearItem(id: UUID) {
+        let shouldRemove = items.contains { $0.id == id && $0.state != .running }
         items.removeAll { $0.id == id && $0.state != .running }
+        if shouldRemove {
+            changes.send(.removed(ids: [id]))
+        }
     }
 
-    private func trimCompletedItemsIfNeeded() {
+    private func trimCompletedItemsIfNeeded() -> [UUID] {
         let keepLimit = 20
+        let previousIDs = Set(items.map(\.id))
         let running = items.filter { $0.state == .running }
         let finished = items
             .filter { $0.state != .running }
             .sorted { ($0.finishedAt ?? .distantPast) > ($1.finishedAt ?? .distantPast) }
 
         items = running + Array(finished.prefix(max(0, keepLimit - running.count)))
+        let currentIDs = Set(items.map(\.id))
+        return previousIDs.subtracting(currentIDs).map { $0 }
     }
 
     private func finishItem(at index: Int, finishedAt: Date) {
         items[index].finishedAt = finishedAt
         items[index].wallTimeSeconds = max(0, finishedAt.timeIntervalSince(items[index].startedAt))
+    }
+
+    private func notifyRemovedItems(_ ids: [UUID]) {
+        guard !ids.isEmpty else { return }
+        changes.send(.removed(ids: ids))
+    }
+
+    private func publishTerminalChange(id: UUID, previousOrder: [UUID]) {
+        let currentOrder = items.map(\.id)
+        guard currentOrder == previousOrder,
+              let index = items.firstIndex(where: { $0.id == id }) else {
+            changes.send(.reloaded)
+            return
+        }
+        changes.send(.updated(id: id, index: index))
     }
 }
 

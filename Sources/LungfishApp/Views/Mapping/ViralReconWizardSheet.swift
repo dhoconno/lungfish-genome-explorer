@@ -409,6 +409,7 @@ struct ViralReconWizardSheet: View {
         let candidates = await Task.detached {
             ReferenceSequenceScanner.scanAll(in: projectURL)
         }.value
+        guard !Task.isCancelled else { return }
         referenceCandidates = candidates
         if selectedReferenceID.isEmpty {
             selectedReferenceID = candidates.first?.id ?? ""

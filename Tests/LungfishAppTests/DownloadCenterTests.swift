@@ -4,6 +4,7 @@
 
 import XCTest
 import os
+import Combine
 @testable import LungfishApp
 import LungfishKit
 
@@ -24,13 +25,16 @@ import LungfishKit
 final class DownloadCenterTests: XCTestCase {
 
     private var center: DownloadCenter!
+    private var cancellables: Set<AnyCancellable> = []
 
     override func setUp() async throws {
         try await super.setUp()
         center = DownloadCenter()
+        cancellables = []
     }
 
     override func tearDown() async throws {
+        cancellables.removeAll()
         center = nil
         try await super.tearDown()
     }
@@ -126,6 +130,61 @@ final class DownloadCenterTests: XCTestCase {
         XCTAssertEqual(item?.detail, "Processed 20,000 variants · ETA 6m")
         XCTAssertEqual(item?.progress ?? -1, 0.2, accuracy: 0.001)
         XCTAssertEqual(item?.logEntries.map(\.message), ["Import started"])
+    }
+
+    func testProgressUpdatesEmitRowLevelChange() {
+        var changes: [OperationCenter.Change] = []
+        center.changes.sink { changes.append($0) }.store(in: &cancellables)
+
+        let id = center.start(title: "Test", detail: "Starting...")
+        center.update(id: id, progress: 0.5, detail: "Halfway")
+
+        XCTAssertEqual(changes, [
+            .inserted(id: id, index: 0),
+            .updated(id: id, index: 0),
+        ])
+    }
+
+    func testLogUpdatesEmitRowLevelChange() {
+        var changes: [OperationCenter.Change] = []
+        center.changes.sink { changes.append($0) }.store(in: &cancellables)
+
+        let id = center.start(title: "Test", detail: "Starting...")
+        center.log(id: id, level: .info, message: "Import started")
+
+        XCTAssertEqual(changes, [
+            .inserted(id: id, index: 0),
+            .updated(id: id, index: 0),
+        ])
+    }
+
+    func testClearCompletedEmitsRemovedChange() {
+        var changes: [OperationCenter.Change] = []
+        center.changes.sink { changes.append($0) }.store(in: &cancellables)
+
+        let runningID = center.start(title: "Running", detail: "")
+        let doneID = center.start(title: "Done", detail: "")
+        center.complete(id: doneID, detail: "Done")
+
+        changes.removeAll()
+        center.clearCompleted()
+
+        XCTAssertEqual(center.items.map(\.id), [runningID])
+        XCTAssertEqual(changes, [.removed(ids: [doneID])])
+    }
+
+    func testCompletingOlderRunningOperationEmitsReloadWhenItemOrderChanges() {
+        var changes: [OperationCenter.Change] = []
+        center.changes.sink { changes.append($0) }.store(in: &cancellables)
+
+        let olderID = center.start(title: "Older", detail: "")
+        let newerID = center.start(title: "Newer", detail: "")
+
+        changes.removeAll()
+        center.complete(id: newerID, detail: "Done")
+
+        XCTAssertEqual(center.items.map(\.id), [olderID, newerID])
+        XCTAssertEqual(changes, [.reloaded])
     }
 
     // MARK: - Complete

@@ -275,6 +275,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
     /// Generation counter for stale genotype fetch prevention.
     var genotypeFetchGeneration: Int = 0
+    /// Generation counter for stale annotation filter refreshes.
+    var annotationQueryGeneration: Int = 0
 
     /// Total annotation count in the database (annotation tab only).
     var totalAnnotationCount: Int = 0
@@ -380,6 +382,9 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
     /// Debounce work item for viewport sync to avoid thrashing during rapid panning.
     var viewportSyncWorkItem: DispatchWorkItem?
+
+    /// Debounce work item for annotation-tab text filtering.
+    var annotationQueryWorkItem: DispatchWorkItem?
 
     /// Debounce work item for variant queries to collapse rapid filter/scope changes.
     var variantQueryWorkItem: DispatchWorkItem?
@@ -489,6 +494,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     var viewportRegionAtLastFilterMutation: (chromosome: String, start: Int, end: Int)?
 
     #if DEBUG
+    var debugAnnotationQueryExecutionCount: Int = 0
     var debugVariantQueryExecutionCount: Int = 0
     #endif
 
@@ -545,6 +551,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     static let consequenceComputationRowLimit: Int = 4_000
     static let deferredConsequenceText = "Too many variants to compute (zoom in)"
     static let deferredAAChangeText = "Zoom in to compute"
+    static let annotationQueryDebounceInterval: TimeInterval = 0.16
     static let variantQueryDebounceInterval: TimeInterval = 0.12
 
     enum SampleSmartToken: String, CaseIterable {

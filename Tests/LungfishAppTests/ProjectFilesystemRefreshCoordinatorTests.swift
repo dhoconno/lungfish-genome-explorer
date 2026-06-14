@@ -125,6 +125,36 @@ final class ProjectFilesystemRefreshCoordinatorTests: XCTestCase {
         XCTAssertEqual(receivedFullReloads.count, 1)
     }
 
+    func testPendingMustScanSubDirsCoalescesFollowingConcreteChangesIntoOneFullReload() async throws {
+        let projectURL = tempRoot.appendingPathComponent("MustScanMixedBurst.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+
+        var receivedChanges: [FileSystemWatcher.ChangedPaths] = []
+        _ = ProjectFilesystemRefreshCoordinator.shared.register(projectURL: projectURL) { changedPaths in
+            receivedChanges.append(changedPaths)
+        }
+
+        let fullReload = FileSystemWatcher.ChangedPaths(nonSidecar: [], all: [])
+        let concreteChange = FileSystemWatcher.ChangedPaths(
+            nonSidecar: [projectURL.appendingPathComponent("Analyses")],
+            all: [projectURL.appendingPathComponent("Analyses")]
+        )
+
+        ProjectFilesystemRefreshCoordinator.shared.testingEmitChange(projectURL: projectURL, changedPaths: fullReload)
+        try await Task.sleep(for: .milliseconds(20))
+        ProjectFilesystemRefreshCoordinator.shared.testingEmitChange(projectURL: projectURL, changedPaths: concreteChange)
+
+        XCTAssertEqual(receivedChanges.count, 0, "A concrete event during a pending full reload should not trigger an extra immediate reload")
+
+        try await waitForCoordinatorCondition {
+            receivedChanges.count == 1
+        }
+
+        XCTAssertEqual(receivedChanges.count, 1)
+        XCTAssertTrue(receivedChanges[0].nonSidecar.isEmpty)
+        XCTAssertTrue(receivedChanges[0].all.isEmpty)
+    }
+
     func testPendingMustScanSubDirsReloadIsCancelledWhenSubscriptionIsRemoved() async throws {
         let projectURL = tempRoot.appendingPathComponent("MustScanCancel.lungfish", isDirectory: true)
         try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)

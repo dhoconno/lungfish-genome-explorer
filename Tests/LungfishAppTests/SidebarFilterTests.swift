@@ -29,6 +29,14 @@ final class SidebarFilterTests: XCTestCase {
             || name == FASTQBundleCSVMetadata.filename
     }
 
+    func testUniversalSearchEnsuresIndexForSidebarSearches() {
+        let source = combinedSidebarViewControllerSource()
+        XCTAssertTrue(
+            source.contains("ensureIndexed: true"),
+            "Sidebar universal search must build the project index on first search."
+        )
+    }
+
     // MARK: - Positive Cases (Should Be Hidden)
 
     func testLungfishMetaJsonIsInternal() {

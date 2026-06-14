@@ -160,6 +160,12 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         cellContent(for: NSUserInterfaceItemIdentifier(columnId), row: row).text
     }
 
+    /// Returns a raw numeric value for a column, used by per-column filtering.
+    ///
+    /// Override this when the displayed cell text is rounded or formatted
+    /// (for example `1.5K`) so numeric filters can match the underlying value.
+    open func columnNumericValue(for columnId: String, row: Row) -> Double? { nil }
+
     /// Column type hints — true = numeric, false = text.
     /// Subclasses should override to declare which columns are numeric.
     open var columnTypeHints: [String: Bool] { [:] }
@@ -457,10 +463,11 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
             filtered = unfilteredRows.filter { rowMatchesFilter($0, filterText: filterText) }
         }
 
-        if columnFilterSet.isActive {
+        let columnFilterSnapshot = ColumnFilterSnapshot(columnFilterSet, typeHints: columnTypeHints)
+        if columnFilterSnapshot.isActive {
             filtered = filtered.filter { row in
-                columnFilterSet.matches { filter in
-                    rowMatchesColumnFilter(filter, row: row)
+                columnFilterSnapshot.matches { filter in
+                    columnFilterValue(for: filter, row: row)
                 }
             }
         }
@@ -484,24 +491,29 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         didApplyDisplayedRows()
     }
 
-    private func rowMatchesColumnFilter(_ filter: ColumnFilter, row: Row) -> Bool {
+    private func columnFilterValue(for filter: PreparedColumnFilter, row: Row) -> ColumnFilterValue? {
         let columnId = filter.columnId
 
-        if columnId.hasPrefix("metadata_"), let sid = sampleId(for: row),
+        if let metadataColumnName = filter.metadataColumnName,
+           let sid = sampleId(for: row),
            let store = metadataColumns.store,
-           let metaValue = store.records[sid]?[String(columnId.dropFirst("metadata_".count))] {
-            if columnTypeHints[columnId] == true || ColumnFilter.parseNumericValue(metaValue) != nil,
-               let num = ColumnFilter.parseNumericValue(metaValue) {
-                return filter.matchesNumeric(num)
+           let metaValue = store.records[sid]?[metadataColumnName] {
+            if filter.prefersNumeric,
+               let numericValue = ColumnFilter.parseNumericValue(metaValue) {
+                return .numeric(numericValue)
             }
-            return filter.matchesString(metaValue)
+            return .string(metaValue)
         }
 
-        let value = columnValue(for: columnId, row: row)
-        if columnTypeHints[columnId] == true, let num = ColumnFilter.parseNumericValue(value) {
-            return filter.matchesNumeric(num)
+        if let numericValue = columnNumericValue(for: columnId, row: row) {
+            return .numeric(numericValue)
         }
-        return filter.matchesString(value)
+        let value = columnValue(for: columnId, row: row)
+        if filter.prefersNumeric,
+           let numericValue = ColumnFilter.parseNumericValue(value) {
+            return .numeric(numericValue)
+        }
+        return .string(value)
     }
 
     /// Returns the current free-text filter query.
@@ -802,7 +814,7 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         // Metadata columns handled by the controller.
         if MetadataColumnController.isMetadataColumn(column.identifier) {
             let rowData = displayedRows[row]
-            return metadataColumns.cellForColumn(column, sampleId: sampleId(for: rowData) ?? "")
+            return metadataColumns.cellForColumn(column, in: tableView, sampleId: sampleId(for: rowData) ?? "")
         }
 
         let rowData = displayedRows[row]

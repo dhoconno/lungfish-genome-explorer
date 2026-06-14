@@ -40,6 +40,35 @@ final class ReferenceDiscoveryServiceTests: XCTestCase {
     }
 
     @MainActor
+    func testOverlappingScansIgnoreStaleResults() async throws {
+        let slowProjectURL = try makeTempProject()
+        let fastProjectURL = try makeTempProject()
+        defer {
+            try? FileManager.default.removeItem(at: slowProjectURL.deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: fastProjectURL.deletingLastPathComponent())
+        }
+
+        let slowCandidate = ReferenceCandidate.standaloneFASTA(url: slowProjectURL.appendingPathComponent("slow.fasta"))
+        let fastCandidate = ReferenceCandidate.standaloneFASTA(url: fastProjectURL.appendingPathComponent("fast.fasta"))
+        let service = ReferenceDiscoveryService(scanner: { url in
+            if url == slowProjectURL {
+                try? await Task.sleep(nanoseconds: 200_000_000)
+                return [slowCandidate]
+            }
+            return [fastCandidate]
+        })
+
+        async let firstScan: Void = service.scan(projectURL: slowProjectURL)
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        await service.scan(projectURL: fastProjectURL)
+        await firstScan
+
+        XCTAssertFalse(service.isScanning)
+        XCTAssertEqual(service.projectURL, fastProjectURL)
+        XCTAssertEqual(service.candidates, [fastCandidate])
+    }
+
+    @MainActor
     func testCandidatesFilteredByCategory() async throws {
         let projectURL = try makeTempProject()
         defer { try? FileManager.default.removeItem(at: projectURL.deletingLastPathComponent()) }

@@ -49,6 +49,7 @@ public final class MetadataColumnController {
     public init() {}
 
     private static let zeroWidthDisableThreshold: CGFloat = 0.5
+    private static let metadataCellTextFieldTag = 51_001
 
     /// The metadata store providing column names and values.
     public private(set) var store: SampleMetadataStore?
@@ -132,7 +133,7 @@ public final class MetadataColumnController {
     /// - Parameter sampleId: The new sample ID.
     public func updateSampleId(_ sampleId: String?) {
         self.currentSampleId = sampleId
-        tableView?.reloadData()
+        reloadVisibleMetadataColumns()
     }
 
     // MARK: - Column Management
@@ -387,27 +388,50 @@ public final class MetadataColumnController {
     ///   - sampleId: The sample ID to look up metadata for.
     /// - Returns: A configured NSTextField cell, or nil if not a metadata column.
     public func cellForColumn(_ column: NSTableColumn, sampleId: String?) -> NSView? {
+        guard let value = metadataValue(for: column, sampleId: sampleId) else { return nil }
+        let cell = makeMetadataCell(identifier: metadataCellIdentifier(for: column))
+        configureMetadataCell(cell, value: value)
+        return cell
+    }
+
+    /// Returns a reusable cell view for a metadata column using a specific sample ID.
+    ///
+    /// Hot table/outline delegates should call this overload so AppKit can recycle
+    /// metadata cells while scrolling through large result tables.
+    public func cellForColumn(_ column: NSTableColumn, in tableView: NSTableView, sampleId: String?) -> NSView? {
+        guard let value = metadataValue(for: column, sampleId: sampleId) else { return nil }
+        let identifier = metadataCellIdentifier(for: column)
+        let cell = tableView.makeView(withIdentifier: identifier, owner: self) as? NSTableCellView
+            ?? makeMetadataCell(identifier: identifier)
+        configureMetadataCell(cell, value: value)
+        return cell
+    }
+
+    private func metadataValue(for column: NSTableColumn, sampleId: String?) -> String? {
         let rawID = column.identifier.rawValue
         guard rawID.hasPrefix(metadataColumnPrefix) else { return nil }
 
         let metaColName = String(rawID.dropFirst(metadataColumnPrefix.count))
-        let value: String
         if let sampleId,
            let record = store?.records[sampleId],
            let val = record[metaColName] {
-            value = val
-        } else {
-            value = "\u{2014}" // em dash for missing
+            return val
         }
+        return "\u{2014}"
+    }
 
+    private func metadataCellIdentifier(for column: NSTableColumn) -> NSUserInterfaceItemIdentifier {
+        NSUserInterfaceItemIdentifier("metadata-cell-\(column.identifier.rawValue)")
+    }
+
+    private func makeMetadataCell(identifier: NSUserInterfaceItemIdentifier) -> NSTableCellView {
         let cell = NSTableCellView()
-        let field = NSTextField(labelWithString: value)
+        cell.identifier = identifier
+        let field = NSTextField(labelWithString: "")
+        field.tag = Self.metadataCellTextFieldTag
         field.font = .systemFont(ofSize: 11)
         field.lineBreakMode = .byTruncatingTail
         field.translatesAutoresizingMaskIntoConstraints = false
-        if value == "\u{2014}" {
-            field.textColor = .tertiaryLabelColor
-        }
         cell.addSubview(field)
         cell.textField = field
         NSLayoutConstraint.activate([
@@ -416,6 +440,28 @@ public final class MetadataColumnController {
             field.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
         ])
         return cell
+    }
+
+    private func configureMetadataCell(_ cell: NSTableCellView, value: String) {
+        let field = cell.textField ?? cell.viewWithTag(Self.metadataCellTextFieldTag) as? NSTextField
+        field?.stringValue = value
+        field?.font = .systemFont(ofSize: 11)
+        field?.lineBreakMode = .byTruncatingTail
+        field?.textColor = value == "\u{2014}" ? .tertiaryLabelColor : .labelColor
+        field?.toolTip = value == "\u{2014}" ? nil : value
+        cell.toolTip = field?.toolTip
+    }
+
+    private func reloadVisibleMetadataColumns() {
+        guard let tableView else { return }
+        let metadataColumnIndexes = tableView.tableColumns.enumerated().compactMap { index, column in
+            Self.isMetadataColumn(column.identifier) && !column.isHidden ? index : nil
+        }
+        guard !metadataColumnIndexes.isEmpty else { return }
+        tableView.reloadData(
+            forRowIndexes: IndexSet(integersIn: 0..<tableView.numberOfRows),
+            columnIndexes: IndexSet(metadataColumnIndexes)
+        )
     }
 
     // MARK: - Export Support

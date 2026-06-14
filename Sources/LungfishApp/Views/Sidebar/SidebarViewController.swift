@@ -101,6 +101,17 @@ public class SidebarViewController: NSViewController {
 
     /// Monotonic token used to discard stale async query responses.
     private var universalSearchGeneration: Int = 0
+    private lazy var searchScheduler = SidebarSearchScheduler(
+        onClear: { [weak self] in
+            self?.clearSidebarSearchResults()
+        },
+        onLocalSearch: { [weak self] query, generation in
+            self?.applyLocalSidebarSearch(query: query, generation: generation)
+        },
+        onUniversalSearch: { [weak self] query, generation in
+            self?.startUniversalSidebarSearch(query: query, generation: generation)
+        }
+    )
     /// Current advanced-search popover (if shown).
     private var universalSearchPopover: NSPopover?
 
@@ -302,6 +313,7 @@ public class SidebarViewController: NSViewController {
 
     public override func viewWillDisappear() {
         super.viewWillDisappear()
+        searchScheduler.cancel()
         cancelUniversalSearch(reason: "controller teardown")
         keyEventMonitor?.invalidate()
         keyEventMonitor = nil
@@ -320,26 +332,31 @@ public class SidebarViewController: NSViewController {
     // MARK: - Actions
 
     @objc private func searchFieldChanged(_ sender: NSSearchField) {
-        let searchText = sender.stringValue.trimmingCharacters(in: .whitespaces)
+        searchScheduler.submit(sender.stringValue)
+    }
+
+    private func clearSidebarSearchResults() {
         cancelUniversalSearch(reason: "query changed")
         universalSearchGeneration &+= 1
-        let searchGeneration = universalSearchGeneration
+        filteredRootItems = nil
+        outlineView.reloadData()
+        setSearchSpinnerVisible(false)
+    }
 
-        if searchText.isEmpty {
-            filteredRootItems = nil
-            outlineView.reloadData()
-            setSearchSpinnerVisible(false)
-            return
-        }
+    private func applyLocalSidebarSearch(query searchText: String, generation searchGeneration: Int) {
+        cancelUniversalSearch(reason: "query changed")
+        universalSearchGeneration = searchGeneration
 
         let normalizedQuery = searchText.lowercased()
         filteredRootItems = filterItems(rootItems, matching: normalizedQuery)
         outlineView.reloadData()
-        if filteredRootItems != nil {
-            outlineView.expandItem(nil, expandChildren: true)
-        }
+        expandFilteredSearchResultsIfReasonable()
+    }
 
+    private func startUniversalSidebarSearch(query searchText: String, generation searchGeneration: Int) {
         guard let projectURL = projectURL else { return }
+        universalSearchGeneration = searchGeneration
+        let normalizedQuery = searchText.lowercased()
 
         // Show spinner while universal search runs in the background
         setSearchSpinnerVisible(true)
@@ -366,14 +383,29 @@ public class SidebarViewController: NSViewController {
                     matchingURLs: matchedURLs
                 )
                 self.outlineView.reloadData()
-                if self.filteredRootItems != nil {
-                    self.outlineView.expandItem(nil, expandChildren: true)
-                }
+                self.expandFilteredSearchResultsIfReasonable()
+            } catch is CancellationError {
+                return
             } catch {
                 sidebarLogger.debug("searchFieldChanged: universal search unavailable: \(error.localizedDescription, privacy: .public)")
             }
 
+            guard !Task.isCancelled,
+                  self.universalSearchGeneration == searchGeneration else { return }
             self.setSearchSpinnerVisible(false)
+        }
+    }
+
+    private func expandFilteredSearchResultsIfReasonable() {
+        guard let filteredRootItems else { return }
+        let visibleItemCount = countSidebarItems(filteredRootItems)
+        guard visibleItemCount <= 250 else { return }
+        outlineView.expandItem(nil, expandChildren: true)
+    }
+
+    private func countSidebarItems(_ items: [SidebarItem]) -> Int {
+        items.reduce(0) { total, item in
+            total + 1 + countSidebarItems(item.children)
         }
     }
 
@@ -401,14 +433,14 @@ public class SidebarViewController: NSViewController {
         builder.onApply = { [weak self] query in
             guard let self else { return }
             self.searchField.stringValue = query
-            self.searchFieldChanged(self.searchField)
+            self.searchScheduler.submit(query, immediate: true)
             self.universalSearchPopover?.performClose(nil)
             self.universalSearchPopover = nil
         }
         builder.onClear = { [weak self] in
             guard let self else { return }
             self.searchField.stringValue = ""
-            self.searchFieldChanged(self.searchField)
+            self.searchScheduler.submit("", immediate: true)
             self.universalSearchPopover?.performClose(nil)
             self.universalSearchPopover = nil
         }
@@ -446,6 +478,7 @@ public class SidebarViewController: NSViewController {
 
     /// Clears universal-search state for a project.
     private func clearUniversalSearchState(for projectURL: URL?) {
+        searchScheduler.cancel()
         cancelUniversalSearch(reason: "clearing project state")
         universalSearchGeneration = 0
 
@@ -726,6 +759,7 @@ public class SidebarViewController: NSViewController {
         projectURL = nil
         clearUniversalSearchState(for: priorProjectURL)
         rootItems = []
+        filteredRootItems = nil
         reloadOutlineView()
     }
 
@@ -758,7 +792,7 @@ public class SidebarViewController: NSViewController {
     public func applyRestoredState(selectedURL: URL?, expandedURLs: [URL], searchText: String?) {
         if let searchText {
             searchField?.stringValue = searchText
-            searchFieldChanged(searchField)
+            searchScheduler.submit(searchText, immediate: true)
         }
         restoreExpandedItemURLs(Set(expandedURLs.map(\.standardizedFileURL)))
         if let selectedURL {

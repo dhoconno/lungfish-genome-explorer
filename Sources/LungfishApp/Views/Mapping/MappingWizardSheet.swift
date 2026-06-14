@@ -606,6 +606,7 @@ struct MappingWizardSheet: View {
         let candidates = await Task.detached {
             ReferenceSequenceScanner.scanAll(in: projectURL)
         }.value
+        guard !Task.isCancelled else { return }
         referenceCandidates = candidates
         isLoadingReferences = false
 

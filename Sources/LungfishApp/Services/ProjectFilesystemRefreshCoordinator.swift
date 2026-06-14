@@ -108,6 +108,9 @@ public final class ProjectFilesystemRefreshCoordinator {
             scheduleCoalescedFullReload(projectKey: projectKey, changedPaths: changedPaths)
             return
         }
+        if projectWatcher.pendingFullReloadTask != nil {
+            return
+        }
         for handler in projectWatcher.handlers.values {
             handler(changedPaths)
         }

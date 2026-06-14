@@ -234,4 +234,42 @@ struct ColumnFilterTests {
         let decoded = try JSONDecoder().decode(ColumnFilterSet.self, from: data)
         #expect(decoded == set)
     }
+
+    @Test
+    func preparedSnapshotNormalizesNumericAndTextFiltersOnce() {
+        let set = ColumnFilterSet(
+            filters: [
+                ColumnFilter(columnId: "reads", op: .between, value: "1.5K", value2: "2K"),
+                ColumnFilter(columnId: "name", op: .startsWith, value: "NORO"),
+            ],
+            composition: .all
+        )
+
+        let snapshot = ColumnFilterSnapshot(set, typeHints: ["reads": true])
+
+        #expect(snapshot.filters.count == 2)
+        #expect(snapshot.filters[0].numericValue == 1500)
+        #expect(snapshot.filters[0].numericValue2 == 2000)
+        #expect(snapshot.filters[1].normalizedTextValue == "noro")
+        #expect(snapshot.matches { filter in
+            switch filter.columnId {
+            case "reads":
+                return .numeric(1750)
+            case "name":
+                return .string("Norovirus GII")
+            default:
+                return nil
+            }
+        })
+        #expect(!snapshot.matches { filter in
+            switch filter.columnId {
+            case "reads":
+                return .numeric(2100)
+            case "name":
+                return .string("Norovirus GII")
+            default:
+                return nil
+            }
+        })
+    }
 }

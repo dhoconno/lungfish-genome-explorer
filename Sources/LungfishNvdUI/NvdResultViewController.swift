@@ -2002,7 +2002,7 @@ extension NvdResultViewController {
             case .taxonGroup:
                 rowSampleId = nil
             }
-            if let cell = metadataColumnController.cellForColumn(tableColumn, sampleId: rowSampleId) {
+            if let cell = metadataColumnController.cellForColumn(tableColumn, in: outlineView, sampleId: rowSampleId) {
                 return cell
             }
         }

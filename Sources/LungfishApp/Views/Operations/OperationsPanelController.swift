@@ -62,9 +62,14 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
     private nonisolated(unsafe) var elapsedRefreshTimer: Timer?
 
     private var items: [OperationCenter.Item] = []
+    private var pendingRowReloadIDs: Set<UUID> = []
+    private var pendingRowReloadTask: Task<Void, Never>?
 
     /// Set of item IDs whose detail text is currently expanded.
     private var expandedItemIDs: Set<UUID> = []
+
+    private static let coalescedRowReloadDelay: Duration = .milliseconds(150)
+    private static let expandedLogEntryLimit = 200
 
     /// DateFormatter for log entry timestamps (HH:mm:ss).
     private static let logTimestampFormatter: DateFormatter = {
@@ -76,6 +81,8 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
     deinit {
         elapsedRefreshTimer?.invalidate()
         elapsedRefreshTimer = nil
+        pendingRowReloadTask?.cancel()
+        pendingRowReloadTask = nil
     }
 
     override func loadView() {
@@ -110,17 +117,175 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        OperationCenter.shared.$items
+        items = OperationCenter.shared.items
+        tableView.reloadData()
+        updateElapsedRefreshTimer()
+
+        OperationCenter.shared.changes
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] newItems in
+            .sink { [weak self] change in
                 guard let self else { return }
                 MainActor.assumeIsolated {
-                    self.items = newItems
-                    self.tableView.reloadData()
-                    self.updateElapsedRefreshTimer()
+                    self.applyOperationCenterChange(change)
                 }
             }
             .store(in: &cancellables)
+    }
+
+    private func applyOperationCenterChange(_ change: OperationCenter.Change) {
+        let previousItems = items
+        let latestItems = OperationCenter.shared.items
+        let selectedIDs = selectedOperationIDs()
+
+        switch change {
+        case .inserted(let id, let index):
+            let pendingIDs = takePendingRowReloadIDs()
+            items = latestItems
+            if latestItems.count == previousItems.count + 1,
+               index >= 0,
+               index < latestItems.count,
+               latestItems[index].id == id {
+                tableView.insertRows(at: IndexSet(integer: index), withAnimation: [])
+                reloadRows(for: pendingIDs)
+            } else {
+                reloadDataPreservingSelection(selectedIDs)
+            }
+
+        case .updated(let id, let index):
+            items = latestItems
+            guard let item = latestItems.first(where: { $0.id == id }) else {
+                reloadDataPreservingSelection(selectedIDs)
+                break
+            }
+            if item.state == .running {
+                scheduleCoalescedRowReload(for: id)
+            } else {
+                pendingRowReloadIDs.remove(id)
+                reloadRow(for: id, preferredIndex: index)
+            }
+
+        case .removed(let ids):
+            let removedSet = Set(ids)
+            let pendingIDs = takePendingRowReloadIDs().subtracting(removedSet)
+            expandedItemIDs.subtract(removedSet)
+            let removedRows = previousItems.enumerated()
+                .filter { removedSet.contains($0.element.id) }
+                .map(\.offset)
+            items = latestItems
+            if latestItems.count + removedRows.count == previousItems.count,
+               !removedRows.isEmpty {
+                tableView.removeRows(at: IndexSet(removedRows), withAnimation: [])
+                reloadRows(for: pendingIDs)
+            } else {
+                reloadDataPreservingSelection(selectedIDs.subtracting(removedSet))
+            }
+
+        case .reloaded:
+            pendingRowReloadTask?.cancel()
+            pendingRowReloadTask = nil
+            pendingRowReloadIDs.removeAll()
+            items = latestItems
+            reloadDataPreservingSelection(selectedIDs)
+        }
+
+        updateElapsedRefreshTimer()
+    }
+
+    private func scheduleCoalescedRowReload(for id: UUID) {
+        pendingRowReloadIDs.insert(id)
+        pendingRowReloadTask?.cancel()
+        pendingRowReloadTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: Self.coalescedRowReloadDelay)
+            } catch {
+                return
+            }
+            guard let self, !Task.isCancelled else { return }
+            self.flushPendingRowReloads()
+        }
+    }
+
+    private func flushPendingRowReloads() {
+        let ids = takePendingRowReloadIDs()
+        guard !ids.isEmpty else { return }
+        reloadRows(for: ids)
+    }
+
+    private func takePendingRowReloadIDs() -> Set<UUID> {
+        pendingRowReloadTask?.cancel()
+        pendingRowReloadTask = nil
+        let ids = pendingRowReloadIDs
+        pendingRowReloadIDs.removeAll()
+        return ids
+    }
+
+    private func reloadRow(for id: UUID, preferredIndex: Int? = nil) {
+        let row: Int?
+        if let preferredIndex,
+           preferredIndex >= 0,
+           preferredIndex < items.count,
+           items[preferredIndex].id == id {
+            row = preferredIndex
+        } else {
+            row = items.firstIndex { $0.id == id }
+        }
+        guard items.count == tableView.numberOfRows,
+              let row,
+              row < tableView.numberOfRows else {
+            reloadDataPreservingSelection(selectedOperationIDs())
+            return
+        }
+        if expandedItemIDs.contains(id) {
+            tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integer: row))
+        }
+        tableView.reloadData(
+            forRowIndexes: IndexSet(integer: row),
+            columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns)
+        )
+    }
+
+    private func reloadRows(for ids: Set<UUID>) {
+        guard items.count == tableView.numberOfRows else {
+            reloadDataPreservingSelection(selectedOperationIDs())
+            return
+        }
+        var rows = IndexSet()
+        var expandedRows = IndexSet()
+        for (index, item) in items.enumerated() where ids.contains(item.id) {
+            guard index < tableView.numberOfRows else {
+                reloadDataPreservingSelection(selectedOperationIDs())
+                return
+            }
+            rows.insert(index)
+            if expandedItemIDs.contains(item.id) {
+                expandedRows.insert(index)
+            }
+        }
+        guard !rows.isEmpty else { return }
+        if !expandedRows.isEmpty {
+            tableView.noteHeightOfRows(withIndexesChanged: expandedRows)
+        }
+        tableView.reloadData(
+            forRowIndexes: rows,
+            columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns)
+        )
+    }
+
+    private func selectedOperationIDs() -> Set<UUID> {
+        Set(tableView.selectedRowIndexes.compactMap { row in
+            guard row >= 0, row < items.count else { return nil }
+            return items[row].id
+        })
+    }
+
+    private func reloadDataPreservingSelection(_ selectedIDs: Set<UUID>) {
+        tableView.reloadData()
+        let rows = IndexSet(items.enumerated().compactMap { index, item in
+            selectedIDs.contains(item.id) ? index : nil
+        })
+        if !rows.isEmpty {
+            tableView.selectRowIndexes(rows, byExtendingSelection: false)
+        }
     }
 
     // MARK: - Elapsed Refresh Timer
@@ -463,7 +628,8 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
         // Log entries section
         if !item.logEntries.isEmpty {
             // Label (14pt) + spacing (4pt) + scroll area (min 40, max 150) + spacing (6pt)
-            let entryHeight = CGFloat(item.logEntries.count) * 16
+            let visibleLogEntryCount = min(item.logEntries.count, Self.expandedLogEntryLimit)
+            let entryHeight = CGFloat(visibleLogEntryCount) * 16
             let logAreaHeight = min(150, max(40, entryHeight))
             extraHeight += 14 + 4 + logAreaHeight + 6
         }
@@ -813,7 +979,8 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
                 section.setAccessibilityIdentifier(ExpansionSectionID.logEntries)
                 section.translatesAutoresizingMaskIntoConstraints = false
                 cell.addSubview(section)
-                let entryHeight = CGFloat(item.logEntries.count) * 16
+                let visibleLogEntryCount = min(item.logEntries.count, Self.expandedLogEntryLimit)
+                let entryHeight = CGFloat(visibleLogEntryCount) * 16
                 let logAreaHeight = min(150, max(40, entryHeight))
                 NSLayoutConstraint.activate([
                     section.topAnchor.constraint(equalTo: lastAnchor, constant: 6),
@@ -1041,7 +1208,8 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
         let logText = NSMutableAttributedString()
         let monoFont = NSFont(name: "Menlo", size: 9.5) ?? .monospacedSystemFont(ofSize: 9.5, weight: .regular)
 
-        for (index, entry) in item.logEntries.enumerated() {
+        let visibleEntries = Array(item.logEntries.suffix(Self.expandedLogEntryLimit))
+        for (index, entry) in visibleEntries.enumerated() {
             let ts = Self.logTimestampFormatter.string(from: entry.timestamp)
             let levelIndicator: String
             let levelColor: NSColor

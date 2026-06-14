@@ -992,7 +992,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
             return makePercentCell(for: node)
         default:
             // Check for dynamic metadata columns
-            if let cell = metadataColumns.cellForColumn(column, sampleId: sampleID(for: node)) {
+            if let cell = metadataColumns.cellForColumn(column, in: outlineView, sampleId: sampleID(for: node)) {
                 return cell
             }
             return nil
