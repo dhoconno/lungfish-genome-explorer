@@ -61,7 +61,7 @@ extension MainSplitViewController {
                     try fm.moveItem(at: sidecarURL, to: bundleURL.appendingPathComponent(sidecarName))
                 }
                 mainSplitLogger.info("displayGenomicsFile: Auto-bundled naked FASTQ \(url.lastPathComponent) → \(bundleURL.lastPathComponent)")
-                sidebarController.reloadFromFilesystem()
+                sidebarController.requestReloadFromFilesystem()
                 loadFASTQDatasetInBackground(sourceURL: bundleURL)
             } catch {
                 mainSplitLogger.error("displayGenomicsFile: Failed to auto-bundle FASTQ: \(error)")
@@ -891,7 +891,7 @@ extension MainSplitViewController {
                     if let last = derivedURLs.last {
                         self.refreshSidebarAndSelectDerivedURL(last)
                     } else {
-                        self.sidebarController.reloadFromFilesystem()
+                        self.sidebarController.requestReloadFromFilesystem()
                     }
                     self.requestInspectorDocumentModeAfterDownload()
                 }
@@ -1076,7 +1076,7 @@ extension MainSplitViewController {
                                 break
                             }
                         } else {
-                            self.sidebarController.reloadFromFilesystem()
+                            self.sidebarController.requestReloadFromFilesystem()
                         }
                         self.requestInspectorDocumentModeAfterDownload()
                     }

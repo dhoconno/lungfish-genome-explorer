@@ -205,7 +205,7 @@ extension InspectorViewController {
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
                         if let self, let split = self.parent as? MainSplitViewController {
-                            split.sidebarController.reloadFromFilesystem()
+                            split.sidebarController.requestReloadFromFilesystem()
                             do {
                                 try split.viewerController.displayBundle(at: bundleURL)
                             } catch {
@@ -718,7 +718,7 @@ extension InspectorViewController {
                             MainActor.assumeIsolated {
                                 self.viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = false
                                 split.activityIndicator.hide()
-                                split.sidebarController.reloadFromFilesystem()
+                                split.sidebarController.requestReloadFromFilesystem()
 
                                 do {
                                     try split.viewerController.displayBundle(at: result.bundleURL)

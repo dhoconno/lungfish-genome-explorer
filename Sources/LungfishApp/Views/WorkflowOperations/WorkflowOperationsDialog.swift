@@ -117,6 +117,10 @@ private struct WorkflowOperationsDetailPane: View {
     private var referencePicker: some View {
         VStack(alignment: .leading, spacing: 8) {
             groupLabel("Reference")
+            if state.isDiscoveringProjectResources && state.projectReferenceCandidates.isEmpty {
+                helperText("Scanning project resources...")
+                    .accessibilityIdentifier("workflow-operations-reference-scan-status")
+            }
             if !state.projectReferenceCandidates.isEmpty {
                 Picker("Project Reference", selection: referenceBinding) {
                     Text("Choose reference").tag(URL?.none)
@@ -202,6 +206,10 @@ private struct WorkflowOperationsDetailPane: View {
     private var barcodePicker: some View {
         VStack(alignment: .leading, spacing: 8) {
             groupLabel("Barcode Definition")
+            if state.isDiscoveringProjectResources && state.projectBarcodeDefinitionCandidates.isEmpty {
+                helperText("Scanning project resources...")
+                    .accessibilityIdentifier("workflow-operations-barcode-scan-status")
+            }
             if !state.projectBarcodeDefinitionCandidates.isEmpty {
                 Picker("Project File", selection: barcodeDefinitionProjectFileBinding) {
                     Text("Choose project file").tag(URL?.none)

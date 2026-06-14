@@ -547,7 +547,7 @@ public final class TaxonomyReadExtractionAction {
             if let appDelegate = NSApp.delegate as? AppDelegate,
                let sidebar = appDelegate.targetMainWindowController(routeContext: context.routeContext)?
                 .mainSplitViewController?.sidebarController {
-                sidebar.reloadFromFilesystem()
+                sidebar.requestReloadFromFilesystem()
             }
             dismiss(sheetWindow: sheetWindow, host: hostWindow)
             logger.info("Bundle created with \(n) reads at: \(url.path, privacy: .public)")

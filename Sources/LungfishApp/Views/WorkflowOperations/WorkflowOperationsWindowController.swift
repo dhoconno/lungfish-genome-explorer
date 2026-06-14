@@ -45,7 +45,8 @@ final class WorkflowOperationsWindowController: NSWindowController {
         self.state = WorkflowOperationDialogState(
             projectURL: projectURL,
             selectedReadURLs: selectedReadURLs,
-            sidebarInputSelection: sidebarInputSelection
+            sidebarInputSelection: sidebarInputSelection,
+            projectDiscoveryMode: .asynchronous
         )
         self.routeContext = routeContext
         self.service = service

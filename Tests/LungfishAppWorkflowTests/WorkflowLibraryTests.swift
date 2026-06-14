@@ -270,6 +270,54 @@ final class WorkflowLibraryTests: XCTestCase {
         XCTAssertEqual(viewModel.userWorkflowSections.first?.groups.first?.title, "Templates")
     }
 
+    func testWorkflowPackageImportValidatesOffMainAndCachesResult() throws {
+        let root = repositoryRoot()
+        let viewModelSource = try String(
+            contentsOf: root.appendingPathComponent(
+                "Sources/LungfishApp/Views/WorkflowLibrary/WorkflowLibraryViewModel.swift"
+            ),
+            encoding: .utf8
+        )
+        let storeSource = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Services/WorkflowLibrary.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(viewModelSource.contains("Task.detached(priority: .userInitiated)"))
+        XCTAssertTrue(viewModelSource.contains("packageStore.addValidatedPackage(result)"))
+        XCTAssertTrue(storeSource.contains("private var validationCache"))
+        XCTAssertTrue(storeSource.contains("func addValidatedPackage(_ result: WorkflowPackageValidationResult)"))
+        XCTAssertTrue(storeSource.contains("manifestSHA256"))
+    }
+
+    func testWorkflowPackageValidationCacheInvalidatesManifestContentChanges() throws {
+        let defaults = try makeDefaults()
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let temp = try temporaryDirectory()
+        let packageURL = temp.appendingPathComponent("cached.lungfishflowpkg", isDirectory: true)
+        try FileManager.default.copyItem(at: helloWorldNextflowPackageURL(), to: packageURL)
+        packageStore.addPackage(at: packageURL)
+
+        XCTAssertEqual(
+            packageStore.validatedPackages().map(\.manifest.id),
+            ["org.lungfish.templates.hello-world-nextflow"]
+        )
+
+        let manifestURL = packageURL.appendingPathComponent(WorkflowPackageValidator.manifestFilename)
+        let originalManifest = try String(contentsOf: manifestURL, encoding: .utf8)
+        let updatedManifest = originalManifest.replacingOccurrences(
+            of: "org.lungfish.templates.hello-world-nextflow",
+            with: "org.lungfish.templates.hello-world-nextflaw"
+        )
+        XCTAssertEqual(originalManifest.utf8.count, updatedManifest.utf8.count)
+        try updatedManifest.write(to: manifestURL, atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(
+            packageStore.validatedPackages().map(\.manifest.id),
+            ["org.lungfish.templates.hello-world-nextflaw"]
+        )
+    }
+
     func testImportedWorkflowPackagesPersistAcrossViewModels() async throws {
         let defaults = try makeDefaults()
         let store = WorkflowLibraryEnablementStore(userDefaults: defaults)
@@ -360,6 +408,20 @@ final class WorkflowLibraryTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Examples/WorkflowPackages/hello-world-nextflow.lungfishflowpkg", isDirectory: true)
+    }
+
+    private func temporaryDirectory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WorkflowLibraryTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private func repositoryRoot() -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
     }
 }
 

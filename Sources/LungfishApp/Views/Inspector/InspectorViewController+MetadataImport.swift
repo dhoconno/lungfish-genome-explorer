@@ -631,7 +631,7 @@ extension InspectorViewController {
                         guard let self,
                               let split = self.parent as? MainSplitViewController else { return }
 
-                        split.sidebarController.reloadFromFilesystem()
+                        split.sidebarController.requestReloadFromFilesystem()
                         do {
                             if self.viewModel.readStyleSectionViewModel.selectedVisibleAlignmentTrackID == result.removedTrack.id {
                                 self.setVisibleAlignmentTrackSelection(nil)

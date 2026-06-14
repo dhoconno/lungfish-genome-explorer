@@ -305,7 +305,7 @@ extension MainSplitViewController {
                         let updated = try ONTGenotypeResultBundle.loadResult(from: bundleURL)
                         controller?.applyCurrentWorkbookUpdateCompleted(result: updated)
                         self.inspectorController.updateGenotypeResultDocument(updated)
-                        self.sidebarController.reloadFromFilesystem()
+                        self.sidebarController.requestReloadFromFilesystem()
                     } catch {
                         controller?.applyCurrentWorkbookUpdateFailed(error)
                         (NSApp.delegate as? AppDelegate)?.showOperationsPanel(nil)

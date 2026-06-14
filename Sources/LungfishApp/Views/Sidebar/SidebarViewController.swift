@@ -92,6 +92,9 @@ public class SidebarViewController: NSViewController {
 
     /// Shared project refresh subscription for auto-refreshing when files change.
     private var projectRefreshSubscriptionID: ProjectFilesystemRefreshCoordinator.SubscriptionID?
+    private lazy var refreshScheduler = SidebarRefreshScheduler { [weak self] notifyUnchangedSelectionRefresh in
+        self?.reloadFromFilesystem(notifyUnchangedSelectionRefresh: notifyUnchangedSelectionRefresh)
+    }
 
     /// Universal search coordinator for project-scoped metadata/entity queries.
     private let universalSearchService = UniversalProjectSearchService.shared
@@ -719,6 +722,7 @@ public class SidebarViewController: NSViewController {
         sidebarLogger.info("openProject: Opening project at '\(url.path, privacy: .public)'")
 
         // Stop watching previous project
+        refreshScheduler.cancel()
         ProjectFilesystemRefreshCoordinator.shared.unregister(projectRefreshSubscriptionID)
         projectRefreshSubscriptionID = nil
         clearUniversalSearchState(for: projectURL)
@@ -739,7 +743,7 @@ public class SidebarViewController: NSViewController {
                 self.notifySelectedItemsRefreshedIfNeeded(changedPaths: changedPaths.all)
             } else if changedPaths.nonSidecar.isEmpty && changedPaths.all.isEmpty {
                 // kFSEventStreamEventFlagMustScanSubDirs — full reload
-                self.reloadFromFilesystem(notifyUnchangedSelectionRefresh: false)
+                self.requestReloadFromFilesystem(notifyUnchangedSelectionRefresh: false)
             } else {
                 // Non-sidecar changes detected — incremental sidebar update
                 self.updateSidebar(changedPaths: changedPaths)
@@ -754,6 +758,7 @@ public class SidebarViewController: NSViewController {
         sidebarLogger.info("closeProject: Closing current project")
 
         let priorProjectURL = projectURL
+        refreshScheduler.cancel()
         ProjectFilesystemRefreshCoordinator.shared.unregister(projectRefreshSubscriptionID)
         projectRefreshSubscriptionID = nil
         projectURL = nil
@@ -820,6 +825,14 @@ public class SidebarViewController: NSViewController {
     /// FileSystemWatcher when files change.
     public func reloadFromFilesystem() {
         reloadFromFilesystem(notifyUnchangedSelectionRefresh: true)
+    }
+
+    public func requestReloadFromFilesystem() {
+        requestReloadFromFilesystem(notifyUnchangedSelectionRefresh: true)
+    }
+
+    public func requestReloadFromFilesystem(notifyUnchangedSelectionRefresh: Bool) {
+        refreshScheduler.requestFullReload(notifyUnchangedSelectionRefresh: notifyUnchangedSelectionRefresh)
     }
 
     private func reloadFromFilesystem(notifyUnchangedSelectionRefresh: Bool) {
@@ -932,7 +945,7 @@ public class SidebarViewController: NSViewController {
         // If the root level itself changed or the Analyses folder is affected, fall back to full reload.
         if affectsRoot || affectedTopLevelNames.contains(AnalysesFolder.directoryName) {
             sidebarLogger.info("updateSidebar: Root-level or Analyses change — falling back to full reload")
-            reloadFromFilesystem(notifyUnchangedSelectionRefresh: false)
+            requestReloadFromFilesystem(notifyUnchangedSelectionRefresh: false)
             return
         }
 
@@ -945,7 +958,7 @@ public class SidebarViewController: NSViewController {
                 $0.url?.standardizedFileURL.path == topLevelURL.standardizedFileURL.path
             }) else {
                 sidebarLogger.debug("updateSidebar: New top-level item '\(topLevelName)' — full reload")
-                reloadFromFilesystem(notifyUnchangedSelectionRefresh: false)
+                requestReloadFromFilesystem(notifyUnchangedSelectionRefresh: false)
                 return
             }
 

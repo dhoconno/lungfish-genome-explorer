@@ -39,6 +39,73 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertEqual(state.outputName, "amplicon-genotyping")
     }
 
+    func testAsynchronousProjectDiscoveryPublishesProjectDefaults() async throws {
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let temp = try temporaryDirectory()
+        let referenceURL = temp.appendingPathComponent("Reference Sequences/ref.lungfishref", isDirectory: true)
+        let readsURL = temp.appendingPathComponent("Reads/reads.lungfishfastq", isDirectory: true)
+        let barcodesURL = temp.appendingPathComponent("barcodes.csv")
+        try FileManager.default.createDirectory(at: referenceURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: readsURL, withIntermediateDirectories: true)
+        try Data("sample,barcode\nDW472,ACGT\n".utf8).write(to: barcodesURL)
+
+        let state = WorkflowOperationDialogState(
+            projectURL: temp,
+            selectedReadURLs: [readsURL],
+            projectDiscoveryMode: .asynchronous,
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+
+        try await waitForProjectDiscovery(state)
+
+        XCTAssertEqual(state.projectReferenceCandidates, [referenceURL.standardizedFileURL])
+        XCTAssertEqual(state.selectedReferenceURL, referenceURL.standardizedFileURL)
+        XCTAssertEqual(state.projectBarcodeDefinitionCandidates, [barcodesURL.standardizedFileURL])
+        XCTAssertEqual(state.selectedBarcodeDefinitionURL, barcodesURL.standardizedFileURL)
+        XCTAssertFalse(state.isDiscoveringProjectResources)
+    }
+
+    func testAsynchronousProjectDiscoveryPreservesManualSelectionsMadeDuringScan() async throws {
+        WorkflowOperationDialogState.testingProjectDiscoveryDelay = .milliseconds(80)
+        defer { WorkflowOperationDialogState.testingProjectDiscoveryDelay = nil }
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let temp = try temporaryDirectory()
+        let discoveredReferenceURL = temp.appendingPathComponent("Reference Sequences/ref.lungfishref", isDirectory: true)
+        let readsURL = temp.appendingPathComponent("Reads/reads.lungfishfastq", isDirectory: true)
+        let discoveredBarcodesURL = temp.appendingPathComponent("barcodes.csv")
+        let manualReferenceURL = temp.appendingPathComponent("Manual/manual.lungfishref", isDirectory: true)
+        let manualBarcodesURL = temp.appendingPathComponent("Manual/barcodes.tsv")
+        try FileManager.default.createDirectory(at: discoveredReferenceURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: manualReferenceURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: readsURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: manualBarcodesURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("sample,barcode\nDW472,ACGT\n".utf8).write(to: discoveredBarcodesURL)
+        try Data("sample\tbarcode\nDW999\tTGCA\n".utf8).write(to: manualBarcodesURL)
+
+        let state = WorkflowOperationDialogState(
+            projectURL: temp,
+            selectedReadURLs: [readsURL],
+            projectDiscoveryMode: .asynchronous,
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+        state.setReference(manualReferenceURL)
+        state.setBarcodeDefinition(manualBarcodesURL)
+
+        try await waitForProjectDiscovery(state)
+
+        XCTAssertEqual(state.selectedReferenceURL, manualReferenceURL.standardizedFileURL)
+        XCTAssertEqual(state.selectedBarcodeDefinitionURL, manualBarcodesURL.standardizedFileURL)
+        XCTAssertTrue(state.projectReferenceCandidates.contains(discoveredReferenceURL.standardizedFileURL))
+        XCTAssertTrue(state.projectBarcodeDefinitionCandidates.contains(discoveredBarcodesURL.standardizedFileURL))
+        XCTAssertFalse(state.isDiscoveringProjectResources)
+    }
+
     func testFreshInstallONTGenotypingCanRunWithCompleteConfiguration() throws {
         let defaults = try makeDefaults()
         let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
@@ -1700,6 +1767,13 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
 
     private func waitForMainQueue() {
         RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+    }
+
+    private func waitForProjectDiscovery(_ state: WorkflowOperationDialogState) async throws {
+        let deadline = Date().addingTimeInterval(2)
+        while state.isDiscoveringProjectResources && Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
     }
 
     private static func mhcDefinition(id: String) -> GenotypeHaplotypeDefinitionSet {

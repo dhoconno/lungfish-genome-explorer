@@ -1009,7 +1009,7 @@ extension AppDelegate {
 
                     // Reload the originating window's sidebar.
                     self?.targetMainWindowController(routeContext: routeContext)?.mainSplitViewController?
-                        .sidebarController.reloadFromFilesystem()
+                        .sidebarController.requestReloadFromFilesystem()
                 }}
             } catch {
                 DispatchQueue.main.async { MainActor.assumeIsolated {
@@ -1255,7 +1255,7 @@ extension AppDelegate {
                     }
 
                     self?.targetMainWindowController(routeContext: routeContext)?.mainSplitViewController?
-                        .sidebarController.reloadFromFilesystem()
+                        .sidebarController.requestReloadFromFilesystem()
                 }}
             } catch {
                 DispatchQueue.main.async { MainActor.assumeIsolated {
@@ -1318,7 +1318,7 @@ extension AppDelegate {
                         bundleURLs: [result.bundleURL]
                     )
                     self?.targetMainWindowController(routeContext: routeContext)?.mainSplitViewController?
-                        .sidebarController.reloadFromFilesystem()
+                        .sidebarController.requestReloadFromFilesystem()
                 }}
             } catch {
                 DispatchQueue.main.async { MainActor.assumeIsolated {

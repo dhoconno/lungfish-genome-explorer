@@ -373,16 +373,66 @@ extension SidebarViewController: NSOutlineViewDataSource {
             return
         }
 
-        let planner = ProjectDeletionPlanner()
-        let impact = projectURL.map {
-            planner.impact(
-                ofDeleting: deletableItems.compactMap(\.url),
-                in: $0
-            )
+        guard let window = view.window else { return }
+        presentProgressiveDeleteConfirmation(items: deletableItems, in: window)
+    }
+
+    private func presentProgressiveDeleteConfirmation(items deletableItems: [SidebarItem], in window: NSWindow) {
+        guard let projectURL else {
+            presentDeleteConfirmation(items: deletableItems, impact: nil, in: window)
+            return
         }
 
-        guard let window = view.window else { return }
-        presentDeleteConfirmation(items: deletableItems, impact: impact, in: window)
+        let selectedURLs = deletableItems.compactMap(\.url)
+        guard !selectedURLs.isEmpty else {
+            presentDeleteConfirmation(items: deletableItems, impact: nil, in: window)
+            return
+        }
+
+        let progressAlert = NSAlert()
+        progressAlert.alertStyle = .informational
+        progressAlert.messageText = "Checking Dependencies"
+        progressAlert.informativeText = "Looking for project items that depend on the selected item\(deletableItems.count == 1 ? "" : "s")."
+        progressAlert.addButton(withTitle: "Cancel")
+
+        let progressIndicator = NSProgressIndicator(frame: NSRect(x: 0, y: 0, width: 260, height: 20))
+        progressIndicator.style = .bar
+        progressIndicator.isIndeterminate = true
+        progressIndicator.startAnimation(nil)
+        progressAlert.accessoryView = progressIndicator
+
+        var didCancel = false
+        var didAdvanceToConfirmation = false
+        let impactTask = Task.detached(priority: .userInitiated) {
+            ProjectDeletionPlanner().impact(ofDeleting: selectedURLs, in: projectURL)
+        }
+
+        progressAlert.beginSheetModal(for: window) { _ in
+            if !didAdvanceToConfirmation {
+                didCancel = true
+                impactTask.cancel()
+            }
+        }
+
+        Task { @MainActor [weak self] in
+            let impact = await impactTask.value
+            let shouldPresentConfirmation = self != nil
+                && !didCancel
+                && self?.projectURL?.standardizedFileURL == projectURL.standardizedFileURL
+            if shouldPresentConfirmation {
+                didAdvanceToConfirmation = true
+            }
+            let sheetWindow = progressAlert.window
+            if sheetWindow.sheetParent === window {
+                window.endSheet(sheetWindow)
+            }
+            guard let self,
+                  shouldPresentConfirmation else {
+                return
+            }
+
+            self.presentDeleteConfirmation(items: deletableItems, impact: impact, in: window)
+        }
     }
 
     private func presentDeleteConfirmation(
@@ -762,7 +812,7 @@ extension SidebarViewController: NSOutlineViewDataSource {
         }
 
         if movedCount > 0 {
-            reloadFromFilesystem()
+            requestReloadFromFilesystem()
         }
         return movedCount == sourceItems.count
     }
@@ -818,7 +868,7 @@ extension SidebarViewController: NSOutlineViewDataSource {
         }
 
         if copiedCount > 0 {
-            reloadFromFilesystem()
+            requestReloadFromFilesystem()
         }
         return copiedCount == sourceItems.count
     }

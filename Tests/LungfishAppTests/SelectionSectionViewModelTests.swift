@@ -9,6 +9,79 @@ import XCTest
 
 @MainActor
 final class SelectionSectionViewModelTests: XCTestCase {
+    func testAnnotationTextEditsAreDebouncedAndCoalesced() async throws {
+        let vm = SelectionSectionViewModel()
+        let annotation = SequenceAnnotation(
+            type: .gene,
+            name: "old",
+            chromosome: "chr1",
+            intervals: [AnnotationInterval(start: 1, end: 10)]
+        )
+        var updates: [SequenceAnnotation] = []
+        vm.onAnnotationUpdated = { updates.append($0) }
+        vm.select(annotation: annotation)
+
+        vm.name = "first"
+        vm.scheduleTextCommit(debounce: .milliseconds(30))
+        vm.name = "second"
+        vm.scheduleTextCommit(debounce: .milliseconds(30))
+
+        XCTAssertTrue(updates.isEmpty)
+        try await Task.sleep(for: .milliseconds(80))
+
+        XCTAssertEqual(updates.map(\.name), ["second"])
+    }
+
+    func testAnnotationImmediateCommitCancelsPendingTextCommit() async throws {
+        let vm = SelectionSectionViewModel()
+        let annotation = SequenceAnnotation(
+            type: .gene,
+            name: "old",
+            chromosome: "chr1",
+            intervals: [AnnotationInterval(start: 1, end: 10)]
+        )
+        var updates: [SequenceAnnotation] = []
+        vm.onAnnotationUpdated = { updates.append($0) }
+        vm.select(annotation: annotation)
+
+        vm.name = "typed"
+        vm.scheduleTextCommit(debounce: .milliseconds(80))
+        vm.type = .cds
+        vm.commitChanges()
+
+        try await Task.sleep(for: .milliseconds(120))
+
+        XCTAssertEqual(updates.count, 1)
+        XCTAssertEqual(updates.first?.name, "typed")
+        XCTAssertEqual(updates.first?.type, .cds)
+    }
+
+    func testPendingAnnotationTextCommitFlushesBeforeSelectionChange() throws {
+        let vm = SelectionSectionViewModel()
+        let first = SequenceAnnotation(
+            type: .gene,
+            name: "first",
+            chromosome: "chr1",
+            intervals: [AnnotationInterval(start: 1, end: 10)]
+        )
+        let second = SequenceAnnotation(
+            type: .gene,
+            name: "second",
+            chromosome: "chr1",
+            intervals: [AnnotationInterval(start: 20, end: 30)]
+        )
+        var updates: [SequenceAnnotation] = []
+        vm.onAnnotationUpdated = { updates.append($0) }
+        vm.select(annotation: first)
+
+        vm.name = "typed"
+        vm.scheduleTextCommit(debounce: .seconds(5))
+        vm.select(annotation: second)
+
+        XCTAssertEqual(updates.map(\.name), ["typed"])
+        XCTAssertEqual(vm.selectedAnnotation?.name, "second")
+    }
+
     func testSelectionInspectorAndViewerRouteAnnotationsToGenericFASTAOperations() throws {
         let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         let selectionSource = try String(contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Inspector/Sections/SelectionSection.swift"), encoding: .utf8)

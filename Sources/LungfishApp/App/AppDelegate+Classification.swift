@@ -377,7 +377,7 @@ extension AppDelegate {
                         // Reload sidebar so the new result bundle appears
                         AppDelegate.shared?.targetMainWindowController(routeContext: routeContext)?
                             .mainSplitViewController?
-                            .sidebarController.reloadFromFilesystem()
+                            .sidebarController.requestReloadFromFilesystem()
 
                         // Record analysis in source bundle manifest
                         if let bundleURL = Self.findSourceBundle(for: capturedConfig.originalInputFiles ?? capturedConfig.inputFiles) {
@@ -640,7 +640,7 @@ extension AppDelegate {
                         // Reload sidebar so the new result bundle appears.
                         // User clicks the new result to view it (batch-only display path).
                         self?.targetMainWindowController(routeContext: routeContext)?.mainSplitViewController?
-                            .sidebarController.reloadFromFilesystem()
+                            .sidebarController.requestReloadFromFilesystem()
 
                         // Record analysis in source bundle manifest
                         if let bundleURL = Self.findSourceBundle(for: capturedConfig.inputFiles) {
@@ -970,7 +970,7 @@ extension AppDelegate {
 
                     self.targetMainWindowController(routeContext: routeContext)?
                         .mainSplitViewController?
-                        .sidebarController.reloadFromFilesystem()
+                        .sidebarController.requestReloadFromFilesystem()
 
                     // Record analysis in source bundle manifests
                     for entry in successfulResults {
@@ -1287,7 +1287,7 @@ extension AppDelegate {
                     // User clicks the new result to view it (batch-only display path).
                     self.targetMainWindowController(routeContext: routeContext)?
                         .mainSplitViewController?
-                        .sidebarController.reloadFromFilesystem()
+                        .sidebarController.requestReloadFromFilesystem()
 
                     // Record analysis in source bundle manifests
                     for entry in successfulResults {
@@ -1495,7 +1495,7 @@ extension AppDelegate {
                         // Reload sidebar so the new result bundle appears
                         AppDelegate.shared?.targetMainWindowController(routeContext: routeContext)?
                             .mainSplitViewController?
-                            .sidebarController.reloadFromFilesystem()
+                            .sidebarController.requestReloadFromFilesystem()
 
                         // Record analysis in source bundle manifests
                         for sample in capturedConfig.samples {
@@ -1852,7 +1852,7 @@ extension AppDelegate {
             }
         } else {
             activityIndicator?.hide()
-            sidebarController?.reloadFromFilesystem()
+            sidebarController?.requestReloadFromFilesystem()
         }
     }
 

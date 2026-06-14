@@ -96,7 +96,7 @@ extension MainSplitViewController {
                     id: opID,
                     detail: "Imported \(result.bundleURL.lastPathComponent)"
                 )
-                sidebarController.reloadFromFilesystem()
+                sidebarController.requestReloadFromFilesystem()
                 if displayAfterImport {
                     loadGenomicsFileInBackground(url: result.bundleURL)
                 }
@@ -160,7 +160,7 @@ extension MainSplitViewController {
                     id: opID,
                     detail: "Imported \(result.featureCount) annotations"
                 )
-                sidebarController.reloadFromFilesystem()
+                sidebarController.requestReloadFromFilesystem()
                 if viewerController?.currentBundleURL?.standardizedFileURL == bundleURL.standardizedFileURL {
                     try? viewerController?.displayBundle(at: bundleURL)
                 }
@@ -193,7 +193,7 @@ extension MainSplitViewController {
                 mainSplitLogger.info(
                     "handleSidebarFileDropped: Installed reference allele database at \(installedURL.path, privacy: .public)"
                 )
-                sidebarController.reloadFromFilesystem()
+                sidebarController.requestReloadFromFilesystem()
                 postSidebarFileDropCompleted(
                     requestID: requestID,
                     sourceURL: url,
@@ -229,7 +229,7 @@ extension MainSplitViewController {
                 do {
                     urlToLoad = try copyProjectItemForImport(from: url, to: destinationURL)
                     mainSplitLogger.info("handleSidebarFileDropped: Copied file to project at \(destinationURL.path, privacy: .public)")
-                    sidebarController.reloadFromFilesystem()
+                    sidebarController.requestReloadFromFilesystem()
                 } catch {
                     mainSplitLogger.error("handleSidebarFileDropped: Failed to copy file: \(error.localizedDescription, privacy: .public)")
                     importSucceeded = false
@@ -242,7 +242,7 @@ extension MainSplitViewController {
                     do {
                         try fileManager.removeItem(at: destinationURL)
                         urlToLoad = try copyProjectItemForImport(from: url, to: destinationURL)
-                        sidebarController.reloadFromFilesystem()
+                        sidebarController.requestReloadFromFilesystem()
                     } catch {
                         mainSplitLogger.error("handleSidebarFileDropped: Failed to replace file: \(error.localizedDescription, privacy: .public)")
                         importSucceeded = false
@@ -252,7 +252,7 @@ extension MainSplitViewController {
                     let uniqueURL = generateUniqueFilename(for: url, in: targetDir)
                     do {
                         urlToLoad = try copyProjectItemForImport(from: url, to: uniqueURL)
-                        sidebarController.reloadFromFilesystem()
+                        sidebarController.requestReloadFromFilesystem()
                     } catch {
                         mainSplitLogger.error("handleSidebarFileDropped: Failed to copy with unique name: \(error.localizedDescription, privacy: .public)")
                         importSucceeded = false
@@ -445,7 +445,7 @@ extension MainSplitViewController {
                 switch result {
                 case .success(let bundleURL):
                     viewerController?.hideProgress()
-                    self?.sidebarController.reloadFromFilesystem()
+                    self?.sidebarController.requestReloadFromFilesystem()
                     self?.displayGenomicsFile(url: bundleURL)
                     self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: pair.r1, success: true, error: nil)
                 case .failure(let error):
@@ -620,7 +620,7 @@ extension MainSplitViewController {
             viewerController?.hideProgress()
             switch result {
             case .success(let bundleURL):
-                self?.sidebarController.reloadFromFilesystem()
+                self?.sidebarController.requestReloadFromFilesystem()
                 self?.displayGenomicsFile(url: bundleURL)
                 self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: true, error: nil)
             case .failure(let error):
@@ -1099,7 +1099,7 @@ extension MainSplitViewController {
                 mainSplitLogger.info("importONTDirectoryInBackground: \(detail)")
 
                 viewerController?.hideProgress()
-                self?.sidebarController.reloadFromFilesystem()
+                self?.sidebarController.requestReloadFromFilesystem()
                 self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: true, error: nil)
 
                 // Display the first bundle

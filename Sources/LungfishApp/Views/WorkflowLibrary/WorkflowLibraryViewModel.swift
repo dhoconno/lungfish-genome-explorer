@@ -117,8 +117,10 @@ final class WorkflowLibraryViewModel {
     }
 
     func importWorkflowPackage(at packageURL: URL) async throws {
-        let result = try WorkflowPackageValidator.validatePackage(at: packageURL)
-        packageStore.addPackage(at: result.packageURL)
+        let result = try await Task.detached(priority: .userInitiated) {
+            try WorkflowPackageValidator.validatePackage(at: packageURL)
+        }.value
+        packageStore.addValidatedPackage(result)
         if let index = userWorkflowPackages.firstIndex(where: { $0.manifest.id == result.manifest.id }) {
             userWorkflowPackages[index] = result
         } else {

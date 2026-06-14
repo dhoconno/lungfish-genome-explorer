@@ -858,7 +858,7 @@ extension SidebarViewController: NSMenuDelegate {
             try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
             sidebarLogger.info("createFolder: Created '\(folderURL.lastPathComponent, privacy: .public)'")
             // Immediately refresh sidebar for instant feedback
-            reloadFromFilesystem()
+            requestReloadFromFilesystem()
         } catch {
             sidebarLogger.error("createFolder: Failed - \(error.localizedDescription, privacy: .public)")
 
@@ -923,7 +923,7 @@ extension SidebarViewController: NSMenuDelegate {
             rehydrateScientificProvenance(from: url, to: newURL)
             sidebarLogger.info("performRename: Renamed to '\(newFilename, privacy: .public)'")
             // Immediately refresh sidebar for instant feedback
-            reloadFromFilesystem()
+            requestReloadFromFilesystem()
         } catch {
             sidebarLogger.error("performRename: Failed - \(error.localizedDescription, privacy: .public)")
 
@@ -971,7 +971,7 @@ extension SidebarViewController: NSMenuDelegate {
             }
         }
         // Immediately refresh sidebar for instant feedback
-        reloadFromFilesystem()
+        requestReloadFromFilesystem()
     }
     // MARK: - FASTQ Export
 
@@ -1206,7 +1206,7 @@ extension SidebarViewController: NSMenuDelegate {
         }
 
         // Refresh sidebar
-        reloadFromFilesystem()
+        requestReloadFromFilesystem()
 
         // Show error if some items failed
         if !failedItems.isEmpty {

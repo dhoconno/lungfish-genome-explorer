@@ -26,6 +26,35 @@ enum WorkflowOperationLaunchRequest: Equatable {
     case workflowPackage(LocalWorkflowRunRequest, bundleRoot: URL)
 }
 
+enum WorkflowOperationProjectDiscoveryMode: Sendable {
+    case synchronous
+    case asynchronous
+}
+
+private struct WorkflowOperationProjectDiscoverySnapshot: Sendable {
+    let referenceCandidates: [URL]
+    let guideCandidates: [URL]
+    let barcodeDefinitionCandidates: [URL]
+    let haplotypeRecords: [HaplotypeDefinitionRecord]
+    let referenceBundleSummaries: [URL: String]
+    let bundledHaplotypeDefinitions: [URL: GenotypeHaplotypeDefinitionSet]
+    let fullLengthOrientReferenceURL: URL?
+    let fullLengthForwardPrimerURL: URL?
+    let fullLengthReversePrimerURL: URL?
+
+    static let empty = WorkflowOperationProjectDiscoverySnapshot(
+        referenceCandidates: [],
+        guideCandidates: [],
+        barcodeDefinitionCandidates: [],
+        haplotypeRecords: [],
+        referenceBundleSummaries: [:],
+        bundledHaplotypeDefinitions: [:],
+        fullLengthOrientReferenceURL: nil,
+        fullLengthForwardPrimerURL: nil,
+        fullLengthReversePrimerURL: nil
+    )
+}
+
 private final class WorkflowOperationNotificationObserver: @unchecked Sendable {
     private let token: NSObjectProtocol
 
@@ -44,6 +73,12 @@ final class WorkflowOperationDialogState {
     private let enablementStore: WorkflowLibraryEnablementStore
     private let packageStore: WorkflowLibraryImportedPackageStore
     @ObservationIgnored private var enablementObserver: WorkflowOperationNotificationObserver?
+    @ObservationIgnored private let projectDiscoveryMode: WorkflowOperationProjectDiscoveryMode
+    @ObservationIgnored private var projectDiscoveryTask: Task<Void, Never>?
+    @ObservationIgnored private var projectDiscoveryGeneration: UInt64 = 0
+    #if DEBUG
+    @ObservationIgnored static var testingProjectDiscoveryDelay: Duration?
+    #endif
 
     var projectURL: URL?
     var selectedToolID: String
@@ -81,6 +116,7 @@ final class WorkflowOperationDialogState {
     var projectReferenceCandidates: [URL]
     var projectGuideCandidates: [URL]
     var projectBarcodeDefinitionCandidates: [URL]
+    var isDiscoveringProjectResources: Bool
     var errorMessage: String?
     var showingError: Bool
     var workflowAvailabilityRevision: Int
@@ -88,11 +124,13 @@ final class WorkflowOperationDialogState {
     private var cachedHaplotypeRecords: [HaplotypeDefinitionRecord]
     private var cachedHaplotypeRegistry: GenotypeHaplotypeDefinitionRegistry
     private var cachedReferenceBundleSummaries: [URL: String]
+    private var cachedBundledHaplotypeDefinitions: [URL: GenotypeHaplotypeDefinitionSet]
 
     init(
         projectURL: URL?,
         selectedReadURLs: [URL] = [],
         sidebarInputSelection: WorkflowSidebarInputSelection? = nil,
+        projectDiscoveryMode: WorkflowOperationProjectDiscoveryMode = .synchronous,
         enablementStore: WorkflowLibraryEnablementStore = .shared,
         packageStore: WorkflowLibraryImportedPackageStore = .shared
     ) {
@@ -102,6 +140,7 @@ final class WorkflowOperationDialogState {
         self.projectURL = standardizedProjectURL
         self.enablementStore = enablementStore
         self.packageStore = packageStore
+        self.projectDiscoveryMode = projectDiscoveryMode
         self.sidebarInputSelection = sidebarInputSelection
         self.includeSubfolderBundles = false
         self.selectedReadURLs = standardizedReadURLs
@@ -118,18 +157,12 @@ final class WorkflowOperationDialogState {
         self.twelveSMatchingMode = .illuminaExact
         self.twelveSRunChimeraReview = true
         self.twelveSSampleMetadataURL = nil
-        self.fullLengthOrientReferenceURL = Self.defaultFullLengthPrimerReferenceURL(
-            filename: "MHC_class_I_orient.fasta",
-            projectURL: standardizedProjectURL
-        )
-        self.fullLengthForwardPrimerURL = Self.defaultFullLengthPrimerReferenceURL(
-            filename: "MHC_class_I_F.fasta",
-            projectURL: standardizedProjectURL
-        )
-        self.fullLengthReversePrimerURL = Self.defaultFullLengthPrimerReferenceURL(
-            filename: "MHC_class_I_R.fasta",
-            projectURL: standardizedProjectURL
-        )
+        let initialDiscovery = projectDiscoveryMode == .synchronous
+            ? Self.projectDiscoverySnapshot(projectURL: standardizedProjectURL)
+            : .empty
+        self.fullLengthOrientReferenceURL = initialDiscovery.fullLengthOrientReferenceURL
+        self.fullLengthForwardPrimerURL = initialDiscovery.fullLengthForwardPrimerURL
+        self.fullLengthReversePrimerURL = initialDiscovery.fullLengthReversePrimerURL
         self.fullLengthMinimumLength = 2_000
         self.fullLengthMaximumLength = 4_000
         self.selectedHaplotypeAssayID = Self.defaultHaplotypeAssayID()
@@ -138,25 +171,23 @@ final class WorkflowOperationDialogState {
         self.selectedHaplotypeDefinitionSetID = nil
         self.extraArgumentsText = ""
         self.advancedOptionsExpanded = false
-        let referenceCandidates = Self.discoverReferenceBundles(in: standardizedProjectURL)
-        let guideCandidates = Self.discoverGuideBundles(from: referenceCandidates, relativeTo: standardizedProjectURL)
-        let barcodeDefinitionCandidates = Self.discoverBarcodeDefinitionFiles(in: standardizedProjectURL)
-        self.projectReferenceCandidates = referenceCandidates
-        self.projectGuideCandidates = guideCandidates
-        self.projectBarcodeDefinitionCandidates = barcodeDefinitionCandidates
-        self.selectedReferenceURL = referenceCandidates.first
-        self.selectedGuideURL = guideCandidates.first
-        self.selectedBarcodeDefinitionURL = barcodeDefinitionCandidates.first
+        self.projectReferenceCandidates = initialDiscovery.referenceCandidates
+        self.projectGuideCandidates = initialDiscovery.guideCandidates
+        self.projectBarcodeDefinitionCandidates = initialDiscovery.barcodeDefinitionCandidates
+        self.selectedReferenceURL = initialDiscovery.referenceCandidates.first
+        self.selectedGuideURL = initialDiscovery.guideCandidates.first
+        self.selectedBarcodeDefinitionURL = initialDiscovery.barcodeDefinitionCandidates.first
+        self.isDiscoveringProjectResources = false
         self.errorMessage = nil
         self.showingError = false
         self.workflowAvailabilityRevision = 0
 
         let initialTools = Self.makeTools(enablementStore: enablementStore, packageStore: packageStore)
         self.cachedTools = initialTools
-        let initialHaplotypeRecords = Self.loadHaplotypeRecords(projectURL: standardizedProjectURL)
-        self.cachedHaplotypeRecords = initialHaplotypeRecords
-        self.cachedHaplotypeRegistry = Self.makeHaplotypeRegistry(from: initialHaplotypeRecords)
-        self.cachedReferenceBundleSummaries = Self.referenceBundleSummaries(from: initialHaplotypeRecords)
+        self.cachedHaplotypeRecords = initialDiscovery.haplotypeRecords
+        self.cachedHaplotypeRegistry = Self.makeHaplotypeRegistry(from: initialDiscovery.haplotypeRecords)
+        self.cachedReferenceBundleSummaries = initialDiscovery.referenceBundleSummaries
+        self.cachedBundledHaplotypeDefinitions = initialDiscovery.bundledHaplotypeDefinitions
         let initialToolID = initialTools.first(where: { $0.availability == .available })?.id
             ?? initialTools.first?.id
             ?? Self.ontGenotypingID
@@ -180,6 +211,18 @@ final class WorkflowOperationDialogState {
                 }
             }
         )
+        if projectDiscoveryMode == .asynchronous {
+            startProjectResourceDiscovery(
+                selecting: nil,
+                resetReferenceSelection: true,
+                resetBarcodeSelection: true,
+                updateFullLengthDefaults: true
+            )
+        }
+    }
+
+    deinit {
+        projectDiscoveryTask?.cancel()
     }
 
     var tools: [WorkflowOperationTool] {
@@ -513,6 +556,7 @@ final class WorkflowOperationDialogState {
         cachedHaplotypeRecords = Self.loadHaplotypeRecords(projectURL: projectURL)
         cachedHaplotypeRegistry = Self.makeHaplotypeRegistry(from: cachedHaplotypeRecords)
         cachedReferenceBundleSummaries = Self.referenceBundleSummaries(from: cachedHaplotypeRecords)
+        cachedBundledHaplotypeDefinitions = Self.bundledHaplotypeDefinitions(from: projectReferenceCandidates)
         cacheReferenceBundleSummaryIfNeeded(selectedReferenceURL)
     }
 
@@ -551,18 +595,148 @@ final class WorkflowOperationDialogState {
     }
 
     func refreshProjectReferences(selecting url: URL? = nil) {
-        projectReferenceCandidates = Self.discoverReferenceBundles(in: projectURL)
-        projectGuideCandidates = Self.discoverGuideBundles(from: projectReferenceCandidates, relativeTo: projectURL)
-        refreshCachedHaplotypeDefinitions()
-        if let url = url?.standardizedFileURL {
+        if projectDiscoveryMode == .asynchronous {
+            startProjectResourceDiscovery(
+                selecting: url,
+                resetReferenceSelection: selectedReferenceURL == nil,
+                resetBarcodeSelection: false,
+                updateFullLengthDefaults: false
+            )
+        } else {
+            applyProjectDiscoverySnapshot(
+                Self.projectDiscoverySnapshot(projectURL: projectURL),
+                selecting: url,
+                resetReferenceSelection: selectedReferenceURL == nil,
+                resetGuideSelection: true,
+                resetBarcodeSelection: false,
+                updateFullLengthDefaults: false
+            )
+        }
+    }
+
+    private func startProjectResourceDiscovery(
+        selecting url: URL?,
+        resetReferenceSelection: Bool,
+        resetBarcodeSelection: Bool,
+        updateFullLengthDefaults: Bool
+    ) {
+        projectDiscoveryTask?.cancel()
+        projectDiscoveryGeneration &+= 1
+        let generation = projectDiscoveryGeneration
+        let discoveryProjectURL = projectURL?.standardizedFileURL
+        let selectedURL = url?.standardizedFileURL
+        let initialReferenceURL = selectedReferenceURL?.standardizedFileURL
+        let initialGuideURL = selectedGuideURL?.standardizedFileURL
+        let initialBarcodeDefinitionURL = selectedBarcodeDefinitionURL?.standardizedFileURL
+        let initialFullLengthOrientReferenceURL = fullLengthOrientReferenceURL?.standardizedFileURL
+        let initialFullLengthForwardPrimerURL = fullLengthForwardPrimerURL?.standardizedFileURL
+        let initialFullLengthReversePrimerURL = fullLengthReversePrimerURL?.standardizedFileURL
+        #if DEBUG
+        let testingDelay = Self.testingProjectDiscoveryDelay
+        #endif
+        isDiscoveringProjectResources = true
+        projectDiscoveryTask = Task { @MainActor [weak self] in
+            #if DEBUG
+            if let testingDelay {
+                do {
+                    try await Task.sleep(for: testingDelay)
+                } catch {
+                    return
+                }
+            }
+            #endif
+            let workerTask = Task.detached(priority: .userInitiated) {
+                Self.projectDiscoverySnapshot(projectURL: discoveryProjectURL)
+            }
+            let snapshot = await withTaskCancellationHandler {
+                await workerTask.value
+            } onCancel: {
+                workerTask.cancel()
+            }
+
+            guard let self,
+                  !Task.isCancelled,
+                  generation == self.projectDiscoveryGeneration,
+                  self.projectURL?.standardizedFileURL == discoveryProjectURL else {
+                return
+            }
+
+            self.projectDiscoveryTask = nil
+            let referenceUnchanged = self.selectedReferenceURL?.standardizedFileURL == initialReferenceURL
+            let guideUnchanged = self.selectedGuideURL?.standardizedFileURL == initialGuideURL
+            let barcodeUnchanged = self.selectedBarcodeDefinitionURL?.standardizedFileURL == initialBarcodeDefinitionURL
+            let fullLengthDefaultsUnchanged = self.fullLengthOrientReferenceURL?.standardizedFileURL == initialFullLengthOrientReferenceURL
+                && self.fullLengthForwardPrimerURL?.standardizedFileURL == initialFullLengthForwardPrimerURL
+                && self.fullLengthReversePrimerURL?.standardizedFileURL == initialFullLengthReversePrimerURL
+            self.applyProjectDiscoverySnapshot(
+                snapshot,
+                selecting: referenceUnchanged ? selectedURL : nil,
+                resetReferenceSelection: resetReferenceSelection && referenceUnchanged,
+                resetGuideSelection: guideUnchanged,
+                resetBarcodeSelection: resetBarcodeSelection && barcodeUnchanged,
+                updateFullLengthDefaults: updateFullLengthDefaults && fullLengthDefaultsUnchanged
+            )
+            self.isDiscoveringProjectResources = false
+        }
+    }
+
+    private func clearProjectDiscoverySnapshot() {
+        projectReferenceCandidates = []
+        projectGuideCandidates = []
+        projectBarcodeDefinitionCandidates = []
+        selectedReferenceURL = nil
+        selectedGuideURL = nil
+        selectedBarcodeDefinitionURL = nil
+        cachedHaplotypeRecords = []
+        cachedHaplotypeRegistry = Self.makeHaplotypeRegistry(from: [])
+        cachedReferenceBundleSummaries = [:]
+        cachedBundledHaplotypeDefinitions = [:]
+        fullLengthOrientReferenceURL = nil
+        fullLengthForwardPrimerURL = nil
+        fullLengthReversePrimerURL = nil
+    }
+
+    private func applyProjectDiscoverySnapshot(
+        _ snapshot: WorkflowOperationProjectDiscoverySnapshot,
+        selecting url: URL?,
+        resetReferenceSelection: Bool,
+        resetGuideSelection: Bool,
+        resetBarcodeSelection: Bool,
+        updateFullLengthDefaults: Bool
+    ) {
+        projectReferenceCandidates = snapshot.referenceCandidates
+        projectGuideCandidates = snapshot.guideCandidates
+        projectBarcodeDefinitionCandidates = snapshot.barcodeDefinitionCandidates
+        cachedHaplotypeRecords = snapshot.haplotypeRecords
+        cachedHaplotypeRegistry = Self.makeHaplotypeRegistry(from: snapshot.haplotypeRecords)
+        cachedReferenceBundleSummaries = snapshot.referenceBundleSummaries
+        cachedBundledHaplotypeDefinitions = snapshot.bundledHaplotypeDefinitions
+
+        if let url {
             setReference(url)
-        } else if selectedReferenceURL == nil {
-            setReference(projectReferenceCandidates.first)
+        } else if resetReferenceSelection || selectedReferenceURL == nil {
+            setReference(snapshot.referenceCandidates.first)
+        } else {
+            cacheReferenceBundleSummaryIfNeeded(selectedReferenceURL)
         }
-        if selectedGuideURL == nil || !projectGuideCandidates.contains(selectedGuideURL!.standardizedFileURL) {
-            setGuide(projectGuideCandidates.first)
+
+        if resetGuideSelection,
+           selectedGuideURL == nil || !snapshot.guideCandidates.contains(selectedGuideURL!.standardizedFileURL) {
+            setGuide(snapshot.guideCandidates.first)
         }
+
         refreshHaplotypeSelectionForCurrentProject()
+        if selectedToolID == Self.ontGenotypingID {
+            applyBundledMHCReferenceDefaultsIfAvailable(for: selectedReferenceURL)
+        }
+        if resetBarcodeSelection || selectedBarcodeDefinitionURL == nil {
+            selectedBarcodeDefinitionURL = snapshot.barcodeDefinitionCandidates.first
+        }
+        if updateFullLengthDefaults {
+            fullLengthOrientReferenceURL = snapshot.fullLengthOrientReferenceURL
+            fullLengthForwardPrimerURL = snapshot.fullLengthForwardPrimerURL
+            fullLengthReversePrimerURL = snapshot.fullLengthReversePrimerURL
+        }
     }
 
     func setHaplotypeAssay(_ assayID: String?) {
@@ -655,10 +829,17 @@ final class WorkflowOperationDialogState {
 
     private func applyBundledMHCReferenceDefaultsIfAvailable(for url: URL?) {
         guard let url,
-              MHCAmpliconReferenceBundle.isBundleURL(url),
-              let definition = try? MHCAmpliconReferenceBundle.defaultHaplotypeDefinition(in: url) else {
+              MHCAmpliconReferenceBundle.isBundleURL(url) else {
             return
         }
+        let bundleURL = url.standardizedFileURL
+        let definition: GenotypeHaplotypeDefinitionSet?
+        if let cachedDefinition = cachedBundledHaplotypeDefinitions[bundleURL] {
+            definition = cachedDefinition
+        } else {
+            definition = try? MHCAmpliconReferenceBundle.defaultHaplotypeDefinition(in: bundleURL)
+        }
+        guard let definition else { return }
         selectedHaplotypeAssayID = definition.assayID
         selectedHaplotypeSpeciesCode = definition.speciesCode
         selectedHaplotypeDefinitionScope = nil
@@ -703,34 +884,24 @@ final class WorkflowOperationDialogState {
         self.sidebarInputSelection = sidebarInputSelection
         includeSubfolderBundles = false
         setReads(resolvedReadURLs)
-        projectReferenceCandidates = Self.discoverReferenceBundles(in: standardizedProjectURL)
-        projectGuideCandidates = Self.discoverGuideBundles(from: projectReferenceCandidates, relativeTo: standardizedProjectURL)
-        projectBarcodeDefinitionCandidates = Self.discoverBarcodeDefinitionFiles(in: standardizedProjectURL)
-
-        if projectChanged || selectedReferenceURL == nil {
-            selectedReferenceURL = projectReferenceCandidates.first
-        }
-        refreshCachedHaplotypeDefinitions()
-        cacheReferenceBundleSummaryIfNeeded(selectedReferenceURL)
-        refreshHaplotypeSelectionForCurrentProject()
-        if selectedToolID == Self.ontGenotypingID {
-            applyBundledMHCReferenceDefaultsIfAvailable(for: selectedReferenceURL)
-        }
-        if projectChanged || selectedBarcodeDefinitionURL == nil {
-            selectedBarcodeDefinitionURL = projectBarcodeDefinitionCandidates.first
-        }
-        if projectChanged {
-            fullLengthOrientReferenceURL = Self.defaultFullLengthPrimerReferenceURL(
-                filename: "MHC_class_I_orient.fasta",
-                projectURL: standardizedProjectURL
+        if projectDiscoveryMode == .asynchronous {
+            if projectChanged {
+                clearProjectDiscoverySnapshot()
+            }
+            startProjectResourceDiscovery(
+                selecting: nil,
+                resetReferenceSelection: projectChanged || selectedReferenceURL == nil,
+                resetBarcodeSelection: projectChanged || selectedBarcodeDefinitionURL == nil,
+                updateFullLengthDefaults: projectChanged
             )
-            fullLengthForwardPrimerURL = Self.defaultFullLengthPrimerReferenceURL(
-                filename: "MHC_class_I_F.fasta",
-                projectURL: standardizedProjectURL
-            )
-            fullLengthReversePrimerURL = Self.defaultFullLengthPrimerReferenceURL(
-                filename: "MHC_class_I_R.fasta",
-                projectURL: standardizedProjectURL
+        } else {
+            applyProjectDiscoverySnapshot(
+                Self.projectDiscoverySnapshot(projectURL: standardizedProjectURL),
+                selecting: nil,
+                resetReferenceSelection: projectChanged || selectedReferenceURL == nil,
+                resetGuideSelection: true,
+                resetBarcodeSelection: projectChanged || selectedBarcodeDefinitionURL == nil,
+                updateFullLengthDefaults: projectChanged
             )
         }
         if projectChanged {
@@ -1144,7 +1315,36 @@ final class WorkflowOperationDialogState {
         return hasReferenceInput && hasFASTQInput && !package.manifest.outputs.isEmpty
     }
 
-    private static func loadHaplotypeRecords(projectURL: URL?) -> [HaplotypeDefinitionRecord] {
+    nonisolated private static func projectDiscoverySnapshot(
+        projectURL: URL?
+    ) -> WorkflowOperationProjectDiscoverySnapshot {
+        let referenceCandidates = discoverReferenceBundles(in: projectURL)
+        guard !Task.isCancelled else { return .empty }
+        let haplotypeRecords = loadHaplotypeRecords(projectURL: projectURL)
+        guard !Task.isCancelled else { return .empty }
+        return WorkflowOperationProjectDiscoverySnapshot(
+            referenceCandidates: referenceCandidates,
+            guideCandidates: discoverGuideBundles(from: referenceCandidates, relativeTo: projectURL),
+            barcodeDefinitionCandidates: discoverBarcodeDefinitionFiles(in: projectURL),
+            haplotypeRecords: haplotypeRecords,
+            referenceBundleSummaries: referenceBundleSummaries(from: haplotypeRecords),
+            bundledHaplotypeDefinitions: bundledHaplotypeDefinitions(from: referenceCandidates),
+            fullLengthOrientReferenceURL: defaultFullLengthPrimerReferenceURL(
+                filename: "MHC_class_I_orient.fasta",
+                projectURL: projectURL
+            ),
+            fullLengthForwardPrimerURL: defaultFullLengthPrimerReferenceURL(
+                filename: "MHC_class_I_F.fasta",
+                projectURL: projectURL
+            ),
+            fullLengthReversePrimerURL: defaultFullLengthPrimerReferenceURL(
+                filename: "MHC_class_I_R.fasta",
+                projectURL: projectURL
+            )
+        )
+    }
+
+    nonisolated private static func loadHaplotypeRecords(projectURL: URL?) -> [HaplotypeDefinitionRecord] {
         HaplotypeDefinitionLibrary(projectRoot: projectURL).records(includeReferenceBundles: true)
     }
 
@@ -1169,7 +1369,7 @@ final class WorkflowOperationDialogState {
         )
     }
 
-    private static func referenceBundleSummaries(
+    nonisolated private static func referenceBundleSummaries(
         from records: [HaplotypeDefinitionRecord]
     ) -> [URL: String] {
         var summaries: [URL: String] = [:]
@@ -1179,14 +1379,28 @@ final class WorkflowOperationDialogState {
         return summaries
     }
 
-    private static func referenceBundleSummary(for bundleURL: URL) -> String? {
+    nonisolated private static func referenceBundleSummary(for bundleURL: URL) -> String? {
         guard let manifest = try? MHCAmpliconReferenceBundle.loadManifest(from: bundleURL) else {
             return nil
         }
         return "From bundle: \(manifest.name)"
     }
 
-    private static func discoverReferenceBundles(in projectURL: URL?) -> [URL] {
+    nonisolated private static func bundledHaplotypeDefinitions(
+        from referenceCandidates: [URL]
+    ) -> [URL: GenotypeHaplotypeDefinitionSet] {
+        var definitions: [URL: GenotypeHaplotypeDefinitionSet] = [:]
+        for url in referenceCandidates where MHCAmpliconReferenceBundle.isBundleURL(url) {
+            guard !Task.isCancelled else { return definitions }
+            let bundleURL = url.standardizedFileURL
+            if let definition = try? MHCAmpliconReferenceBundle.defaultHaplotypeDefinition(in: bundleURL) {
+                definitions[bundleURL] = definition
+            }
+        }
+        return definitions
+    }
+
+    nonisolated private static func discoverReferenceBundles(in projectURL: URL?) -> [URL] {
         guard let projectURL else { return [] }
         guard let enumerator = FileManager.default.enumerator(
             at: projectURL,
@@ -1202,6 +1416,7 @@ final class WorkflowOperationDialogState {
             MHCAmpliconReferenceBundle.directoryExtension,
         ])
         for case let url as URL in enumerator {
+            guard !Task.isCancelled else { return refs }
             guard referenceBundleExtensions.contains(url.pathExtension.lowercased()) else { continue }
             refs.append(url.standardizedFileURL)
             enumerator.skipDescendants()
@@ -1212,7 +1427,7 @@ final class WorkflowOperationDialogState {
         }
     }
 
-    private static func discoverGuideBundles(from referenceCandidates: [URL], relativeTo projectURL: URL?) -> [URL] {
+    nonisolated private static func discoverGuideBundles(from referenceCandidates: [URL], relativeTo projectURL: URL?) -> [URL] {
         referenceCandidates
             .filter { $0.pathExtension.lowercased() == "lungfishref" }
             .sorted { lhs, rhs in
@@ -1226,7 +1441,7 @@ final class WorkflowOperationDialogState {
             }
     }
 
-    private static func isLikelyPBAAGuideBundle(_ url: URL) -> Bool {
+    nonisolated private static func isLikelyPBAAGuideBundle(_ url: URL) -> Bool {
         let name = url.deletingPathExtension().lastPathComponent.lowercased()
         return name.contains("guide") || name.contains("pbaa")
     }
@@ -1273,7 +1488,7 @@ final class WorkflowOperationDialogState {
             : nil
     }
 
-    private static func discoverBarcodeDefinitionFiles(in projectURL: URL?) -> [URL] {
+    nonisolated private static func discoverBarcodeDefinitionFiles(in projectURL: URL?) -> [URL] {
         guard let projectURL else { return [] }
         let allowedExtensions = Set(["csv", "tsv", "txt"])
         guard let enumerator = FileManager.default.enumerator(
@@ -1286,6 +1501,7 @@ final class WorkflowOperationDialogState {
 
         var candidates: [URL] = []
         for case let url as URL in enumerator {
+            guard !Task.isCancelled else { return candidates }
             let name = url.lastPathComponent
             if name.hasPrefix(".") {
                 if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
@@ -1359,7 +1575,7 @@ final class WorkflowOperationDialogState {
         return targetPath.hasPrefix(normalizedProjectPath)
     }
 
-    static func displayPath(for url: URL, relativeTo projectURL: URL?) -> String {
+    nonisolated static func displayPath(for url: URL, relativeTo projectURL: URL?) -> String {
         let targetPath = url.standardizedFileURL.path
         guard let projectURL else { return targetPath }
         let projectPath = projectURL.standardizedFileURL.path
@@ -1464,7 +1680,7 @@ final class WorkflowOperationDialogState {
         return collapsed.isEmpty ? "ont" : collapsed
     }
 
-    private static func defaultFullLengthPrimerReferenceURL(filename: String, projectURL: URL?) -> URL? {
+    nonisolated private static func defaultFullLengthPrimerReferenceURL(filename: String, projectURL: URL?) -> URL? {
         guard let projectURL else { return nil }
         guard let enumerator = FileManager.default.enumerator(
             at: projectURL,
@@ -1474,6 +1690,7 @@ final class WorkflowOperationDialogState {
             return nil
         }
         for case let url as URL in enumerator {
+            guard !Task.isCancelled else { return nil }
             guard url.lastPathComponent == filename,
                   (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
                 continue

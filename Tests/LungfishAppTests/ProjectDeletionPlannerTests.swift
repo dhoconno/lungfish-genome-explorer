@@ -325,4 +325,17 @@ final class ProjectDeletionPlannerTests: XCTestCase {
             ]
         )
     }
+
+    func testSidebarDeleteComputesDependencyImpactOffMainActor() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishApp/Views/Sidebar/SidebarViewController+OutlineDataSource.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("presentProgressiveDeleteConfirmation(items: deletableItems, in: window)"))
+        XCTAssertTrue(source.contains("Task.detached(priority: .userInitiated)"))
+        XCTAssertTrue(source.contains("Checking Dependencies"))
+    }
 }

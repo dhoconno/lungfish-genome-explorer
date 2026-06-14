@@ -134,7 +134,7 @@ extension ViewerViewController {
 
                             // Refresh sidebar to pick up new extracted files
                             if let sidebar = (self.parent as? MainSplitViewController)?.sidebarController {
-                                sidebar.reloadFromFilesystem()
+                                sidebar.requestReloadFromFilesystem()
                             }
                         }
                     }

@@ -100,6 +100,9 @@ public final class SelectionSectionViewModel {
     @ObservationIgnored
     public var isUpdatingFromSelection: Bool = false
 
+    @ObservationIgnored
+    private var pendingTextCommitTask: Task<Void, Never>?
+
     /// Callback when annotation is updated
     public var onAnnotationUpdated: ((SequenceAnnotation) -> Void)?
 
@@ -206,6 +209,7 @@ public final class SelectionSectionViewModel {
     ///
     /// - Parameter annotation: The newly selected annotation, or nil for no selection
     public func select(annotation: SequenceAnnotation?) {
+        flushPendingTextCommit()
         // Set flag to prevent onChange handlers from firing during this update
         isUpdatingFromSelection = true
         defer { isUpdatingFromSelection = false }
@@ -256,6 +260,7 @@ public final class SelectionSectionViewModel {
 
     /// Updates the view model with a multiple-sequence-alignment selection.
     func select(multipleSequenceAlignmentSelection selection: MultipleSequenceAlignmentSelectionState?) {
+        flushPendingTextCommit()
         isUpdatingFromSelection = true
         defer { isUpdatingFromSelection = false }
 
@@ -379,6 +384,7 @@ public final class SelectionSectionViewModel {
 
     /// Updates the view model with a sequence/reference region selection.
     func select(sequenceRegionSelection selection: SequenceRegionSelectionState?) {
+        flushPendingTextCommit()
         isUpdatingFromSelection = true
         defer { isUpdatingFromSelection = false }
 
@@ -400,6 +406,7 @@ public final class SelectionSectionViewModel {
 
     /// Updates the view model with a phylogenetic tree node selection.
     func select(phylogeneticTreeSelection selection: PhylogeneticTreeSelectionState?) {
+        flushPendingTextCommit()
         isUpdatingFromSelection = true
         defer { isUpdatingFromSelection = false }
 
@@ -421,6 +428,7 @@ public final class SelectionSectionViewModel {
 
     /// Updates the view model with a genotype result selection.
     func select(genotypeResultSelection selection: GenotypeResultSelectionState?) {
+        flushPendingTextCommit()
         isUpdatingFromSelection = true
         defer { isUpdatingFromSelection = false }
 
@@ -595,8 +603,39 @@ public final class SelectionSectionViewModel {
         }
     }
 
+    func scheduleTextCommit(debounce: Duration = .milliseconds(350)) {
+        pendingTextCommitTask?.cancel()
+        pendingTextCommitTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: debounce)
+            } catch {
+                return
+            }
+
+            guard let self, !Task.isCancelled else { return }
+            pendingTextCommitTask = nil
+            commitChangesImmediately()
+        }
+    }
+
+    func flushPendingTextCommit() {
+        guard pendingTextCommitTask != nil else { return }
+        cancelPendingTextCommit()
+        commitChangesImmediately()
+    }
+
+    private func cancelPendingTextCommit() {
+        pendingTextCommitTask?.cancel()
+        pendingTextCommitTask = nil
+    }
+
     /// Commits current edits to the annotation.
     func commitChanges() {
+        cancelPendingTextCommit()
+        commitChangesImmediately()
+    }
+
+    private func commitChangesImmediately() {
         guard var annotation = selectedAnnotation else { return }
 
         annotation.name = name
@@ -1003,7 +1042,10 @@ public struct SelectionSection: View {
                     .textFieldStyle(.roundedBorder)
                     .onChange(of: viewModel.name) { _, _ in
                         guard !viewModel.isUpdatingFromSelection else { return }
-                        viewModel.commitChanges()
+                        viewModel.scheduleTextCommit()
+                    }
+                    .onSubmit {
+                        viewModel.flushPendingTextCommit()
                     }
             }
 
@@ -1067,7 +1109,10 @@ public struct SelectionSection: View {
                     )
                     .onChange(of: viewModel.notes) { _, _ in
                         guard !viewModel.isUpdatingFromSelection else { return }
-                        viewModel.commitChanges()
+                        viewModel.scheduleTextCommit()
+                    }
+                    .onDisappear {
+                        viewModel.flushPendingTextCommit()
                     }
             }
 

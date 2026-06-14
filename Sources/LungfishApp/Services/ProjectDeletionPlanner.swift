@@ -5,7 +5,7 @@
 import Foundation
 import LungfishIO
 
-struct ProjectDeletionImpact: Equatable {
+struct ProjectDeletionImpact: Equatable, Sendable {
     let selectedURLs: [URL]
     let dependentURLs: [URL]
 
@@ -18,7 +18,7 @@ struct ProjectDeletionImpact: Equatable {
     }
 }
 
-struct ProjectDeletionDependencyListPresentation: Equatable {
+struct ProjectDeletionDependencyListPresentation: Equatable, Sendable {
     let dependentURLs: [URL]
     let projectURL: URL?
     let previewLimit: Int

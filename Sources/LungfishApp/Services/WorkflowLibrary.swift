@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import LungfishWorkflow
 
 enum WorkflowLibraryMaturity: String, Codable, CaseIterable, Sendable {
@@ -479,7 +480,17 @@ final class WorkflowLibraryImportedPackageStore {
 
     private static let importedPackagePathsKey = "WorkflowLibrary.importedWorkflowPackagePaths"
 
+    private struct PackageValidationFingerprint: Equatable {
+        let manifestSHA256: String?
+    }
+
+    private struct CachedPackageValidation {
+        let fingerprint: PackageValidationFingerprint
+        let result: WorkflowPackageValidationResult
+    }
+
     private let userDefaults: UserDefaults
+    private var validationCache: [URL: CachedPackageValidation] = [:]
     private var packagePaths: [String] {
         didSet {
             userDefaults.set(packagePaths, forKey: Self.importedPackagePathsKey)
@@ -496,7 +507,7 @@ final class WorkflowLibraryImportedPackageStore {
     }
 
     func validatedPackages() -> [WorkflowPackageValidationResult] {
-        packageURLSnapshot.compactMap { try? WorkflowPackageValidator.validatePackage(at: $0) }
+        packageURLSnapshot.compactMap { try? validatedPackage(at: $0) }
     }
 
     func addPackage(at packageURL: URL) {
@@ -505,11 +516,66 @@ final class WorkflowLibraryImportedPackageStore {
         packagePaths.append(path)
     }
 
+    func addValidatedPackage(_ result: WorkflowPackageValidationResult) {
+        cache(result)
+        addPackage(at: result.packageURL)
+    }
+
     func removePackage(withManifestID manifestID: String) {
         packagePaths.removeAll { path in
             let url = URL(fileURLWithPath: path).standardizedFileURL
-            guard let result = try? WorkflowPackageValidator.validatePackage(at: url) else { return false }
+            guard let result = try? validatedPackage(at: url) else { return false }
             return result.manifest.id == manifestID
         }
+    }
+
+    private func validatedPackage(at packageURL: URL) throws -> WorkflowPackageValidationResult {
+        let packageURL = packageURL.standardizedFileURL
+        let fingerprint = packageFingerprint(for: packageURL)
+        if let cached = validationCache[packageURL],
+           cached.fingerprint == fingerprint,
+           cachedValidationStillHasRequiredFiles(cached.result) {
+            return cached.result
+        }
+        let result = try WorkflowPackageValidator.validatePackage(at: packageURL)
+        cache(result, fingerprint: fingerprint)
+        return result
+    }
+
+    private func cache(
+        _ result: WorkflowPackageValidationResult,
+        fingerprint: PackageValidationFingerprint? = nil
+    ) {
+        validationCache[result.packageURL.standardizedFileURL] = CachedPackageValidation(
+            fingerprint: fingerprint ?? packageFingerprint(for: result.packageURL),
+            result: result
+        )
+    }
+
+    private func packageFingerprint(for packageURL: URL) -> PackageValidationFingerprint {
+        let manifestURL = packageURL
+            .standardizedFileURL
+            .appendingPathComponent(WorkflowPackageValidator.manifestFilename)
+        let data = try? Data(contentsOf: manifestURL)
+        return PackageValidationFingerprint(
+            manifestSHA256: data.map {
+                SHA256.hash(data: $0).map { String(format: "%02x", $0) }.joined()
+            }
+        )
+    }
+
+    private func cachedValidationStillHasRequiredFiles(_ result: WorkflowPackageValidationResult) -> Bool {
+        let packageURL = result.packageURL.standardizedFileURL
+        guard FileManager.default.fileExists(atPath: result.manifestURL.path),
+              FileManager.default.fileExists(
+                atPath: packageURL.appendingPathComponent(result.manifest.runner.entrypoint).path
+              ) else {
+            return false
+        }
+        if result.manifest.runtime.kind == .conda,
+           let environmentFile = result.manifest.runtime.environmentFile {
+            return FileManager.default.fileExists(atPath: packageURL.appendingPathComponent(environmentFile).path)
+        }
+        return true
     }
 }
