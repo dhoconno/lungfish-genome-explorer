@@ -95,6 +95,11 @@ final class AIHaplotypingRevisionPublisherTests: XCTestCase {
         XCTAssertEqual(envelope.workflowName, "AI Haplotype Revision")
         XCTAssertEqual(envelope.argv, makeContext(bundleURL: fixture.bundleURL).argv)
         XCTAssertEqual(envelope.exitStatus, 0)
+        XCTAssertEqual(envelope.options.resolvedDefaults["knowledgePackID"]?.stringValue, "macaque-mhc")
+        XCTAssertEqual(envelope.options.resolvedDefaults["knowledgePackVersion"]?.stringValue, "2026-06-15.2")
+        XCTAssertTrue(
+            envelope.options.resolvedDefaults["knowledgePackDigest"]?.stringValue?.hasPrefix("sha256:") == true
+        )
         let stepInputs = envelope.steps.flatMap(\.inputs)
         let inputDescriptorsByPath = Dictionary(uniqueKeysWithValues: stepInputs.map { ($0.path, $0) })
         let originalManifestInput = try XCTUnwrap(inputDescriptorsByPath[
@@ -384,6 +389,7 @@ private extension AIHaplotypingRevisionPublisherTests {
             warnings: ["review required"],
             errors: []
         )
+        let knowledgePack = try! AIHaplotypingKnowledgePackLoader.bundledMacaqueMHC()
         let prompt = AIHaplotypingPromptMetadata(
             promptTemplateID: run.promptTemplateID,
             promptTemplateVersion: run.promptTemplateVersion,
@@ -391,7 +397,10 @@ private extension AIHaplotypingRevisionPublisherTests {
             evidenceSchemaVersion: 1,
             registryDigest: registry.digest,
             inputSnapshotDigest: registry.inputSnapshotDigest,
-            evidenceSnapshotPath: "ai-haplotyping/evidence/chunk-0001.json"
+            evidenceSnapshotPath: "ai-haplotyping/evidence/chunk-0001.json",
+            knowledgePackID: knowledgePack.id,
+            knowledgePackVersion: knowledgePack.version,
+            knowledgePackDigest: knowledgePack.digest
         )
         let attempt = AIProviderAttemptMetadata(
             attemptIndex: 0,

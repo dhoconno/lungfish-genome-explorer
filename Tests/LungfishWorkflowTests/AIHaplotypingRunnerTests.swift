@@ -48,6 +48,7 @@ final class AIHaplotypingRunnerTests: XCTestCase {
 
         let requests = await provider.recordedRequests()
         let expectedRuns = try requests.map { try Self.expectedRun(from: $0) }
+        let promptInputs = try requests.map { try Self.promptInput(from: $0) }
         XCTAssertEqual(requests.count, 2)
         XCTAssertEqual(requests.map(\.schemaName), ["lungfish_ai_haplotyping_result", "lungfish_ai_haplotyping_result"])
         XCTAssertEqual(requests.map(\.credentialSource), [
@@ -67,6 +68,11 @@ final class AIHaplotypingRunnerTests: XCTestCase {
         XCTAssertEqual(expectedRuns.map(\.model), ["gpt-5-mini", "gpt-5-mini"])
         XCTAssertEqual(expectedRuns[0].generationParameters["schemaName"], "lungfish_ai_haplotyping_result")
         XCTAssertEqual(expectedRuns[0].generationParameters["maxObservationsPerChunk"], "1")
+        XCTAssertEqual(promptInputs[0].knowledgePack.id, "macaque-mhc")
+        XCTAssertEqual(promptInputs[0].knowledgePack.version, "2026-06-15.2")
+        XCTAssertEqual(promptInputs[0].runContext.assayResolution, "short_exon_amplicon")
+        XCTAssertEqual(promptInputs[0].runContext.populationHint, "mcm")
+        XCTAssertTrue(promptInputs[0].knowledgePack.legacyBlockDefinitions.contains { $0.reportLabel == "M1A" })
 
         XCTAssertEqual(output.mode, .aiDiscovery)
         XCTAssertEqual(output.registry.observations.count, 2)
@@ -75,6 +81,9 @@ final class AIHaplotypingRunnerTests: XCTestCase {
             "lungfish.ai-haplotyping.discovery",
             "lungfish.ai-haplotyping.discovery",
         ])
+        XCTAssertEqual(output.chunkOutputs[0].promptMetadata.knowledgePackID, "macaque-mhc")
+        XCTAssertEqual(output.chunkOutputs[0].promptMetadata.knowledgePackVersion, "2026-06-15.2")
+        XCTAssertTrue(output.chunkOutputs[0].promptMetadata.knowledgePackDigest?.hasPrefix("sha256:") == true)
         XCTAssertTrue(output.chunkOutputs.allSatisfy { $0.payloadDigest.hasPrefix("sha256:") })
         XCTAssertEqual(output.providerAttempts.map(\.provider), ["openai", "openai"])
         XCTAssertTrue(output.normalizedCalls.allSatisfy {
@@ -336,7 +345,9 @@ final class AIHaplotypingRunnerTests: XCTestCase {
             longSummaryCSVPath: "long.csv",
             sampleSummaryCSVPath: "samples.csv",
             statsJSONPath: "stats.json",
-            provenancePath: "provenance.json"
+            provenancePath: "provenance.json",
+            haplotypeDefinitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            haplotypeAssayID: "MHC-exon2-miSeq"
         )
         let artifacts = ONTGenotypeResultArtifacts(
             workbookURL: URL(fileURLWithPath: "/tmp/workbook.xlsx"),
@@ -395,7 +406,9 @@ private extension AIHaplotypingRunnerTests {
     }
 
     static func promptInput(from request: AIStructuredRequest) throws -> PromptInput {
-        guard let markerRange = request.userPrompt.range(of: "Evidence registry JSON:") else {
+        let markerRange = request.userPrompt.range(of: "Prompt input JSON:")
+            ?? request.userPrompt.range(of: "Evidence registry JSON:")
+        guard let markerRange else {
             throw AIProviderError.invalidResponse("Missing prompt input marker")
         }
         let suffix = request.userPrompt[markerRange.upperBound...]
@@ -554,6 +567,8 @@ private extension AIHaplotypingRunnerTests {
     struct PromptInput: Decodable {
         let chunkID: String
         let expectedRun: AIHaplotypingRunMetadata
+        let runContext: AIHaplotypingRunContext
+        let knowledgePack: AIHaplotypingKnowledgePack
         let evidenceRegistry: AIHaplotypingEvidenceRegistry
     }
 }

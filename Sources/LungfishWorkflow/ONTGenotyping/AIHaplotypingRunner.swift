@@ -209,6 +209,18 @@ public struct AIHaplotypingRunner: Sendable {
             )
         }
 
+        let runContext = AIHaplotypingRunContext.infer(from: result)
+        let knowledgePack: AIHaplotypingKnowledgePack
+        do {
+            knowledgePack = try AIHaplotypingKnowledgePackLoader.bundledMacaqueMHC()
+        } catch {
+            throw AIHaplotypingRunFailure(
+                stage: .prompt,
+                sanitizedErrorCategory: "knowledge_pack_load_failed",
+                message: error.localizedDescription
+            )
+        }
+
         var chunkOutputs: [AIHaplotypingChunkOutput] = []
         var normalizedCalls: [AIHaplotypingValidatedCall] = []
         var validatedDefinitions: [AIHaplotypingValidatedDefinition] = []
@@ -221,7 +233,8 @@ public struct AIHaplotypingRunner: Sendable {
             let promptMetadata = template.metadata(
                 registryDigest: chunk.registry.digest,
                 inputSnapshotDigest: chunk.registry.inputSnapshotDigest,
-                evidenceSnapshotPath: "ai-haplotyping/evidence/\(chunk.id).json"
+                evidenceSnapshotPath: "ai-haplotyping/evidence/\(chunk.id).json",
+                knowledgePack: knowledgePack
             )
             let generationParameters = options.generationParameters(schemaName: Self.schemaName)
             let expectedRun = AIHaplotypingRunMetadata(
@@ -241,7 +254,13 @@ public struct AIHaplotypingRunner: Sendable {
                 request = AIStructuredRequest(
                     systemPrompt: template.systemPrompt,
                     userPrompt: template.render(
-                        evidenceRegistryJSON: try promptInputJSONString(chunk: chunk, expectedRun: expectedRun)
+                        promptInputJSON: try promptInputJSONString(
+                            chunk: chunk,
+                            expectedRun: expectedRun,
+                            runContext: runContext,
+                            knowledgePack: knowledgePack
+                        ),
+                        evidenceRegistryJSON: chunk.registry.canonicalJSONString()
                     ),
                     schemaName: Self.schemaName,
                     schema: AIHaplotypingResultSchema.jsonSchema(),
@@ -390,11 +409,15 @@ public struct AIHaplotypingRunner: Sendable {
 
     private func promptInputJSONString(
         chunk: AIHaplotypingEvidenceChunk,
-        expectedRun: AIHaplotypingRunMetadata
+        expectedRun: AIHaplotypingRunMetadata,
+        runContext: AIHaplotypingRunContext,
+        knowledgePack: AIHaplotypingKnowledgePack
     ) throws -> String {
         let input = PromptInput(
             chunkID: chunk.id,
             expectedRun: expectedRun,
+            runContext: runContext,
+            knowledgePack: knowledgePack,
             evidenceRegistry: chunk.registry
         )
         let data = AIHaplotypingCanonicalJSON.canonicalData(of: input)
@@ -498,6 +521,8 @@ public struct AIHaplotypingRunner: Sendable {
     private struct PromptInput: Encodable {
         let chunkID: String
         let expectedRun: AIHaplotypingRunMetadata
+        let runContext: AIHaplotypingRunContext
+        let knowledgePack: AIHaplotypingKnowledgePack
         let evidenceRegistry: AIHaplotypingEvidenceRegistry
     }
 }

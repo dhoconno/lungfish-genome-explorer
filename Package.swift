@@ -174,6 +174,7 @@ let package = Package(
                 .copy("Resources/ManagedTools"),
                 .copy("Resources/Tools"),
                 .copy("Resources/Databases"),
+                .copy("Resources/AIHaplotyping"),
                 .copy("Resources/Recipes")
             ]
         ),

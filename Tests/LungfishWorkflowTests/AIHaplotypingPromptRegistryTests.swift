@@ -10,8 +10,8 @@ final class AIHaplotypingPromptRegistryTests: XCTestCase {
 
         XCTAssertEqual(discovery.id, "lungfish.ai-haplotyping.discovery")
         XCTAssertEqual(refinement.id, "lungfish.ai-haplotyping.refinement")
-        XCTAssertEqual(discovery.version, "2026-06-14.1")
-        XCTAssertEqual(refinement.version, "2026-06-14.1")
+        XCTAssertEqual(discovery.version, "2026-06-15.2")
+        XCTAssertEqual(refinement.version, "2026-06-15.2")
         XCTAssertEqual(discovery.evidenceSchemaVersion, 1)
         XCTAssertEqual(refinement.evidenceSchemaVersion, 1)
         XCTAssertTrue(discovery.hash.hasPrefix("sha256:"))
@@ -19,10 +19,16 @@ final class AIHaplotypingPromptRegistryTests: XCTestCase {
         XCTAssertTrue(refinement.hash.hasPrefix("sha256:"))
         XCTAssertEqual(refinement.hash.count, "sha256:".count + 64)
         XCTAssertNotEqual(discovery.hash, refinement.hash)
-        XCTAssertTrue(discovery.systemPrompt.contains("You are reconstructing reviewable haplotype calls"))
-        XCTAssertTrue(refinement.systemPrompt.contains("Refine existing haplotype calls"))
-        XCTAssertTrue(discovery.userPromptTemplate.contains("{{evidence_registry_json}}"))
-        XCTAssertTrue(refinement.userPromptTemplate.contains("{{evidence_registry_json}}"))
+        XCTAssertTrue(discovery.systemPrompt.contains("macaque MHC immunogenetics"))
+        XCTAssertTrue(refinement.systemPrompt.contains("macaque MHC immunogenetics"))
+        XCTAssertTrue(discovery.userPromptTemplate.contains("DP/DQ linkage"))
+        XCTAssertTrue(discovery.userPromptTemplate.contains("MHC-E"))
+        XCTAssertTrue(discovery.userPromptTemplate.contains("homozygous"))
+        XCTAssertTrue(discovery.userPromptTemplate.contains("population novelty prior"))
+        XCTAssertTrue(refinement.userPromptTemplate.contains("legacy report labels"))
+        XCTAssertTrue(refinement.userPromptTemplate.contains("do not split"))
+        XCTAssertTrue(discovery.userPromptTemplate.contains("{{prompt_input_json}}"))
+        XCTAssertTrue(refinement.userPromptTemplate.contains("{{prompt_input_json}}"))
     }
 
     func testLookupKeepsOldVersionsAddressableAndCurrentUsesHighestLocalizedStandardVersion() throws {
@@ -77,6 +83,24 @@ final class AIHaplotypingPromptRegistryTests: XCTestCase {
         XCTAssertFalse(encoded.contains(template.systemPrompt))
         XCTAssertFalse(encoded.contains("You are reconstructing reviewable haplotype calls"))
         XCTAssertFalse(encoded.contains("{{evidence_registry_json}}"))
+    }
+
+    func testPromptRenderingKeepsLegacyEvidencePlaceholderCompatibleWithPromptInputJSON() {
+        let legacyTemplate = AIHaplotypingPromptTemplate(
+            id: "legacy",
+            mode: .aiDiscovery,
+            version: "1",
+            evidenceSchemaVersion: 1,
+            systemPrompt: "system",
+            userPromptTemplate: "Evidence registry JSON:\n{{evidence_registry_json}}"
+        )
+        let rendered = legacyTemplate.render(
+            promptInputJSON: "{\"chunkID\":\"chunk-0001\"}",
+            evidenceRegistryJSON: "{\"schemaVersion\":1}"
+        )
+
+        XCTAssertTrue(rendered.contains("\"chunkID\":\"chunk-0001\""))
+        XCTAssertFalse(rendered.contains("\"schemaVersion\":1"))
     }
 
     func testValidatingRegistryRejectsDuplicateTemplateIDVersionAndKeepsVersionsAddressable() throws {

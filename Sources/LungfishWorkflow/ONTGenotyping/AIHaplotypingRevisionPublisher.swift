@@ -652,6 +652,17 @@ public struct AIHaplotypingRevisionPublisher {
         resolved["promptTemplateID"] = .string(firstRun?.promptTemplateID ?? "unknown")
         resolved["promptTemplateVersion"] = .string(firstRun?.promptTemplateVersion ?? "unknown")
         resolved["promptHash"] = .string(firstRun?.promptHash ?? "unknown")
+        if let promptMetadata = request.runnerOutput.chunkOutputs.first?.promptMetadata {
+            if let knowledgePackID = promptMetadata.knowledgePackID {
+                resolved["knowledgePackID"] = .string(knowledgePackID)
+            }
+            if let knowledgePackVersion = promptMetadata.knowledgePackVersion {
+                resolved["knowledgePackVersion"] = .string(knowledgePackVersion)
+            }
+            if let knowledgePackDigest = promptMetadata.knowledgePackDigest {
+                resolved["knowledgePackDigest"] = .string(knowledgePackDigest)
+            }
+        }
         resolved["registryDigest"] = .string(request.runnerOutput.registry.digest)
         resolved["inputSnapshotDigest"] = .string(request.runnerOutput.registry.inputSnapshotDigest)
         resolved["generationParameters"] = .dictionary(

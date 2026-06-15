@@ -67,6 +67,99 @@ final class GenotypeSubcommandsTests: XCTestCase {
         XCTAssertEqual(command.temperature, 0)
     }
 
+    func testAIHaplotypingParsesPromptPreviewInputTableOptions() throws {
+        let command = try GenotypeAIHaplotypingSubcommand.parse([
+            "--input-table", "/tmp/mcm-calls.csv",
+            "--preview-prompt",
+            "--output", "/tmp/prompt-preview.json",
+            "--mode", "ai-discovery",
+            "--population", "mcm",
+            "--assay-resolution", "short-exon-amplicon",
+            "--haplotype-definition", "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            "--haplotype-assay", "MHC-exon2-miSeq",
+        ])
+
+        XCTAssertNil(command.bundle)
+        XCTAssertEqual(command.inputTable, "/tmp/mcm-calls.csv")
+        XCTAssertTrue(command.previewPrompt)
+        XCTAssertEqual(command.output, "/tmp/prompt-preview.json")
+        XCTAssertEqual(command.population, "mcm")
+        XCTAssertEqual(command.assayResolution, "short-exon-amplicon")
+        XCTAssertEqual(command.haplotypeDefinition, "MHC-exon2-miSeq.mauritian-cynomolgus-macaques")
+        XCTAssertEqual(command.haplotypeAssay, "MHC-exon2-miSeq")
+    }
+
+    func testAIHaplotypingPromptPreviewBuildsFromCSVWithoutProviderCredentials() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AIHaplotypingPromptPreview-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let inputURL = root.appendingPathComponent("mcm-calls.csv")
+        try """
+        sample,genotype,passedAlignments,passedUniqueReads,sampleUniqueRetainedReads
+        B25276,05_M1M2M3_A1_063g,174,174,13924
+        B25276,07_M3_70_156bp,25,25,13924
+        """.write(to: inputURL, atomically: true, encoding: .utf8)
+
+        let command = try GenotypeAIHaplotypingSubcommand.parse([
+            "--input-table", inputURL.path,
+            "--preview-prompt",
+            "--mode", "ai-discovery",
+            "--provider", "openai",
+            "--model", "gpt-5-mini",
+            "--population", "mcm",
+            "--assay-resolution", "short-exon-amplicon",
+            "--max-observations-per-chunk", "16",
+        ])
+
+        let preview = try command.buildPromptPreview()
+
+        XCTAssertEqual(preview.mode, .aiDiscovery)
+        XCTAssertEqual(preview.runContext.populationHint, "mcm")
+        XCTAssertEqual(preview.runContext.assayResolution, "short_exon_amplicon")
+        XCTAssertEqual(preview.chunkCount, 1)
+        XCTAssertEqual(preview.observationCount, 2)
+        XCTAssertEqual(preview.promptTemplate.version, "2026-06-15.2")
+        XCTAssertEqual(preview.knowledgePack.version, "2026-06-15.2")
+        XCTAssertTrue(preview.chunks[0].userPrompt.contains("DP/DQ linkage"))
+        XCTAssertTrue(preview.chunks[0].userPrompt.contains("population novelty prior"))
+        XCTAssertTrue(preview.chunks[0].userPrompt.contains("05_M1M2M3_A1_063g"))
+        XCTAssertTrue(preview.chunks[0].evidenceRegistry.evidenceIDs.contains("obs:B25276:MHC-A:05_M1M2M3_A1_063g"))
+    }
+
+    func testAIHaplotypingPromptPreviewWritesProvenanceSidecarForOutputFile() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AIHaplotypingPromptPreviewOutput-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let inputURL = root.appendingPathComponent("mamu-calls.tsv")
+        let outputURL = root.appendingPathComponent("prompt-preview.json")
+        try """
+        sample\tgenotype\treads
+        R001\tMamu-A1_001g1\t99
+        """.write(to: inputURL, atomically: true, encoding: .utf8)
+
+        let command = try GenotypeAIHaplotypingSubcommand.parse([
+            "--input-table", inputURL.path,
+            "--preview-prompt",
+            "--output", outputURL.path,
+            "--mode", "ai-discovery",
+            "--population", "indian-rhesus",
+        ])
+        try await command.run()
+
+        let preview = try JSONDecoder().decode(AIHaplotypingCLIPromptPreview.self, from: Data(contentsOf: outputURL))
+        XCTAssertEqual(preview.runContext.populationHint, "indian-rhesus")
+        XCTAssertEqual(preview.observationCount, 1)
+
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL))
+        XCTAssertEqual(envelope.workflowName, "lungfish genotype ai-haplotyping preview-prompt")
+        XCTAssertTrue(envelope.argv.contains("--input-table"))
+        XCTAssertTrue(envelope.files.contains { $0.path == inputURL.path && $0.role == .input })
+        XCTAssertTrue(envelope.files.contains { $0.path == outputURL.path && $0.role == .output })
+    }
+
     func testAIHaplotypingRequiresPromptTemplateIDAndVersionTogether() {
         XCTAssertThrowsError(try GenotypeAIHaplotypingSubcommand.parse([
             "--bundle", "/tmp/example.lungfishgenotype",

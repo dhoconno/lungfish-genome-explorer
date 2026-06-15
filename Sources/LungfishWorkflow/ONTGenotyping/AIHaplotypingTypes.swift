@@ -64,13 +64,23 @@ public struct AIHaplotypingPromptTemplate: Codable, Equatable, Sendable {
     public var hash: String { promptHash }
 
     public func render(evidenceRegistryJSON: String) -> String {
-        userPromptTemplate.replacingOccurrences(of: "{{evidence_registry_json}}", with: evidenceRegistryJSON)
+        render(promptInputJSON: evidenceRegistryJSON, evidenceRegistryJSON: evidenceRegistryJSON)
+    }
+
+    public func render(promptInputJSON: String, evidenceRegistryJSON: String) -> String {
+        let evidenceReplacement = userPromptTemplate.contains("{{prompt_input_json}}")
+            ? evidenceRegistryJSON
+            : promptInputJSON
+        return userPromptTemplate
+            .replacingOccurrences(of: "{{prompt_input_json}}", with: promptInputJSON)
+            .replacingOccurrences(of: "{{evidence_registry_json}}", with: evidenceReplacement)
     }
 
     public func metadata(
         registryDigest: String,
         inputSnapshotDigest: String,
-        evidenceSnapshotPath: String
+        evidenceSnapshotPath: String,
+        knowledgePack: AIHaplotypingKnowledgePack? = nil
     ) -> AIHaplotypingPromptMetadata {
         AIHaplotypingPromptMetadata(
             promptTemplateID: id,
@@ -79,7 +89,10 @@ public struct AIHaplotypingPromptTemplate: Codable, Equatable, Sendable {
             evidenceSchemaVersion: evidenceSchemaVersion,
             registryDigest: registryDigest,
             inputSnapshotDigest: inputSnapshotDigest,
-            evidenceSnapshotPath: evidenceSnapshotPath
+            evidenceSnapshotPath: evidenceSnapshotPath,
+            knowledgePackID: knowledgePack?.id,
+            knowledgePackVersion: knowledgePack?.version,
+            knowledgePackDigest: knowledgePack?.digest
         )
     }
 
@@ -101,6 +114,9 @@ public struct AIHaplotypingPromptMetadata: Codable, Equatable, Sendable {
     public let registryDigest: String
     public let inputSnapshotDigest: String
     public let evidenceSnapshotPath: String
+    public let knowledgePackID: String?
+    public let knowledgePackVersion: String?
+    public let knowledgePackDigest: String?
 
     public init(
         promptTemplateID: String,
@@ -109,7 +125,10 @@ public struct AIHaplotypingPromptMetadata: Codable, Equatable, Sendable {
         evidenceSchemaVersion: Int,
         registryDigest: String,
         inputSnapshotDigest: String,
-        evidenceSnapshotPath: String
+        evidenceSnapshotPath: String,
+        knowledgePackID: String? = nil,
+        knowledgePackVersion: String? = nil,
+        knowledgePackDigest: String? = nil
     ) {
         self.promptTemplateID = promptTemplateID
         self.promptTemplateVersion = promptTemplateVersion
@@ -118,6 +137,9 @@ public struct AIHaplotypingPromptMetadata: Codable, Equatable, Sendable {
         self.registryDigest = registryDigest
         self.inputSnapshotDigest = inputSnapshotDigest
         self.evidenceSnapshotPath = evidenceSnapshotPath
+        self.knowledgePackID = knowledgePackID
+        self.knowledgePackVersion = knowledgePackVersion
+        self.knowledgePackDigest = knowledgePackDigest
     }
 }
 
