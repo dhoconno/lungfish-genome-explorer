@@ -24,6 +24,32 @@ private final class CLIImportRunnerStringCollector: @unchecked Sendable {
     }
 }
 
+private final class CLIImportRunnerCompletionFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var completed = false
+
+    func markCompleted() {
+        lock.withLock {
+            completed = true
+        }
+    }
+
+    func isCompleted() -> Bool {
+        lock.withLock { completed }
+    }
+
+    func waitUntilCompleted(timeout: TimeInterval) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if isCompleted() {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        return isCompleted()
+    }
+}
+
 final class CLIImportRunnerTests: XCTestCase {
 
     // MARK: - Event Parsing Tests
@@ -393,6 +419,91 @@ final class CLIImportRunnerTests: XCTestCase {
             "Final operation error summary should preserve the structured sample failure, got: \(String(describing: failedItem.errorMessage))"
         )
         XCTAssertTrue(errors.snapshot().contains { $0.contains("requires paired-end reads") })
+    }
+
+    func testRunReturnsAfterParentCLIExitsWhenDescendantKeepsStdoutPipeOpen() async throws {
+        let tempDir = try makeTemporaryDirectory()
+        let childPIDFile = tempDir.appendingPathComponent("child.pid")
+        let fakeCLI = tempDir.appendingPathComponent("lungfish-cli")
+        let script = """
+        #!/bin/sh
+        /bin/sh -c 'echo $$ > "$LUNGFISH_TEST_CHILD_PID_FILE"; sleep 5' &
+        echo '{"event":"importStart","sampleCount":1,"recipeName":"test"}'
+        echo '{"event":"sampleStart","sample":"Sample1","index":0,"total":1,"r1":"Sample1_R1.fastq.gz"}'
+        echo '{"event":"stepStart","sample":"Sample1","step":"Compute statistics","stepIndex":1,"totalSteps":1}'
+        echo '{"event":"sampleComplete","sample":"Sample1","bundle":"Sample1.lungfishfastq","durationSeconds":0.1,"originalBytes":10,"finalBytes":5}'
+        echo '{"event":"importComplete","completed":1,"skipped":0,"failed":0,"totalDurationSeconds":0.1}'
+        exit 0
+        """
+        try script.write(to: fakeCLI, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCLI.path)
+
+        let priorCLIPath = ProcessInfo.processInfo.environment["LUNGFISH_CLI_PATH"]
+        let priorPIDFile = ProcessInfo.processInfo.environment["LUNGFISH_TEST_CHILD_PID_FILE"]
+        setenv("LUNGFISH_CLI_PATH", fakeCLI.path, 1)
+        setenv("LUNGFISH_TEST_CHILD_PID_FILE", childPIDFile.path, 1)
+        defer {
+            if let priorCLIPath {
+                setenv("LUNGFISH_CLI_PATH", priorCLIPath, 1)
+            } else {
+                unsetenv("LUNGFISH_CLI_PATH")
+            }
+            if let priorPIDFile {
+                setenv("LUNGFISH_TEST_CHILD_PID_FILE", priorPIDFile, 1)
+            } else {
+                unsetenv("LUNGFISH_TEST_CHILD_PID_FILE")
+            }
+        }
+
+        let operationID = await MainActor.run {
+            OperationCenter.shared.start(
+                title: "FASTQ Import: stdout pipe lifecycle test",
+                detail: "Starting",
+                operationType: .ingestion
+            )
+        }
+        addTeardownBlock {
+            await MainActor.run {
+                OperationCenter.shared.clearItem(id: operationID)
+            }
+        }
+
+        let bundles = CLIImportRunnerStringCollector()
+        let runner = CLIImportRunner()
+        let completion = CLIImportRunnerCompletionFlag()
+
+        let runTask = Task {
+            await runner.run(
+                arguments: [],
+                operationID: operationID,
+                projectDirectory: tempDir,
+                onBundleCreated: { bundles.append($0.lastPathComponent) },
+                onError: { _ in }
+            )
+            completion.markCompleted()
+        }
+
+        let childPID = try await waitForPIDFile(childPIDFile)
+        addTeardownBlock {
+            if Self.isProcessRunning(pid: childPID) {
+                kill(childPID, SIGKILL)
+            }
+        }
+
+        let returnedBeforeTimeout = await completion.waitUntilCompleted(timeout: 1.0)
+        if !returnedBeforeTimeout {
+            await runner.cancel()
+            if Self.isProcessRunning(pid: childPID) {
+                kill(childPID, SIGKILL)
+            }
+        }
+        _ = await runTask.value
+
+        XCTAssertTrue(
+            returnedBeforeTimeout,
+            "CLIImportRunner should return when the parent lungfish-cli exits, even if a descendant still holds stdout open"
+        )
+        XCTAssertTrue(bundles.snapshot().contains("Sample1.lungfishfastq"))
     }
 
     func testResolveCLIPathPrefersBundledSiblingExecutable() throws {
