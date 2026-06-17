@@ -480,6 +480,7 @@ public enum AIProviderError: Error, LocalizedError, Sendable {
     case invalidResponse(String)
     case httpError(statusCode: Int, message: String)
     case rateLimited(retryAfter: TimeInterval?)
+    case quotaExceeded(String)
     case modelNotAvailable(String)
     case contextTooLong(maxTokens: Int)
     case networkError(String)
@@ -498,6 +499,8 @@ public enum AIProviderError: Error, LocalizedError, Sendable {
                 return "Rate limited. Please try again in \(Int(seconds)) seconds."
             }
             return "Rate limited. Please try again shortly."
+        case .quotaExceeded(let detail):
+            return "AI provider quota exceeded: \(detail)"
         case .modelNotAvailable(let model):
             return "Model '\(model)' is not available. Please check your settings."
         case .contextTooLong(let max):

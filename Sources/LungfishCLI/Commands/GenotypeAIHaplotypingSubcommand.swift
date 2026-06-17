@@ -25,6 +25,9 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("output"), help: "Optional output JSON path for prompt preview artifacts.")
     var output: String?
 
+    @Option(name: .customLong("debug-output"), help: "Write validated AI haplotyping debug JSON without publishing a haplotype revision.")
+    var debugOutput: String?
+
     @Option(name: .customLong("mode"), help: "AI haplotyping mode: ai-discovery or ai-refinement.")
     var mode: AIHaplotypingModeArgument = .aiRefinement
 
@@ -48,6 +51,18 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
 
     @Option(name: .customLong("temperature"), help: "Provider sampling temperature.")
     var temperature: Double = 0
+
+    @Option(name: .customLong("max-provider-retries"), help: "Maximum retry attempts for transient AI provider failures per chunk.")
+    var maxProviderRetries: Int = 2
+
+    @Flag(name: .customLong("compact-knowledge-pack"), help: "Retrieve only prompt-relevant knowledge-pack records before contacting the AI provider.")
+    var compactKnowledgePack = false
+
+    @Option(name: .customLong("chunk-start-index"), help: "1-based first evidence chunk to run for debug-output smoke runs.")
+    var chunkStartIndex: Int = 1
+
+    @Option(name: .customLong("chunk-end-index"), help: "1-based last evidence chunk to run for debug-output smoke runs; 0 means through the final chunk.")
+    var chunkEndIndex: Int = 0
 
     @Option(name: .customLong("population"), help: "Population hint for input-table prompt previews, such as mcm or indian-rhesus.")
     var population: String?
@@ -75,8 +90,17 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
         if hasInputTable && mode == .aiRefinement {
             throw ValidationError("--input-table prompt previews currently support --mode ai-discovery.")
         }
+        if debugOutput != nil && previewPrompt {
+            throw ValidationError("--debug-output cannot be combined with --preview-prompt.")
+        }
+        if debugOutput != nil && !hasBundle {
+            throw ValidationError("--debug-output requires --bundle.")
+        }
         if let output, output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             throw ValidationError("--output must not be empty when supplied.")
+        }
+        if let debugOutput, debugOutput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw ValidationError("--debug-output must not be empty when supplied.")
         }
         if promptTemplateID != nil && promptTemplateVersion == nil {
             throw ValidationError("--prompt-template-version is required when --prompt-template-id is supplied.")
@@ -93,6 +117,21 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
         if temperature < 0 || temperature > 2 {
             throw ValidationError("--temperature must be between 0 and 2.")
         }
+        if maxProviderRetries < 0 {
+            throw ValidationError("--max-provider-retries must be at least 0.")
+        }
+        if chunkStartIndex < 1 {
+            throw ValidationError("--chunk-start-index must be at least 1.")
+        }
+        if chunkEndIndex < 0 {
+            throw ValidationError("--chunk-end-index must be at least 0.")
+        }
+        if chunkEndIndex > 0 && chunkEndIndex < chunkStartIndex {
+            throw ValidationError("--chunk-end-index must be 0 or greater than or equal to --chunk-start-index.")
+        }
+        if (chunkStartIndex != 1 || chunkEndIndex != 0) && debugOutput == nil {
+            throw ValidationError("--debug-output is required when selecting a partial chunk window.")
+        }
     }
 
     func run() async throws {
@@ -100,6 +139,15 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
             let startedAt = Date()
             let preview = try buildPromptPreview()
             try await writePromptPreview(preview, startedAt: startedAt)
+            return
+        }
+        if debugOutput != nil {
+            let summary = try await runReturningDebugSummary()
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(summary)
+            FileHandle.standardOutput.write(data)
+            FileHandle.standardOutput.write(Data("\n".utf8))
             return
         }
         let summary = try await runReturningSummary()
@@ -138,9 +186,16 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
             maxObservationsPerChunk: maxObservationsPerChunk,
             maxOutputTokens: maxOutputTokens,
             temperature: temperature,
-            provenancePath: AIHaplotypingPatchValidator.pendingProvenancePath
+            maxProviderRetries: maxProviderRetries,
+            provenancePath: AIHaplotypingPatchValidator.pendingProvenancePath,
+            compactKnowledgePack: compactKnowledgePack,
+            chunkStartIndex: chunkStartIndex,
+            chunkEndIndex: chunkEndIndex
         )
-        let runnerOutput = try await AIHaplotypingRunner(provider: providerInstance).run(
+        let runnerOutput = try await AIHaplotypingRunner(
+            provider: providerInstance,
+            progressHandler: { Self.writeProgressEventToStandardError($0) }
+        ).run(
             result: activeResult,
             sidecar: sidecar,
             options: runOptions
@@ -183,6 +238,56 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
         )
     }
 
+    func runReturningDebugSummary() async throws -> AIHaplotypingCLIDebugSummary {
+        let startedAt = Date()
+        guard let bundle else {
+            throw ValidationError("--bundle is required for --debug-output.")
+        }
+        let bundleURL = URL(fileURLWithPath: bundle, isDirectory: true).standardizedFileURL
+        let result = try ONTGenotypeResultBundle.loadResult(from: bundleURL)
+        let sidecar = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: bundleURL)
+        let activeResult = GenotypeHaplotypeAnalysisResolver.resultByResolvingActiveAnalysis(
+            for: result,
+            bundleURL: bundleURL,
+            sidecar: sidecar
+        )
+        if mode.promptMode == .aiRefinement, activeResult.haplotypeAnalysis == nil {
+            throw ValidationError("AI refinement requires an existing deterministic, manual, or AI haplotype analysis in the bundle.")
+        }
+        let credential = try resolvedCredential()
+        let providerInstance = makeProvider(apiKey: credential.apiKey)
+        let runOptions = AIHaplotypingRunOptions(
+            mode: mode.promptMode,
+            providerID: provider.providerID,
+            credentialSource: credential.source,
+            promptTemplateID: promptTemplateID,
+            promptTemplateVersion: promptTemplateVersion,
+            maxObservationsPerChunk: maxObservationsPerChunk,
+            maxOutputTokens: maxOutputTokens,
+            temperature: temperature,
+            maxProviderRetries: maxProviderRetries,
+            provenancePath: AIHaplotypingPatchValidator.pendingProvenancePath,
+            compactKnowledgePack: compactKnowledgePack,
+            chunkStartIndex: chunkStartIndex,
+            chunkEndIndex: chunkEndIndex
+        )
+        let runnerOutput = try await AIHaplotypingRunner(
+            provider: providerInstance,
+            progressHandler: { Self.writeProgressEventToStandardError($0) }
+        ).run(
+            result: activeResult,
+            sidecar: sidecar,
+            options: runOptions
+        )
+        return try await writeDebugOutput(
+            bundleURL: bundleURL,
+            runnerOutput: runnerOutput,
+            modelID: providerInstance.modelId,
+            credentialSource: credential.source.rawValue,
+            startedAt: startedAt
+        )
+    }
+
     func buildPromptPreview() throws -> AIHaplotypingCLIPromptPreview {
         let input = try previewInput()
         return try AIHaplotypingPromptPreviewBuilder().build(AIHaplotypingPromptPreviewRequest(
@@ -197,7 +302,9 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
             maxObservationsPerChunk: maxObservationsPerChunk,
             maxOutputTokens: maxOutputTokens,
             temperature: temperature,
-            provenancePath: AIHaplotypingPatchValidator.pendingProvenancePath
+            maxProviderRetries: maxProviderRetries,
+            provenancePath: AIHaplotypingPatchValidator.pendingProvenancePath,
+            compactKnowledgePack: compactKnowledgePack
         ))
     }
 
@@ -310,6 +417,15 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
             "model": .string(modelValue(default: provider.defaultPreviewModel)),
             "output": .file(outputURL),
             "previewPrompt": .string("true"),
+            "compactKnowledgePack": .string(compactKnowledgePack ? "true" : "false"),
+            "maxObservationsPerChunk": .integer(maxObservationsPerChunk),
+            "maxOutputTokens": .integer(maxOutputTokens),
+            "temperature": .number(temperature),
+            "maxProviderRetries": .integer(maxProviderRetries),
+            "chunkStartIndex": .integer(chunkStartIndex),
+            "chunkEndIndex": .integer(chunkEndIndex),
+            "promptTemplateID": promptTemplateID.map(ParameterValue.string) ?? .null,
+            "promptTemplateVersion": promptTemplateVersion.map(ParameterValue.string) ?? .null,
             "chunkCount": .integer(preview.chunkCount),
             "observationCount": .integer(preview.observationCount),
         ]
@@ -325,6 +441,12 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
         }
         if let assayResolution, !assayResolution.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             parameters["assayResolution"] = .string(assayResolution)
+        }
+        if let haplotypeDefinition, !haplotypeDefinition.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            parameters["haplotypeDefinition"] = .string(haplotypeDefinition)
+        }
+        if let haplotypeAssay, !haplotypeAssay.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            parameters["haplotypeAssay"] = .string(haplotypeAssay)
         }
 
         let inputs = [inputURL].compactMap { url in
@@ -343,6 +465,101 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
             command: previewCommand(outputURL: outputURL),
             inputs: inputs,
             outputs: outputs,
+            exitCode: 0,
+            wallTime: max(0, Date().timeIntervalSince(startedAt)),
+            stderr: nil,
+            status: .completed,
+            outputDirectory: outputURL.deletingLastPathComponent(),
+            writeFileSidecars: true
+        )
+    }
+
+    func writeDebugOutput(
+        bundleURL: URL,
+        runnerOutput: AIHaplotypingRunnerOutput,
+        modelID: String,
+        credentialSource: String,
+        startedAt: Date
+    ) async throws -> AIHaplotypingCLIDebugSummary {
+        guard let debugOutput else {
+            throw ValidationError("--debug-output is required.")
+        }
+        let outputURL = URL(fileURLWithPath: debugOutput).standardizedFileURL
+        try FileManager.default.createDirectory(
+            at: outputURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
+        let summary = AIHaplotypingCLIDebugSummary(
+            bundle: bundleURL.path,
+            mode: mode.rawValue,
+            provider: provider.providerID.rawValue,
+            model: modelID,
+            debugOutput: outputURL.path,
+            chunkStartIndex: chunkStartIndex,
+            chunkEndIndex: chunkEndIndex,
+            chunkCount: runnerOutput.chunkOutputs.count,
+            chunkIDs: runnerOutput.chunkOutputs.map(\.chunkID),
+            callCount: runnerOutput.normalizedCalls.count,
+            discoveredDefinitionCount: runnerOutput.validatedDefinitions.count,
+            provenancePath: provenanceURL.path
+        )
+        let artifact = AIHaplotypingCLIDebugOutput(summary: summary, runnerOutput: runnerOutput)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(artifact)
+        try data.write(to: outputURL, options: .atomic)
+        try await recordDebugOutputProvenance(
+            outputURL: outputURL,
+            bundleURL: bundleURL,
+            summary: summary,
+            modelID: modelID,
+            credentialSource: credentialSource,
+            startedAt: startedAt
+        )
+        return summary
+    }
+
+    private func recordDebugOutputProvenance(
+        outputURL: URL,
+        bundleURL: URL,
+        summary: AIHaplotypingCLIDebugSummary,
+        modelID: String,
+        credentialSource: String,
+        startedAt: Date
+    ) async throws {
+        var explicit = explicitOptions(bundleURL: bundleURL, credentialSource: credentialSource)
+        explicit["debugOutput"] = .file(outputURL)
+        explicit["chunkCount"] = .integer(summary.chunkCount)
+        explicit["chunkIDs"] = .array(summary.chunkIDs.map(ParameterValue.string))
+        explicit["callCount"] = .integer(summary.callCount)
+        explicit["discoveredDefinitionCount"] = .integer(summary.discoveredDefinitionCount)
+
+        var resolved = resolvedOptions(
+            bundleURL: bundleURL,
+            modelID: modelID,
+            credentialSource: credentialSource
+        )
+        resolved["debugOutput"] = .file(outputURL)
+        resolved["chunkCount"] = .integer(summary.chunkCount)
+        resolved["chunkIDs"] = .array(summary.chunkIDs.map(ParameterValue.string))
+        resolved["callCount"] = .integer(summary.callCount)
+        resolved["discoveredDefinitionCount"] = .integer(summary.discoveredDefinitionCount)
+
+        try await CLIProvenanceSupport.recordSingleStepRun(
+            name: "lungfish genotype ai-haplotyping debug-output",
+            parameters: explicit,
+            defaults: defaultOptions(),
+            resolved: resolved,
+            toolName: "lungfish-cli",
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: debugCommand(outputURL: outputURL, modelID: modelID),
+            inputs: [
+                ProvenanceRecorder.fileRecord(url: bundleURL, role: .input),
+            ],
+            outputs: [
+                ProvenanceRecorder.fileRecord(url: outputURL, format: .json, role: .output),
+            ],
             exitCode: 0,
             wallTime: max(0, Date().timeIntervalSince(startedAt)),
             stderr: nil,
@@ -394,7 +611,11 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
             "--max-observations-per-chunk", String(maxObservationsPerChunk),
             "--max-output-tokens", String(maxOutputTokens),
             "--temperature", String(temperature),
+            "--max-provider-retries", String(maxProviderRetries),
         ]
+        if compactKnowledgePack {
+            command += ["--compact-knowledge-pack"]
+        }
         if let population, !population.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             command += ["--population", population]
         }
@@ -410,6 +631,35 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
         return command
     }
 
+    private func debugCommand(outputURL: URL, modelID: String) -> [String] {
+        var command = ["lungfish", "genotype", "ai-haplotyping"]
+        if let bundle {
+            command += ["--bundle", URL(fileURLWithPath: bundle, isDirectory: true).standardizedFileURL.path]
+        }
+        command += [
+            "--debug-output", outputURL.path,
+            "--mode", mode.rawValue,
+            "--provider", provider.rawValue,
+            "--model", modelID,
+            "--max-observations-per-chunk", String(maxObservationsPerChunk),
+            "--max-output-tokens", String(maxOutputTokens),
+            "--temperature", String(temperature),
+            "--max-provider-retries", String(maxProviderRetries),
+            "--chunk-start-index", String(chunkStartIndex),
+            "--chunk-end-index", String(chunkEndIndex),
+        ]
+        if compactKnowledgePack {
+            command += ["--compact-knowledge-pack"]
+        }
+        if let promptTemplateID {
+            command += ["--prompt-template-id", promptTemplateID]
+        }
+        if let promptTemplateVersion {
+            command += ["--prompt-template-version", promptTemplateVersion]
+        }
+        return command
+    }
+
     private func explicitOptions(bundleURL: URL, credentialSource: String) -> [String: ParameterValue] {
         var options: [String: ParameterValue] = [
             "bundle": .file(bundleURL),
@@ -419,6 +669,10 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
             "maxObservationsPerChunk": .integer(maxObservationsPerChunk),
             "maxOutputTokens": .integer(maxOutputTokens),
             "temperature": .number(temperature),
+            "maxProviderRetries": .integer(maxProviderRetries),
+            "compactKnowledgePack": .string(compactKnowledgePack ? "true" : "false"),
+            "chunkStartIndex": .integer(chunkStartIndex),
+            "chunkEndIndex": .integer(chunkEndIndex),
         ]
         if let model, !model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             options["model"] = .string(model)
@@ -440,6 +694,10 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
             "maxObservationsPerChunk": .integer(128),
             "maxOutputTokens": .integer(4096),
             "temperature": .number(0),
+            "maxProviderRetries": .integer(2),
+            "compactKnowledgePack": .string("false"),
+            "chunkStartIndex": .integer(1),
+            "chunkEndIndex": .integer(0),
         ]
     }
 
@@ -459,11 +717,32 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
             "maxObservationsPerChunk": .integer(maxObservationsPerChunk),
             "maxOutputTokens": .integer(maxOutputTokens),
             "temperature": .number(temperature),
+            "maxProviderRetries": .integer(maxProviderRetries),
+            "compactKnowledgePack": .string(compactKnowledgePack ? "true" : "false"),
+            "chunkStartIndex": .integer(chunkStartIndex),
+            "chunkEndIndex": .integer(chunkEndIndex),
         ]
     }
 
     private static func sanitizedCommandLineArguments() -> [String] {
         CommandLine.arguments
+    }
+
+    private static func writeProgressEventToStandardError(_ event: AIHaplotypingProgressEvent) {
+        let line: String
+        switch event {
+        case .runStarted(let chunkCount, let observationCount):
+            line = "AI haplotyping: starting \(chunkCount) chunk(s), \(observationCount) observation(s)"
+        case .chunkStarted(let chunkID, let chunkIndex, let chunkCount, let observationCount):
+            line = "AI haplotyping: \(chunkID) \(chunkIndex)/\(chunkCount) started (\(observationCount) observation(s))"
+        case .providerRetry(let chunkID, let retryIndex, let maxRetries, let errorCategory):
+            line = "AI haplotyping: \(chunkID) retry \(retryIndex)/\(maxRetries) after \(errorCategory)"
+        case .chunkFinished(let chunkID, let chunkIndex, let chunkCount, let callCount, let definitionCount):
+            line = "AI haplotyping: \(chunkID) \(chunkIndex)/\(chunkCount) accepted (\(callCount) call(s), \(definitionCount) definition(s))"
+        case .runFinished(let chunkCount, let callCount, let definitionCount):
+            line = "AI haplotyping: finished \(chunkCount) chunk(s), \(callCount) call(s), \(definitionCount) definition(s)"
+        }
+        FileHandle.standardError.write(Data((line + "\n").utf8))
     }
 
     private static func nonEmpty(_ value: String?) -> String? {
@@ -530,6 +809,26 @@ struct AIHaplotypingCLISummary: Codable, Equatable {
     let callCount: Int
     let discoveredDefinitionCount: Int
     let provenancePath: String
+}
+
+struct AIHaplotypingCLIDebugSummary: Codable, Equatable {
+    let bundle: String
+    let mode: String
+    let provider: String
+    let model: String
+    let debugOutput: String
+    let chunkStartIndex: Int
+    let chunkEndIndex: Int
+    let chunkCount: Int
+    let chunkIDs: [String]
+    let callCount: Int
+    let discoveredDefinitionCount: Int
+    let provenancePath: String
+}
+
+struct AIHaplotypingCLIDebugOutput: Codable, Equatable {
+    let summary: AIHaplotypingCLIDebugSummary
+    let runnerOutput: AIHaplotypingRunnerOutput
 }
 
 typealias AIHaplotypingCLIPromptPreview = AIHaplotypingPromptPreview

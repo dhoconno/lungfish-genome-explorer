@@ -4030,7 +4030,7 @@
         "source:example-report:indian-rhesus-miseq261"
       ],
       "text": "Use richer internal structure for reasoning, but emit familiar labels such as M1A, M3DR, A008.01, B069.02, and DR01.01 when they fit the evidence so transplantation and infectious disease users can interpret reports.",
-      "title": "Preserve digestible legacy report labels"
+      "title": "Preserve digestible curated report labels"
     },
     {
       "id": "guidance:novelty-priors",
@@ -4043,7 +4043,7 @@
   ],
   "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
   "id": "macaque-mhc",
-  "legacyBlockDefinitions": [
+  "haplotypeBlockDefinitions": [
     {
       "assayResolution": "short_exon_amplicon",
       "definingMarkers": [
@@ -4092,13 +4092,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M1A",
       "extendedHaplotype": "M1",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m1a:mhc-a",
       "internalID": "mcm.mhc-a.m1a",
-      "notes": "Legacy MCM MHC-A report label M1A from the human-maintained MiSeq haplotyping notebook. Includes collapsed short-amplicon evidence shared by multiple MCM haplotypes.",
+      "notes": "Curated MCM MHC-A report label M1A from the human-maintained MiSeq haplotyping notebook. Includes collapsed short-amplicon evidence shared by multiple MCM haplotypes.",
       "populationID": "mcm",
       "region": "MHC-A",
       "reportLabel": "M1A",
@@ -4145,13 +4145,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M2A",
       "extendedHaplotype": "M2",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m2a:mhc-a",
       "internalID": "mcm.mhc-a.m2a",
-      "notes": "Legacy MCM MHC-A report label M2A from the human-maintained MiSeq haplotyping notebook. Includes collapsed short-amplicon evidence shared by multiple MCM haplotypes.",
+      "notes": "Curated MCM MHC-A report label M2A from the human-maintained MiSeq haplotyping notebook. Includes collapsed short-amplicon evidence shared by multiple MCM haplotypes.",
       "populationID": "mcm",
       "region": "MHC-A",
       "reportLabel": "M2A",
@@ -4187,13 +4187,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M3A",
       "extendedHaplotype": "M3",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m3a:mhc-a",
       "internalID": "mcm.mhc-a.m3a",
-      "notes": "Legacy MCM MHC-A report label M3A from the human-maintained MiSeq haplotyping notebook. Includes collapsed short-amplicon evidence shared by multiple MCM haplotypes.",
+      "notes": "Curated MCM MHC-A report label M3A from the human-maintained MiSeq haplotyping notebook. Includes collapsed short-amplicon evidence shared by multiple MCM haplotypes.",
       "populationID": "mcm",
       "region": "MHC-A",
       "reportLabel": "M3A",
@@ -4219,13 +4219,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M4A",
       "extendedHaplotype": "M4",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m4a:mhc-a",
       "internalID": "mcm.mhc-a.m4a",
-      "notes": "Legacy MCM MHC-A report label M4A from the human-maintained MiSeq haplotyping notebook.",
+      "notes": "Curated MCM MHC-A report label M4A from the human-maintained MiSeq haplotyping notebook.",
       "populationID": "mcm",
       "region": "MHC-A",
       "reportLabel": "M4A",
@@ -4250,13 +4250,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M5A",
       "extendedHaplotype": "M5",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m5a:mhc-a",
       "internalID": "mcm.mhc-a.m5a",
-      "notes": "Legacy MCM MHC-A report label M5A from the human-maintained MiSeq haplotyping notebook.",
+      "notes": "Curated MCM MHC-A report label M5A from the human-maintained MiSeq haplotyping notebook.",
       "populationID": "mcm",
       "region": "MHC-A",
       "reportLabel": "M5A",
@@ -4292,13 +4292,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M6A",
       "extendedHaplotype": "M6",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m6a:mhc-a",
       "internalID": "mcm.mhc-a.m6a",
-      "notes": "Legacy MCM MHC-A report label M6A from the human-maintained MiSeq haplotyping notebook.",
+      "notes": "Curated MCM MHC-A report label M6A from the human-maintained MiSeq haplotyping notebook.",
       "populationID": "mcm",
       "region": "MHC-A",
       "reportLabel": "M6A",
@@ -4323,13 +4323,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M7A",
       "extendedHaplotype": "M7",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m7a:mhc-a",
       "internalID": "mcm.mhc-a.m7a",
-      "notes": "Legacy MCM MHC-A report label M7A from the human-maintained MiSeq haplotyping notebook.",
+      "notes": "Curated MCM MHC-A report label M7A from the human-maintained MiSeq haplotyping notebook.",
       "populationID": "mcm",
       "region": "MHC-A",
       "reportLabel": "M7A",
@@ -4365,13 +4365,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M1B",
       "extendedHaplotype": "M1",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m1b:mhc-b",
       "internalID": "mcm.mhc-b.m1b",
-      "notes": "Legacy MCM MHC-B report label M1B from the human-maintained MiSeq haplotyping notebook.",
+      "notes": "Curated MCM MHC-B report label M1B from the human-maintained MiSeq haplotyping notebook.",
       "populationID": "mcm",
       "region": "MHC-B",
       "reportLabel": "M1B",
@@ -4407,13 +4407,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M2B",
       "extendedHaplotype": "M2",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m2b:mhc-b",
       "internalID": "mcm.mhc-b.m2b",
-      "notes": "Legacy MCM MHC-B report label M2B from the human-maintained MiSeq haplotyping notebook.",
+      "notes": "Curated MCM MHC-B report label M2B from the human-maintained MiSeq haplotyping notebook.",
       "populationID": "mcm",
       "region": "MHC-B",
       "reportLabel": "M2B",
@@ -4449,13 +4449,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M3B",
       "extendedHaplotype": "M3",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m3b:mhc-b",
       "internalID": "mcm.mhc-b.m3b",
-      "notes": "Legacy MCM MHC-B report label M3B from the human-maintained MiSeq haplotyping notebook.",
+      "notes": "Curated MCM MHC-B report label M3B from the human-maintained MiSeq haplotyping notebook.",
       "populationID": "mcm",
       "region": "MHC-B",
       "reportLabel": "M3B",
@@ -4492,13 +4492,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M4B",
       "extendedHaplotype": "M4",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m4b:mhc-b",
       "internalID": "mcm.mhc-b.m4b",
-      "notes": "Legacy MCM MHC-B report label M4B from the human-maintained MiSeq haplotyping notebook.",
+      "notes": "Curated MCM MHC-B report label M4B from the human-maintained MiSeq haplotyping notebook.",
       "populationID": "mcm",
       "region": "MHC-B",
       "reportLabel": "M4B",
@@ -4534,13 +4534,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M5B",
       "extendedHaplotype": "M5",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m5b:mhc-b",
       "internalID": "mcm.mhc-b.m5b",
-      "notes": "Legacy MCM MHC-B report label M5B from the human-maintained MiSeq haplotyping notebook.",
+      "notes": "Curated MCM MHC-B report label M5B from the human-maintained MiSeq haplotyping notebook.",
       "populationID": "mcm",
       "region": "MHC-B",
       "reportLabel": "M5B",
@@ -4576,13 +4576,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M6B",
       "extendedHaplotype": "M6",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m6b:mhc-b",
       "internalID": "mcm.mhc-b.m6b",
-      "notes": "Legacy MCM MHC-B report label M6B from the human-maintained MiSeq haplotyping notebook.",
+      "notes": "Curated MCM MHC-B report label M6B from the human-maintained MiSeq haplotyping notebook.",
       "populationID": "mcm",
       "region": "MHC-B",
       "reportLabel": "M6B",
@@ -4618,13 +4618,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M7B",
       "extendedHaplotype": "M7",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m7b:mhc-b",
       "internalID": "mcm.mhc-b.m7b",
-      "notes": "Legacy MCM MHC-B report label M7B from the human-maintained MiSeq haplotyping notebook.",
+      "notes": "Curated MCM MHC-B report label M7B from the human-maintained MiSeq haplotyping notebook.",
       "populationID": "mcm",
       "region": "MHC-B",
       "reportLabel": "M7B",
@@ -4660,13 +4660,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M1DR",
       "extendedHaplotype": "M1",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m1dr:mhc-drb",
       "internalID": "mcm.mhc-drb.m1dr",
-      "notes": "Legacy MCM MHC-DRB report label M1DR from the human-maintained MiSeq haplotyping notebook.",
+      "notes": "Curated MCM MHC-DRB report label M1DR from the human-maintained MiSeq haplotyping notebook.",
       "populationID": "mcm",
       "region": "MHC-DRB",
       "reportLabel": "M1DR",
@@ -4703,13 +4703,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M2DR",
       "extendedHaplotype": "M2",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m2dr:mhc-drb",
       "internalID": "mcm.mhc-drb.m2dr",
-      "notes": "Legacy MCM MHC-DRB report label M2DR from the human-maintained MiSeq haplotyping notebook.",
+      "notes": "Curated MCM MHC-DRB report label M2DR from the human-maintained MiSeq haplotyping notebook.",
       "populationID": "mcm",
       "region": "MHC-DRB",
       "reportLabel": "M2DR",
@@ -4746,13 +4746,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M3DR",
       "extendedHaplotype": "M3",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m3dr:mhc-drb",
       "internalID": "mcm.mhc-drb.m3dr",
-      "notes": "Legacy MCM MHC-DRB report label M3DR from the human-maintained MiSeq haplotyping notebook.",
+      "notes": "Curated MCM MHC-DRB report label M3DR from the human-maintained MiSeq haplotyping notebook.",
       "populationID": "mcm",
       "region": "MHC-DRB",
       "reportLabel": "M3DR",
@@ -4778,13 +4778,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M4DR",
       "extendedHaplotype": "M4",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m4dr:mhc-drb",
       "internalID": "mcm.mhc-drb.m4dr",
-      "notes": "Legacy MCM MHC-DRB report label M4DR from the human-maintained MiSeq haplotyping notebook.",
+      "notes": "Curated MCM MHC-DRB report label M4DR from the human-maintained MiSeq haplotyping notebook.",
       "populationID": "mcm",
       "region": "MHC-DRB",
       "reportLabel": "M4DR",
@@ -4810,13 +4810,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M5DR",
       "extendedHaplotype": "M5",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m5dr:mhc-drb",
       "internalID": "mcm.mhc-drb.m5dr",
-      "notes": "Legacy MCM MHC-DRB report label M5DR from the human-maintained MiSeq haplotyping notebook.",
+      "notes": "Curated MCM MHC-DRB report label M5DR from the human-maintained MiSeq haplotyping notebook.",
       "populationID": "mcm",
       "region": "MHC-DRB",
       "reportLabel": "M5DR",
@@ -4853,13 +4853,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M6DR",
       "extendedHaplotype": "M6",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m6dr:mhc-drb",
       "internalID": "mcm.mhc-drb.m6dr",
-      "notes": "Legacy MCM MHC-DRB report label M6DR from the human-maintained MiSeq haplotyping notebook.",
+      "notes": "Curated MCM MHC-DRB report label M6DR from the human-maintained MiSeq haplotyping notebook.",
       "populationID": "mcm",
       "region": "MHC-DRB",
       "reportLabel": "M6DR",
@@ -4896,13 +4896,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M7DR",
       "extendedHaplotype": "M7",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m7dr:mhc-drb",
       "internalID": "mcm.mhc-drb.m7dr",
-      "notes": "Legacy MCM MHC-DRB report label M7DR from the human-maintained MiSeq haplotyping notebook.",
+      "notes": "Curated MCM MHC-DRB report label M7DR from the human-maintained MiSeq haplotyping notebook.",
       "populationID": "mcm",
       "region": "MHC-DRB",
       "reportLabel": "M7DR",
@@ -4928,13 +4928,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M1DQ",
       "extendedHaplotype": "M1",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m1dq:mhc-dqa",
       "internalID": "mcm.mhc-dqa.m1dq",
-      "notes": "Legacy MCM MHC-DQA report label M1DQ from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
+      "notes": "Curated MCM MHC-DQA report label M1DQ from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
       "populationID": "mcm",
       "region": "MHC-DQA",
       "reportLabel": "M1DQ",
@@ -4960,13 +4960,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M2DQ",
       "extendedHaplotype": "M2",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m2dq:mhc-dqa",
       "internalID": "mcm.mhc-dqa.m2dq",
-      "notes": "Legacy MCM MHC-DQA report label M2DQ from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
+      "notes": "Curated MCM MHC-DQA report label M2DQ from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
       "populationID": "mcm",
       "region": "MHC-DQA",
       "reportLabel": "M2DQ",
@@ -5003,13 +5003,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M3DQ",
       "extendedHaplotype": "M3",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m3dq:mhc-dqa",
       "internalID": "mcm.mhc-dqa.m3dq",
-      "notes": "Legacy MCM MHC-DQA report label M3DQ from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
+      "notes": "Curated MCM MHC-DQA report label M3DQ from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
       "populationID": "mcm",
       "region": "MHC-DQA",
       "reportLabel": "M3DQ",
@@ -5046,13 +5046,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M4DQ",
       "extendedHaplotype": "M4",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m4dq:mhc-dqa",
       "internalID": "mcm.mhc-dqa.m4dq",
-      "notes": "Legacy MCM MHC-DQA report label M4DQ from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
+      "notes": "Curated MCM MHC-DQA report label M4DQ from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
       "populationID": "mcm",
       "region": "MHC-DQA",
       "reportLabel": "M4DQ",
@@ -5089,13 +5089,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M5DQ",
       "extendedHaplotype": "M5",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m5dq:mhc-dqa",
       "internalID": "mcm.mhc-dqa.m5dq",
-      "notes": "Legacy MCM MHC-DQA report label M5DQ from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
+      "notes": "Curated MCM MHC-DQA report label M5DQ from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
       "populationID": "mcm",
       "region": "MHC-DQA",
       "reportLabel": "M5DQ",
@@ -5121,13 +5121,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M6DQ",
       "extendedHaplotype": "M6",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m6dq:mhc-dqa",
       "internalID": "mcm.mhc-dqa.m6dq",
-      "notes": "Legacy MCM MHC-DQA report label M6DQ from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
+      "notes": "Curated MCM MHC-DQA report label M6DQ from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
       "populationID": "mcm",
       "region": "MHC-DQA",
       "reportLabel": "M6DQ",
@@ -5164,13 +5164,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M7DQ",
       "extendedHaplotype": "M7",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m7dq:mhc-dqa",
       "internalID": "mcm.mhc-dqa.m7dq",
-      "notes": "Legacy MCM MHC-DQA report label M7DQ from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
+      "notes": "Curated MCM MHC-DQA report label M7DQ from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
       "populationID": "mcm",
       "region": "MHC-DQA",
       "reportLabel": "M7DQ",
@@ -5196,13 +5196,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M1DQ",
       "extendedHaplotype": "M1",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m1dq:mhc-dqb",
       "internalID": "mcm.mhc-dqb.m1dq",
-      "notes": "Legacy MCM MHC-DQB report label M1DQ from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
+      "notes": "Curated MCM MHC-DQB report label M1DQ from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
       "populationID": "mcm",
       "region": "MHC-DQB",
       "reportLabel": "M1DQ",
@@ -5228,13 +5228,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M2DQ",
       "extendedHaplotype": "M2",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m2dq:mhc-dqb",
       "internalID": "mcm.mhc-dqb.m2dq",
-      "notes": "Legacy MCM MHC-DQB report label M2DQ from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
+      "notes": "Curated MCM MHC-DQB report label M2DQ from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
       "populationID": "mcm",
       "region": "MHC-DQB",
       "reportLabel": "M2DQ",
@@ -5271,13 +5271,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M3DQ",
       "extendedHaplotype": "M3",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m3dq:mhc-dqb",
       "internalID": "mcm.mhc-dqb.m3dq",
-      "notes": "Legacy MCM MHC-DQB report label M3DQ from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
+      "notes": "Curated MCM MHC-DQB report label M3DQ from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
       "populationID": "mcm",
       "region": "MHC-DQB",
       "reportLabel": "M3DQ",
@@ -5314,13 +5314,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M4DQ",
       "extendedHaplotype": "M4",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m4dq:mhc-dqb",
       "internalID": "mcm.mhc-dqb.m4dq",
-      "notes": "Legacy MCM MHC-DQB report label M4DQ from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
+      "notes": "Curated MCM MHC-DQB report label M4DQ from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
       "populationID": "mcm",
       "region": "MHC-DQB",
       "reportLabel": "M4DQ",
@@ -5357,13 +5357,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M5DQ",
       "extendedHaplotype": "M5",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m5dq:mhc-dqb",
       "internalID": "mcm.mhc-dqb.m5dq",
-      "notes": "Legacy MCM MHC-DQB report label M5DQ from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
+      "notes": "Curated MCM MHC-DQB report label M5DQ from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
       "populationID": "mcm",
       "region": "MHC-DQB",
       "reportLabel": "M5DQ",
@@ -5389,13 +5389,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M6DQ",
       "extendedHaplotype": "M6",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m6dq:mhc-dqb",
       "internalID": "mcm.mhc-dqb.m6dq",
-      "notes": "Legacy MCM MHC-DQB report label M6DQ from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
+      "notes": "Curated MCM MHC-DQB report label M6DQ from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
       "populationID": "mcm",
       "region": "MHC-DQB",
       "reportLabel": "M6DQ",
@@ -5432,13 +5432,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M7DQ",
       "extendedHaplotype": "M7",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m7dq:mhc-dqb",
       "internalID": "mcm.mhc-dqb.m7dq",
-      "notes": "Legacy MCM MHC-DQB report label M7DQ from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
+      "notes": "Curated MCM MHC-DQB report label M7DQ from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
       "populationID": "mcm",
       "region": "MHC-DQB",
       "reportLabel": "M7DQ",
@@ -5475,13 +5475,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M1DP",
       "extendedHaplotype": "M1",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m1dp:mhc-dpa",
       "internalID": "mcm.mhc-dpa.m1dp",
-      "notes": "Legacy MCM MHC-DPA report label M1DP from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
+      "notes": "Curated MCM MHC-DPA report label M1DP from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
       "populationID": "mcm",
       "region": "MHC-DPA",
       "reportLabel": "M1DP",
@@ -5518,13 +5518,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M2DP",
       "extendedHaplotype": "M2",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m2dp:mhc-dpa",
       "internalID": "mcm.mhc-dpa.m2dp",
-      "notes": "Legacy MCM MHC-DPA report label M2DP from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
+      "notes": "Curated MCM MHC-DPA report label M2DP from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
       "populationID": "mcm",
       "region": "MHC-DPA",
       "reportLabel": "M2DP",
@@ -5550,13 +5550,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M3DP",
       "extendedHaplotype": "M3",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m3dp:mhc-dpa",
       "internalID": "mcm.mhc-dpa.m3dp",
-      "notes": "Legacy MCM MHC-DPA report label M3DP from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
+      "notes": "Curated MCM MHC-DPA report label M3DP from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
       "populationID": "mcm",
       "region": "MHC-DPA",
       "reportLabel": "M3DP",
@@ -5582,13 +5582,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M4M7DP",
       "extendedHaplotype": null,
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m4m7dp:mhc-dpa",
       "internalID": "mcm.mhc-dpa.m4m7dp",
-      "notes": "Legacy MCM MHC-DPA report label M4M7DP from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
+      "notes": "Curated MCM MHC-DPA report label M4M7DP from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
       "populationID": "mcm",
       "region": "MHC-DPA",
       "reportLabel": "M4M7DP",
@@ -5614,13 +5614,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M5M6DP",
       "extendedHaplotype": null,
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m5m6dp:mhc-dpa",
       "internalID": "mcm.mhc-dpa.m5m6dp",
-      "notes": "Legacy MCM MHC-DPA report label M5M6DP from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
+      "notes": "Curated MCM MHC-DPA report label M5M6DP from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
       "populationID": "mcm",
       "region": "MHC-DPA",
       "reportLabel": "M5M6DP",
@@ -5657,13 +5657,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M1DP",
       "extendedHaplotype": "M1",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m1dp:mhc-dpb",
       "internalID": "mcm.mhc-dpb.m1dp",
-      "notes": "Legacy MCM MHC-DPB report label M1DP from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
+      "notes": "Curated MCM MHC-DPB report label M1DP from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
       "populationID": "mcm",
       "region": "MHC-DPB",
       "reportLabel": "M1DP",
@@ -5700,13 +5700,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M2DP",
       "extendedHaplotype": "M2",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m2dp:mhc-dpb",
       "internalID": "mcm.mhc-dpb.m2dp",
-      "notes": "Legacy MCM MHC-DPB report label M2DP from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
+      "notes": "Curated MCM MHC-DPB report label M2DP from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
       "populationID": "mcm",
       "region": "MHC-DPB",
       "reportLabel": "M2DP",
@@ -5732,13 +5732,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M3DP",
       "extendedHaplotype": "M3",
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m3dp:mhc-dpb",
       "internalID": "mcm.mhc-dpb.m3dp",
-      "notes": "Legacy MCM MHC-DPB report label M3DP from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
+      "notes": "Curated MCM MHC-DPB report label M3DP from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
       "populationID": "mcm",
       "region": "MHC-DPB",
       "reportLabel": "M3DP",
@@ -5764,13 +5764,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M4M7DP",
       "extendedHaplotype": null,
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m4m7dp:mhc-dpb",
       "internalID": "mcm.mhc-dpb.m4m7dp",
-      "notes": "Legacy MCM MHC-DPB report label M4M7DP from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
+      "notes": "Curated MCM MHC-DPB report label M4M7DP from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
       "populationID": "mcm",
       "region": "MHC-DPB",
       "reportLabel": "M4M7DP",
@@ -5796,13 +5796,13 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "M5M6DP",
       "extendedHaplotype": null,
       "frameworkID": "mcm-m1-m7",
       "id": "block:mcm:m5m6dp:mhc-dpb",
       "internalID": "mcm.mhc-dpb.m5m6dp",
-      "notes": "Legacy MCM MHC-DPB report label M5M6DP from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
+      "notes": "Curated MCM MHC-DPB report label M5M6DP from the human-maintained MiSeq haplotyping notebook. In MCM, class II regional discordance should be interpreted in the context of the extended M1-M7 haplotypes and rare recombination.",
       "populationID": "mcm",
       "region": "MHC-DPB",
       "reportLabel": "M5M6DP",
@@ -5828,7 +5828,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "A001.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -5859,7 +5859,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "A002.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -5890,7 +5890,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "A003.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -5921,7 +5921,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "A004.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -5952,7 +5952,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "A006.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -5983,7 +5983,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "A007.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -6014,7 +6014,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "A008.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -6045,7 +6045,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "A011.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -6076,7 +6076,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "A012.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -6107,7 +6107,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "A016.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -6138,7 +6138,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "A018.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -6180,7 +6180,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "A018.02",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -6211,7 +6211,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "A019.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -6253,7 +6253,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "A019.02",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -6284,7 +6284,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "A022.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -6315,7 +6315,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "A023.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -6346,7 +6346,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "A025.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -6377,7 +6377,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "A026.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -6408,7 +6408,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "A028.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -6439,7 +6439,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "A055.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -6470,7 +6470,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "A074.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -6501,7 +6501,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "A110-A111.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -6543,7 +6543,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "A224.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -6596,7 +6596,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "B001.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -6649,7 +6649,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "B001.03",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -6680,7 +6680,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "B002.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -6722,7 +6722,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "B008.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -6775,7 +6775,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "B012.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -6828,7 +6828,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "B012.02",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -6892,7 +6892,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "B012.03",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -6934,7 +6934,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "B015.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -6976,7 +6976,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "B015.02",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -7029,7 +7029,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "B015.03",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -7071,7 +7071,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "B017.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -7124,7 +7124,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "B017.02",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -7188,7 +7188,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "B017.04",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -7230,7 +7230,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "B024.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -7272,7 +7272,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "B028.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -7314,7 +7314,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "B043.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -7378,7 +7378,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "B043.02",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -7431,7 +7431,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "B043.03",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -7473,7 +7473,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "B045.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -7504,7 +7504,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "B047.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -7546,7 +7546,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "B048.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -7599,7 +7599,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "B055.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -7641,7 +7641,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "B056.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -7694,7 +7694,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "B056.02",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -7736,7 +7736,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "B069.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -7789,7 +7789,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "B069.02",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -7831,7 +7831,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "B071.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -7873,7 +7873,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "B080.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -7915,7 +7915,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "B091.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -7946,7 +7946,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "B093.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -7988,7 +7988,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "B106.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -8030,7 +8030,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR01.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -8072,7 +8072,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR01.03",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -8114,7 +8114,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR01.04",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -8156,7 +8156,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR02.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -8198,7 +8198,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR03.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -8240,7 +8240,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR03.02",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -8282,7 +8282,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR03.03",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -8324,7 +8324,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR03.04",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -8366,7 +8366,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR03.05",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -8408,7 +8408,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR03.06",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -8450,7 +8450,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR03.07",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -8492,7 +8492,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR03.08",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -8534,7 +8534,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR03.09",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -8576,7 +8576,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR04.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -8618,7 +8618,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR04.02",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -8660,7 +8660,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR04.03",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -8702,7 +8702,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR05.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -8744,7 +8744,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR05.02",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -8786,7 +8786,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR06.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -8839,7 +8839,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR08.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -8892,7 +8892,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR09.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -8934,7 +8934,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR09.02",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -8987,7 +8987,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR10.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -9040,7 +9040,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR10.02",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -9071,7 +9071,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR11.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -9102,7 +9102,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR11.02",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -9144,7 +9144,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR11.03",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -9197,7 +9197,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR13.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -9250,7 +9250,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR13.02",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -9303,7 +9303,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR14.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -9356,7 +9356,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR14.02",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -9409,7 +9409,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR15.01/02",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -9462,7 +9462,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR15.03",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -9526,7 +9526,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR16.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -9568,7 +9568,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR18.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -9621,7 +9621,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR28.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -9663,7 +9663,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR29.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -9705,7 +9705,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "DR30.01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -9736,7 +9736,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "01_02",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -9767,7 +9767,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "01_07",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -9798,7 +9798,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "01_09",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -9829,7 +9829,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "01g1",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -9860,7 +9860,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "01g2",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -9891,7 +9891,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "01g3",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -9922,7 +9922,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "01g4",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -9953,7 +9953,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "05_01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -9984,7 +9984,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "05_02",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -10015,7 +10015,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "05_03",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -10046,7 +10046,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "05_04",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -10077,7 +10077,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "05_05",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -10108,7 +10108,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "05_06",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -10139,7 +10139,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "05_07",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -10170,7 +10170,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "23_01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -10201,7 +10201,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "23_02",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -10232,7 +10232,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "23_03",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -10263,7 +10263,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "24_02",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -10294,7 +10294,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "24_04",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -10325,7 +10325,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "24_08",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -10356,7 +10356,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "24g1",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -10387,7 +10387,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "24g2",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -10418,7 +10418,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "26_01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -10449,7 +10449,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "26g1",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -10480,7 +10480,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "26g2",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -10511,7 +10511,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "06_01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -10542,7 +10542,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "06_07",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -10573,7 +10573,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "06_08",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -10604,7 +10604,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "06_09",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -10635,7 +10635,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "06_10",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -10666,7 +10666,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "06_13_01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -10697,7 +10697,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "06g1",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -10728,7 +10728,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "06g2",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -10759,7 +10759,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "06g3",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -10790,7 +10790,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "06g4",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -10821,7 +10821,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "15_02",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -10852,7 +10852,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "15g1",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -10883,7 +10883,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "15g2",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -10914,7 +10914,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "16_01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -10945,7 +10945,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "16_03",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -10976,7 +10976,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "17_03",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -11007,7 +11007,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "17g1",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -11038,7 +11038,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "17g2",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -11069,7 +11069,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "17g3",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -11100,7 +11100,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "18_08",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -11131,7 +11131,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "18_10",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -11162,7 +11162,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "18_12",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -11193,7 +11193,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "18_17",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -11224,7 +11224,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "18_20",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -11255,7 +11255,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "18_24",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -11286,7 +11286,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "18g3",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -11317,7 +11317,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "18g4",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -11348,7 +11348,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "18g5",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -11379,7 +11379,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "24_01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -11410,7 +11410,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "27g",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -11441,7 +11441,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "02_03",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -11472,7 +11472,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "02_08",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -11503,7 +11503,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "02_13",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -11534,7 +11534,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "02_14",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -11565,7 +11565,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "02_15",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -11596,7 +11596,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "02_16",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -11627,7 +11627,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "02_20",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -11658,7 +11658,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "02g1",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -11689,7 +11689,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "02g2",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -11720,7 +11720,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "02g3",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -11751,7 +11751,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "02g4",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -11782,7 +11782,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "04_01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -11813,7 +11813,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "04_04",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -11844,7 +11844,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "04g",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -11875,7 +11875,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "06g",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -11906,7 +11906,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "07_01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -11937,7 +11937,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "07_04",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -11968,7 +11968,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "07_09",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -11999,7 +11999,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "07g1",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -12030,7 +12030,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "07g2",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -12061,7 +12061,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "07g3",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -12092,7 +12092,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "08g",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -12123,7 +12123,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "09_01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -12154,7 +12154,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "10_01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -12185,7 +12185,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "11_01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -12216,7 +12216,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "01g1",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -12247,7 +12247,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "01g2",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -12278,7 +12278,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "01g3",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -12309,7 +12309,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "01g4",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -12340,7 +12340,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "01g5",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -12371,7 +12371,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "02_02",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -12402,7 +12402,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "02g",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -12433,7 +12433,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "03g",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -12464,7 +12464,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "04_01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -12495,7 +12495,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "05_01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -12526,7 +12526,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "05_02",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -12557,7 +12557,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "06_04",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -12588,7 +12588,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "06g",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -12619,7 +12619,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "07g1",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -12650,7 +12650,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "07g2",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -12681,7 +12681,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "08_01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -12712,7 +12712,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "08_02",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -12743,7 +12743,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "15_03",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -12774,7 +12774,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "15g",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -12805,7 +12805,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "16_01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -12836,7 +12836,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "17_01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -12867,7 +12867,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "18_01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -12898,7 +12898,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "19_02",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -12929,7 +12929,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "19_06",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -12960,7 +12960,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "19g1",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -12991,7 +12991,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "19g2",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -13022,7 +13022,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "21_01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -13053,7 +13053,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "21_02",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -13084,7 +13084,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "21_03",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -13115,7 +13115,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "23_01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -13146,7 +13146,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "23_02",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",
@@ -13177,7 +13177,7 @@
           ]
         }
       ],
-      "definitionStatus": "legacy_curated",
+      "definitionStatus": "curated",
       "displayLabel": "24_01",
       "extendedHaplotype": null,
       "frameworkID": "indian-rhesus-regional-blocks",

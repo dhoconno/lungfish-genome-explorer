@@ -97,6 +97,17 @@ final class AIProviderTests: XCTestCase {
         XCTAssertEqual(decoded["items"]?.arrayValue?.count, 2)
     }
 
+    func testJSONObjectStringParsingPreservesIntegerOneInsteadOfBool() throws {
+        let parsed = try parseJSONObjectString("""
+        {"schemaVersion":1,"ok":true,"count":2,"score":3.5}
+        """)
+
+        XCTAssertEqual(parsed["schemaVersion"], .integer(1))
+        XCTAssertEqual(parsed["ok"], .bool(true))
+        XCTAssertEqual(parsed["count"], .integer(2))
+        XCTAssertEqual(parsed["score"], .number(3.5))
+    }
+
     // MARK: - AIMessage Tests
 
     func testUserMessageCreation() {
@@ -248,6 +259,7 @@ final class AIProviderTests: XCTestCase {
             (.httpError(statusCode: 429, message: "too many"), "HTTP error 429"),
             (.rateLimited(retryAfter: 30), "30 seconds"),
             (.rateLimited(retryAfter: nil), "try again shortly"),
+            (.quotaExceeded("billing required"), "quota"),
             (.modelNotAvailable("gpt-5"), "gpt-5"),
             (.contextTooLong(maxTokens: 128000), "128000 tokens"),
             (.networkError("timeout"), "timeout"),
@@ -404,6 +416,42 @@ final class AIProviderTests: XCTestCase {
         XCTAssertEqual(jsonSchema["strict"] as? Bool, true)
         let schema = try XCTUnwrap(jsonSchema["schema"] as? [String: Any])
         XCTAssertEqual(schema["additionalProperties"] as? Bool, false)
+    }
+
+    func testOpenAIStructuredResultDistinguishesInsufficientQuotaFromRetryableRateLimit() async throws {
+        let mockClient = MockHTTPClient()
+        await mockClient.setDefault(response: .json([
+            "error": [
+                "type": "insufficient_quota",
+                "code": "insufficient_quota",
+                "message": "You exceeded your current quota, please check your plan and billing details.",
+            ],
+        ], statusCode: 429))
+        let provider = OpenAIProvider(apiKey: "test-key", modelId: "gpt-5-mini", httpClient: mockClient)
+
+        do {
+            _ = try await provider.requestStructuredResult(.minimalHaplotypeSchemaRequest())
+            XCTFail("Expected insufficient quota to fail")
+        } catch AIProviderError.quotaExceeded(let message) {
+            XCTAssertTrue(message.localizedCaseInsensitiveContains("quota"))
+            XCTAssertTrue(message.localizedCaseInsensitiveContains("billing"))
+        } catch {
+            XCTFail("Expected quotaExceeded, got \(error)")
+        }
+    }
+
+    func testOpenAIStructuredResultMapsTransportFailureToNetworkError() async throws {
+        let mockClient = MockHTTPClient()
+        let provider = OpenAIProvider(apiKey: "test-key", modelId: "gpt-5-mini", httpClient: mockClient)
+
+        do {
+            _ = try await provider.requestStructuredResult(.minimalHaplotypeSchemaRequest())
+            XCTFail("Expected transport failure to fail")
+        } catch AIProviderError.networkError(let message) {
+            XCTAssertFalse(message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        } catch {
+            XCTFail("Expected networkError, got \(error)")
+        }
     }
 
     func testAnthropicStructuredResultForcesSingleResultTool() async throws {

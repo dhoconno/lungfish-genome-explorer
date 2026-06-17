@@ -40,6 +40,761 @@ final class AIHaplotypingPatchValidatorTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(AIHaplotypingValidationReport.self, from: JSONEncoder().encode(report)), report)
     }
 
+    func testValidatorAcceptsRegistrySampleAndLocusIDsAsCallTargets() throws {
+        let registry = makeRegistry()
+        let result = makeResult(
+            registry: registry,
+            discoveredDefinitions: [
+                makeDefinition(locus: "locus:MHC-B"),
+            ],
+            calls: [
+                makeCall(sample: "sample:DW472", locus: "locus:MHC-B")
+            ]
+        )
+
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(result)
+
+        XCTAssertTrue(report.accepted)
+        XCTAssertEqual(report.errors, [])
+        XCTAssertEqual(report.normalizedCalls[0].sample, "DW472")
+        XCTAssertEqual(report.normalizedCalls[0].locus, "MHC-B")
+        XCTAssertEqual(report.validatedDefinitions[0].locus, "MHC-B")
+    }
+
+    func testValidatorNormalizesSingleMissingGSuffixObservationEvidenceID() throws {
+        let registry = makeRegistryWithTrailingGObservation()
+        let result = makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    sample: "DW473",
+                    locus: "MHC-A",
+                    haplotypeLabel: "M4A",
+                    supportEvidenceRefs: ["obs:DW473:MHC-A:06_M4M7_A5_30_01"],
+                    counterevidenceRefs: ["sample:DW473"]
+                )
+            ]
+        )
+
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(result)
+
+        XCTAssertTrue(report.accepted)
+        XCTAssertEqual(report.errors, [])
+        XCTAssertEqual(report.normalizedCalls.count, 1)
+        guard report.accepted, report.normalizedCalls.count == 1 else { return }
+        XCTAssertEqual(report.normalizedCalls[0].supportEvidenceRefs, ["obs:DW473:MHC-A:06_M4M7_A5_30_01g"])
+        XCTAssertEqual(report.normalizedCalls[0].aiMetadata.supportEvidenceRefs, ["obs:DW473:MHC-A:06_M4M7_A5_30_01g"])
+    }
+
+    func testValidatorNormalizesSingleMissingNSuffixObservationEvidenceID() throws {
+        let registry = makeRegistryWithTrailingNObservation()
+        let result = makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    sample: "DW473",
+                    locus: "MHC-B",
+                    haplotypeLabel: "M5B",
+                    supportEvidenceRefs: ["obs:DW473:MHC-B:12_M5_B_167_01"],
+                    counterevidenceRefs: ["sample:DW473"]
+                )
+            ]
+        )
+
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(result)
+
+        XCTAssertTrue(report.accepted)
+        XCTAssertEqual(report.errors, [])
+        XCTAssertEqual(report.normalizedCalls.count, 1)
+        guard report.accepted, report.normalizedCalls.count == 1 else { return }
+        XCTAssertEqual(report.normalizedCalls[0].supportEvidenceRefs, ["obs:DW473:MHC-B:12_M5_B_167_01N"])
+        XCTAssertEqual(report.normalizedCalls[0].aiMetadata.supportEvidenceRefs, ["obs:DW473:MHC-B:12_M5_B_167_01N"])
+    }
+
+    func testValidatorNormalizesDuplicatedEvidenceNamespacePrefix() throws {
+        let registry = makeRegistry()
+        let result = makeResult(
+            registry: registry,
+            calls: [
+                makeCall(counterevidenceRefs: ["sample:sample:DW472", "locus:locus:MHC-B"])
+            ]
+        )
+
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(result)
+
+        XCTAssertTrue(report.accepted)
+        XCTAssertEqual(report.errors, [])
+        XCTAssertEqual(report.normalizedCalls.count, 1)
+        guard report.accepted, report.normalizedCalls.count == 1 else { return }
+        XCTAssertEqual(report.normalizedCalls[0].counterevidenceRefs, ["sample:DW472", "locus:MHC-B"])
+        XCTAssertEqual(report.normalizedCalls[0].aiMetadata.counterevidenceRefs, ["sample:DW472", "locus:MHC-B"])
+    }
+
+    func testValidatorNormalizesUniquePipedObservationEvidenceIDPrefix() throws {
+        let registry = makeRegistryWithPipedObservation()
+        let result = makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    sample: "DW473",
+                    locus: "MHC-A",
+                    haplotypeLabel: "M4A",
+                    supportEvidenceRefs: ["obs:DW473:MHC-A:04_M1M2M3M4M5M6M7_AG_06g1"],
+                    counterevidenceRefs: ["sample:DW473"]
+                )
+            ]
+        )
+
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(result)
+
+        XCTAssertTrue(report.accepted)
+        XCTAssertEqual(report.errors, [])
+        XCTAssertEqual(report.normalizedCalls.count, 1)
+        guard report.accepted, report.normalizedCalls.count == 1 else { return }
+        XCTAssertEqual(
+            report.normalizedCalls[0].supportEvidenceRefs,
+            ["obs:DW473:MHC-A:04_M1M2M3M4M5M6M7_AG_06g1|AG_06_02,_AG_06_05,_AG_06_w_01"]
+        )
+        XCTAssertEqual(
+            report.normalizedCalls[0].aiMetadata.supportEvidenceRefs,
+            ["obs:DW473:MHC-A:04_M1M2M3M4M5M6M7_AG_06g1|AG_06_02,_AG_06_05,_AG_06_w_01"]
+        )
+    }
+
+    func testValidatorRejectsAmbiguousPipedObservationEvidenceIDPrefix() throws {
+        let base = makeRegistryWithPipedObservation()
+        let registry = AIHaplotypingEvidenceRegistry(
+            schemaVersion: base.schemaVersion,
+            mode: base.mode,
+            parentRevisionID: base.parentRevisionID,
+            inputSnapshotDigest: base.inputSnapshotDigest,
+            samples: base.samples,
+            loci: base.loci,
+            observations: base.observations + [
+                ObservationEvidence(
+                    id: "obs:DW473:MHC-A:04_M1M2M3M4M5M6M7_AG_06g1|AG_06_07",
+                    evidenceClass: .directObservation,
+                    sampleID: "sample:DW473",
+                    locusID: "locus:MHC-A",
+                    genotype: "04_M1M2M3M4M5M6M7_AG_06g1|AG_06_07",
+                    passedAlignments: 10,
+                    passedUniqueReads: 10,
+                    sampleUniqueRetainedReads: 130
+                ),
+            ],
+            currentCalls: base.currentCalls,
+            manualReviews: base.manualReviews
+        )
+        let result = makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    sample: "DW473",
+                    locus: "MHC-A",
+                    haplotypeLabel: "M4A",
+                    supportEvidenceRefs: ["obs:DW473:MHC-A:04_M1M2M3M4M5M6M7_AG_06g1"],
+                    counterevidenceRefs: ["sample:DW473"]
+                )
+            ]
+        )
+
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(result)
+
+        XCTAssertFalse(report.accepted)
+        XCTAssertEqual(report.errors, [.unknownEvidenceID("obs:DW473:MHC-A:04_M1M2M3M4M5M6M7_AG_06g1")])
+        XCTAssertEqual(report.normalizedCalls, [])
+    }
+
+    func testValidatorNormalizesUniquePipedObservationAliasEvidenceID() throws {
+        let registry = makeRegistryWithPipedAliasObservation()
+        let result = makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    sample: "DW473",
+                    locus: "MHC-A",
+                    haplotypeLabel: "M2A",
+                    supportEvidenceRefs: ["obs:DW473:MHC-A:11_M2M3_E_02_nov_12"],
+                    counterevidenceRefs: ["sample:DW473"]
+                )
+            ]
+        )
+
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(result)
+
+        XCTAssertTrue(report.accepted)
+        XCTAssertEqual(report.errors, [])
+        XCTAssertEqual(report.normalizedCalls.count, 1)
+        guard report.accepted, report.normalizedCalls.count == 1 else { return }
+        XCTAssertEqual(
+            report.normalizedCalls[0].supportEvidenceRefs,
+            ["obs:DW473:MHC-A:11_M2M3_E_02g2|E_02_03,_E_02_nov_12"]
+        )
+        XCTAssertEqual(
+            report.normalizedCalls[0].aiMetadata.supportEvidenceRefs,
+            ["obs:DW473:MHC-A:11_M2M3_E_02g2|E_02_03,_E_02_nov_12"]
+        )
+    }
+
+    func testValidatorRejectsAmbiguousPipedObservationAliasEvidenceID() throws {
+        let base = makeRegistryWithPipedAliasObservation()
+        let registry = AIHaplotypingEvidenceRegistry(
+            schemaVersion: base.schemaVersion,
+            mode: base.mode,
+            parentRevisionID: base.parentRevisionID,
+            inputSnapshotDigest: base.inputSnapshotDigest,
+            samples: base.samples,
+            loci: base.loci,
+            observations: base.observations + [
+                ObservationEvidence(
+                    id: "obs:DW473:MHC-A:11_M3_E_02g9|E_02_nov_12",
+                    evidenceClass: .directObservation,
+                    sampleID: "sample:DW473",
+                    locusID: "locus:MHC-A",
+                    genotype: "11_M3_E_02g9|E_02_nov_12",
+                    passedAlignments: 12,
+                    passedUniqueReads: 12,
+                    sampleUniqueRetainedReads: 130
+                ),
+            ],
+            currentCalls: base.currentCalls,
+            manualReviews: base.manualReviews
+        )
+        let result = makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    sample: "DW473",
+                    locus: "MHC-A",
+                    haplotypeLabel: "M2A",
+                    supportEvidenceRefs: ["obs:DW473:MHC-A:11_M2M3_E_02_nov_12"],
+                    counterevidenceRefs: ["sample:DW473"]
+                )
+            ]
+        )
+
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(result)
+
+        XCTAssertFalse(report.accepted)
+        XCTAssertEqual(report.errors, [.unknownEvidenceID("obs:DW473:MHC-A:11_M2M3_E_02_nov_12")])
+        XCTAssertEqual(report.normalizedCalls, [])
+    }
+
+    func testValidatorNormalizesUniqueCollapsedMarkerObservationEvidenceID() throws {
+        let registry = makeRegistryWithCollapsedMarkerObservation()
+        let result = makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    sample: "DW473",
+                    locus: "MHC-A",
+                    haplotypeLabel: "M1A",
+                    supportEvidenceRefs: ["obs:DW473:MHC-A:11_M1_E_02g1|E_02_01,_E_02_02"],
+                    counterevidenceRefs: ["sample:DW473"]
+                )
+            ]
+        )
+
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(result)
+
+        XCTAssertTrue(report.accepted)
+        XCTAssertEqual(report.errors, [])
+        XCTAssertEqual(report.normalizedCalls.count, 1)
+        guard report.accepted, report.normalizedCalls.count == 1 else { return }
+        XCTAssertEqual(
+            report.normalizedCalls[0].supportEvidenceRefs,
+            ["obs:DW473:MHC-A:11_M1M4_E_02g1|E_02_01,_E_02_02"]
+        )
+        XCTAssertEqual(
+            report.normalizedCalls[0].aiMetadata.supportEvidenceRefs,
+            ["obs:DW473:MHC-A:11_M1M4_E_02g1|E_02_01,_E_02_02"]
+        )
+    }
+
+    func testValidatorRejectsAmbiguousCollapsedMarkerObservationEvidenceID() throws {
+        let base = makeRegistryWithCollapsedMarkerObservation()
+        let registry = AIHaplotypingEvidenceRegistry(
+            schemaVersion: base.schemaVersion,
+            mode: base.mode,
+            parentRevisionID: base.parentRevisionID,
+            inputSnapshotDigest: base.inputSnapshotDigest,
+            samples: base.samples,
+            loci: base.loci,
+            observations: base.observations + [
+                ObservationEvidence(
+                    id: "obs:DW473:MHC-A:11_M1M5_E_02g1|E_02_01,_E_02_02",
+                    evidenceClass: .directObservation,
+                    sampleID: "sample:DW473",
+                    locusID: "locus:MHC-A",
+                    genotype: "11_M1M5_E_02g1|E_02_01,_E_02_02",
+                    passedAlignments: 11,
+                    passedUniqueReads: 11,
+                    sampleUniqueRetainedReads: 130
+                ),
+            ],
+            currentCalls: base.currentCalls,
+            manualReviews: base.manualReviews
+        )
+        let result = makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    sample: "DW473",
+                    locus: "MHC-A",
+                    haplotypeLabel: "M1A",
+                    supportEvidenceRefs: ["obs:DW473:MHC-A:11_M1_E_02g1|E_02_01,_E_02_02"],
+                    counterevidenceRefs: ["sample:DW473"]
+                )
+            ]
+        )
+
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(result)
+
+        XCTAssertFalse(report.accepted)
+        XCTAssertEqual(report.errors, [.unknownEvidenceID("obs:DW473:MHC-A:11_M1_E_02g1|E_02_01,_E_02_02")])
+        XCTAssertEqual(report.normalizedCalls, [])
+    }
+
+    func testValidatorNormalizesUniqueExpandedMarkerObservationEvidenceID() throws {
+        let registry = makeRegistryWithExpandedMarkerObservation()
+        let result = makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    sample: "DW473",
+                    locus: "MHC-A",
+                    haplotypeLabel: "M1A",
+                    supportEvidenceRefs: ["obs:DW473:MHC-A:04_M1M2M3M4M5M6M7_AG_g3ex"],
+                    counterevidenceRefs: ["sample:DW473"]
+                )
+            ]
+        )
+
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(result)
+
+        XCTAssertTrue(report.accepted)
+        XCTAssertEqual(report.errors, [])
+        XCTAssertEqual(report.normalizedCalls.count, 1)
+        guard report.accepted, report.normalizedCalls.count == 1 else { return }
+        XCTAssertEqual(
+            report.normalizedCalls[0].supportEvidenceRefs,
+            ["obs:DW473:MHC-A:04_M1M2M3M4_AG_g3ex"]
+        )
+        XCTAssertEqual(
+            report.normalizedCalls[0].aiMetadata.supportEvidenceRefs,
+            ["obs:DW473:MHC-A:04_M1M2M3M4_AG_g3ex"]
+        )
+    }
+
+    func testValidatorRejectsAmbiguousExpandedMarkerObservationEvidenceID() throws {
+        let base = makeRegistryWithExpandedMarkerObservation()
+        let registry = AIHaplotypingEvidenceRegistry(
+            schemaVersion: base.schemaVersion,
+            mode: base.mode,
+            parentRevisionID: base.parentRevisionID,
+            inputSnapshotDigest: base.inputSnapshotDigest,
+            samples: base.samples,
+            loci: base.loci,
+            observations: base.observations + [
+                ObservationEvidence(
+                    id: "obs:DW473:MHC-A:04_M1M2M3M4M5_AG_g3ex",
+                    evidenceClass: .directObservation,
+                    sampleID: "sample:DW473",
+                    locusID: "locus:MHC-A",
+                    genotype: "04_M1M2M3M4M5_AG_g3ex",
+                    passedAlignments: 22,
+                    passedUniqueReads: 22,
+                    sampleUniqueRetainedReads: 130
+                ),
+            ],
+            currentCalls: base.currentCalls,
+            manualReviews: base.manualReviews
+        )
+        let result = makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    sample: "DW473",
+                    locus: "MHC-A",
+                    haplotypeLabel: "M1A",
+                    supportEvidenceRefs: ["obs:DW473:MHC-A:04_M1M2M3M4M5M6M7_AG_g3ex"],
+                    counterevidenceRefs: ["sample:DW473"]
+                )
+            ]
+        )
+
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(result)
+
+        XCTAssertFalse(report.accepted)
+        XCTAssertEqual(report.errors, [.unknownEvidenceID("obs:DW473:MHC-A:04_M1M2M3M4M5M6M7_AG_g3ex")])
+        XCTAssertEqual(report.normalizedCalls, [])
+    }
+
+    func testValidatorNormalizesUniqueOverlappingMarkerObservationEvidenceID() throws {
+        let registry = makeRegistryWithOverlappingMarkerObservation()
+        let result = makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    sample: "DW473",
+                    locus: "MHC-A",
+                    haplotypeLabel: "M5A",
+                    supportEvidenceRefs: ["obs:DW473:MHC-A:11_M5M6_E_02_nov_01"],
+                    counterevidenceRefs: ["sample:DW473"]
+                )
+            ]
+        )
+
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(result)
+
+        XCTAssertTrue(report.accepted)
+        XCTAssertEqual(report.errors, [])
+        XCTAssertEqual(report.normalizedCalls.count, 1)
+        guard report.accepted, report.normalizedCalls.count == 1 else { return }
+        XCTAssertEqual(
+            report.normalizedCalls[0].supportEvidenceRefs,
+            ["obs:DW473:MHC-A:11_M4M5_E_02_nov_01"]
+        )
+    }
+
+    func testValidatorRejectsAmbiguousOverlappingMarkerObservationEvidenceID() throws {
+        let base = makeRegistryWithOverlappingMarkerObservation()
+        let registry = AIHaplotypingEvidenceRegistry(
+            schemaVersion: base.schemaVersion,
+            mode: base.mode,
+            parentRevisionID: base.parentRevisionID,
+            inputSnapshotDigest: base.inputSnapshotDigest,
+            samples: base.samples,
+            loci: base.loci,
+            observations: base.observations + [
+                ObservationEvidence(
+                    id: "obs:DW473:MHC-A:11_M5M7_E_02_nov_01",
+                    evidenceClass: .directObservation,
+                    sampleID: "sample:DW473",
+                    locusID: "locus:MHC-A",
+                    genotype: "11_M5M7_E_02_nov_01",
+                    passedAlignments: 19,
+                    passedUniqueReads: 19,
+                    sampleUniqueRetainedReads: 130
+                ),
+            ],
+            currentCalls: base.currentCalls,
+            manualReviews: base.manualReviews
+        )
+        let result = makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    sample: "DW473",
+                    locus: "MHC-A",
+                    haplotypeLabel: "M5A",
+                    supportEvidenceRefs: ["obs:DW473:MHC-A:11_M5M6_E_02_nov_01"],
+                    counterevidenceRefs: ["sample:DW473"]
+                )
+            ]
+        )
+
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(result)
+
+        XCTAssertFalse(report.accepted)
+        XCTAssertEqual(report.errors, [.unknownEvidenceID("obs:DW473:MHC-A:11_M5M6_E_02_nov_01")])
+        XCTAssertEqual(report.normalizedCalls, [])
+    }
+
+    func testValidatorNormalizesUniqueTerminalAssaySuffixObservationEvidenceID() throws {
+        let registry = makeRegistryWithTerminalAssaySuffixObservation()
+        let result = makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    sample: "DW473",
+                    locus: "MHC-A",
+                    haplotypeLabel: "M3A",
+                    supportEvidenceRefs: ["obs:DW473:MHC-A:02_M3_G_02_0508_g48c"],
+                    counterevidenceRefs: ["sample:DW473"]
+                )
+            ]
+        )
+
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(result)
+
+        XCTAssertTrue(report.accepted)
+        XCTAssertEqual(report.errors, [])
+        XCTAssertEqual(report.normalizedCalls.count, 1)
+        guard report.accepted, report.normalizedCalls.count == 1 else { return }
+        XCTAssertEqual(
+            report.normalizedCalls[0].supportEvidenceRefs,
+            ["obs:DW473:MHC-A:02_M3_G_02_0508_g48c_156bp"]
+        )
+        XCTAssertEqual(
+            report.normalizedCalls[0].aiMetadata.supportEvidenceRefs,
+            ["obs:DW473:MHC-A:02_M3_G_02_0508_g48c_156bp"]
+        )
+    }
+
+    func testValidatorRejectsAmbiguousTerminalAssaySuffixObservationEvidenceID() throws {
+        let base = makeRegistryWithTerminalAssaySuffixObservation()
+        let registry = AIHaplotypingEvidenceRegistry(
+            schemaVersion: base.schemaVersion,
+            mode: base.mode,
+            parentRevisionID: base.parentRevisionID,
+            inputSnapshotDigest: base.inputSnapshotDigest,
+            samples: base.samples,
+            loci: base.loci,
+            observations: base.observations + [
+                ObservationEvidence(
+                    id: "obs:DW473:MHC-A:02_M3_G_02_0508_g48c_200bp",
+                    evidenceClass: .directObservation,
+                    sampleID: "sample:DW473",
+                    locusID: "locus:MHC-A",
+                    genotype: "02_M3_G_02_0508_g48c_200bp",
+                    passedAlignments: 21,
+                    passedUniqueReads: 21,
+                    sampleUniqueRetainedReads: 130
+                ),
+            ],
+            currentCalls: base.currentCalls,
+            manualReviews: base.manualReviews
+        )
+        let result = makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    sample: "DW473",
+                    locus: "MHC-A",
+                    haplotypeLabel: "M3A",
+                    supportEvidenceRefs: ["obs:DW473:MHC-A:02_M3_G_02_0508_g48c"],
+                    counterevidenceRefs: ["sample:DW473"]
+                )
+            ]
+        )
+
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(result)
+
+        XCTAssertFalse(report.accepted)
+        XCTAssertEqual(report.errors, [.unknownEvidenceID("obs:DW473:MHC-A:02_M3_G_02_0508_g48c")])
+        XCTAssertEqual(report.normalizedCalls, [])
+    }
+
+    func testValidatorNormalizesUniqueTerminalNumericSuffixObservationEvidenceID() throws {
+        let registry = makeRegistryWithTerminalNumericSuffixObservation()
+        let result = makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    sample: "DW473",
+                    locus: "MHC-B",
+                    haplotypeLabel: "M1B",
+                    supportEvidenceRefs: ["obs:DW473:MHC-B:12_M1_B_046_01"],
+                    counterevidenceRefs: ["sample:DW473"]
+                )
+            ]
+        )
+
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(result)
+
+        XCTAssertTrue(report.accepted)
+        XCTAssertEqual(report.errors, [])
+        XCTAssertEqual(report.normalizedCalls.count, 1)
+        guard report.accepted, report.normalizedCalls.count == 1 else { return }
+        XCTAssertEqual(
+            report.normalizedCalls[0].supportEvidenceRefs,
+            ["obs:DW473:MHC-B:12_M1_B_046_01_01"]
+        )
+        XCTAssertEqual(
+            report.normalizedCalls[0].aiMetadata.supportEvidenceRefs,
+            ["obs:DW473:MHC-B:12_M1_B_046_01_01"]
+        )
+    }
+
+    func testValidatorRejectsAmbiguousTerminalNumericSuffixObservationEvidenceID() throws {
+        let base = makeRegistryWithTerminalNumericSuffixObservation()
+        let registry = AIHaplotypingEvidenceRegistry(
+            schemaVersion: base.schemaVersion,
+            mode: base.mode,
+            parentRevisionID: base.parentRevisionID,
+            inputSnapshotDigest: base.inputSnapshotDigest,
+            samples: base.samples,
+            loci: base.loci,
+            observations: base.observations + [
+                ObservationEvidence(
+                    id: "obs:DW473:MHC-B:12_M1_B_046_01_02",
+                    evidenceClass: .directObservation,
+                    sampleID: "sample:DW473",
+                    locusID: "locus:MHC-B",
+                    genotype: "12_M1_B_046_01_02",
+                    passedAlignments: 2,
+                    passedUniqueReads: 2,
+                    sampleUniqueRetainedReads: 130
+                ),
+            ],
+            currentCalls: base.currentCalls,
+            manualReviews: base.manualReviews
+        )
+        let result = makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    sample: "DW473",
+                    locus: "MHC-B",
+                    haplotypeLabel: "M1B",
+                    supportEvidenceRefs: ["obs:DW473:MHC-B:12_M1_B_046_01"],
+                    counterevidenceRefs: ["sample:DW473"]
+                )
+            ]
+        )
+
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(result)
+
+        XCTAssertFalse(report.accepted)
+        XCTAssertEqual(report.errors, [.unknownEvidenceID("obs:DW473:MHC-B:12_M1_B_046_01")])
+        XCTAssertEqual(report.normalizedCalls, [])
+    }
+
+    func testValidatorNormalizesUniqueLeadingRegionTokenObservationEvidenceID() throws {
+        let registry = makeRegistryWithLeadingRegionTokenObservation()
+        let result = makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    sample: "DW473",
+                    locus: "MHC-A",
+                    haplotypeLabel: "M1A",
+                    supportEvidenceRefs: ["obs:DW473:MHC-A:02_M1_F_01_w_06"],
+                    counterevidenceRefs: ["sample:DW473"]
+                )
+            ]
+        )
+
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(result)
+
+        XCTAssertTrue(report.accepted)
+        XCTAssertEqual(report.errors, [])
+        XCTAssertEqual(report.normalizedCalls.count, 1)
+        guard report.accepted, report.normalizedCalls.count == 1 else { return }
+        XCTAssertEqual(
+            report.normalizedCalls[0].supportEvidenceRefs,
+            ["obs:DW473:MHC-A:01_M1_F_01_w_06"]
+        )
+        XCTAssertEqual(
+            report.normalizedCalls[0].aiMetadata.supportEvidenceRefs,
+            ["obs:DW473:MHC-A:01_M1_F_01_w_06"]
+        )
+    }
+
+    func testValidatorRejectsAmbiguousLeadingRegionTokenObservationEvidenceID() throws {
+        let base = makeRegistryWithLeadingRegionTokenObservation()
+        let registry = AIHaplotypingEvidenceRegistry(
+            schemaVersion: base.schemaVersion,
+            mode: base.mode,
+            parentRevisionID: base.parentRevisionID,
+            inputSnapshotDigest: base.inputSnapshotDigest,
+            samples: base.samples,
+            loci: base.loci,
+            observations: base.observations + [
+                ObservationEvidence(
+                    id: "obs:DW473:MHC-A:03_M1_F_01_w_06",
+                    evidenceClass: .directObservation,
+                    sampleID: "sample:DW473",
+                    locusID: "locus:MHC-A",
+                    genotype: "03_M1_F_01_w_06",
+                    passedAlignments: 3,
+                    passedUniqueReads: 3,
+                    sampleUniqueRetainedReads: 130
+                ),
+            ],
+            currentCalls: base.currentCalls,
+            manualReviews: base.manualReviews
+        )
+        let result = makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    sample: "DW473",
+                    locus: "MHC-A",
+                    haplotypeLabel: "M1A",
+                    supportEvidenceRefs: ["obs:DW473:MHC-A:02_M1_F_01_w_06"],
+                    counterevidenceRefs: ["sample:DW473"]
+                )
+            ]
+        )
+
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(result)
+
+        XCTAssertFalse(report.accepted)
+        XCTAssertEqual(report.errors, [.unknownEvidenceID("obs:DW473:MHC-A:02_M1_F_01_w_06")])
+        XCTAssertEqual(report.normalizedCalls, [])
+    }
+
+    func testValidatorNormalizesUniqueAlleleFamilySuffixObservationEvidenceID() throws {
+        let registry = makeRegistryWithAlleleFamilySuffixObservation()
+        let result = makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    sample: "DW473",
+                    locus: "MHC-B",
+                    haplotypeLabel: "M7B",
+                    supportEvidenceRefs: ["obs:DW473:MHC-B:12_M7_B11L_01g2ex"],
+                    counterevidenceRefs: ["sample:DW473"]
+                )
+            ]
+        )
+
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(result)
+
+        XCTAssertTrue(report.accepted)
+        XCTAssertEqual(report.errors, [])
+        XCTAssertEqual(report.normalizedCalls.count, 1)
+        guard report.accepted, report.normalizedCalls.count == 1 else { return }
+        XCTAssertEqual(report.normalizedCalls[0].supportEvidenceRefs, ["obs:DW473:MHC-B:12_M7_B11L_01_05"])
+        XCTAssertEqual(report.normalizedCalls[0].aiMetadata.supportEvidenceRefs, ["obs:DW473:MHC-B:12_M7_B11L_01_05"])
+    }
+
+    func testValidatorRejectsAmbiguousAlleleFamilySuffixObservationEvidenceID() throws {
+        let base = makeRegistryWithAlleleFamilySuffixObservation()
+        let registry = AIHaplotypingEvidenceRegistry(
+            schemaVersion: base.schemaVersion,
+            mode: base.mode,
+            parentRevisionID: base.parentRevisionID,
+            inputSnapshotDigest: base.inputSnapshotDigest,
+            samples: base.samples,
+            loci: base.loci,
+            observations: base.observations + [
+                ObservationEvidence(
+                    id: "obs:DW473:MHC-B:12_M7_B11L_01_06",
+                    evidenceClass: .directObservation,
+                    sampleID: "sample:DW473",
+                    locusID: "locus:MHC-B",
+                    genotype: "12_M7_B11L_01_06",
+                    passedAlignments: 12,
+                    passedUniqueReads: 12,
+                    sampleUniqueRetainedReads: 130
+                ),
+            ],
+            currentCalls: base.currentCalls,
+            manualReviews: base.manualReviews
+        )
+        let result = makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    sample: "DW473",
+                    locus: "MHC-B",
+                    haplotypeLabel: "M7B",
+                    supportEvidenceRefs: ["obs:DW473:MHC-B:12_M7_B11L_01g2ex"],
+                    counterevidenceRefs: ["sample:DW473"]
+                )
+            ]
+        )
+
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(result)
+
+        XCTAssertFalse(report.accepted)
+        XCTAssertEqual(report.errors, [.unknownEvidenceID("obs:DW473:MHC-B:12_M7_B11L_01g2ex")])
+        XCTAssertEqual(report.normalizedCalls, [])
+    }
+
     func testRejectsUnknownEvidenceID() throws {
         let registry = makeRegistry()
         let result = makeResult(
@@ -76,6 +831,21 @@ final class AIHaplotypingPatchValidatorTests: XCTestCase {
         XCTAssertEqual(report.errors, [.duplicateCallTarget("DW472", "MHC-B", "h1")])
     }
 
+    func testRejectsBlankPatchOperationID() throws {
+        let registry = makeRegistry()
+        let result = makeResult(
+            registry: registry,
+            calls: [
+                makeCall(patchOpID: " \n ")
+            ]
+        )
+
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(result)
+
+        XCTAssertFalse(report.accepted)
+        XCTAssertEqual(report.errors.first?.code, "invalid_patch_op_id")
+    }
+
     func testRejectsCalledPatchWithoutSubstantiveSupportEvidence() throws {
         let registry = makeRegistry()
 
@@ -101,7 +871,7 @@ final class AIHaplotypingPatchValidatorTests: XCTestCase {
         XCTAssertEqual(cohortOnlySupport.errors, [.missingSupportEvidence("patch-001")])
     }
 
-    func testRejectsCalledPatchWithPlaceholderHaplotypeLabel() throws {
+    func testDowngradesCalledPatchWithPlaceholderHaplotypeLabelToUnresolved() throws {
         let registry = makeRegistry()
 
         let report = AIHaplotypingPatchValidator(registry: registry).validate(makeResult(
@@ -116,8 +886,42 @@ final class AIHaplotypingPatchValidatorTests: XCTestCase {
             ]
         ))
 
-        XCTAssertFalse(report.accepted)
-        XCTAssertEqual(report.errors.first, .invalidHaplotypeLabel("DW472", "MHC-B", "h1"))
+        XCTAssertTrue(report.accepted)
+        XCTAssertEqual(report.errors, [])
+        XCTAssertEqual(report.normalizedCalls.count, 1)
+        guard report.accepted, report.normalizedCalls.count == 1 else { return }
+        XCTAssertEqual(report.normalizedCalls[0].status, .noHaplotype)
+        XCTAssertNil(report.normalizedCalls[0].primaryHaplotypeLabel)
+        XCTAssertEqual(report.normalizedCalls[0].proposedHaplotypeLabel, "-")
+        XCTAssertEqual(report.normalizedCalls[0].aiMetadata.callState, .unresolved)
+    }
+
+    func testDowngradesNonConflictingCurrentConflictWithPlaceholderHaplotypeLabelToUnresolved() throws {
+        let registry = makeRegistry()
+
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    sample: "DW472",
+                    locus: "MHC-B",
+                    slot: "h1",
+                    haplotypeLabel: "-",
+                    callState: .conflictsCurrent,
+                    supportEvidenceRefs: ["obs:DW472:MHC-B:12_M9_B_001_01"],
+                    counterevidenceRefs: ["sample:DW472"]
+                )
+            ]
+        ))
+
+        XCTAssertTrue(report.accepted)
+        XCTAssertEqual(report.errors, [])
+        XCTAssertEqual(report.normalizedCalls.count, 1)
+        guard report.accepted, report.normalizedCalls.count == 1 else { return }
+        XCTAssertEqual(report.normalizedCalls[0].status, .noHaplotype)
+        XCTAssertNil(report.normalizedCalls[0].primaryHaplotypeLabel)
+        XCTAssertEqual(report.normalizedCalls[0].proposedHaplotypeLabel, "-")
+        XCTAssertEqual(report.normalizedCalls[0].aiMetadata.callState, .unresolved)
     }
 
     func testRejectsPositiveReviewableLabelsWithoutSubstantiveSupportEvidence() throws {
@@ -203,6 +1007,13 @@ final class AIHaplotypingPatchValidatorTests: XCTestCase {
         let runProperties = try XCTUnwrap(root["run"]?.objectValue?.object("properties"))
         let generationParameters = try XCTUnwrap(runProperties["generationParameters"]?.objectValue)
         XCTAssertNil(generationParameters["patternProperties"])
+        let generationParameterProperties = try XCTUnwrap(generationParameters.object("properties"))
+        XCTAssertNotNil(generationParameterProperties["compactKnowledgePack"])
+        XCTAssertNotNil(generationParameterProperties["maxProviderRetries"])
+        let callsSchema = try XCTUnwrap(root["calls"]?.objectValue)
+        let callSchema = try XCTUnwrap(callsSchema["items"]?.objectValue)
+        let callProperties = try XCTUnwrap(callSchema.object("properties"))
+        XCTAssertEqual(callProperties["patchOpID"]?.objectValue?["minLength"], .integer(1))
     }
 
     func testRejectsUnknownSampleLocusAndMismatchedEvidenceTargetsUnlessCohortRecurrence() throws {
@@ -269,6 +1080,25 @@ final class AIHaplotypingPatchValidatorTests: XCTestCase {
         XCTAssertNil(currentExplained.normalizedCalls[0].primaryHaplotypeLabel)
         XCTAssertEqual(currentExplained.normalizedCalls[0].proposedHaplotypeLabel, "M8B")
 
+        let explicitCurrentSuperseded = AIHaplotypingPatchValidator(registry: registry).validate(makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    haplotypeLabel: "M8B",
+                    counterevidenceRefs: ["current:DW472:MHC-B:h1"],
+                    rationaleCode: "current_call_superseded",
+                    rationale: "Observed M8B support conflicts with the current M9B call; the current call is superseded by stronger observation evidence."
+                )
+            ]
+        ))
+        XCTAssertTrue(explicitCurrentSuperseded.accepted)
+        XCTAssertEqual(explicitCurrentSuperseded.errors, [])
+        guard explicitCurrentSuperseded.accepted else { return }
+        XCTAssertEqual(explicitCurrentSuperseded.normalizedCalls[0].status, .noHaplotype)
+        XCTAssertNil(explicitCurrentSuperseded.normalizedCalls[0].primaryHaplotypeLabel)
+        XCTAssertEqual(explicitCurrentSuperseded.normalizedCalls[0].proposedHaplotypeLabel, "M8B")
+        XCTAssertEqual(explicitCurrentSuperseded.normalizedCalls[0].aiMetadata.callState, .conflictsCurrent)
+
         let manualConflict = AIHaplotypingPatchValidator(registry: registry).validate(makeResult(
             registry: registry,
             calls: [
@@ -314,6 +1144,24 @@ final class AIHaplotypingPatchValidatorTests: XCTestCase {
         XCTAssertTrue(report.accepted)
         XCTAssertEqual(report.normalizedCalls[0].status, .called)
         XCTAssertEqual(report.normalizedCalls[0].primaryHaplotypeLabel, "Manual-M8B")
+    }
+
+    func testErrorCurrentCallsDoNotRequireConflictStateForAIRefinement() throws {
+        let registry = makeRegistryWithErrorCurrentCall()
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    haplotypeLabel: "M8B",
+                    supportEvidenceRefs: ["obs:DW472:MHC-B:12_M9_B_001_01"],
+                    counterevidenceRefs: ["current:DW472:MHC-B:h1"]
+                )
+            ]
+        ))
+
+        XCTAssertTrue(report.accepted)
+        XCTAssertEqual(report.errors, [])
+        XCTAssertEqual(report.normalizedCalls.map(\.primaryHaplotypeLabel), ["M8B"])
     }
 
     func testRetainCurrentIsCarryForwardOnly() throws {
@@ -402,6 +1250,25 @@ final class AIHaplotypingPatchValidatorTests: XCTestCase {
         XCTAssertEqual(report.errors.first, .invalidCarryForwardLabel("DW472", "MHC-B", "h1"))
     }
 
+    func testRetainCurrentRejectsErrorCarryForwardLabels() throws {
+        let registry = makeRegistryWithErrorCurrentCall()
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    haplotypeLabel: "ERR: TMH (M8B, M9B)",
+                    sourceState: .current,
+                    callState: .retainCurrent,
+                    supportEvidenceRefs: ["current:DW472:MHC-B:h1"],
+                    counterevidenceRefs: ["sample:DW472"]
+                )
+            ]
+        ))
+
+        XCTAssertFalse(report.accepted)
+        XCTAssertEqual(report.errors.first, .invalidCarryForwardLabel("DW472", "MHC-B", "h1"))
+    }
+
     func testRejectsConflictStatesWithoutActualConflictEvidence() throws {
         let registry = makeRegistry()
 
@@ -411,7 +1278,12 @@ final class AIHaplotypingPatchValidatorTests: XCTestCase {
                 makeCall(callState: .conflictsCurrent, counterevidenceRefs: ["current:DW472:MHC-B:h1"])
             ]
         ))
-        XCTAssertEqual(noCurrentConflict.errors, [.missingCurrentConflict("DW472", "MHC-B", "h1")])
+        XCTAssertTrue(noCurrentConflict.accepted)
+        XCTAssertEqual(noCurrentConflict.errors, [])
+        XCTAssertEqual(noCurrentConflict.normalizedCalls.count, 1)
+        guard noCurrentConflict.accepted, noCurrentConflict.normalizedCalls.count == 1 else { return }
+        XCTAssertEqual(noCurrentConflict.normalizedCalls[0].aiMetadata.callState, .called)
+        XCTAssertEqual(noCurrentConflict.normalizedCalls[0].status, .called)
 
         let noManualConflict = AIHaplotypingPatchValidator(registry: registry).validate(makeResult(
             registry: registry,
@@ -434,7 +1306,6 @@ final class AIHaplotypingPatchValidatorTests: XCTestCase {
             ("phase-supported", makeResult(registry: registry, calls: [makeCall(haplotypeLabel: "phase-supported")])),
             ("requires phasing", makeResult(registry: registry, calls: [makeCall(rationale: "requires phasing")])),
             ("homozygous family", makeResult(registry: registry, calls: [makeCall(normalizedFamily: "homozygous family")])),
-            ("homozygosity inferred", makeResult(registry: registry, calls: [makeCall(rationaleCode: "homozygosity inferred")])),
             ("copy number gain", makeResult(registry: registry, calls: [makeCall(alternates: ["copy number gain"])])),
             ("inherited from parent", makeResult(
                 registry: registry,
@@ -451,7 +1322,6 @@ final class AIHaplotypingPatchValidatorTests: XCTestCase {
                 ],
                 calls: [makeCall()]
             )),
-            ("absence of marker", makeResult(registry: registry, calls: [makeCall(rationale: "absence of marker")])),
             ("clinical interpretation required", makeResult(registry: registry, calls: [
                 makeCall(),
             ], warnings: ["clinical interpretation required"])),
@@ -461,6 +1331,59 @@ final class AIHaplotypingPatchValidatorTests: XCTestCase {
             let report = AIHaplotypingPatchValidator(registry: registry).validate(result)
             XCTAssertEqual(report.errors, [.unsupportedClaim(term)])
         }
+    }
+
+    func testAllowsNegatedNonClinicalDisclaimerInWarnings() throws {
+        let registry = makeRegistry()
+        let result = makeResult(
+            registry: registry,
+            calls: [makeCall()],
+            warnings: [
+                "Observed markers support the MCM label; downstream higher-resolution confirmation is not clinical."
+            ]
+        )
+
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(result)
+
+        XCTAssertTrue(report.accepted)
+        XCTAssertEqual(report.errors, [])
+        XCTAssertEqual(report.warnings, [
+            "Observed markers support the MCM label; downstream higher-resolution confirmation is not clinical."
+        ])
+    }
+
+    func testAllowsHomozygousLanguageInCallRationale() throws {
+        let registry = makeRegistry()
+        let result = makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    rationaleCode: "mcm_m1_homozygous_support",
+                    rationale: "Direct support is dominant; homozygous evidence is plausible and absence of a coherent second marker set is reviewable."
+                )
+            ]
+        )
+
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(result)
+
+        XCTAssertTrue(report.accepted)
+        XCTAssertEqual(report.errors, [])
+    }
+
+    func testAllowsHomozygousAndAbsenceLanguageInWarnings() throws {
+        let registry = makeRegistry()
+        let warning = "h2 assigned as M1A (homozygous) based on coherent marker support and absence of a credible second marker set."
+        let result = makeResult(
+            registry: registry,
+            calls: [makeCall()],
+            warnings: [warning]
+        )
+
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(result)
+
+        XCTAssertTrue(report.accepted)
+        XCTAssertEqual(report.errors, [])
+        XCTAssertEqual(report.warnings, [warning])
     }
 
     func testMapsAICallStateToHaplotypeStatus() throws {
@@ -502,8 +1425,8 @@ final class AIHaplotypingPatchValidatorTests: XCTestCase {
         XCTAssertEqual(report.normalizedCalls[0].aiMetadata.proposedHaplotypeLabel, "M7A-provisional")
     }
 
-    func testRejectsDuplicateProposedLabelsAcrossSlotsWithoutExplicitSupport() throws {
-        let registry = makeRegistry()
+    func testAcceptsDuplicateCalledLabelsAcrossSlotsAsImplicitSingleHaplotype() throws {
+        let registry = makeRegistryWithoutManualReview()
         let result = makeResult(
             registry: registry,
             calls: [
@@ -514,8 +1437,95 @@ final class AIHaplotypingPatchValidatorTests: XCTestCase {
 
         let report = AIHaplotypingPatchValidator(registry: registry).validate(result)
 
-        XCTAssertFalse(report.accepted)
-        XCTAssertEqual(report.errors, [.unsupportedDuplicateSlotLabel("DW472", "MHC-B", "M9B")])
+        XCTAssertTrue(report.accepted)
+        XCTAssertEqual(report.errors, [])
+        XCTAssertEqual(report.normalizedCalls.map(\.proposedHaplotypeLabel), ["M9B", "M9B"])
+        XCTAssertEqual(report.normalizedCalls.map(\.status), [.called, .called])
+    }
+
+    func testAcceptsDuplicateLabelsAcrossRetainedAndCalledSlotsAsImplicitSingleHaplotype() throws {
+        let registry = makeRegistryWithoutManualReview()
+        let result = makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    patchOpID: "patch-001",
+                    slot: "h1",
+                    haplotypeLabel: "M9B",
+                    sourceState: .current,
+                    callState: .retainCurrent,
+                    supportEvidenceRefs: ["current:DW472:MHC-B:h1"],
+                    counterevidenceRefs: ["current:DW472:MHC-B:h1"]
+                ),
+                makeCall(
+                    patchOpID: "patch-002",
+                    slot: "h2",
+                    haplotypeLabel: "M9B"
+                ),
+            ]
+        )
+
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(result)
+
+        XCTAssertTrue(report.accepted)
+        XCTAssertEqual(report.errors, [])
+        XCTAssertEqual(report.normalizedCalls.map(\.proposedHaplotypeLabel), ["M9B", "M9B"])
+        XCTAssertEqual(report.normalizedCalls.map(\.status), [.called, .called])
+    }
+
+    func testDuplicateLabelsAcrossSlotsDoNotPreemptCallStateValidation() throws {
+        let registry = makeRegistryWithoutManualReview()
+        let result = makeResult(
+            registry: registry,
+            calls: [
+                makeCall(patchOpID: "patch-001", slot: "h1", haplotypeLabel: "M9B"),
+                makeCall(
+                    patchOpID: "patch-002",
+                    slot: "h2",
+                    haplotypeLabel: "M9B",
+                    callState: .lowSupportOrDropout,
+                    supportEvidenceRefs: [],
+                    counterevidenceRefs: ["sample:DW472"]
+                ),
+            ]
+        )
+
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(result)
+
+        XCTAssertTrue(report.accepted)
+        XCTAssertEqual(report.errors, [])
+        XCTAssertEqual(report.normalizedCalls.map(\.proposedHaplotypeLabel), ["M9B", "M9B"])
+        XCTAssertEqual(report.normalizedCalls.map(\.status), [.called, .noHaplotype])
+    }
+
+    func testAcceptsDuplicateProposedLabelsAcrossSlotsWhenHomozygousRationaleIsExplicit() throws {
+        let registry = makeRegistryWithoutManualReview()
+        let result = makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    patchOpID: "patch-001",
+                    slot: "h1",
+                    haplotypeLabel: "M9B",
+                    rationaleCode: "homozygous_m9b_support",
+                    rationale: "Dominant marker support is consistent with a homozygous M9B call."
+                ),
+                makeCall(
+                    patchOpID: "patch-002",
+                    slot: "h2",
+                    haplotypeLabel: "M9B",
+                    rationaleCode: "homozygous_m9b_support",
+                    rationale: "No credible second-haplotype marker pattern; homozygous M9B is reviewable."
+                ),
+            ]
+        )
+
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(result)
+
+        XCTAssertTrue(report.accepted)
+        XCTAssertEqual(report.errors, [])
+        XCTAssertEqual(report.normalizedCalls.map(\.proposedHaplotypeLabel), ["M9B", "M9B"])
+        XCTAssertEqual(report.normalizedCalls.map(\.status), [.called, .called])
     }
 
     func testValidatesDiscoveredDefinitionsAgainstClosedEvidence() throws {
@@ -753,6 +1763,292 @@ private extension AIHaplotypingPatchValidatorTests {
         )
     }
 
+    func makeRegistryWithPipedObservation() -> AIHaplotypingEvidenceRegistry {
+        let base = makeRegistry()
+        return AIHaplotypingEvidenceRegistry(
+            schemaVersion: base.schemaVersion,
+            mode: base.mode,
+            parentRevisionID: base.parentRevisionID,
+            inputSnapshotDigest: base.inputSnapshotDigest,
+            samples: base.samples,
+            loci: base.loci,
+            observations: base.observations + [
+                ObservationEvidence(
+                    id: "obs:DW473:MHC-A:04_M1M2M3M4M5M6M7_AG_06g1|AG_06_02,_AG_06_05,_AG_06_w_01",
+                    evidenceClass: .directObservation,
+                    sampleID: "sample:DW473",
+                    locusID: "locus:MHC-A",
+                    genotype: "04_M1M2M3M4M5M6M7_AG_06g1|AG_06_02,_AG_06_05,_AG_06_w_01",
+                    passedAlignments: 61,
+                    passedUniqueReads: 61,
+                    sampleUniqueRetainedReads: 130
+                ),
+            ],
+            currentCalls: base.currentCalls,
+            manualReviews: base.manualReviews
+        )
+    }
+
+    func makeRegistryWithPipedAliasObservation() -> AIHaplotypingEvidenceRegistry {
+        let base = makeRegistry()
+        return AIHaplotypingEvidenceRegistry(
+            schemaVersion: base.schemaVersion,
+            mode: base.mode,
+            parentRevisionID: base.parentRevisionID,
+            inputSnapshotDigest: base.inputSnapshotDigest,
+            samples: base.samples,
+            loci: base.loci,
+            observations: base.observations + [
+                ObservationEvidence(
+                    id: "obs:DW473:MHC-A:11_M2M3_E_02g2|E_02_03,_E_02_nov_12",
+                    evidenceClass: .directObservation,
+                    sampleID: "sample:DW473",
+                    locusID: "locus:MHC-A",
+                    genotype: "11_M2M3_E_02g2|E_02_03,_E_02_nov_12",
+                    passedAlignments: 61,
+                    passedUniqueReads: 61,
+                    sampleUniqueRetainedReads: 130
+                ),
+            ],
+            currentCalls: base.currentCalls,
+            manualReviews: base.manualReviews
+        )
+    }
+
+    func makeRegistryWithTrailingGObservation() -> AIHaplotypingEvidenceRegistry {
+        let base = makeRegistry()
+        return AIHaplotypingEvidenceRegistry(
+            schemaVersion: base.schemaVersion,
+            mode: base.mode,
+            parentRevisionID: base.parentRevisionID,
+            inputSnapshotDigest: base.inputSnapshotDigest,
+            samples: base.samples,
+            loci: base.loci,
+            observations: base.observations + [
+                ObservationEvidence(
+                    id: "obs:DW473:MHC-A:06_M4M7_A5_30_01g",
+                    evidenceClass: .directObservation,
+                    sampleID: "sample:DW473",
+                    locusID: "locus:MHC-A",
+                    genotype: "06_M4M7_A5_30_01g",
+                    passedAlignments: 42,
+                    passedUniqueReads: 42,
+                    sampleUniqueRetainedReads: 130
+                ),
+            ],
+            currentCalls: base.currentCalls,
+            manualReviews: base.manualReviews
+        )
+    }
+
+    func makeRegistryWithTrailingNObservation() -> AIHaplotypingEvidenceRegistry {
+        let base = makeRegistry()
+        return AIHaplotypingEvidenceRegistry(
+            schemaVersion: base.schemaVersion,
+            mode: base.mode,
+            parentRevisionID: base.parentRevisionID,
+            inputSnapshotDigest: base.inputSnapshotDigest,
+            samples: base.samples,
+            loci: base.loci,
+            observations: base.observations + [
+                ObservationEvidence(
+                    id: "obs:DW473:MHC-B:12_M5_B_167_01N",
+                    evidenceClass: .directObservation,
+                    sampleID: "sample:DW473",
+                    locusID: "locus:MHC-B",
+                    genotype: "12_M5_B_167_01N",
+                    passedAlignments: 42,
+                    passedUniqueReads: 42,
+                    sampleUniqueRetainedReads: 130
+                ),
+            ],
+            currentCalls: base.currentCalls,
+            manualReviews: base.manualReviews
+        )
+    }
+
+    func makeRegistryWithCollapsedMarkerObservation() -> AIHaplotypingEvidenceRegistry {
+        let base = makeRegistry()
+        return AIHaplotypingEvidenceRegistry(
+            schemaVersion: base.schemaVersion,
+            mode: base.mode,
+            parentRevisionID: base.parentRevisionID,
+            inputSnapshotDigest: base.inputSnapshotDigest,
+            samples: base.samples,
+            loci: base.loci,
+            observations: base.observations + [
+                ObservationEvidence(
+                    id: "obs:DW473:MHC-A:11_M1M4_E_02g1|E_02_01,_E_02_02",
+                    evidenceClass: .directObservation,
+                    sampleID: "sample:DW473",
+                    locusID: "locus:MHC-A",
+                    genotype: "11_M1M4_E_02g1|E_02_01,_E_02_02",
+                    passedAlignments: 12,
+                    passedUniqueReads: 12,
+                    sampleUniqueRetainedReads: 130
+                ),
+            ],
+            currentCalls: base.currentCalls,
+            manualReviews: base.manualReviews
+        )
+    }
+
+    func makeRegistryWithExpandedMarkerObservation() -> AIHaplotypingEvidenceRegistry {
+        let base = makeRegistry()
+        return AIHaplotypingEvidenceRegistry(
+            schemaVersion: base.schemaVersion,
+            mode: base.mode,
+            parentRevisionID: base.parentRevisionID,
+            inputSnapshotDigest: base.inputSnapshotDigest,
+            samples: base.samples,
+            loci: base.loci,
+            observations: base.observations + [
+                ObservationEvidence(
+                    id: "obs:DW473:MHC-A:04_M1M2M3M4_AG_g3ex",
+                    evidenceClass: .directObservation,
+                    sampleID: "sample:DW473",
+                    locusID: "locus:MHC-A",
+                    genotype: "04_M1M2M3M4_AG_g3ex",
+                    passedAlignments: 20,
+                    passedUniqueReads: 20,
+                    sampleUniqueRetainedReads: 130
+                ),
+            ],
+            currentCalls: base.currentCalls,
+            manualReviews: base.manualReviews
+        )
+    }
+
+    func makeRegistryWithOverlappingMarkerObservation() -> AIHaplotypingEvidenceRegistry {
+        let base = makeRegistry()
+        return AIHaplotypingEvidenceRegistry(
+            schemaVersion: base.schemaVersion,
+            mode: base.mode,
+            parentRevisionID: base.parentRevisionID,
+            inputSnapshotDigest: base.inputSnapshotDigest,
+            samples: base.samples,
+            loci: base.loci,
+            observations: base.observations + [
+                ObservationEvidence(
+                    id: "obs:DW473:MHC-A:11_M4M5_E_02_nov_01",
+                    evidenceClass: .directObservation,
+                    sampleID: "sample:DW473",
+                    locusID: "locus:MHC-A",
+                    genotype: "11_M4M5_E_02_nov_01",
+                    passedAlignments: 20,
+                    passedUniqueReads: 20,
+                    sampleUniqueRetainedReads: 130
+                ),
+            ],
+            currentCalls: base.currentCalls,
+            manualReviews: base.manualReviews
+        )
+    }
+
+    func makeRegistryWithTerminalAssaySuffixObservation() -> AIHaplotypingEvidenceRegistry {
+        let base = makeRegistry()
+        return AIHaplotypingEvidenceRegistry(
+            schemaVersion: base.schemaVersion,
+            mode: base.mode,
+            parentRevisionID: base.parentRevisionID,
+            inputSnapshotDigest: base.inputSnapshotDigest,
+            samples: base.samples,
+            loci: base.loci,
+            observations: base.observations + [
+                ObservationEvidence(
+                    id: "obs:DW473:MHC-A:02_M3_G_02_0508_g48c_156bp",
+                    evidenceClass: .directObservation,
+                    sampleID: "sample:DW473",
+                    locusID: "locus:MHC-A",
+                    genotype: "02_M3_G_02_0508_g48c_156bp",
+                    passedAlignments: 20,
+                    passedUniqueReads: 20,
+                    sampleUniqueRetainedReads: 130
+                ),
+            ],
+            currentCalls: base.currentCalls,
+            manualReviews: base.manualReviews
+        )
+    }
+
+    func makeRegistryWithTerminalNumericSuffixObservation() -> AIHaplotypingEvidenceRegistry {
+        let base = makeRegistry()
+        return AIHaplotypingEvidenceRegistry(
+            schemaVersion: base.schemaVersion,
+            mode: base.mode,
+            parentRevisionID: base.parentRevisionID,
+            inputSnapshotDigest: base.inputSnapshotDigest,
+            samples: base.samples,
+            loci: base.loci,
+            observations: base.observations + [
+                ObservationEvidence(
+                    id: "obs:DW473:MHC-B:12_M1_B_046_01_01",
+                    evidenceClass: .directObservation,
+                    sampleID: "sample:DW473",
+                    locusID: "locus:MHC-B",
+                    genotype: "12_M1_B_046_01_01",
+                    passedAlignments: 1,
+                    passedUniqueReads: 1,
+                    sampleUniqueRetainedReads: 130
+                ),
+            ],
+            currentCalls: base.currentCalls,
+            manualReviews: base.manualReviews
+        )
+    }
+
+    func makeRegistryWithLeadingRegionTokenObservation() -> AIHaplotypingEvidenceRegistry {
+        let base = makeRegistry()
+        return AIHaplotypingEvidenceRegistry(
+            schemaVersion: base.schemaVersion,
+            mode: base.mode,
+            parentRevisionID: base.parentRevisionID,
+            inputSnapshotDigest: base.inputSnapshotDigest,
+            samples: base.samples,
+            loci: base.loci,
+            observations: base.observations + [
+                ObservationEvidence(
+                    id: "obs:DW473:MHC-A:01_M1_F_01_w_06",
+                    evidenceClass: .directObservation,
+                    sampleID: "sample:DW473",
+                    locusID: "locus:MHC-A",
+                    genotype: "01_M1_F_01_w_06",
+                    passedAlignments: 1,
+                    passedUniqueReads: 1,
+                    sampleUniqueRetainedReads: 130
+                ),
+            ],
+            currentCalls: base.currentCalls,
+            manualReviews: base.manualReviews
+        )
+    }
+
+    func makeRegistryWithAlleleFamilySuffixObservation() -> AIHaplotypingEvidenceRegistry {
+        let base = makeRegistry()
+        return AIHaplotypingEvidenceRegistry(
+            schemaVersion: base.schemaVersion,
+            mode: base.mode,
+            parentRevisionID: base.parentRevisionID,
+            inputSnapshotDigest: base.inputSnapshotDigest,
+            samples: base.samples,
+            loci: base.loci,
+            observations: base.observations + [
+                ObservationEvidence(
+                    id: "obs:DW473:MHC-B:12_M7_B11L_01_05",
+                    evidenceClass: .directObservation,
+                    sampleID: "sample:DW473",
+                    locusID: "locus:MHC-B",
+                    genotype: "12_M7_B11L_01_05",
+                    passedAlignments: 61,
+                    passedUniqueReads: 61,
+                    sampleUniqueRetainedReads: 130
+                ),
+            ],
+            currentCalls: base.currentCalls,
+            manualReviews: base.manualReviews
+        )
+    }
+
     func makeRegistryWithManualH1Override() -> AIHaplotypingEvidenceRegistry {
         let base = makeRegistry()
         return AIHaplotypingEvidenceRegistry(
@@ -799,6 +2095,46 @@ private extension AIHaplotypingPatchValidatorTests {
                 ),
             ],
             manualReviews: base.manualReviews
+        )
+    }
+
+    func makeRegistryWithErrorCurrentCall() -> AIHaplotypingEvidenceRegistry {
+        let base = makeRegistry()
+        return AIHaplotypingEvidenceRegistry(
+            schemaVersion: base.schemaVersion,
+            mode: base.mode,
+            parentRevisionID: base.parentRevisionID,
+            inputSnapshotDigest: base.inputSnapshotDigest,
+            samples: base.samples,
+            loci: base.loci,
+            observations: base.observations,
+            currentCalls: [
+                CurrentCallEvidence(
+                    id: "current:DW472:MHC-B:h1",
+                    sample: "DW472",
+                    locus: "MHC-B",
+                    slot: "h1",
+                    haplotypeLabel: "ERR: TMH (M8B, M9B)",
+                    source: .deterministic,
+                    parentRevisionID: "analysis-rev-1"
+                ),
+            ],
+            manualReviews: base.manualReviews
+        )
+    }
+
+    func makeRegistryWithoutManualReview() -> AIHaplotypingEvidenceRegistry {
+        let base = makeRegistry()
+        return AIHaplotypingEvidenceRegistry(
+            schemaVersion: base.schemaVersion,
+            mode: base.mode,
+            parentRevisionID: base.parentRevisionID,
+            inputSnapshotDigest: base.inputSnapshotDigest,
+            samples: base.samples,
+            loci: base.loci,
+            observations: base.observations,
+            currentCalls: base.currentCalls,
+            manualReviews: []
         )
     }
 

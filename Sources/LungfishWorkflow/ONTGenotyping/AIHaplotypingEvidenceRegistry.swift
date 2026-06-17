@@ -25,6 +25,18 @@ public enum AIHaplotypingEvidenceBuilder {
         var observationDrafts: [ObservationDraft] = []
         var currentCalls: [CurrentCallEvidence] = []
         var manualReviews: [ManualReviewEvidence] = []
+        let activeDefinitionSet = mode == .aiRefinement
+            ? try activeDefinitionSetSnapshot(in: result.bundleURL)
+            : nil
+        let reportLocusBySampleGenotype = mode == .aiRefinement
+            ? reportLocusBySampleGenotype(from: result.haplotypeAnalysis)
+            : [:]
+        let reportLocusBySampleRawLocus = mode == .aiRefinement
+            ? reportLocusBySampleRawLocus(from: result.haplotypeAnalysis)
+            : [:]
+        let reportLocusByRawLocus = mode == .aiRefinement
+            ? reportLocusByRawLocus(from: result.haplotypeAnalysis)
+            : [:]
 
         func recordSample(_ sample: String) -> String {
             let id = sampleID(for: sample)
@@ -40,7 +52,14 @@ public enum AIHaplotypingEvidenceBuilder {
 
         for (index, call) in result.calls.enumerated() {
             let sample = normalizedSampleName(call.sample)
-            let locus = GenotypeHaplotypeLocusResolver.canonicalLocusName(call.locusGroup)
+            let locus = canonicalObservationLocus(
+                for: call,
+                sample: sample,
+                reportLocusBySampleGenotype: reportLocusBySampleGenotype,
+                reportLocusBySampleRawLocus: reportLocusBySampleRawLocus,
+                reportLocusByRawLocus: reportLocusByRawLocus,
+                definitionSet: activeDefinitionSet
+            )
             let sampleID = recordSample(sample)
             let locusID = recordLocus(locus)
             observationDrafts.append(ObservationDraft(
@@ -124,7 +143,12 @@ public enum AIHaplotypingEvidenceBuilder {
         return AIHaplotypingEvidenceRegistry(
             mode: mode,
             parentRevisionID: parentRevisionID,
-            inputSnapshotDigest: inputSnapshotDigest(result: result, sidecar: sidecar, mode: mode),
+            inputSnapshotDigest: inputSnapshotDigest(
+                result: result,
+                sidecar: sidecar,
+                mode: mode,
+                definitionSet: activeDefinitionSet
+            ),
             samples: Array(samplesByID.values),
             loci: Array(lociByID.values),
             observations: materializeObservationDrafts(observationDrafts),
@@ -152,16 +176,35 @@ public enum AIHaplotypingEvidenceBuilder {
     private static func inputSnapshotDigest(
         result: ONTGenotypeResultBundleData,
         sidecar: GenotypeAnnotationSidecar?,
-        mode: AIHaplotypingPromptMode
+        mode: AIHaplotypingPromptMode,
+        definitionSet: GenotypeHaplotypeDefinitionSet?
     ) -> String {
+        let reportLocusBySampleGenotype = mode == .aiRefinement
+            ? reportLocusBySampleGenotype(from: result.haplotypeAnalysis)
+            : [:]
+        let reportLocusBySampleRawLocus = mode == .aiRefinement
+            ? reportLocusBySampleRawLocus(from: result.haplotypeAnalysis)
+            : [:]
+        let reportLocusByRawLocus = mode == .aiRefinement
+            ? reportLocusByRawLocus(from: result.haplotypeAnalysis)
+            : [:]
         let activeAnalysisRevisionID = mode == .aiRefinement
             ? result.manifest.activeHaplotypeAnalysisRevisionID ?? result.haplotypeAnalysis?.analysisRevisionID
             : nil
         let rawCalls = result.calls.map { call in
-            RawCallSnapshot(
-                sample: normalizedSampleName(call.sample),
+            let sample = normalizedSampleName(call.sample)
+            let locus = canonicalObservationLocus(
+                for: call,
+                sample: sample,
+                reportLocusBySampleGenotype: reportLocusBySampleGenotype,
+                reportLocusBySampleRawLocus: reportLocusBySampleRawLocus,
+                reportLocusByRawLocus: reportLocusByRawLocus,
+                definitionSet: definitionSet
+            )
+            return RawCallSnapshot(
+                sample: sample,
                 genotype: call.genotype,
-                locus: GenotypeHaplotypeLocusResolver.canonicalLocusName(call.locusGroup),
+                locus: locus,
                 passedAlignments: call.passedAlignments,
                 passedUniqueReads: call.passedUniqueReads,
                 sampleTotalReads: call.sampleTotalReads,
@@ -215,11 +258,157 @@ public enum AIHaplotypingEvidenceBuilder {
         "locus:\(locus)"
     }
 
+    private static func canonicalObservationLocus(
+        for call: ONTGenotypeCall,
+        sample: String,
+        reportLocusBySampleGenotype: [SampleGenotypeKey: String],
+        reportLocusBySampleRawLocus: [SampleRawLocusKey: String],
+        reportLocusByRawLocus: [String: String],
+        definitionSet: GenotypeHaplotypeDefinitionSet?
+    ) -> String {
+        if let reportLocus = reportLocusBySampleGenotype[SampleGenotypeKey(sample: sample, genotype: call.genotype)] {
+            return reportLocus
+        }
+        let definitionLocus = GenotypeHaplotypeLocusResolver.canonicalLocus(for: call, definitionSet: definitionSet)
+        let rawLocus = GenotypeHaplotypeLocusResolver.canonicalLocusName(call.locusGroup)
+        if definitionLocus != rawLocus {
+            return definitionLocus
+        }
+        if let reportLocus = reportLocusBySampleRawLocus[SampleRawLocusKey(sample: sample, rawLocus: rawLocus)] {
+            return reportLocus
+        }
+        return reportLocusByRawLocus[rawLocus] ?? rawLocus
+    }
+
+    private static func activeDefinitionSetSnapshot(
+        in bundleURL: URL
+    ) throws -> GenotypeHaplotypeDefinitionSet? {
+        let candidates = [
+            bundleURL
+                .appendingPathComponent(".ont-barcode-genotyping", isDirectory: true)
+                .appendingPathComponent("inputs", isDirectory: true)
+                .appendingPathComponent("haplotype-definition.json"),
+            bundleURL
+                .appendingPathComponent(".full-length-ont-mhc", isDirectory: true)
+                .appendingPathComponent("inputs", isDirectory: true)
+                .appendingPathComponent("haplotype-definition.json"),
+        ]
+        for url in candidates where FileManager.default.fileExists(atPath: url.path) {
+            let data = try Data(contentsOf: url)
+            return try JSONDecoder().decode(GenotypeHaplotypeDefinitionSet.self, from: data)
+        }
+        return nil
+    }
+
+    private static func reportLocusBySampleGenotype(
+        from analysis: GenotypeHaplotypeAnalysis?
+    ) -> [SampleGenotypeKey: String] {
+        guard let analysis else { return [:] }
+
+        var candidateLociByKey: [SampleGenotypeKey: Set<String>] = [:]
+        for sampleAnalysis in analysis.samples {
+            let sample = normalizedSampleName(sampleAnalysis.sample)
+            for call in sampleAnalysis.calls {
+                let locus = GenotypeHaplotypeLocusResolver.canonicalLocusName(call.locus)
+                for observedGenotype in call.observedGenotypes {
+                    let genotype = observedGenotype.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !genotype.isEmpty else { continue }
+                    let key = SampleGenotypeKey(sample: sample, genotype: genotype)
+                    candidateLociByKey[key, default: []].insert(locus)
+                }
+            }
+        }
+
+        var resolved: [SampleGenotypeKey: String] = [:]
+        for (key, candidateLoci) in candidateLociByKey where candidateLoci.count == 1 {
+            resolved[key] = candidateLoci.first
+        }
+        return resolved
+    }
+
+    private static func reportLocusBySampleRawLocus(
+        from analysis: GenotypeHaplotypeAnalysis?
+    ) -> [SampleRawLocusKey: String] {
+        guard let analysis else { return [:] }
+
+        var candidateLociByKey: [SampleRawLocusKey: Set<String>] = [:]
+        for sampleAnalysis in analysis.samples {
+            let sample = normalizedSampleName(sampleAnalysis.sample)
+            for call in sampleAnalysis.calls {
+                let reportLocus = GenotypeHaplotypeLocusResolver.canonicalLocusName(call.locus)
+                for observedGenotype in call.observedGenotypes {
+                    let genotype = observedGenotype.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !genotype.isEmpty else { continue }
+                    let rawLocus = canonicalRawLocus(forGenotype: genotype)
+                    let key = SampleRawLocusKey(sample: sample, rawLocus: rawLocus)
+                    candidateLociByKey[key, default: []].insert(reportLocus)
+                }
+            }
+        }
+
+        var resolved: [SampleRawLocusKey: String] = [:]
+        for (key, candidateLoci) in candidateLociByKey where candidateLoci.count == 1 {
+            resolved[key] = candidateLoci.first
+        }
+        return resolved
+    }
+
+    private static func reportLocusByRawLocus(
+        from analysis: GenotypeHaplotypeAnalysis?
+    ) -> [String: String] {
+        guard let analysis else { return [:] }
+
+        var candidateLociByRawLocus: [String: Set<String>] = [:]
+        for sampleAnalysis in analysis.samples {
+            for call in sampleAnalysis.calls {
+                let reportLocus = GenotypeHaplotypeLocusResolver.canonicalLocusName(call.locus)
+                for observedGenotype in call.observedGenotypes {
+                    let genotype = observedGenotype.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !genotype.isEmpty else { continue }
+                    let rawLocus = canonicalRawLocus(forGenotype: genotype)
+                    candidateLociByRawLocus[rawLocus, default: []].insert(reportLocus)
+                }
+            }
+        }
+
+        var resolved: [String: String] = [:]
+        for (rawLocus, candidateLoci) in candidateLociByRawLocus where candidateLoci.count == 1 {
+            resolved[rawLocus] = candidateLoci.first
+        }
+        return resolved
+    }
+
+    private static func canonicalRawLocus(forGenotype genotype: String) -> String {
+        let call = ONTGenotypeCall(
+            sample: "",
+            genotype: genotype,
+            passedAlignments: 0,
+            passedUniqueReads: 0,
+            sampleTotalReads: nil,
+            sampleUniqueRetainedReads: nil,
+            sampleUniqueRetainedPercent: nil,
+            overallInputReads: nil,
+            overallUniqueRetainedReads: nil,
+            overallUniqueRetainedPercent: nil
+        )
+        return GenotypeHaplotypeLocusResolver.canonicalLocusName(call.locusGroup)
+    }
+
     private struct InputSnapshot: Encodable {
         let activeAnalysisRevisionID: String?
         let rawCalls: [RawCallSnapshot]
         let callOverrides: [OverrideSnapshot]
         let manualHaplotypeAssignments: [ManualAssignmentSnapshot]
+    }
+
+    private struct SampleGenotypeKey: Hashable {
+        let sample: String
+        let genotype: String
+    }
+
+    private struct SampleRawLocusKey: Hashable {
+        let sample: String
+        let rawLocus: String
     }
 
     private struct ObservationDraft {

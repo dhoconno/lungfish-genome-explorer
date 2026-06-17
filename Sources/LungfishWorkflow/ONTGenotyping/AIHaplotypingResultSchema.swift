@@ -289,7 +289,7 @@ public enum AIHaplotypingResultSchema {
 
     private static func callSchema() -> JSONValue {
         .object(closedObject([
-            "patchOpID": stringSchema(),
+            "patchOpID": nonEmptyStringSchema(),
             "sample": stringSchema(),
             "locus": stringSchema(),
             "slot": stringEnum(["h1", "h2"]),
@@ -310,7 +310,7 @@ public enum AIHaplotypingResultSchema {
 
     private static func discoveredDefinitionSchema() -> JSONValue {
         .object(closedObject([
-            "definitionID": stringSchema(),
+            "definitionID": nonEmptyStringSchema(),
             "locus": stringSchema(),
             "proposedLabel": stringSchema(),
             "normalizedFamily": nullableStringSchema(),
@@ -334,6 +334,14 @@ public enum AIHaplotypingResultSchema {
     private static func stringSchema() -> JSONValue {
         .object([
             "type": .string("string"),
+            "maxLength": .integer(4_096),
+        ])
+    }
+
+    private static func nonEmptyStringSchema() -> JSONValue {
+        .object([
+            "type": .string("string"),
+            "minLength": .integer(1),
             "maxLength": .integer(4_096),
         ])
     }
@@ -373,8 +381,12 @@ public enum AIHaplotypingResultSchema {
 
     private static func generationParametersSchema() -> JSONValue {
         .object(closedObject([
+            "chunkEndIndex": stringSchema(),
+            "chunkStartIndex": stringSchema(),
+            "compactKnowledgePack": stringSchema(),
             "maxObservationsPerChunk": stringSchema(),
             "maxOutputTokens": stringSchema(),
+            "maxProviderRetries": stringSchema(),
             "schemaName": stringSchema(),
             "temperature": stringSchema(),
         ]))

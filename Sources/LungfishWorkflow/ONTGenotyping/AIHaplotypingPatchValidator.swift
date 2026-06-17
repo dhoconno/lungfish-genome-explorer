@@ -6,6 +6,7 @@ public enum AIHaplotypingValidationError: Codable, Error, Equatable, Sendable {
     case inputSnapshotDigestMismatch
     case runMetadataMismatch(String)
     case chunkIDMismatch(expected: String, actual: String?)
+    case invalidPatchOpID(String)
     case unknownEvidenceID(String)
     case duplicatePatchOpID(String)
     case duplicateCallTarget(String, String, String)
@@ -39,6 +40,7 @@ public enum AIHaplotypingValidationError: Codable, Error, Equatable, Sendable {
         case .inputSnapshotDigestMismatch: return "input_snapshot_digest_mismatch"
         case .runMetadataMismatch: return "run_metadata_mismatch"
         case .chunkIDMismatch: return "chunk_id_mismatch"
+        case .invalidPatchOpID: return "invalid_patch_op_id"
         case .unknownEvidenceID: return "unknown_evidence_id"
         case .duplicatePatchOpID: return "duplicate_patch_op_id"
         case .duplicateCallTarget: return "duplicate_call_target"
@@ -76,6 +78,8 @@ public enum AIHaplotypingValidationError: Codable, Error, Equatable, Sendable {
                 fields["actual"] = actual
             }
             return fields
+        case .invalidPatchOpID(let patchOpID):
+            return ["patchOpID": patchOpID]
         case .unknownEvidenceID(let evidenceID):
             return ["evidenceID": evidenceID]
         case .duplicatePatchOpID(let patchOpID):
@@ -124,6 +128,8 @@ public enum AIHaplotypingValidationError: Codable, Error, Equatable, Sendable {
             return "Structured result run metadata field '\(field)' does not match the expected run metadata."
         case .chunkIDMismatch(let expected, let actual):
             return "Structured result chunkID '\(actual ?? "nil")' does not match expected chunkID '\(expected)'."
+        case .invalidPatchOpID:
+            return "Structured result contains a blank patch operation ID."
         case .unknownEvidenceID(let evidenceID):
             return "Structured result cites unknown evidence ID '\(evidenceID)'."
         case .duplicatePatchOpID(let patchOpID):
@@ -203,6 +209,8 @@ public enum AIHaplotypingValidationError: Codable, Error, Equatable, Sendable {
             self = .runMetadataMismatch(try field("field"))
         case "chunk_id_mismatch":
             self = .chunkIDMismatch(expected: try field("expected"), actual: fields["actual"])
+        case "invalid_patch_op_id":
+            self = .invalidPatchOpID(try field("patchOpID"))
         case "unknown_evidence_id":
             self = .unknownEvidenceID(try field("evidenceID"))
         case "duplicate_patch_op_id":
@@ -330,27 +338,28 @@ public struct AIHaplotypingPatchValidator: Sendable {
                 result: result
             )
         }
-        if let unsupportedClaim = firstUnsupportedClaim(in: result) {
-            return rejected(.unsupportedClaim(unsupportedClaim), result: result)
+        let normalizedResult = normalizedTargetReferences(in: result, context: context)
+        if let unsupportedClaim = firstUnsupportedClaim(in: normalizedResult) {
+            return rejected(.unsupportedClaim(unsupportedClaim), result: normalizedResult)
         }
-        if let error = firstPatchIdentityError(in: result.calls) {
-            return rejected(error, result: result)
+        if let error = firstPatchIdentityError(in: normalizedResult.calls) {
+            return rejected(error, result: normalizedResult)
         }
-        if let error = firstDuplicateProposedLabelError(in: result.calls) {
-            return rejected(error, result: result)
+        if let error = firstDuplicateProposedLabelError(in: normalizedResult.calls) {
+            return rejected(error, result: normalizedResult)
         }
-        if let error = firstDefinitionIdentityError(in: result.discoveredDefinitions) {
-            return rejected(error, result: result)
+        if let error = firstDefinitionIdentityError(in: normalizedResult.discoveredDefinitions) {
+            return rejected(error, result: normalizedResult)
         }
-        if let error = firstDefinitionEvidenceError(in: result.discoveredDefinitions, context: context) {
-            return rejected(error, result: result)
+        if let error = firstDefinitionEvidenceError(in: normalizedResult.discoveredDefinitions, context: context) {
+            return rejected(error, result: normalizedResult)
         }
-        if let error = firstCallValidationError(in: result.calls, context: context) {
-            return rejected(error, result: result)
+        if let error = firstCallValidationError(in: normalizedResult.calls, context: context) {
+            return rejected(error, result: normalizedResult)
         }
 
-        let normalizedCalls = result.calls.map(normalizedCall(from:))
-        let validatedDefinitions = result.discoveredDefinitions.map { definition in
+        let normalizedCalls = normalizedResult.calls.map(normalizedCall(from:))
+        let validatedDefinitions = normalizedResult.discoveredDefinitions.map { definition in
             AIHaplotypingValidatedDefinition(
                 definitionID: definition.definitionID,
                 locus: definition.locus,
@@ -363,13 +372,13 @@ public struct AIHaplotypingPatchValidator: Sendable {
         }
         return AIHaplotypingValidationReport(
             accepted: true,
-            run: result.run,
-            chunkID: result.chunkID,
-            registryDigest: result.registryDigest,
-            inputSnapshotDigest: result.inputSnapshotDigest,
+            run: normalizedResult.run,
+            chunkID: normalizedResult.chunkID,
+            registryDigest: normalizedResult.registryDigest,
+            inputSnapshotDigest: normalizedResult.inputSnapshotDigest,
             normalizedCalls: normalizedCalls,
             validatedDefinitions: validatedDefinitions,
-            warnings: result.warnings,
+            warnings: normalizedResult.warnings,
             errors: []
         )
     }
@@ -396,6 +405,10 @@ public struct AIHaplotypingPatchValidator: Sendable {
         var patchIDs: Set<String> = []
         var targets: Set<CallTarget> = []
         for call in calls {
+            let patchOpID = call.patchOpID.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !patchOpID.isEmpty else {
+                return .invalidPatchOpID(call.patchOpID)
+            }
             guard patchIDs.insert(call.patchOpID).inserted else {
                 return .duplicatePatchOpID(call.patchOpID)
             }
@@ -407,24 +420,155 @@ public struct AIHaplotypingPatchValidator: Sendable {
         return nil
     }
 
+    private func normalizedTargetReferences(
+        in result: AIHaplotypingStructuredResult,
+        context: ValidationContext
+    ) -> AIHaplotypingStructuredResult {
+        let calls = result.calls.map { call in
+            let sample = context.normalizedSampleReference(call.sample)
+            let locus = context.normalizedLocusReference(call.locus)
+            let supportEvidenceRefs = call.supportEvidenceRefs.map(context.normalizedEvidenceReference)
+            let counterevidenceRefs = call.counterevidenceRefs.map(context.normalizedEvidenceReference)
+            return AIHaplotypingStructuredCall(
+                patchOpID: call.patchOpID,
+                sample: sample,
+                locus: locus,
+                slot: call.slot,
+                haplotypeLabel: call.haplotypeLabel,
+                normalizedFamily: call.normalizedFamily,
+                source: call.source,
+                sourceState: call.sourceState,
+                reviewState: call.reviewState,
+                callState: normalizedCallState(
+                    call.callState,
+                    sample: sample,
+                    locus: locus,
+                    slot: call.slot,
+                    haplotypeLabel: call.haplotypeLabel,
+                    supportEvidenceRefs: supportEvidenceRefs,
+                    counterevidenceRefs: counterevidenceRefs,
+                    rationaleCode: call.rationaleCode,
+                    rationale: call.rationale,
+                    context: context
+                ),
+                confidenceTier: call.confidenceTier,
+                supportEvidenceRefs: supportEvidenceRefs,
+                counterevidenceRefs: counterevidenceRefs,
+                alternates: call.alternates,
+                rationaleCode: call.rationaleCode,
+                rationale: call.rationale
+            )
+        }
+        let discoveredDefinitions = result.discoveredDefinitions.map { definition in
+            AIHaplotypingDiscoveredDefinition(
+                definitionID: definition.definitionID,
+                locus: context.normalizedLocusReference(definition.locus),
+                proposedLabel: definition.proposedLabel,
+                normalizedFamily: definition.normalizedFamily,
+                supportEvidenceRefs: definition.supportEvidenceRefs.map(context.normalizedEvidenceReference),
+                counterevidenceRefs: definition.counterevidenceRefs.map(context.normalizedEvidenceReference),
+                confidenceTier: definition.confidenceTier,
+                rationaleCode: definition.rationaleCode,
+                rationale: definition.rationale
+            )
+        }
+        return AIHaplotypingStructuredResult(
+            schemaVersion: result.schemaVersion,
+            run: result.run,
+            registryDigest: result.registryDigest,
+            inputSnapshotDigest: result.inputSnapshotDigest,
+            chunkID: result.chunkID,
+            discoveredDefinitions: discoveredDefinitions,
+            calls: calls,
+            warnings: result.warnings
+        )
+    }
+
+    private func normalizedCallState(
+        _ callState: GenotypeHaplotypeAICallState,
+        sample: String,
+        locus: String,
+        slot: String,
+        haplotypeLabel: String,
+        supportEvidenceRefs: [String],
+        counterevidenceRefs: [String],
+        rationaleCode: String,
+        rationale: String,
+        context: ValidationContext
+    ) -> GenotypeHaplotypeAICallState {
+        if requiresPositiveHaplotypeLabel(callState)
+            && !isCallableCarryForwardLabel(haplotypeLabel) {
+            return .unresolved
+        }
+        let target = CallTarget(sample: sample, locus: locus, slot: slot)
+        if callState == .called,
+           let currentCall = context.currentCalls[target],
+           isConflict(existingLabel: currentCall.haplotypeLabel, proposedLabel: haplotypeLabel),
+           counterevidenceRefs.contains(currentCall.id),
+           explicitlyAcknowledgesCurrentConflict(
+               rationaleCode: rationaleCode,
+               rationale: rationale,
+               supportEvidenceRefs: supportEvidenceRefs,
+               currentEvidenceID: currentCall.id
+           ) {
+            return .conflictsCurrent
+        }
+        guard callState == .conflictsCurrent else {
+            return callState
+        }
+        guard let currentCall = context.currentCalls[target],
+              !isConflict(existingLabel: currentCall.haplotypeLabel, proposedLabel: haplotypeLabel) else {
+            return callState
+        }
+        return isCallableCarryForwardLabel(haplotypeLabel) ? .called : .unresolved
+    }
+
+    private func explicitlyAcknowledgesCurrentConflict(
+        rationaleCode: String,
+        rationale: String,
+        supportEvidenceRefs: [String],
+        currentEvidenceID: String
+    ) -> Bool {
+        guard !supportEvidenceRefs.isEmpty else { return false }
+        let text = "\(rationaleCode) \(rationale)".lowercased()
+        let mentionsCurrent = text.contains("current")
+        let mentionsConflict = text.contains("conflict")
+            || text.contains("contradict")
+            || text.contains("supersed")
+            || text.contains("override")
+            || text.contains("replace")
+            || text.contains("disagree")
+        return mentionsCurrent && mentionsConflict && !currentEvidenceID.isEmpty
+    }
+
     private func firstDuplicateProposedLabelError(
         in calls: [AIHaplotypingStructuredCall]
     ) -> AIHaplotypingValidationError? {
-        var labelsBySampleLocus: [SampleLocus: [String: Set<String>]] = [:]
+        var callsByTargetLabel: [SampleLocusLabel: [AIHaplotypingStructuredCall]] = [:]
+        var orderedKeys: [SampleLocusLabel] = []
         for call in calls {
             let label = call.haplotypeLabel.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !label.isEmpty, label != "-" else { continue }
-            let sampleLocus = SampleLocus(sample: call.sample, locus: call.locus)
-            var labels = labelsBySampleLocus[sampleLocus, default: [:]]
-            var slots = labels[label, default: []]
-            slots.insert(call.slot)
-            if slots.count > 1 {
-                return .unsupportedDuplicateSlotLabel(call.sample, call.locus, label)
+            let key = SampleLocusLabel(sample: call.sample, locus: call.locus, label: label)
+            if callsByTargetLabel[key] == nil {
+                orderedKeys.append(key)
             }
-            labels[label] = slots
-            labelsBySampleLocus[sampleLocus] = labels
+            callsByTargetLabel[key, default: []].append(call)
+        }
+
+        for key in orderedKeys {
+            guard let groupedCalls = callsByTargetLabel[key] else { continue }
+            let slots = Set(groupedCalls.map(\.slot))
+            guard slots.count > 1 else { continue }
+            guard allowsDuplicateSlotLabel(groupedCalls) else {
+                return .unsupportedDuplicateSlotLabel(key.sample, key.locus, key.label)
+            }
         }
         return nil
+    }
+
+    private func allowsDuplicateSlotLabel(_ calls: [AIHaplotypingStructuredCall]) -> Bool {
+        return Set(calls.map(\.slot)) == ["h1", "h2"]
     }
 
     private func firstDefinitionIdentityError(
@@ -672,7 +816,11 @@ public struct AIHaplotypingPatchValidator: Sendable {
 
     private func isCallableCarryForwardLabel(_ value: String) -> Bool {
         let normalized = normalizedCarryForwardLabel(value)
-        return !normalized.isEmpty && normalized != "-"
+        guard !normalized.isEmpty, normalized != "-" else { return false }
+        let uppercased = normalized.uppercased()
+        guard !uppercased.hasPrefix("ERR:") else { return false }
+        guard uppercased != "NOT ASSAYED" else { return false }
+        return true
     }
 
     private func rejected(
@@ -716,65 +864,109 @@ public struct AIHaplotypingPatchValidator: Sendable {
 
     private func isConflict(existingLabel: String, proposedLabel: String) -> Bool {
         let existing = existingLabel.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !existing.isEmpty, existing != "-" else { return false }
-        return existing != proposedLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isCallableCarryForwardLabel(existing) else { return false }
+        let proposed = proposedLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isCallableCarryForwardLabel(proposed) else { return false }
+        return existing != proposed
     }
 
     private func firstUnsupportedClaim(in result: AIHaplotypingStructuredResult) -> String? {
-        for text in modelTextFields(in: result) {
-            if let claim = unsupportedClaim(in: text) {
+        for field in modelTextFields(in: result) {
+            if let claim = unsupportedClaim(
+                in: field.text,
+                allowsHomozygosity: field.allowsHomozygosity,
+                allowsAbsence: field.allowsAbsence
+            ) {
                 return claim
             }
         }
         return nil
     }
 
-    private func modelTextFields(in result: AIHaplotypingStructuredResult) -> [String] {
-        var fields: [String] = []
+    private func modelTextFields(in result: AIHaplotypingStructuredResult) -> [ModelTextField] {
+        var fields: [ModelTextField] = []
         for call in result.calls {
-            fields.append(call.haplotypeLabel)
+            fields.append(ModelTextField(text: call.haplotypeLabel))
             if let normalizedFamily = call.normalizedFamily {
-                fields.append(normalizedFamily)
+                fields.append(ModelTextField(text: normalizedFamily))
             }
-            fields.append(contentsOf: call.alternates)
-            fields.append(call.rationaleCode)
-            fields.append(call.rationale)
+            fields.append(contentsOf: call.alternates.map { ModelTextField(text: $0) })
+            fields.append(ModelTextField(
+                text: call.rationaleCode,
+                allowsHomozygosity: true,
+                allowsAbsence: true
+            ))
+            fields.append(ModelTextField(
+                text: call.rationale,
+                allowsHomozygosity: true,
+                allowsAbsence: true
+            ))
         }
         for definition in result.discoveredDefinitions {
-            fields.append(definition.proposedLabel)
+            fields.append(ModelTextField(text: definition.proposedLabel))
             if let normalizedFamily = definition.normalizedFamily {
-                fields.append(normalizedFamily)
+                fields.append(ModelTextField(text: normalizedFamily))
             }
-            fields.append(definition.rationaleCode)
-            fields.append(definition.rationale)
+            fields.append(ModelTextField(text: definition.rationaleCode))
+            fields.append(ModelTextField(text: definition.rationale))
         }
-        fields.append(contentsOf: result.warnings)
+        fields.append(contentsOf: result.warnings.map {
+            ModelTextField(text: $0, allowsHomozygosity: true, allowsAbsence: true)
+        })
         return fields
     }
 
-    private func unsupportedClaim(in text: String) -> String? {
+    private func unsupportedClaim(in text: String, allowsHomozygosity: Bool, allowsAbsence: Bool) -> String? {
         let normalized = text
             .replacingOccurrences(of: "_", with: " ")
             .replacingOccurrences(of: "-", with: " ")
             .lowercased()
-        let terms = [
+        var terms = [
             "phase",
             "phasing",
-            "homozygous",
-            "homozygosity",
             "copy number",
             "inherited",
             "inheritance",
-            "absent",
-            "absence",
             "clinical",
         ]
+        if !allowsHomozygosity {
+            terms.append(contentsOf: ["homozygous", "homozygosity"])
+        }
+        if !allowsAbsence {
+            terms.append(contentsOf: ["absent", "absence"])
+        }
         for term in terms {
+            if term == "clinical" {
+                guard containsUnsupportedClinicalClaim(in: normalized) else {
+                    continue
+                }
+                return text
+            }
             if normalized.contains(term) {
                 return text
             }
         }
         return nil
+    }
+
+    private func containsUnsupportedClinicalClaim(in normalizedText: String) -> Bool {
+        var text = normalizedText
+        for allowedPhrase in ["not clinical", "non clinical", "nonclinical"] {
+            text = text.replacingOccurrences(of: allowedPhrase, with: "")
+        }
+        return text.contains("clinical")
+    }
+}
+
+private struct ModelTextField {
+    let text: String
+    let allowsHomozygosity: Bool
+    let allowsAbsence: Bool
+
+    init(text: String, allowsHomozygosity: Bool = false, allowsAbsence: Bool = false) {
+        self.text = text
+        self.allowsHomozygosity = allowsHomozygosity
+        self.allowsAbsence = allowsAbsence
     }
 }
 
@@ -782,6 +974,8 @@ private struct ValidationContext: Sendable {
     let mode: AIHaplotypingPromptMode
     let samples: Set<String>
     let loci: Set<String>
+    let sampleReferences: [String: String]
+    let locusReferences: [String: String]
     let evidenceByID: [String: EvidenceRecord]
     let currentCalls: [CallTarget: CurrentCallEvidence]
     let manualReviews: [CallTarget: ManualReviewEvidence]
@@ -792,6 +986,18 @@ private struct ValidationContext: Sendable {
         loci = Set(registry.loci.map(\.locus))
         let samplesByID = Dictionary(uniqueKeysWithValues: registry.samples.map { ($0.id, $0.sample) })
         let lociByID = Dictionary(uniqueKeysWithValues: registry.loci.map { ($0.id, $0.locus) })
+        var sampleReferences: [String: String] = [:]
+        for sample in registry.samples {
+            sampleReferences[sample.sample] = sample.sample
+            sampleReferences[sample.id] = sample.sample
+        }
+        self.sampleReferences = sampleReferences
+        var locusReferences: [String: String] = [:]
+        for locus in registry.loci {
+            locusReferences[locus.locus] = locus.locus
+            locusReferences[locus.id] = locus.locus
+        }
+        self.locusReferences = locusReferences
         var records: [String: EvidenceRecord] = [:]
         for sample in registry.samples {
             records[sample.id] = EvidenceRecord(
@@ -841,6 +1047,352 @@ private struct ValidationContext: Sendable {
             (CallTarget(sample: $0.sample, locus: $0.locus, slot: $0.slot), $0)
         })
     }
+
+    func normalizedSampleReference(_ rawValue: String) -> String {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        return sampleReferences[trimmed] ?? trimmed
+    }
+
+    func normalizedLocusReference(_ rawValue: String) -> String {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let locus = locusReferences[trimmed] {
+            return locus
+        }
+        let canonical = GenotypeHaplotypeLocusResolver.canonicalLocusName(trimmed)
+        return loci.contains(canonical) ? canonical : trimmed
+    }
+
+    func normalizedEvidenceReference(_ rawValue: String) -> String {
+        if evidenceByID[rawValue] != nil {
+            return rawValue
+        }
+
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if evidenceByID[trimmed] != nil {
+            return trimmed
+        }
+
+        for prefix in ["sample:", "locus:"] {
+            let duplicatedPrefix = "\(prefix)\(prefix)"
+            if trimmed.hasPrefix(duplicatedPrefix) {
+                let candidate = prefix + trimmed.dropFirst(duplicatedPrefix.count)
+                if evidenceByID[String(candidate)] != nil {
+                    return String(candidate)
+                }
+            }
+        }
+
+        guard trimmed.hasPrefix("obs:") else {
+            return rawValue
+        }
+
+        for suffix in ["g", "N"] {
+            let trailingVariant = "\(trimmed)\(suffix)"
+            if evidenceByID[trailingVariant] != nil {
+                return trailingVariant
+            }
+        }
+
+        if let pipedObservationID = uniqueEvidenceID(matchingPrefix: "\(trimmed)|") {
+            return pipedObservationID
+        }
+
+        if let pipedAliasObservationID = uniquePipedAliasObservationID(matching: trimmed) {
+            return pipedAliasObservationID
+        }
+
+        if let terminalSuffixObservationID = uniqueTerminalSuffixObservationID(matching: trimmed) {
+            return terminalSuffixObservationID
+        }
+
+        if let alleleFamilySuffixObservationID = uniqueAlleleFamilySuffixObservationID(matching: trimmed) {
+            return alleleFamilySuffixObservationID
+        }
+
+        if let collapsedMarkerObservationID = uniqueCollapsedMarkerObservationID(matching: trimmed) {
+            return collapsedMarkerObservationID
+        }
+
+        if let leadingRegionTokenObservationID = uniqueLeadingRegionTokenObservationID(matching: trimmed) {
+            return leadingRegionTokenObservationID
+        }
+
+        return rawValue
+    }
+
+    private func uniqueEvidenceID(matchingPrefix prefix: String) -> String? {
+        var match: String?
+        for evidenceID in evidenceByID.keys where evidenceID.hasPrefix(prefix) {
+            guard match == nil else {
+                return nil
+            }
+            match = evidenceID
+        }
+        return match
+    }
+
+    private func uniquePipedAliasObservationID(matching rawObservationID: String) -> String? {
+        guard let raw = observationIDParts(rawObservationID),
+              let rawMarker = markerPrefixAndTail(raw.genotype) else {
+            return nil
+        }
+
+        var match: String?
+        for evidenceID in evidenceByID.keys {
+            guard let candidate = observationIDParts(evidenceID),
+                  candidate.sample == raw.sample,
+                  candidate.locus == raw.locus,
+                  let pipeIndex = candidate.genotype.firstIndex(of: "|") else {
+                continue
+            }
+
+            let candidateBase = String(candidate.genotype[..<pipeIndex])
+            guard let candidateMarker = markerPrefixAndTail(candidateBase),
+                  candidateMarker.leadingToken == rawMarker.leadingToken,
+                  areCompatibleCollapsedMarkerGroups(
+                      candidateMarker.haplotypeGroups,
+                      rawMarker.haplotypeGroups
+                  ) else {
+                continue
+            }
+
+            let aliasStart = candidate.genotype.index(after: pipeIndex)
+            let aliases = candidate.genotype[aliasStart...]
+                .split(separator: ",", omittingEmptySubsequences: true)
+                .map { normalizedPipedAliasToken(String($0)) }
+            guard aliases.contains(rawMarker.tail) else {
+                continue
+            }
+            guard match == nil else {
+                return nil
+            }
+            match = evidenceID
+        }
+        return match
+    }
+
+    private func normalizedPipedAliasToken(_ rawAlias: String) -> String {
+        var alias = rawAlias.trimmingCharacters(in: .whitespacesAndNewlines)
+        while alias.hasPrefix("_") {
+            alias.removeFirst()
+        }
+        return alias
+    }
+
+    private func uniqueTerminalSuffixObservationID(matching rawObservationID: String) -> String? {
+        guard let raw = observationIDParts(rawObservationID) else {
+            return nil
+        }
+
+        let genotypePrefix = "\(raw.genotype)_"
+        var match: String?
+        for evidenceID in evidenceByID.keys {
+            guard let candidate = observationIDParts(evidenceID),
+                  candidate.sample == raw.sample,
+                  candidate.locus == raw.locus,
+                  candidate.genotype.hasPrefix(genotypePrefix) else {
+                continue
+            }
+            let suffix = String(candidate.genotype.dropFirst(genotypePrefix.count))
+            guard isTerminalObservationSuffix(suffix) else {
+                continue
+            }
+            guard match == nil else {
+                return nil
+            }
+            match = evidenceID
+        }
+        return match
+    }
+
+    private func isTerminalObservationSuffix(_ suffix: String) -> Bool {
+        if suffix.hasSuffix("bp") {
+            let lengthToken = suffix.dropLast(2)
+            return !lengthToken.isEmpty && lengthToken.allSatisfy { $0.isNumber }
+        }
+        return !suffix.isEmpty && suffix.allSatisfy { $0.isNumber }
+    }
+
+    private func uniqueAlleleFamilySuffixObservationID(matching rawObservationID: String) -> String? {
+        guard let raw = observationIDParts(rawObservationID),
+              let rawMarker = markerPrefixAndTail(raw.genotype),
+              let rawStem = alleleFamilyStem(rawMarker.tail) else {
+            return nil
+        }
+
+        var match: String?
+        for evidenceID in evidenceByID.keys {
+            guard let candidate = observationIDParts(evidenceID),
+                  candidate.sample == raw.sample,
+                  candidate.locus == raw.locus,
+                  candidate.genotype != raw.genotype,
+                  let candidateMarker = markerPrefixAndTail(candidate.genotype),
+                  candidateMarker.leadingToken == rawMarker.leadingToken,
+                  areCompatibleCollapsedMarkerGroups(
+                      candidateMarker.haplotypeGroups,
+                      rawMarker.haplotypeGroups
+                  ),
+                  alleleFamilyStem(candidateMarker.tail) == rawStem else {
+                continue
+            }
+            guard match == nil else {
+                return nil
+            }
+            match = evidenceID
+        }
+        return match
+    }
+
+    private func alleleFamilyStem(_ tail: String) -> String? {
+        if let groupSuffix = tail.range(of: #"g\d+ex$"#, options: .regularExpression) {
+            let stem = String(tail[..<groupSuffix.lowerBound])
+            return stem.isEmpty ? nil : stem
+        }
+        if let numericSuffix = tail.range(of: #"_\d+$"#, options: .regularExpression) {
+            let stem = String(tail[..<numericSuffix.lowerBound])
+            return stem.isEmpty ? nil : stem
+        }
+        return nil
+    }
+
+    private func uniqueCollapsedMarkerObservationID(matching rawObservationID: String) -> String? {
+        guard let raw = observationIDParts(rawObservationID),
+              let rawSignature = markerSignature(for: raw.genotype) else {
+            return nil
+        }
+
+        var match: String?
+        for evidenceID in evidenceByID.keys {
+            guard let candidate = observationIDParts(evidenceID),
+                  candidate.sample == raw.sample,
+                  candidate.locus == raw.locus,
+                  let candidateSignature = markerSignature(for: candidate.genotype),
+                  candidateSignature.skeleton == rawSignature.skeleton,
+                  areCompatibleCollapsedMarkerGroups(
+                      candidateSignature.haplotypeGroups,
+                      rawSignature.haplotypeGroups
+                  ) else {
+                continue
+            }
+            guard match == nil else {
+                return nil
+            }
+            match = evidenceID
+        }
+        return match
+    }
+
+    private func uniqueLeadingRegionTokenObservationID(matching rawObservationID: String) -> String? {
+        guard let raw = observationIDParts(rawObservationID),
+              let rawTail = markerTailAfterLeadingToken(raw.genotype) else {
+            return nil
+        }
+
+        var match: String?
+        for evidenceID in evidenceByID.keys {
+            guard let candidate = observationIDParts(evidenceID),
+                  candidate.sample == raw.sample,
+                  candidate.locus == raw.locus,
+                  candidate.genotype != raw.genotype,
+                  markerTailAfterLeadingToken(candidate.genotype) == rawTail else {
+                continue
+            }
+            guard match == nil else {
+                return nil
+            }
+            match = evidenceID
+        }
+        return match
+    }
+
+    private func markerTailAfterLeadingToken(_ genotype: String) -> String? {
+        guard let firstUnderscore = genotype.firstIndex(of: "_"),
+              firstUnderscore < genotype.index(before: genotype.endIndex) else {
+            return nil
+        }
+        let leadingToken = genotype[..<firstUnderscore]
+        guard leadingToken.allSatisfy({ $0.isNumber }) else {
+            return nil
+        }
+        return String(genotype[genotype.index(after: firstUnderscore)...])
+    }
+
+    private func markerPrefixAndTail(
+        _ genotype: String
+    ) -> (leadingToken: String, haplotypeGroups: Set<String>, tail: String)? {
+        let parts = genotype.split(separator: "_", maxSplits: 2, omittingEmptySubsequences: false)
+        guard parts.count == 3 else {
+            return nil
+        }
+        let groups = haplotypeGroups(in: String(parts[1]))
+        guard !groups.isEmpty else {
+            return nil
+        }
+        return (String(parts[0]), groups, String(parts[2]))
+    }
+
+    private func areCompatibleCollapsedMarkerGroups(_ lhs: Set<String>, _ rhs: Set<String>) -> Bool {
+        !lhs.intersection(rhs).isEmpty
+    }
+
+    private func observationIDParts(_ rawValue: String) -> ObservationIDParts? {
+        let parts = rawValue.split(separator: ":", maxSplits: 3, omittingEmptySubsequences: false)
+        guard parts.count == 4, parts[0] == "obs" else {
+            return nil
+        }
+        return ObservationIDParts(
+            sample: String(parts[1]),
+            locus: String(parts[2]),
+            genotype: String(parts[3])
+        )
+    }
+
+    private func markerSignature(for genotype: String) -> MarkerSignature? {
+        let parts = genotype.split(separator: "_", maxSplits: 2, omittingEmptySubsequences: false)
+        guard parts.count == 3 else {
+            return nil
+        }
+        let haplotypeGroups = haplotypeGroups(in: String(parts[1]))
+        guard !haplotypeGroups.isEmpty else {
+            return nil
+        }
+        return MarkerSignature(
+            skeleton: "\(parts[0])_\(parts[2])",
+            haplotypeGroups: haplotypeGroups
+        )
+    }
+
+    private func haplotypeGroups(in rawToken: String) -> Set<String> {
+        var groups: Set<String> = []
+        var index = rawToken.startIndex
+        while index < rawToken.endIndex {
+            guard rawToken[index] == "M" else {
+                return []
+            }
+            var next = rawToken.index(after: index)
+            let digitsStart = next
+            while next < rawToken.endIndex, rawToken[next].isNumber {
+                next = rawToken.index(after: next)
+            }
+            guard digitsStart != next else {
+                return []
+            }
+            groups.insert(String(rawToken[index..<next]))
+            index = next
+        }
+        return groups
+    }
+}
+
+private struct ObservationIDParts: Equatable, Sendable {
+    let sample: String
+    let locus: String
+    let genotype: String
+}
+
+private struct MarkerSignature: Equatable, Sendable {
+    let skeleton: String
+    let haplotypeGroups: Set<String>
 }
 
 private struct EvidenceRecord: Equatable, Sendable {
@@ -859,4 +1411,10 @@ private struct CallTarget: Hashable, Sendable {
 private struct SampleLocus: Hashable, Sendable {
     let sample: String
     let locus: String
+}
+
+private struct SampleLocusLabel: Hashable, Sendable {
+    let sample: String
+    let locus: String
+    let label: String
 }

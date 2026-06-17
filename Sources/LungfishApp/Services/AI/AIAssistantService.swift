@@ -327,7 +327,7 @@ public final class AIAssistantService {
 
     private func shouldFallback(for error: AIProviderError) -> Bool {
         switch error {
-        case .rateLimited, .networkError, .modelNotAvailable:
+        case .rateLimited, .quotaExceeded, .networkError, .modelNotAvailable:
             return true
         case .httpError(let statusCode, _):
             return statusCode >= 500

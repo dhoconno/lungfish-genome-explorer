@@ -69,10 +69,12 @@ final class GenotypeAIHaplotypingExecutionService {
                 mode: mode,
                 providerID: provider.providerID,
                 credentialSource: provider.credentialSource,
-                maxObservationsPerChunk: 128,
-                maxOutputTokens: 4096,
-                temperature: 0,
-                provenancePath: AIHaplotypingPatchValidator.pendingProvenancePath
+                maxObservationsPerChunk: AIHaplotypingExecutionDefaults.maxObservationsPerChunk,
+                maxOutputTokens: AIHaplotypingExecutionDefaults.maxOutputTokens,
+                temperature: AIHaplotypingExecutionDefaults.temperature,
+                maxProviderRetries: AIHaplotypingExecutionDefaults.maxProviderRetries,
+                provenancePath: AIHaplotypingPatchValidator.pendingProvenancePath,
+                compactKnowledgePack: AIHaplotypingExecutionDefaults.compactKnowledgePack
             )
             let runnerOutput = try await AIHaplotypingRunner(provider: provider.structuredProvider).run(
                 result: activeResult,
@@ -92,9 +94,11 @@ final class GenotypeAIHaplotypingExecutionService {
                     "credentialSource": .string(provider.credentialSource.rawValue),
                 ],
                 defaultOptions: [
-                    "maxObservationsPerChunk": .integer(128),
-                    "maxOutputTokens": .integer(4096),
-                    "temperature": .number(0),
+                    "compactKnowledgePack": .string(AIHaplotypingExecutionDefaults.compactKnowledgePack ? "true" : "false"),
+                    "maxObservationsPerChunk": .integer(AIHaplotypingExecutionDefaults.maxObservationsPerChunk),
+                    "maxOutputTokens": .integer(AIHaplotypingExecutionDefaults.maxOutputTokens),
+                    "temperature": .number(AIHaplotypingExecutionDefaults.temperature),
+                    "maxProviderRetries": .integer(AIHaplotypingExecutionDefaults.maxProviderRetries),
                 ],
                 resolvedOptions: [
                     "bundle": .file(bundle),
@@ -102,9 +106,11 @@ final class GenotypeAIHaplotypingExecutionService {
                     "provider": .string(provider.providerID.rawValue),
                     "model": .string(provider.structuredProvider.modelId),
                     "credentialSource": .string(provider.credentialSource.rawValue),
-                    "maxObservationsPerChunk": .integer(128),
-                    "maxOutputTokens": .integer(4096),
-                    "temperature": .number(0),
+                    "compactKnowledgePack": .string(AIHaplotypingExecutionDefaults.compactKnowledgePack ? "true" : "false"),
+                    "maxObservationsPerChunk": .integer(AIHaplotypingExecutionDefaults.maxObservationsPerChunk),
+                    "maxOutputTokens": .integer(AIHaplotypingExecutionDefaults.maxOutputTokens),
+                    "temperature": .number(AIHaplotypingExecutionDefaults.temperature),
+                    "maxProviderRetries": .integer(AIHaplotypingExecutionDefaults.maxProviderRetries),
                 ],
                 runtimeIdentity: ProvenanceRuntimeIdentity(),
                 startedAt: startedAt
@@ -189,7 +195,20 @@ final class GenotypeAIHaplotypingExecutionService {
             "--mode", mode.commandLineArgument,
             "--provider", providerID.rawValue,
             "--model", modelID,
+            "--max-observations-per-chunk", "\(AIHaplotypingExecutionDefaults.maxObservationsPerChunk)",
+            "--max-output-tokens", "\(AIHaplotypingExecutionDefaults.maxOutputTokens)",
+            "--temperature", Self.commandLineNumber(AIHaplotypingExecutionDefaults.temperature),
+            "--max-provider-retries", "\(AIHaplotypingExecutionDefaults.maxProviderRetries)",
+            AIHaplotypingExecutionDefaults.compactKnowledgePack ? "--compact-knowledge-pack" : "",
         ]
+        .filter { !$0.isEmpty }
+    }
+
+    private static func commandLineNumber(_ value: Double) -> String {
+        if value.rounded(.towardZero) == value {
+            return String(Int(value))
+        }
+        return String(value)
     }
 
     private static func failureDetail(for error: Error) -> String {
@@ -210,6 +229,14 @@ final class GenotypeAIHaplotypingExecutionService {
         case .aiRefinement: return "AI Refinement"
         }
     }
+}
+
+private enum AIHaplotypingExecutionDefaults {
+    static let maxObservationsPerChunk = 16
+    static let maxOutputTokens = 16_384
+    static let temperature = 1.0
+    static let maxProviderRetries = 5
+    static let compactKnowledgePack = true
 }
 
 private extension AIHaplotypingPromptMode {

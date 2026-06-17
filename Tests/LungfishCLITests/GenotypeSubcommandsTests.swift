@@ -54,6 +54,7 @@ final class GenotypeSubcommandsTests: XCTestCase {
             "--max-observations-per-chunk", "64",
             "--max-output-tokens", "2048",
             "--temperature", "0",
+            "--max-provider-retries", "3",
         ])
 
         XCTAssertEqual(command.bundle, "/tmp/example.lungfishgenotype")
@@ -65,6 +66,36 @@ final class GenotypeSubcommandsTests: XCTestCase {
         XCTAssertEqual(command.maxObservationsPerChunk, 64)
         XCTAssertEqual(command.maxOutputTokens, 2048)
         XCTAssertEqual(command.temperature, 0)
+        XCTAssertEqual(command.maxProviderRetries, 3)
+    }
+
+    func testAIHaplotypingParsesDebugChunkWindowOptions() throws {
+        let command = try GenotypeAIHaplotypingSubcommand.parse([
+            "--bundle", "/tmp/example.lungfishgenotype",
+            "--provider", "openai",
+            "--chunk-start-index", "62",
+            "--chunk-end-index", "99",
+            "--debug-output", "/tmp/barcode05-ai-debug.json",
+        ])
+
+        XCTAssertEqual(command.chunkStartIndex, 62)
+        XCTAssertEqual(command.chunkEndIndex, 99)
+        XCTAssertEqual(command.debugOutput, "/tmp/barcode05-ai-debug.json")
+    }
+
+    func testAIHaplotypingRejectsPartialChunkWindowWithoutDebugOutput() {
+        XCTAssertThrowsError(
+            try GenotypeAIHaplotypingSubcommand.parse([
+                "--bundle", "/tmp/example.lungfishgenotype",
+                "--chunk-start-index", "62",
+            ]).validate()
+        )
+        XCTAssertThrowsError(
+            try GenotypeAIHaplotypingSubcommand.parse([
+                "--bundle", "/tmp/example.lungfishgenotype",
+                "--chunk-end-index", "99",
+            ]).validate()
+        )
     }
 
     func testAIHaplotypingParsesPromptPreviewInputTableOptions() throws {
@@ -119,12 +150,54 @@ final class GenotypeSubcommandsTests: XCTestCase {
         XCTAssertEqual(preview.runContext.assayResolution, "short_exon_amplicon")
         XCTAssertEqual(preview.chunkCount, 1)
         XCTAssertEqual(preview.observationCount, 2)
-        XCTAssertEqual(preview.promptTemplate.version, "2026-06-15.2")
+        XCTAssertEqual(preview.promptTemplate.version, "2026-06-15.16")
         XCTAssertEqual(preview.knowledgePack.version, "2026-06-15.2")
         XCTAssertTrue(preview.chunks[0].userPrompt.contains("DP/DQ linkage"))
         XCTAssertTrue(preview.chunks[0].userPrompt.contains("population novelty prior"))
         XCTAssertTrue(preview.chunks[0].userPrompt.contains("05_M1M2M3_A1_063g"))
         XCTAssertTrue(preview.chunks[0].evidenceRegistry.evidenceIDs.contains("obs:B25276:MHC-A:05_M1M2M3_A1_063g"))
+    }
+
+    func testAIHaplotypingPromptPreviewCanCompactKnowledgePackForSmokeRuns() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AIHaplotypingPromptPreviewCompact-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let inputURL = root.appendingPathComponent("mcm-calls.csv")
+        try """
+        sample,genotype,passedAlignments,passedUniqueReads,sampleUniqueRetainedReads
+        B25276,05_M1M2M3_A1_063g,174,174,13924
+        B25276,07_M3_70_156bp,25,25,13924
+        """.write(to: inputURL, atomically: true, encoding: .utf8)
+
+        let command = try GenotypeAIHaplotypingSubcommand.parse([
+            "--input-table", inputURL.path,
+            "--preview-prompt",
+            "--mode", "ai-discovery",
+            "--provider", "openai",
+            "--model", "gpt-5-mini",
+            "--population", "mcm",
+            "--assay-resolution", "short-exon-amplicon",
+            "--max-observations-per-chunk", "16",
+            "--compact-knowledge-pack",
+        ])
+
+        let preview = try command.buildPromptPreview()
+
+        let promptInput = try Self.promptInput(from: preview.chunks[0].userPrompt)
+
+        XCTAssertTrue(preview.knowledgePack.digest.hasPrefix("sha256:"))
+        XCTAssertEqual(preview.knowledgePack.digest.count, "sha256:".count + 64)
+        XCTAssertLessThan(
+            promptInput.knowledgePack.haplotypeBlockDefinitions.count,
+            preview.knowledgePack.haplotypeBlockDefinitionCount
+        )
+        XCTAssertLessThan(preview.chunks[0].userPrompt.count, 80_000)
+        XCTAssertTrue(preview.chunks[0].userPrompt.contains("\"haplotypeBlockDefinitions\""))
+        XCTAssertFalse(preview.chunks[0].userPrompt.contains("\"legacyBlockDefinitions\""))
+        XCTAssertTrue(preview.chunks[0].userPrompt.contains("05_M1M2M3_A1_063g"))
+        XCTAssertTrue(promptInput.knowledgePack.haplotypeBlockDefinitions.contains { $0.reportLabel == "M3A" })
+        XCTAssertFalse(Self.knowledgePackRecordText(promptInput.knowledgePack).contains("A008.01"))
     }
 
     func testAIHaplotypingPromptPreviewWritesProvenanceSidecarForOutputFile() async throws {
@@ -145,6 +218,13 @@ final class GenotypeSubcommandsTests: XCTestCase {
             "--output", outputURL.path,
             "--mode", "ai-discovery",
             "--population", "indian-rhesus",
+            "--assay-resolution", "short-exon-amplicon",
+            "--haplotype-definition", "MHC-exon2-miSeq.indian-rhesus",
+            "--haplotype-assay", "MHC-exon2-miSeq",
+            "--max-observations-per-chunk", "32",
+            "--max-output-tokens", "2048",
+            "--temperature", "0.1",
+            "--compact-knowledge-pack",
         ])
         try await command.run()
 
@@ -158,6 +238,90 @@ final class GenotypeSubcommandsTests: XCTestCase {
         XCTAssertTrue(envelope.argv.contains("--input-table"))
         XCTAssertTrue(envelope.files.contains { $0.path == inputURL.path && $0.role == .input })
         XCTAssertTrue(envelope.files.contains { $0.path == outputURL.path && $0.role == .output })
+        XCTAssertEqual(envelope.options.explicit["compactKnowledgePack"], .string("true"))
+        XCTAssertEqual(envelope.options.explicit["maxObservationsPerChunk"], .integer(32))
+        XCTAssertEqual(envelope.options.explicit["maxOutputTokens"], .integer(2048))
+        XCTAssertEqual(envelope.options.explicit["temperature"], .number(0.1))
+        XCTAssertEqual(envelope.options.explicit["promptTemplateID"], .null)
+        XCTAssertEqual(envelope.options.explicit["promptTemplateVersion"], .null)
+        XCTAssertEqual(envelope.options.explicit["assayResolution"], .string("short-exon-amplicon"))
+        XCTAssertEqual(envelope.options.explicit["haplotypeDefinition"], .string("MHC-exon2-miSeq.indian-rhesus"))
+        XCTAssertEqual(envelope.options.explicit["haplotypeAssay"], .string("MHC-exon2-miSeq"))
+        XCTAssertEqual(envelope.options.resolvedDefaults["maxObservationsPerChunk"], .integer(32))
+        XCTAssertEqual(envelope.options.resolvedDefaults["compactKnowledgePack"], .string("true"))
+    }
+
+    func testAIHaplotypingDebugOutputWritesJSONAndProvenanceSidecar() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AIHaplotypingDebugOutput-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
+        let outputURL = root.appendingPathComponent("debug", isDirectory: true)
+            .appendingPathComponent("barcode05-chunk-62.json")
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        let command = try GenotypeAIHaplotypingSubcommand.parse([
+            "--bundle", bundleURL.path,
+            "--mode", "ai-refinement",
+            "--provider", "openai",
+            "--model", "gpt-5-mini",
+            "--chunk-start-index", "62",
+            "--chunk-end-index", "62",
+            "--debug-output", outputURL.path,
+            "--compact-knowledge-pack",
+            "--max-provider-retries", "5",
+        ])
+        let runnerOutput = AIHaplotypingRunnerOutput(
+            mode: .aiRefinement,
+            registry: AIHaplotypingEvidenceRegistry(
+                mode: .aiRefinement,
+                parentRevisionID: "deterministic-parent",
+                inputSnapshotDigest: "sha256:input",
+                samples: [],
+                loci: [],
+                observations: [],
+                digest: "sha256:registry"
+            ),
+            chunkOutputs: [],
+            normalizedCalls: [],
+            validatedDefinitions: [],
+            validationReports: [],
+            providerAttempts: []
+        )
+
+        let summary = try await command.writeDebugOutput(
+            bundleURL: bundleURL,
+            runnerOutput: runnerOutput,
+            modelID: "gpt-5-mini",
+            credentialSource: AIHaplotypingCredentialSource.environmentOpenAI.rawValue,
+            startedAt: Date()
+        )
+
+        XCTAssertEqual(summary.debugOutput, outputURL.path)
+        XCTAssertEqual(summary.chunkStartIndex, 62)
+        XCTAssertEqual(summary.chunkEndIndex, 62)
+        XCTAssertEqual(summary.callCount, 0)
+        XCTAssertEqual(summary.chunkCount, 0)
+
+        let artifact = try JSONDecoder().decode(
+            AIHaplotypingCLIDebugOutput.self,
+            from: Data(contentsOf: outputURL)
+        )
+        XCTAssertEqual(artifact.summary, summary)
+        XCTAssertEqual(artifact.runnerOutput.registry.digest, "sha256:registry")
+
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL))
+        XCTAssertEqual(envelope.workflowName, "lungfish genotype ai-haplotyping debug-output")
+        XCTAssertTrue(envelope.argv.contains("--debug-output"))
+        XCTAssertTrue(envelope.argv.contains("--chunk-start-index"))
+        XCTAssertTrue(envelope.files.contains { $0.path == bundleURL.path && $0.role == .input })
+        XCTAssertTrue(envelope.files.contains { $0.path == outputURL.path && $0.role == .output })
+        XCTAssertEqual(envelope.options.explicit["chunkStartIndex"], .integer(62))
+        XCTAssertEqual(envelope.options.explicit["chunkEndIndex"], .integer(62))
+        XCTAssertEqual(envelope.options.explicit["compactKnowledgePack"], .string("true"))
+        XCTAssertEqual(envelope.options.resolvedDefaults["model"], .string("gpt-5-mini"))
+        XCTAssertEqual(envelope.options.resolvedDefaults["debugOutput"], .file(outputURL))
     }
 
     func testAIHaplotypingRequiresPromptTemplateIDAndVersionTogether() {
@@ -567,5 +731,77 @@ final class GenotypeSubcommandsTests: XCTestCase {
             overallUniqueRetainedReads: nil,
             overallUniqueRetainedPercent: nil
         )
+    }
+}
+
+private extension GenotypeSubcommandsTests {
+    struct PromptInput: Decodable {
+        let knowledgePack: AIHaplotypingKnowledgePack
+    }
+
+    enum PromptInputDecodeError: Error {
+        case missingMarker
+        case missingJSON
+        case unterminatedJSON
+    }
+
+    static func promptInput(from userPrompt: String) throws -> PromptInput {
+        guard let markerRange = userPrompt.range(of: "Prompt input JSON:") else {
+            throw PromptInputDecodeError.missingMarker
+        }
+        let suffix = userPrompt[markerRange.upperBound...]
+        guard let start = suffix.firstIndex(of: "{") else {
+            throw PromptInputDecodeError.missingJSON
+        }
+        var depth = 0
+        var end: String.Index?
+        var index = start
+        while index < suffix.endIndex {
+            let character = suffix[index]
+            if character == "{" {
+                depth += 1
+            } else if character == "}" {
+                depth -= 1
+                if depth == 0 {
+                    end = index
+                    break
+                }
+            }
+            index = suffix.index(after: index)
+        }
+        guard let end else {
+            throw PromptInputDecodeError.unterminatedJSON
+        }
+        let json = String(suffix[start...end])
+        return try JSONDecoder().decode(PromptInput.self, from: Data(json.utf8))
+    }
+
+    static func knowledgePackRecordText(_ pack: AIHaplotypingKnowledgePack) -> String {
+        let blockText = pack.haplotypeBlockDefinitions.flatMap { definition in
+            [
+                definition.id,
+                definition.internalID,
+                definition.displayLabel,
+                definition.reportLabel,
+                definition.extendedHaplotype,
+                definition.notes,
+            ].compactMap { $0 }
+        }
+        let markerText = pack.haplotypeBlockDefinitions.flatMap { definition in
+            definition.definingMarkers.flatMap { marker in
+                [marker.marker, marker.locus, marker.notes]
+            }
+        }
+        let alleleText = pack.alleleRecords.flatMap { record in
+            [
+                record.id,
+                record.officialDesignation,
+                record.accession,
+                record.comment,
+                record.previousName,
+                record.status,
+            ].compactMap { $0 } + record.haplotypes
+        }
+        return (blockText + markerText + alleleText).joined(separator: "\n")
     }
 }

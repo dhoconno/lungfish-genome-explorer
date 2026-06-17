@@ -149,6 +149,246 @@ final class AIHaplotypingEvidenceRegistryTests: XCTestCase {
         )
     }
 
+    func testRefinementMapsObservedRawMarkerToReportLocusFromActiveAnalysis() throws {
+        let rawMarker = makeCall(sample: "LF2823", genotype: "07_M4_70_156bp")
+        XCTAssertEqual(rawMarker.locusGroup, "MHC-70")
+
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "test-assay",
+            definitionSetID: "mcm-definitions",
+            definitionSetName: "MCM definitions",
+            speciesName: "Macaca fascicularis",
+            analysisRevisionID: "analysis-rev-1",
+            source: .deterministic,
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "LF2823",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-A",
+                            sourceLocus: "Mafa-A",
+                            haplotype1: "M4A",
+                            haplotype2: "M5A",
+                            status: .called,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 1,
+                            observedGenotypes: ["07_M4_70_156bp"]
+                        )
+                    ]
+                )
+            ]
+        )
+        let result = makeResult(
+            calls: [rawMarker],
+            activeHaplotypeAnalysisRevisionID: "analysis-rev-1",
+            haplotypeAnalysis: analysis
+        )
+
+        let registry = try AIHaplotypingEvidenceBuilder.build(
+            result: result,
+            sidecar: nil,
+            mode: .aiRefinement,
+            parentRevisionID: "analysis-rev-1"
+        )
+
+        XCTAssertEqual(registry.loci, [LocusEvidence(id: "locus:MHC-A", locus: "MHC-A")])
+        XCTAssertEqual(registry.observations.map(\.id), ["obs:LF2823:MHC-A:07_M4_70_156bp"])
+
+        let chunk = try XCTUnwrap(
+            AIHaplotypingEvidenceChunker(maxObservationsPerChunk: 1)
+                .chunks(from: registry)
+                .first
+        )
+        XCTAssertEqual(chunk.registry.currentCalls.map(\.id), [
+            "current:LF2823:MHC-A:h1",
+            "current:LF2823:MHC-A:h2",
+        ])
+    }
+
+    func testRefinementMapsRawMarkerThroughDefinitionSnapshotWhenAnalysisOmitsCollapsedMarker() throws {
+        let rawMarker = makeCall(sample: "LF2826", genotype: "07_M4M5_70_156bp")
+        XCTAssertEqual(rawMarker.locusGroup, "MHC-70")
+
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("lungfishgenotype")
+        let inputsURL = bundleURL
+            .appendingPathComponent(".ont-barcode-genotyping", isDirectory: true)
+            .appendingPathComponent("inputs", isDirectory: true)
+        try FileManager.default.createDirectory(at: inputsURL, withIntermediateDirectories: true)
+        let definition = GenotypeHaplotypeDefinitionSet(
+            id: "mcm-definitions",
+            assayID: "test-assay",
+            displayName: "MCM definitions",
+            speciesName: "Macaca fascicularis",
+            speciesCode: "MCM",
+            prefix: "Mafa",
+            locusDefinitions: [
+                GenotypeHaplotypeLocusDefinition(
+                    locus: "MHC-A",
+                    sourceLocus: "Mafa-A",
+                    haplotypes: [
+                        GenotypeHaplotypeDefinition(
+                            name: "M4A",
+                            diagnosticAlleles: ["07_M4M5_70_156bp"]
+                        )
+                    ]
+                )
+            ]
+        )
+        try JSONEncoder().encode(definition)
+            .write(to: inputsURL.appendingPathComponent("haplotype-definition.json"))
+
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "test-assay",
+            definitionSetID: "mcm-definitions",
+            definitionSetName: "MCM definitions",
+            speciesName: "Macaca fascicularis",
+            analysisRevisionID: "analysis-rev-1",
+            source: .deterministic,
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "LF2826",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-A",
+                            sourceLocus: "Mafa-A",
+                            haplotype1: "M4A",
+                            haplotype2: "M7A",
+                            status: .called,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 0,
+                            observedGenotypes: []
+                        )
+                    ]
+                )
+            ]
+        )
+        let result = makeResult(
+            calls: [rawMarker],
+            activeHaplotypeAnalysisRevisionID: "analysis-rev-1",
+            haplotypeAnalysis: analysis,
+            bundleURL: bundleURL
+        )
+
+        let registry = try AIHaplotypingEvidenceBuilder.build(
+            result: result,
+            sidecar: nil,
+            mode: .aiRefinement,
+            parentRevisionID: "analysis-rev-1"
+        )
+
+        XCTAssertEqual(registry.loci, [LocusEvidence(id: "locus:MHC-A", locus: "MHC-A")])
+        XCTAssertEqual(registry.observations.map(\.id), ["obs:LF2826:MHC-A:07_M4M5_70_156bp"])
+    }
+
+    func testRefinementMapsSameRawMarkerGroupToReportLocusFromActiveAnalysis() throws {
+        let collapsedMarker = makeCall(sample: "LF2834", genotype: "07_M1M2M3_70_156bp")
+        XCTAssertEqual(collapsedMarker.locusGroup, "MHC-70")
+
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "test-assay",
+            definitionSetID: "mcm-definitions",
+            definitionSetName: "MCM definitions",
+            speciesName: "Macaca fascicularis",
+            analysisRevisionID: "analysis-rev-1",
+            source: .deterministic,
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "LF2834",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-A",
+                            sourceLocus: "Mafa-A",
+                            haplotype1: "ERR: TMH (M1A, M2A, M4A)",
+                            haplotype2: "ERR: TMH (M1A, M2A, M4A)",
+                            status: .tooManyHaplotypes,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 1,
+                            observedGenotypes: ["07_M4_70_156bp"]
+                        )
+                    ]
+                )
+            ]
+        )
+        let result = makeResult(
+            calls: [collapsedMarker],
+            activeHaplotypeAnalysisRevisionID: "analysis-rev-1",
+            haplotypeAnalysis: analysis
+        )
+
+        let registry = try AIHaplotypingEvidenceBuilder.build(
+            result: result,
+            sidecar: nil,
+            mode: .aiRefinement,
+            parentRevisionID: "analysis-rev-1"
+        )
+
+        XCTAssertEqual(registry.loci, [LocusEvidence(id: "locus:MHC-A", locus: "MHC-A")])
+        XCTAssertEqual(registry.observations.map(\.id), ["obs:LF2834:MHC-A:07_M1M2M3_70_156bp"])
+    }
+
+    func testRefinementMapsRawMarkerGroupToOnlyReportLocusSeenAcrossActiveAnalysis() throws {
+        let collapsedMarker = makeCall(sample: "LF2830", genotype: "07_M1M2M3_70_156bp")
+        XCTAssertEqual(collapsedMarker.locusGroup, "MHC-70")
+
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "test-assay",
+            definitionSetID: "mcm-definitions",
+            definitionSetName: "MCM definitions",
+            speciesName: "Macaca fascicularis",
+            analysisRevisionID: "analysis-rev-1",
+            source: .deterministic,
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "LF2826",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-A",
+                            sourceLocus: "Mafa-A",
+                            haplotype1: "M4A",
+                            haplotype2: "M7A",
+                            status: .called,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 1,
+                            observedGenotypes: ["07_M7_70_156bp"]
+                        )
+                    ]
+                ),
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "LF2830",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-A",
+                            sourceLocus: "Mafa-A",
+                            haplotype1: "M1A",
+                            haplotype2: "-",
+                            status: .called,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 0,
+                            observedGenotypes: []
+                        )
+                    ]
+                )
+            ]
+        )
+        let result = makeResult(
+            calls: [collapsedMarker],
+            activeHaplotypeAnalysisRevisionID: "analysis-rev-1",
+            haplotypeAnalysis: analysis
+        )
+
+        let registry = try AIHaplotypingEvidenceBuilder.build(
+            result: result,
+            sidecar: nil,
+            mode: .aiRefinement,
+            parentRevisionID: "analysis-rev-1"
+        )
+
+        XCTAssertEqual(registry.loci, [LocusEvidence(id: "locus:MHC-A", locus: "MHC-A")])
+        XCTAssertEqual(registry.observations.map(\.id), ["obs:LF2830:MHC-A:07_M1M2M3_70_156bp"])
+    }
+
     func testDiscoveryEvidenceIgnoresExistingAnalysisAndManualSidecarState() throws {
         var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-06-14T00:00:00Z")
         sidecar.manualHaplotypeAssignments = [
@@ -418,7 +658,8 @@ final class AIHaplotypingEvidenceRegistryTests: XCTestCase {
     private func makeResult(
         calls: [ONTGenotypeCall],
         activeHaplotypeAnalysisRevisionID: String? = nil,
-        haplotypeAnalysis: GenotypeHaplotypeAnalysis? = nil
+        haplotypeAnalysis: GenotypeHaplotypeAnalysis? = nil,
+        bundleURL: URL = URL(fileURLWithPath: "/tmp/out.lungfishgenotype")
     ) -> ONTGenotypeResultBundleData {
         let manifest = ONTGenotypeResultBundleManifest(
             outputName: "out",
@@ -438,7 +679,7 @@ final class AIHaplotypingEvidenceRegistryTests: XCTestCase {
             provenanceURL: URL(fileURLWithPath: "/tmp/provenance.json")
         )
         return ONTGenotypeResultBundleData(
-            bundleURL: URL(fileURLWithPath: "/tmp/out.lungfishgenotype"),
+            bundleURL: bundleURL,
             manifest: manifest,
             artifacts: artifacts,
             stats: ONTGenotypeRunStats(),

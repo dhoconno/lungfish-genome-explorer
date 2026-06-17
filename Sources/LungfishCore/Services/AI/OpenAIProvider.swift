@@ -42,7 +42,15 @@ public actor OpenAIProvider: StructuredAIProvider {
         request.httpBody = jsonData
         request.timeoutInterval = 120
 
-        let (data, response) = try await httpClient.data(for: request)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await httpClient.data(for: request)
+        } catch let providerError as AIProviderError {
+            throw providerError
+        } catch {
+            throw AIProviderError.networkError(error.localizedDescription)
+        }
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw AIProviderError.networkError("Invalid response type")
@@ -54,6 +62,9 @@ public actor OpenAIProvider: StructuredAIProvider {
         case 401:
             throw AIProviderError.missingAPIKey
         case 429:
+            if parseErrorCode(data) == "insufficient_quota" {
+                throw AIProviderError.quotaExceeded(parseErrorMessage(data) ?? "OpenAI reported insufficient quota.")
+            }
             let retryAfter = httpResponse.value(forHTTPHeaderField: "Retry-After").flatMap(TimeInterval.init)
             throw AIProviderError.rateLimited(retryAfter: retryAfter)
         case 400:
@@ -77,7 +88,15 @@ public actor OpenAIProvider: StructuredAIProvider {
         request.httpBody = jsonData
         request.timeoutInterval = 120
 
-        let (data, response) = try await httpClient.data(for: request)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await httpClient.data(for: request)
+        } catch let providerError as AIProviderError {
+            throw providerError
+        } catch {
+            throw AIProviderError.networkError(error.localizedDescription)
+        }
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw AIProviderError.networkError("Invalid response type")
@@ -89,6 +108,9 @@ public actor OpenAIProvider: StructuredAIProvider {
         case 401:
             throw AIProviderError.missingAPIKey
         case 429:
+            if parseErrorCode(data) == "insufficient_quota" {
+                throw AIProviderError.quotaExceeded(parseErrorMessage(data) ?? "OpenAI reported insufficient quota.")
+            }
             let retryAfter = httpResponse.value(forHTTPHeaderField: "Retry-After").flatMap(TimeInterval.init)
             throw AIProviderError.rateLimited(retryAfter: retryAfter)
         case 400:

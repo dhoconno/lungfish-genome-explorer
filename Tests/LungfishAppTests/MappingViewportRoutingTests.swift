@@ -242,6 +242,12 @@ final class MappingViewportRoutingTests: XCTestCase {
 
         XCTAssertTrue(source.contains("\"lungfish-cli\""))
         XCTAssertTrue(source.contains("mode.commandLineArgument"))
+        XCTAssertTrue(source.contains("AIHaplotypingExecutionDefaults.maxObservationsPerChunk"))
+        XCTAssertTrue(source.contains("AIHaplotypingExecutionDefaults.maxOutputTokens"))
+        XCTAssertTrue(source.contains("AIHaplotypingExecutionDefaults.temperature"))
+        XCTAssertTrue(source.contains("AIHaplotypingExecutionDefaults.maxProviderRetries"))
+        XCTAssertTrue(source.contains("AIHaplotypingExecutionDefaults.compactKnowledgePack"))
+        XCTAssertTrue(source.contains("\"--compact-knowledge-pack\""))
         XCTAssertFalse(source.contains("\"--credential-source\""))
         XCTAssertFalse(source.contains("String(describing: error)"))
         XCTAssertTrue(source.contains("AIHaplotypingRunFailure"))

@@ -11,7 +11,11 @@ public struct AIHaplotypingRunOptions: Codable, Equatable, Sendable {
     public let maxObservationsPerChunk: Int
     public let maxOutputTokens: Int
     public let temperature: Double
+    public let maxProviderRetries: Int
     public let provenancePath: String
+    public let compactKnowledgePack: Bool
+    public let chunkStartIndex: Int
+    public let chunkEndIndex: Int
 
     public init(
         mode: AIHaplotypingPromptMode,
@@ -22,7 +26,11 @@ public struct AIHaplotypingRunOptions: Codable, Equatable, Sendable {
         maxObservationsPerChunk: Int = 128,
         maxOutputTokens: Int = 4_096,
         temperature: Double = 0,
-        provenancePath: String = "ai-haplotyping/provenance.json"
+        maxProviderRetries: Int = 2,
+        provenancePath: String = "ai-haplotyping/provenance.json",
+        compactKnowledgePack: Bool = false,
+        chunkStartIndex: Int = 1,
+        chunkEndIndex: Int = 0
     ) {
         self.mode = mode
         self.providerID = providerID
@@ -32,16 +40,24 @@ public struct AIHaplotypingRunOptions: Codable, Equatable, Sendable {
         self.maxObservationsPerChunk = max(1, maxObservationsPerChunk)
         self.maxOutputTokens = max(1, maxOutputTokens)
         self.temperature = max(0, min(2, temperature))
+        self.maxProviderRetries = max(0, maxProviderRetries)
         let trimmedProvenancePath = provenancePath.trimmingCharacters(in: .whitespacesAndNewlines)
         self.provenancePath = trimmedProvenancePath.isEmpty
             ? "ai-haplotyping/provenance.json"
             : trimmedProvenancePath
+        self.compactKnowledgePack = compactKnowledgePack
+        self.chunkStartIndex = max(1, chunkStartIndex)
+        self.chunkEndIndex = max(0, chunkEndIndex)
     }
 
     public func generationParameters(schemaName: String) -> [String: String] {
         [
+            "chunkEndIndex": String(chunkEndIndex),
+            "chunkStartIndex": String(chunkStartIndex),
+            "compactKnowledgePack": compactKnowledgePack ? "true" : "false",
             "maxObservationsPerChunk": String(maxObservationsPerChunk),
             "maxOutputTokens": String(maxOutputTokens),
+            "maxProviderRetries": String(maxProviderRetries),
             "schemaName": schemaName,
             "temperature": Self.formatNumber(temperature),
         ]
@@ -81,6 +97,14 @@ public struct AIHaplotypingRunnerOutput: Codable, Equatable, Sendable {
         self.validationReports = validationReports
         self.providerAttempts = providerAttempts
     }
+}
+
+public enum AIHaplotypingProgressEvent: Equatable, Sendable {
+    case runStarted(chunkCount: Int, observationCount: Int)
+    case chunkStarted(chunkID: String, chunkIndex: Int, chunkCount: Int, observationCount: Int)
+    case providerRetry(chunkID: String, retryIndex: Int, maxRetries: Int, errorCategory: String)
+    case chunkFinished(chunkID: String, chunkIndex: Int, chunkCount: Int, callCount: Int, definitionCount: Int)
+    case runFinished(chunkCount: Int, callCount: Int, definitionCount: Int)
 }
 
 public struct AIHaplotypingChunkOutput: Codable, Equatable, Sendable {
@@ -149,13 +173,16 @@ public struct AIHaplotypingRunner: Sendable {
 
     private let provider: any StructuredAIProvider
     private let promptRegistry: AIHaplotypingPromptRegistry
+    private let progressHandler: (@Sendable (AIHaplotypingProgressEvent) -> Void)?
 
     public init(
         provider: any StructuredAIProvider,
-        promptRegistry: AIHaplotypingPromptRegistry = .builtIn
+        promptRegistry: AIHaplotypingPromptRegistry = .builtIn,
+        progressHandler: (@Sendable (AIHaplotypingProgressEvent) -> Void)? = nil
     ) {
         self.provider = provider
         self.promptRegistry = promptRegistry
+        self.progressHandler = progressHandler
     }
 
     public func run(
@@ -229,7 +256,26 @@ public struct AIHaplotypingRunner: Sendable {
         var seenDefinitionIDs: Set<String> = []
         var seenDefinitionKeys: Set<String> = []
 
-        for (offset, chunk) in chunks.enumerated() {
+        let selectedChunks = selectedChunkOffsets(from: chunks, options: options)
+        let selectedObservationCount = selectedChunks.reduce(0) { total, item in
+            total + item.chunk.registry.observations.count
+        }
+        emit(.runStarted(chunkCount: selectedChunks.count, observationCount: selectedObservationCount))
+        for (offset, chunk) in selectedChunks {
+            let chunkIndex = offset + 1
+            emit(.chunkStarted(
+                chunkID: chunk.id,
+                chunkIndex: chunkIndex,
+                chunkCount: chunks.count,
+                observationCount: chunk.registry.observations.count
+            ))
+            let promptKnowledgePack = options.compactKnowledgePack
+                ? AIHaplotypingKnowledgePackRetriever.compact(
+                    knowledgePack,
+                    for: chunk.registry,
+                    runContext: runContext
+                )
+                : knowledgePack
             let promptMetadata = template.metadata(
                 registryDigest: chunk.registry.digest,
                 inputSnapshotDigest: chunk.registry.inputSnapshotDigest,
@@ -258,7 +304,7 @@ public struct AIHaplotypingRunner: Sendable {
                             chunk: chunk,
                             expectedRun: expectedRun,
                             runContext: runContext,
-                            knowledgePack: knowledgePack
+                            knowledgePack: promptKnowledgePack
                         ),
                         evidenceRegistryJSON: chunk.registry.canonicalJSONString()
                     ),
@@ -280,12 +326,17 @@ public struct AIHaplotypingRunner: Sendable {
 
             let response: AIStructuredResponse
             do {
-                response = try await provider.requestStructuredResult(request)
+                response = try await requestStructuredResultWithRetries(
+                    request,
+                    chunkID: chunk.id,
+                    provider: provider,
+                    maxRetries: options.maxProviderRetries
+                )
             } catch {
                 throw AIHaplotypingRunFailure(
                     stage: .provider,
                     sanitizedErrorCategory: sanitizedProviderErrorCategory(error),
-                    message: sanitizedProviderFailureMessage(error)
+                    message: "AI provider request for \(chunk.id) failed: \(sanitizedProviderFailureMessage(error))"
                 )
             }
             if let mismatch = providerAttemptMismatch(
@@ -321,7 +372,7 @@ public struct AIHaplotypingRunner: Sendable {
                 throw AIHaplotypingRunFailure(
                     stage: .decoding,
                     sanitizedErrorCategory: "decode_structured_result",
-                    message: error.localizedDescription,
+                    message: "AI structured result for \(chunk.id) could not be decoded: \(Self.decodingErrorDescription(error))",
                     attemptMetadata: response.attemptMetadata
                 )
             }
@@ -394,8 +445,20 @@ public struct AIHaplotypingRunner: Sendable {
             validationReports.append(report)
             normalizedCalls.append(contentsOf: report.normalizedCalls)
             validatedDefinitions.append(contentsOf: report.validatedDefinitions)
+            emit(.chunkFinished(
+                chunkID: chunk.id,
+                chunkIndex: chunkIndex,
+                chunkCount: chunks.count,
+                callCount: report.normalizedCalls.count,
+                definitionCount: report.validatedDefinitions.count
+            ))
         }
 
+        emit(.runFinished(
+            chunkCount: selectedChunks.count,
+            callCount: normalizedCalls.count,
+            definitionCount: validatedDefinitions.count
+        ))
         return AIHaplotypingRunnerOutput(
             mode: options.mode,
             registry: registry,
@@ -405,6 +468,24 @@ public struct AIHaplotypingRunner: Sendable {
             validationReports: validationReports,
             providerAttempts: providerAttempts
         )
+    }
+
+    private func selectedChunkOffsets(
+        from chunks: [AIHaplotypingEvidenceChunk],
+        options: AIHaplotypingRunOptions
+    ) -> [(offset: Int, chunk: AIHaplotypingEvidenceChunk)] {
+        let start = max(1, options.chunkStartIndex)
+        let end = options.chunkEndIndex == 0 ? chunks.count : min(options.chunkEndIndex, chunks.count)
+        guard start <= end else {
+            return []
+        }
+        return chunks.enumerated().compactMap { offset, chunk in
+            let oneBasedIndex = offset + 1
+            guard oneBasedIndex >= start && oneBasedIndex <= end else {
+                return nil
+            }
+            return (offset, chunk)
+        }
     }
 
     private func promptInputJSONString(
@@ -470,6 +551,73 @@ public struct AIHaplotypingRunner: Sendable {
         return nil
     }
 
+    private func requestStructuredResultWithRetries(
+        _ request: AIStructuredRequest,
+        chunkID: String,
+        provider: any StructuredAIProvider,
+        maxRetries: Int
+    ) async throws -> AIStructuredResponse {
+        var retriesRemaining = max(0, maxRetries)
+        var retryIndex = 0
+        while true {
+            do {
+                return try await provider.requestStructuredResult(request)
+            } catch {
+                guard retriesRemaining > 0, shouldRetryProviderError(error) else {
+                    throw error
+                }
+                retriesRemaining -= 1
+                retryIndex += 1
+                emit(.providerRetry(
+                    chunkID: chunkID,
+                    retryIndex: retryIndex,
+                    maxRetries: max(0, maxRetries),
+                    errorCategory: sanitizedProviderErrorCategory(error)
+                ))
+                let delay = retryDelay(for: error)
+                if delay > 0 {
+                    try await Task.sleep(nanoseconds: delay)
+                }
+            }
+        }
+    }
+
+    private func emit(_ event: AIHaplotypingProgressEvent) {
+        progressHandler?(event)
+    }
+
+    private func shouldRetryProviderError(_ error: Error) -> Bool {
+        guard let providerError = error as? AIProviderError else {
+            return false
+        }
+        switch providerError {
+        case .networkError, .rateLimited:
+            return true
+        case .httpError(let statusCode, _):
+            return statusCode >= 500 && statusCode < 600
+        case .missingAPIKey,
+             .invalidResponse,
+             .quotaExceeded,
+             .modelNotAvailable,
+             .contextTooLong,
+             .decodingError:
+            return false
+        }
+    }
+
+    private func retryDelay(for error: Error) -> UInt64 {
+        guard let providerError = error as? AIProviderError else {
+            return 0
+        }
+        guard case .rateLimited(let retryAfter) = providerError,
+              let retryAfter,
+              retryAfter > 0 else {
+            return 0
+        }
+        let cappedSeconds = min(retryAfter, 5)
+        return UInt64(cappedSeconds * 1_000_000_000)
+    }
+
     private func sanitizedProviderErrorCategory(_ error: Error) -> String {
         guard let providerError = error as? AIProviderError else {
             return "provider_error"
@@ -483,6 +631,8 @@ public struct AIHaplotypingRunner: Sendable {
             return "http_error"
         case .rateLimited:
             return "rate_limited"
+        case .quotaExceeded:
+            return "quota_exceeded"
         case .modelNotAvailable:
             return "model_not_available"
         case .contextTooLong:
@@ -501,20 +651,44 @@ public struct AIHaplotypingRunner: Sendable {
         switch providerError {
         case .missingAPIKey:
             return "AI provider API key is not configured."
-        case .invalidResponse:
-            return "AI provider returned an invalid structured response."
+        case .invalidResponse(let detail):
+            return "AI provider returned an invalid structured response: \(detail)"
         case .httpError:
             return "AI provider returned an HTTP error."
         case .rateLimited:
             return "Rate limited by AI provider. Try again later."
+        case .quotaExceeded:
+            return "AI provider quota is exhausted. Check provider billing or use another configured provider."
         case .modelNotAvailable:
             return "Configured AI model is not available."
         case .contextTooLong:
             return "AI haplotyping prompt exceeded the provider context limit."
-        case .networkError:
-            return "AI provider network request failed."
+        case .networkError(let detail):
+            return "AI provider network request failed: \(detail)"
         case .decodingError:
             return "AI provider response could not be decoded."
+        }
+    }
+
+    private static func decodingErrorDescription(_ error: Error) -> String {
+        guard let decodingError = error as? DecodingError else {
+            return error.localizedDescription
+        }
+        func path(_ codingPath: [CodingKey]) -> String {
+            let value = codingPath.map(\.stringValue).joined(separator: ".")
+            return value.isEmpty ? "<root>" : value
+        }
+        switch decodingError {
+        case .typeMismatch(let type, let context):
+            return "type mismatch for \(type) at \(path(context.codingPath)): \(context.debugDescription)"
+        case .valueNotFound(let type, let context):
+            return "missing value for \(type) at \(path(context.codingPath)): \(context.debugDescription)"
+        case .keyNotFound(let key, let context):
+            return "missing key at \(path(context.codingPath + [key])): \(context.debugDescription)"
+        case .dataCorrupted(let context):
+            return "data corrupted at \(path(context.codingPath)): \(context.debugDescription)"
+        @unknown default:
+            return decodingError.localizedDescription
         }
     }
 

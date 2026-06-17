@@ -72,7 +72,7 @@ final class AIHaplotypingRunnerTests: XCTestCase {
         XCTAssertEqual(promptInputs[0].knowledgePack.version, "2026-06-15.2")
         XCTAssertEqual(promptInputs[0].runContext.assayResolution, "short_exon_amplicon")
         XCTAssertEqual(promptInputs[0].runContext.populationHint, "mcm")
-        XCTAssertTrue(promptInputs[0].knowledgePack.legacyBlockDefinitions.contains { $0.reportLabel == "M1A" })
+        XCTAssertTrue(promptInputs[0].knowledgePack.haplotypeBlockDefinitions.contains { $0.reportLabel == "M1A" })
 
         XCTAssertEqual(output.mode, .aiDiscovery)
         XCTAssertEqual(output.registry.observations.count, 2)
@@ -264,10 +264,211 @@ final class AIHaplotypingRunnerTests: XCTestCase {
         } catch let failure as AIHaplotypingRunFailure {
             XCTAssertEqual(failure.stage, .provider)
             XCTAssertEqual(failure.sanitizedErrorCategory, "http_error")
-            XCTAssertEqual(failure.message, "AI provider returned an HTTP error.")
+            XCTAssertEqual(
+                failure.message,
+                "AI provider request for chunk-0001 failed: AI provider returned an HTTP error."
+            )
             XCTAssertFalse(failure.message.contains("secret-token"))
             XCTAssertNil(failure.attemptMetadata)
         }
+    }
+
+    func testRunnerReportsInvalidStructuredProviderResponseDetail() async throws {
+        let provider = MockStructuredProvider { _ in
+            throw AIProviderError.invalidResponse(
+                "Structured response was truncated before a complete JSON object was returned"
+            )
+        }
+        let runner = AIHaplotypingRunner(provider: provider, promptRegistry: .builtIn)
+
+        do {
+            _ = try await runner.run(
+                result: makeResult(calls: [makeCall(sample: "DW472", genotype: "12_M9_B_001_01")]),
+                sidecar: nil,
+                options: AIHaplotypingRunOptions(
+                    mode: .aiDiscovery,
+                    providerID: .openAI,
+                    maxObservationsPerChunk: 10
+                )
+            )
+            XCTFail("Expected provider failure")
+        } catch let failure as AIHaplotypingRunFailure {
+            XCTAssertEqual(failure.stage, .provider)
+            XCTAssertEqual(failure.sanitizedErrorCategory, "invalid_response")
+            XCTAssertTrue(failure.message.contains("truncated"))
+            XCTAssertTrue(failure.message.contains("chunk-0001"))
+        }
+    }
+
+    func testRunnerReportsNetworkProviderErrorDetail() async throws {
+        let provider = MockStructuredProvider { _ in
+            throw AIProviderError.networkError("The request timed out.")
+        }
+        let runner = AIHaplotypingRunner(provider: provider, promptRegistry: .builtIn)
+
+        do {
+            _ = try await runner.run(
+                result: makeResult(calls: [makeCall(sample: "DW472", genotype: "12_M9_B_001_01")]),
+                sidecar: nil,
+                options: AIHaplotypingRunOptions(
+                    mode: .aiDiscovery,
+                    providerID: .openAI,
+                    maxObservationsPerChunk: 10
+                )
+            )
+            XCTFail("Expected provider failure")
+        } catch let failure as AIHaplotypingRunFailure {
+            XCTAssertEqual(failure.stage, .provider)
+            XCTAssertEqual(failure.sanitizedErrorCategory, "network_error")
+            XCTAssertTrue(failure.message.contains("timed out"))
+            XCTAssertTrue(failure.message.contains("chunk-0001"))
+        }
+    }
+
+    func testRunnerRetriesTransientNetworkProviderErrors() async throws {
+        let attempts = RetryAttemptCounter()
+        let provider = MockStructuredProvider { request in
+            let attempt = await attempts.next()
+            if attempt == 1 {
+                throw AIProviderError.networkError("The network connection was lost.")
+            }
+            let registry = try Self.registry(from: request)
+            let sample = try XCTUnwrap(registry.samples.first?.sample)
+            let locus = try XCTUnwrap(registry.loci.first?.locus)
+            let observationID = try XCTUnwrap(registry.observations.first?.id)
+            return try Self.response(
+                request: request,
+                chunkID: "chunk-0001",
+                registry: registry,
+                calls: [
+                    Self.structuredCall(
+                        sample: sample,
+                        locus: locus,
+                        slot: "h1",
+                        label: "M9B",
+                        evidenceID: observationID
+                    ),
+                ]
+            )
+        }
+        let runner = AIHaplotypingRunner(provider: provider, promptRegistry: .builtIn)
+
+        let output = try await runner.run(
+            result: makeResult(calls: [makeCall(sample: "DW472", genotype: "12_M9_B_001_01")]),
+            sidecar: nil,
+            options: AIHaplotypingRunOptions(
+                mode: .aiDiscovery,
+                providerID: .openAI,
+                maxObservationsPerChunk: 10,
+                maxProviderRetries: 1
+            )
+        )
+
+        let requests = await provider.recordedRequests()
+        XCTAssertEqual(requests.count, 2)
+        XCTAssertEqual(output.providerAttempts.count, 1)
+        XCTAssertEqual(output.chunkOutputs.count, 1)
+        XCTAssertEqual(output.validationReports.map { $0.accepted }, [true])
+        XCTAssertEqual(try Self.expectedRun(from: requests[0]).generationParameters["maxProviderRetries"], "1")
+        XCTAssertEqual(try Self.expectedRun(from: requests[1]).generationParameters["maxProviderRetries"], "1")
+    }
+
+    func testRunnerEmitsProgressEventsForChunkLifecycleAndRetries() async throws {
+        let attempts = RetryAttemptCounter()
+        let events = LockedProgressEvents()
+        let provider = MockStructuredProvider { request in
+            let attempt = await attempts.next()
+            if attempt == 1 {
+                throw AIProviderError.networkError("The network connection was lost.")
+            }
+            let registry = try Self.registry(from: request)
+            let sample = try XCTUnwrap(registry.samples.first?.sample)
+            let locus = try XCTUnwrap(registry.loci.first?.locus)
+            let observationID = try XCTUnwrap(registry.observations.first?.id)
+            return try Self.response(
+                request: request,
+                chunkID: "chunk-0001",
+                registry: registry,
+                calls: [
+                    Self.structuredCall(
+                        sample: sample,
+                        locus: locus,
+                        slot: "h1",
+                        label: "M9B",
+                        evidenceID: observationID
+                    ),
+                ]
+            )
+        }
+        let runner = AIHaplotypingRunner(
+            provider: provider,
+            promptRegistry: .builtIn,
+            progressHandler: { events.append($0) }
+        )
+
+        _ = try await runner.run(
+            result: makeResult(calls: [makeCall(sample: "DW472", genotype: "12_M9_B_001_01")]),
+            sidecar: nil,
+            options: AIHaplotypingRunOptions(
+                mode: .aiDiscovery,
+                providerID: .openAI,
+                maxObservationsPerChunk: 10,
+                maxProviderRetries: 1
+            )
+        )
+
+        XCTAssertEqual(events.snapshot(), [
+            .runStarted(chunkCount: 1, observationCount: 1),
+            .chunkStarted(chunkID: "chunk-0001", chunkIndex: 1, chunkCount: 1, observationCount: 1),
+            .providerRetry(chunkID: "chunk-0001", retryIndex: 1, maxRetries: 1, errorCategory: "network_error"),
+            .chunkFinished(chunkID: "chunk-0001", chunkIndex: 1, chunkCount: 1, callCount: 1, definitionCount: 0),
+            .runFinished(chunkCount: 1, callCount: 1, definitionCount: 0),
+        ])
+    }
+
+    func testRunnerCanStartAtLaterChunkForDebugSmokeRuns() async throws {
+        let provider = MockStructuredProvider { request in
+            let registry = try Self.registry(from: request)
+            let sample = try XCTUnwrap(registry.samples.first?.sample)
+            let locus = try XCTUnwrap(registry.loci.first?.locus)
+            let observationID = try XCTUnwrap(registry.observations.first?.id)
+            return try Self.response(
+                request: request,
+                chunkID: "chunk-0002",
+                registry: registry,
+                calls: [
+                    Self.structuredCall(
+                        sample: sample,
+                        locus: locus,
+                        slot: "h1",
+                        label: "M9B",
+                        evidenceID: observationID
+                    ),
+                ]
+            )
+        }
+        let runner = AIHaplotypingRunner(provider: provider, promptRegistry: .builtIn)
+
+        let output = try await runner.run(
+            result: makeResult(calls: [
+                makeCall(sample: "DW472", genotype: "12_M9_B_001_01"),
+                makeCall(sample: "DW473", genotype: "12_M8_A_001_01"),
+            ]),
+            sidecar: nil,
+            options: AIHaplotypingRunOptions(
+                mode: .aiDiscovery,
+                providerID: .openAI,
+                maxObservationsPerChunk: 1,
+                chunkStartIndex: 2,
+                chunkEndIndex: 2
+            )
+        )
+
+        let requests = await provider.recordedRequests()
+        XCTAssertEqual(requests.count, 1)
+        XCTAssertEqual(output.chunkOutputs.map(\.chunkID), ["chunk-0002"])
+        XCTAssertEqual(output.providerAttempts.map(\.attemptIndex), [1])
+        XCTAssertEqual(output.normalizedCalls.count, 1)
     }
 
     func testRunnerRejectsDuplicateDiscoveredDefinitionsAcrossChunks() async throws {
@@ -393,6 +594,32 @@ private actor MockStructuredProvider: StructuredAIProvider {
 
     func recordedRequests() -> [AIStructuredRequest] {
         requests
+    }
+}
+
+private actor RetryAttemptCounter {
+    private var value = 0
+
+    func next() -> Int {
+        value += 1
+        return value
+    }
+}
+
+private final class LockedProgressEvents: @unchecked Sendable {
+    private let lock = NSLock()
+    private var events: [AIHaplotypingProgressEvent] = []
+
+    func append(_ event: AIHaplotypingProgressEvent) {
+        lock.lock()
+        defer { lock.unlock() }
+        events.append(event)
+    }
+
+    func snapshot() -> [AIHaplotypingProgressEvent] {
+        lock.lock()
+        defer { lock.unlock() }
+        return events
     }
 }
 

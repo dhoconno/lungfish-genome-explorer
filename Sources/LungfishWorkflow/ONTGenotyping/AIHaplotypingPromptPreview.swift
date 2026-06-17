@@ -14,7 +14,9 @@ public struct AIHaplotypingPromptPreviewRequest: Sendable {
     public let maxObservationsPerChunk: Int
     public let maxOutputTokens: Int
     public let temperature: Double
+    public let maxProviderRetries: Int
     public let provenancePath: String
+    public let compactKnowledgePack: Bool
 
     public init(
         result: ONTGenotypeResultBundleData,
@@ -28,7 +30,9 @@ public struct AIHaplotypingPromptPreviewRequest: Sendable {
         maxObservationsPerChunk: Int = 128,
         maxOutputTokens: Int = 4096,
         temperature: Double = 0,
-        provenancePath: String = AIHaplotypingPatchValidator.pendingProvenancePath
+        maxProviderRetries: Int = 2,
+        provenancePath: String = AIHaplotypingPatchValidator.pendingProvenancePath,
+        compactKnowledgePack: Bool = false
     ) {
         self.result = result
         self.sidecar = sidecar
@@ -41,7 +45,9 @@ public struct AIHaplotypingPromptPreviewRequest: Sendable {
         self.maxObservationsPerChunk = max(1, maxObservationsPerChunk)
         self.maxOutputTokens = max(1, maxOutputTokens)
         self.temperature = max(0, min(2, temperature))
+        self.maxProviderRetries = max(0, maxProviderRetries)
         self.provenancePath = provenancePath
+        self.compactKnowledgePack = compactKnowledgePack
     }
 }
 
@@ -91,7 +97,7 @@ public struct AIHaplotypingPromptPreviewKnowledgePackSummary: Codable, Equatable
     public let digest: String
     public let populationProfileCount: Int
     public let alleleRecordCount: Int
-    public let legacyBlockDefinitionCount: Int
+    public let haplotypeBlockDefinitionCount: Int
 
     public init(
         id: String,
@@ -99,14 +105,14 @@ public struct AIHaplotypingPromptPreviewKnowledgePackSummary: Codable, Equatable
         digest: String,
         populationProfileCount: Int,
         alleleRecordCount: Int,
-        legacyBlockDefinitionCount: Int
+        haplotypeBlockDefinitionCount: Int
     ) {
         self.id = id
         self.version = version
         self.digest = digest
         self.populationProfileCount = populationProfileCount
         self.alleleRecordCount = alleleRecordCount
-        self.legacyBlockDefinitionCount = legacyBlockDefinitionCount
+        self.haplotypeBlockDefinitionCount = haplotypeBlockDefinitionCount
     }
 }
 
@@ -172,10 +178,19 @@ public struct AIHaplotypingPromptPreviewBuilder: Sendable {
             maxObservationsPerChunk: request.maxObservationsPerChunk,
             maxOutputTokens: request.maxOutputTokens,
             temperature: request.temperature,
-            provenancePath: request.provenancePath
+            maxProviderRetries: request.maxProviderRetries,
+            provenancePath: request.provenancePath,
+            compactKnowledgePack: request.compactKnowledgePack
         )
 
         let previewChunks = chunks.map { chunk in
+            let promptKnowledgePack = request.compactKnowledgePack
+                ? AIHaplotypingKnowledgePackRetriever.compact(
+                    knowledgePack,
+                    for: chunk.registry,
+                    runContext: runContext
+                )
+                : knowledgePack
             let expectedRun = AIHaplotypingRunMetadata(
                 mode: request.mode,
                 promptTemplateID: template.id,
@@ -198,7 +213,7 @@ public struct AIHaplotypingPromptPreviewBuilder: Sendable {
                 chunkID: chunk.id,
                 expectedRun: expectedRun,
                 runContext: runContext,
-                knowledgePack: knowledgePack,
+                knowledgePack: promptKnowledgePack,
                 evidenceRegistry: chunk.registry
             )
             let promptInputJSON = String(
@@ -232,7 +247,7 @@ public struct AIHaplotypingPromptPreviewBuilder: Sendable {
                 digest: knowledgePack.digest,
                 populationProfileCount: knowledgePack.populationProfiles.count,
                 alleleRecordCount: knowledgePack.alleleRecords.count,
-                legacyBlockDefinitionCount: knowledgePack.legacyBlockDefinitions.count
+                haplotypeBlockDefinitionCount: knowledgePack.haplotypeBlockDefinitions.count
             ),
             runContext: runContext,
             chunkCount: previewChunks.count,

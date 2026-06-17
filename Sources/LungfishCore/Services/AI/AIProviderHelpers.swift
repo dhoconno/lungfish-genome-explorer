@@ -33,6 +33,17 @@ func jsonValueToAny(_ value: JSONValue) -> Any {
 func anyToJSONValue(_ value: Any) -> JSONValue {
     switch value {
     case let s as String: return .string(s)
+    case let n as NSNumber:
+        if CFGetTypeID(n) == CFBooleanGetTypeID() {
+            return .bool(n.boolValue)
+        }
+        let doubleValue = n.doubleValue
+        if doubleValue.rounded(.towardZero) == doubleValue,
+           doubleValue >= Double(Int.min),
+           doubleValue <= Double(Int.max) {
+            return .integer(n.intValue)
+        }
+        return .number(doubleValue)
     case let b as Bool: return .bool(b)
     case let i as Int: return .integer(i)
     case let d as Double: return .number(d)
@@ -112,4 +123,12 @@ func parseErrorMessage(_ data: Data) -> String? {
         return String(data: data, encoding: .utf8)
     }
     return message
+}
+
+func parseErrorCode(_ data: Data) -> String? {
+    guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let error = json["error"] as? [String: Any] else {
+        return nil
+    }
+    return (error["code"] as? String) ?? (error["type"] as? String)
 }

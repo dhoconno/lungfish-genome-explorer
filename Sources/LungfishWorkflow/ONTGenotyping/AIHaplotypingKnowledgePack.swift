@@ -23,7 +23,7 @@ public struct AIHaplotypingKnowledgePack: Codable, Equatable, Sendable {
     public var sources: [AIHaplotypingKnowledgeSource]
     public var populationProfiles: [AIHaplotypingPopulationProfile]
     public var alleleRecords: [AIHaplotypingAlleleRecord]
-    public var legacyBlockDefinitions: [AIHaplotypingLegacyBlockDefinition]
+    public var haplotypeBlockDefinitions: [AIHaplotypingHaplotypeBlockDefinition]
     public var markerRules: [AIHaplotypingMarkerRule]
     public var analystGuidance: [AIHaplotypingAnalystGuidance]
     public var digest: String
@@ -34,7 +34,7 @@ public struct AIHaplotypingKnowledgePack: Codable, Equatable, Sendable {
         case sources
         case populationProfiles
         case alleleRecords
-        case legacyBlockDefinitions
+        case haplotypeBlockDefinitions
         case markerRules
         case analystGuidance
         case digest
@@ -46,7 +46,7 @@ public struct AIHaplotypingKnowledgePack: Codable, Equatable, Sendable {
         sources: [AIHaplotypingKnowledgeSource],
         populationProfiles: [AIHaplotypingPopulationProfile],
         alleleRecords: [AIHaplotypingAlleleRecord] = [],
-        legacyBlockDefinitions: [AIHaplotypingLegacyBlockDefinition],
+        haplotypeBlockDefinitions: [AIHaplotypingHaplotypeBlockDefinition],
         markerRules: [AIHaplotypingMarkerRule],
         analystGuidance: [AIHaplotypingAnalystGuidance],
         digest: String? = nil
@@ -56,7 +56,7 @@ public struct AIHaplotypingKnowledgePack: Codable, Equatable, Sendable {
         self.sources = sources.sorted { $0.id < $1.id }
         self.populationProfiles = populationProfiles.sorted { $0.id < $1.id }
         self.alleleRecords = alleleRecords.map { $0.normalized() }.sorted { $0.id < $1.id }
-        self.legacyBlockDefinitions = legacyBlockDefinitions.map { $0.normalized() }.sorted { $0.id < $1.id }
+        self.haplotypeBlockDefinitions = haplotypeBlockDefinitions.map { $0.normalized() }.sorted { $0.id < $1.id }
         self.markerRules = markerRules.map { $0.normalized() }.sorted { $0.id < $1.id }
         self.analystGuidance = analystGuidance.map { $0.normalized() }.sorted { $0.id < $1.id }
         self.digest = digest ?? Self.computeDigest(
@@ -65,7 +65,7 @@ public struct AIHaplotypingKnowledgePack: Codable, Equatable, Sendable {
             sources: self.sources,
             populationProfiles: self.populationProfiles,
             alleleRecords: self.alleleRecords,
-            legacyBlockDefinitions: self.legacyBlockDefinitions,
+            haplotypeBlockDefinitions: self.haplotypeBlockDefinitions,
             markerRules: self.markerRules,
             analystGuidance: self.analystGuidance
         )
@@ -85,9 +85,9 @@ public struct AIHaplotypingKnowledgePack: Codable, Equatable, Sendable {
                 [AIHaplotypingAlleleRecord].self,
                 forKey: .alleleRecords
             ) ?? [],
-            legacyBlockDefinitions: try container.decode(
-                [AIHaplotypingLegacyBlockDefinition].self,
-                forKey: .legacyBlockDefinitions
+            haplotypeBlockDefinitions: try container.decode(
+                [AIHaplotypingHaplotypeBlockDefinition].self,
+                forKey: .haplotypeBlockDefinitions
             ),
             markerRules: try container.decode([AIHaplotypingMarkerRule].self, forKey: .markerRules),
             analystGuidance: try container.decode(
@@ -105,7 +105,7 @@ public struct AIHaplotypingKnowledgePack: Codable, Equatable, Sendable {
             sources: sources,
             populationProfiles: populationProfiles,
             alleleRecords: alleleRecords,
-            legacyBlockDefinitions: legacyBlockDefinitions,
+            haplotypeBlockDefinitions: haplotypeBlockDefinitions,
             markerRules: markerRules,
             analystGuidance: analystGuidance
         )
@@ -116,14 +116,14 @@ public struct AIHaplotypingKnowledgePack: Codable, Equatable, Sendable {
         try rejectDuplicateIDs(sources.map(\.id))
         try rejectDuplicateIDs(populationProfiles.map(\.id))
         try rejectDuplicateIDs(alleleRecords.map(\.id))
-        try rejectDuplicateIDs(legacyBlockDefinitions.map(\.id))
+        try rejectDuplicateIDs(haplotypeBlockDefinitions.map(\.id))
         try rejectDuplicateIDs(markerRules.map(\.id))
         try rejectDuplicateIDs(analystGuidance.map(\.id))
 
         for alleleRecord in alleleRecords {
             try validateSourceIDs(alleleRecord.sourceIDs, known: sourceIDs)
         }
-        for definition in legacyBlockDefinitions {
+        for definition in haplotypeBlockDefinitions {
             try validateSourceIDs(definition.sourceIDs, known: sourceIDs)
             for marker in definition.definingMarkers {
                 try validateSourceIDs(marker.sourceIDs, known: sourceIDs)
@@ -156,7 +156,7 @@ public struct AIHaplotypingKnowledgePack: Codable, Equatable, Sendable {
         sources: [AIHaplotypingKnowledgeSource],
         populationProfiles: [AIHaplotypingPopulationProfile],
         alleleRecords: [AIHaplotypingAlleleRecord],
-        legacyBlockDefinitions: [AIHaplotypingLegacyBlockDefinition],
+        haplotypeBlockDefinitions: [AIHaplotypingHaplotypeBlockDefinition],
         markerRules: [AIHaplotypingMarkerRule],
         analystGuidance: [AIHaplotypingAnalystGuidance]
     ) -> String {
@@ -166,7 +166,7 @@ public struct AIHaplotypingKnowledgePack: Codable, Equatable, Sendable {
             sources: sources,
             populationProfiles: populationProfiles,
             alleleRecords: alleleRecords,
-            legacyBlockDefinitions: legacyBlockDefinitions,
+            haplotypeBlockDefinitions: haplotypeBlockDefinitions,
             markerRules: markerRules,
             analystGuidance: analystGuidance
         ))
@@ -178,7 +178,7 @@ public struct AIHaplotypingKnowledgePack: Codable, Equatable, Sendable {
         let sources: [AIHaplotypingKnowledgeSource]
         let populationProfiles: [AIHaplotypingPopulationProfile]
         let alleleRecords: [AIHaplotypingAlleleRecord]
-        let legacyBlockDefinitions: [AIHaplotypingLegacyBlockDefinition]
+        let haplotypeBlockDefinitions: [AIHaplotypingHaplotypeBlockDefinition]
         let markerRules: [AIHaplotypingMarkerRule]
         let analystGuidance: [AIHaplotypingAnalystGuidance]
     }
@@ -262,7 +262,7 @@ public struct AIHaplotypingPopulationProfile: Codable, Equatable, Sendable {
     }
 }
 
-public struct AIHaplotypingLegacyBlockDefinition: Codable, Equatable, Sendable {
+public struct AIHaplotypingHaplotypeBlockDefinition: Codable, Equatable, Sendable {
     public var id: String
     public var internalID: String
     public var displayLabel: String
@@ -382,9 +382,9 @@ private extension AIHaplotypingAlleleRecord {
     }
 }
 
-private extension AIHaplotypingLegacyBlockDefinition {
-    func normalized() -> AIHaplotypingLegacyBlockDefinition {
-        AIHaplotypingLegacyBlockDefinition(
+private extension AIHaplotypingHaplotypeBlockDefinition {
+    func normalized() -> AIHaplotypingHaplotypeBlockDefinition {
+        AIHaplotypingHaplotypeBlockDefinition(
             id: id,
             internalID: internalID,
             displayLabel: displayLabel,
