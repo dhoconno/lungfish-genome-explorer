@@ -11,6 +11,7 @@ public struct AIHaplotypingRunOptions: Codable, Equatable, Sendable {
     public let maxObservationsPerChunk: Int
     public let maxOutputTokens: Int
     public let temperature: Double
+    public let reasoningEffort: String?
     public let maxProviderRetries: Int
     public let provenancePath: String
     public let compactKnowledgePack: Bool
@@ -23,9 +24,10 @@ public struct AIHaplotypingRunOptions: Codable, Equatable, Sendable {
         credentialSource: AIHaplotypingCredentialSource? = nil,
         promptTemplateID: String? = nil,
         promptTemplateVersion: String? = nil,
-        maxObservationsPerChunk: Int = 128,
+        maxObservationsPerChunk: Int = 1,
         maxOutputTokens: Int = 4_096,
         temperature: Double = 0,
+        reasoningEffort: String? = nil,
         maxProviderRetries: Int = 2,
         provenancePath: String = "ai-haplotyping/provenance.json",
         compactKnowledgePack: Bool = false,
@@ -40,6 +42,8 @@ public struct AIHaplotypingRunOptions: Codable, Equatable, Sendable {
         self.maxObservationsPerChunk = max(1, maxObservationsPerChunk)
         self.maxOutputTokens = max(1, maxOutputTokens)
         self.temperature = max(0, min(2, temperature))
+        let trimmedReasoningEffort = reasoningEffort?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.reasoningEffort = trimmedReasoningEffort.isEmpty ? nil : trimmedReasoningEffort
         self.maxProviderRetries = max(0, maxProviderRetries)
         let trimmedProvenancePath = provenancePath.trimmingCharacters(in: .whitespacesAndNewlines)
         self.provenancePath = trimmedProvenancePath.isEmpty
@@ -51,7 +55,7 @@ public struct AIHaplotypingRunOptions: Codable, Equatable, Sendable {
     }
 
     public func generationParameters(schemaName: String) -> [String: String] {
-        [
+        var parameters = [
             "chunkEndIndex": String(chunkEndIndex),
             "chunkStartIndex": String(chunkStartIndex),
             "compactKnowledgePack": compactKnowledgePack ? "true" : "false",
@@ -61,6 +65,10 @@ public struct AIHaplotypingRunOptions: Codable, Equatable, Sendable {
             "schemaName": schemaName,
             "temperature": Self.formatNumber(temperature),
         ]
+        if let reasoningEffort {
+            parameters["reasoningEffort"] = reasoningEffort
+        }
+        return parameters
     }
 
     private static func formatNumber(_ value: Double) -> String {
@@ -312,6 +320,7 @@ public struct AIHaplotypingRunner: Sendable {
                     schema: AIHaplotypingResultSchema.jsonSchema(),
                     maxOutputTokens: options.maxOutputTokens,
                     temperature: options.temperature,
+                    reasoningEffort: options.reasoningEffort,
                     attemptIndex: offset,
                     fallbackIndex: 0,
                     credentialSource: options.credentialSource?.rawValue

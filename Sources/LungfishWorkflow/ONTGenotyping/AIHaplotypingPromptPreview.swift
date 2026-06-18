@@ -27,7 +27,7 @@ public struct AIHaplotypingPromptPreviewRequest: Sendable {
         credentialSource: AIHaplotypingCredentialSource? = nil,
         promptTemplateID: String? = nil,
         promptTemplateVersion: String? = nil,
-        maxObservationsPerChunk: Int = 128,
+        maxObservationsPerChunk: Int = 1,
         maxOutputTokens: Int = 4096,
         temperature: Double = 0,
         maxProviderRetries: Int = 2,

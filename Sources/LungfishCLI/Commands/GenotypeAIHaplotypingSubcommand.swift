@@ -32,7 +32,7 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
     var mode: AIHaplotypingModeArgument = .aiRefinement
 
     @Option(name: .customLong("provider"), help: "AI provider: openai or anthropic.")
-    var provider: AIHaplotypingProviderArgument = .anthropic
+    var provider: AIHaplotypingProviderArgument = .openAI
 
     @Option(name: .customLong("model"), help: "Provider model override. Defaults to the provider's app default.")
     var model: String?
@@ -43,14 +43,20 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("prompt-template-version"), help: "Prompt template version to pin for this run.")
     var promptTemplateVersion: String?
 
-    @Option(name: .customLong("max-observations-per-chunk"), help: "Maximum observation evidence records per AI request.")
-    var maxObservationsPerChunk: Int = 128
+    @Option(
+        name: .customLong("max-observations-per-chunk"),
+        help: "Maximum observation evidence records per AI request. Defaults to one focused sample/locus review for concordance."
+    )
+    var maxObservationsPerChunk: Int = 1
 
     @Option(name: .customLong("max-output-tokens"), help: "Maximum provider output tokens per chunk.")
     var maxOutputTokens: Int = 4096
 
     @Option(name: .customLong("temperature"), help: "Provider sampling temperature.")
     var temperature: Double = 0
+
+    @Option(name: .customLong("reasoning-effort"), help: "OpenAI Responses API reasoning effort: none, minimal, low, medium, high, or xhigh.")
+    var reasoningEffort: String?
 
     @Option(name: .customLong("max-provider-retries"), help: "Maximum retry attempts for transient AI provider failures per chunk.")
     var maxProviderRetries: Int = 2
@@ -117,6 +123,15 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
         if temperature < 0 || temperature > 2 {
             throw ValidationError("--temperature must be between 0 and 2.")
         }
+        if reasoningEffort != nil && reasoningEffortValue() == nil {
+            throw ValidationError("--reasoning-effort must be one of none, minimal, low, medium, high, or xhigh.")
+        }
+        if let trimmed = reasoningEffortValue() {
+            let allowedEfforts: Set<String> = ["none", "minimal", "low", "medium", "high", "xhigh"]
+            if !allowedEfforts.contains(trimmed) {
+                throw ValidationError("--reasoning-effort must be one of none, minimal, low, medium, high, or xhigh.")
+            }
+        }
         if maxProviderRetries < 0 {
             throw ValidationError("--max-provider-retries must be at least 0.")
         }
@@ -175,7 +190,7 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
         if mode.promptMode == .aiRefinement, activeResult.haplotypeAnalysis == nil {
             throw ValidationError("AI refinement requires an existing deterministic, manual, or AI haplotype analysis in the bundle.")
         }
-        let credential = try resolvedCredential()
+        let credential = try await resolvedCredential()
         let providerInstance = makeProvider(apiKey: credential.apiKey)
         let runOptions = AIHaplotypingRunOptions(
             mode: mode.promptMode,
@@ -186,6 +201,7 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
             maxObservationsPerChunk: maxObservationsPerChunk,
             maxOutputTokens: maxOutputTokens,
             temperature: temperature,
+            reasoningEffort: reasoningEffortValue(),
             maxProviderRetries: maxProviderRetries,
             provenancePath: AIHaplotypingPatchValidator.pendingProvenancePath,
             compactKnowledgePack: compactKnowledgePack,
@@ -254,7 +270,7 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
         if mode.promptMode == .aiRefinement, activeResult.haplotypeAnalysis == nil {
             throw ValidationError("AI refinement requires an existing deterministic, manual, or AI haplotype analysis in the bundle.")
         }
-        let credential = try resolvedCredential()
+        let credential = try await resolvedCredential()
         let providerInstance = makeProvider(apiKey: credential.apiKey)
         let runOptions = AIHaplotypingRunOptions(
             mode: mode.promptMode,
@@ -265,6 +281,7 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
             maxObservationsPerChunk: maxObservationsPerChunk,
             maxOutputTokens: maxOutputTokens,
             temperature: temperature,
+            reasoningEffort: reasoningEffortValue(),
             maxProviderRetries: maxProviderRetries,
             provenancePath: AIHaplotypingPatchValidator.pendingProvenancePath,
             compactKnowledgePack: compactKnowledgePack,
@@ -421,6 +438,7 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
             "maxObservationsPerChunk": .integer(maxObservationsPerChunk),
             "maxOutputTokens": .integer(maxOutputTokens),
             "temperature": .number(temperature),
+            "reasoningEffort": reasoningEffortValue().map(ParameterValue.string) ?? .null,
             "maxProviderRetries": .integer(maxProviderRetries),
             "chunkStartIndex": .integer(chunkStartIndex),
             "chunkEndIndex": .integer(chunkEndIndex),
@@ -569,14 +587,35 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
         )
     }
 
-    private func resolvedCredential() throws -> (apiKey: String, source: AIHaplotypingCredentialSource) {
+    private func resolvedCredential() async throws -> (apiKey: String, source: AIHaplotypingCredentialSource) {
+        try await Self.resolveCredential(
+            provider: provider,
+            environment: ProcessInfo.processInfo.environment,
+            keychainLookup: { key in
+                try await KeychainSecretStorage.shared.retrieve(forKey: key)
+            }
+        )
+    }
+
+    static func resolveCredential(
+        provider: AIHaplotypingProviderArgument,
+        environment: [String: String],
+        keychainLookup: (String) async throws -> String?
+    ) async throws -> (apiKey: String, source: AIHaplotypingCredentialSource) {
         let environmentName = provider.defaultEnvironmentVariable
-        let apiKey = ProcessInfo.processInfo.environment[environmentName]?
+        let environmentAPIKey = environment[environmentName]?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !apiKey.isEmpty else {
-            throw ValidationError("Missing API key. Set \(environmentName) before running AI haplotyping.")
+        if !environmentAPIKey.isEmpty {
+            return (environmentAPIKey, provider.environmentCredentialSource)
         }
-        return (apiKey, provider.credentialSource)
+
+        let keychainAPIKey = try await keychainLookup(provider.keychainKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !keychainAPIKey.isEmpty {
+            return (keychainAPIKey, provider.keychainCredentialSource)
+        }
+
+        throw ValidationError("Missing API key. Set \(environmentName) or configure \(provider.keychainKey) in the app settings.")
     }
 
     private func makeProvider(apiKey: String) -> any StructuredAIProvider {
@@ -591,6 +630,11 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
     private func modelValue(default defaultModel: String) -> String {
         let trimmed = model?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? defaultModel : trimmed
+    }
+
+    private func reasoningEffortValue() -> String? {
+        let trimmed = reasoningEffort?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func previewCommand(outputURL: URL) -> [String] {
@@ -613,6 +657,9 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
             "--temperature", String(temperature),
             "--max-provider-retries", String(maxProviderRetries),
         ]
+        if let reasoningEffort = reasoningEffortValue() {
+            command += ["--reasoning-effort", reasoningEffort]
+        }
         if compactKnowledgePack {
             command += ["--compact-knowledge-pack"]
         }
@@ -648,6 +695,9 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
             "--chunk-start-index", String(chunkStartIndex),
             "--chunk-end-index", String(chunkEndIndex),
         ]
+        if let reasoningEffort = reasoningEffortValue() {
+            command += ["--reasoning-effort", reasoningEffort]
+        }
         if compactKnowledgePack {
             command += ["--compact-knowledge-pack"]
         }
@@ -669,6 +719,7 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
             "maxObservationsPerChunk": .integer(maxObservationsPerChunk),
             "maxOutputTokens": .integer(maxOutputTokens),
             "temperature": .number(temperature),
+            "reasoningEffort": reasoningEffortValue().map(ParameterValue.string) ?? .null,
             "maxProviderRetries": .integer(maxProviderRetries),
             "compactKnowledgePack": .string(compactKnowledgePack ? "true" : "false"),
             "chunkStartIndex": .integer(chunkStartIndex),
@@ -688,12 +739,13 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
 
     private func defaultOptions() -> [String: ParameterValue] {
         [
-            "provider": .string(AIHaplotypingProviderArgument.anthropic.providerID.rawValue),
+            "provider": .string(AIHaplotypingProviderArgument.openAI.providerID.rawValue),
             "openAIModel": .string("gpt-5-mini"),
             "anthropicModel": .string("claude-sonnet-4-5-20250929"),
-            "maxObservationsPerChunk": .integer(128),
+            "maxObservationsPerChunk": .integer(1),
             "maxOutputTokens": .integer(4096),
             "temperature": .number(0),
+            "reasoningEffort": .null,
             "maxProviderRetries": .integer(2),
             "compactKnowledgePack": .string("false"),
             "chunkStartIndex": .integer(1),
@@ -717,6 +769,7 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
             "maxObservationsPerChunk": .integer(maxObservationsPerChunk),
             "maxOutputTokens": .integer(maxOutputTokens),
             "temperature": .number(temperature),
+            "reasoningEffort": reasoningEffortValue().map(ParameterValue.string) ?? .null,
             "maxProviderRetries": .integer(maxProviderRetries),
             "compactKnowledgePack": .string(compactKnowledgePack ? "true" : "false"),
             "chunkStartIndex": .integer(chunkStartIndex),
@@ -784,9 +837,27 @@ enum AIHaplotypingProviderArgument: String, CaseIterable, ExpressibleByArgument 
     }
 
     var credentialSource: AIHaplotypingCredentialSource {
+        environmentCredentialSource
+    }
+
+    var environmentCredentialSource: AIHaplotypingCredentialSource {
         switch self {
         case .openAI: return .environmentOpenAI
         case .anthropic: return .environmentAnthropic
+        }
+    }
+
+    var keychainCredentialSource: AIHaplotypingCredentialSource {
+        switch self {
+        case .openAI: return .keychainOpenAI
+        case .anthropic: return .keychainAnthropic
+        }
+    }
+
+    var keychainKey: String {
+        switch self {
+        case .openAI: return KeychainSecretStorage.openAIAPIKey
+        case .anthropic: return KeychainSecretStorage.anthropicAPIKey
         }
     }
 

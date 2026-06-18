@@ -146,8 +146,8 @@ final class GenotypeAIHaplotypingExecutionService {
     }
 
     private func resolveProvider() async throws -> ResolvedProvider {
-        let preferred = AIProviderIdentifier(rawValue: settings.preferredAIProvider) ?? .anthropic
-        let providerOrder = ([preferred] + [AIProviderIdentifier.anthropic, .openAI])
+        let preferred = AIProviderIdentifier(rawValue: settings.preferredAIProvider) ?? .openAI
+        let providerOrder = ([preferred] + [AIProviderIdentifier.openAI, .anthropic])
             .filter { $0 == .anthropic || $0 == .openAI }
             .reduce(into: [AIProviderIdentifier]()) { partial, provider in
                 if !partial.contains(provider) {
@@ -232,7 +232,7 @@ final class GenotypeAIHaplotypingExecutionService {
 }
 
 private enum AIHaplotypingExecutionDefaults {
-    static let maxObservationsPerChunk = 16
+    static let maxObservationsPerChunk = 1
     static let maxOutputTokens = 16_384
     static let temperature = 1.0
     static let maxProviderRetries = 5

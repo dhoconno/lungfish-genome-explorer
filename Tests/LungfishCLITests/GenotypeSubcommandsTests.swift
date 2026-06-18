@@ -54,6 +54,7 @@ final class GenotypeSubcommandsTests: XCTestCase {
             "--max-observations-per-chunk", "64",
             "--max-output-tokens", "2048",
             "--temperature", "0",
+            "--reasoning-effort", "low",
             "--max-provider-retries", "3",
         ])
 
@@ -66,7 +67,27 @@ final class GenotypeSubcommandsTests: XCTestCase {
         XCTAssertEqual(command.maxObservationsPerChunk, 64)
         XCTAssertEqual(command.maxOutputTokens, 2048)
         XCTAssertEqual(command.temperature, 0)
+        XCTAssertEqual(command.reasoningEffort, "low")
         XCTAssertEqual(command.maxProviderRetries, 3)
+    }
+
+    func testAIHaplotypingDefaultsToFocusedSingleLocusReviewChunks() throws {
+        let command = try GenotypeAIHaplotypingSubcommand.parse([
+            "--bundle", "/tmp/example.lungfishgenotype",
+        ])
+
+        XCTAssertEqual(command.maxObservationsPerChunk, 1)
+        XCTAssertEqual(command.provider, .openAI)
+    }
+
+    func testAIHaplotypingRejectsInvalidReasoningEffort() {
+        XCTAssertThrowsError(
+            try GenotypeAIHaplotypingSubcommand.parse([
+                "--bundle", "/tmp/example.lungfishgenotype",
+                "--provider", "openai",
+                "--reasoning-effort", "maximum",
+            ]).validate()
+        )
     }
 
     func testAIHaplotypingParsesDebugChunkWindowOptions() throws {
@@ -81,6 +102,27 @@ final class GenotypeSubcommandsTests: XCTestCase {
         XCTAssertEqual(command.chunkStartIndex, 62)
         XCTAssertEqual(command.chunkEndIndex, 99)
         XCTAssertEqual(command.debugOutput, "/tmp/barcode05-ai-debug.json")
+    }
+
+    func testAIHaplotypingCredentialResolutionPrefersEnvironmentThenFallsBackToKeychain() async throws {
+        let environmentCredential = try await GenotypeAIHaplotypingSubcommand.resolveCredential(
+            provider: .openAI,
+            environment: ["OPENAI_API_KEY": " env-key "],
+            keychainLookup: { _ in "keychain-key" }
+        )
+        XCTAssertEqual(environmentCredential.apiKey, "env-key")
+        XCTAssertEqual(environmentCredential.source, .environmentOpenAI)
+
+        let keychainCredential = try await GenotypeAIHaplotypingSubcommand.resolveCredential(
+            provider: .openAI,
+            environment: [:],
+            keychainLookup: { key in
+                XCTAssertEqual(key, KeychainSecretStorage.openAIAPIKey)
+                return " keychain-key "
+            }
+        )
+        XCTAssertEqual(keychainCredential.apiKey, "keychain-key")
+        XCTAssertEqual(keychainCredential.source, .keychainOpenAI)
     }
 
     func testAIHaplotypingRejectsPartialChunkWindowWithoutDebugOutput() {
@@ -150,8 +192,8 @@ final class GenotypeSubcommandsTests: XCTestCase {
         XCTAssertEqual(preview.runContext.assayResolution, "short_exon_amplicon")
         XCTAssertEqual(preview.chunkCount, 1)
         XCTAssertEqual(preview.observationCount, 2)
-        XCTAssertEqual(preview.promptTemplate.version, "2026-06-15.16")
-        XCTAssertEqual(preview.knowledgePack.version, "2026-06-15.2")
+        XCTAssertEqual(preview.promptTemplate.version, "2026-06-18.1")
+        XCTAssertEqual(preview.knowledgePack.version, "2026-06-17.3")
         XCTAssertTrue(preview.chunks[0].userPrompt.contains("DP/DQ linkage"))
         XCTAssertTrue(preview.chunks[0].userPrompt.contains("population novelty prior"))
         XCTAssertTrue(preview.chunks[0].userPrompt.contains("05_M1M2M3_A1_063g"))
@@ -601,6 +643,96 @@ final class GenotypeSubcommandsTests: XCTestCase {
 
         XCTAssertEqual(workbook.haplotypeRows[2].label, "MHC-B Haplotype 1")
         XCTAssertEqual(workbook.haplotypeRows[2].values, ["NewB"])
+    }
+
+    func testPivotWorkbookIncludesGroupedClassIILociFromActiveAnalysis() {
+        let bundleURL = URL(fileURLWithPath: "/tmp/grouped-class-ii.lungfishgenotype", isDirectory: true)
+        let manifest = ONTGenotypeResultBundleManifest(
+            kind: "ont-barcode-genotype",
+            outputName: "Grouped",
+            analysisName: "Grouped",
+            primaryWorkbookPath: "grouped.xlsx",
+            longSummaryCSVPath: "genotypes.csv",
+            sampleSummaryCSVPath: "samples.csv",
+            statsJSONPath: "stats.json",
+            provenancePath: "provenance.json"
+        )
+        let artifacts = ONTGenotypeResultArtifacts(
+            workbookURL: bundleURL.appendingPathComponent("grouped.xlsx"),
+            longSummaryCSVURL: bundleURL.appendingPathComponent("genotypes.csv"),
+            sampleSummaryCSVURL: bundleURL.appendingPathComponent("samples.csv"),
+            statsJSONURL: bundleURL.appendingPathComponent("stats.json"),
+            provenanceURL: bundleURL.appendingPathComponent("provenance.json")
+        )
+        let samples = [
+            ONTGenotypeSampleResult(
+                sample: "Animal1",
+                passedAlignments: 100,
+                passedUniqueReads: 100,
+                sampleTotalReads: 100,
+                sampleUniqueRetainedPercent: 100,
+                calls: []
+            ),
+        ]
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "mcm-mhc-miseq-20260617",
+            definitionSetName: "MCM MHC miSeq haplotype associations",
+            speciesName: "Mauritian cynomolgus macaque",
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(sample: "Animal1", calls: [
+                    GenotypeHaplotypeLocusCall(
+                        locus: "MHC-DR",
+                        sourceLocus: "MHC-DR",
+                        haplotype1: "M1",
+                        haplotype2: "M2",
+                        status: .called,
+                        matchedHaplotypes: [],
+                        observedGenotypeCount: 2,
+                        observedGenotypes: []
+                    ),
+                    GenotypeHaplotypeLocusCall(
+                        locus: "MHC-DQ",
+                        sourceLocus: "MHC-DQ",
+                        haplotype1: "M1",
+                        haplotype2: "M2",
+                        status: .called,
+                        matchedHaplotypes: [],
+                        observedGenotypeCount: 2,
+                        observedGenotypes: []
+                    ),
+                    GenotypeHaplotypeLocusCall(
+                        locus: "MHC-DP",
+                        sourceLocus: "MHC-DP",
+                        haplotype1: "M1",
+                        haplotype2: "M2",
+                        status: .called,
+                        matchedHaplotypes: [],
+                        observedGenotypeCount: 2,
+                        observedGenotypes: []
+                    ),
+                ]),
+            ]
+        )
+        let result = ONTGenotypeResultBundleData(
+            bundleURL: bundleURL,
+            manifest: manifest,
+            artifacts: artifacts,
+            stats: ONTGenotypeRunStats(),
+            calls: [],
+            samples: samples,
+            haplotypeAnalysis: analysis
+        )
+
+        let workbook = GenotypeExportPivotXlsxSubcommand.PivotWorkbookBuilder.build(from: result)
+        let rowsByLabel = Dictionary(uniqueKeysWithValues: workbook.haplotypeRows.map { ($0.label, $0.values) })
+
+        XCTAssertEqual(rowsByLabel["MHC-DR Haplotype 1"], ["M1"])
+        XCTAssertEqual(rowsByLabel["MHC-DR Haplotype 2"], ["M2"])
+        XCTAssertEqual(rowsByLabel["MHC-DQ Haplotype 1"], ["M1"])
+        XCTAssertEqual(rowsByLabel["MHC-DQ Haplotype 2"], ["M2"])
+        XCTAssertEqual(rowsByLabel["MHC-DP Haplotype 1"], ["M1"])
+        XCTAssertEqual(rowsByLabel["MHC-DP Haplotype 2"], ["M2"])
     }
 
     func testPlainXlsxMatrixUsesSidecarActiveCustomHaplotypeDefinition() throws {

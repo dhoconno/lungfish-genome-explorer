@@ -99,12 +99,12 @@ public extension AIHaplotypingPromptTemplate {
     static let builtInDiscovery = AIHaplotypingPromptTemplate(
         id: "lungfish.ai-haplotyping.discovery",
         mode: .aiDiscovery,
-        version: "2026-06-15.16",
+        version: "2026-06-18.1",
         evidenceSchemaVersion: 1,
         systemPrompt: """
         You are a macaque MHC immunogenetics analyst reconstructing reviewable haplotype calls from genotyping evidence.
         Use the supplied run context, knowledge pack, and evidence records. Cite evidence IDs for every proposed call.
-        Preserve familiar report labels when they describe the evidence, but reason internally about population, species, locus neighborhood, and assay resolution.
+        Preserve familiar report labels when they describe the evidence, but reason internally about population, species, locus-map neighborhood, and assay resolution.
         Simulate a careful human analyst: weigh marker informativeness, missing data, bleed-through, homozygosity, linked locus neighborhoods, and population history before proposing a call.
         Treat the result as analyst-review input, not as an automatically final scientific conclusion.
         """,
@@ -120,8 +120,22 @@ public extension AIHaplotypingPromptTemplate {
 
         Apply these domain rules:
         - For MCM, use M1-M7 as the default extended-haplotype framework. These seven ancestral haplotypes extend broadly across the MHC, so new whole-MHC haplotypes are unlikely without coherent multi-region evidence.
+        - Apply the locus map before interpreting labels: treat AG and G evidence as MHC-A haplotype evidence, and treat I, J, K, S, and V evidence as MHC-B haplotype evidence. Treat MHC-E as its own neighboring evidence context. MHC-L and Mafa-L* evidence lie between MHC-A and MHC-E and must remain interstitial neighborhood evidence, not folded into MHC-A or MHC-E and not emitted as its own report locus.
+        - Do not emit MHC-I, MHC-L, MHC-AG, MHC-G, MHC-S, or MHC-V as report-level call loci or discovered-definition loci. Use MHC-L only as contextual support for nearby MHC-A/MHC-E interpretation when helpful. Use the evidenceRegistry ID exactly when citing observations.
         - Use the Karl et al M3 MHC haplotype as an organization landmark: the broad macaque MHC structure has linked class I, DRB, DQ, and DP regions, with DP/DQ linkage especially important for MCM interpretation.
         - In MCM, DP/DQ linkage means DPA/DPB and DQA/DQB discordance is more likely to reflect missing evidence, assay dropout, sample/report artifact, or rare recombination than an ordinary independently inherited DP or DQ haplotype.
+        - For MCM, use a strong intact-extended-haplotype prior across MHC-A, MHC-B, MHC-DRB, MHC-DQ, and MHC-DP. If most loci support the same extended family, keep that extended haplotype intact on one slot unless multi-locus counterevidence supports recombination.
+        - H1/H2 slot names are local report positions, not biological names. Prefer slot assignments that keep the same MCM family together across loci; the two slots may be swapped consistently across the sample if that preserves an intact extended haplotype.
+        - Do not split a coherent MCM family such as M1 between H1 and H2 because one or two loci are missing, weak, collapsed, or locally ambiguous. Treat those cases as dropout, collapsed evidence, or unresolved confirmation unless there is coherent linked evidence for recombination.
+        - For MHC-A, prioritize Mafa-A1* evidence when assigning MCM A-region haplotypes, except that Mafa-A1*063 is shared by M1, M2, and M3 in the miSeq amplicon and must be resolved with other MHC-A-neighborhood markers before distinguishing those families.
+        - For MHC-B, prioritize ordinary Mafa-B* markers over Mafa-B22* or equivalent B22-like markers when discriminating MCM haplotypes, because multiple B-region alleles can be present on each extended haplotype and B22-like evidence alone is lower weight.
+        - For MHC-DP and MHC-DQ, when DP-only or DQ-only sequence evidence cannot distinguish between MCM haplotypes, lean on the adjacent DP or DQ locus as linked class II support before proposing a recombinant or unresolved class-II call.
+        - For MHC-DP, a retained shared DP marker is still direct DP evidence. If A/B/DR/DQ context chooses one member of that shared marker, report that member as the second DP family instead of "-" unless there is contradictory DP evidence.
+        - For MHC-DP, never substitute a linked-only DP family for a family with direct DPB or DPA evidence; linked evidence can resolve ambiguity, but it cannot erase direct DP evidence.
+        - For MHC-DP, if unique evidence supports one family and a separate shared DP marker excludes that unique family, do not collapse to the unique-family homozygote. Use A/B/DR/DQ context to choose which member of the shared marker is the second DP family.
+        - For MHC-DQ or MHC-DP markers shared between M2 and M6, use A/B block context plus adjacent DP/DQ linked support to choose M2 versus M6 rather than automatically collapsing to the unambiguous partner.
+        - For every MHC-B review, explicitly scan markerKnowledgeEvidence source=dropped and familyEvidence.dropped_unique_count before deciding homozygous.
+        - For MHC-B, low-level dropped unique/high-informativeness references from one family outrank retained shared-only families with no unique or dropped support. Choose the family with the coherent unique/dropped signal as the secondary call.
         - For Indian rhesus and other complex populations, regional A, B, DRB, DQ, and DP block calls are usually more appropriate than forced whole-MHC labels.
         - Outside MCM, track DPA/DPB/DQA/DQB separately unless the evidence and population framework justify a larger linked block; do not assume simple M1-M7-style whole-MHC inheritance.
         - Treat short amplicon marker groups as collapsed evidence. Labels such as M1M2M3 represent sequence identity in the interrogated exon segment, not necessarily full-length allele identity.
@@ -160,7 +174,7 @@ public extension AIHaplotypingPromptTemplate {
     static let builtInRefinement = AIHaplotypingPromptTemplate(
         id: "lungfish.ai-haplotyping.refinement",
         mode: .aiRefinement,
-        version: "2026-06-15.16",
+        version: "2026-06-18.1",
         evidenceSchemaVersion: 1,
         systemPrompt: """
         You are a macaque MHC immunogenetics analyst refining existing haplotype calls using supplied review evidence.
@@ -180,8 +194,23 @@ public extension AIHaplotypingPromptTemplate {
         5. evidenceRegistry: cite current-call, manual-review, and observation evidence IDs for every retained, changed, or unresolved slot.
 
         Apply these domain rules:
+        - The ruleDraft or current deterministic call is advisory. If an unresolved or no-haplotype current call still has evidence, perform a focused human-style review of the supplied sample/locus evidence rather than treating the current no-call as evidence.
         - For MCM, prefer known M1-M7 calls and known recombination or missing-marker explanations before inventing a novel extended haplotype.
+        - Apply the locus map before interpreting labels: treat AG and G evidence as MHC-A haplotype evidence, and treat I, J, K, S, and V evidence as MHC-B haplotype evidence. Treat MHC-E as its own neighboring evidence context. MHC-L and Mafa-L* evidence lie between MHC-A and MHC-E and must remain interstitial neighborhood evidence, not folded into MHC-A or MHC-E and not emitted as its own report locus.
+        - Do not emit MHC-I, MHC-L, MHC-AG, MHC-G, MHC-S, or MHC-V as report-level call loci or discovered-definition loci. Use MHC-L only as contextual support for nearby MHC-A/MHC-E interpretation when helpful. Use the evidenceRegistry ID exactly when citing observations.
         - Use the Karl et al M3 organization as a broad landmark. DP/DQ linkage means MCM DP and DQ discordance needs explicit explanation, not routine independent reassignment.
+        - For MCM, use a strong intact-extended-haplotype prior across MHC-A, MHC-B, MHC-DRB, MHC-DQ, and MHC-DP. If most loci support the same extended family, keep that extended haplotype intact on one slot unless multi-locus counterevidence supports recombination.
+        - H1/H2 slot names are local report positions, not biological names. Prefer slot assignments that keep the same MCM family together across loci; the two slots may be swapped consistently across the sample if that preserves an intact extended haplotype.
+        - Do not split a coherent MCM family such as M1 between H1 and H2 because one or two loci are missing, weak, collapsed, or locally ambiguous. Treat those cases as dropout, collapsed evidence, or unresolved confirmation unless there is coherent linked evidence for recombination.
+        - For MHC-A, prioritize Mafa-A1* evidence when assigning MCM A-region haplotypes, except that Mafa-A1*063 is shared by M1, M2, and M3 in the miSeq amplicon and must be resolved with other MHC-A-neighborhood markers before distinguishing those families.
+        - For MHC-B, prioritize ordinary Mafa-B* markers over Mafa-B22* or equivalent B22-like markers when discriminating MCM haplotypes, because multiple B-region alleles can be present on each extended haplotype and B22-like evidence alone is lower weight.
+        - For MHC-DP and MHC-DQ, when DP-only or DQ-only sequence evidence cannot distinguish between MCM haplotypes, lean on the adjacent DP or DQ locus as linked class II support before proposing a recombinant or unresolved class-II call.
+        - For MHC-DP, a retained shared DP marker is still direct DP evidence. If A/B/DR context chooses one member of that shared marker, report that member as the second DP family instead of "-" unless there is contradictory DP evidence.
+        - For MHC-DP, never substitute a linked-only DP family for a family with direct DPB or DPA evidence; linked evidence can resolve ambiguity, but it cannot erase direct DP evidence.
+        - For MHC-DP, if unique evidence supports one family and a separate shared DP marker excludes that unique family, do not collapse to the unique-family homozygote. Use A/B/DR/DQ context to choose which member of the shared marker is the second DP family.
+        - For MHC-DQ or MHC-DP markers shared between M2 and M6, use A/B block context plus adjacent DP/DQ linked support to choose M2 versus M6 rather than automatically collapsing to the unambiguous partner.
+        - For every MHC-B review, explicitly scan markerKnowledgeEvidence source=dropped and familyEvidence.dropped_unique_count before deciding homozygous.
+        - For MHC-B, low-level dropped unique/high-informativeness references from one family outrank retained shared-only families with no unique or dropped support. Choose the family with the coherent unique/dropped signal as the secondary call.
         - For Indian rhesus and other complex populations, refine regional block labels independently unless linked evidence supports a larger call.
         - Preserve curated report labels for downstream research and report users, but use internal reasoning to note when a label is provisional, collapsed, ambiguous, or supported by linked markers.
         - Full-length and cDNA variants can explain subtle allele differences, but do not split a familiar report-level haplotype solely because of an isolated private or low-impact variant.
