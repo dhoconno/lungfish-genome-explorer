@@ -1,4 +1,5 @@
 import json
+import os
 import shlex
 import sys
 import tempfile
@@ -146,6 +147,108 @@ class MacaqueMHCPromptLabTests(unittest.TestCase):
         prompt_template = "# Prompt\n\n{{PROMPT_INPUT_JSON}}\n\n{{PROMPT_INPUT_JSON}}\n"
         with self.assertRaisesRegex(ValueError, "exactly one"):
             lab.render_prompt_text(prompt_template, {"schema_version": 1})
+
+    def test_openai_payload_uses_json_prompt_and_configurable_model(self):
+        payload = lab.openai_request_payload(
+            "system",
+            "user",
+            model="gpt-5.5",
+            max_output_tokens=1234,
+            reasoning_effort="medium",
+        )
+
+        self.assertEqual(payload["model"], "gpt-5.5")
+        self.assertEqual(payload["input"][0]["role"], "system")
+        self.assertEqual(payload["input"][1]["content"], "user")
+        self.assertEqual(payload["max_output_tokens"], 1234)
+        self.assertEqual(payload["reasoning"]["effort"], "medium")
+
+    def test_extract_response_text_uses_output_text(self):
+        response = {"output_text": "model text"}
+
+        self.assertEqual(lab.extract_response_text(response), "model text")
+
+    def test_extract_response_text_joins_nested_output_text(self):
+        response = {
+            "output": [
+                {"content": [{"type": "output_text", "text": "first"}]},
+                {"content": [{"type": "text", "text": "second"}]},
+            ]
+        }
+
+        self.assertEqual(lab.extract_response_text(response), "first\nsecond")
+
+    def test_extract_response_text_rejects_response_without_text(self):
+        with self.assertRaisesRegex(ValueError, "did not contain output text"):
+            lab.extract_response_text({"output": [{"content": [{"type": "image", "text": "ignored"}]}]})
+
+    def test_run_openai_requires_api_key_before_provider_call(self):
+        with tempfile.TemporaryDirectory() as temp:
+            iteration_dir = Path(temp) / "iteration"
+            iteration_dir.mkdir()
+            (iteration_dir / "rendered_prompt.md").write_text("prompt", encoding="utf-8")
+            old_key = os.environ.pop("OPENAI_API_KEY", None)
+            original_call_openai = getattr(lab, "call_openai_responses", None)
+
+            def fail_if_called(api_key, payload):
+                raise AssertionError("provider call should not run without OPENAI_API_KEY")
+
+            if original_call_openai is not None:
+                lab.call_openai_responses = fail_if_called
+            try:
+                with self.assertRaisesRegex(SystemExit, "OPENAI_API_KEY is required for run-openai"):
+                    lab.main(["run-openai", "--iteration-dir", str(iteration_dir)])
+            finally:
+                if old_key is not None:
+                    os.environ["OPENAI_API_KEY"] = old_key
+                if original_call_openai is not None:
+                    lab.call_openai_responses = original_call_openai
+
+    def test_run_iteration_requires_key_only_when_running_provider(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            workbook = self.make_synthetic_snprc_workbook(root)
+            iteration_dir = root / "iteration"
+
+            lab.run_iteration(
+                workbook=workbook,
+                iteration_dir=iteration_dir,
+                prompt_path=None,
+                run_provider=False,
+                model="gpt-5.5",
+            )
+
+            self.assertTrue((iteration_dir / "prompt_input.json").is_file())
+            self.assertTrue((iteration_dir / "rendered_prompt.md").is_file())
+
+    def test_run_iteration_no_provider_writes_effective_argv_provenance(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            workbook = self.make_synthetic_snprc_workbook(root)
+            iteration_dir = root / "iteration"
+
+            lab.run_iteration(
+                workbook=workbook,
+                iteration_dir=iteration_dir,
+                prompt_path=None,
+                run_provider=False,
+                model="gpt-5.5",
+            )
+
+            extract_provenance = json.loads((iteration_dir / "extract.provenance.json").read_text(encoding="utf-8"))
+            render_provenance = json.loads(
+                (iteration_dir / "render-prompt.provenance.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(extract_provenance["argv"][0], str(Path(lab.__file__)))
+            self.assertEqual(extract_provenance["argv"][1], "extract")
+            self.assertIn("--workbook", extract_provenance["argv"])
+            self.assertIn("--output-dir", extract_provenance["argv"])
+            self.assertFalse(any(part == "" for part in extract_provenance["argv"]))
+            self.assertEqual(render_provenance["argv"][0], str(Path(lab.__file__)))
+            self.assertEqual(render_provenance["argv"][1], "render-prompt")
+            self.assertIn("--iteration-dir", render_provenance["argv"])
+            self.assertIn("--prompt", render_provenance["argv"])
+            self.assertFalse(any(part == "" for part in render_provenance["argv"]))
 
     def test_locus_mapping_keeps_report_loci_separate(self):
         cases = {

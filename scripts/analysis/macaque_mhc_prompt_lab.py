@@ -12,6 +12,8 @@ import re
 import shlex
 import sys
 import time
+import urllib.error
+import urllib.request
 from collections import Counter, defaultdict, deque
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,6 +31,10 @@ DUPLICATE_SAMPLE_POLICY = "FULL_RESULT_SHEETS are ordered older-to-newer; later 
 DEFAULT_SNPRC_WORKBOOK = Path("/Users/dho/Downloads/30783_SNPRC22_MHC_Genotype_Report_31Dec24.xlsx")
 DEFAULT_PROMPT = Path("scripts/analysis/prompts/generalist_macaque_mhc_haplotyping_v1.md")
 DEFAULT_OUTPUT_ROOT = Path("outputs/macaque-mhc-prompt-lab")
+DEFAULT_OPENAI_MODEL = "gpt-5.5"
+DEFAULT_OPENAI_MAX_OUTPUT_TOKENS = 24000
+DEFAULT_OPENAI_REASONING_EFFORT = "medium"
+OPENAI_SYSTEM_PROMPT = "Follow the user prompt exactly and return only valid JSON."
 PROMPT_INPUT_PLACEHOLDER = "{{PROMPT_INPUT_JSON}}"
 TRUTH_ROW_RE = re.compile(r"^MHC-(A|B|DRB|DQA|DQB|DPA|DPB)\s+Haplotype\s+([12])$", re.IGNORECASE)
 GENOTYPE_PREFIX_RE = re.compile(r"^\d+_(Mamu-[A-Za-z0-9*]+)")
@@ -302,6 +308,63 @@ def render_prompt_text(prompt_template: str, prompt_input: dict[str, Any]) -> st
         raise ValueError(f"Prompt template must contain exactly one {PROMPT_INPUT_PLACEHOLDER} placeholder")
     prompt_json = json.dumps(prompt_input, indent=2, sort_keys=True)
     return prompt_template.replace(PROMPT_INPUT_PLACEHOLDER, prompt_json)
+
+
+def openai_request_payload(
+    system_prompt: str,
+    user_prompt: str,
+    model: str,
+    max_output_tokens: int,
+    reasoning_effort: str | None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "model": model,
+        "input": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "max_output_tokens": max_output_tokens,
+        "temperature": 0,
+    }
+    if reasoning_effort:
+        payload["reasoning"] = {"effort": reasoning_effort}
+    return payload
+
+
+def extract_response_text(response: dict[str, Any]) -> str:
+    if "output_text" in response and isinstance(response["output_text"], str):
+        return response["output_text"]
+    chunks = []
+    for item in response.get("output", []):
+        if not isinstance(item, dict):
+            continue
+        for content in item.get("content", []):
+            if not isinstance(content, dict):
+                continue
+            if content.get("type") in {"output_text", "text"} and isinstance(content.get("text"), str):
+                chunks.append(content["text"])
+    if chunks:
+        return "\n".join(chunks)
+    raise ValueError("OpenAI response did not contain output text")
+
+
+def call_openai_responses(api_key: str, payload: dict[str, Any]) -> dict[str, Any]:
+    body = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(
+        "https://api.openai.com/v1/responses",
+        data=body,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=300) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        error_body = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"OpenAI Responses API request failed with HTTP {exc.code}: {error_body}") from exc
 
 
 def string_field(record: dict[str, Any], key: str, prefix: str, errors: list[str]) -> str | None:
@@ -805,6 +868,77 @@ def resolved_score_options(iteration_dir: Path) -> dict[str, Any]:
     }
 
 
+def resolved_run_openai_options(
+    iteration_dir: Path,
+    model: str,
+    max_output_tokens: int,
+    reasoning_effort: str | None,
+) -> dict[str, Any]:
+    return {
+        "iterationDir": str(iteration_dir),
+        "model": model,
+        "maxOutputTokens": max_output_tokens,
+        "reasoningEffort": reasoning_effort,
+        "defaults": {
+            "workbook": str(DEFAULT_SNPRC_WORKBOOK),
+            "prompt": str(DEFAULT_PROMPT),
+            "outputRoot": str(DEFAULT_OUTPUT_ROOT),
+            "reportLoci": REPORT_LOCI,
+            "fullResultSheets": FULL_RESULT_SHEETS,
+            "model": DEFAULT_OPENAI_MODEL,
+            "maxOutputTokens": DEFAULT_OPENAI_MAX_OUTPUT_TOKENS,
+            "reasoningEffort": DEFAULT_OPENAI_REASONING_EFFORT,
+        },
+    }
+
+
+def resolved_run_iteration_options(
+    workbook: Path,
+    iteration_dir: Path,
+    prompt: Path,
+    model: str,
+    run_provider: bool,
+) -> dict[str, Any]:
+    return {
+        "workbook": str(workbook),
+        "iterationDir": str(iteration_dir),
+        "prompt": str(prompt),
+        "model": model,
+        "runProvider": run_provider,
+        "defaults": {
+            "workbook": str(DEFAULT_SNPRC_WORKBOOK),
+            "prompt": str(DEFAULT_PROMPT),
+            "outputRoot": str(DEFAULT_OUTPUT_ROOT),
+            "reportLoci": REPORT_LOCI,
+            "fullResultSheets": FULL_RESULT_SHEETS,
+            "model": DEFAULT_OPENAI_MODEL,
+            "maxOutputTokens": DEFAULT_OPENAI_MAX_OUTPUT_TOKENS,
+            "reasoningEffort": DEFAULT_OPENAI_REASONING_EFFORT,
+        },
+    }
+
+
+def iteration_output_paths(iteration_dir: Path, run_provider: bool) -> list[Path]:
+    paths = [
+        iteration_dir / "prompt_input.json",
+        iteration_dir / "truth_calls.json",
+        iteration_dir / "samples.json",
+        iteration_dir / "rendered_prompt.md",
+    ]
+    if run_provider:
+        paths.extend(
+            [
+                iteration_dir / "openai_response.json",
+                iteration_dir / "model_output.json",
+                iteration_dir / "model_output_validation.json",
+                iteration_dir / "parsed_model_output.json",
+                iteration_dir / "score.json",
+                iteration_dir / "score.md",
+            ]
+        )
+    return paths
+
+
 def write_provenance(
     output_dir: Path,
     workflow: str,
@@ -1044,6 +1178,171 @@ def command_score(args: argparse.Namespace) -> None:
     )
 
 
+def command_run_openai(args: argparse.Namespace) -> None:
+    started = time.time()
+    iteration_dir = args.iteration_dir.resolve()
+    rendered_prompt_path = iteration_dir / "rendered_prompt.md"
+    openai_response_path = iteration_dir / "openai_response.json"
+    model_output_path = iteration_dir / "model_output.json"
+    options = resolved_run_openai_options(
+        iteration_dir,
+        args.model,
+        args.max_output_tokens,
+        args.reasoning_effort,
+    )
+    inputs = [rendered_prompt_path]
+
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        message = "OPENAI_API_KEY is required for run-openai"
+        for stale_path in (openai_response_path, model_output_path):
+            if stale_path.exists():
+                stale_path.unlink()
+        write_provenance(
+            iteration_dir,
+            "run-openai",
+            args.effective_argv,
+            inputs,
+            [],
+            started,
+            options,
+            status="failed",
+            stderr=message,
+        )
+        raise SystemExit(message)
+
+    for stale_path in (openai_response_path, model_output_path):
+        if stale_path.exists():
+            stale_path.unlink()
+
+    try:
+        rendered_prompt = rendered_prompt_path.read_text(encoding="utf-8")
+        payload = openai_request_payload(
+            OPENAI_SYSTEM_PROMPT,
+            rendered_prompt,
+            model=args.model,
+            max_output_tokens=args.max_output_tokens,
+            reasoning_effort=args.reasoning_effort,
+        )
+        response = call_openai_responses(api_key, payload)
+        write_json(openai_response_path, response)
+        response_text = extract_response_text(response)
+        model_output = json.loads(response_text)
+        write_json(model_output_path, model_output)
+    except Exception as exc:
+        message = f"run-openai failed: {exc}"
+        if model_output_path.exists():
+            model_output_path.unlink()
+        write_provenance(
+            iteration_dir,
+            "run-openai",
+            args.effective_argv,
+            inputs,
+            [openai_response_path],
+            started,
+            options,
+            status="failed",
+            stderr=message,
+        )
+        raise SystemExit(message) from exc
+
+    write_provenance(
+        iteration_dir,
+        "run-openai",
+        args.effective_argv,
+        inputs,
+        [openai_response_path, model_output_path],
+        started,
+        options,
+    )
+
+
+def run_cli(argv: list[str]) -> int:
+    return main(argv)
+
+
+def run_iteration(
+    workbook: Path,
+    iteration_dir: Path,
+    prompt_path: Path | None,
+    run_provider: bool,
+    model: str,
+) -> int:
+    prompt = prompt_path if prompt_path is not None else DEFAULT_PROMPT
+    run_cli(["extract", "--workbook", str(workbook), "--output-dir", str(iteration_dir)])
+    run_cli(["render-prompt", "--iteration-dir", str(iteration_dir), "--prompt", str(prompt)])
+    if run_provider:
+        run_cli(["run-openai", "--iteration-dir", str(iteration_dir), "--model", model])
+        run_cli(
+            [
+                "import-output",
+                "--iteration-dir",
+                str(iteration_dir),
+                "--model-output",
+                str(iteration_dir / "model_output.json"),
+            ]
+        )
+        run_cli(["score", "--iteration-dir", str(iteration_dir)])
+    return 0
+
+
+def command_run_iteration(args: argparse.Namespace) -> None:
+    started = time.time()
+    workbook = args.workbook.resolve()
+    iteration_dir = args.iteration_dir.resolve()
+    prompt = args.prompt.resolve()
+    options = resolved_run_iteration_options(workbook, iteration_dir, prompt, args.model, args.run_provider)
+    inputs = [workbook, prompt]
+    outputs = iteration_output_paths(iteration_dir, args.run_provider)
+
+    try:
+        run_iteration(
+            workbook=workbook,
+            iteration_dir=iteration_dir,
+            prompt_path=prompt,
+            run_provider=args.run_provider,
+            model=args.model,
+        )
+    except SystemExit as exc:
+        message = f"run-iteration failed: {exc}"
+        write_provenance(
+            iteration_dir,
+            "run-iteration",
+            args.effective_argv,
+            inputs,
+            outputs,
+            started,
+            options,
+            status="failed",
+            stderr=message,
+        )
+        raise
+    except Exception as exc:
+        message = f"run-iteration failed: {exc}"
+        write_provenance(
+            iteration_dir,
+            "run-iteration",
+            args.effective_argv,
+            inputs,
+            outputs,
+            started,
+            options,
+            status="failed",
+            stderr=message,
+        )
+        raise SystemExit(message) from exc
+
+    write_provenance(
+        iteration_dir,
+        "run-iteration",
+        args.effective_argv,
+        inputs,
+        outputs,
+        started,
+        options,
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1062,6 +1361,22 @@ def build_parser() -> argparse.ArgumentParser:
     score = sub.add_parser("score", help="Score parsed model output against held-out human calls.")
     score.add_argument("--iteration-dir", type=Path, required=True)
     score.set_defaults(func=command_score)
+    run_openai = sub.add_parser("run-openai", help="Call OpenAI Responses API with rendered_prompt.md.")
+    run_openai.add_argument("--iteration-dir", type=Path, required=True)
+    run_openai.add_argument("--model", default=DEFAULT_OPENAI_MODEL)
+    run_openai.add_argument("--max-output-tokens", type=int, default=DEFAULT_OPENAI_MAX_OUTPUT_TOKENS)
+    run_openai.add_argument("--reasoning-effort", default=DEFAULT_OPENAI_REASONING_EFFORT)
+    run_openai.set_defaults(func=command_run_openai)
+    run_iteration_parser = sub.add_parser(
+        "run-iteration",
+        help="Extract, render, optionally run provider, import, and score one iteration.",
+    )
+    run_iteration_parser.add_argument("--workbook", type=Path, default=DEFAULT_SNPRC_WORKBOOK)
+    run_iteration_parser.add_argument("--iteration-dir", type=Path, required=True)
+    run_iteration_parser.add_argument("--prompt", type=Path, default=DEFAULT_PROMPT)
+    run_iteration_parser.add_argument("--model", default=DEFAULT_OPENAI_MODEL)
+    run_iteration_parser.add_argument("--run-provider", action="store_true")
+    run_iteration_parser.set_defaults(func=command_run_iteration)
     return parser
 
 
