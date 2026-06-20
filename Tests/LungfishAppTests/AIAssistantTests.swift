@@ -676,19 +676,26 @@ final class AISettingsIntegrationTests: XCTestCase {
 
     func testDefaultModels() {
         let settings = AppSettings.shared
-        XCTAssertEqual(settings.openAIModel, "gpt-5-mini")
-        XCTAssertEqual(settings.geminiModel, "gemini-2.5-flash")
-        XCTAssertEqual(settings.anthropicModel, "claude-sonnet-4-5-20250929")
+        XCTAssertEqual(settings.openAIModel, "gpt-5.5")
+        XCTAssertEqual(settings.geminiModel, "gemini-3.5-flash")
+        XCTAssertEqual(settings.anthropicModel, "claude-sonnet-4-6")
+        XCTAssertFalse(settings.openAIHostedEndpointEnabled)
     }
 
     func testResetAIServicesSection() {
         let settings = AppSettings.shared
         settings.preferredAIProvider = "gemini"
         settings.openAIModel = "gpt-4.1"
+        settings.openAIHostedEndpointEnabled = true
+        settings.openAIHostedEndpoint = "https://oc-aiservices.openai.azure.com"
+        settings.openAIHostedDeployment = "gpt-5-mini"
         settings.resetSection(.aiServices)
 
         XCTAssertEqual(settings.preferredAIProvider, "anthropic")
-        XCTAssertEqual(settings.openAIModel, "gpt-5-mini")
+        XCTAssertEqual(settings.openAIModel, "gpt-5.5")
+        XCTAssertFalse(settings.openAIHostedEndpointEnabled)
+        XCTAssertEqual(settings.openAIHostedEndpoint, "")
+        XCTAssertEqual(settings.openAIHostedDeployment, "")
     }
 
     func testSendMessageWhenAIDisabledReturnsHelpfulMessage() async {

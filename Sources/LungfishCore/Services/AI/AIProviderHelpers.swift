@@ -96,6 +96,15 @@ func openAIUsage(from json: [String: Any]) -> AIResponse.Usage? {
     )
 }
 
+/// Extracts usage from OpenAI Responses API response usage.
+func openAIResponsesUsage(from json: [String: Any]) -> AIResponse.Usage? {
+    guard let usage = json["usage"] as? [String: Any] else { return nil }
+    return AIResponse.Usage(
+        inputTokens: usage["input_tokens"] as? Int ?? 0,
+        outputTokens: usage["output_tokens"] as? Int ?? 0
+    )
+}
+
 /// Extracts usage from Anthropic-style response usage.
 func anthropicUsage(from json: [String: Any]) -> AIResponse.Usage? {
     guard let usage = json["usage"] as? [String: Any] else { return nil }

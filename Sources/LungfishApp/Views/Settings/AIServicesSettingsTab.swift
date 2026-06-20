@@ -21,6 +21,44 @@ struct AIServicesSettingsTab: View {
         case invalid(String)
     }
 
+    private struct ModelOption: Identifiable {
+        let id: String
+        let label: String
+    }
+
+    private static let anthropicModelOptions: [ModelOption] = [
+        ModelOption(id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6 (Recommended)"),
+        ModelOption(id: "claude-opus-4-8", label: "Claude Opus 4.8"),
+        ModelOption(id: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5"),
+        ModelOption(id: "claude-fable-5", label: "Claude Fable 5"),
+    ]
+
+    private static let openAIModelOptions: [ModelOption] = [
+        ModelOption(id: "gpt-5.5", label: "GPT-5.5 (Recommended)"),
+        ModelOption(id: "gpt-5.4", label: "GPT-5.4"),
+        ModelOption(id: "gpt-5.4-mini", label: "GPT-5.4 Mini"),
+        ModelOption(id: "gpt-5.4-nano", label: "GPT-5.4 Nano"),
+        ModelOption(id: "gpt-5.1", label: "GPT-5.1"),
+        ModelOption(id: "gpt-5.1-mini", label: "GPT-5.1 Mini"),
+        ModelOption(id: "gpt-5.1-nano", label: "GPT-5.1 Nano"),
+        ModelOption(id: "gpt-5-mini", label: "GPT-5 Mini"),
+        ModelOption(id: "gpt-5", label: "GPT-5"),
+        ModelOption(id: "gpt-4.1", label: "GPT-4.1"),
+        ModelOption(id: "gpt-4.1-mini", label: "GPT-4.1 Mini"),
+        ModelOption(id: "gpt-4.1-nano", label: "GPT-4.1 Nano"),
+    ]
+
+    private static let geminiModelOptions: [ModelOption] = [
+        ModelOption(id: "gemini-3.5-flash", label: "Gemini 3.5 Flash (Recommended)"),
+        ModelOption(id: "gemini-3.5-pro", label: "Gemini 3.5 Pro"),
+        ModelOption(id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro Preview"),
+        ModelOption(id: "gemini-3-pro-preview", label: "Gemini 3 Pro Preview"),
+        ModelOption(id: "gemini-3-flash-preview", label: "Gemini 3 Flash Preview"),
+        ModelOption(id: "gemini-2.5-pro", label: "Gemini 2.5 Pro"),
+        ModelOption(id: "gemini-2.5-flash", label: "Gemini 2.5 Flash"),
+        ModelOption(id: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite"),
+    ]
+
     @State private var settings = AppSettings.shared
 
     @State private var openAIKey: String = ""
@@ -68,8 +106,7 @@ struct AIServicesSettingsTab: View {
                 }
                 validationText(for: anthropicValidation)
                 Picker("Model:", selection: $settings.anthropicModel) {
-                    Text("Claude Sonnet 4.5").tag("claude-sonnet-4-5-20250929")
-                    Text("Claude Haiku 4.5").tag("claude-haiku-4-5-20251001")
+                    modelOptions(Self.anthropicModelOptions, selection: settings.anthropicModel)
                 }
                 .accessibilityIdentifier(SettingsAccessibilityID.aiAnthropicModelPicker)
             }
@@ -77,18 +114,21 @@ struct AIServicesSettingsTab: View {
             Section("OpenAI") {
                 HStack {
                     statusIndicator(state: openAIValidation)
-                    SecureField("API Key", text: $openAIKey, prompt: Text("sk-..."))
+                    SecureField("API Key", text: $openAIKey, prompt: Text("sk-... or Azure key"))
                         .accessibilityIdentifier(SettingsAccessibilityID.aiOpenAIKeyField)
                 }
                 validationText(for: openAIValidation)
                 Picker("Model:", selection: $settings.openAIModel) {
-                    Text("GPT-5 Mini (Recommended)").tag("gpt-5-mini")
-                    Text("GPT-5").tag("gpt-5")
-                    Text("GPT-4.1").tag("gpt-4.1")
-                    Text("GPT-4o").tag("gpt-4o")
-                    Text("GPT-4o Mini").tag("gpt-4o-mini")
+                    modelOptions(Self.openAIModelOptions, selection: settings.openAIModel)
                 }
                 .accessibilityIdentifier(SettingsAccessibilityID.aiOpenAIModelPicker)
+
+                DisclosureGroup("Advanced Hosted Endpoint") {
+                    Toggle("Use Azure-hosted OpenAI endpoint", isOn: $settings.openAIHostedEndpointEnabled)
+                    TextField("Endpoint", text: $settings.openAIHostedEndpoint, prompt: Text("https://example.openai.azure.com"))
+                    TextField("Deployment", text: $settings.openAIHostedDeployment, prompt: Text("gpt-5-mini"))
+                    TextField("API Version", text: $settings.openAIHostedAPIVersion, prompt: Text(OpenAIEndpointConfiguration.defaultAzureAPIVersion))
+                }
             }
 
             Section("Google Gemini") {
@@ -99,10 +139,7 @@ struct AIServicesSettingsTab: View {
                 }
                 validationText(for: geminiValidation)
                 Picker("Model:", selection: $settings.geminiModel) {
-                    Text("Gemini 2.5 Flash (Recommended)").tag("gemini-2.5-flash")
-                    Text("Gemini 2.5 Pro").tag("gemini-2.5-pro")
-                    Text("Gemini 2.5 Flash Lite").tag("gemini-2.5-flash-lite")
-                    Text("Gemini 3 Flash Preview").tag("gemini-3-flash-preview")
+                    modelOptions(Self.geminiModelOptions, selection: settings.geminiModel)
                 }
                 .accessibilityIdentifier(SettingsAccessibilityID.aiGeminiModelPicker)
             }
@@ -143,6 +180,10 @@ struct AIServicesSettingsTab: View {
         .onChange(of: settings.openAIModel) { _, _ in settings.save() }
         .onChange(of: settings.anthropicModel) { _, _ in settings.save() }
         .onChange(of: settings.geminiModel) { _, _ in settings.save() }
+        .onChange(of: settings.openAIHostedEndpointEnabled) { _, _ in settings.save() }
+        .onChange(of: settings.openAIHostedEndpoint) { _, _ in settings.save() }
+        .onChange(of: settings.openAIHostedDeployment) { _, _ in settings.save() }
+        .onChange(of: settings.openAIHostedAPIVersion) { _, _ in settings.save() }
         .onDisappear {
             cancelPendingSaves()
         }
@@ -155,6 +196,16 @@ struct AIServicesSettingsTab: View {
     }
 
     // MARK: - Helpers
+
+    @ViewBuilder
+    private func modelOptions(_ options: [ModelOption], selection: String) -> some View {
+        ForEach(options) { option in
+            Text(option.label).tag(option.id)
+        }
+        if !selection.isEmpty && !options.contains(where: { $0.id == selection }) {
+            Text("Custom (\(selection))").tag(selection)
+        }
+    }
 
     private func statusIndicator(state: KeyValidationState) -> some View {
         let symbol: String
@@ -285,6 +336,9 @@ struct AIServicesSettingsTab: View {
         guard !trimmed.isEmpty else { return false }
         switch provider {
         case .openAI:
+            if settings.openAIHostedEndpointEnabled {
+                return trimmed.count >= 8
+            }
             return trimmed.hasPrefix("sk-") && trimmed.count >= 20
         case .anthropic:
             return trimmed.hasPrefix("sk-ant-") && trimmed.count >= 20
@@ -301,7 +355,11 @@ struct AIServicesSettingsTab: View {
             let aiProvider: any AIProvider
             switch provider {
             case .openAI:
-                aiProvider = OpenAIProvider(apiKey: keyValue, modelId: settings.openAIModel)
+                aiProvider = OpenAIProvider(
+                    apiKey: keyValue,
+                    modelId: settings.openAIModel,
+                    endpointConfiguration: try settings.openAIEndpointConfiguration()
+                )
             case .anthropic:
                 aiProvider = AnthropicProvider(apiKey: keyValue, modelId: settings.anthropicModel)
             case .gemini:

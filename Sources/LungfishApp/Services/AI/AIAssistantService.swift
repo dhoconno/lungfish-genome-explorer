@@ -254,7 +254,11 @@ public final class AIAssistantService {
         case .anthropic:
             return AnthropicProvider(apiKey: apiKey, modelId: settings.anthropicModel)
         case .openAI:
-            return OpenAIProvider(apiKey: apiKey, modelId: settings.openAIModel)
+            return OpenAIProvider(
+                apiKey: apiKey,
+                modelId: settings.openAIModel,
+                endpointConfiguration: try settings.openAIEndpointConfiguration()
+            )
         case .gemini:
             return GeminiProvider(apiKey: apiKey, modelId: settings.geminiModel)
         }

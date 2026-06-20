@@ -56,6 +56,9 @@ final class GenotypeSubcommandsTests: XCTestCase {
             "--temperature", "0",
             "--reasoning-effort", "low",
             "--max-provider-retries", "3",
+            "--azure-openai-endpoint", "https://oc-aiservices.openai.azure.com",
+            "--azure-openai-deployment", "gpt-5-mini",
+            "--azure-openai-api-version", "2025-01-01-preview",
         ])
 
         XCTAssertEqual(command.bundle, "/tmp/example.lungfishgenotype")
@@ -69,6 +72,9 @@ final class GenotypeSubcommandsTests: XCTestCase {
         XCTAssertEqual(command.temperature, 0)
         XCTAssertEqual(command.reasoningEffort, "low")
         XCTAssertEqual(command.maxProviderRetries, 3)
+        XCTAssertEqual(command.azureOpenAIEndpoint, "https://oc-aiservices.openai.azure.com")
+        XCTAssertEqual(command.azureOpenAIDeployment, "gpt-5-mini")
+        XCTAssertEqual(command.azureOpenAIAPIVersion, "2025-01-01-preview")
     }
 
     func testAIHaplotypingDefaultsToFocusedSingleLocusReviewChunks() throws {
@@ -123,6 +129,23 @@ final class GenotypeSubcommandsTests: XCTestCase {
         )
         XCTAssertEqual(keychainCredential.apiKey, "keychain-key")
         XCTAssertEqual(keychainCredential.source, .keychainOpenAI)
+    }
+
+    func testAIHaplotypingAzureCredentialResolutionPrefersAzureEnvironment() async throws {
+        let azureCredential = try await GenotypeAIHaplotypingSubcommand.resolveCredential(
+            provider: .openAI,
+            environment: [
+                "OPENAI_API_KEY": " direct-key ",
+                "AZURE_OPENAI_ENDPOINT": " https://oc-aiservices.openai.azure.com ",
+                "AZURE_OPENAI_DEPLOYMENT": " gpt-5-mini ",
+                "AZURE_OPENAI_API_VERSION": " 2025-01-01-preview ",
+                "AZURE_OPENAI_API_KEY": " azure-key ",
+            ],
+            keychainLookup: { _ in "keychain-key" }
+        )
+
+        XCTAssertEqual(azureCredential.apiKey, "azure-key")
+        XCTAssertEqual(azureCredential.source, .environmentAzureOpenAI)
     }
 
     func testAIHaplotypingRejectsPartialChunkWindowWithoutDebugOutput() {
@@ -364,6 +387,63 @@ final class GenotypeSubcommandsTests: XCTestCase {
         XCTAssertEqual(envelope.options.explicit["compactKnowledgePack"], .string("true"))
         XCTAssertEqual(envelope.options.resolvedDefaults["model"], .string("gpt-5-mini"))
         XCTAssertEqual(envelope.options.resolvedDefaults["debugOutput"], .file(outputURL))
+    }
+
+    func testAIHaplotypingAzureOptionsAreRecordedInDebugProvenance() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AIHaplotypingDebugOutputAzure-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
+        let outputURL = root.appendingPathComponent("debug", isDirectory: true)
+            .appendingPathComponent("barcode05-chunk-62.json")
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        let command = try GenotypeAIHaplotypingSubcommand.parse([
+            "--bundle", bundleURL.path,
+            "--mode", "ai-refinement",
+            "--provider", "openai",
+            "--debug-output", outputURL.path,
+            "--azure-openai-endpoint", "https://oc-aiservices.openai.azure.com/",
+            "--azure-openai-deployment", "gpt-5-mini",
+            "--azure-openai-api-version", "2025-01-01-preview",
+        ])
+        let runnerOutput = AIHaplotypingRunnerOutput(
+            mode: .aiRefinement,
+            registry: AIHaplotypingEvidenceRegistry(
+                mode: .aiRefinement,
+                parentRevisionID: "deterministic-parent",
+                inputSnapshotDigest: "sha256:input",
+                samples: [],
+                loci: [],
+                observations: [],
+                digest: "sha256:registry"
+            ),
+            chunkOutputs: [],
+            normalizedCalls: [],
+            validatedDefinitions: [],
+            validationReports: [],
+            providerAttempts: []
+        )
+
+        _ = try await command.writeDebugOutput(
+            bundleURL: bundleURL,
+            runnerOutput: runnerOutput,
+            modelID: "gpt-5-mini",
+            credentialSource: AIHaplotypingCredentialSource.environmentAzureOpenAI.rawValue,
+            startedAt: Date()
+        )
+
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL))
+        XCTAssertTrue(envelope.argv.contains("--azure-openai-endpoint"))
+        XCTAssertFalse(envelope.argv.contains("azure-key"))
+        XCTAssertEqual(envelope.options.explicit["azureOpenAIEndpoint"], .string("https://oc-aiservices.openai.azure.com"))
+        XCTAssertEqual(envelope.options.explicit["azureOpenAIDeployment"], .string("gpt-5-mini"))
+        XCTAssertEqual(envelope.options.explicit["azureOpenAIAPIVersion"], .string("2025-01-01-preview"))
+        XCTAssertEqual(envelope.options.resolvedDefaults["azureOpenAIEndpoint"], .string("https://oc-aiservices.openai.azure.com"))
+        XCTAssertEqual(envelope.options.resolvedDefaults["azureOpenAIDeployment"], .string("gpt-5-mini"))
+        XCTAssertEqual(envelope.options.resolvedDefaults["azureOpenAIAPIVersion"], .string("2025-01-01-preview"))
+        XCTAssertEqual(envelope.options.resolvedDefaults["credentialSource"], .string("environment:AZURE_OPENAI_API_KEY"))
     }
 
     func testAIHaplotypingRequiresPromptTemplateIDAndVersionTogether() {

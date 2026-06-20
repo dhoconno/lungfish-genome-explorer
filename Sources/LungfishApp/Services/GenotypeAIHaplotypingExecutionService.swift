@@ -43,7 +43,8 @@ final class GenotypeAIHaplotypingExecutionService {
                 bundleURL: bundle,
                 mode: mode,
                 providerID: provider.providerID,
-                modelID: provider.structuredProvider.modelId
+                modelID: provider.structuredProvider.modelId,
+                openAIEndpointConfiguration: provider.openAIEndpointConfiguration
             )
             let cliCommand = ViralReconWorkflowCommandPreview.build(
                 executableName: argv.first ?? "lungfish-gui",
@@ -83,35 +84,46 @@ final class GenotypeAIHaplotypingExecutionService {
             )
             operationCenter.updateWithLog(id: operationID, progress: 0.75, detail: "Publishing AI haplotype revision")
 
+            var explicitOptions: [String: ParameterValue] = [
+                "bundle": .file(bundle),
+                "mode": .string(mode.rawValue),
+                "provider": .string(provider.providerID.rawValue),
+                "credentialSource": .string(provider.credentialSource.rawValue),
+            ]
+            addOpenAIHostedEndpointOptions(provider.openAIEndpointConfiguration, to: &explicitOptions)
+
+            let defaultOptions: [String: ParameterValue] = [
+                "compactKnowledgePack": .string(AIHaplotypingExecutionDefaults.compactKnowledgePack ? "true" : "false"),
+                "maxObservationsPerChunk": .integer(AIHaplotypingExecutionDefaults.maxObservationsPerChunk),
+                "maxOutputTokens": .integer(AIHaplotypingExecutionDefaults.maxOutputTokens),
+                "temperature": .number(AIHaplotypingExecutionDefaults.temperature),
+                "maxProviderRetries": .integer(AIHaplotypingExecutionDefaults.maxProviderRetries),
+                "azureOpenAIEndpoint": .null,
+                "azureOpenAIDeployment": .null,
+                "azureOpenAIAPIVersion": .string(OpenAIEndpointConfiguration.defaultAzureAPIVersion),
+            ]
+
+            var resolvedOptions: [String: ParameterValue] = [
+                "bundle": .file(bundle),
+                "mode": .string(mode.rawValue),
+                "provider": .string(provider.providerID.rawValue),
+                "model": .string(provider.structuredProvider.modelId),
+                "credentialSource": .string(provider.credentialSource.rawValue),
+                "compactKnowledgePack": .string(AIHaplotypingExecutionDefaults.compactKnowledgePack ? "true" : "false"),
+                "maxObservationsPerChunk": .integer(AIHaplotypingExecutionDefaults.maxObservationsPerChunk),
+                "maxOutputTokens": .integer(AIHaplotypingExecutionDefaults.maxOutputTokens),
+                "temperature": .number(AIHaplotypingExecutionDefaults.temperature),
+                "maxProviderRetries": .integer(AIHaplotypingExecutionDefaults.maxProviderRetries),
+            ]
+            addOpenAIHostedEndpointOptions(provider.openAIEndpointConfiguration, to: &resolvedOptions)
+
             let context = AIHaplotypingRevisionPublishContext(
                 toolName: "Lungfish Genome Explorer AI haplotyping",
                 toolKind: "gui",
                 argv: argv,
-                explicitOptions: [
-                    "bundle": .file(bundle),
-                    "mode": .string(mode.rawValue),
-                    "provider": .string(provider.providerID.rawValue),
-                    "credentialSource": .string(provider.credentialSource.rawValue),
-                ],
-                defaultOptions: [
-                    "compactKnowledgePack": .string(AIHaplotypingExecutionDefaults.compactKnowledgePack ? "true" : "false"),
-                    "maxObservationsPerChunk": .integer(AIHaplotypingExecutionDefaults.maxObservationsPerChunk),
-                    "maxOutputTokens": .integer(AIHaplotypingExecutionDefaults.maxOutputTokens),
-                    "temperature": .number(AIHaplotypingExecutionDefaults.temperature),
-                    "maxProviderRetries": .integer(AIHaplotypingExecutionDefaults.maxProviderRetries),
-                ],
-                resolvedOptions: [
-                    "bundle": .file(bundle),
-                    "mode": .string(mode.rawValue),
-                    "provider": .string(provider.providerID.rawValue),
-                    "model": .string(provider.structuredProvider.modelId),
-                    "credentialSource": .string(provider.credentialSource.rawValue),
-                    "compactKnowledgePack": .string(AIHaplotypingExecutionDefaults.compactKnowledgePack ? "true" : "false"),
-                    "maxObservationsPerChunk": .integer(AIHaplotypingExecutionDefaults.maxObservationsPerChunk),
-                    "maxOutputTokens": .integer(AIHaplotypingExecutionDefaults.maxOutputTokens),
-                    "temperature": .number(AIHaplotypingExecutionDefaults.temperature),
-                    "maxProviderRetries": .integer(AIHaplotypingExecutionDefaults.maxProviderRetries),
-                ],
+                explicitOptions: explicitOptions,
+                defaultOptions: defaultOptions,
+                resolvedOptions: resolvedOptions,
                 runtimeIdentity: ProvenanceRuntimeIdentity(),
                 startedAt: startedAt
             )
@@ -162,16 +174,23 @@ final class GenotypeAIHaplotypingExecutionService {
                     return ResolvedProvider(
                         providerID: .anthropic,
                         credentialSource: .keychainAnthropic,
-                        structuredProvider: AnthropicProvider(apiKey: apiKey, modelId: settings.anthropicModel)
+                        structuredProvider: AnthropicProvider(apiKey: apiKey, modelId: settings.anthropicModel),
+                        openAIEndpointConfiguration: nil
                     )
                 }
             case .openAI:
                 if let apiKey = try await keychain.retrieve(forKey: KeychainSecretStorage.openAIAPIKey),
                    !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    let endpointConfiguration = try settings.openAIEndpointConfiguration()
                     return ResolvedProvider(
                         providerID: .openAI,
                         credentialSource: .keychainOpenAI,
-                        structuredProvider: OpenAIProvider(apiKey: apiKey, modelId: settings.openAIModel)
+                        structuredProvider: OpenAIProvider(
+                            apiKey: apiKey,
+                            modelId: settings.openAIModel,
+                            endpointConfiguration: endpointConfiguration
+                        ),
+                        openAIEndpointConfiguration: endpointConfiguration
                     )
                 }
             case .gemini:
@@ -185,9 +204,10 @@ final class GenotypeAIHaplotypingExecutionService {
         bundleURL: URL,
         mode: AIHaplotypingPromptMode,
         providerID: AIHaplotypingProviderID,
-        modelID: String
+        modelID: String,
+        openAIEndpointConfiguration: OpenAIEndpointConfiguration?
     ) -> [String] {
-        [
+        var command = [
             "lungfish-cli",
             "genotype",
             "ai-haplotyping",
@@ -202,6 +222,34 @@ final class GenotypeAIHaplotypingExecutionService {
             AIHaplotypingExecutionDefaults.compactKnowledgePack ? "--compact-knowledge-pack" : "",
         ]
         .filter { !$0.isEmpty }
+        appendOpenAIHostedEndpointArguments(openAIEndpointConfiguration, to: &command)
+        return command
+    }
+
+    private func appendOpenAIHostedEndpointArguments(
+        _ configuration: OpenAIEndpointConfiguration?,
+        to command: inout [String]
+    ) {
+        guard case .azure(let endpoint, let deployment, let apiVersion) = configuration else {
+            return
+        }
+        command += [
+            "--azure-openai-endpoint", endpoint.absoluteString,
+            "--azure-openai-deployment", deployment,
+            "--azure-openai-api-version", apiVersion,
+        ]
+    }
+
+    private func addOpenAIHostedEndpointOptions(
+        _ configuration: OpenAIEndpointConfiguration?,
+        to options: inout [String: ParameterValue]
+    ) {
+        guard case .azure(let endpoint, let deployment, let apiVersion) = configuration else {
+            return
+        }
+        options["azureOpenAIEndpoint"] = .string(endpoint.absoluteString)
+        options["azureOpenAIDeployment"] = .string(deployment)
+        options["azureOpenAIAPIVersion"] = .string(apiVersion)
     }
 
     private static func commandLineNumber(_ value: Double) -> String {
@@ -252,6 +300,7 @@ private struct ResolvedProvider {
     let providerID: AIHaplotypingProviderID
     let credentialSource: AIHaplotypingCredentialSource
     let structuredProvider: any StructuredAIProvider
+    let openAIEndpointConfiguration: OpenAIEndpointConfiguration?
 }
 
 private enum AIHaplotypingExecutionError: Error, LocalizedError {

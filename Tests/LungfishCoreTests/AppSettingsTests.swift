@@ -55,6 +55,14 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.showLettersThresholdBpPerPixel, 10.0)
         XCTAssertEqual(settings.tooltipDelay, 0.15)
         XCTAssertFalse(settings.aiSearchEnabled)
+        XCTAssertEqual(settings.openAIModel, "gpt-5.5")
+        XCTAssertEqual(settings.anthropicModel, "claude-sonnet-4-6")
+        XCTAssertEqual(settings.geminiModel, "gemini-3.5-flash")
+        XCTAssertFalse(settings.openAIHostedEndpointEnabled)
+        XCTAssertEqual(settings.openAIHostedEndpointKind, "azure")
+        XCTAssertEqual(settings.openAIHostedEndpoint, "")
+        XCTAssertEqual(settings.openAIHostedDeployment, "")
+        XCTAssertEqual(settings.openAIHostedAPIVersion, "2025-01-01-preview")
         XCTAssertEqual(settings.defaultAnnotationHeight, 16)
         XCTAssertEqual(settings.defaultAnnotationSpacing, 2)
         XCTAssertEqual(settings.horizontalScrollDirection, .traditional)
@@ -93,6 +101,10 @@ final class AppSettingsTests: XCTestCase {
         settings.tooltipDelay = 0.5
         settings.aiSearchEnabled = true
         settings.openAIModel = "gpt-4-turbo"
+        settings.openAIHostedEndpointEnabled = true
+        settings.openAIHostedEndpoint = " https://oc-aiservices.openai.azure.com/ "
+        settings.openAIHostedDeployment = " gpt-5-mini "
+        settings.openAIHostedAPIVersion = " 2025-01-01-preview "
         settings.provenanceSigningProvider = "local"
         settings.provenanceSigningPublicKeyPath = "/tmp/lungfish-provenance.pub"
         settings.experimentalFeaturesEnabled = false
@@ -111,9 +123,33 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.tooltipDelay, 0.5)
         XCTAssertTrue(settings.aiSearchEnabled)
         XCTAssertEqual(settings.openAIModel, "gpt-4-turbo")
+        XCTAssertTrue(settings.openAIHostedEndpointEnabled)
+        XCTAssertEqual(settings.openAIHostedEndpoint, "https://oc-aiservices.openai.azure.com")
+        XCTAssertEqual(settings.openAIHostedDeployment, "gpt-5-mini")
+        XCTAssertEqual(settings.openAIHostedAPIVersion, "2025-01-01-preview")
         XCTAssertEqual(settings.provenanceSigningProvider, "local")
         XCTAssertEqual(settings.provenanceSigningPublicKeyPath, "/tmp/lungfish-provenance.pub")
         XCTAssertFalse(settings.experimentalFeaturesEnabled)
+    }
+
+    @MainActor
+    func testOpenAIHostedEndpointConfigurationUsesAzureWhenEnabled() throws {
+        let settings = AppSettings.shared
+        settings.openAIHostedEndpointEnabled = true
+        settings.openAIHostedEndpoint = "https://oc-aiservices.openai.azure.com/"
+        settings.openAIHostedDeployment = "gpt-5-mini"
+        settings.openAIHostedAPIVersion = "2025-01-01-preview"
+
+        let configuration = try settings.openAIEndpointConfiguration()
+
+        XCTAssertEqual(
+            configuration,
+            .azure(
+                endpoint: URL(string: "https://oc-aiservices.openai.azure.com")!,
+                deployment: "gpt-5-mini",
+                apiVersion: "2025-01-01-preview"
+            )
+        )
     }
 
     @MainActor
@@ -170,6 +206,9 @@ final class AppSettingsTests: XCTestCase {
         settings.defaultZoomWindow = 50_000      // general
         settings.maxAnnotationRows = 200         // rendering
         settings.annotationTypeColorHexes["gene"] = "#FF0000"  // appearance
+        settings.openAIHostedEndpointEnabled = true // aiServices
+        settings.openAIHostedEndpoint = "https://oc-aiservices.openai.azure.com"
+        settings.openAIHostedDeployment = "gpt-5-mini"
         settings.experimentalFeaturesEnabled = !AppSettings.defaultExperimentalFeaturesEnabled // advanced
 
         // Reset only the general section
@@ -177,6 +216,7 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.defaultZoomWindow, 10_000, "General section should be reset")
         XCTAssertEqual(settings.maxAnnotationRows, 200, "Rendering section should be unchanged")
         XCTAssertEqual(settings.annotationTypeColorHexes["gene"], "#FF0000", "Appearance section should be unchanged")
+        XCTAssertTrue(settings.openAIHostedEndpointEnabled, "AI Services section should be unchanged")
         XCTAssertEqual(settings.experimentalFeaturesEnabled, !AppSettings.defaultExperimentalFeaturesEnabled, "Advanced section should be unchanged")
 
         // Reset rendering section
@@ -186,6 +226,12 @@ final class AppSettingsTests: XCTestCase {
         // Reset appearance section
         settings.resetSection(.appearance)
         XCTAssertEqual(settings.annotationTypeColorHexes["gene"], "#339933", "Appearance section should be reset")
+
+        // Reset AI Services section
+        settings.resetSection(.aiServices)
+        XCTAssertFalse(settings.openAIHostedEndpointEnabled, "AI Services section should be reset")
+        XCTAssertEqual(settings.openAIHostedEndpoint, "")
+        XCTAssertEqual(settings.openAIHostedDeployment, "")
 
         // Reset advanced section
         settings.resetSection(.advanced)

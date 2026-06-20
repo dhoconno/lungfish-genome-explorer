@@ -21,6 +21,7 @@ public enum AIHaplotypingProviderID: String, Codable, CaseIterable, Equatable, S
 
 public enum AIHaplotypingCredentialSource: String, Codable, CaseIterable, Equatable, Sendable {
     case environmentOpenAI = "environment:OPENAI_API_KEY"
+    case environmentAzureOpenAI = "environment:AZURE_OPENAI_API_KEY"
     case environmentAnthropic = "environment:ANTHROPIC_API_KEY"
     case keychainOpenAI = "keychain:ai.openai.apiKey"
     case keychainAnthropic = "keychain:ai.anthropic.apiKey"

@@ -324,6 +324,7 @@ public struct AIStructuredRequest: Sendable {
     public let schema: [String: JSONValue]
     public let temperature: Double
     public let maxOutputTokens: Int
+    public let reasoningEffort: String?
     public let attemptIndex: Int
     public let fallbackIndex: Int
     public let credentialSource: String?
@@ -335,6 +336,7 @@ public struct AIStructuredRequest: Sendable {
         schema: [String: JSONValue],
         maxOutputTokens: Int = 4096,
         temperature: Double = 0,
+        reasoningEffort: String? = nil,
         attemptIndex: Int = 0,
         fallbackIndex: Int = 0,
         credentialSource: String? = nil
@@ -345,6 +347,8 @@ public struct AIStructuredRequest: Sendable {
         self.schema = schema
         self.temperature = max(0, min(2, temperature))
         self.maxOutputTokens = max(1, maxOutputTokens)
+        let trimmedReasoningEffort = reasoningEffort?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.reasoningEffort = trimmedReasoningEffort.isEmpty ? nil : trimmedReasoningEffort
         self.attemptIndex = max(0, attemptIndex)
         self.fallbackIndex = max(0, fallbackIndex)
         self.credentialSource = credentialSource

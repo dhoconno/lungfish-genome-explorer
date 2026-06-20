@@ -138,16 +138,31 @@ public final class AppSettings: Sendable {
     public var aiSearchEnabled: Bool = false
 
     /// Selected OpenAI model identifier.
-    public var openAIModel: String = "gpt-5-mini"
+    public var openAIModel: String = OpenAIEndpointConfiguration.defaultOpenAIModel
 
     /// Selected Anthropic model identifier.
-    public var anthropicModel: String = "claude-sonnet-4-5-20250929"
+    public var anthropicModel: String = "claude-sonnet-4-6"
 
     /// Selected Google Gemini model identifier.
-    public var geminiModel: String = "gemini-2.5-flash"
+    public var geminiModel: String = "gemini-3.5-flash"
 
     /// Which AI provider to use for the AI assistant.
     public var preferredAIProvider: String = "anthropic"
+
+    /// Whether OpenAI requests should use a hosted endpoint instead of the default OpenAI API.
+    public var openAIHostedEndpointEnabled: Bool = false
+
+    /// Hosted endpoint implementation. Currently supports "azure".
+    public var openAIHostedEndpointKind: String = "azure"
+
+    /// Azure OpenAI resource endpoint, for example `https://example.openai.azure.com`.
+    public var openAIHostedEndpoint: String = ""
+
+    /// Azure OpenAI deployment name.
+    public var openAIHostedDeployment: String = ""
+
+    /// Azure OpenAI REST API version.
+    public var openAIHostedAPIVersion: String = OpenAIEndpointConfiguration.defaultAzureAPIVersion
 
     // MARK: - Advanced
 
@@ -313,6 +328,11 @@ public final class AppSettings: Sendable {
         var anthropicModel: String
         var geminiModel: String
         var preferredAIProvider: String
+        var openAIHostedEndpointEnabled: Bool
+        var openAIHostedEndpointKind: String
+        var openAIHostedEndpoint: String
+        var openAIHostedDeployment: String
+        var openAIHostedAPIVersion: String
         // Advanced
         var experimentalFeaturesEnabled: Bool
 
@@ -342,6 +362,11 @@ public final class AppSettings: Sendable {
             anthropicModel: String,
             geminiModel: String,
             preferredAIProvider: String,
+            openAIHostedEndpointEnabled: Bool,
+            openAIHostedEndpointKind: String,
+            openAIHostedEndpoint: String,
+            openAIHostedDeployment: String,
+            openAIHostedAPIVersion: String,
             experimentalFeaturesEnabled: Bool
         ) {
             self.defaultZoomWindow = defaultZoomWindow
@@ -369,6 +394,11 @@ public final class AppSettings: Sendable {
             self.anthropicModel = anthropicModel
             self.geminiModel = geminiModel
             self.preferredAIProvider = preferredAIProvider
+            self.openAIHostedEndpointEnabled = openAIHostedEndpointEnabled
+            self.openAIHostedEndpointKind = openAIHostedEndpointKind
+            self.openAIHostedEndpoint = openAIHostedEndpoint
+            self.openAIHostedDeployment = openAIHostedDeployment
+            self.openAIHostedAPIVersion = openAIHostedAPIVersion
             self.experimentalFeaturesEnabled = experimentalFeaturesEnabled
         }
 
@@ -409,10 +439,15 @@ public final class AppSettings: Sendable {
             tooltipDelay = try container.decodeIfPresent(Double.self, forKey: .tooltipDelay) ?? 0.15
             // AI Services
             aiSearchEnabled = try container.decodeIfPresent(Bool.self, forKey: .aiSearchEnabled) ?? false
-            openAIModel = try container.decodeIfPresent(String.self, forKey: .openAIModel) ?? "gpt-5-mini"
-            anthropicModel = try container.decodeIfPresent(String.self, forKey: .anthropicModel) ?? "claude-sonnet-4-5-20250929"
-            geminiModel = try container.decodeIfPresent(String.self, forKey: .geminiModel) ?? "gemini-2.5-flash"
+            openAIModel = try container.decodeIfPresent(String.self, forKey: .openAIModel) ?? OpenAIEndpointConfiguration.defaultOpenAIModel
+            anthropicModel = try container.decodeIfPresent(String.self, forKey: .anthropicModel) ?? "claude-sonnet-4-6"
+            geminiModel = try container.decodeIfPresent(String.self, forKey: .geminiModel) ?? "gemini-3.5-flash"
             preferredAIProvider = try container.decodeIfPresent(String.self, forKey: .preferredAIProvider) ?? "anthropic"
+            openAIHostedEndpointEnabled = try container.decodeIfPresent(Bool.self, forKey: .openAIHostedEndpointEnabled) ?? false
+            openAIHostedEndpointKind = try container.decodeIfPresent(String.self, forKey: .openAIHostedEndpointKind) ?? "azure"
+            openAIHostedEndpoint = try container.decodeIfPresent(String.self, forKey: .openAIHostedEndpoint) ?? ""
+            openAIHostedDeployment = try container.decodeIfPresent(String.self, forKey: .openAIHostedDeployment) ?? ""
+            openAIHostedAPIVersion = try container.decodeIfPresent(String.self, forKey: .openAIHostedAPIVersion) ?? OpenAIEndpointConfiguration.defaultAzureAPIVersion
             // Advanced
             experimentalFeaturesEnabled = try container.decodeIfPresent(
                 Bool.self,
@@ -456,6 +491,15 @@ public final class AppSettings: Sendable {
         }
     }
 
+    private static func normalizedHostedEndpointKind(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return trimmed.isEmpty ? "azure" : trimmed
+    }
+
+    private static func normalizedHostedEndpoint(_ raw: String) -> String {
+        OpenAIEndpointConfiguration.normalizeEndpointString(raw)
+    }
+
     private func makeSnapshot() -> Snapshot {
         Snapshot(
             defaultZoomWindow: Self.clamp(defaultZoomWindow, to: Self.defaultZoomWindowBounds),
@@ -483,6 +527,11 @@ public final class AppSettings: Sendable {
             anthropicModel: anthropicModel,
             geminiModel: geminiModel,
             preferredAIProvider: preferredAIProvider,
+            openAIHostedEndpointEnabled: openAIHostedEndpointEnabled,
+            openAIHostedEndpointKind: Self.normalizedHostedEndpointKind(openAIHostedEndpointKind),
+            openAIHostedEndpoint: Self.normalizedHostedEndpoint(openAIHostedEndpoint),
+            openAIHostedDeployment: openAIHostedDeployment.trimmingCharacters(in: .whitespacesAndNewlines),
+            openAIHostedAPIVersion: openAIHostedAPIVersion.trimmingCharacters(in: .whitespacesAndNewlines),
             experimentalFeaturesEnabled: experimentalFeaturesEnabled
         )
     }
@@ -513,6 +562,11 @@ public final class AppSettings: Sendable {
         anthropicModel = snapshot.anthropicModel
         geminiModel = snapshot.geminiModel
         preferredAIProvider = snapshot.preferredAIProvider
+        openAIHostedEndpointEnabled = snapshot.openAIHostedEndpointEnabled
+        openAIHostedEndpointKind = Self.normalizedHostedEndpointKind(snapshot.openAIHostedEndpointKind)
+        openAIHostedEndpoint = Self.normalizedHostedEndpoint(snapshot.openAIHostedEndpoint)
+        openAIHostedDeployment = snapshot.openAIHostedDeployment.trimmingCharacters(in: .whitespacesAndNewlines)
+        openAIHostedAPIVersion = snapshot.openAIHostedAPIVersion.trimmingCharacters(in: .whitespacesAndNewlines)
         experimentalFeaturesEnabled = snapshot.experimentalFeaturesEnabled
     }
 
@@ -597,6 +651,11 @@ public final class AppSettings: Sendable {
             anthropicModel = fresh.anthropicModel
             geminiModel = fresh.geminiModel
             preferredAIProvider = fresh.preferredAIProvider
+            openAIHostedEndpointEnabled = fresh.openAIHostedEndpointEnabled
+            openAIHostedEndpointKind = fresh.openAIHostedEndpointKind
+            openAIHostedEndpoint = fresh.openAIHostedEndpoint
+            openAIHostedDeployment = fresh.openAIHostedDeployment
+            openAIHostedAPIVersion = fresh.openAIHostedAPIVersion
         case .storage:
             resetManagedStorageState()
         case .advanced:
@@ -614,6 +673,23 @@ public final class AppSettings: Sendable {
         UserDefaults.standard.removeObject(forKey: Self.databaseStorageLocationKey)
         NotificationCenter.default.post(name: .databaseStorageLocationChanged, object: nil)
         NotificationCenter.default.post(name: .managedResourcesDidChange, object: nil)
+    }
+
+    public func openAIEndpointConfiguration() throws -> OpenAIEndpointConfiguration {
+        guard openAIHostedEndpointEnabled else {
+            return .direct
+        }
+
+        let kind = Self.normalizedHostedEndpointKind(openAIHostedEndpointKind)
+        guard kind == "azure" else {
+            throw OpenAIEndpointConfigurationError.unsupportedHostedEndpointKind(kind)
+        }
+
+        return try .azure(
+            endpointString: openAIHostedEndpoint,
+            deployment: openAIHostedDeployment,
+            apiVersion: openAIHostedAPIVersion
+        )
     }
 
     // MARK: - Color Helpers
