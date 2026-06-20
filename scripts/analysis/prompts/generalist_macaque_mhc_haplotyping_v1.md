@@ -20,6 +20,7 @@ Naming rules:
 
 - Define labels from the observed genotype pattern, not from hidden truth.
 - MHC-A labels should include an abbreviated high-confidence A1 genotype when available, such as an A1 allele group from a repeatedly supported genotype.
+- For MHC-A, group exact A1 genotype variants into the most informative repeated A1 allele family when suffix-only variants or composite names share the same leading A1 signal. Do not over-split A haplotypes solely because one sample reports a rare g1/g2 or composite representation of the same A1 family.
 - MHC-B and MHC-DRB labels should use compact informative genotype-pattern names based on the strongest repeated evidence. Do not assume the lowest-numbered allele is always the best biological label.
 - Avoid a small fixed vocabulary. Add new de novo labels when the evidence supports a distinct shared pattern.
 
