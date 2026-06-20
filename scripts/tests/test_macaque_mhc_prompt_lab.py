@@ -241,6 +241,103 @@ class MacaqueMHCPromptLabTests(unittest.TestCase):
         self.assertTrue(any("unknown locus" in error for error in errors))
         self.assertTrue(any("unknown genotype" in error for error in errors))
 
+    def test_validate_model_output_rejects_extra_top_level_keys(self):
+        prompt_input = {
+            "samples": [{"gs_id": "LC1729"}],
+            "instructions": {"report_loci": ["MHC-A"]},
+            "observations": [
+                {"sample_id": "LC1729", "report_locus": "MHC-A", "genotype": "01_Mamu-A1_002g", "reads": 90}
+            ],
+        }
+        output = {
+            "schema_version": 1,
+            "prompt_version": "generalist_macaque_mhc_haplotyping_v1",
+            "haplotype_definitions": [],
+            "sample_calls": [],
+            "unresolved": [],
+            "notes": "not part of the exact schema",
+        }
+
+        errors = lab.validate_model_output(output, prompt_input)
+
+        self.assertTrue(any("extra top-level key" in error and "notes" in error for error in errors))
+
+    def test_validate_model_output_rejects_malformed_field_types_without_raising(self):
+        prompt_input = {
+            "samples": [{"gs_id": "LC1729"}],
+            "instructions": {"report_loci": ["MHC-A"]},
+            "observations": [
+                {"sample_id": "LC1729", "report_locus": "MHC-A", "genotype": "01_Mamu-A1_002g", "reads": 90}
+            ],
+        }
+        output = {
+            "schema_version": 1,
+            "prompt_version": "generalist_macaque_mhc_haplotyping_v1",
+            "haplotype_definitions": [
+                {
+                    "locus": "MHC-A",
+                    "label": "A-A1*002-H01",
+                    "supporting_genotypes": [["01_Mamu-A1_002g"]],
+                    "seed_samples": [["LC1729"]],
+                    "confidence": [],
+                    "rationale": "seed",
+                }
+            ],
+            "sample_calls": [
+                {
+                    "sample_id": ["LC1729"],
+                    "locus": ["MHC-A"],
+                    "h1": [],
+                    "h2": "?",
+                    "status": [],
+                    "h1_supporting_genotypes": [["01_Mamu-A1_002g"]],
+                    "h2_supporting_genotypes": [],
+                    "rationale": [],
+                }
+            ],
+            "unresolved": [{"sample_id": ["LC1729"], "locus": ["MHC-A"], "reason": [], "evidence_summary": []}],
+        }
+
+        errors = lab.validate_model_output(output, prompt_input)
+
+        self.assertTrue(errors)
+        self.assertTrue(any("confidence" in error for error in errors))
+        self.assertTrue(any("supporting_genotypes" in error and "must contain strings" in error for error in errors))
+        self.assertTrue(any("sample_id" in error and "must be a string" in error for error in errors))
+        self.assertTrue(any("h1" in error and "must be a string" in error for error in errors))
+        self.assertTrue(any("rationale" in error and "must be a string" in error for error in errors))
+        self.assertTrue(any("evidence_summary" in error and "must be a string" in error for error in errors))
+
+    def test_validate_model_output_rejects_non_string_definition_label_and_rationale(self):
+        prompt_input = {
+            "samples": [{"gs_id": "LC1729"}],
+            "instructions": {"report_loci": ["MHC-A"]},
+            "observations": [
+                {"sample_id": "LC1729", "report_locus": "MHC-A", "genotype": "01_Mamu-A1_002g", "reads": 90}
+            ],
+        }
+        output = {
+            "schema_version": 1,
+            "prompt_version": "generalist_macaque_mhc_haplotyping_v1",
+            "haplotype_definitions": [
+                {
+                    "locus": "MHC-A",
+                    "label": 42,
+                    "supporting_genotypes": ["01_Mamu-A1_002g"],
+                    "seed_samples": ["LC1729"],
+                    "confidence": "high",
+                    "rationale": [],
+                }
+            ],
+            "sample_calls": [],
+            "unresolved": [],
+        }
+
+        errors = lab.validate_model_output(output, prompt_input)
+
+        self.assertTrue(any("label" in error and "must be a string" in error for error in errors))
+        self.assertTrue(any("rationale" in error and "must be a string" in error for error in errors))
+
     def test_later_full_result_sheet_supersedes_duplicate_sample(self):
         with tempfile.TemporaryDirectory() as temp:
             workbook = self.make_synthetic_snprc_workbook(Path(temp))
@@ -649,6 +746,154 @@ class MacaqueMHCPromptLabTests(unittest.TestCase):
                 {str(prompt_input_path.resolve()), str(model_output_path.resolve())},
             )
             self.assertEqual(len(provenance["outputs"]), 1)
+            self.assertEqual({record["path"] for record in provenance["outputs"]}, {str(validation_path.resolve())})
+
+    def test_import_output_cli_rejects_extra_top_level_keys_without_parsed_output(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            iteration_dir = root / "iteration-001"
+            iteration_dir.mkdir()
+            prompt_input_path = iteration_dir / "prompt_input.json"
+            model_output_path = root / "model_output.json"
+            prompt_input = {
+                "samples": [{"gs_id": "LC1729"}],
+                "instructions": {"report_loci": ["MHC-A"]},
+                "observations": [
+                    {"sample_id": "LC1729", "report_locus": "MHC-A", "genotype": "01_Mamu-A1_002g", "reads": 90}
+                ],
+            }
+            model_output = {
+                "schema_version": 1,
+                "prompt_version": "generalist_macaque_mhc_haplotyping_v1",
+                "haplotype_definitions": [],
+                "sample_calls": [],
+                "unresolved": [],
+                "notes": "not part of the exact schema",
+            }
+            prompt_input_path.write_text(json.dumps(prompt_input), encoding="utf-8")
+            model_output_path.write_text(json.dumps(model_output), encoding="utf-8")
+            argv = ["import-output", "--iteration-dir", str(iteration_dir), "--model-output", str(model_output_path)]
+
+            with self.assertRaisesRegex(SystemExit, "model output validation failed"):
+                lab.main(argv)
+
+            validation_path = iteration_dir / "model_output_validation.json"
+            parsed_path = iteration_dir / "parsed_model_output.json"
+            provenance_path = iteration_dir / "import-output.provenance.json"
+            self.assertTrue(validation_path.is_file())
+            self.assertFalse(parsed_path.exists())
+            self.assertTrue(provenance_path.is_file())
+            validation = json.loads(validation_path.read_text(encoding="utf-8"))
+            self.assertFalse(validation["accepted"])
+            self.assertTrue(any("extra top-level key" in error and "notes" in error for error in validation["errors"]))
+            provenance = json.loads(provenance_path.read_text())
+            self.assertEqual(provenance["exitStatus"], 1)
+            self.assertEqual(provenance["status"], "failed")
+            self.assertIn("model output validation failed", provenance["stderr"])
+            self.assertEqual({record["path"] for record in provenance["outputs"]}, {str(validation_path.resolve())})
+
+    def test_import_output_cli_records_failed_provenance_for_malformed_field_types(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            iteration_dir = root / "iteration-001"
+            iteration_dir.mkdir()
+            prompt_input_path = iteration_dir / "prompt_input.json"
+            model_output_path = root / "model_output.json"
+            prompt_input = {
+                "samples": [{"gs_id": "LC1729"}],
+                "instructions": {"report_loci": ["MHC-A"]},
+                "observations": [
+                    {"sample_id": "LC1729", "report_locus": "MHC-A", "genotype": "01_Mamu-A1_002g", "reads": 90}
+                ],
+            }
+            model_output = {
+                "schema_version": 1,
+                "prompt_version": "generalist_macaque_mhc_haplotyping_v1",
+                "haplotype_definitions": [
+                    {
+                        "locus": "MHC-A",
+                        "label": "A-A1*002-H01",
+                        "supporting_genotypes": ["01_Mamu-A1_002g"],
+                        "seed_samples": ["LC1729"],
+                        "confidence": [],
+                        "rationale": "seed",
+                    }
+                ],
+                "sample_calls": [],
+                "unresolved": [],
+            }
+            prompt_input_path.write_text(json.dumps(prompt_input), encoding="utf-8")
+            model_output_path.write_text(json.dumps(model_output), encoding="utf-8")
+            argv = ["import-output", "--iteration-dir", str(iteration_dir), "--model-output", str(model_output_path)]
+
+            with self.assertRaisesRegex(SystemExit, "model output validation failed"):
+                lab.main(argv)
+
+            validation_path = iteration_dir / "model_output_validation.json"
+            parsed_path = iteration_dir / "parsed_model_output.json"
+            provenance_path = iteration_dir / "import-output.provenance.json"
+            self.assertTrue(validation_path.is_file())
+            self.assertFalse(parsed_path.exists())
+            self.assertTrue(provenance_path.is_file())
+            validation = json.loads(validation_path.read_text(encoding="utf-8"))
+            self.assertFalse(validation["accepted"])
+            self.assertTrue(any("confidence" in error for error in validation["errors"]))
+            provenance = json.loads(provenance_path.read_text())
+            self.assertEqual(provenance["exitStatus"], 1)
+            self.assertEqual(provenance["status"], "failed")
+            self.assertIn("model output validation failed", provenance["stderr"])
+            self.assertEqual({record["path"] for record in provenance["outputs"]}, {str(validation_path.resolve())})
+
+    def test_import_output_cli_records_failed_provenance_when_validator_raises_unexpectedly(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            iteration_dir = root / "iteration-001"
+            iteration_dir.mkdir()
+            prompt_input_path = iteration_dir / "prompt_input.json"
+            model_output_path = root / "model_output.json"
+            prompt_input = {
+                "samples": [{"gs_id": "LC1729"}],
+                "instructions": {"report_loci": ["MHC-A"]},
+                "observations": [
+                    {"sample_id": "LC1729", "report_locus": "MHC-A", "genotype": "01_Mamu-A1_002g", "reads": 90}
+                ],
+            }
+            model_output = {
+                "schema_version": 1,
+                "prompt_version": "generalist_macaque_mhc_haplotyping_v1",
+                "haplotype_definitions": [],
+                "sample_calls": [],
+                "unresolved": [],
+            }
+            prompt_input_path.write_text(json.dumps(prompt_input), encoding="utf-8")
+            model_output_path.write_text(json.dumps(model_output), encoding="utf-8")
+            argv = ["import-output", "--iteration-dir", str(iteration_dir), "--model-output", str(model_output_path)]
+
+            original_validate_model_output = lab.validate_model_output
+
+            def raise_unexpected_validation_error(output, prompt_input):
+                raise RuntimeError("boom")
+
+            lab.validate_model_output = raise_unexpected_validation_error
+            try:
+                with self.assertRaisesRegex(SystemExit, "model output validation failed"):
+                    lab.main(argv)
+            finally:
+                lab.validate_model_output = original_validate_model_output
+
+            validation_path = iteration_dir / "model_output_validation.json"
+            parsed_path = iteration_dir / "parsed_model_output.json"
+            provenance_path = iteration_dir / "import-output.provenance.json"
+            self.assertTrue(validation_path.is_file())
+            self.assertFalse(parsed_path.exists())
+            self.assertTrue(provenance_path.is_file())
+            validation = json.loads(validation_path.read_text(encoding="utf-8"))
+            self.assertFalse(validation["accepted"])
+            self.assertEqual(validation["errors"], ["model output validation raised unexpected error: boom"])
+            provenance = json.loads(provenance_path.read_text())
+            self.assertEqual(provenance["exitStatus"], 1)
+            self.assertEqual(provenance["status"], "failed")
+            self.assertIn("model output validation raised unexpected error: boom", provenance["stderr"])
             self.assertEqual({record["path"] for record in provenance["outputs"]}, {str(validation_path.resolve())})
 
 

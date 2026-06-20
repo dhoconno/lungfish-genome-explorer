@@ -304,14 +304,44 @@ def render_prompt_text(prompt_template: str, prompt_input: dict[str, Any]) -> st
     return prompt_template.replace(PROMPT_INPUT_PLACEHOLDER, prompt_json)
 
 
+def string_field(record: dict[str, Any], key: str, prefix: str, errors: list[str]) -> str | None:
+    if key not in record:
+        return None
+    value = record[key]
+    if not isinstance(value, str):
+        errors.append(f"{prefix}.{key} must be a string")
+        return None
+    return value
+
+
+def string_list_field(record: dict[str, Any], key: str, prefix: str, errors: list[str]) -> list[str]:
+    if key not in record:
+        return []
+    value = record[key]
+    if not isinstance(value, list):
+        errors.append(f"{prefix}.{key} must be a list")
+        return []
+    strings = []
+    for item in value:
+        if not isinstance(item, str):
+            errors.append(f"{prefix}.{key} must contain strings")
+            continue
+        strings.append(item)
+    return strings
+
+
 def validate_model_output(output: Any, prompt_input: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     if not isinstance(output, dict):
         return ["model output must be a JSON object"]
+    if not isinstance(prompt_input, dict):
+        prompt_input = {}
 
     required_top_level = {"schema_version", "prompt_version", "haplotype_definitions", "sample_calls", "unresolved"}
     for key in sorted(required_top_level - set(output)):
         errors.append(f"missing top-level key: {key}")
+    for key in sorted(set(output) - required_top_level):
+        errors.append(f"extra top-level key: {key}")
     if output.get("schema_version") != 1:
         errors.append("schema_version must be 1")
     if output.get("prompt_version") != PROMPT_VERSION:
@@ -347,28 +377,22 @@ def validate_model_output(output: Any, prompt_input: dict[str, Any]) -> list[str
                 continue
             for key in sorted(definition_required - set(definition)):
                 errors.append(f"{prefix} missing required key: {key}")
-            locus = definition.get("locus")
-            label = definition.get("label")
+            locus = string_field(definition, "locus", prefix, errors)
+            label = string_field(definition, "label", prefix, errors)
             if isinstance(locus, str) and isinstance(label, str):
                 labels_by_locus[locus].add(label)
-            if locus not in known_loci:
+            if locus is not None and locus not in known_loci:
                 errors.append(f"{prefix}.locus unknown locus: {locus}")
-            supporting_genotypes = definition.get("supporting_genotypes")
-            if not isinstance(supporting_genotypes, list):
-                errors.append(f"{prefix}.supporting_genotypes must be a list")
-            else:
-                for genotype in supporting_genotypes:
-                    if genotype not in known_genotypes:
-                        errors.append(f"{prefix}.supporting_genotypes unknown genotype: {genotype}")
-            seed_samples = definition.get("seed_samples")
-            if not isinstance(seed_samples, list):
-                errors.append(f"{prefix}.seed_samples must be a list")
-            else:
-                for sample_id in seed_samples:
-                    if sample_id not in sample_ids:
-                        errors.append(f"{prefix}.seed_samples unknown sample: {sample_id}")
-            if definition.get("confidence") not in {"high", "medium", "low"}:
+            for genotype in string_list_field(definition, "supporting_genotypes", prefix, errors):
+                if genotype not in known_genotypes:
+                    errors.append(f"{prefix}.supporting_genotypes unknown genotype: {genotype}")
+            for sample_id in string_list_field(definition, "seed_samples", prefix, errors):
+                if sample_id not in sample_ids:
+                    errors.append(f"{prefix}.seed_samples unknown sample: {sample_id}")
+            confidence = string_field(definition, "confidence", prefix, errors)
+            if confidence is not None and confidence not in {"high", "medium", "low"}:
                 errors.append(f"{prefix}.confidence must be high, medium, or low")
+            string_field(definition, "rationale", prefix, errors)
 
     calls = output.get("sample_calls")
     if not isinstance(calls, list):
@@ -391,26 +415,24 @@ def validate_model_output(output: Any, prompt_input: dict[str, Any]) -> list[str
                 continue
             for key in sorted(call_required - set(call)):
                 errors.append(f"{prefix} missing required key: {key}")
-            sample_id = call.get("sample_id")
-            locus = call.get("locus")
-            if sample_id not in sample_ids:
+            sample_id = string_field(call, "sample_id", prefix, errors)
+            locus = string_field(call, "locus", prefix, errors)
+            if sample_id is not None and sample_id not in sample_ids:
                 errors.append(f"{prefix}.sample_id unknown sample: {sample_id}")
-            if locus not in known_loci:
+            if locus is not None and locus not in known_loci:
                 errors.append(f"{prefix}.locus unknown locus: {locus}")
-            if call.get("status") not in {"called", "partial", "unresolved"}:
+            status = string_field(call, "status", prefix, errors)
+            if status is not None and status not in {"called", "partial", "unresolved"}:
                 errors.append(f"{prefix}.status must be called, partial, or unresolved")
             for haplotype_key in ("h1", "h2"):
-                label = call.get(haplotype_key)
-                if label != "?" and label not in labels_by_locus.get(locus, set()):
+                label = string_field(call, haplotype_key, prefix, errors)
+                if label is not None and locus is not None and label != "?" and label not in labels_by_locus.get(locus, set()):
                     errors.append(f"{prefix}.{haplotype_key} unknown haplotype label for locus {locus}: {label}")
             for genotype_key in ("h1_supporting_genotypes", "h2_supporting_genotypes"):
-                genotypes = call.get(genotype_key)
-                if not isinstance(genotypes, list):
-                    errors.append(f"{prefix}.{genotype_key} must be a list")
-                    continue
-                for genotype in genotypes:
+                for genotype in string_list_field(call, genotype_key, prefix, errors):
                     if genotype not in known_genotypes:
                         errors.append(f"{prefix}.{genotype_key} unknown genotype: {genotype}")
+            string_field(call, "rationale", prefix, errors)
 
     unresolved = output.get("unresolved")
     if not isinstance(unresolved, list):
@@ -424,10 +446,14 @@ def validate_model_output(output: Any, prompt_input: dict[str, Any]) -> list[str
                 continue
             for key in sorted(unresolved_required - set(item)):
                 errors.append(f"{prefix} missing required key: {key}")
-            if "sample_id" in item and item.get("sample_id") not in sample_ids:
-                errors.append(f"{prefix}.sample_id unknown sample: {item.get('sample_id')}")
-            if "locus" in item and item.get("locus") not in known_loci:
-                errors.append(f"{prefix}.locus unknown locus: {item.get('locus')}")
+            sample_id = string_field(item, "sample_id", prefix, errors)
+            locus = string_field(item, "locus", prefix, errors)
+            if sample_id is not None and sample_id not in sample_ids:
+                errors.append(f"{prefix}.sample_id unknown sample: {sample_id}")
+            if locus is not None and locus not in known_loci:
+                errors.append(f"{prefix}.locus unknown locus: {locus}")
+            string_field(item, "reason", prefix, errors)
+            string_field(item, "evidence_summary", prefix, errors)
 
     return errors
 
@@ -588,7 +614,10 @@ def command_import_output(args: argparse.Namespace) -> None:
         )
         raise SystemExit(message) from exc
 
-    errors = validate_model_output(model_output, prompt_input)
+    try:
+        errors = validate_model_output(model_output, prompt_input)
+    except Exception as exc:
+        errors = [f"model output validation raised unexpected error: {exc}"]
     validation = {
         "schemaVersion": 1,
         "accepted": not errors,
