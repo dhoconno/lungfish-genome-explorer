@@ -24,6 +24,7 @@ TOOL_NAME = "macaque-mhc-prompt-lab"
 TOOL_VERSION = "2026-06-20.1"
 REPORT_LOCI = ["MHC-A", "MHC-B", "MHC-DRB", "MHC-DQA", "MHC-DQB", "MHC-DPA", "MHC-DPB"]
 FULL_RESULT_SHEETS = ["Full Sequencing Results 1", "Full Sequencing Results 2"]
+DUPLICATE_SAMPLE_POLICY = "FULL_RESULT_SHEETS are ordered older-to-newer; later duplicate gs_id entries supersede earlier sample, truth, and observations."
 DEFAULT_SNPRC_WORKBOOK = Path("/Users/dho/Downloads/30783_SNPRC22_MHC_Genotype_Report_31Dec24.xlsx")
 DEFAULT_PROMPT = Path("scripts/analysis/prompts/generalist_macaque_mhc_haplotyping_v1.md")
 DEFAULT_OUTPUT_ROOT = Path("outputs/macaque-mhc-prompt-lab")
@@ -172,7 +173,13 @@ def validate_extracted_dataset(
         raise ValueError(f"Workbook {workbook_path} yielded no genotype observations")
     if not truth:
         raise ValueError(f"Workbook {workbook_path} yielded no truth calls")
-    for sample_id, calls in truth.items():
+    sample_ids = {sample["gs_id"] for sample in samples}
+    observation_sample_ids = {row["sample_id"] for row in observations}
+    missing_truth = sorted((sample_ids | observation_sample_ids) - set(truth))
+    if missing_truth:
+        raise ValueError(f"Workbook {workbook_path} missing truth calls for samples: {', '.join(missing_truth)}")
+    for sample_id in sorted(sample_ids | observation_sample_ids | set(truth)):
+        calls = truth.get(sample_id, {})
         for locus in REPORT_LOCI:
             slots = calls.get(locus)
             if slots is None or len(slots) != 2 or any(not clean(slot) for slot in slots):
@@ -239,15 +246,32 @@ def extract_workbook(workbook_path: Path) -> dict[str, Any]:
         raise ValueError(f"Workbook {workbook_path} missing required result sheets: {', '.join(missing_sheets)}")
     all_samples: dict[str, dict[str, Any]] = {}
     truth: dict[str, dict[str, list[str]]] = {}
-    observations: list[dict[str, Any]] = []
+    observations_by_sample: dict[str, list[dict[str, Any]]] = {}
+    superseded_samples: list[dict[str, str]] = []
     for sheet_name in FULL_RESULT_SHEETS:
         sheet_samples, sheet_truth, sheet_observations = extract_sheet(wb[sheet_name])
+        sheet_sample_ids = {sample["gs_id"] for sample in sheet_samples}
         for sample in sheet_samples:
-            all_samples[sample["gs_id"]] = sample
+            sample_id = sample["gs_id"]
+            if sample_id in all_samples:
+                superseded_samples.append({
+                    "gs_id": sample_id,
+                    "superseded_sheet": all_samples[sample_id]["sheet"],
+                    "retained_sheet": sample["sheet"],
+                    "reason": "later full-result sheet supersedes earlier occurrence for same gs_id",
+                })
+            all_samples[sample_id] = sample
+            truth.pop(sample_id, None)
+            observations_by_sample[sample_id] = []
         for sample_id, calls in sheet_truth.items():
-            truth[sample_id] = calls
-        observations.extend(sheet_observations)
+            if sample_id in sheet_sample_ids:
+                truth[sample_id] = calls
+        for observation in sheet_observations:
+            sample_id = observation["sample_id"]
+            if sample_id in sheet_sample_ids:
+                observations_by_sample.setdefault(sample_id, []).append(observation)
     samples = [all_samples[key] for key in sorted(all_samples)]
+    observations = [observation for rows in observations_by_sample.values() for observation in rows]
     validate_extracted_dataset(workbook_path, samples, truth, observations)
     prompt_input = {
         "schema_version": 1,
@@ -256,7 +280,9 @@ def extract_workbook(workbook_path: Path) -> dict[str, Any]:
             "truth_blinded": True,
             "report_loci": REPORT_LOCI,
             "hidden_truth_source": "human-curated haplotype rows are excluded from prompt input",
+            "duplicate_sample_policy": DUPLICATE_SAMPLE_POLICY,
         },
+        "superseded_samples": superseded_samples,
         "samples": samples,
         "observations": sorted(observations, key=lambda row: (row["sample_id"], row["report_locus"], row["genotype"])),
     }

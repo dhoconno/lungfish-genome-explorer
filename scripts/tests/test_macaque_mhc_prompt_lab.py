@@ -63,6 +63,13 @@ class MacaqueMHCPromptLabTests(unittest.TestCase):
         wb.save(path)
         return path
 
+    def append_truth_rows(self, ws, sample_values: list[tuple[str, str]]) -> None:
+        for locus in lab.REPORT_LOCI:
+            for slot in (1, 2):
+                row = [f"{locus} Haplotype {slot}", None, None]
+                row.extend(value for pair in sample_values for value in pair[slot - 1:slot])
+                ws.append(row)
+
     def test_extract_blinds_truth_and_preserves_read_counts(self):
         with tempfile.TemporaryDirectory() as temp:
             workbook = self.make_synthetic_snprc_workbook(Path(temp))
@@ -109,6 +116,86 @@ class MacaqueMHCPromptLabTests(unittest.TestCase):
         for genotype, expected in cases.items():
             with self.subTest(genotype=genotype):
                 self.assertEqual(lab.locus_from_genotype(genotype), expected)
+
+    def test_later_full_result_sheet_supersedes_duplicate_sample(self):
+        with tempfile.TemporaryDirectory() as temp:
+            workbook = self.make_synthetic_snprc_workbook(Path(temp))
+            wb = load_workbook(workbook)
+            ws = wb["Full Sequencing Results 2"]
+            ws.append(["Client ID", None, None, "99999", "88888"])
+            ws.append(["GS ID", "Total", "Average", "LC1730", "LC1766b"])
+            ws.append(["Mapped Read Count", None, None, 900, 700])
+            self.append_truth_rows(
+                ws,
+                [
+                    ("S2A1", "S2A2"),
+                    ("B_A1", "B_A2"),
+                ],
+            )
+            ws.append(["01_Mamu-A1_999g", 100, 1, 333, None])
+            ws.append(["01_Mamu-A1_1766bg", 100, 1, None, 222])
+            wb.save(workbook)
+
+            extracted = lab.extract_workbook(workbook)
+
+        self.assertEqual([sample["gs_id"] for sample in extracted["samples"]], ["LC1729", "LC1730", "LC1766b"])
+        retained_lc1730 = next(sample for sample in extracted["samples"] if sample["gs_id"] == "LC1730")
+        self.assertEqual(retained_lc1730["sheet"], "Full Sequencing Results 2")
+        self.assertEqual(retained_lc1730["client_id"], "99999")
+        self.assertEqual(retained_lc1730["mapped_reads"], 900)
+        self.assertEqual(extracted["truth_calls"]["LC1730"]["MHC-A"], ["S2A1", "S2A2"])
+        self.assertEqual(extracted["truth_calls"]["LC1766b"]["MHC-A"], ["B_A1", "B_A2"])
+
+        observations = extracted["prompt_input"]["observations"]
+        lc1730_observations = [row for row in observations if row["sample_id"] == "LC1730"]
+        self.assertEqual({row["sheet"] for row in lc1730_observations}, {"Full Sequencing Results 2"})
+        self.assertEqual([row["genotype"] for row in lc1730_observations], ["01_Mamu-A1_999g"])
+        self.assertIn(
+            {
+                "sample_id": "LC1766b",
+                "client_id": "88888",
+                "report_locus": "MHC-A",
+                "source_locus": "Mamu-A1",
+                "genotype": "01_Mamu-A1_1766bg",
+                "reads": 222,
+                "sheet": "Full Sequencing Results 2",
+                "row": 19,
+                "sample_mapped_reads": 700,
+                "read_fraction": 0.317143,
+            },
+            observations,
+        )
+
+        instructions = extracted["prompt_input"]["instructions"]
+        self.assertIn("duplicate_sample_policy", instructions)
+        superseded = extracted["prompt_input"]["superseded_samples"]
+        self.assertEqual(
+            superseded,
+            [
+                {
+                    "gs_id": "LC1730",
+                    "superseded_sheet": "Full Sequencing Results 1",
+                    "retained_sheet": "Full Sequencing Results 2",
+                    "reason": "later full-result sheet supersedes earlier occurrence for same gs_id",
+                }
+            ],
+        )
+        self.assertEqual(set(superseded[0]), {"gs_id", "superseded_sheet", "retained_sheet", "reason"})
+        self.assertNotIn("A008.01", json.dumps(extracted["prompt_input"], sort_keys=True))
+
+    def test_extract_rejects_observed_sample_without_truth(self):
+        with tempfile.TemporaryDirectory() as temp:
+            workbook = self.make_synthetic_snprc_workbook(Path(temp))
+            wb = load_workbook(workbook)
+            ws = wb["Full Sequencing Results 2"]
+            ws.append(["Client ID", None, None, "55555"])
+            ws.append(["GS ID", "Total", "Average", "LC999"])
+            ws.append(["Mapped Read Count", None, None, 500])
+            ws.append(["01_Mamu-A1_999g", 100, 1, 44])
+            wb.save(workbook)
+
+            with self.assertRaisesRegex(ValueError, "missing truth.*LC999"):
+                lab.extract_workbook(workbook)
 
     def test_extract_rejects_workbook_missing_expected_result_sheet(self):
         with tempfile.TemporaryDirectory() as temp:
