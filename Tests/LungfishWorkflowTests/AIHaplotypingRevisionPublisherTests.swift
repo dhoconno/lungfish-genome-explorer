@@ -96,7 +96,7 @@ final class AIHaplotypingRevisionPublisherTests: XCTestCase {
         XCTAssertEqual(envelope.argv, makeContext(bundleURL: fixture.bundleURL).argv)
         XCTAssertEqual(envelope.exitStatus, 0)
         XCTAssertEqual(envelope.options.resolvedDefaults["knowledgePackID"]?.stringValue, "macaque-mhc")
-        XCTAssertEqual(envelope.options.resolvedDefaults["knowledgePackVersion"]?.stringValue, "2026-06-15.2")
+        XCTAssertEqual(envelope.options.resolvedDefaults["knowledgePackVersion"]?.stringValue, "2026-06-17.3")
         XCTAssertTrue(
             envelope.options.resolvedDefaults["knowledgePackDigest"]?.stringValue?.hasPrefix("sha256:") == true
         )
@@ -161,6 +161,33 @@ final class AIHaplotypingRevisionPublisherTests: XCTestCase {
             .appendingPathComponent("artifacts/ai-haplotyping/revisions/haprev-ai-failing", isDirectory: true)
         XCTAssertFalse(FileManager.default.fileExists(atPath: revisionDirectory.path))
     }
+
+    func testPublishDoesNotEmitMHCLPlaceholderHaplotypeCalls() throws {
+        let fixture = try makeFixture(runnerOutput: makeRunnerOutputWithMHCLEvidence())
+        let publisher = AIHaplotypingRevisionPublisher(
+            dateProvider: { Self.fixedDate },
+            revisionIDProvider: { "haprev-ai-test" }
+        )
+
+        let published = try publisher.publish(
+            AIHaplotypingRevisionPublishRequest(
+                bundleURL: fixture.bundleURL,
+                result: fixture.result,
+                sidecarURL: fixture.sidecarURL,
+                sidecar: fixture.sidecar,
+                runnerOutput: fixture.runnerOutput,
+                context: makeContext(bundleURL: fixture.bundleURL)
+            )
+        )
+
+        let analysisURL = ONTGenotypeResultBundle.resolvedURL(for: published.revision.path, in: fixture.bundleURL)
+        let analysis = try JSONDecoder().decode(
+            GenotypeHaplotypeAnalysis.self,
+            from: Data(contentsOf: analysisURL)
+        )
+
+        XCTAssertFalse(analysis.samples.flatMap(\.calls).contains { $0.locus == "MHC-L" })
+    }
 }
 
 private enum IntentionalPublisherFailure: Error {
@@ -183,7 +210,7 @@ private extension AIHaplotypingRevisionPublisherTests {
         let runnerOutput: AIHaplotypingRunnerOutput
     }
 
-    func makeFixture() throws -> Fixture {
+    func makeFixture(runnerOutput: AIHaplotypingRunnerOutput? = nil) throws -> Fixture {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("ai-haplotyping-publisher-\(UUID().uuidString)", isDirectory: true)
         let bundleURL = root.appendingPathComponent("fixture.lungfishgenotype", isDirectory: true)
@@ -289,7 +316,7 @@ private extension AIHaplotypingRevisionPublisherTests {
             sidecarURL: sidecarURL,
             sidecar: sidecar,
             result: result,
-            runnerOutput: makeRunnerOutput()
+            runnerOutput: runnerOutput ?? makeRunnerOutput()
         )
     }
 
@@ -436,6 +463,43 @@ private extension AIHaplotypingRevisionPublisherTests {
             validatedDefinitions: report.validatedDefinitions,
             validationReports: [report],
             providerAttempts: [attempt]
+        )
+    }
+
+    func makeRunnerOutputWithMHCLEvidence() -> AIHaplotypingRunnerOutput {
+        let base = makeRunnerOutput()
+        let registry = AIHaplotypingEvidenceRegistry(
+            schemaVersion: base.registry.schemaVersion,
+            mode: base.registry.mode,
+            parentRevisionID: base.registry.parentRevisionID,
+            inputSnapshotDigest: base.registry.inputSnapshotDigest,
+            samples: base.registry.samples,
+            loci: base.registry.loci + [
+                LocusEvidence(id: "locus:MHC-L", locus: "MHC-L")
+            ],
+            observations: base.registry.observations + [
+                ObservationEvidence(
+                    id: "obs:DW473:MHC-L:Mafa-L*01:06:01:01",
+                    evidenceClass: .directObservation,
+                    sampleID: "sample:DW473",
+                    locusID: "locus:MHC-L",
+                    genotype: "Mafa-L*01:06:01:01",
+                    passedAlignments: 38,
+                    passedUniqueReads: 20,
+                    sampleUniqueRetainedReads: 100
+                )
+            ],
+            currentCalls: base.registry.currentCalls,
+            manualReviews: base.registry.manualReviews
+        )
+        return AIHaplotypingRunnerOutput(
+            mode: base.mode,
+            registry: registry,
+            chunkOutputs: base.chunkOutputs,
+            normalizedCalls: base.normalizedCalls,
+            validatedDefinitions: base.validatedDefinitions,
+            validationReports: base.validationReports,
+            providerAttempts: base.providerAttempts
         )
     }
 

@@ -6,7 +6,7 @@ final class AIHaplotypingKnowledgePackTests: XCTestCase {
         let pack = try AIHaplotypingKnowledgePackLoader.bundledMacaqueMHC()
 
         XCTAssertEqual(pack.id, "macaque-mhc")
-        XCTAssertEqual(pack.version, "2026-06-15.2")
+        XCTAssertEqual(pack.version, "2026-06-17.3")
         XCTAssertTrue(pack.digest.hasPrefix("sha256:"))
         XCTAssertEqual(pack.digest.count, "sha256:".count + 64)
         XCTAssertTrue(pack.sources.contains { $0.id == "source:notebook:miseq-genotyping-without-labkey" })
@@ -35,6 +35,76 @@ final class AIHaplotypingKnowledgePackTests: XCTestCase {
         })
         XCTAssertEqual(a1063.accession, "OR823435")
         XCTAssertEqual(a1063.haplotypes, ["M1", "M2"])
+    }
+
+    func testBundledMacaqueKnowledgePackIncludesMCMHumanHaplotypingHeuristics() throws {
+        let pack = try AIHaplotypingKnowledgePackLoader.bundledMacaqueMHC()
+        let guidanceText = pack.analystGuidance.map(\.text).joined(separator: "\n")
+        let ruleText = pack.markerRules.map(\.text).joined(separator: "\n")
+
+        XCTAssertTrue(guidanceText.contains("Mafa-A1* alleles are the primary MHC-A haplotyping focus"))
+        XCTAssertTrue(guidanceText.contains("Mafa-A1*063"))
+        XCTAssertTrue(ruleText.contains("Mafa-A1*063"))
+        XCTAssertTrue(ruleText.contains("use other MHC-A-neighborhood sequences"))
+        XCTAssertTrue(guidanceText.contains("ordinary Mafa-B* alleles"))
+        XCTAssertTrue(ruleText.contains("Mafa-B22*"))
+        XCTAssertTrue(ruleText.contains("equivalent B22-like"))
+        XCTAssertTrue(guidanceText.contains("lean on adjacent DP or DQ evidence"))
+        XCTAssertTrue(ruleText.contains("DP/DQ ambiguity"))
+        XCTAssertTrue(guidanceText.contains("Mafa-L* evidence lies between MHC-A and MHC-E"))
+        XCTAssertTrue(ruleText.contains("do not fold MHC-L into MHC-A or MHC-E"))
+        XCTAssertTrue(guidanceText.contains("MHC-E should be treated as its own neighboring evidence context"))
+    }
+
+    func testBundledAlleleRecordsExposeMappedReportLociInPromptJSON() throws {
+        let pack = try AIHaplotypingKnowledgePackLoader.bundledMacaqueMHC()
+        let json = try XCTUnwrap(pack.canonicalJSONString().data(using: .utf8))
+        let root = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: json) as? [String: Any]
+        )
+        let records = try XCTUnwrap(root["alleleRecords"] as? [[String: Any]])
+        let locusByDesignation = Dictionary(
+            uniqueKeysWithValues: records.compactMap { record -> (String, String)? in
+                guard let designation = record["officialDesignation"] as? String,
+                      let locus = record["locus"] as? String else {
+                    return nil
+                }
+                return (designation, locus)
+            }
+        )
+
+        XCTAssertEqual(locusByDesignation["Mafa-AG3*03:03:02:01"], "MHC-A")
+        XCTAssertEqual(locusByDesignation["Mafa-G*02:11:01:01"], "MHC-A")
+        XCTAssertEqual(locusByDesignation["Mafa-E*02:16:01:01N"], "MHC-E")
+        XCTAssertEqual(locusByDesignation["Mafa-L*01:02:01:01"], "MHC-L")
+        XCTAssertEqual(locusByDesignation["Mafa-I*01:10:01:02"], "MHC-B")
+        XCTAssertEqual(locusByDesignation["Mafa-J*02:01:01:01"], "MHC-B")
+        XCTAssertEqual(locusByDesignation["Mafa-K*01:01:01:01"], "MHC-B")
+    }
+
+    func testBundledReferenceRecordsUseDetailedTrimmedFastaNamesWithHistoricalAliases() throws {
+        let pack = try AIHaplotypingKnowledgePackLoader.bundledMacaqueMHC()
+
+        let m4A1 = try XCTUnwrap(pack.referenceRecords.first {
+            $0.primaryName == "MCM_MHC_MiSeq_0069"
+        })
+        XCTAssertEqual(m4A1.sourceLoci, ["MHC-A1"])
+        XCTAssertEqual(m4A1.haplotypeGroups, ["MHC-A"])
+        XCTAssertEqual(m4A1.haplotypes, ["M4"])
+        XCTAssertEqual(m4A1.alleles, ["Mafa-A1*031:01:01:01"])
+        XCTAssertEqual(m4A1.accessions, ["OR823430"])
+        XCTAssertEqual(m4A1.length, 156)
+        XCTAssertEqual(m4A1.evidenceClasses, ["primary_expressed"])
+        XCTAssertEqual(m4A1.maxEvidenceWeight, 1.0)
+        XCTAssertEqual(m4A1.evidenceWeightSum, 1.0)
+        XCTAssertTrue(m4A1.aliases.contains("05_M4_A1_031_01"))
+
+        let unmappedNewReference = try XCTUnwrap(pack.referenceRecords.first {
+            $0.primaryName == "MCM_MHC_MiSeq_0001"
+        })
+        XCTAssertEqual(unmappedNewReference.sourceLoci, ["MHC-DRB6"])
+        XCTAssertEqual(unmappedNewReference.haplotypes, ["M1"])
+        XCTAssertEqual(unmappedNewReference.alleles, ["Mafa-DRB6*01:01:01:01"])
     }
 
     func testKnowledgePackDigestIgnoresStoredDigestAndChangesWhenContentChanges() throws {

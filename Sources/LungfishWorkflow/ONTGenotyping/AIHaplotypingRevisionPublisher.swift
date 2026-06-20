@@ -347,7 +347,8 @@ public struct AIHaplotypingRevisionPublisher {
 
         for sample in output.registry.samples.map(\.sample) {
             appendUnique(sample, to: &sampleOrder)
-            for locus in output.registry.loci.map(\.locus) {
+            for locus in output.registry.loci.map(\.locus)
+                where GenotypeHaplotypeLocusResolver.isReportableHaplotypeLocus(locus) {
                 appendUnique(locus, to: &lociBySampleOrder[sample, default: []])
                 if callsBySample[sample]?[locus] == nil {
                     callsBySample[sample, default: [:]][locus] = placeholderCall(
@@ -363,6 +364,9 @@ public struct AIHaplotypingRevisionPublisher {
             SampleLocus(sample: $0.sample, locus: $0.locus)
         }
         for (target, targetCalls) in callsByTarget {
+            guard GenotypeHaplotypeLocusResolver.isReportableHaplotypeLocus(target.locus) else {
+                continue
+            }
             let existing = callsBySample[target.sample]?[target.locus]
                 ?? placeholderCall(sample: target.sample, locus: target.locus, registry: output.registry)
             callsBySample[target.sample, default: [:]][target.locus] = try applying(

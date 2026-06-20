@@ -192,6 +192,6 @@ final class GenotypeCallEvidenceViewTests: XCTestCase {
         XCTAssertFalse(source.contains("makeDropoutThresholdHost"))
         XCTAssertFalse(source.contains("applyDropoutThresholds"))
         XCTAssertTrue(source.contains("Haplotype Thresholds"))
-        XCTAssertTrue(source.contains("Rerun miSeq amplicon ONT MHC genotyping"))
+        XCTAssertTrue(source.contains("Rerun miSeq amplicon MHC genotyping"))
     }
 }

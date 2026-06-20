@@ -56,6 +56,7 @@ final class GenotypeSubcommandsTests: XCTestCase {
             "--temperature", "0",
             "--reasoning-effort", "low",
             "--max-provider-retries", "3",
+            "--review-scope", "unresolved-only",
         ])
 
         XCTAssertEqual(command.bundle, "/tmp/example.lungfishgenotype")
@@ -69,14 +70,15 @@ final class GenotypeSubcommandsTests: XCTestCase {
         XCTAssertEqual(command.temperature, 0)
         XCTAssertEqual(command.reasoningEffort, "low")
         XCTAssertEqual(command.maxProviderRetries, 3)
+        XCTAssertEqual(command.reviewScope, .unresolvedOnly)
     }
 
-    func testAIHaplotypingDefaultsToFocusedSingleLocusReviewChunks() throws {
+    func testAIHaplotypingDefaultsToSampleLevelReviewChunks() throws {
         let command = try GenotypeAIHaplotypingSubcommand.parse([
             "--bundle", "/tmp/example.lungfishgenotype",
         ])
 
-        XCTAssertEqual(command.maxObservationsPerChunk, 1)
+        XCTAssertEqual(command.maxObservationsPerChunk, 10_000)
         XCTAssertEqual(command.provider, .openAI)
     }
 
@@ -192,12 +194,48 @@ final class GenotypeSubcommandsTests: XCTestCase {
         XCTAssertEqual(preview.runContext.assayResolution, "short_exon_amplicon")
         XCTAssertEqual(preview.chunkCount, 1)
         XCTAssertEqual(preview.observationCount, 2)
-        XCTAssertEqual(preview.promptTemplate.version, "2026-06-18.1")
-        XCTAssertEqual(preview.knowledgePack.version, "2026-06-17.3")
+        XCTAssertEqual(preview.promptTemplate.version, "2026-06-18.3")
+        XCTAssertEqual(try XCTUnwrap(preview.knowledgePack).version, "2026-06-17.3")
         XCTAssertTrue(preview.chunks[0].userPrompt.contains("DP/DQ linkage"))
         XCTAssertTrue(preview.chunks[0].userPrompt.contains("population novelty prior"))
         XCTAssertTrue(preview.chunks[0].userPrompt.contains("05_M1M2M3_A1_063g"))
         XCTAssertTrue(preview.chunks[0].evidenceRegistry.evidenceIDs.contains("obs:B25276:MHC-A:05_M1M2M3_A1_063g"))
+    }
+
+    func testAIHaplotypingPromptPreviewUsesMCMSpecialistPromptWithoutKnowledgePackForPresetDefinition() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AIHaplotypingPromptPreviewMCMSpecialist-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let inputURL = root.appendingPathComponent("mcm-calls.csv")
+        try """
+        sample,genotype,passedAlignments,passedUniqueReads,sampleUniqueRetainedReads
+        LF2823,MCM_MHC_MiSeq_0069[MHC-A1],174,174,13924
+        """.write(to: inputURL, atomically: true, encoding: .utf8)
+        let preset = MCMHaplotypingPreset.mcmMHCmiseq
+
+        let command = try GenotypeAIHaplotypingSubcommand.parse([
+            "--input-table", inputURL.path,
+            "--preview-prompt",
+            "--mode", "ai-discovery",
+            "--provider", "openai",
+            "--model", "gpt-5.5",
+            "--haplotype-definition", preset.haplotypeDefinitionSetID,
+            "--haplotype-assay", preset.haplotypeAssayID,
+            "--max-observations-per-chunk", "16",
+        ])
+
+        let preview = try command.buildPromptPreview()
+        let promptInput = try Self.promptInput(from: preview.chunks[0].userPrompt)
+
+        XCTAssertEqual(preview.promptTemplate.id, preset.aiPromptTemplateID(for: .aiDiscovery))
+        XCTAssertEqual(preview.promptTemplate.version, preset.aiPromptTemplateVersion)
+        XCTAssertNil(preview.knowledgePack)
+        XCTAssertNil(preview.chunks[0].promptMetadata.knowledgePackID)
+        XCTAssertNil(promptInput.knowledgePack)
+        XCTAssertTrue(preview.chunks[0].userPrompt.contains("MCM MHC MiSeq Haplotyping Specialist Prompt"))
+        XCTAssertTrue(preview.chunks[0].userPrompt.contains("M4 and M7 have the same MHC-DP genotypes"))
+        XCTAssertFalse(preview.chunks[0].userPrompt.contains("\"knowledgePack\""))
     }
 
     func testAIHaplotypingPromptPreviewCanCompactKnowledgePackForSmokeRuns() async throws {
@@ -228,18 +266,20 @@ final class GenotypeSubcommandsTests: XCTestCase {
 
         let promptInput = try Self.promptInput(from: preview.chunks[0].userPrompt)
 
-        XCTAssertTrue(preview.knowledgePack.digest.hasPrefix("sha256:"))
-        XCTAssertEqual(preview.knowledgePack.digest.count, "sha256:".count + 64)
+        let previewKnowledgePack = try XCTUnwrap(preview.knowledgePack)
+        let promptKnowledgePack = try XCTUnwrap(promptInput.knowledgePack)
+        XCTAssertTrue(previewKnowledgePack.digest.hasPrefix("sha256:"))
+        XCTAssertEqual(previewKnowledgePack.digest.count, "sha256:".count + 64)
         XCTAssertLessThan(
-            promptInput.knowledgePack.haplotypeBlockDefinitions.count,
-            preview.knowledgePack.haplotypeBlockDefinitionCount
+            promptKnowledgePack.haplotypeBlockDefinitions.count,
+            previewKnowledgePack.haplotypeBlockDefinitionCount
         )
         XCTAssertLessThan(preview.chunks[0].userPrompt.count, 80_000)
         XCTAssertTrue(preview.chunks[0].userPrompt.contains("\"haplotypeBlockDefinitions\""))
         XCTAssertFalse(preview.chunks[0].userPrompt.contains("\"legacyBlockDefinitions\""))
         XCTAssertTrue(preview.chunks[0].userPrompt.contains("05_M1M2M3_A1_063g"))
-        XCTAssertTrue(promptInput.knowledgePack.haplotypeBlockDefinitions.contains { $0.reportLabel == "M3A" })
-        XCTAssertFalse(Self.knowledgePackRecordText(promptInput.knowledgePack).contains("A008.01"))
+        XCTAssertTrue(promptKnowledgePack.haplotypeBlockDefinitions.contains { $0.reportLabel == "M3A" })
+        XCTAssertFalse(Self.knowledgePackRecordText(promptKnowledgePack).contains("A008.01"))
     }
 
     func testAIHaplotypingPromptPreviewWritesProvenanceSidecarForOutputFile() async throws {
@@ -336,6 +376,13 @@ final class GenotypeSubcommandsTests: XCTestCase {
             runnerOutput: runnerOutput,
             modelID: "gpt-5-mini",
             credentialSource: AIHaplotypingCredentialSource.environmentOpenAI.rawValue,
+            promptSelection: AIHaplotypingPromptSelection(
+                promptTemplateID: command.promptTemplateID,
+                promptTemplateVersion: command.promptTemplateVersion,
+                includeKnowledgePack: true,
+                compactKnowledgePack: command.compactKnowledgePack,
+                usesSpecialistPrompt: false
+            ),
             startedAt: Date()
         )
 
@@ -868,7 +915,7 @@ final class GenotypeSubcommandsTests: XCTestCase {
 
 private extension GenotypeSubcommandsTests {
     struct PromptInput: Decodable {
-        let knowledgePack: AIHaplotypingKnowledgePack
+        let knowledgePack: AIHaplotypingKnowledgePack?
     }
 
     enum PromptInputDecodeError: Error {

@@ -44,6 +44,14 @@ public enum AIHaplotypingKnowledgePackRetriever {
         let selectedAlleles = pack.alleleRecords.filter {
             alleleRecordMatches($0, observedTerms: observedAlleleTerms, selectedLabels: selectedLabels)
         }
+        let selectedReferenceRecords = pack.referenceRecords.filter {
+            referenceRecordMatches(
+                $0,
+                observedTerms: observedTerms,
+                observedAlleleTerms: observedAlleleTerms,
+                selectedLabels: selectedLabels
+            )
+        }
 
         return AIHaplotypingKnowledgePack(
             id: pack.id,
@@ -51,6 +59,7 @@ public enum AIHaplotypingKnowledgePackRetriever {
             sources: pack.sources,
             populationProfiles: pack.populationProfiles,
             alleleRecords: selectedAlleles,
+            referenceRecords: selectedReferenceRecords,
             haplotypeBlockDefinitions: selectedDefinitions,
             markerRules: pack.markerRules,
             analystGuidance: pack.analystGuidance,
@@ -105,6 +114,27 @@ public enum AIHaplotypingKnowledgePackRetriever {
         let recordTerms = alleleRecordSearchTerms(record)
         return observedTerms.contains { observedTerm in
             recordTerms.contains { recordTerm in
+                alleleTerm(observedTerm, matchesRecordTerm: recordTerm)
+            }
+        }
+    }
+
+    private static func referenceRecordMatches(
+        _ record: AIHaplotypingReferenceRecord,
+        observedTerms: Set<String>,
+        observedAlleleTerms: Set<String>,
+        selectedLabels: Set<String>
+    ) -> Bool {
+        if record.haplotypes.map(normalized).contains(where: selectedLabels.contains) {
+            return true
+        }
+        let identityTerms = referenceRecordIdentityTerms(record)
+        if observedTerms.contains(where: { identityTerms.contains($0) }) {
+            return true
+        }
+        let alleleTerms = Set(record.alleles.flatMap { alleleSearchTerms(from: $0) })
+        return observedAlleleTerms.contains { observedTerm in
+            alleleTerms.contains { recordTerm in
                 alleleTerm(observedTerm, matchesRecordTerm: recordTerm)
             }
         }
@@ -184,6 +214,27 @@ public enum AIHaplotypingKnowledgePackRetriever {
                 terms.insert(cleaned)
                 terms.formUnion(alleleDesignationPrefixes(from: cleaned))
             }
+        }
+        return terms
+    }
+
+    private static func referenceRecordIdentityTerms(_ record: AIHaplotypingReferenceRecord) -> Set<String> {
+        var terms = Set<String>()
+        for value in [record.id, record.primaryName, record.fastaHeader] {
+            let cleaned = normalized(value)
+            if !cleaned.isEmpty {
+                terms.insert(cleaned)
+            }
+            terms.formUnion(Self.alleleSearchTerms(from: value))
+        }
+        for value in record.accessions + record.aliases {
+            let cleaned = normalized(value)
+            if !cleaned.isEmpty {
+                terms.insert(cleaned)
+            }
+        }
+        for value in record.alleles {
+            terms.formUnion(Self.alleleSearchTerms(from: value))
         }
         return terms
     }

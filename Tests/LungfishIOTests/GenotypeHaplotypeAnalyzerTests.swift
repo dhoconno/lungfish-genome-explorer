@@ -223,6 +223,49 @@ final class GenotypeHaplotypeAnalyzerTests: XCTestCase {
         XCTAssertEqual(a.status, .called)
     }
 
+    func testNewReferenceHeaderHaplotypeGroupOverridesSourceLocusForMCMADiagnostics() throws {
+        let definition = GenotypeHaplotypeDefinitionSet(
+            id: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques.test",
+            assayID: "MHC-exon2-miSeq",
+            displayName: "MCM test",
+            speciesName: "Mauritian cynomolgus macaque",
+            speciesCode: "MCM",
+            prefix: "Mafa",
+            locusDefinitions: [
+                GenotypeHaplotypeLocusDefinition(
+                    locus: "MHC-A",
+                    sourceLocus: "MHC-A",
+                    haplotypes: [
+                        GenotypeHaplotypeDefinition(
+                            name: "M1",
+                            diagnosticAlleles: ["MCM_MHC_MiSeq_0010"],
+                            minimumMatches: 1
+                        )
+                    ]
+                )
+            ]
+        )
+
+        let analysis = GenotypeHaplotypeAnalyzer.analyze(
+            calls: [
+                Self.call(
+                    sample: "LF0001",
+                    genotype: "MCM_MHC_MiSeq_0010|source_loci=MHC-E|haplotype_groups=MHC-A|haplotypes=M1|alleles=Mafa-E_02:19:01:01",
+                    reads: 50
+                )
+            ],
+            definitionSet: definition
+        )
+
+        let sample = try XCTUnwrap(analysis.samples.first)
+        let a = try XCTUnwrap(sample.calls.first { $0.locus == "MHC-A" })
+        XCTAssertEqual(a.haplotype1, "M1")
+        XCTAssertEqual(a.haplotype2, "-")
+        XCTAssertEqual(a.status, .called)
+        XCTAssertEqual(a.observedGenotypeCount, 1)
+        XCTAssertFalse(a.notes.contains("not observed anywhere"))
+    }
+
     func testDropoutThresholdOmitsLowSupportDiagnosticFromHaplotypeAssignmentOnly() throws {
         let definition = GenotypeHaplotypeDefinitionSet(
             id: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques.test",

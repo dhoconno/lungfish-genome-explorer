@@ -342,24 +342,31 @@ public struct AIHaplotypingPatchValidator: Sendable {
         if let unsupportedClaim = firstUnsupportedClaim(in: normalizedResult) {
             return rejected(.unsupportedClaim(unsupportedClaim), result: normalizedResult)
         }
-        if let error = firstPatchIdentityError(in: normalizedResult.calls) {
+        let coalescedResult: AIHaplotypingStructuredResult
+        switch coalescedDuplicateTargetCalls(in: normalizedResult) {
+        case .success(let result):
+            coalescedResult = result
+        case .failure(let error):
             return rejected(error, result: normalizedResult)
         }
-        if let error = firstDuplicateProposedLabelError(in: normalizedResult.calls) {
-            return rejected(error, result: normalizedResult)
+        if let error = firstPatchIdentityError(in: coalescedResult.calls) {
+            return rejected(error, result: coalescedResult)
         }
-        if let error = firstDefinitionIdentityError(in: normalizedResult.discoveredDefinitions) {
-            return rejected(error, result: normalizedResult)
+        if let error = firstDuplicateProposedLabelError(in: coalescedResult.calls) {
+            return rejected(error, result: coalescedResult)
         }
-        if let error = firstDefinitionEvidenceError(in: normalizedResult.discoveredDefinitions, context: context) {
-            return rejected(error, result: normalizedResult)
+        if let error = firstDefinitionIdentityError(in: coalescedResult.discoveredDefinitions) {
+            return rejected(error, result: coalescedResult)
         }
-        if let error = firstCallValidationError(in: normalizedResult.calls, context: context) {
-            return rejected(error, result: normalizedResult)
+        if let error = firstDefinitionEvidenceError(in: coalescedResult.discoveredDefinitions, context: context) {
+            return rejected(error, result: coalescedResult)
+        }
+        if let error = firstCallValidationError(in: coalescedResult.calls, context: context) {
+            return rejected(error, result: coalescedResult)
         }
 
-        let normalizedCalls = normalizedResult.calls.map(normalizedCall(from:))
-        let validatedDefinitions = normalizedResult.discoveredDefinitions.map { definition in
+        let normalizedCalls = coalescedResult.calls.map(normalizedCall(from:))
+        let validatedDefinitions = coalescedResult.discoveredDefinitions.map { definition in
             AIHaplotypingValidatedDefinition(
                 definitionID: definition.definitionID,
                 locus: definition.locus,
@@ -372,13 +379,13 @@ public struct AIHaplotypingPatchValidator: Sendable {
         }
         return AIHaplotypingValidationReport(
             accepted: true,
-            run: normalizedResult.run,
-            chunkID: normalizedResult.chunkID,
-            registryDigest: normalizedResult.registryDigest,
-            inputSnapshotDigest: normalizedResult.inputSnapshotDigest,
+            run: coalescedResult.run,
+            chunkID: coalescedResult.chunkID,
+            registryDigest: coalescedResult.registryDigest,
+            inputSnapshotDigest: coalescedResult.inputSnapshotDigest,
             normalizedCalls: normalizedCalls,
             validatedDefinitions: validatedDefinitions,
-            warnings: normalizedResult.warnings,
+            warnings: coalescedResult.warnings,
             errors: []
         )
     }
@@ -418,6 +425,56 @@ public struct AIHaplotypingPatchValidator: Sendable {
             }
         }
         return nil
+    }
+
+    private func coalescedDuplicateTargetCalls(
+        in result: AIHaplotypingStructuredResult
+    ) -> Result<AIHaplotypingStructuredResult, AIHaplotypingValidationError> {
+        var callsByTarget: [CallTarget: AIHaplotypingStructuredCall] = [:]
+        var calls: [AIHaplotypingStructuredCall] = []
+        for call in result.calls {
+            let target = CallTarget(sample: call.sample, locus: call.locus, slot: call.slot)
+            guard let existing = callsByTarget[target] else {
+                callsByTarget[target] = call
+                calls.append(call)
+                continue
+            }
+            guard substantivelySameCall(existing, call) else {
+                return .failure(.duplicateCallTarget(call.sample, call.locus, call.slot))
+            }
+        }
+        guard calls.count != result.calls.count else {
+            return .success(result)
+        }
+        return .success(AIHaplotypingStructuredResult(
+            schemaVersion: result.schemaVersion,
+            run: result.run,
+            registryDigest: result.registryDigest,
+            inputSnapshotDigest: result.inputSnapshotDigest,
+            chunkID: result.chunkID,
+            discoveredDefinitions: result.discoveredDefinitions,
+            calls: calls,
+            warnings: result.warnings
+        ))
+    }
+
+    private func substantivelySameCall(
+        _ lhs: AIHaplotypingStructuredCall,
+        _ rhs: AIHaplotypingStructuredCall
+    ) -> Bool {
+        lhs.sample == rhs.sample
+            && lhs.locus == rhs.locus
+            && lhs.slot == rhs.slot
+            && lhs.haplotypeLabel == rhs.haplotypeLabel
+            && lhs.normalizedFamily == rhs.normalizedFamily
+            && lhs.source == rhs.source
+            && lhs.sourceState == rhs.sourceState
+            && lhs.reviewState == rhs.reviewState
+            && lhs.callState == rhs.callState
+            && lhs.confidenceTier == rhs.confidenceTier
+            && lhs.supportEvidenceRefs == rhs.supportEvidenceRefs
+            && lhs.counterevidenceRefs == rhs.counterevidenceRefs
+            && lhs.alternates == rhs.alternates
     }
 
     private func normalizedTargetReferences(
@@ -600,7 +657,8 @@ public struct AIHaplotypingPatchValidator: Sendable {
                 guard let evidence = context.evidenceByID[evidenceID] else {
                     return .unknownEvidenceID(evidenceID)
                 }
-                if let evidenceLocus = evidence.locus, evidenceLocus != definition.locus {
+                if let evidenceLocus = evidence.locus,
+                   evidenceLocus != definition.locus {
                     return .evidenceTargetMismatch(evidenceID, "", definition.locus)
                 }
                 guard evidence.evidenceClass != .cohortRecurrence else { continue }
@@ -696,10 +754,25 @@ public struct AIHaplotypingPatchValidator: Sendable {
         if let evidenceSample = evidence.sample, evidenceSample != call.sample {
             return .evidenceTargetMismatch(evidence.id, call.sample, call.locus)
         }
-        if let evidenceLocus = evidence.locus, evidenceLocus != call.locus {
+        if let evidenceLocus = evidence.locus,
+           !isCompatibleEvidenceLocus(evidenceLocus, targetLocus: call.locus) {
             return .evidenceTargetMismatch(evidence.id, call.sample, call.locus)
         }
         return nil
+    }
+
+    private func isCompatibleEvidenceLocus(_ evidenceLocus: String, targetLocus: String) -> Bool {
+        if evidenceLocus == targetLocus { return true }
+        if isAdjacentHaplotypeContext(evidenceLocus, targetLocus) { return true }
+        if evidenceLocus == "MHC-L" {
+            return targetLocus == "MHC-A" || targetLocus == "MHC-E"
+        }
+        return false
+    }
+
+    private func isAdjacentHaplotypeContext(_ evidenceLocus: String, _ targetLocus: String) -> Bool {
+        GenotypeHaplotypeLocusResolver.isReportableHaplotypeLocus(evidenceLocus)
+            && GenotypeHaplotypeLocusResolver.isReportableHaplotypeLocus(targetLocus)
     }
 
     private func normalizedCall(from call: AIHaplotypingStructuredCall) -> AIHaplotypingValidatedCall {
@@ -983,7 +1056,9 @@ private struct ValidationContext: Sendable {
     init(registry: AIHaplotypingEvidenceRegistry) {
         mode = registry.mode
         samples = Set(registry.samples.map(\.sample))
-        loci = Set(registry.loci.map(\.locus))
+        loci = Set(registry.loci.map(\.locus).filter {
+            GenotypeHaplotypeLocusResolver.isReportableHaplotypeLocus($0)
+        })
         let samplesByID = Dictionary(uniqueKeysWithValues: registry.samples.map { ($0.id, $0.sample) })
         let lociByID = Dictionary(uniqueKeysWithValues: registry.loci.map { ($0.id, $0.locus) })
         var sampleReferences: [String: String] = [:]
@@ -1071,6 +1146,20 @@ private struct ValidationContext: Sendable {
         if evidenceByID[trimmed] != nil {
             return trimmed
         }
+        if trimmed.hasSuffix("|") {
+            let pipeStripped = String(trimmed.dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)
+            if evidenceByID[pipeStripped] != nil {
+                return pipeStripped
+            }
+        }
+        let pipeComponents = trimmed
+            .split(separator: "|", omittingEmptySubsequences: false)
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+        if pipeComponents.count == 2,
+           pipeComponents[0] == pipeComponents[1],
+           evidenceByID[pipeComponents[0]] != nil {
+            return pipeComponents[0]
+        }
 
         for prefix in ["sample:", "locus:"] {
             let duplicatedPrefix = "\(prefix)\(prefix)"
@@ -1084,6 +1173,13 @@ private struct ValidationContext: Sendable {
 
         guard trimmed.hasPrefix("obs:") else {
             return rawValue
+        }
+
+        if let pipeIndex = trimmed.firstIndex(of: "|") {
+            let baseID = String(trimmed[..<pipeIndex])
+            if let uniqueBaseObservationID = uniqueEvidenceID(matchingPrefix: "\(baseID)|") {
+                return uniqueBaseObservationID
+            }
         }
 
         for suffix in ["g", "N"] {

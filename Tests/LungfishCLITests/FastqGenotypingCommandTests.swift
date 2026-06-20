@@ -163,6 +163,29 @@ final class FastqGenotypingCommandTests: XCTestCase {
         XCTAssertEqual(command.minSupport, 3)
     }
 
+    func testGenotypeParsesLockedMCMMiSeqPresetWithoutReference() throws {
+        let command = try FastqGenotypingSubcommand.parse([
+            "/tmp/LF2823.lungfishfastq",
+            "--preset", "mcm-mhc-miseq",
+            "--barcodes", "/tmp/fluidigm.csv",
+            "--output-dir", "/tmp/out",
+            "--output-name", "mcm-miseq",
+        ])
+
+        XCTAssertEqual(command.preset, "mcm-mhc-miseq")
+        XCTAssertNil(command.reference)
+    }
+
+    func testGenotypePresetRejectsUserReferenceOverride() throws {
+        XCTAssertThrowsError(try FastqGenotypingSubcommand.parse([
+            "/tmp/LF2823.lungfishfastq",
+            "--preset", "mcm-mhc-miseq",
+            "--reference", "/tmp/other.fa",
+            "--barcodes", "/tmp/fluidigm.csv",
+            "--output-dir", "/tmp/out",
+        ]))
+    }
+
     func testGenotypeParsesHaplotypeThresholdsAndDefinitionScope() throws {
         let command = try FastqGenotypingSubcommand.parse([
             "/tmp/barcode11.lungfishfastq",

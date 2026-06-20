@@ -21,7 +21,10 @@ struct FastqGenotypingSubcommand: AsyncParsableCommand {
     static let referenceHelp = MHCReferenceBundleResolution.referenceHelp
 
     @Option(name: .customLong("reference"), help: ArgumentHelp(stringLiteral: referenceHelp))
-    var reference: String
+    var reference: String?
+
+    @Option(name: .customLong("preset"), help: "Locked genotyping preset. Supported value: mcm-mhc-miseq.")
+    var preset: String?
 
     @Option(name: .customLong("barcodes"), help: "CSV/TSV file containing sample ID and Fluidigm barcode sequence columns for ONT barcode-demux mode")
     var barcodes: String?
@@ -87,6 +90,17 @@ struct FastqGenotypingSubcommand: AsyncParsableCommand {
         max(1, globalOptions.threads ?? ProcessInfo.processInfo.activeProcessorCount)
     }
 
+    mutating func validate() throws {
+        try Self.validateReferenceSelection(
+            reference: reference,
+            preset: preset,
+            haplotypeAssay: haplotypeAssay,
+            haplotypeSpecies: haplotypeSpecies,
+            haplotypeDefinitionScope: haplotypeDefinitionScope,
+            haplotypeDefinition: haplotypeDefinition
+        )
+    }
+
     func run() async throws {
         guard !inputs.isEmpty else {
             throw ValidationError("At least one input FASTQ or .lungfishfastq bundle is required.")
@@ -120,18 +134,18 @@ struct FastqGenotypingSubcommand: AsyncParsableCommand {
         } catch {
             throw ValidationError("Invalid --extra-args: \(error.localizedDescription)")
         }
-        let referenceURL = URL(fileURLWithPath: reference)
-        let bundledHaplotype = try Self.resolveBundleHaplotypeDefinition(
-            referenceURL: referenceURL,
-            explicitID: haplotypeDefinition
+        let referenceConfiguration = try Self.resolvedReferenceConfiguration(
+            reference: reference,
+            preset: preset,
+            haplotypeAssay: haplotypeAssay,
+            haplotypeSpecies: haplotypeSpecies,
+            haplotypeDefinitionScope: haplotypeDefinitionScope,
+            haplotypeDefinition: haplotypeDefinition
         )
-        let effectiveHaplotypeDefinition = bundledHaplotype?.id ?? haplotypeDefinition
-        let effectiveHaplotypeAssay = bundledHaplotype?.assayID ?? haplotypeAssay
-        let effectiveHaplotypeSpecies = bundledHaplotype?.speciesCode ?? haplotypeSpecies
 
         let request = ONTBarcodeDemuxGenotypingRunRequest(
             inputFASTQURLs: inputs.map { URL(fileURLWithPath: $0) },
-            referenceSourceURL: referenceURL,
+            referenceSourceURL: referenceConfiguration.referenceURL,
             barcodeDefinitionsURL: barcodes.map { URL(fileURLWithPath: $0) },
             outputDirectory: URL(fileURLWithPath: outputDir, isDirectory: true),
             outputName: outputName,
@@ -146,12 +160,15 @@ struct FastqGenotypingSubcommand: AsyncParsableCommand {
             haplotypeDropoutSampleFraction: Self.fraction(fromPercent: haplotypeMinSamplePercent),
             haplotypeDropoutLocusFraction: Self.fraction(fromPercent: haplotypeMinLocusPercent),
             haplotypeDropoutLocusFractionOverrides: parsedLocusOverrides,
-            haplotypeAssayID: effectiveHaplotypeAssay,
-            haplotypeSpeciesCode: effectiveHaplotypeSpecies,
-            haplotypeDefinitionScope: effectiveHaplotypeDefinition == nil
+            haplotypeAssayID: referenceConfiguration.haplotypeAssayID,
+            haplotypeSpeciesCode: referenceConfiguration.haplotypeSpeciesCode,
+            haplotypeDefinitionScope: referenceConfiguration.haplotypeDefinitionSetID == nil
                 ? nil
                 : (parsedHaplotypeDefinitionScope ?? .project),
-            haplotypeDefinitionSetID: effectiveHaplotypeDefinition,
+            haplotypeDefinitionSetID: referenceConfiguration.haplotypeDefinitionSetID,
+            presetID: referenceConfiguration.preset?.id,
+            presetVersion: referenceConfiguration.preset?.version,
+            lockedReferenceSHA256: referenceConfiguration.preset?.referenceFASTASHA256,
             extraArguments: parsedExtraArguments,
             mode: parsedMode,
             readType: parsedReadType
@@ -201,6 +218,89 @@ struct FastqGenotypingSubcommand: AsyncParsableCommand {
         try MHCReferenceBundleResolution.resolveBundleHaplotypeDefinition(
             referenceURL: referenceURL,
             explicitID: explicitID
+        )
+    }
+
+    struct ResolvedReferenceConfiguration: Equatable {
+        let referenceURL: URL
+        let preset: MCMHaplotypingPreset?
+        let haplotypeAssayID: String?
+        let haplotypeSpeciesCode: String?
+        let haplotypeDefinitionSetID: String?
+    }
+
+    static func validateReferenceSelection(
+        reference: String?,
+        preset: String?,
+        haplotypeAssay: String?,
+        haplotypeSpecies: String?,
+        haplotypeDefinitionScope: String?,
+        haplotypeDefinition: String?
+    ) throws {
+        let trimmedPreset = preset?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let trimmedReference = reference?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmedPreset.isEmpty || !trimmedReference.isEmpty else {
+            throw ValidationError("Provide --reference, or use --preset mcm-mhc-miseq.")
+        }
+        guard !trimmedPreset.isEmpty else { return }
+        guard MCMHaplotypingPreset.preset(id: trimmedPreset) != nil else {
+            throw ValidationError(MCMHaplotypingPresetError.unknownPreset(trimmedPreset).localizedDescription)
+        }
+        guard trimmedReference.isEmpty else {
+            throw ValidationError(MCMHaplotypingPresetError.referenceOverrideNotAllowed(trimmedPreset).localizedDescription)
+        }
+        let hasHaplotypeOverride = [
+            haplotypeAssay,
+            haplotypeSpecies,
+            haplotypeDefinitionScope,
+            haplotypeDefinition,
+        ].contains { value in
+            !(value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "").isEmpty
+        }
+        guard !hasHaplotypeOverride else {
+            throw ValidationError(MCMHaplotypingPresetError.haplotypeOverrideNotAllowed(trimmedPreset).localizedDescription)
+        }
+    }
+
+    static func resolvedReferenceConfiguration(
+        reference: String?,
+        preset: String?,
+        haplotypeAssay: String?,
+        haplotypeSpecies: String?,
+        haplotypeDefinitionScope: String?,
+        haplotypeDefinition: String?
+    ) throws -> ResolvedReferenceConfiguration {
+        try validateReferenceSelection(
+            reference: reference,
+            preset: preset,
+            haplotypeAssay: haplotypeAssay,
+            haplotypeSpecies: haplotypeSpecies,
+            haplotypeDefinitionScope: haplotypeDefinitionScope,
+            haplotypeDefinition: haplotypeDefinition
+        )
+        if let resolvedPreset = MCMHaplotypingPreset.preset(id: preset) {
+            return ResolvedReferenceConfiguration(
+                referenceURL: try resolvedPreset.bundledReferenceBundleURL(),
+                preset: resolvedPreset,
+                haplotypeAssayID: resolvedPreset.haplotypeAssayID,
+                haplotypeSpeciesCode: resolvedPreset.haplotypeSpeciesCode,
+                haplotypeDefinitionSetID: resolvedPreset.haplotypeDefinitionSetID
+            )
+        }
+        guard let reference else {
+            throw ValidationError("Provide --reference, or use --preset mcm-mhc-miseq.")
+        }
+        let referenceURL = URL(fileURLWithPath: reference)
+        let bundledHaplotype = try resolveBundleHaplotypeDefinition(
+            referenceURL: referenceURL,
+            explicitID: haplotypeDefinition
+        )
+        return ResolvedReferenceConfiguration(
+            referenceURL: referenceURL,
+            preset: nil,
+            haplotypeAssayID: bundledHaplotype?.assayID ?? haplotypeAssay,
+            haplotypeSpeciesCode: bundledHaplotype?.speciesCode ?? haplotypeSpecies,
+            haplotypeDefinitionSetID: bundledHaplotype?.id ?? haplotypeDefinition
         )
     }
 
@@ -262,7 +362,10 @@ struct FastqGenotypingCohortSubcommand: AsyncParsableCommand {
     static let referenceHelp = MHCReferenceBundleResolution.referenceHelp
 
     @Option(name: .customLong("reference"), help: ArgumentHelp(stringLiteral: referenceHelp))
-    var reference: String
+    var reference: String?
+
+    @Option(name: .customLong("preset"), help: "Locked genotyping preset. Supported value: mcm-mhc-miseq.")
+    var preset: String?
 
     @Option(name: .customLong("barcodes"), help: "CSV/TSV file containing sample ID and Fluidigm barcode sequence columns for ONT barcode-demux mode")
     var barcodes: String?
@@ -328,6 +431,17 @@ struct FastqGenotypingCohortSubcommand: AsyncParsableCommand {
         max(1, globalOptions.threads ?? ProcessInfo.processInfo.activeProcessorCount)
     }
 
+    mutating func validate() throws {
+        try FastqGenotypingSubcommand.validateReferenceSelection(
+            reference: reference,
+            preset: preset,
+            haplotypeAssay: haplotypeAssay,
+            haplotypeSpecies: haplotypeSpecies,
+            haplotypeDefinitionScope: haplotypeDefinitionScope,
+            haplotypeDefinition: haplotypeDefinition
+        )
+    }
+
     func run() async throws {
         guard inputs.count > 1 else {
             throw ValidationError("At least two input FASTQ bundles are required for genotype-cohort.")
@@ -365,18 +479,18 @@ struct FastqGenotypingCohortSubcommand: AsyncParsableCommand {
         } catch {
             throw ValidationError("Invalid --extra-args: \(error.localizedDescription)")
         }
-        let referenceURL = URL(fileURLWithPath: reference)
-        let bundledHaplotype = try FastqGenotypingSubcommand.resolveBundleHaplotypeDefinition(
-            referenceURL: referenceURL,
-            explicitID: haplotypeDefinition
+        let referenceConfiguration = try FastqGenotypingSubcommand.resolvedReferenceConfiguration(
+            reference: reference,
+            preset: preset,
+            haplotypeAssay: haplotypeAssay,
+            haplotypeSpecies: haplotypeSpecies,
+            haplotypeDefinitionScope: haplotypeDefinitionScope,
+            haplotypeDefinition: haplotypeDefinition
         )
-        let effectiveHaplotypeDefinition = bundledHaplotype?.id ?? haplotypeDefinition
-        let effectiveHaplotypeAssay = bundledHaplotype?.assayID ?? haplotypeAssay
-        let effectiveHaplotypeSpecies = bundledHaplotype?.speciesCode ?? haplotypeSpecies
 
         let request = ONTBarcodeDemuxGenotypingRunRequest(
             inputFASTQURLs: inputs.map { URL(fileURLWithPath: $0) },
-            referenceSourceURL: referenceURL,
+            referenceSourceURL: referenceConfiguration.referenceURL,
             barcodeDefinitionsURL: barcodes.map { URL(fileURLWithPath: $0) },
             outputDirectory: URL(fileURLWithPath: outputDir, isDirectory: true),
             outputName: outputName,
@@ -395,12 +509,15 @@ struct FastqGenotypingCohortSubcommand: AsyncParsableCommand {
                 fromPercent: haplotypeMinLocusPercent
             ),
             haplotypeDropoutLocusFractionOverrides: parsedLocusOverrides,
-            haplotypeAssayID: effectiveHaplotypeAssay,
-            haplotypeSpeciesCode: effectiveHaplotypeSpecies,
-            haplotypeDefinitionScope: effectiveHaplotypeDefinition == nil
+            haplotypeAssayID: referenceConfiguration.haplotypeAssayID,
+            haplotypeSpeciesCode: referenceConfiguration.haplotypeSpeciesCode,
+            haplotypeDefinitionScope: referenceConfiguration.haplotypeDefinitionSetID == nil
                 ? nil
                 : (parsedHaplotypeDefinitionScope ?? .project),
-            haplotypeDefinitionSetID: effectiveHaplotypeDefinition,
+            haplotypeDefinitionSetID: referenceConfiguration.haplotypeDefinitionSetID,
+            presetID: referenceConfiguration.preset?.id,
+            presetVersion: referenceConfiguration.preset?.version,
+            lockedReferenceSHA256: referenceConfiguration.preset?.referenceFASTASHA256,
             extraArguments: parsedExtraArguments,
             mode: parsedMode,
             readType: parsedReadType

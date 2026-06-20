@@ -33,6 +33,7 @@ public struct AIHaplotypingPromptTemplate: Codable, Equatable, Sendable {
     public let evidenceSchemaVersion: Int
     public let systemPrompt: String
     public let userPromptTemplate: String
+    public let isDefaultCandidate: Bool
 
     public init(
         id: String,
@@ -40,7 +41,8 @@ public struct AIHaplotypingPromptTemplate: Codable, Equatable, Sendable {
         version: String,
         evidenceSchemaVersion: Int,
         systemPrompt: String,
-        userPromptTemplate: String
+        userPromptTemplate: String,
+        isDefaultCandidate: Bool = true
     ) {
         self.id = id
         self.mode = mode
@@ -48,6 +50,7 @@ public struct AIHaplotypingPromptTemplate: Codable, Equatable, Sendable {
         self.evidenceSchemaVersion = evidenceSchemaVersion
         self.systemPrompt = systemPrompt
         self.userPromptTemplate = userPromptTemplate
+        self.isDefaultCandidate = isDefaultCandidate
     }
 
     public var promptHash: String {
@@ -57,7 +60,8 @@ public struct AIHaplotypingPromptTemplate: Codable, Equatable, Sendable {
             version: version,
             evidenceSchemaVersion: evidenceSchemaVersion,
             systemPrompt: systemPrompt,
-            userPromptTemplate: userPromptTemplate
+            userPromptTemplate: userPromptTemplate,
+            isDefaultCandidate: isDefaultCandidate
         ))
     }
 
@@ -103,6 +107,7 @@ public struct AIHaplotypingPromptTemplate: Codable, Equatable, Sendable {
         let evidenceSchemaVersion: Int
         let systemPrompt: String
         let userPromptTemplate: String
+        let isDefaultCandidate: Bool
     }
 }
 

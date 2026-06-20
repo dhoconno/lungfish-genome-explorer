@@ -4006,6 +4006,52 @@
       "title": "Use M3 as an organization landmark"
     },
     {
+      "id": "guidance:mcm-mhc-a-a1-focus",
+      "sourceIDs": [
+        "source:mcm-ipd-haplotype-workbook",
+        "source:notebook:miseq-genotyping-without-labkey"
+      ],
+      "text": "For MCM MHC-A calls, Mafa-A1* alleles are the primary MHC-A haplotyping focus. When Mafa-A1*063 is present on one or both haplotypes, treat that miSeq sequence as shared among M1, M2, and M3 and use other MHC-A-neighborhood sequences to distinguish those families.",
+      "title": "Prioritize A1 evidence for MCM MHC-A"
+    },
+    {
+      "id": "guidance:mcm-mhc-b-bstar-focus",
+      "sourceIDs": [
+        "source:mcm-ipd-haplotype-workbook",
+        "source:notebook:miseq-genotyping-without-labkey"
+      ],
+      "text": "For MCM MHC-B calls, multiple important alleles can occur on each extended haplotype. The ordinary Mafa-B* alleles are usually more discriminating than Mafa-B22* or equivalent B22-like markers, so use B22-like evidence as lower-weight support unless the rest of the B-region pattern is coherent.",
+      "title": "Prioritize ordinary B markers for MCM MHC-B"
+    },
+    {
+      "id": "guidance:mcm-class-ii-adjacent-dp-dq",
+      "sourceIDs": [
+        "source:karl-m3-genome-research",
+        "source:mcm-ipd-haplotype-workbook",
+        "source:notebook:miseq-genotyping-without-labkey"
+      ],
+      "text": "For MCM class II calls, DP and DQ are close enough that ambiguous evidence at one locus can lean on adjacent DP or DQ evidence from the same sample. Prefer a coherent DP/DQ class-II neighborhood before proposing a recombinant or unresolved call.",
+      "title": "Use adjacent DP/DQ evidence for class II ambiguity"
+    },
+    {
+      "id": "guidance:mcm-mhc-l-interstitial",
+      "sourceIDs": [
+        "source:mcm-ipd-haplotype-workbook",
+        "source:notebook:miseq-genotyping-without-labkey"
+      ],
+      "text": "Mafa-L* evidence lies between MHC-A and MHC-E in the MCM class I neighborhood. Use MHC-L as interstitial linked evidence, but do not fold it into MHC-A or MHC-E and do not treat it as a standalone report haplotype.",
+      "title": "Keep MHC-L between A and E"
+    },
+    {
+      "id": "guidance:mcm-mhc-e-context",
+      "sourceIDs": [
+        "source:mcm-ipd-haplotype-workbook",
+        "source:notebook:miseq-genotyping-without-labkey"
+      ],
+      "text": "MHC-E should be treated as its own neighboring evidence context for MCM haplotyping review. It may support the nearby class I pattern, but should not be collapsed into the MHC-A section or interpreted as a standard MHC-A report call.",
+      "title": "Keep MHC-E as neighboring context"
+    },
+    {
       "id": "guidance:regional-models",
       "sourceIDs": [
         "source:notebook:miseq-genotyping-without-labkey",
@@ -4041,8 +4087,6 @@
       "title": "Tune novelty to population history"
     }
   ],
-  "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-  "id": "macaque-mhc",
   "haplotypeBlockDefinitions": [
     {
       "assayResolution": "short_exon_amplicon",
@@ -13194,6 +13238,7 @@
       "speciesPrefix": "Mamu"
     }
   ],
+  "id": "macaque-mhc",
   "markerRules": [
     {
       "appliesTo": "mcm",
@@ -13212,6 +13257,52 @@
         "source:notebook:miseq-genotyping-without-labkey"
       ],
       "text": "In MCM, DP and DQ lie in the same broad class II neighborhood. Different DP and DQ haplotype assignments require rare recombination evidence, missing marker explanation, or a technical-artifact explanation."
+    },
+    {
+      "appliesTo": "mcm-mhc-a",
+      "id": "rule:mcm:mhc-a-a1-063-shared",
+      "sourceIDs": [
+        "source:mcm-ipd-haplotype-workbook",
+        "source:notebook:miseq-genotyping-without-labkey"
+      ],
+      "text": "MCM MHC-A assignments should focus on Mafa-A1* alleles. Mafa-A1*063 is shared by M1, M2, and M3 in the miSeq amplicon, so use other MHC-A-neighborhood sequences before distinguishing M1, M2, and M3 from A1*063 evidence."
+    },
+    {
+      "appliesTo": "mcm-mhc-b",
+      "id": "rule:mcm:mhc-b-ordinary-bstar-priority",
+      "sourceIDs": [
+        "source:mcm-ipd-haplotype-workbook",
+        "source:notebook:miseq-genotyping-without-labkey"
+      ],
+      "text": "MCM MHC-B assignments should weigh ordinary Mafa-B* markers more heavily than Mafa-B22* or equivalent B22-like markers when discriminating between extended haplotypes. B22-like evidence alone should not drive a B-region haplotype split."
+    },
+    {
+      "appliesTo": "mcm-mhc-l",
+      "id": "rule:mcm:mhc-l-interstitial-a-e",
+      "sourceIDs": [
+        "source:mcm-ipd-haplotype-workbook",
+        "source:notebook:miseq-genotyping-without-labkey"
+      ],
+      "text": "MHC-L and Mafa-L* markers sit between MHC-A and MHC-E in the MCM class I region; do not fold MHC-L into MHC-A or MHC-E. Use it only as interstitial linked neighborhood evidence unless a future curated report framework explicitly defines an MHC-L report call."
+    },
+    {
+      "appliesTo": "mcm-mhc-e",
+      "id": "rule:mcm:mhc-e-neighbor-context",
+      "sourceIDs": [
+        "source:mcm-ipd-haplotype-workbook",
+        "source:notebook:miseq-genotyping-without-labkey"
+      ],
+      "text": "MHC-E should remain MHC-E evidence in MCM haplotyping. It can support nearby class I interpretation, but should not be reassigned into MHC-A evidence or emitted as an MHC-A haplotype call."
+    },
+    {
+      "appliesTo": "mcm-class-ii",
+      "id": "rule:mcm:dp-dq-adjacent-locus-lean",
+      "sourceIDs": [
+        "source:karl-m3-genome-research",
+        "source:mcm-ipd-haplotype-workbook",
+        "source:notebook:miseq-genotyping-without-labkey"
+      ],
+      "text": "For DP/DQ ambiguity in MCM, when DP-only or DQ-only sequence evidence cannot distinguish between haplotypes, use the adjacent DP or DQ locus as linked support before calling a recombinant or unresolved class-II pattern."
     },
     {
       "appliesTo": "short_exon_amplicon",
@@ -13299,13 +13390,6142 @@
       "speciesPrefix": "Mafa/Mamu/other"
     }
   ],
+  "referenceRecords": [
+    {
+      "accessions": [
+        "OR823574"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-DRB6*01:01:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0001|source_loci=MHC-DRB6|haplotype_groups=MHC-DR|haplotypes=M1|alleles=Mafa-DRB6_01:01:01:01|accessions=OR823574|length=246|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-DR"
+      ],
+      "haplotypes": [
+        "M1"
+      ],
+      "id": "reference:mcm-mhc-miseq:0001",
+      "length": 246,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0001",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DRB6"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823640"
+      ],
+      "aliases": [
+        "02_M4_G_02_09_5mis_156bp"
+      ],
+      "alleles": [
+        "Mafa-G*02:31:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0002|source_loci=MHC-G|haplotype_groups=MHC-A|haplotypes=M4|alleles=Mafa-G_02:31:01:01|accessions=OR823640|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M4"
+      ],
+      "id": "reference:mcm-mhc-miseq:0002",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0002",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-G"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823635"
+      ],
+      "aliases": [
+        "02_M1_G_02_07_2mis_156bp"
+      ],
+      "alleles": [
+        "Mafa-G*02:14:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0003|source_loci=MHC-G|haplotype_groups=MHC-A|haplotypes=M1|alleles=Mafa-G_02:14:01:01|accessions=OR823635|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M1"
+      ],
+      "id": "reference:mcm-mhc-miseq:0003",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0003",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-G"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823638",
+        "OR823644",
+        "OR823646",
+        "OR823648",
+        "OR823649",
+        "OR823653"
+      ],
+      "aliases": [
+        "02_M1M2M4M5M6M7_G_02_07_g108c_156bp"
+      ],
+      "alleles": [
+        "Mafa-G*02:16:01:01",
+        "Mafa-G*02:17:01:01",
+        "Mafa-G*02:27:01:01",
+        "Mafa-G*02:28:01:01",
+        "Mafa-G*02:29:01:01",
+        "Mafa-G*02:30:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 6.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0004|source_loci=MHC-G|haplotype_groups=MHC-A|haplotypes=M1,M4,M5,M6,M7|alleles=Mafa-G_02:16:01:01,Mafa-G_02:17:01:01,Mafa-G_02:27:01:01,Mafa-G_02:28:01:01,Mafa-G_02:29:01:01,Mafa-G_02:30:01:01|accessions=OR823638,OR823644,OR823646,OR823648,OR823649,OR823653|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=6.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M1",
+        "M4",
+        "M5",
+        "M6",
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0004",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0004",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-G"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823568"
+      ],
+      "aliases": [
+        "13_M7_DRB_W1_03"
+      ],
+      "alleles": [
+        "Mafa-DRB*W001:03:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0005|source_loci=MHC-DRB|haplotype_groups=MHC-DR|haplotypes=M7|alleles=Mafa-DRB_W001:03:01:01|accessions=OR823568|length=244|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-DR"
+      ],
+      "haplotypes": [
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0005",
+      "length": 244,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0005",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DRB"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679627",
+        "OR823526"
+      ],
+      "aliases": [
+        "15_M3M5M6_DPA1_02g:DPA1_02_02|DPA1_02_03"
+      ],
+      "alleles": [
+        "Mafa-DPA1*13:01:01:01",
+        "Mafa-DPA1*13:03:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 2.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0006|source_loci=MHC-DPA1|haplotype_groups=MHC-DP|haplotypes=M3,M5,M6|alleles=Mafa-DPA1_13:01:01:01,Mafa-DPA1_13:03:01:01|accessions=MW679627,OR823526|length=173|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=2.00",
+      "haplotypeGroups": [
+        "MHC-DP"
+      ],
+      "haplotypes": [
+        "M3",
+        "M5",
+        "M6"
+      ],
+      "id": "reference:mcm-mhc-miseq:0006",
+      "length": 173,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0006",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DPA1"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823525"
+      ],
+      "aliases": [
+        "15_M1_DPA1_07_02"
+      ],
+      "alleles": [
+        "Mafa-DPA1*07:02:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0007|source_loci=MHC-DPA1|haplotype_groups=MHC-DP|haplotypes=M1|alleles=Mafa-DPA1_07:02:01:01|accessions=OR823525|length=173|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-DP"
+      ],
+      "haplotypes": [
+        "M1"
+      ],
+      "id": "reference:mcm-mhc-miseq:0007",
+      "length": 173,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0007",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DPA1"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823545"
+      ],
+      "aliases": [
+        "14_M7_DQA1_23_01"
+      ],
+      "alleles": [
+        "Mafa-DQA1*23:01:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0008|source_loci=MHC-DQA1|haplotype_groups=MHC-DQ|haplotypes=M7|alleles=Mafa-DQA1_23:01:01:01|accessions=OR823545|length=204|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-DQ"
+      ],
+      "haplotypes": [
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0008",
+      "length": 204,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0008",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DQA1"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823546"
+      ],
+      "aliases": [
+        "14_M1_DQA1_24_03"
+      ],
+      "alleles": [
+        "Mafa-DQA1*24:03:01:02"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0009|source_loci=MHC-DQA1|haplotype_groups=MHC-DQ|haplotypes=M1|alleles=Mafa-DQA1_24:03:01:02|accessions=OR823546|length=204|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-DQ"
+      ],
+      "haplotypes": [
+        "M1"
+      ],
+      "id": "reference:mcm-mhc-miseq:0009",
+      "length": 204,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0009",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DQA1"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823617"
+      ],
+      "aliases": [
+        "11_M1_E_02g3|E_02_nov_09,_E_02_nov_10"
+      ],
+      "alleles": [
+        "Mafa-E*02:19:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0010|source_loci=MHC-E|haplotype_groups=MHC-A|haplotypes=M1|alleles=Mafa-E_02:19:01:01|accessions=OR823617|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M1"
+      ],
+      "id": "reference:mcm-mhc-miseq:0010",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0010",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-E"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823624"
+      ],
+      "aliases": [
+        "11_M6_E_02_nov_07"
+      ],
+      "alleles": [
+        "Mafa-E*02:23:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0011|source_loci=MHC-E|haplotype_groups=MHC-A|haplotypes=M6|alleles=Mafa-E_02:23:01:01|accessions=OR823624|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M6"
+      ],
+      "id": "reference:mcm-mhc-miseq:0011",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0011",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-E"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679599",
+        "OR823618"
+      ],
+      "aliases": [
+        "11_M2M3_E_02_nov_22"
+      ],
+      "alleles": [
+        "Mafa-E*02:16:01:01N",
+        "Mafa-E*02:16:01:02N"
+      ],
+      "evidenceClasses": [
+        "support_only_pseudogene_or_null"
+      ],
+      "evidenceWeightSum": 0.5,
+      "fastaHeader": "MCM_MHC_MiSeq_0012|source_loci=MHC-E|haplotype_groups=MHC-A|haplotypes=M2,M3|alleles=Mafa-E_02:16:01:01N,Mafa-E_02:16:01:02N|accessions=MW679599,OR823618|length=156|evidence_classes=support_only_pseudogene_or_null|max_evidence_weight=0.25|evidence_weight_sum=0.50",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M2",
+        "M3"
+      ],
+      "id": "reference:mcm-mhc-miseq:0012",
+      "length": 156,
+      "maxEvidenceWeight": 0.25,
+      "primaryName": "MCM_MHC_MiSeq_0012",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-E"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823623"
+      ],
+      "aliases": [
+        "11_M6_E_02_nov_15"
+      ],
+      "alleles": [
+        "Mafa-E*02:22:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0013|source_loci=MHC-E|haplotype_groups=MHC-A|haplotypes=M6|alleles=Mafa-E_02:22:01:01|accessions=OR823623|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M6"
+      ],
+      "id": "reference:mcm-mhc-miseq:0013",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0013",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-E"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823626"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-E*02:20:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0014|source_loci=MHC-E|haplotype_groups=MHC-A|haplotypes=M7|alleles=Mafa-E_02:20:01:01|accessions=OR823626|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0014",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0014",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-E"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823622",
+        "OR823625"
+      ],
+      "aliases": [
+        "11_M5M6_E_02_w_04"
+      ],
+      "alleles": [
+        "Mafa-E*02:17:01:01",
+        "Mafa-E*02:18:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 2.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0015|source_loci=MHC-E|haplotype_groups=MHC-A|haplotypes=M5,M6|alleles=Mafa-E_02:17:01:01,Mafa-E_02:18:01:01|accessions=OR823622,OR823625|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=2.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M5",
+        "M6"
+      ],
+      "id": "reference:mcm-mhc-miseq:0015",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0015",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-E"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823627"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-E*02:08:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0016|source_loci=MHC-E|haplotype_groups=MHC-A|haplotypes=M7|alleles=Mafa-E_02:08:01:01|accessions=OR823627|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0016",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0016",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-E"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823616",
+        "OR823620"
+      ],
+      "aliases": [
+        "11_M1M4_E_02g1|E_02_01,_E_02_02"
+      ],
+      "alleles": [
+        "Mafa-E*02:01:02:01",
+        "Mafa-E*02:13:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 2.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0017|source_loci=MHC-E|haplotype_groups=MHC-A|haplotypes=M1,M4|alleles=Mafa-E_02:01:02:01,Mafa-E_02:13:01:01|accessions=OR823616,OR823620|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=2.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M1",
+        "M4"
+      ],
+      "id": "reference:mcm-mhc-miseq:0017",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0017",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-E"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679601"
+      ],
+      "aliases": [
+        "11_M2M3_E_02g2|E_02_03,_E_02_nov_12"
+      ],
+      "alleles": [
+        "Mafa-E*02:03:02:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0018|source_loci=MHC-E|haplotype_groups=MHC-A|haplotypes=M3|alleles=Mafa-E_02:03:02:01|accessions=MW679601|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M3"
+      ],
+      "id": "reference:mcm-mhc-miseq:0018",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0018",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-E"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823619",
+        "OR823621"
+      ],
+      "aliases": [
+        "11_M4M5_E_02_nov_01"
+      ],
+      "alleles": [
+        "Mafa-E*02:14:01:01",
+        "Mafa-E*02:21:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 2.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0019|source_loci=MHC-E|haplotype_groups=MHC-A|haplotypes=M4,M5|alleles=Mafa-E_02:14:01:01,Mafa-E_02:21:01:01|accessions=OR823619,OR823621|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=2.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M4",
+        "M5"
+      ],
+      "id": "reference:mcm-mhc-miseq:0019",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0019",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-E"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823561",
+        "OR823562"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-DRB1*04:01:01:01N",
+        "Mafa-DRB1*04:01:01:02N"
+      ],
+      "evidenceClasses": [
+        "support_only_pseudogene_or_null"
+      ],
+      "evidenceWeightSum": 0.5,
+      "fastaHeader": "MCM_MHC_MiSeq_0020|source_loci=MHC-DRB1|haplotype_groups=MHC-DR|haplotypes=M4,M5|alleles=Mafa-DRB1_04:01:01:01N,Mafa-DRB1_04:01:01:02N|accessions=OR823561,OR823562|length=241|evidence_classes=support_only_pseudogene_or_null|max_evidence_weight=0.25|evidence_weight_sum=0.50",
+      "haplotypeGroups": [
+        "MHC-DR"
+      ],
+      "haplotypes": [
+        "M4",
+        "M5"
+      ],
+      "id": "reference:mcm-mhc-miseq:0020",
+      "length": 241,
+      "maxEvidenceWeight": 0.25,
+      "primaryName": "MCM_MHC_MiSeq_0020",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DRB1"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823573"
+      ],
+      "aliases": [
+        "13_M7_DRB_W36_05"
+      ],
+      "alleles": [
+        "Mafa-DRB*W036:05:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0021|source_loci=MHC-DRB|haplotype_groups=MHC-DR|haplotypes=M7|alleles=Mafa-DRB_W036:05:01:01|accessions=OR823573|length=241|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-DR"
+      ],
+      "haplotypes": [
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0021",
+      "length": 241,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0021",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DRB"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823544"
+      ],
+      "aliases": [
+        "14_M6_DQA1_01_08_01"
+      ],
+      "alleles": [
+        "Mafa-DQA1*01:08:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0022|source_loci=MHC-DQA1|haplotype_groups=MHC-DQ|haplotypes=M6|alleles=Mafa-DQA1_01:08:01:01|accessions=OR823544|length=204|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-DQ"
+      ],
+      "haplotypes": [
+        "M6"
+      ],
+      "id": "reference:mcm-mhc-miseq:0022",
+      "length": 204,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0022",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DQA1"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823543"
+      ],
+      "aliases": [
+        "14_M4_DQA1_01_07_01"
+      ],
+      "alleles": [
+        "Mafa-DQA1*01:07:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0023|source_loci=MHC-DQA1|haplotype_groups=MHC-DQ|haplotypes=M4|alleles=Mafa-DQA1_01:07:01:01|accessions=OR823543|length=204|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-DQ"
+      ],
+      "haplotypes": [
+        "M4"
+      ],
+      "id": "reference:mcm-mhc-miseq:0023",
+      "length": 204,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0023",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DQA1"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823542"
+      ],
+      "aliases": [
+        "14_M5_DQA1_01_06"
+      ],
+      "alleles": [
+        "Mafa-DQA1*01:06:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0024|source_loci=MHC-DQA1|haplotype_groups=MHC-DQ|haplotypes=M5|alleles=Mafa-DQA1_01:06:01:01|accessions=OR823542|length=204|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-DQ"
+      ],
+      "haplotypes": [
+        "M5"
+      ],
+      "id": "reference:mcm-mhc-miseq:0024",
+      "length": 204,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0024",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DQA1"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823541"
+      ],
+      "aliases": [
+        "14_M2_DQA1_01_04"
+      ],
+      "alleles": [
+        "Mafa-DQA1*01:04:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0025|source_loci=MHC-DQA1|haplotype_groups=MHC-DQ|haplotypes=M2|alleles=Mafa-DQA1_01:04:01:01|accessions=OR823541|length=204|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-DQ"
+      ],
+      "haplotypes": [
+        "M2"
+      ],
+      "id": "reference:mcm-mhc-miseq:0025",
+      "length": 204,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0025",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DQA1"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679620"
+      ],
+      "aliases": [
+        "14_M3_DQA1_05_03_01"
+      ],
+      "alleles": [
+        "Mafa-DQA1*05:03:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0026|source_loci=MHC-DQA1|haplotype_groups=MHC-DQ|haplotypes=M3|alleles=Mafa-DQA1_05:03:01:01|accessions=MW679620|length=201|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-DQ"
+      ],
+      "haplotypes": [
+        "M3"
+      ],
+      "id": "reference:mcm-mhc-miseq:0026",
+      "length": 201,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0026",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DQA1"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823566",
+        "OR823567"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-DRB5*03:01:01:01",
+        "Mafa-DRB5*03:01:01:02"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 2.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0027|source_loci=MHC-DRB5|haplotype_groups=MHC-DR|haplotypes=M4,M5|alleles=Mafa-DRB5_03:01:01:01,Mafa-DRB5_03:01:01:02|accessions=OR823566,OR823567|length=244|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=2.00",
+      "haplotypeGroups": [
+        "MHC-DR"
+      ],
+      "haplotypes": [
+        "M4",
+        "M5"
+      ],
+      "id": "reference:mcm-mhc-miseq:0027",
+      "length": 244,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0027",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DRB5"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679608"
+      ],
+      "aliases": [
+        "12_M3_B_011_01"
+      ],
+      "alleles": [
+        "Mafa-B*011:01:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0028|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M3|alleles=Mafa-B_011:01:01:01|accessions=MW679608|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M3"
+      ],
+      "id": "reference:mcm-mhc-miseq:0028",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0028",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823511"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B19Ps*01:02:01:01"
+      ],
+      "evidenceClasses": [
+        "support_only_pseudogene_or_null"
+      ],
+      "evidenceWeightSum": 0.25,
+      "fastaHeader": "MCM_MHC_MiSeq_0029|source_loci=MHC-B19Ps|haplotype_groups=MHC-B|haplotypes=M4|alleles=Mafa-B19Ps_01:02:01:01|accessions=OR823511|length=145|evidence_classes=support_only_pseudogene_or_null|max_evidence_weight=0.25|evidence_weight_sum=0.25",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M4"
+      ],
+      "id": "reference:mcm-mhc-miseq:0029",
+      "length": 145,
+      "maxEvidenceWeight": 0.25,
+      "primaryName": "MCM_MHC_MiSeq_0029",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B19Ps"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679609"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*207:01:01:01N"
+      ],
+      "evidenceClasses": [
+        "support_only_pseudogene_or_null"
+      ],
+      "evidenceWeightSum": 0.25,
+      "fastaHeader": "MCM_MHC_MiSeq_0030|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M3|alleles=Mafa-B_207:01:01:01N|accessions=MW679609|length=156|evidence_classes=support_only_pseudogene_or_null|max_evidence_weight=0.25|evidence_weight_sum=0.25",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M3"
+      ],
+      "id": "reference:mcm-mhc-miseq:0030",
+      "length": 156,
+      "maxEvidenceWeight": 0.25,
+      "primaryName": "MCM_MHC_MiSeq_0030",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823449"
+      ],
+      "aliases": [
+        "12_M7_B_044_04"
+      ],
+      "alleles": [
+        "Mafa-B*044:04:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0031|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M7|alleles=Mafa-B_044:04:01:01|accessions=OR823449|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0031",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0031",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823460",
+        "OR823461",
+        "OR823462"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*060:05:01:01",
+        "Mafa-B*060:06:01:01",
+        "Mafa-B*060:31:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 3.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0032|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M1,M4,M7|alleles=Mafa-B_060:05:01:01,Mafa-B_060:06:01:01,Mafa-B_060:31:01:01|accessions=OR823460,OR823461,OR823462|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=3.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M1",
+        "M4",
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0032",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0032",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679613",
+        "OR823465"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*079:01:01:01",
+        "Mafa-B*079:03:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 2.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0033|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M2,M3|alleles=Mafa-B_079:01:01:01,Mafa-B_079:03:01:01|accessions=MW679613,OR823465|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=2.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M2",
+        "M3"
+      ],
+      "id": "reference:mcm-mhc-miseq:0033",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0033",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823458",
+        "OR823459"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*060:01:01:01",
+        "Mafa-B*060:04:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 2.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0034|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M5,M6|alleles=Mafa-B_060:01:01:01,Mafa-B_060:04:01:01|accessions=OR823458,OR823459|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=2.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M5",
+        "M6"
+      ],
+      "id": "reference:mcm-mhc-miseq:0034",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0034",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823468"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*097:07:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0035|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M5|alleles=Mafa-B_097:07:01:01|accessions=OR823468|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M5"
+      ],
+      "id": "reference:mcm-mhc-miseq:0035",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0035",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823497",
+        "OR823502"
+      ],
+      "aliases": [
+        "12_M4M6_B16_01_04"
+      ],
+      "alleles": [
+        "Mafa-B16*01:04:01:01",
+        "Mafa-B16*01:18:01:01N"
+      ],
+      "evidenceClasses": [
+        "primary_expressed",
+        "support_only_pseudogene_or_null"
+      ],
+      "evidenceWeightSum": 1.25,
+      "fastaHeader": "MCM_MHC_MiSeq_0036|source_loci=MHC-B16|haplotype_groups=MHC-B|haplotypes=M4,M6|alleles=Mafa-B16_01:04:01:01,Mafa-B16_01:18:01:01N|accessions=OR823497,OR823502|length=156|evidence_classes=primary_expressed,support_only_pseudogene_or_null|max_evidence_weight=1.00|evidence_weight_sum=1.25",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M4",
+        "M6"
+      ],
+      "id": "reference:mcm-mhc-miseq:0036",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0036",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B16"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823498",
+        "OR823500"
+      ],
+      "aliases": [
+        "B16_01g2|B16_01_06,_B16_01_07"
+      ],
+      "alleles": [
+        "Mafa-B16*01:13:01:01",
+        "Mafa-B16*01:15:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 2.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0037|source_loci=MHC-B16|haplotype_groups=MHC-B|haplotypes=M1,M7|alleles=Mafa-B16_01:13:01:01,Mafa-B16_01:15:01:01|accessions=OR823498,OR823500|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=2.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M1",
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0037",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0037",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B16"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823499"
+      ],
+      "aliases": [
+        "12_M6_B16_01g1"
+      ],
+      "alleles": [
+        "Mafa-B16*01:14:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0038|source_loci=MHC-B16|haplotype_groups=MHC-B|haplotypes=M6|alleles=Mafa-B16_01:14:01:01|accessions=OR823499|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M6"
+      ],
+      "id": "reference:mcm-mhc-miseq:0038",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0038",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B16"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823630"
+      ],
+      "aliases": [
+        "01_M4M7_F_01gex"
+      ],
+      "alleles": [
+        "Mafa-F*02:13:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0039|source_loci=MHC-F|haplotype_groups=MHC-A|haplotypes=M4|alleles=Mafa-F_02:13:01:01|accessions=OR823630|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M4"
+      ],
+      "id": "reference:mcm-mhc-miseq:0039",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0039",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-F"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679584",
+        "OR823629",
+        "OR823631",
+        "OR823633"
+      ],
+      "aliases": [
+        "01_M2M3_F_w_01"
+      ],
+      "alleles": [
+        "Mafa-F*02:04:03:01",
+        "Mafa-F*02:09:03:01",
+        "Mafa-F*02:23:01:01",
+        "Mafa-F*02:25:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 4.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0040|source_loci=MHC-F|haplotype_groups=MHC-A|haplotypes=M2,M3,M5,M7|alleles=Mafa-F_02:04:03:01,Mafa-F_02:09:03:01,Mafa-F_02:23:01:01,Mafa-F_02:25:01:01|accessions=MW679584,OR823629,OR823631,OR823633|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=4.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M2",
+        "M3",
+        "M5",
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0040",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0040",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-F"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823628"
+      ],
+      "aliases": [
+        "01_M1_F_01_w_06"
+      ],
+      "alleles": [
+        "Mafa-F*02:24:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0041|source_loci=MHC-F|haplotype_groups=MHC-A|haplotypes=M1|alleles=Mafa-F_02:24:01:01|accessions=OR823628|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M1"
+      ],
+      "id": "reference:mcm-mhc-miseq:0041",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0041",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-F"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823632"
+      ],
+      "aliases": [
+        "01_M6_F_01_07"
+      ],
+      "alleles": [
+        "Mafa-F*02:07:01:02"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0042|source_loci=MHC-F|haplotype_groups=MHC-A|haplotypes=M6|alleles=Mafa-F_02:07:01:02|accessions=OR823632|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M6"
+      ],
+      "id": "reference:mcm-mhc-miseq:0042",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0042",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-F"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823452"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*046:01:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0043|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M1|alleles=Mafa-B_046:01:01:01|accessions=OR823452|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M1"
+      ],
+      "id": "reference:mcm-mhc-miseq:0043",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0043",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823453"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*046:09:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0044|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M6|alleles=Mafa-B_046:09:01:01|accessions=OR823453|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M6"
+      ],
+      "id": "reference:mcm-mhc-miseq:0044",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0044",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823483"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*151:01:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0045|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M6|alleles=Mafa-B_151:01:01:01|accessions=OR823483|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M6"
+      ],
+      "id": "reference:mcm-mhc-miseq:0045",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0045",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823476"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*131:02:01:02"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0046|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M1|alleles=Mafa-B_131:02:01:02|accessions=OR823476|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M1"
+      ],
+      "id": "reference:mcm-mhc-miseq:0046",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0046",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "ON736434",
+        "OR823611",
+        "OR823612"
+      ],
+      "aliases": [
+        "04_M1M3M5M6_AG_04g_156bp"
+      ],
+      "alleles": [
+        "Mafa-AG6*04:05:03:01",
+        "Mafa-AG6*04:05:03:02",
+        "Mafa-AG6*04:05:03:03"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 3.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0047|source_loci=MHC-AG6|haplotype_groups=MHC-A|haplotypes=M3,M5,M6|alleles=Mafa-AG6_04:05:03:01,Mafa-AG6_04:05:03:02,Mafa-AG6_04:05:03:03|accessions=ON736434,OR823611,OR823612|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=3.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M3",
+        "M5",
+        "M6"
+      ],
+      "id": "reference:mcm-mhc-miseq:0047",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0047",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-AG6"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823613"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-AG6*04:25:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0048|source_loci=MHC-AG6|haplotype_groups=MHC-A|haplotypes=M7|alleles=Mafa-AG6_04:25:01:01|accessions=OR823613|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0048",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0048",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-AG6"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823614",
+        "OR823615"
+      ],
+      "aliases": [
+        "04_M4M7_AG_04g2|AG_04_04_01,_AG_04_04_02"
+      ],
+      "alleles": [
+        "Mafa-AG6*04:26:01:01",
+        "Mafa-AG6*04:27:01:01N"
+      ],
+      "evidenceClasses": [
+        "primary_expressed",
+        "support_only_pseudogene_or_null"
+      ],
+      "evidenceWeightSum": 1.25,
+      "fastaHeader": "MCM_MHC_MiSeq_0049|source_loci=MHC-AG6|haplotype_groups=MHC-A|haplotypes=M4,M7|alleles=Mafa-AG6_04:26:01:01,Mafa-AG6_04:27:01:01N|accessions=OR823614,OR823615|length=156|evidence_classes=primary_expressed,support_only_pseudogene_or_null|max_evidence_weight=1.00|evidence_weight_sum=1.25",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M4",
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0049",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0049",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-AG6"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679594"
+      ],
+      "aliases": [
+        "02_M1M3_G_02_02_5mis_156bp"
+      ],
+      "alleles": [
+        "Mafa-G*02:12:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0050|source_loci=MHC-G|haplotype_groups=MHC-A|haplotypes=M3|alleles=Mafa-G_02:12:01:01|accessions=MW679594|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M3"
+      ],
+      "id": "reference:mcm-mhc-miseq:0050",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0050",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-G"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823647"
+      ],
+      "aliases": [
+        "02_M5_G_02_03_4mis_156bp"
+      ],
+      "alleles": [
+        "Mafa-G*02:15:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0051|source_loci=MHC-G|haplotype_groups=MHC-A|haplotypes=M5|alleles=Mafa-G_02:15:01:01|accessions=OR823647|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M5"
+      ],
+      "id": "reference:mcm-mhc-miseq:0051",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0051",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-G"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679588"
+      ],
+      "aliases": [
+        "02_M3_G_02_03_5mis_156bp"
+      ],
+      "alleles": [
+        "Mafa-G*02:11:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0052|source_loci=MHC-G|haplotype_groups=MHC-A|haplotypes=M3|alleles=Mafa-G_02:11:01:01|accessions=MW679588|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M3"
+      ],
+      "id": "reference:mcm-mhc-miseq:0052",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0052",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-G"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823637",
+        "OR823651"
+      ],
+      "aliases": [
+        "02_M7_G_02_03_4mis_156bp"
+      ],
+      "alleles": [
+        "Mafa-G*02:23:01:01",
+        "Mafa-G*02:24:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 2.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0053|source_loci=MHC-G|haplotype_groups=MHC-A|haplotypes=M1,M7|alleles=Mafa-G_02:23:01:01,Mafa-G_02:24:01:01|accessions=OR823637,OR823651|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=2.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M1",
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0053",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0053",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-G"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823636",
+        "OR823639",
+        "OR823643",
+        "OR823652"
+      ],
+      "aliases": [
+        "02_M1M2_G_02_03"
+      ],
+      "alleles": [
+        "Mafa-G*02:20:01:01",
+        "Mafa-G*02:20:01:02",
+        "Mafa-G*02:20:01:03",
+        "Mafa-G*02:21:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 4.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0054|source_loci=MHC-G|haplotype_groups=MHC-A|haplotypes=M1,M2,M4,M7|alleles=Mafa-G_02:20:01:01,Mafa-G_02:20:01:02,Mafa-G_02:20:01:03,Mafa-G_02:21:01:01|accessions=OR823636,OR823639,OR823643,OR823652|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=4.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M1",
+        "M2",
+        "M4",
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0054",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0054",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-G"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823641",
+        "OR823650"
+      ],
+      "aliases": [
+        "02_M4M7_G_02_04_156bp"
+      ],
+      "alleles": [
+        "Mafa-G*02:18:01:01",
+        "Mafa-G*02:19:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 2.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0055|source_loci=MHC-G|haplotype_groups=MHC-A|haplotypes=M4,M7|alleles=Mafa-G_02:18:01:01,Mafa-G_02:19:01:01|accessions=OR823641,OR823650|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=2.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M4",
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0055",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0055",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-G"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823450"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*045:01:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0056|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M5|alleles=Mafa-B_045:01:01:01|accessions=OR823450|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M5"
+      ],
+      "id": "reference:mcm-mhc-miseq:0056",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0056",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679610",
+        "OR823494"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B11L*01:06:01:01N",
+        "Mafa-B11L*01:14:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed",
+        "support_only_pseudogene_or_null"
+      ],
+      "evidenceWeightSum": 1.25,
+      "fastaHeader": "MCM_MHC_MiSeq_0057|source_loci=MHC-B11L|haplotype_groups=MHC-B|haplotypes=M3,M6|alleles=Mafa-B11L_01:06:01:01N,Mafa-B11L_01:14:01:01|accessions=MW679610,OR823494|length=156|evidence_classes=primary_expressed,support_only_pseudogene_or_null|max_evidence_weight=1.00|evidence_weight_sum=1.25",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M3",
+        "M6"
+      ],
+      "id": "reference:mcm-mhc-miseq:0057",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0057",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B11L"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823490"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B11L*01:11:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0058|source_loci=MHC-B11L|haplotype_groups=MHC-B|haplotypes=M4|alleles=Mafa-B11L_01:11:01:01|accessions=OR823490|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M4"
+      ],
+      "id": "reference:mcm-mhc-miseq:0058",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0058",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B11L"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679593",
+        "OR823592",
+        "OR823593",
+        "OR823594",
+        "OR823595"
+      ],
+      "aliases": [
+        "04_M1M2M3M4_AG_g3ex"
+      ],
+      "alleles": [
+        "Mafa-AG2*01:03:01:01",
+        "Mafa-AG2*01:03:03:01",
+        "Mafa-AG2*01:05:01:01",
+        "Mafa-AG2*01:07:02:01",
+        "Mafa-AG2*01:14:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 5.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0059|source_loci=MHC-AG2|haplotype_groups=MHC-A|haplotypes=M1,M2,M3,M4|alleles=Mafa-AG2_01:03:01:01,Mafa-AG2_01:03:03:01,Mafa-AG2_01:05:01:01,Mafa-AG2_01:07:02:01,Mafa-AG2_01:14:01:01|accessions=MW679593,OR823592,OR823593,OR823594,OR823595|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=5.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M1",
+        "M2",
+        "M3",
+        "M4"
+      ],
+      "id": "reference:mcm-mhc-miseq:0059",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0059",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-AG2"
+      ]
+    },
+    {
+      "accessions": [
+        "ON736435"
+      ],
+      "aliases": [
+        "AG_04_08"
+      ],
+      "alleles": [
+        "Mafa-AG6*04:08:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0060|source_loci=MHC-AG6|haplotype_groups=MHC-A|haplotypes=M3|alleles=Mafa-AG6_04:08:01:01|accessions=ON736435|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M3"
+      ],
+      "id": "reference:mcm-mhc-miseq:0060",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0060",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-AG6"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823434"
+      ],
+      "aliases": [
+        "05_M7_A1_060_05"
+      ],
+      "alleles": [
+        "Mafa-A1*060:05:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0061|source_loci=MHC-A1|haplotype_groups=MHC-A|haplotypes=M7|alleles=Mafa-A1_060:05:01:01|accessions=OR823434|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0061",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0061",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-A1"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823457"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*057:02:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0062|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M1|alleles=Mafa-B_057:02:01:01|accessions=OR823457|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M1"
+      ],
+      "id": "reference:mcm-mhc-miseq:0062",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0062",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679607"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*109:02:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0063|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M3|alleles=Mafa-B_109:02:01:01|accessions=MW679607|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M3"
+      ],
+      "id": "reference:mcm-mhc-miseq:0063",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0063",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823475"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*109:31:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0064|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M2|alleles=Mafa-B_109:31:01:01|accessions=OR823475|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M2"
+      ],
+      "id": "reference:mcm-mhc-miseq:0064",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0064",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823474"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*109:13:01:01N"
+      ],
+      "evidenceClasses": [
+        "support_only_pseudogene_or_null"
+      ],
+      "evidenceWeightSum": 0.25,
+      "fastaHeader": "MCM_MHC_MiSeq_0065|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M1|alleles=Mafa-B_109:13:01:01N|accessions=OR823474|length=156|evidence_classes=support_only_pseudogene_or_null|max_evidence_weight=0.25|evidence_weight_sum=0.25",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M1"
+      ],
+      "id": "reference:mcm-mhc-miseq:0065",
+      "length": 156,
+      "maxEvidenceWeight": 0.25,
+      "primaryName": "MCM_MHC_MiSeq_0065",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679598",
+        "OR823436",
+        "OR823437",
+        "OR823438"
+      ],
+      "aliases": [
+        "06_M1M2M3M4_A2_05g"
+      ],
+      "alleles": [
+        "Mafa-A2*05:01:01:01",
+        "Mafa-A2*05:04:01:01",
+        "Mafa-A2*05:11:01:01",
+        "Mafa-A2*05:46:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 4.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0066|source_loci=MHC-A2|haplotype_groups=MHC-A|haplotypes=M1,M2,M3,M4,M5|alleles=Mafa-A2_05:01:01:01,Mafa-A2_05:04:01:01,Mafa-A2_05:11:01:01,Mafa-A2_05:46:01:01|accessions=MW679598,OR823436,OR823437,OR823438|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=4.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M1",
+        "M2",
+        "M3",
+        "M4",
+        "M5"
+      ],
+      "id": "reference:mcm-mhc-miseq:0066",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0066",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-A2"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823473"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*109:04:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0067|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M2|alleles=Mafa-B_109:04:01:01|accessions=OR823473|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M2"
+      ],
+      "id": "reference:mcm-mhc-miseq:0067",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0067",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679597",
+        "OR823435"
+      ],
+      "aliases": [
+        "05_M1M2M3_A1_063g"
+      ],
+      "alleles": [
+        "Mafa-A1*063:01:01:01",
+        "Mafa-A1*063:02:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 2.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0068|source_loci=MHC-A1|haplotype_groups=MHC-A|haplotypes=M1,M2,M3|alleles=Mafa-A1_063:01:01:01,Mafa-A1_063:02:01:01|accessions=MW679597,OR823435|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=2.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M1",
+        "M2",
+        "M3"
+      ],
+      "id": "reference:mcm-mhc-miseq:0068",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0068",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-A1"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823430"
+      ],
+      "aliases": [
+        "05_M4_A1_031_01"
+      ],
+      "alleles": [
+        "Mafa-A1*031:01:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0069|source_loci=MHC-A1|haplotype_groups=MHC-A|haplotypes=M4|alleles=Mafa-A1_031:01:01:01|accessions=OR823430|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M4"
+      ],
+      "id": "reference:mcm-mhc-miseq:0069",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0069",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-A1"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823433"
+      ],
+      "aliases": [
+        "05_M6_A1_047_01"
+      ],
+      "alleles": [
+        "Mafa-A1*047:02:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0070|source_loci=MHC-A1|haplotype_groups=MHC-A|haplotypes=M6|alleles=Mafa-A1_047:02:01:01|accessions=OR823433|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M6"
+      ],
+      "id": "reference:mcm-mhc-miseq:0070",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0070",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-A1"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823589"
+      ],
+      "aliases": [
+        "04_M7_Mafa-AG_05_156bp"
+      ],
+      "alleles": [
+        "Mafa-AG1*05:34:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0071|source_loci=MHC-AG1|haplotype_groups=MHC-A|haplotypes=M7|alleles=Mafa-AG1_05:34:01:01|accessions=OR823589|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0071",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0071",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-AG1"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823607"
+      ],
+      "aliases": [
+        "04_M5_AG_06_01_156bp"
+      ],
+      "alleles": [
+        "Mafa-AG5*06:11:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0072|source_loci=MHC-AG5|haplotype_groups=MHC-A|haplotypes=M5|alleles=Mafa-AG5_06:11:01:01|accessions=OR823607|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M5"
+      ],
+      "id": "reference:mcm-mhc-miseq:0072",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0072",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-AG5"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823477"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*134:02:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0073|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M1|alleles=Mafa-B_134:02:01:01|accessions=OR823477|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M1"
+      ],
+      "id": "reference:mcm-mhc-miseq:0073",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0073",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823466"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*088:01:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0074|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M4|alleles=Mafa-B_088:01:01:01|accessions=OR823466|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M4"
+      ],
+      "id": "reference:mcm-mhc-miseq:0074",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0074",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679604",
+        "OR823518",
+        "OR823519"
+      ],
+      "aliases": [
+        "12_M3M6M7_I_01g|I_01_10,_I_01_11,_I_01_22"
+      ],
+      "alleles": [
+        "Mafa-I*01:10:01:02",
+        "Mafa-I*01:11:01:01",
+        "Mafa-I*01:22:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 3.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0075|source_loci=MHC-I|haplotype_groups=MHC-A|haplotypes=M3,M6,M7|alleles=Mafa-I_01:10:01:02,Mafa-I_01:11:01:01,Mafa-I_01:22:01:01|accessions=MW679604,OR823518,OR823519|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=3.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M3",
+        "M6",
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0075",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0075",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-I"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823520"
+      ],
+      "aliases": [
+        "12_M4_I_03_01_01"
+      ],
+      "alleles": [
+        "Mafa-I*03:01:01:01N"
+      ],
+      "evidenceClasses": [
+        "support_only_pseudogene_or_null"
+      ],
+      "evidenceWeightSum": 0.25,
+      "fastaHeader": "MCM_MHC_MiSeq_0076|source_loci=MHC-I|haplotype_groups=MHC-A|haplotypes=M4|alleles=Mafa-I_03:01:01:01N|accessions=OR823520|length=156|evidence_classes=support_only_pseudogene_or_null|max_evidence_weight=0.25|evidence_weight_sum=0.25",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M4"
+      ],
+      "id": "reference:mcm-mhc-miseq:0076",
+      "length": 156,
+      "maxEvidenceWeight": 0.25,
+      "primaryName": "MCM_MHC_MiSeq_0076",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-I"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823454"
+      ],
+      "aliases": [
+        "12_M5_B_050_04"
+      ],
+      "alleles": [
+        "Mafa-B*050:04:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0077|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M5|alleles=Mafa-B_050:04:01:01|accessions=OR823454|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M5"
+      ],
+      "id": "reference:mcm-mhc-miseq:0077",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0077",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679589"
+      ],
+      "aliases": [
+        "04_M3_AG_04g1_156bp"
+      ],
+      "alleles": [
+        "Mafa-AG1*05:09:02:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0078|source_loci=MHC-AG1|haplotype_groups=MHC-A|haplotypes=M3|alleles=Mafa-AG1_05:09:02:01|accessions=MW679589|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M3"
+      ],
+      "id": "reference:mcm-mhc-miseq:0078",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0078",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-AG1"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823591"
+      ],
+      "aliases": [
+        "04_M1_AG_05_3mis_156bp"
+      ],
+      "alleles": [
+        "Mafa-AG1*05:36:01:01N"
+      ],
+      "evidenceClasses": [
+        "support_only_pseudogene_or_null"
+      ],
+      "evidenceWeightSum": 0.25,
+      "fastaHeader": "MCM_MHC_MiSeq_0079|source_loci=MHC-AG1|haplotype_groups=MHC-A|haplotypes=M1|alleles=Mafa-AG1_05:36:01:01N|accessions=OR823591|length=156|evidence_classes=support_only_pseudogene_or_null|max_evidence_weight=0.25|evidence_weight_sum=0.25",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M1"
+      ],
+      "id": "reference:mcm-mhc-miseq:0079",
+      "length": 156,
+      "maxEvidenceWeight": 0.25,
+      "primaryName": "MCM_MHC_MiSeq_0079",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-AG1"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823472"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*104:01:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0080|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M1|alleles=Mafa-B_104:01:01:01|accessions=OR823472|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M1"
+      ],
+      "id": "reference:mcm-mhc-miseq:0080",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0080",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823597",
+        "OR823598",
+        "OR823600"
+      ],
+      "aliases": [
+        "04_M1M2M4_AG_06g2_t135a"
+      ],
+      "alleles": [
+        "Mafa-AG3*02:03:02:02",
+        "Mafa-AG3*02:03:05:01",
+        "Mafa-AG3*02:16:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 3.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0081|source_loci=MHC-AG3|haplotype_groups=MHC-A|haplotypes=M1,M2,M4|alleles=Mafa-AG3_02:03:02:02,Mafa-AG3_02:03:05:01,Mafa-AG3_02:16:01:01|accessions=OR823597,OR823598,OR823600|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=3.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M1",
+        "M2",
+        "M4"
+      ],
+      "id": "reference:mcm-mhc-miseq:0081",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0081",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-AG3"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823587",
+        "OR823590"
+      ],
+      "aliases": [
+        "04_M4_AG_02_w_01_156bp"
+      ],
+      "alleles": [
+        "Mafa-AG1*05:11:01:02",
+        "Mafa-AG1*05:35:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 2.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0082|source_loci=MHC-AG1|haplotype_groups=MHC-A|haplotypes=M4|alleles=Mafa-AG1_05:11:01:02,Mafa-AG1_05:35:01:01|accessions=OR823587,OR823590|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=2.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M4"
+      ],
+      "id": "reference:mcm-mhc-miseq:0082",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0082",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-AG1"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823596",
+        "OR823605"
+      ],
+      "aliases": [
+        "AG_06g2|AG_06_03,_AG_07_01_02,_AG_07_02"
+      ],
+      "alleles": [
+        "Mafa-AG2*01:15:01:01N",
+        "Mafa-AG5*06:02:03:03"
+      ],
+      "evidenceClasses": [
+        "primary_expressed",
+        "support_only_pseudogene_or_null"
+      ],
+      "evidenceWeightSum": 1.25,
+      "fastaHeader": "MCM_MHC_MiSeq_0083|source_loci=MHC-AG2,MHC-AG5|haplotype_groups=MHC-A|haplotypes=M6,M7|alleles=Mafa-AG2_01:15:01:01N,Mafa-AG5_06:02:03:03|accessions=OR823596,OR823605|length=156|evidence_classes=primary_expressed,support_only_pseudogene_or_null|max_evidence_weight=1.00|evidence_weight_sum=1.25",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M6",
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0083",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0083",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-AG2",
+        "MHC-AG5"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823599"
+      ],
+      "aliases": [
+        "04_M6_AG_w_02_g93a_156bp"
+      ],
+      "alleles": [
+        "Mafa-AG3*02:06:01:04"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0084|source_loci=MHC-AG3|haplotype_groups=MHC-A|haplotypes=M6|alleles=Mafa-AG3_02:06:01:04|accessions=OR823599|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M6"
+      ],
+      "id": "reference:mcm-mhc-miseq:0084",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0084",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-AG3"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823447"
+      ],
+      "aliases": [
+        "12_M5_B_036_01_02"
+      ],
+      "alleles": [
+        "Mafa-B*036:01:02:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0085|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M5|alleles=Mafa-B_036:01:02:01|accessions=OR823447|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M5"
+      ],
+      "id": "reference:mcm-mhc-miseq:0085",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0085",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679587",
+        "OR823603"
+      ],
+      "aliases": [
+        "04_M3M4_AG_g6ex"
+      ],
+      "alleles": [
+        "Mafa-AG3*03:01:04:01",
+        "Mafa-AG3*03:03:02:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 2.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0086|source_loci=MHC-AG3|haplotype_groups=MHC-A|haplotypes=M3,M4|alleles=Mafa-AG3_03:01:04:01,Mafa-AG3_03:03:02:01|accessions=MW679587,OR823603|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=2.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M3",
+        "M4"
+      ],
+      "id": "reference:mcm-mhc-miseq:0086",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0086",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-AG3"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823602"
+      ],
+      "aliases": [
+        "04_M6M7_AG_02_w_02"
+      ],
+      "alleles": [
+        "Mafa-AG3*02:18:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0087|source_loci=MHC-AG3|haplotype_groups=MHC-A|haplotypes=M7|alleles=Mafa-AG3_02:18:01:01|accessions=OR823602|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0087",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0087",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-AG3"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823586",
+        "OR823588"
+      ],
+      "aliases": [
+        "04_M4M5M6_AG_g5ex"
+      ],
+      "alleles": [
+        "Mafa-AG1*05:10:02:02",
+        "Mafa-AG1*05:23:02:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 2.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0088|source_loci=MHC-AG1|haplotype_groups=MHC-A|haplotypes=M5,M6|alleles=Mafa-AG1_05:10:02:02,Mafa-AG1_05:23:02:01|accessions=OR823586,OR823588|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=2.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M5",
+        "M6"
+      ],
+      "id": "reference:mcm-mhc-miseq:0088",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0088",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-AG1"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823601"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-AG3*02:17:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0089|source_loci=MHC-AG3|haplotype_groups=MHC-A|haplotypes=M7|alleles=Mafa-AG3_02:17:01:01|accessions=OR823601|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0089",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0089",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-AG3"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823606",
+        "OR823608",
+        "OR823609",
+        "OR823610"
+      ],
+      "aliases": [
+        "04_M1M2M3M4M5M6M7_AG_06g1|AG_06_02,_AG_06_05,_AG_06_w_01"
+      ],
+      "alleles": [
+        "Mafa-AG5*06:05:01:01",
+        "Mafa-AG5*07:03:02:01",
+        "Mafa-AG5*07:18:01:01",
+        "Mafa-AG5*07:19:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 4.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0090|source_loci=MHC-AG5|haplotype_groups=MHC-A|haplotypes=M1,M2,M4,M7|alleles=Mafa-AG5_06:05:01:01,Mafa-AG5_07:03:02:01,Mafa-AG5_07:18:01:01,Mafa-AG5_07:19:01:01|accessions=OR823606,OR823608,OR823609,OR823610|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=4.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M1",
+        "M2",
+        "M4",
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0090",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0090",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-AG5"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679585",
+        "OR823585"
+      ],
+      "aliases": [
+        "AG_05g2|AG_05_02_01,_AG_05_02_02,_AG_05_02_03,_AG_05_03,_AG_06_04"
+      ],
+      "alleles": [
+        "Mafa-AG1*05:02:03:01",
+        "Mafa-AG5*06:04:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 2.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0091|source_loci=MHC-AG1,MHC-AG5|haplotype_groups=MHC-A|haplotypes=M2,M3|alleles=Mafa-AG1_05:02:03:01,Mafa-AG5_06:04:01:01|accessions=MW679585,OR823585|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=2.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M2",
+        "M3"
+      ],
+      "id": "reference:mcm-mhc-miseq:0091",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0091",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-AG1",
+        "MHC-AG5"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823604"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-AG3*03:08:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0092|source_loci=MHC-AG3|haplotype_groups=MHC-A|haplotypes=M5|alleles=Mafa-AG3_03:08:01:01|accessions=OR823604|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M5"
+      ],
+      "id": "reference:mcm-mhc-miseq:0092",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0092",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-AG3"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823440",
+        "OR823441"
+      ],
+      "aliases": [
+        "06_M4M7_A5_30_01g"
+      ],
+      "alleles": [
+        "Mafa-A5*30:01:01:01",
+        "Mafa-A5*30:01:01:02"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 2.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0093|source_loci=MHC-A5|haplotype_groups=MHC-A|haplotypes=M4,M7|alleles=Mafa-A5_30:01:01:01,Mafa-A5_30:01:01:02|accessions=OR823440,OR823441|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=2.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M4",
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0093",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0093",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-A5"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823448"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*037:01:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0094|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M5|alleles=Mafa-B_037:01:01:01|accessions=OR823448|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M5"
+      ],
+      "id": "reference:mcm-mhc-miseq:0094",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0094",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823486"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*167:01:01:01N"
+      ],
+      "evidenceClasses": [
+        "support_only_pseudogene_or_null"
+      ],
+      "evidenceWeightSum": 0.25,
+      "fastaHeader": "MCM_MHC_MiSeq_0095|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M5|alleles=Mafa-B_167:01:01:01N|accessions=OR823486|length=156|evidence_classes=support_only_pseudogene_or_null|max_evidence_weight=0.25|evidence_weight_sum=0.25",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M5"
+      ],
+      "id": "reference:mcm-mhc-miseq:0095",
+      "length": 156,
+      "maxEvidenceWeight": 0.25,
+      "primaryName": "MCM_MHC_MiSeq_0095",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679606"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*075:01:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0096|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M3|alleles=Mafa-B_075:01:01:01|accessions=MW679606|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M3"
+      ],
+      "id": "reference:mcm-mhc-miseq:0096",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0096",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823467"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*095:01:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0097|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M6|alleles=Mafa-B_095:01:01:01|accessions=OR823467|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M6"
+      ],
+      "id": "reference:mcm-mhc-miseq:0097",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0097",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679611",
+        "OR823516"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B22*01:01:01:01N",
+        "Mafa-B22*01:01:02:01N"
+      ],
+      "evidenceClasses": [
+        "support_only_pseudogene_or_null"
+      ],
+      "evidenceWeightSum": 0.5,
+      "fastaHeader": "MCM_MHC_MiSeq_0098|source_loci=MHC-B22|haplotype_groups=MHC-B|haplotypes=M2,M3|alleles=Mafa-B22_01:01:01:01N,Mafa-B22_01:01:02:01N|accessions=MW679611,OR823516|length=156|evidence_classes=support_only_pseudogene_or_null|max_evidence_weight=0.25|evidence_weight_sum=0.50",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M2",
+        "M3"
+      ],
+      "id": "reference:mcm-mhc-miseq:0098",
+      "length": 156,
+      "maxEvidenceWeight": 0.25,
+      "primaryName": "MCM_MHC_MiSeq_0098",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B22"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823432"
+      ],
+      "aliases": [
+        "05_M5_A1_033_01"
+      ],
+      "alleles": [
+        "Mafa-A1*033:01:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0099|source_loci=MHC-A1|haplotype_groups=MHC-A|haplotypes=M5|alleles=Mafa-A1_033:01:01:01|accessions=OR823432|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M5"
+      ],
+      "id": "reference:mcm-mhc-miseq:0099",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0099",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-A1"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679596",
+        "OR823439"
+      ],
+      "aliases": [
+        "06_M1M2M3M6_A4_01g"
+      ],
+      "alleles": [
+        "Mafa-A4*01:01:01:01",
+        "Mafa-A4*01:09:01:01N"
+      ],
+      "evidenceClasses": [
+        "primary_expressed",
+        "support_only_pseudogene_or_null"
+      ],
+      "evidenceWeightSum": 1.25,
+      "fastaHeader": "MCM_MHC_MiSeq_0100|source_loci=MHC-A4|haplotype_groups=MHC-A|haplotypes=M3,M6|alleles=Mafa-A4_01:01:01:01,Mafa-A4_01:09:01:01N|accessions=MW679596,OR823439|length=156|evidence_classes=primary_expressed,support_only_pseudogene_or_null|max_evidence_weight=1.00|evidence_weight_sum=1.25",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M3",
+        "M6"
+      ],
+      "id": "reference:mcm-mhc-miseq:0100",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0100",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-A4"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823515"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B21Ps*01:07:01:01"
+      ],
+      "evidenceClasses": [
+        "support_only_pseudogene_or_null"
+      ],
+      "evidenceWeightSum": 0.25,
+      "fastaHeader": "MCM_MHC_MiSeq_0101|source_loci=MHC-B21Ps|haplotype_groups=MHC-B|haplotypes=M7|alleles=Mafa-B21Ps_01:07:01:01|accessions=OR823515|length=156|evidence_classes=support_only_pseudogene_or_null|max_evidence_weight=0.25|evidence_weight_sum=0.25",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0101",
+      "length": 156,
+      "maxEvidenceWeight": 0.25,
+      "primaryName": "MCM_MHC_MiSeq_0101",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B21Ps"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823469",
+        "OR823470"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*098:01:01:01",
+        "Mafa-B*098:04:01:03"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 2.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0102|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M2,M5|alleles=Mafa-B_098:01:01:01,Mafa-B_098:04:01:03|accessions=OR823469,OR823470|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=2.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M2",
+        "M5"
+      ],
+      "id": "reference:mcm-mhc-miseq:0102",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0102",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823431"
+      ],
+      "aliases": [
+        "05_M6_A1_032_01"
+      ],
+      "alleles": [
+        "Mafa-A1*032:01:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0103|source_loci=MHC-A1|haplotype_groups=MHC-A|haplotypes=M6|alleles=Mafa-A1_032:01:01:01|accessions=OR823431|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M6"
+      ],
+      "id": "reference:mcm-mhc-miseq:0103",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0103",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-A1"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823445"
+      ],
+      "aliases": [
+        "12_M4_B_027_02"
+      ],
+      "alleles": [
+        "Mafa-B*027:02:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0104|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M4|alleles=Mafa-B_027:02:01:01|accessions=OR823445|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M4"
+      ],
+      "id": "reference:mcm-mhc-miseq:0104",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0104",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823485"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*164:02:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0105|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M7|alleles=Mafa-B_164:02:01:01|accessions=OR823485|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0105",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0105",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823455"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*051:03:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0106|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M4|alleles=Mafa-B_051:03:01:01|accessions=OR823455|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M4"
+      ],
+      "id": "reference:mcm-mhc-miseq:0106",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0106",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823456"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*051:33:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0107|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M5|alleles=Mafa-B_051:33:01:01|accessions=OR823456|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M5"
+      ],
+      "id": "reference:mcm-mhc-miseq:0107",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0107",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823489",
+        "OR823491"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B11L*01:10:01:01",
+        "Mafa-B11L*01:12:01:01N"
+      ],
+      "evidenceClasses": [
+        "primary_expressed",
+        "support_only_pseudogene_or_null"
+      ],
+      "evidenceWeightSum": 1.25,
+      "fastaHeader": "MCM_MHC_MiSeq_0108|source_loci=MHC-B11L|haplotype_groups=MHC-B|haplotypes=M2,M5|alleles=Mafa-B11L_01:10:01:01,Mafa-B11L_01:12:01:01N|accessions=OR823489,OR823491|length=156|evidence_classes=primary_expressed,support_only_pseudogene_or_null|max_evidence_weight=1.00|evidence_weight_sum=1.25",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M2",
+        "M5"
+      ],
+      "id": "reference:mcm-mhc-miseq:0108",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0108",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B11L"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823492"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B11L*01:13:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0109|source_loci=MHC-B11L|haplotype_groups=MHC-B|haplotypes=M6|alleles=Mafa-B11L_01:13:01:01|accessions=OR823492|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M6"
+      ],
+      "id": "reference:mcm-mhc-miseq:0109",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0109",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B11L"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823488"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B11L*01:09:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0110|source_loci=MHC-B11L|haplotype_groups=MHC-B|haplotypes=M1|alleles=Mafa-B11L_01:09:01:01|accessions=OR823488|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M1"
+      ],
+      "id": "reference:mcm-mhc-miseq:0110",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0110",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B11L"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823495"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B11L*01:05:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0111|source_loci=MHC-B11L|haplotype_groups=MHC-B|haplotypes=M7|alleles=Mafa-B11L_01:05:01:01|accessions=OR823495|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0111",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0111",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B11L"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823493"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B11L*01:04:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0112|source_loci=MHC-B11L|haplotype_groups=MHC-B|haplotypes=M6|alleles=Mafa-B11L_01:04:01:01|accessions=OR823493|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M6"
+      ],
+      "id": "reference:mcm-mhc-miseq:0112",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0112",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B11L"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823471"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*098:06:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0113|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M6|alleles=Mafa-B_098:06:01:01|accessions=OR823471|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M6"
+      ],
+      "id": "reference:mcm-mhc-miseq:0113",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0113",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823481"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*149:01:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0114|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M5|alleles=Mafa-B_149:01:01:01|accessions=OR823481|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M5"
+      ],
+      "id": "reference:mcm-mhc-miseq:0114",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0114",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823521"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-I*05:01:01:02"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0115|source_loci=MHC-I|haplotype_groups=MHC-A|haplotypes=M2|alleles=Mafa-I_05:01:01:02|accessions=OR823521|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M2"
+      ],
+      "id": "reference:mcm-mhc-miseq:0115",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0115",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-I"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823501"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B16*01:16:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0116|source_loci=MHC-B16|haplotype_groups=MHC-B|haplotypes=M5|alleles=Mafa-B16_01:16:01:01|accessions=OR823501|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M5"
+      ],
+      "id": "reference:mcm-mhc-miseq:0116",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0116",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B16"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823517"
+      ],
+      "aliases": [
+        "12_M6_B16_01aex"
+      ],
+      "alleles": [
+        "Mafa-B22*01:02:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0117|source_loci=MHC-B22|haplotype_groups=MHC-B|haplotypes=M6|alleles=Mafa-B22_01:02:01:01|accessions=OR823517|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M6"
+      ],
+      "id": "reference:mcm-mhc-miseq:0117",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0117",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B22"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823496"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B14Ps*175:01:01:01"
+      ],
+      "evidenceClasses": [
+        "support_only_pseudogene_or_null"
+      ],
+      "evidenceWeightSum": 0.25,
+      "fastaHeader": "MCM_MHC_MiSeq_0118|source_loci=MHC-B14Ps|haplotype_groups=MHC-B|haplotypes=M5|alleles=Mafa-B14Ps_175:01:01:01|accessions=OR823496|length=156|evidence_classes=support_only_pseudogene_or_null|max_evidence_weight=0.25|evidence_weight_sum=0.25",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M5"
+      ],
+      "id": "reference:mcm-mhc-miseq:0118",
+      "length": 156,
+      "maxEvidenceWeight": 0.25,
+      "primaryName": "MCM_MHC_MiSeq_0118",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B14Ps"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679605"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*070:02:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0119|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M3|alleles=Mafa-B_070:02:01:01|accessions=MW679605|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M3"
+      ],
+      "id": "reference:mcm-mhc-miseq:0119",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0119",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823463"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*064:01:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0120|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M1|alleles=Mafa-B_064:01:01:01|accessions=OR823463|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M1"
+      ],
+      "id": "reference:mcm-mhc-miseq:0120",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0120",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823480"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*148:01:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0121|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M2|alleles=Mafa-B_148:01:01:01|accessions=OR823480|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M2"
+      ],
+      "id": "reference:mcm-mhc-miseq:0121",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0121",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679632"
+      ],
+      "aliases": [
+        "07_M1M2M3_70_156bp"
+      ],
+      "alleles": [
+        "Mafa-K*01:01:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0122|source_loci=MHC-K|haplotype_groups=MHC-A|haplotypes=M3|alleles=Mafa-K_01:01:01:01|accessions=MW679632|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M3"
+      ],
+      "id": "reference:mcm-mhc-miseq:0122",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0122",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-K"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823697"
+      ],
+      "aliases": [
+        "07_M6_70b_156bp"
+      ],
+      "alleles": [
+        "Mafa-K*02:01:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0123|source_loci=MHC-K|haplotype_groups=MHC-A|haplotypes=M6|alleles=Mafa-K_02:01:01:01|accessions=OR823697|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M6"
+      ],
+      "id": "reference:mcm-mhc-miseq:0123",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0123",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-K"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823699"
+      ],
+      "aliases": [
+        "07_M7_70_156bp"
+      ],
+      "alleles": [
+        "Mafa-K*02:06:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0124|source_loci=MHC-K|haplotype_groups=MHC-A|haplotypes=M7|alleles=Mafa-K_02:06:01:01|accessions=OR823699|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0124",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0124",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-K"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823508"
+      ],
+      "aliases": [
+        "12_M6_B17_01_g103c"
+      ],
+      "alleles": [
+        "Mafa-B17*01:11:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0125|source_loci=MHC-B17|haplotype_groups=MHC-B|haplotypes=M6|alleles=Mafa-B17_01:11:01:01|accessions=OR823508|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M6"
+      ],
+      "id": "reference:mcm-mhc-miseq:0125",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0125",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B17"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679612",
+        "OR823505",
+        "OR823506",
+        "OR823507",
+        "OR823509"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B17*01:05:01:01",
+        "Mafa-B17*01:08:01:01",
+        "Mafa-B17*01:09:01:01",
+        "Mafa-B17*01:10:01:01",
+        "Mafa-B17*01:12:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 5.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0126|source_loci=MHC-B17|haplotype_groups=MHC-B|haplotypes=M1,M3,M4,M5,M7|alleles=Mafa-B17_01:05:01:01,Mafa-B17_01:08:01:01,Mafa-B17_01:09:01:01,Mafa-B17_01:10:01:01,Mafa-B17_01:12:01:01|accessions=MW679612,OR823505,OR823506,OR823507,OR823509|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=5.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M1",
+        "M3",
+        "M4",
+        "M5",
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0126",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0126",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B17"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679633"
+      ],
+      "aliases": [
+        "07_M3_70_156bp"
+      ],
+      "alleles": [
+        "Mafa-K*07:01:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0127|source_loci=MHC-K|haplotype_groups=MHC-A|haplotypes=M3|alleles=Mafa-K_07:01:01:01|accessions=MW679633|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M3"
+      ],
+      "id": "reference:mcm-mhc-miseq:0127",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0127",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-K"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823696"
+      ],
+      "aliases": [
+        "07_M4_70_156bp"
+      ],
+      "alleles": [
+        "Mafa-K*07:03:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0128|source_loci=MHC-K|haplotype_groups=MHC-A|haplotypes=M4|alleles=Mafa-K_07:03:01:01|accessions=OR823696|length=154|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M4"
+      ],
+      "id": "reference:mcm-mhc-miseq:0128",
+      "length": 154,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0128",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-K"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823695"
+      ],
+      "aliases": [
+        "07_M1M2_70_156bp"
+      ],
+      "alleles": [
+        "Mafa-K*07:02:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0129|source_loci=MHC-K|haplotype_groups=MHC-A|haplotypes=M1,M2|alleles=Mafa-K_07:02:01:01|accessions=OR823695|length=154|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M1",
+        "M2"
+      ],
+      "id": "reference:mcm-mhc-miseq:0129",
+      "length": 154,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0129",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-K"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823693"
+      ],
+      "aliases": [
+        "07_M5_70_156bp"
+      ],
+      "alleles": [
+        "Mafa-K*01:03:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0130|source_loci=MHC-K|haplotype_groups=MHC-A|haplotypes=M5|alleles=Mafa-K_01:03:01:01|accessions=OR823693|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M5"
+      ],
+      "id": "reference:mcm-mhc-miseq:0130",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0130",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-K"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823698"
+      ],
+      "aliases": [
+        "07_M6_70a_156bp"
+      ],
+      "alleles": [
+        "Mafa-K*01:02:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0131|source_loci=MHC-K|haplotype_groups=MHC-A|haplotypes=M6|alleles=Mafa-K_01:02:01:01|accessions=OR823698|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M6"
+      ],
+      "id": "reference:mcm-mhc-miseq:0131",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0131",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-K"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823703"
+      ],
+      "aliases": [
+        "10_M6_L_Ctg31"
+      ],
+      "alleles": [
+        "Mafa-L*01:06:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0132|source_loci=MHC-L|haplotype_groups=MHC-A|haplotypes=M6|alleles=Mafa-L_01:06:01:01|accessions=OR823703|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M6"
+      ],
+      "id": "reference:mcm-mhc-miseq:0132",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0132",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-L"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679634",
+        "OR823700",
+        "OR823701",
+        "OR823704"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-L*01:01:01:01",
+        "Mafa-L*01:02:01:01",
+        "Mafa-L*01:03:01:01",
+        "Mafa-L*01:04:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 4.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0133|source_loci=MHC-L|haplotype_groups=MHC-A|haplotypes=M1,M2,M3,M4,M7|alleles=Mafa-L_01:01:01:01,Mafa-L_01:02:01:01,Mafa-L_01:03:01:01,Mafa-L_01:04:01:01|accessions=MW679634,OR823700,OR823701,OR823704|length=147|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=4.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M1",
+        "M2",
+        "M3",
+        "M4",
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0133",
+      "length": 147,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0133",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-L"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823478"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*144:02:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0134|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M1|alleles=Mafa-B_144:02:01:01|accessions=OR823478|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M1"
+      ],
+      "id": "reference:mcm-mhc-miseq:0134",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0134",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823482"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*150:01:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0135|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M2|alleles=Mafa-B_150:01:01:01|accessions=OR823482|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M2"
+      ],
+      "id": "reference:mcm-mhc-miseq:0135",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0135",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823444"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*019:03:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0136|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M2|alleles=Mafa-B_019:03:01:01|accessions=OR823444|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M2"
+      ],
+      "id": "reference:mcm-mhc-miseq:0136",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0136",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679600"
+      ],
+      "aliases": [
+        "11_M2M3_E_02_nov_08"
+      ],
+      "alleles": [
+        "Mafa-E*02:15:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0137|source_loci=MHC-E|haplotype_groups=MHC-A|haplotypes=M3|alleles=Mafa-E_02:15:01:01|accessions=MW679600|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M3"
+      ],
+      "id": "reference:mcm-mhc-miseq:0137",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0137",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-E"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823694"
+      ],
+      "aliases": [
+        "07_M4M5_70_156bp"
+      ],
+      "alleles": [
+        "Mafa-K*02:04:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0138|source_loci=MHC-K|haplotype_groups=MHC-A|haplotypes=M4|alleles=Mafa-K_02:04:01:01|accessions=OR823694|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M4"
+      ],
+      "id": "reference:mcm-mhc-miseq:0138",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0138",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-K"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823484"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*162:03:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0139|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M2|alleles=Mafa-B_162:03:01:01|accessions=OR823484|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M2"
+      ],
+      "id": "reference:mcm-mhc-miseq:0139",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0139",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679602"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*098:05:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0140|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M3|alleles=Mafa-B_098:05:01:01|accessions=MW679602|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M3"
+      ],
+      "id": "reference:mcm-mhc-miseq:0140",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0140",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823479"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*147:01:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0141|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M4|alleles=Mafa-B_147:01:01:01|accessions=OR823479|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M4"
+      ],
+      "id": "reference:mcm-mhc-miseq:0141",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0141",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823702"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-L*01:05:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0142|source_loci=MHC-L|haplotype_groups=MHC-A|haplotypes=M5|alleles=Mafa-L_01:05:01:01|accessions=OR823702|length=147|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M5"
+      ],
+      "id": "reference:mcm-mhc-miseq:0142",
+      "length": 147,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0142",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-L"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823464"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*072:02:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0143|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M7|alleles=Mafa-B_072:02:01:01|accessions=OR823464|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0143",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0143",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823642"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-G*02:22:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0144|source_loci=MHC-G|haplotype_groups=MHC-A|haplotypes=M4|alleles=Mafa-G_02:22:01:01|accessions=OR823642|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M4"
+      ],
+      "id": "reference:mcm-mhc-miseq:0144",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0144",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-G"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823634"
+      ],
+      "aliases": [
+        "02_M2_G_02_06_156bp"
+      ],
+      "alleles": [
+        "Mafa-G*02:06:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0145|source_loci=MHC-G|haplotype_groups=MHC-A|haplotypes=M2|alleles=Mafa-G_02:06:01:01|accessions=OR823634|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M2"
+      ],
+      "id": "reference:mcm-mhc-miseq:0145",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0145",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-G"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679586"
+      ],
+      "aliases": [
+        "02_M3_G_02_0508_g48c_156bp"
+      ],
+      "alleles": [
+        "Mafa-G*02:10:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0146|source_loci=MHC-G|haplotype_groups=MHC-A|haplotypes=M3|alleles=Mafa-G_02:10:01:01|accessions=MW679586|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M3"
+      ],
+      "id": "reference:mcm-mhc-miseq:0146",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0146",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-G"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823451"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*045:03:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0147|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M6|alleles=Mafa-B_045:03:01:01|accessions=OR823451|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M6"
+      ],
+      "id": "reference:mcm-mhc-miseq:0147",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0147",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823446"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B*033:01:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0148|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M6|alleles=Mafa-B_033:01:01:01|accessions=OR823446|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M6"
+      ],
+      "id": "reference:mcm-mhc-miseq:0148",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0148",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823654"
+      ],
+      "aliases": [
+        "02_M7_G_02_03_8mis_156bp"
+      ],
+      "alleles": [
+        "Mafa-G*02:25:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0149|source_loci=MHC-G|haplotype_groups=MHC-A|haplotypes=M7|alleles=Mafa-G_02:25:01:01|accessions=OR823654|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0149",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0149",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-G"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823645"
+      ],
+      "aliases": [
+        "02_M4_G_02_03_8mis_156bp"
+      ],
+      "alleles": [
+        "Mafa-G*02:26:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0150|source_loci=MHC-G|haplotype_groups=MHC-A|haplotypes=M4|alleles=Mafa-G_02:26:01:01|accessions=OR823645|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M4"
+      ],
+      "id": "reference:mcm-mhc-miseq:0150",
+      "length": 156,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0150",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-G"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679614"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B19Ps*01:01:01:01"
+      ],
+      "evidenceClasses": [
+        "support_only_pseudogene_or_null"
+      ],
+      "evidenceWeightSum": 0.25,
+      "fastaHeader": "MCM_MHC_MiSeq_0151|source_loci=MHC-B19Ps|haplotype_groups=MHC-B|haplotypes=M3|alleles=Mafa-B19Ps_01:01:01:01|accessions=MW679614|length=146|evidence_classes=support_only_pseudogene_or_null|max_evidence_weight=0.25|evidence_weight_sum=0.25",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M3"
+      ],
+      "id": "reference:mcm-mhc-miseq:0151",
+      "length": 146,
+      "maxEvidenceWeight": 0.25,
+      "primaryName": "MCM_MHC_MiSeq_0151",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B19Ps"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823512"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B19Ps*01:03:01:01"
+      ],
+      "evidenceClasses": [
+        "support_only_pseudogene_or_null"
+      ],
+      "evidenceWeightSum": 0.25,
+      "fastaHeader": "MCM_MHC_MiSeq_0152|source_loci=MHC-B19Ps|haplotype_groups=MHC-B|haplotypes=M5|alleles=Mafa-B19Ps_01:03:01:01|accessions=OR823512|length=146|evidence_classes=support_only_pseudogene_or_null|max_evidence_weight=0.25|evidence_weight_sum=0.25",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M5"
+      ],
+      "id": "reference:mcm-mhc-miseq:0152",
+      "length": 146,
+      "maxEvidenceWeight": 0.25,
+      "primaryName": "MCM_MHC_MiSeq_0152",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B19Ps"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823534"
+      ],
+      "aliases": [
+        "15_M2_DPB1_20_01"
+      ],
+      "alleles": [
+        "Mafa-DPB1*20:01:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0153|source_loci=MHC-DPB1|haplotype_groups=MHC-DP|haplotypes=M2|alleles=Mafa-DPB1_20:01:01:01|accessions=OR823534|length=192|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-DP"
+      ],
+      "haplotypes": [
+        "M2"
+      ],
+      "id": "reference:mcm-mhc-miseq:0153",
+      "length": 192,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0153",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DPB1"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823533"
+      ],
+      "aliases": [
+        "15_M1_DPB1_19_03"
+      ],
+      "alleles": [
+        "Mafa-DPB1*19:03:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0154|source_loci=MHC-DPB1|haplotype_groups=MHC-DP|haplotypes=M1|alleles=Mafa-DPB1_19:03:01:01|accessions=OR823533|length=189|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-DP"
+      ],
+      "haplotypes": [
+        "M1"
+      ],
+      "id": "reference:mcm-mhc-miseq:0154",
+      "length": 189,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0154",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DPB1"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679631"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-J*02:01:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0155|source_loci=MHC-J|haplotype_groups=MHC-A|haplotypes=M3|alleles=Mafa-J_02:01:01:01|accessions=MW679631|length=148|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-A"
+      ],
+      "haplotypes": [
+        "M3"
+      ],
+      "id": "reference:mcm-mhc-miseq:0155",
+      "length": 148,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0155",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-J"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823529",
+        "OR823530"
+      ],
+      "aliases": [
+        "15_M5M6_DPB1_04_01"
+      ],
+      "alleles": [
+        "Mafa-DPB1*04:01:01:01",
+        "Mafa-DPB1*04:01:01:02"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 2.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0156|source_loci=MHC-DPB1|haplotype_groups=MHC-DP|haplotypes=M5,M6|alleles=Mafa-DPB1_04:01:01:01,Mafa-DPB1_04:01:01:02|accessions=OR823529,OR823530|length=192|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=2.00",
+      "haplotypeGroups": [
+        "MHC-DP"
+      ],
+      "haplotypes": [
+        "M5",
+        "M6"
+      ],
+      "id": "reference:mcm-mhc-miseq:0156",
+      "length": 192,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0156",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DPB1"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679628"
+      ],
+      "aliases": [
+        "15_M3_DPB1_09_02"
+      ],
+      "alleles": [
+        "Mafa-DPB1*09:02:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0157|source_loci=MHC-DPB1|haplotype_groups=MHC-DP|haplotypes=M3|alleles=Mafa-DPB1_09:02:01:01|accessions=MW679628|length=192|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-DP"
+      ],
+      "haplotypes": [
+        "M3"
+      ],
+      "id": "reference:mcm-mhc-miseq:0157",
+      "length": 192,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0157",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DPB1"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823531",
+        "OR823532"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-DPB1*12:02:01:01N",
+        "Mafa-DPB1*12:02:01:02N"
+      ],
+      "evidenceClasses": [
+        "support_only_pseudogene_or_null"
+      ],
+      "evidenceWeightSum": 0.5,
+      "fastaHeader": "MCM_MHC_MiSeq_0158|source_loci=MHC-DPB1|haplotype_groups=MHC-DP|haplotypes=M4,M7|alleles=Mafa-DPB1_12:02:01:01N,Mafa-DPB1_12:02:01:02N|accessions=OR823531,OR823532|length=192|evidence_classes=support_only_pseudogene_or_null|max_evidence_weight=0.25|evidence_weight_sum=0.50",
+      "haplotypeGroups": [
+        "MHC-DP"
+      ],
+      "haplotypes": [
+        "M4",
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0158",
+      "length": 192,
+      "maxEvidenceWeight": 0.25,
+      "primaryName": "MCM_MHC_MiSeq_0158",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DPB1"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823527",
+        "OR823528"
+      ],
+      "aliases": [
+        "15_M4M7_DPB1_03_03"
+      ],
+      "alleles": [
+        "Mafa-DPB1*03:03:01:01",
+        "Mafa-DPB1*03:03:01:02"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 2.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0159|source_loci=MHC-DPB1|haplotype_groups=MHC-DP|haplotypes=M4,M7|alleles=Mafa-DPB1_03:03:01:01,Mafa-DPB1_03:03:01:02|accessions=OR823527,OR823528|length=192|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=2.00",
+      "haplotypeGroups": [
+        "MHC-DP"
+      ],
+      "haplotypes": [
+        "M4",
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0159",
+      "length": 192,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0159",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DPB1"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823537",
+        "OR823540"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-DPB2*05:01:01:01",
+        "Mafa-DPB2*05:01:01:02"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 2.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0160|source_loci=MHC-DPB2|haplotype_groups=MHC-DP|haplotypes=M4,M7|alleles=Mafa-DPB2_05:01:01:01,Mafa-DPB2_05:01:01:02|accessions=OR823537,OR823540|length=192|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=2.00",
+      "haplotypeGroups": [
+        "MHC-DP"
+      ],
+      "haplotypes": [
+        "M4",
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0160",
+      "length": 192,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0160",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DPB2"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823538",
+        "OR823539"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-DPB2*03:01:01:01N",
+        "Mafa-DPB2*03:01:01:02N"
+      ],
+      "evidenceClasses": [
+        "support_only_pseudogene_or_null"
+      ],
+      "evidenceWeightSum": 0.5,
+      "fastaHeader": "MCM_MHC_MiSeq_0161|source_loci=MHC-DPB2|haplotype_groups=MHC-DP|haplotypes=M5,M6|alleles=Mafa-DPB2_03:01:01:01N,Mafa-DPB2_03:01:01:02N|accessions=OR823538,OR823539|length=189|evidence_classes=support_only_pseudogene_or_null|max_evidence_weight=0.25|evidence_weight_sum=0.50",
+      "haplotypeGroups": [
+        "MHC-DP"
+      ],
+      "haplotypes": [
+        "M5",
+        "M6"
+      ],
+      "id": "reference:mcm-mhc-miseq:0161",
+      "length": 189,
+      "maxEvidenceWeight": 0.25,
+      "primaryName": "MCM_MHC_MiSeq_0161",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DPB2"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823536"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-DPB2*02:02:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0162|source_loci=MHC-DPB2|haplotype_groups=MHC-DP|haplotypes=M2|alleles=Mafa-DPB2_02:02:01:01|accessions=OR823536|length=186|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-DP"
+      ],
+      "haplotypes": [
+        "M2"
+      ],
+      "id": "reference:mcm-mhc-miseq:0162",
+      "length": 186,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0162",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DPB2"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823535"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-DPB2*04:01:01:01N"
+      ],
+      "evidenceClasses": [
+        "support_only_pseudogene_or_null"
+      ],
+      "evidenceWeightSum": 0.25,
+      "fastaHeader": "MCM_MHC_MiSeq_0163|source_loci=MHC-DPB2|haplotype_groups=MHC-DP|haplotypes=M1|alleles=Mafa-DPB2_04:01:01:01N|accessions=OR823535|length=192|evidence_classes=support_only_pseudogene_or_null|max_evidence_weight=0.25|evidence_weight_sum=0.25",
+      "haplotypeGroups": [
+        "MHC-DP"
+      ],
+      "haplotypes": [
+        "M1"
+      ],
+      "id": "reference:mcm-mhc-miseq:0163",
+      "length": 192,
+      "maxEvidenceWeight": 0.25,
+      "primaryName": "MCM_MHC_MiSeq_0163",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DPB2"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823563"
+      ],
+      "aliases": [
+        "13_M2_DRB1_10_01"
+      ],
+      "alleles": [
+        "Mafa-DRB1*10:01:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0164|source_loci=MHC-DRB1|haplotype_groups=MHC-DR|haplotypes=M2|alleles=Mafa-DRB1_10:01:01:01|accessions=OR823563|length=244|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-DR"
+      ],
+      "haplotypes": [
+        "M2"
+      ],
+      "id": "reference:mcm-mhc-miseq:0164",
+      "length": 244,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0164",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DRB1"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823570"
+      ],
+      "aliases": [
+        "13_M2_DRB_W4_02"
+      ],
+      "alleles": [
+        "Mafa-DRB*W004:02:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0165|source_loci=MHC-DRB|haplotype_groups=MHC-DR|haplotypes=M2|alleles=Mafa-DRB_W004:02:01:01|accessions=OR823570|length=244|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-DR"
+      ],
+      "haplotypes": [
+        "M2"
+      ],
+      "id": "reference:mcm-mhc-miseq:0165",
+      "length": 244,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0165",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DRB"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823571"
+      ],
+      "aliases": [
+        "13_M1_DRB_W5_01"
+      ],
+      "alleles": [
+        "Mafa-DRB*W005:01:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0166|source_loci=MHC-DRB|haplotype_groups=MHC-DR|haplotypes=M1|alleles=Mafa-DRB_W005:01:01:01|accessions=OR823571|length=244|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-DR"
+      ],
+      "haplotypes": [
+        "M1"
+      ],
+      "id": "reference:mcm-mhc-miseq:0166",
+      "length": 244,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0166",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DRB"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679617"
+      ],
+      "aliases": [
+        "13_M3_DRB_W49_01_01"
+      ],
+      "alleles": [
+        "Mafa-DRB*W049:01:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0167|source_loci=MHC-DRB|haplotype_groups=MHC-DR|haplotypes=M3|alleles=Mafa-DRB_W049:01:01:01|accessions=MW679617|length=244|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-DR"
+      ],
+      "haplotypes": [
+        "M3"
+      ],
+      "id": "reference:mcm-mhc-miseq:0167",
+      "length": 244,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0167",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DRB"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823560"
+      ],
+      "aliases": [
+        "13_M6_DRB1_04_02_01"
+      ],
+      "alleles": [
+        "Mafa-DRB1*04:02:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0168|source_loci=MHC-DRB1|haplotype_groups=MHC-DR|haplotypes=M6|alleles=Mafa-DRB1_04:02:01:01|accessions=OR823560|length=244|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-DR"
+      ],
+      "haplotypes": [
+        "M6"
+      ],
+      "id": "reference:mcm-mhc-miseq:0168",
+      "length": 244,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0168",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DRB1"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823572"
+      ],
+      "aliases": [
+        "13_M1_DRB_W21_01"
+      ],
+      "alleles": [
+        "Mafa-DRB*W021:01:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0169|source_loci=MHC-DRB|haplotype_groups=MHC-DR|haplotypes=M1|alleles=Mafa-DRB_W021:01:01:01|accessions=OR823572|length=244|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-DR"
+      ],
+      "haplotypes": [
+        "M1"
+      ],
+      "id": "reference:mcm-mhc-miseq:0169",
+      "length": 244,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0169",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DRB"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679619"
+      ],
+      "aliases": [
+        "13_M3_DRB1_10_02"
+      ],
+      "alleles": [
+        "Mafa-DRB1*10:02:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0170|source_loci=MHC-DRB1|haplotype_groups=MHC-DR|haplotypes=M3|alleles=Mafa-DRB1_10:02:01:01|accessions=MW679619|length=244|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-DR"
+      ],
+      "haplotypes": [
+        "M3"
+      ],
+      "id": "reference:mcm-mhc-miseq:0170",
+      "length": 244,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0170",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DRB1"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823559"
+      ],
+      "aliases": [
+        "13_M7_DRB1_03_nov_04"
+      ],
+      "alleles": [
+        "Mafa-DRB1*03:02:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0171|source_loci=MHC-DRB1|haplotype_groups=MHC-DR|haplotypes=M7|alleles=Mafa-DRB1_03:02:01:01|accessions=OR823559|length=244|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-DR"
+      ],
+      "haplotypes": [
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0171",
+      "length": 244,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0171",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DRB1"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679603"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-B02Ps*01:03:01:01"
+      ],
+      "evidenceClasses": [
+        "support_only_pseudogene_or_null"
+      ],
+      "evidenceWeightSum": 0.25,
+      "fastaHeader": "MCM_MHC_MiSeq_0172|source_loci=MHC-B02Ps|haplotype_groups=MHC-B|haplotypes=M3|alleles=Mafa-B02Ps_01:03:01:01|accessions=MW679603|length=156|evidence_classes=support_only_pseudogene_or_null|max_evidence_weight=0.25|evidence_weight_sum=0.25",
+      "haplotypeGroups": [
+        "MHC-B"
+      ],
+      "haplotypes": [
+        "M3"
+      ],
+      "id": "reference:mcm-mhc-miseq:0172",
+      "length": 156,
+      "maxEvidenceWeight": 0.25,
+      "primaryName": "MCM_MHC_MiSeq_0172",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-B02Ps"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823551"
+      ],
+      "aliases": [
+        "14_M1_DQB1_18_01_01"
+      ],
+      "alleles": [
+        "Mafa-DQB1*18:01:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0173|source_loci=MHC-DQB1|haplotype_groups=MHC-DQ|haplotypes=M1|alleles=Mafa-DQB1_18:01:01:01|accessions=OR823551|length=154|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-DQ"
+      ],
+      "haplotypes": [
+        "M1"
+      ],
+      "id": "reference:mcm-mhc-miseq:0173",
+      "length": 154,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0173",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DQB1"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823564"
+      ],
+      "aliases": [
+        "13_M4_DRB4_01_01"
+      ],
+      "alleles": [
+        "Mafa-DRB4*01:01:01:02"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0174|source_loci=MHC-DRB4|haplotype_groups=MHC-DR|haplotypes=M4|alleles=Mafa-DRB4_01:01:01:02|accessions=OR823564|length=244|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-DR"
+      ],
+      "haplotypes": [
+        "M4"
+      ],
+      "id": "reference:mcm-mhc-miseq:0174",
+      "length": 244,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0174",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DRB4"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823565"
+      ],
+      "aliases": [
+        "13_M5_DRB4_01_02"
+      ],
+      "alleles": [
+        "Mafa-DRB4*01:02:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0175|source_loci=MHC-DRB4|haplotype_groups=MHC-DR|haplotypes=M5|alleles=Mafa-DRB4_01:02:01:01|accessions=OR823565|length=244|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-DR"
+      ],
+      "haplotypes": [
+        "M5"
+      ],
+      "id": "reference:mcm-mhc-miseq:0175",
+      "length": 244,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0175",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DRB4"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823569"
+      ],
+      "aliases": [
+        "13_M6_DRB_W4_01"
+      ],
+      "alleles": [
+        "Mafa-DRB*W004:01:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0176|source_loci=MHC-DRB|haplotype_groups=MHC-DR|haplotypes=M6|alleles=Mafa-DRB_W004:01:01:01|accessions=OR823569|length=244|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-DR"
+      ],
+      "haplotypes": [
+        "M6"
+      ],
+      "id": "reference:mcm-mhc-miseq:0176",
+      "length": 244,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0176",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DRB"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679622"
+      ],
+      "aliases": [
+        "14_M3_DQB1_16_01"
+      ],
+      "alleles": [
+        "Mafa-DQB1*16:01:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0177|source_loci=MHC-DQB1|haplotype_groups=MHC-DQ|haplotypes=M3|alleles=Mafa-DQB1_16:01:01:01|accessions=MW679622|length=154|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-DQ"
+      ],
+      "haplotypes": [
+        "M3"
+      ],
+      "id": "reference:mcm-mhc-miseq:0177",
+      "length": 154,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0177",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DQB1"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823547",
+        "OR823548"
+      ],
+      "aliases": [
+        "14_M2M6_DQB1_06g:14_M_DQB1_06_01_01|14_M_DQB1_06_01_02"
+      ],
+      "alleles": [
+        "Mafa-DQB1*06:01:01:01",
+        "Mafa-DQB1*06:01:02:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 2.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0178|source_loci=MHC-DQB1|haplotype_groups=MHC-DQ|haplotypes=M2,M6|alleles=Mafa-DQB1_06:01:01:01,Mafa-DQB1_06:01:02:01|accessions=OR823547,OR823548|length=154|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=2.00",
+      "haplotypeGroups": [
+        "MHC-DQ"
+      ],
+      "haplotypes": [
+        "M2",
+        "M6"
+      ],
+      "id": "reference:mcm-mhc-miseq:0178",
+      "length": 154,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0178",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DQB1"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823549"
+      ],
+      "aliases": [
+        "14_M4_DQB1_06_08"
+      ],
+      "alleles": [
+        "Mafa-DQB1*06:08:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0179|source_loci=MHC-DQB1|haplotype_groups=MHC-DQ|haplotypes=M4|alleles=Mafa-DQB1_06:08:01:01|accessions=OR823549|length=154|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-DQ"
+      ],
+      "haplotypes": [
+        "M4"
+      ],
+      "id": "reference:mcm-mhc-miseq:0179",
+      "length": 154,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0179",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DQB1"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823552"
+      ],
+      "aliases": [
+        "14_M7_DQB1_18_14"
+      ],
+      "alleles": [
+        "Mafa-DQB1*18:14:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0180|source_loci=MHC-DQB1|haplotype_groups=MHC-DQ|haplotypes=M7|alleles=Mafa-DQB1_18:14:01:01|accessions=OR823552|length=154|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-DQ"
+      ],
+      "haplotypes": [
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0180",
+      "length": 154,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0180",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DQB1"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823578"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-DRB6*01:25:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0181|source_loci=MHC-DRB6|haplotype_groups=MHC-DR|haplotypes=M6|alleles=Mafa-DRB6_01:25:01:01|accessions=OR823578|length=244|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-DR"
+      ],
+      "haplotypes": [
+        "M6"
+      ],
+      "id": "reference:mcm-mhc-miseq:0181",
+      "length": 244,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0181",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DRB6"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823575",
+        "OR823576"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-DRB6*01:13:02:01",
+        "Mafa-DRB6*01:13:02:02"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 2.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0182|source_loci=MHC-DRB6|haplotype_groups=MHC-DR|haplotypes=M4,M5|alleles=Mafa-DRB6_01:13:02:01,Mafa-DRB6_01:13:02:02|accessions=OR823575,OR823576|length=244|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=2.00",
+      "haplotypeGroups": [
+        "MHC-DR"
+      ],
+      "haplotypes": [
+        "M4",
+        "M5"
+      ],
+      "id": "reference:mcm-mhc-miseq:0182",
+      "length": 244,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0182",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DRB6"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823579"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-DRB6*01:38:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0183|source_loci=MHC-DRB6|haplotype_groups=MHC-DR|haplotypes=M7|alleles=Mafa-DRB6_01:38:01:01|accessions=OR823579|length=242|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-DR"
+      ],
+      "haplotypes": [
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0183",
+      "length": 242,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0183",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DRB6"
+      ]
+    },
+    {
+      "accessions": [
+        "MW679618"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-DRB6*01:09:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0184|source_loci=MHC-DRB6|haplotype_groups=MHC-DR|haplotypes=M3|alleles=Mafa-DRB6_01:09:01:01|accessions=MW679618|length=242|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-DR"
+      ],
+      "haplotypes": [
+        "M3"
+      ],
+      "id": "reference:mcm-mhc-miseq:0184",
+      "length": 242,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0184",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DRB6"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823577"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-DRB6*01:16:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0185|source_loci=MHC-DRB6|haplotype_groups=MHC-DR|haplotypes=M2|alleles=Mafa-DRB6_01:16:01:01|accessions=OR823577|length=242|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-DR"
+      ],
+      "haplotypes": [
+        "M2"
+      ],
+      "id": "reference:mcm-mhc-miseq:0185",
+      "length": 242,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0185",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DRB6"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823522",
+        "OR823523"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-DPA1*04:01:01:01",
+        "Mafa-DPA1*04:01:01:02"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 2.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0186|source_loci=MHC-DPA1|haplotype_groups=MHC-DP|haplotypes=M4,M7|alleles=Mafa-DPA1_04:01:01:01,Mafa-DPA1_04:01:01:02|accessions=OR823522,OR823523|length=173|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=2.00",
+      "haplotypeGroups": [
+        "MHC-DP"
+      ],
+      "haplotypes": [
+        "M4",
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0186",
+      "length": 173,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0186",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DPA1"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823524"
+      ],
+      "aliases": [
+        "15_M2_DPA1_07_01"
+      ],
+      "alleles": [
+        "Mafa-DPA1*07:01:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0187|source_loci=MHC-DPA1|haplotype_groups=MHC-DP|haplotypes=M2|alleles=Mafa-DPA1_07:01:01:01|accessions=OR823524|length=173|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-DP"
+      ],
+      "haplotypes": [
+        "M2"
+      ],
+      "id": "reference:mcm-mhc-miseq:0187",
+      "length": 173,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0187",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DPA1"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823550"
+      ],
+      "aliases": [
+        "14_M5_DQB1_06_11"
+      ],
+      "alleles": [
+        "Mafa-DQB1*06:11:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0188|source_loci=MHC-DQB1|haplotype_groups=MHC-DQ|haplotypes=M5|alleles=Mafa-DQB1_06:11:01:01|accessions=OR823550|length=154|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-DQ"
+      ],
+      "haplotypes": [
+        "M5"
+      ],
+      "id": "reference:mcm-mhc-miseq:0188",
+      "length": 154,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0188",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DQB1"
+      ]
+    },
+    {
+      "accessions": [
+        "OR823580"
+      ],
+      "aliases": [],
+      "alleles": [
+        "Mafa-DRB6*01:29:01:01"
+      ],
+      "evidenceClasses": [
+        "primary_expressed"
+      ],
+      "evidenceWeightSum": 1.0,
+      "fastaHeader": "MCM_MHC_MiSeq_0189|source_loci=MHC-DRB6|haplotype_groups=MHC-DR|haplotypes=M7|alleles=Mafa-DRB6_01:29:01:01|accessions=OR823580|length=240|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00",
+      "haplotypeGroups": [
+        "MHC-DR"
+      ],
+      "haplotypes": [
+        "M7"
+      ],
+      "id": "reference:mcm-mhc-miseq:0189",
+      "length": 240,
+      "maxEvidenceWeight": 1.0,
+      "primaryName": "MCM_MHC_MiSeq_0189",
+      "sourceIDs": [
+        "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique"
+      ],
+      "sourceLoci": [
+        "MHC-DRB6"
+      ]
+    }
+  ],
   "sources": [
     {
-      "citation": "miseq-genotyping_without_labkey.ipynb, dholab genotyper shared drive",
-      "id": "source:notebook:miseq-genotyping-without-labkey",
-      "notes": "Human-created legacy dictionary definitions for MCM and Indian rhesus report labels.",
-      "path": "dholab/gs/genotyper/miseq-genotyping_without_labkey.ipynb",
-      "title": "Legacy MiSeq haplotyping notebook definitions"
+      "citation": "32062_MiSeq261_AG-Indian65_29April26 Final.xlsx",
+      "id": "source:example-report:indian-rhesus-miseq261",
+      "notes": "Example of Indian rhesus regional haplotype reporting with Mamu labels, MHC-E, and MHC-AG evidence.",
+      "path": "32062_MiSeq261_AG-Indian65_29April26 Final.xlsx",
+      "title": "Indian rhesus MiSeq analyst report example"
+    },
+    {
+      "citation": "31936_MiSeq260_LCPreclinical37_InitialReport_18Dec25.xlsx",
+      "id": "source:example-report:mcm-miseq260",
+      "notes": "Example of color summarized MCM haplotype reports, tolerated missing markers, bleed-through, and homozygous calls.",
+      "path": "31936_MiSeq260_LCPreclinical37_InitialReport_18Dec25.xlsx",
+      "title": "MCM MiSeq analyst report example"
+    },
+    {
+      "citation": "Local historical FASTA used by the original MCM haplotype definitions.",
+      "id": "source:fasta:mcm-mhc-miseq-20260601-legacy-names",
+      "notes": "Historical short marker names retained as aliases when sequence-identical to the 2026-06-17 trimmed unique reference FASTA.",
+      "path": "/Users/dho/Downloads/MCM_MHC-all_mRNA-MiSeq_singles-RENAME_DPBupdated_1Jun26 (1).fasta",
+      "title": "Legacy MCM MHC all mRNA miSeq singles FASTA"
+    },
+    {
+      "citation": "Local curated reference FASTA generated 2026-06-17.",
+      "id": "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique",
+      "notes": "Detailed stable MCM_MHC_MiSeq reference names with pipe-delimited source_loci, haplotype_groups, haplotypes, alleles, accessions, length, and evidence weight metadata.",
+      "path": "/Users/dho/Desktop/sandbox/mcm-mhc-miseq-reference-20260617/mcm_mhc_miseq_reference.trimmed.unique.fasta",
+      "title": "MCM MHC miSeq trimmed unique reference FASTA"
     },
     {
       "citation": "Karl et al., Genome Research, M3 MHC haplotype from a Mauritian cynomolgus macaque",
@@ -13322,19 +19542,12 @@
       "title": "MCM IPD names and haplotype workbook"
     },
     {
-      "citation": "31936_MiSeq260_LCPreclinical37_InitialReport_18Dec25.xlsx",
-      "id": "source:example-report:mcm-miseq260",
-      "notes": "Example of color summarized MCM haplotype reports, tolerated missing markers, bleed-through, and homozygous calls.",
-      "path": "31936_MiSeq260_LCPreclinical37_InitialReport_18Dec25.xlsx",
-      "title": "MCM MiSeq analyst report example"
-    },
-    {
-      "citation": "32062_MiSeq261_AG-Indian65_29April26 Final.xlsx",
-      "id": "source:example-report:indian-rhesus-miseq261",
-      "notes": "Example of Indian rhesus regional haplotype reporting with Mamu labels, MHC-E, and MHC-AG evidence.",
-      "path": "32062_MiSeq261_AG-Indian65_29April26 Final.xlsx",
-      "title": "Indian rhesus MiSeq analyst report example"
+      "citation": "miseq-genotyping_without_labkey.ipynb, dholab genotyper shared drive",
+      "id": "source:notebook:miseq-genotyping-without-labkey",
+      "notes": "Human-created legacy dictionary definitions for MCM and Indian rhesus report labels.",
+      "path": "dholab/gs/genotyper/miseq-genotyping_without_labkey.ipynb",
+      "title": "Legacy MiSeq haplotyping notebook definitions"
     }
   ],
-  "version": "2026-06-15.2"
+  "version": "2026-06-17.3"
 }

@@ -418,6 +418,77 @@ final class AIProviderTests: XCTestCase {
         XCTAssertEqual(schema["additionalProperties"] as? Bool, false)
     }
 
+    func testOpenAIStructuredResultUsesResponsesAPIWhenReasoningEffortIsSet() async throws {
+        let mockClient = MockHTTPClient()
+        await mockClient.setDefault(response: .json([
+            "id": "resp_test",
+            "status": "completed",
+            "output": [[
+                "type": "message",
+                "content": [[
+                    "type": "output_text",
+                    "text": #"{"schemaVersion":1,"ok":true}"#,
+                ]],
+            ]],
+            "usage": [
+                "input_tokens": 17,
+                "output_tokens": 9,
+                "input_tokens_details": ["cached_tokens": 1024],
+                "output_tokens_details": ["reasoning_tokens": 6],
+            ],
+        ]))
+        let provider = OpenAIProvider(apiKey: "test-key", modelId: "gpt-5.5", httpClient: mockClient)
+        let request = AIStructuredRequest(
+            systemPrompt: "Return JSON only.",
+            userPrompt: "Classify this evidence.",
+            schemaName: "ai_haplotype_result",
+            schema: Self.strictHaplotypeSchema,
+            maxOutputTokens: 2048,
+            temperature: 0,
+            reasoningEffort: "low",
+            promptCacheRetention: "24h",
+            promptCacheKey: "mcm-mhc-miseq-specialist-2026-06-19-1",
+            attemptIndex: 2,
+            fallbackIndex: 1,
+            credentialSource: "keychain"
+        )
+
+        let response = try await provider.requestStructuredResult(request)
+
+        XCTAssertEqual(response.payload["ok"]?.boolValue, true)
+        XCTAssertEqual(response.rawText, #"{"schemaVersion":1,"ok":true}"#)
+        XCTAssertEqual(response.usage?.inputTokens, 17)
+        XCTAssertEqual(response.usage?.outputTokens, 9)
+        XCTAssertEqual(response.usage?.cachedInputTokens, 1024)
+        XCTAssertEqual(response.usage?.reasoningOutputTokens, 6)
+        XCTAssertEqual(response.attemptMetadata.apiVersion, "responses.v1")
+        XCTAssertEqual(response.attemptMetadata.endpoint, "https://api.openai.com/v1/responses")
+        XCTAssertEqual(response.attemptMetadata.stopReason, "completed")
+        XCTAssertEqual(response.attemptMetadata.cachedInputTokens, 1024)
+        XCTAssertEqual(response.attemptMetadata.reasoningOutputTokens, 6)
+
+        let requests = await mockClient.requests
+        let url = try XCTUnwrap(requests.first?.url)
+        XCTAssertEqual(url.absoluteString, "https://api.openai.com/v1/responses")
+        XCTAssertEqual(requests.first?.timeoutInterval, 600)
+        let captured = try XCTUnwrap(requests.first?.httpBody)
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: captured) as? [String: Any])
+        XCTAssertEqual(body["model"] as? String, "gpt-5.5")
+        XCTAssertEqual(body["max_output_tokens"] as? Int, 2048)
+        XCTAssertEqual(body["prompt_cache_retention"] as? String, "24h")
+        XCTAssertEqual(body["prompt_cache_key"] as? String, "mcm-mhc-miseq-specialist-2026-06-19-1")
+        XCTAssertNil(body["temperature"])
+        let reasoning = try XCTUnwrap(body["reasoning"] as? [String: Any])
+        XCTAssertEqual(reasoning["effort"] as? String, "low")
+        let text = try XCTUnwrap(body["text"] as? [String: Any])
+        let format = try XCTUnwrap(text["format"] as? [String: Any])
+        XCTAssertEqual(format["type"] as? String, "json_schema")
+        XCTAssertEqual(format["name"] as? String, "ai_haplotype_result")
+        XCTAssertEqual(format["strict"] as? Bool, true)
+        let schema = try XCTUnwrap(format["schema"] as? [String: Any])
+        XCTAssertEqual(schema["additionalProperties"] as? Bool, false)
+    }
+
     func testOpenAIStructuredResultDistinguishesInsufficientQuotaFromRetryableRateLimit() async throws {
         let mockClient = MockHTTPClient()
         await mockClient.setDefault(response: .json([

@@ -148,9 +148,8 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
     // MARK: - Building the workbook
 
     enum PivotWorkbookBuilder {
-        /// Canonical seven loci × two haplotype slots, in the same order as
-        /// the lab's reference workbook.
-        static let canonicalLoci: [String] = [
+        /// Canonical split-locus layout used by the lab's reference workbook.
+        static let canonicalSplitLoci: [String] = [
             "MHC-A", "MHC-B", "MHC-DRB", "MHC-DQA", "MHC-DQB", "MHC-DPA", "MHC-DPB",
         ]
 
@@ -255,16 +254,18 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
             var rows: [HaplotypeRow] = []
             // Build (sample → locus → call) map from the persisted analysis.
             var callsBySampleLocus: [String: [String: GenotypeHaplotypeLocusCall]] = [:]
+            var analysisLoci = Set<String>()
             if let analysis {
                 for sample in analysis.samples {
                     var locusMap: [String: GenotypeHaplotypeLocusCall] = [:]
                     for call in sample.calls {
                         locusMap[call.locus] = call
+                        analysisLoci.insert(call.locus)
                     }
                     callsBySampleLocus[sample.sample] = locusMap
                 }
             }
-            for locus in canonicalLoci {
+            for locus in haplotypeRowLoci(analysisLoci: analysisLoci) {
                 for slot in 1...2 {
                     let label = "\(locus) Haplotype \(slot)"
                     let values: [String?] = samples.map { sample in
@@ -277,6 +278,19 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
                 }
             }
             return rows
+        }
+
+        private static func haplotypeRowLoci(analysisLoci: Set<String>) -> [String] {
+            guard !analysisLoci.isEmpty else { return canonicalSplitLoci }
+            let usesGroupedDR = analysisLoci.contains("MHC-DR")
+            let usesGroupedDQ = analysisLoci.contains("MHC-DQ")
+            let usesGroupedDP = analysisLoci.contains("MHC-DP")
+            return [
+                ["MHC-A", "MHC-B"],
+                usesGroupedDR ? ["MHC-DR"] : ["MHC-DRB"],
+                usesGroupedDQ ? ["MHC-DQ"] : ["MHC-DQA", "MHC-DQB"],
+                usesGroupedDP ? ["MHC-DP"] : ["MHC-DPA", "MHC-DPB"],
+            ].flatMap { $0 }
         }
 
         private static func makeCommentsRow(

@@ -55,6 +55,96 @@ final class AIHaplotypingEvidenceRegistryTests: XCTestCase {
         XCTAssertTrue(registry.inputSnapshotDigest.hasPrefix("sha256:"))
     }
 
+    func testDiscoveryKeepsMHCLEvidenceInterstitialAndMapsOtherClassIMarkersToReportLoci() throws {
+        let result = makeResult(
+            calls: [
+                makeCall(sample: "LF2843", genotype: "Mafa-AG3*03:03:02:01"),
+                makeCall(sample: "LF2843", genotype: "Mafa-G*02:11:01:01"),
+                makeCall(sample: "LF2843", genotype: "Mafa-L*01:02:01:01"),
+                makeCall(sample: "LF2843", genotype: "Mafa-I*01:10:01:02"),
+                makeCall(sample: "LF2843", genotype: "Mafa-S*01:04"),
+                makeCall(sample: "LF2843", genotype: "Mafa-V*01:02b"),
+            ]
+        )
+
+        let registry = try AIHaplotypingEvidenceBuilder.build(
+            result: result,
+            sidecar: nil,
+            mode: .aiDiscovery,
+            parentRevisionID: nil
+        )
+
+        XCTAssertEqual(
+            registry.loci,
+            [
+                LocusEvidence(id: "locus:MHC-A", locus: "MHC-A"),
+                LocusEvidence(id: "locus:MHC-B", locus: "MHC-B"),
+                LocusEvidence(id: "locus:MHC-L", locus: "MHC-L"),
+            ]
+        )
+        XCTAssertEqual(
+            Set(registry.observations.map(\.locusID)),
+            ["locus:MHC-A", "locus:MHC-B", "locus:MHC-L"]
+        )
+        XCTAssertFalse(registry.evidenceIDs.contains("locus:MHC-AG"))
+        XCTAssertFalse(registry.evidenceIDs.contains("locus:MHC-G"))
+        XCTAssertTrue(registry.evidenceIDs.contains("locus:MHC-L"))
+        XCTAssertFalse(registry.evidenceIDs.contains("locus:MHC-I"))
+        XCTAssertFalse(registry.evidenceIDs.contains("locus:MHC-S"))
+        XCTAssertFalse(registry.evidenceIDs.contains("locus:MHC-V"))
+        XCTAssertTrue(registry.evidenceIDs.contains("obs:LF2843:MHC-A:Mafa-AG3*03:03:02:01"))
+        XCTAssertTrue(registry.evidenceIDs.contains("obs:LF2843:MHC-A:Mafa-G*02:11:01:01"))
+        XCTAssertTrue(registry.evidenceIDs.contains("obs:LF2843:MHC-L:Mafa-L*01:02:01:01"))
+        XCTAssertTrue(registry.evidenceIDs.contains("obs:LF2843:MHC-B:Mafa-I*01:10:01:02"))
+        XCTAssertTrue(registry.evidenceIDs.contains("obs:LF2843:MHC-B:Mafa-S*01:04"))
+        XCTAssertTrue(registry.evidenceIDs.contains("obs:LF2843:MHC-B:Mafa-V*01:02b"))
+    }
+
+    func testDiscoveryUsesMiSeqPipeMetadataForReportableEvidenceLoci() throws {
+        let result = makeResult(
+            calls: [
+                makeCall(
+                    sample: "LF2823",
+                    genotype: "MCM_MHC_MiSeq_0012|source_loci=MHC-E|haplotype_groups=MHC-A|haplotypes=M2,M3|alleles=Mafa-E_02:16:01:01N,Mafa-E_02:16:01:02N"
+                ),
+                makeCall(
+                    sample: "LF2823",
+                    genotype: "MCM_MHC_MiSeq_0031|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M7|alleles=Mafa-B_044:04:01:01"
+                ),
+                makeCall(
+                    sample: "LF2823",
+                    genotype: "MCM_MHC_MiSeq_0206|source_loci=MHC-L|haplotype_groups=MHC-A|haplotypes=M4|alleles=Mafa-L_01:02:01:01"
+                ),
+                makeCall(
+                    sample: "LF2823",
+                    genotype: "MCM_MHC_MiSeq_0129|source_loci=MHC-K|haplotype_groups=MHC-A|haplotypes=M1,M2|alleles=Mafa-K_01:03:01:01"
+                ),
+                makeCall(
+                    sample: "LF2823",
+                    genotype: "MCM_MHC_MiSeq_0023|source_loci=MHC-DQA1|haplotype_groups=MHC-DQ|haplotypes=M4|alleles=Mafa-DQA1_01:07:01:01"
+                ),
+            ]
+        )
+
+        let registry = try AIHaplotypingEvidenceBuilder.build(
+            result: result,
+            sidecar: nil,
+            mode: .aiDiscovery,
+            parentRevisionID: nil
+        )
+
+        XCTAssertEqual(
+            Set(registry.loci.map(\.locus)),
+            ["MHC-A", "MHC-B", "MHC-DQ", "MHC-E", "MHC-L"]
+        )
+        XCTAssertFalse(registry.evidenceIDs.contains("locus:MHC-MCM"))
+        XCTAssertTrue(registry.evidenceIDs.contains("obs:LF2823:MHC-E:MCM_MHC_MiSeq_0012|source_loci=MHC-E|haplotype_groups=MHC-A|haplotypes=M2,M3|alleles=Mafa-E_02:16:01:01N,Mafa-E_02:16:01:02N"))
+        XCTAssertTrue(registry.evidenceIDs.contains("obs:LF2823:MHC-B:MCM_MHC_MiSeq_0031|source_loci=MHC-B|haplotype_groups=MHC-B|haplotypes=M7|alleles=Mafa-B_044:04:01:01"))
+        XCTAssertTrue(registry.evidenceIDs.contains("obs:LF2823:MHC-L:MCM_MHC_MiSeq_0206|source_loci=MHC-L|haplotype_groups=MHC-A|haplotypes=M4|alleles=Mafa-L_01:02:01:01"))
+        XCTAssertTrue(registry.evidenceIDs.contains("obs:LF2823:MHC-A:MCM_MHC_MiSeq_0129|source_loci=MHC-K|haplotype_groups=MHC-A|haplotypes=M1,M2|alleles=Mafa-K_01:03:01:01"))
+        XCTAssertTrue(registry.evidenceIDs.contains("obs:LF2823:MHC-DQ:MCM_MHC_MiSeq_0023|source_loci=MHC-DQA1|haplotype_groups=MHC-DQ|haplotypes=M4|alleles=Mafa-DQA1_01:07:01:01"))
+    }
+
     func testRegistryIncludesCurrentAICallAndManualSidecarOverrideContextInRefinementMode() throws {
         var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-06-14T00:00:00Z")
         sidecar.callOverrides = [
@@ -520,11 +610,13 @@ final class AIHaplotypingEvidenceRegistryTests: XCTestCase {
         XCTAssertEqual(chunks.map(\.id), ["chunk-0001", "chunk-0002"])
         XCTAssertEqual(chunks[0].allowedEvidenceIDs, [
             chunks[0].registry.loci[0].id,
+            chunks[0].registry.loci[1].id,
             chunks[0].registry.observations[0].id,
             chunks[0].registry.samples[0].id,
         ])
         XCTAssertEqual(chunks[1].allowedEvidenceIDs, [
             chunks[1].registry.loci[0].id,
+            chunks[1].registry.loci[1].id,
             chunks[1].registry.observations[0].id,
             chunks[1].registry.samples[0].id,
         ])
@@ -555,6 +647,34 @@ final class AIHaplotypingEvidenceRegistryTests: XCTestCase {
             "obs:DW472:MHC-B:12_M9_B_001_01#row-0002",
         ])
         XCTAssertEqual(Set(registry.observations.map(\.id)).count, 2)
+    }
+
+    func testChunkerDoesNotMixSamplesWhenSampleFitsWithinChunkLimit() throws {
+        let result = makeResult(
+            calls: [
+                makeCall(sample: "DW472", genotype: "12_M9_A_001_01"),
+                makeCall(sample: "DW472", genotype: "12_M9_B_001_01"),
+                makeCall(sample: "DW473", genotype: "12_M8_A_001_01"),
+                makeCall(sample: "DW473", genotype: "12_M8_B_001_01"),
+            ]
+        )
+        let registry = try AIHaplotypingEvidenceBuilder.build(
+            result: result,
+            sidecar: nil,
+            mode: .aiDiscovery,
+            parentRevisionID: nil
+        )
+
+        let chunks = try AIHaplotypingEvidenceChunker(maxObservationsPerChunk: 10).chunks(from: registry)
+
+        XCTAssertEqual(chunks.map { Set($0.registry.samples.map(\.id)) }, [
+            ["sample:DW472"],
+            ["sample:DW473"],
+        ])
+        XCTAssertEqual(chunks.map { Set($0.registry.observations.map(\.locusID)) }, [
+            ["locus:MHC-A", "locus:MHC-B"],
+            ["locus:MHC-A", "locus:MHC-B"],
+        ])
     }
 
     func testChunkerKeepsSampleLocusEvidenceClustersClosedAndAllowsAllChunkEvidenceIDs() throws {
@@ -617,21 +737,53 @@ final class AIHaplotypingEvidenceRegistryTests: XCTestCase {
 
         XCTAssertEqual(chunks.map(\.id), ["chunk-0001", "chunk-0002"])
         XCTAssertEqual(chunks[0].registry.observations.map(\.id), [
-            "obs:DW473:MHC-A:12_M8_A_001_01",
-        ])
-        XCTAssertEqual(chunks[1].registry.observations.map(\.id), [
             "obs:DW472:MHC-B:12_M7_B_001_01",
             "obs:DW472:MHC-B:12_M9_B_001_01",
         ])
-        XCTAssertEqual(chunks[1].allowedEvidenceIDs, [
+        XCTAssertEqual(chunks[1].registry.observations.map(\.id), [
+            "obs:DW473:MHC-A:12_M8_A_001_01",
+        ])
+        XCTAssertEqual(chunks[0].allowedEvidenceIDs, [
             "current:DW472:MHC-B:h1",
             "current:DW472:MHC-B:h2",
+            "locus:MHC-A",
             "locus:MHC-B",
             "manual:DW472:MHC-B:h1",
             "obs:DW472:MHC-B:12_M7_B_001_01",
             "obs:DW472:MHC-B:12_M9_B_001_01",
             "sample:DW472",
         ])
+    }
+
+    func testChunkerPreservesReportableLocusCatalogForUnresolvedCalls() throws {
+        let registry = AIHaplotypingEvidenceRegistry(
+            mode: .aiDiscovery,
+            parentRevisionID: nil,
+            inputSnapshotDigest: "sha256:input",
+            samples: [SampleEvidence(id: "sample:LF2825", sample: "LF2825")],
+            loci: [
+                LocusEvidence(id: "locus:MHC-A", locus: "MHC-A"),
+                LocusEvidence(id: "locus:MHC-DR", locus: "MHC-DR"),
+            ],
+            observations: [
+                ObservationEvidence(
+                    id: "obs:LF2825:MHC-A:MCM_MHC_MiSeq_0069",
+                    evidenceClass: .directObservation,
+                    sampleID: "sample:LF2825",
+                    locusID: "locus:MHC-A",
+                    genotype: "MCM_MHC_MiSeq_0069",
+                    passedAlignments: 20,
+                    passedUniqueReads: 20,
+                    sampleUniqueRetainedReads: nil
+                )
+            ]
+        )
+
+        let chunks = try AIHaplotypingEvidenceChunker(maxObservationsPerChunk: 10).chunks(from: registry)
+
+        XCTAssertEqual(chunks.count, 1)
+        XCTAssertEqual(Set(chunks[0].registry.loci.map(\.locus)), ["MHC-A", "MHC-DR"])
+        XCTAssertTrue(chunks[0].registry.evidenceIDs.contains("locus:MHC-DR"))
     }
 
     private func makeCall(

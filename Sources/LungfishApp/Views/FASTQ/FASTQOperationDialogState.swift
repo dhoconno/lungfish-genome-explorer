@@ -655,14 +655,13 @@ final class FASTQOperationDialogState {
 
         case .ontGenotyping:
             guard let referenceURL = auxiliaryInputURL(for: .referenceSequence),
-                  let barcodeDefinitionsURL = auxiliaryInputURL(for: .barcodeDefinition),
-                  selectedInputURLs.count == 1,
-                  let inputFASTQURL = selectedInputURLs.first,
                   let outputDirectoryURL,
                   let request = try? ONTBarcodeDemuxGenotypingRunRequest(
-                    inputFASTQURL: inputFASTQURL,
+                    inputFASTQURLs: selectedInputURLs,
                     referenceSourceURL: referenceURL,
-                    barcodeDefinitionsURL: barcodeDefinitionsURL,
+                    barcodeDefinitionsURL: ontGenotypingUsesPreparedSampleInputs
+                        ? nil
+                        : auxiliaryInputURL(for: .barcodeDefinition),
                     outputDirectory: outputDirectoryURL,
                     outputName: ontGenotypingOutputName,
                     analysisName: ontGenotypingAnalysisName,
@@ -672,7 +671,9 @@ final class FASTQOperationDialogState {
                     haplotypeDropoutSampleFraction: nil,
                     haplotypeDropoutLocusFraction: Self.fraction(fromPercent: ontGenotypingHaplotypeDropoutLocusPercent),
                     haplotypeDropoutLocusFractionOverrides: [:],
-                    extraArguments: AdvancedCommandLineOptions.parse(ontGenotypingExtraArguments)
+                    extraArguments: AdvancedCommandLineOptions.parse(ontGenotypingExtraArguments),
+                    mode: ontGenotypingUsesPreparedSampleInputs ? .ontSampleBundles : .ontBarcodeDemux,
+                    readType: .ont
                   ) else {
                 return nil
             }
@@ -911,6 +912,10 @@ final class FASTQOperationDialogState {
             return demultiplexBarcodeSource == .customDefinition
                 ? [.fastqDataset, .barcodeDefinition]
                 : [.fastqDataset]
+        case .ontGenotyping:
+            return ontGenotypingUsesPreparedSampleInputs
+                ? [.fastqDataset, .referenceSequence]
+                : [.fastqDataset, .referenceSequence, .barcodeDefinition]
         default:
             return selectedToolID.requiredInputKinds
         }
@@ -1221,13 +1226,14 @@ final class FASTQOperationDialogState {
             if selectedInputURLs.isEmpty {
                 return "Select at least one FASTQ dataset."
             }
-            if selectedInputURLs.count != 1 {
+            if selectedInputURLs.count != 1 && !ontGenotypingUsesPreparedSampleInputs {
                 return "Select one ONT barcode FASTQ dataset."
             }
             if auxiliaryInputURL(for: .referenceSequence) == nil {
                 return "Select a reference sequence to continue."
             }
-            if auxiliaryInputURL(for: .barcodeDefinition) == nil {
+            if !ontGenotypingUsesPreparedSampleInputs,
+               auxiliaryInputURL(for: .barcodeDefinition) == nil {
                 return "Select a barcode definition to continue."
             }
             if ontGenotypingThreads <= 0 {
@@ -1468,6 +1474,22 @@ final class FASTQOperationDialogState {
         auxiliaryInputURL(for: .barcodeDefinition)?.path
     }
 
+    private var ontGenotypingUsesPreparedSampleInputs: Bool {
+        if selectedInputURLs.count > 1 {
+            return true
+        }
+        guard let onlyInput = selectedInputURLs.first else {
+            return false
+        }
+        return Self.urlIsDirectory(onlyInput) && !FASTQBundle.isBundleURL(onlyInput)
+    }
+
+    private static func urlIsDirectory(_ url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+            && isDirectory.boolValue
+    }
+
     private var assemblyCompatibilityEvaluation: AssemblyCompatibilityEvaluation {
         let detectedReadTypes = selectedInputURLs.compactMap(AssemblyReadType.detect(fromInputURL:))
         let evaluation = AssemblyCompatibility.evaluate(detectedReadTypes: detectedReadTypes)
@@ -1706,7 +1728,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         case .extractReadsByMotif: return "Extract Reads by Motif"
         case .selectReadsBySequence: return "Select Reads by Sequence"
         case .pbaa: return "pbAA Amplicon Clustering"
-        case .ontGenotyping: return "miSeq amplicon ONT MHC genotyping"
+        case .ontGenotyping: return "miSeq amplicon MHC genotyping"
         case .mafft: return "MAFFT"
         case .minimap2: return "minimap2"
         case .bwaMem2: return "BWA-MEM2"

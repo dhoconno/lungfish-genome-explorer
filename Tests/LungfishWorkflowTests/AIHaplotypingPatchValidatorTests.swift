@@ -61,6 +61,51 @@ final class AIHaplotypingPatchValidatorTests: XCTestCase {
         XCTAssertEqual(report.validatedDefinitions[0].locus, "MHC-B")
     }
 
+    func testValidatorAllowsMHCLEvidenceAsContextButRejectsMHCLReportCalls() throws {
+        let registry = makeRegistryWithMHCLEvidence()
+        let contextualResult = makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    sample: "DW473",
+                    locus: "MHC-A",
+                    haplotypeLabel: "M6A",
+                    supportEvidenceRefs: ["obs:DW473:MHC-L:Mafa-L*01:06:01:01"],
+                    counterevidenceRefs: ["locus:MHC-A"],
+                    rationale: "MHC-L context supports the nearby MHC-A block."
+                )
+            ]
+        )
+
+        let contextualReport = AIHaplotypingPatchValidator(registry: registry).validate(contextualResult)
+
+        XCTAssertTrue(contextualReport.accepted)
+        XCTAssertEqual(contextualReport.errors, [])
+        guard contextualReport.accepted, !contextualReport.normalizedCalls.isEmpty else { return }
+        XCTAssertEqual(
+            contextualReport.normalizedCalls[0].supportEvidenceRefs,
+            ["obs:DW473:MHC-L:Mafa-L*01:06:01:01"]
+        )
+
+        let reportLevelMHCL = makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    sample: "DW473",
+                    locus: "MHC-L",
+                    haplotypeLabel: "M6L",
+                    supportEvidenceRefs: ["obs:DW473:MHC-L:Mafa-L*01:06:01:01"],
+                    counterevidenceRefs: ["locus:MHC-L"]
+                )
+            ]
+        )
+
+        let reportLevelResult = AIHaplotypingPatchValidator(registry: registry).validate(reportLevelMHCL)
+
+        XCTAssertFalse(reportLevelResult.accepted)
+        XCTAssertEqual(reportLevelResult.errors, [.unknownCallTarget("DW473", "MHC-L")])
+    }
+
     func testValidatorNormalizesSingleMissingGSuffixObservationEvidenceID() throws {
         let registry = makeRegistryWithTrailingGObservation()
         let result = makeResult(
@@ -130,6 +175,25 @@ final class AIHaplotypingPatchValidatorTests: XCTestCase {
         XCTAssertEqual(report.normalizedCalls[0].aiMetadata.counterevidenceRefs, ["sample:DW472", "locus:MHC-B"])
     }
 
+    func testValidatorNormalizesPipeDuplicatedEvidenceReference() throws {
+        let registry = makeRegistry()
+        let result = makeResult(
+            registry: registry,
+            calls: [
+                makeCall(counterevidenceRefs: ["locus:MHC-B|locus:MHC-B"])
+            ]
+        )
+
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(result)
+
+        XCTAssertTrue(report.accepted)
+        XCTAssertEqual(report.errors, [])
+        XCTAssertEqual(report.normalizedCalls.count, 1)
+        guard report.accepted, report.normalizedCalls.count == 1 else { return }
+        XCTAssertEqual(report.normalizedCalls[0].counterevidenceRefs, ["locus:MHC-B"])
+        XCTAssertEqual(report.normalizedCalls[0].aiMetadata.counterevidenceRefs, ["locus:MHC-B"])
+    }
+
     func testValidatorNormalizesUniquePipedObservationEvidenceIDPrefix() throws {
         let registry = makeRegistryWithPipedObservation()
         let result = makeResult(
@@ -157,6 +221,64 @@ final class AIHaplotypingPatchValidatorTests: XCTestCase {
         )
         XCTAssertEqual(
             report.normalizedCalls[0].aiMetadata.supportEvidenceRefs,
+            ["obs:DW473:MHC-A:04_M1M2M3M4M5M6M7_AG_06g1|AG_06_02,_AG_06_05,_AG_06_w_01"]
+        )
+    }
+
+    func testValidatorNormalizesTrailingPipeOnExactObservationEvidenceID() throws {
+        let registry = makeRegistryWithPipedObservation()
+        let result = makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    sample: "DW473",
+                    locus: "MHC-A",
+                    haplotypeLabel: "M4A",
+                    supportEvidenceRefs: [
+                        "obs:DW473:MHC-A:04_M1M2M3M4M5M6M7_AG_06g1|AG_06_02,_AG_06_05,_AG_06_w_01|"
+                    ],
+                    counterevidenceRefs: ["sample:DW473"]
+                )
+            ]
+        )
+
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(result)
+
+        XCTAssertTrue(report.accepted)
+        XCTAssertEqual(report.errors, [])
+        XCTAssertEqual(report.normalizedCalls.count, 1)
+        guard report.accepted, report.normalizedCalls.count == 1 else { return }
+        XCTAssertEqual(
+            report.normalizedCalls[0].supportEvidenceRefs,
+            ["obs:DW473:MHC-A:04_M1M2M3M4M5M6M7_AG_06g1|AG_06_02,_AG_06_05,_AG_06_w_01"]
+        )
+    }
+
+    func testValidatorNormalizesObservationEvidenceIDWithWrongPipeMetadataWhenBaseIDIsUnique() throws {
+        let registry = makeRegistryWithPipedObservation()
+        let result = makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    sample: "DW473",
+                    locus: "MHC-A",
+                    haplotypeLabel: "M4A",
+                    supportEvidenceRefs: [
+                        "obs:DW473:MHC-A:04_M1M2M3M4M5M6M7_AG_06g1|wrong_metadata"
+                    ],
+                    counterevidenceRefs: ["sample:DW473"]
+                )
+            ]
+        )
+
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(result)
+
+        XCTAssertTrue(report.accepted)
+        XCTAssertEqual(report.errors, [])
+        XCTAssertEqual(report.normalizedCalls.count, 1)
+        guard report.accepted, report.normalizedCalls.count == 1 else { return }
+        XCTAssertEqual(
+            report.normalizedCalls[0].supportEvidenceRefs,
             ["obs:DW473:MHC-A:04_M1M2M3M4M5M6M7_AG_06g1|AG_06_02,_AG_06_05,_AG_06_w_01"]
         )
     }
@@ -831,6 +953,29 @@ final class AIHaplotypingPatchValidatorTests: XCTestCase {
         XCTAssertEqual(report.errors, [.duplicateCallTarget("DW472", "MHC-B", "h1")])
     }
 
+    func testValidatorCoalescesSubstantivelyDuplicateCallTarget() throws {
+        let registry = makeRegistry()
+        let result = makeResult(
+            registry: registry,
+            calls: [
+                makeCall(patchOpID: "patch-001", slot: "h1", haplotypeLabel: "M9B"),
+                makeCall(
+                    patchOpID: "patch-002",
+                    slot: "h1",
+                    haplotypeLabel: "M9B",
+                    rationaleCode: "same_call_duplicate",
+                    rationale: "Same call repeated by model output."
+                ),
+            ]
+        )
+
+        let report = AIHaplotypingPatchValidator(registry: registry).validate(result)
+
+        XCTAssertTrue(report.accepted)
+        XCTAssertEqual(report.errors, [])
+        XCTAssertEqual(report.normalizedCalls.map(\.patchOpID), ["patch-001"])
+    }
+
     func testRejectsBlankPatchOperationID() throws {
         let registry = makeRegistry()
         let result = makeResult(
@@ -1010,6 +1155,8 @@ final class AIHaplotypingPatchValidatorTests: XCTestCase {
         let generationParameterProperties = try XCTUnwrap(generationParameters.object("properties"))
         XCTAssertNotNil(generationParameterProperties["compactKnowledgePack"])
         XCTAssertNotNil(generationParameterProperties["maxProviderRetries"])
+        XCTAssertNotNil(generationParameterProperties["reasoningEffort"])
+        XCTAssertNotNil(generationParameterProperties["reviewScope"])
         let callsSchema = try XCTUnwrap(root["calls"]?.objectValue)
         let callSchema = try XCTUnwrap(callsSchema["items"]?.objectValue)
         let callProperties = try XCTUnwrap(callSchema.object("properties"))
@@ -1052,6 +1199,42 @@ final class AIHaplotypingPatchValidatorTests: XCTestCase {
         ))
         XCTAssertTrue(cohortAllowed.accepted)
         XCTAssertEqual(cohortAllowed.errors, [])
+    }
+
+    func testValidatorAllowsTightlyLinkedDQDPEvidenceButRejectsUnrelatedCrossLocusEvidence() throws {
+        let registry = makeRegistryWithDQDPEvidence()
+
+        let linkedDQDP = AIHaplotypingPatchValidator(registry: registry).validate(makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    sample: "DW472",
+                    locus: "MHC-DQ",
+                    haplotypeLabel: "M4DQ",
+                    supportEvidenceRefs: ["obs:DW472:MHC-DP:MCM_MHC_MiSeq_0153"],
+                    counterevidenceRefs: ["locus:MHC-DQ"]
+                )
+            ]
+        ))
+        XCTAssertTrue(linkedDQDP.accepted)
+        XCTAssertEqual(linkedDQDP.errors, [])
+
+        let unrelatedCrossLocus = AIHaplotypingPatchValidator(registry: registry).validate(makeResult(
+            registry: registry,
+            calls: [
+                makeCall(
+                    sample: "DW472",
+                    locus: "MHC-DP",
+                    haplotypeLabel: "M4DP",
+                    supportEvidenceRefs: ["obs:DW472:MHC-L:Mafa-L*01:06:01:01"],
+                    counterevidenceRefs: ["locus:MHC-DP"]
+                )
+            ]
+        ))
+        XCTAssertEqual(
+            unrelatedCrossLocus.errors,
+            [.evidenceTargetMismatch("obs:DW472:MHC-L:Mafa-L*01:06:01:01", "DW472", "MHC-DP")]
+        )
     }
 
     func testRejectsCurrentAndManualConflictsUnlessCallStateExplainsConflict() throws {
@@ -1760,6 +1943,84 @@ private extension AIHaplotypingPatchValidatorTests {
                     rationale: "Manual review context."
                 ),
             ]
+        )
+    }
+
+    func makeRegistryWithMHCLEvidence() -> AIHaplotypingEvidenceRegistry {
+        let base = makeRegistry()
+        return AIHaplotypingEvidenceRegistry(
+            schemaVersion: base.schemaVersion,
+            mode: base.mode,
+            parentRevisionID: base.parentRevisionID,
+            inputSnapshotDigest: base.inputSnapshotDigest,
+            samples: base.samples,
+            loci: base.loci + [
+                LocusEvidence(id: "locus:MHC-L", locus: "MHC-L")
+            ],
+            observations: base.observations + [
+                ObservationEvidence(
+                    id: "obs:DW473:MHC-L:Mafa-L*01:06:01:01",
+                    evidenceClass: .directObservation,
+                    sampleID: "sample:DW473",
+                    locusID: "locus:MHC-L",
+                    genotype: "Mafa-L*01:06:01:01",
+                    passedAlignments: 38,
+                    passedUniqueReads: 20,
+                    sampleUniqueRetainedReads: 130
+                )
+            ],
+            currentCalls: base.currentCalls,
+            manualReviews: base.manualReviews
+        )
+    }
+
+    func makeRegistryWithDQDPEvidence() -> AIHaplotypingEvidenceRegistry {
+        let base = makeRegistry()
+        return AIHaplotypingEvidenceRegistry(
+            schemaVersion: base.schemaVersion,
+            mode: base.mode,
+            parentRevisionID: base.parentRevisionID,
+            inputSnapshotDigest: base.inputSnapshotDigest,
+            samples: base.samples,
+            loci: base.loci + [
+                LocusEvidence(id: "locus:MHC-DQ", locus: "MHC-DQ"),
+                LocusEvidence(id: "locus:MHC-DP", locus: "MHC-DP"),
+                LocusEvidence(id: "locus:MHC-L", locus: "MHC-L"),
+            ],
+            observations: base.observations + [
+                ObservationEvidence(
+                    id: "obs:DW472:MHC-DP:MCM_MHC_MiSeq_0153",
+                    evidenceClass: .directObservation,
+                    sampleID: "sample:DW472",
+                    locusID: "locus:MHC-DP",
+                    genotype: "MCM_MHC_MiSeq_0153",
+                    passedAlignments: 120,
+                    passedUniqueReads: 95,
+                    sampleUniqueRetainedReads: 180
+                ),
+                ObservationEvidence(
+                    id: "obs:DW472:MHC-A:MCM_MHC_MiSeq_0068",
+                    evidenceClass: .directObservation,
+                    sampleID: "sample:DW472",
+                    locusID: "locus:MHC-A",
+                    genotype: "MCM_MHC_MiSeq_0068",
+                    passedAlignments: 88,
+                    passedUniqueReads: 70,
+                    sampleUniqueRetainedReads: 180
+                ),
+                ObservationEvidence(
+                    id: "obs:DW472:MHC-L:Mafa-L*01:06:01:01",
+                    evidenceClass: .directObservation,
+                    sampleID: "sample:DW472",
+                    locusID: "locus:MHC-L",
+                    genotype: "Mafa-L*01:06:01:01",
+                    passedAlignments: 40,
+                    passedUniqueReads: 20,
+                    sampleUniqueRetainedReads: 180
+                ),
+            ],
+            currentCalls: base.currentCalls,
+            manualReviews: base.manualReviews
         )
     }
 

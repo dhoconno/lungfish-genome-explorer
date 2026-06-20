@@ -1,0 +1,313 @@
+{
+  "argv": [
+    "scripts/analysis/build_mcm_mhc_miseq_reference.py",
+    "--workbook",
+    "/Users/dho/Downloads/MCM_IPD_names_Acc#_Haplotype.xlsx",
+    "--ipd-fasta",
+    "/Users/dho/Downloads/IPD-MHC_NHKIR_Mafa_genomic.fasta",
+    "--template-fasta",
+    "/Users/dho/Downloads/MCM_MHC-all_mRNA-MiSeq_singles-RENAME_DPBupdated_1Jun26 (1).fasta",
+    "--output-dir",
+    "/Users/dho/Desktop/sandbox/mcm-mhc-miseq-reference-20260617",
+    "--force"
+  ],
+  "bundleDirectoryManifest": [
+    {
+      "path": ".lungfish-provenance.json",
+      "sha256": "fe656acd9eb4e484104135d5de2d282af9f1e09530197d403bdac093be246fad",
+      "sizeBytes": 10872
+    },
+    {
+      "path": "haplotypes/mcm-mhc-miseq-20260617.lungfishhaplotypedef.json",
+      "sha256": "328f5791a9472178d63bc84ed5d5249f437f916b324def4eb3fe6695eac57461",
+      "sizeBytes": 25512
+    },
+    {
+      "path": "mcm_mhc_miseq_reference.trimmed.unique.fasta",
+      "sha256": "13134729eba56d42479e251b53299152d823947a0bc2c64fb82a61023e1b6561",
+      "sizeBytes": 77084
+    },
+    {
+      "path": "mhc-reference.json",
+      "sha256": "00e3f73607c6728e1d864fefdcd7d8e6b3564d93b4597b9c20648b52a6b7c928",
+      "sizeBytes": 1644
+    },
+    {
+      "path": "sources/IPD-MHC_NHKIR_Mafa_genomic.fasta",
+      "sha256": "94995672131ba233de789267db87da234fc1a2cfe92abbd7030d717a76e20386",
+      "sizeBytes": 7296709
+    },
+    {
+      "path": "sources/MCM_IPD_names_Acc#_Haplotype.xlsx",
+      "sha256": "0c5ee0b89850bcc1d18d9c6b1adb27eb1655b441e3cbcc759ad91cd109db5ddb",
+      "sizeBytes": 18478
+    },
+    {
+      "path": "sources/MCM_MHC-all_mRNA-MiSeq_singles-RENAME_DPBupdated_1Jun26 (1).fasta",
+      "sha256": "8471191968c3b3864900f637a335682d3b50909395d46408e4aee27c33bbcd0d",
+      "sizeBytes": 34130
+    }
+  ],
+  "completedAt": "2026-06-17T14:12:53.633856Z",
+  "exitStatus": 0,
+  "inputs": [
+    {
+      "path": "/Users/dho/Downloads/MCM_IPD_names_Acc#_Haplotype.xlsx",
+      "role": "haplotype_workbook",
+      "sha256": "0c5ee0b89850bcc1d18d9c6b1adb27eb1655b441e3cbcc759ad91cd109db5ddb",
+      "sizeBytes": 18478
+    },
+    {
+      "path": "/Users/dho/Downloads/IPD-MHC_NHKIR_Mafa_genomic.fasta",
+      "role": "full_ipd_fasta",
+      "sha256": "94995672131ba233de789267db87da234fc1a2cfe92abbd7030d717a76e20386",
+      "sizeBytes": 7296709
+    },
+    {
+      "path": "/Users/dho/Downloads/MCM_MHC-all_mRNA-MiSeq_singles-RENAME_DPBupdated_1Jun26 (1).fasta",
+      "role": "trimmed_template_fasta",
+      "sha256": "8471191968c3b3864900f637a335682d3b50909395d46408e4aee27c33bbcd0d",
+      "sizeBytes": 34130
+    }
+  ],
+  "options": {
+    "assayID": "MHC-exon2-miSeq",
+    "bundleName": "MCM-MHC-miSeq-20260617.lungfishmhcref",
+    "defaults": {
+      "assayID": "MHC-exon2-miSeq",
+      "bundleName": "MCM-MHC-miSeq-20260617.lungfishmhcref",
+      "definitionID": "mcm-mhc-miseq-20260617",
+      "outputDir": "outputs/mcm-mhc-miseq-reference-20260617",
+      "referenceIdPrefix": "MCM_MHC_MiSeq"
+    },
+    "definitionID": "mcm-mhc-miseq-20260617",
+    "force": true,
+    "ipdFasta": "/Users/dho/Downloads/IPD-MHC_NHKIR_Mafa_genomic.fasta",
+    "outputDir": "/Users/dho/Desktop/sandbox/mcm-mhc-miseq-reference-20260617",
+    "referenceIdPrefix": "MCM_MHC_MiSeq",
+    "templateFasta": "/Users/dho/Downloads/MCM_MHC-all_mRNA-MiSeq_singles-RENAME_DPBupdated_1Jun26 (1).fasta",
+    "workbook": "/Users/dho/Downloads/MCM_IPD_names_Acc#_Haplotype.xlsx"
+  },
+  "outputs": [
+    {
+      "path": "/Users/dho/Desktop/sandbox/mcm-mhc-miseq-reference-20260617/README.md",
+      "role": "output_file",
+      "sha256": "c88073f2a654838c191bad931af4bdb4ee2fdf1741620a6dad108a754a49944b",
+      "sizeBytes": 6848
+    },
+    {
+      "path": "/Users/dho/Desktop/sandbox/mcm-mhc-miseq-reference-20260617/mcm_mhc_miseq_reference.trimmed.unique.fasta",
+      "role": "output_file",
+      "sha256": "13134729eba56d42479e251b53299152d823947a0bc2c64fb82a61023e1b6561",
+      "sizeBytes": 77084
+    },
+    {
+      "path": "/Users/dho/Desktop/sandbox/mcm-mhc-miseq-reference-20260617/mcm_mhc_miseq_reference.trimmed.by_allele.fasta",
+      "role": "output_file",
+      "sha256": "07daa7fd4891a17d26dd46c526dff65c3c1f764b8f82754a9f7aae56d01ba2b4",
+      "sizeBytes": 96086
+    },
+    {
+      "path": "/Users/dho/Desktop/sandbox/mcm-mhc-miseq-reference-20260617/mcm_mhc_full_length.extracted.fasta",
+      "role": "output_file",
+      "sha256": "6bbc22f93a447d4dbc5f8f36f311d90ec6f9ee9d7f9470a81786c328121b54e1",
+      "sizeBytes": 1101652
+    },
+    {
+      "path": "/Users/dho/Desktop/sandbox/mcm-mhc-miseq-reference-20260617/qc/unique_sequence_map.tsv",
+      "role": "output_file",
+      "sha256": "37d9b483a26b5a6236d36da784dfb96213bb2b9de0ec9d999dbb7542ba6be68f",
+      "sizeBytes": 41273
+    },
+    {
+      "path": "/Users/dho/Desktop/sandbox/mcm-mhc-miseq-reference-20260617/qc/allele_trim_qc.tsv",
+      "role": "output_file",
+      "sha256": "1770376342397174fef8911272891b592c49f20b6d8227ba28d1b533670295ff",
+      "sizeBytes": 54719
+    },
+    {
+      "path": "/Users/dho/Desktop/sandbox/mcm-mhc-miseq-reference-20260617/qc/missing_or_unresolved.tsv",
+      "role": "output_file",
+      "sha256": "2f03ac7ce35d25c3444affa1ef734e03c570aa22a7cec7e82ebf5f42e6df6107",
+      "sizeBytes": 6338
+    },
+    {
+      "path": "/Users/dho/Desktop/sandbox/mcm-mhc-miseq-reference-20260617/qc/primer_schemes.json",
+      "role": "output_file",
+      "sha256": "9ea4cb06c60c8a802278d7737eecc5f449aa259c1ca8909d16a1dc484c6df727",
+      "sizeBytes": 1229
+    },
+    {
+      "path": "/Users/dho/Desktop/sandbox/mcm-mhc-miseq-reference-20260617/qc/summary.json",
+      "role": "output_file",
+      "sha256": "292c5d7e90cc4a8f6cf4f017aa32e222192028b8838e75c22427ee577f69aba0",
+      "sizeBytes": 1301
+    },
+    {
+      "path": "/Users/dho/Desktop/sandbox/mcm-mhc-miseq-reference-20260617/mcm-mhc-miseq-20260617.lungfishhaplotypedef.json",
+      "role": "output_file",
+      "sha256": "328f5791a9472178d63bc84ed5d5249f437f916b324def4eb3fe6695eac57461",
+      "sizeBytes": 25512
+    },
+    {
+      "path": "/Users/dho/Desktop/sandbox/mcm-mhc-miseq-reference-20260617/MCM-MHC-miSeq-20260617.lungfishmhcref/mhc-reference.json",
+      "role": "output_file",
+      "sha256": "00e3f73607c6728e1d864fefdcd7d8e6b3564d93b4597b9c20648b52a6b7c928",
+      "sizeBytes": 1644
+    },
+    {
+      "path": "/Users/dho/Desktop/sandbox/mcm-mhc-miseq-reference-20260617/MCM-MHC-miSeq-20260617.lungfishmhcref/mcm_mhc_miseq_reference.trimmed.unique.fasta",
+      "role": "output_file",
+      "sha256": "13134729eba56d42479e251b53299152d823947a0bc2c64fb82a61023e1b6561",
+      "sizeBytes": 77084
+    },
+    {
+      "path": "/Users/dho/Desktop/sandbox/mcm-mhc-miseq-reference-20260617/MCM-MHC-miSeq-20260617.lungfishmhcref/haplotypes/mcm-mhc-miseq-20260617.lungfishhaplotypedef.json",
+      "role": "output_file",
+      "sha256": "328f5791a9472178d63bc84ed5d5249f437f916b324def4eb3fe6695eac57461",
+      "sizeBytes": 25512
+    },
+    {
+      "fileCount": 7,
+      "path": "/Users/dho/Desktop/sandbox/mcm-mhc-miseq-reference-20260617/MCM-MHC-miSeq-20260617.lungfishmhcref",
+      "role": "lungfish_mhc_reference_bundle",
+      "sha256": "7ce5310ab88ef1e27ef0b05a6d75d68193e1615f4c35f8b3e4cd23a562e36d88",
+      "sizeBytes": 7464429
+    }
+  ],
+  "primerSchemes": {
+    "DPA": {
+      "family": "DPA",
+      "left": "ATAGACCAACAGGGGAGT",
+      "max_length": 176,
+      "max_mismatches": 6,
+      "min_length": 168,
+      "right": "ACTCAGGCCACCAATGAT",
+      "target_length": 173
+    },
+    "DPB": {
+      "family": "DPB",
+      "left": "CGTTTAACGGGACACAGC",
+      "max_length": 196,
+      "max_mismatches": 8,
+      "min_length": 184,
+      "right": "TGACCCTGAAGCGCCGAG",
+      "target_length": 192
+    },
+    "DQA": {
+      "family": "DQA",
+      "left": "GTTGCCTCTTGCGGTGTAAA",
+      "max_length": 206,
+      "max_mismatches": 6,
+      "min_length": 198,
+      "right": "TACCGCTGCTACCAATGGTA",
+      "target_length": 204
+    },
+    "DQB": {
+      "family": "DQB",
+      "left": "CCCGCAGAGGATTTCGTG",
+      "max_length": 156,
+      "max_mismatches": 4,
+      "min_length": 152,
+      "right": "ACTGGAACAGCCAGAAGG",
+      "target_length": 154
+    },
+    "DRB": {
+      "family": "DRB",
+      "left": "CCCCACAGCACGTTTCTT",
+      "max_length": 246,
+      "max_mismatches": 10,
+      "min_length": 238,
+      "right": "ACAGTGCAGCGGCGAGGT",
+      "target_length": 244
+    },
+    "class_i": {
+      "family": "class_i",
+      "left": "GGGCTACGTGGACGACAC",
+      "max_length": 160,
+      "max_mismatches": 10,
+      "min_length": 140,
+      "right": "CTACTACAACCAGAGCGA",
+      "target_length": 156
+    }
+  },
+  "qcSummary": {
+    "evidenceClassCountsTrimmed": {
+      "primary_expressed": 231,
+      "support_only_pseudogene_or_null": 28
+    },
+    "familyCountsTrimmed": {
+      "DPA": 6,
+      "DPB": 15,
+      "DQA": 7,
+      "DQB": 7,
+      "DRB": 25,
+      "class_i": 199
+    },
+    "fullLengthExtractedAlleles": 271,
+    "haplotypeDefinitionLoci": [
+      "MHC-A",
+      "MHC-B",
+      "MHC-DP",
+      "MHC-DQ",
+      "MHC-DR"
+    ],
+    "ipdFastaRecords": 3670,
+    "lengthCountsTrimmed": {
+      "145": 1,
+      "146": 2,
+      "147": 5,
+      "148": 1,
+      "154": 9,
+      "156": 188,
+      "173": 6,
+      "186": 1,
+      "189": 3,
+      "192": 11,
+      "201": 1,
+      "204": 6,
+      "240": 1,
+      "241": 3,
+      "242": 3,
+      "244": 17,
+      "246": 1
+    },
+    "methodCounts": {
+      "not_in_amplicon_panel": 7,
+      "permissive_best_primer_pair": 16,
+      "pseudogene_support_only_no_primer_pair": 5,
+      "strict_unique_primer_sweep": 243
+    },
+    "missingOrUnresolvedAlleles": 25,
+    "statusCounts": {
+      "missing_from_ipd_fasta": 4,
+      "not_genotyped": 7,
+      "support_only_missing_from_ipd_fasta": 9,
+      "support_only_untrimmed": 5,
+      "trimmed": 259
+    },
+    "templateRecords": 180,
+    "trimmedAlleles": 259,
+    "uniqueTemplateExactSequences": 108,
+    "uniqueTrimmedSequences": 189,
+    "version": "2026-06-17.1",
+    "workbookAlleles": 284,
+    "workflow": "build-mcm-mhc-miseq-reference"
+  },
+  "reproducibleCommand": "scripts/analysis/build_mcm_mhc_miseq_reference.py --workbook '/Users/dho/Downloads/MCM_IPD_names_Acc#_Haplotype.xlsx' --ipd-fasta /Users/dho/Downloads/IPD-MHC_NHKIR_Mafa_genomic.fasta --template-fasta '/Users/dho/Downloads/MCM_MHC-all_mRNA-MiSeq_singles-RENAME_DPBupdated_1Jun26 (1).fasta' --output-dir /Users/dho/Desktop/sandbox/mcm-mhc-miseq-reference-20260617 --force",
+  "runtime": {
+    "condaPrefix": "/Users/dho/miniforge3",
+    "container": "",
+    "executable": "/Users/dho/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+    "openpyxl": "3.1.5",
+    "platform": "macOS-26.5.1-arm64-arm-64bit",
+    "python": "3.12.13 (main, Mar  3 2026, 15:35:03) [Clang 21.1.4 ]"
+  },
+  "schemaVersion": 1,
+  "startedAt": "2026-06-17T14:12:50.631074Z",
+  "stderr": "",
+  "toolName": "build_mcm_mhc_miseq_reference.py",
+  "toolVersion": "2026-06-17.1",
+  "wallTimeSeconds": 3.002702458994463,
+  "workflowName": "build-mcm-mhc-miseq-reference"
+}

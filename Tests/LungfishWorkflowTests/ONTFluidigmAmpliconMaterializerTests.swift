@@ -194,6 +194,49 @@ final class ONTFluidigmAmpliconMaterializerTests: XCTestCase {
         XCTAssertEqual(result.outputBundleURLs, [])
     }
 
+    func testAmpliconBarcodeAssignmentIgnoresBarcodeSequenceEmbeddedInPrimer() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let inputFASTQ = root.appendingPathComponent("barcode11.fastq")
+        let barcodesCSV = root.appendingPathComponent("ONT09_NB11_samples.csv")
+        let outputDirectory = root.appendingPathComponent("ont-fluidigm-amplicons", isDirectory: true)
+
+        let cs1 = ONTFluidigmAmpliconMaterializer.defaultForwardPrimer
+        let cs2rc = Self.reverseComplement(ONTFluidigmAmpliconMaterializer.defaultReversePrimer)
+        let insert = "ACGTACGTACGTACGT"
+        let lf2840Barcode = "CATGTCGTCA"
+        XCTAssertTrue(cs1.contains(Self.reverseComplement(lf2840Barcode)))
+
+        let sequence = "\(cs1)\(insert)\(cs2rc)"
+        try """
+        @read-1
+        \(sequence)
+        +
+        \(String(repeating: "I", count: sequence.count))
+        """.write(to: inputFASTQ, atomically: true, encoding: .utf8)
+        try """
+        sample,barcode
+        LF2840,\(lf2840Barcode)
+        """.write(to: barcodesCSV, atomically: true, encoding: .utf8)
+
+        let result = try await ONTFluidigmAmpliconMaterializer().run(
+            ONTFluidigmAmpliconMaterializationRequest(
+                inputURL: inputFASTQ,
+                barcodeDefinitionsURL: barcodesCSV,
+                outputDirectory: outputDirectory,
+                primerMismatches: 0,
+                minimumInsertLength: 8,
+                force: true
+            )
+        )
+
+        XCTAssertEqual(result.inputReadCount, 1)
+        XCTAssertEqual(result.assignedReadCount, 0)
+        XCTAssertEqual(result.extractedReadCount, 0)
+        XCTAssertEqual(result.outputBundleURLs, [])
+    }
+
     private static func reverseComplement(_ sequence: String) -> String {
         let table: [Character: Character] = [
             "A": "T", "C": "G", "G": "C", "T": "A",

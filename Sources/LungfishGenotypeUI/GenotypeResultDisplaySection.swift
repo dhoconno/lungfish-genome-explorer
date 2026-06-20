@@ -284,7 +284,7 @@ public struct GenotypeResultDisplaySection: View {
             Text("Haplotype thresholds")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Text("Thresholds are fixed by the genotyping run. Re-run miSeq amplicon ONT MHC genotyping to change min reads or percent thresholds.")
+            Text("Thresholds are fixed by the genotyping run. Re-run miSeq amplicon MHC genotyping to change min reads or percent thresholds.")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)

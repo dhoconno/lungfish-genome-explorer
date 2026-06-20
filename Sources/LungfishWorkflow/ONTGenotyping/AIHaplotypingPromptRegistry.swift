@@ -48,6 +48,8 @@ public struct AIHaplotypingPromptRegistry: Equatable, Sendable {
             return try AIHaplotypingPromptRegistry(templates: [
                 .builtInDiscovery,
                 .builtInRefinement,
+                .mcmMHCmiseqSpecialistDiscovery,
+                .mcmMHCmiseqSpecialistRefinement,
             ])
         } catch {
             preconditionFailure("Invalid built-in AI haplotyping prompt registry: \(error)")
@@ -55,7 +57,7 @@ public struct AIHaplotypingPromptRegistry: Equatable, Sendable {
     }()
 
     public func currentTemplate(for mode: AIHaplotypingPromptMode) throws -> AIHaplotypingPromptTemplate {
-        let matchingTemplates = templates.filter { $0.mode == mode }
+        let matchingTemplates = templates.filter { $0.mode == mode && $0.isDefaultCandidate }
         guard let template = matchingTemplates.max(by: {
             $0.version.localizedStandardCompare($1.version) == .orderedAscending
         }) else {
@@ -84,7 +86,8 @@ public struct AIHaplotypingPromptRegistry: Equatable, Sendable {
                     version: $0.version,
                     evidenceSchemaVersion: $0.evidenceSchemaVersion,
                     systemPrompt: $0.systemPrompt,
-                    userPromptTemplate: $0.userPromptTemplate
+                    userPromptTemplate: $0.userPromptTemplate,
+                    isDefaultCandidate: $0.isDefaultCandidate
                 )
             }
         ))
@@ -96,10 +99,90 @@ public struct AIHaplotypingPromptRegistry: Equatable, Sendable {
 }
 
 public extension AIHaplotypingPromptTemplate {
+    static let mcmMHCmiseqSpecialistDiscovery: AIHaplotypingPromptTemplate = {
+        let preset = MCMHaplotypingPreset.mcmMHCmiseq
+        return AIHaplotypingPromptTemplate(
+            id: preset.aiPromptTemplateID(for: .aiDiscovery),
+            mode: .aiDiscovery,
+            version: preset.aiPromptTemplateVersion,
+            evidenceSchemaVersion: 1,
+            systemPrompt: """
+            You are the bundled MCM MHC miSeq haplotyping specialist for Lungfish Genome Explorer.
+            Use the supplied specialist prompt as the authoritative haplotyping rule set for this locked MCM miSeq reference.
+            Do not use or request a separate knowledge pack. Cite evidence IDs from the supplied evidence registry for every proposed call.
+            Treat the result as analyst-review input, not as an automatically final scientific conclusion.
+            """,
+            userPromptTemplate: Self.mcmSpecialistUserPromptTemplate(mode: .aiDiscovery),
+            isDefaultCandidate: false
+        )
+    }()
+
+    static let mcmMHCmiseqSpecialistRefinement: AIHaplotypingPromptTemplate = {
+        let preset = MCMHaplotypingPreset.mcmMHCmiseq
+        return AIHaplotypingPromptTemplate(
+            id: preset.aiPromptTemplateID(for: .aiRefinement),
+            mode: .aiRefinement,
+            version: preset.aiPromptTemplateVersion,
+            evidenceSchemaVersion: 1,
+            systemPrompt: """
+            You are the bundled MCM MHC miSeq haplotyping specialist for Lungfish Genome Explorer.
+            Use the supplied specialist prompt as the authoritative haplotyping rule set for this locked MCM miSeq reference.
+            Do not use or request a separate knowledge pack. Cite evidence IDs from the supplied evidence registry for every retained, changed, unresolved, or proposed call.
+            Treat the result as analyst-review input, not as an automatically final scientific conclusion.
+            """,
+            userPromptTemplate: Self.mcmSpecialistUserPromptTemplate(mode: .aiRefinement),
+            isDefaultCandidate: false
+        )
+    }()
+
+    private static func mcmSpecialistUserPromptTemplate(mode: AIHaplotypingPromptMode) -> String {
+        let promptMarkdown: String
+        do {
+            promptMarkdown = try MCMHaplotypingPreset.mcmMHCmiseq.bundledSpecialistPromptMarkdown()
+        } catch {
+            preconditionFailure("Missing bundled MCM specialist prompt: \(error)")
+        }
+        let action = mode == .aiRefinement
+            ? "Refine current MCM MHC miSeq haplotype calls using this specialist prompt and the runtime evidence."
+            : "Review the runtime evidence and propose MCM MHC miSeq haplotype calls using this specialist prompt."
+        return """
+        \(action)
+
+        Specialist prompt:
+        \(promptMarkdown)
+
+        Output JSON contract:
+        - schemaVersion must be the integer 1. Do not write true, false, "1", or any other value for schemaVersion.
+        - Copy expectedRun exactly into run, including generationParameters, promptHash, registryDigest, and inputSnapshotDigest.
+        - Treat expectedRun as an audit checksum object. Do not recalculate, summarize, or normalize it.
+        - Copy every expectedRun.generationParameters key and value into run.generationParameters exactly. The values are JSON strings by design; do not convert "true", "false", "0", "1", or numeric-looking values to booleans or numbers.
+        - Before returning output, compare run.generationParameters against expectedRun.generationParameters. If any key is missing, added, or has a different value, fix run before returning JSON.
+        - Copy chunkID, registryDigest, and inputSnapshotDigest exactly from the prompt input to the top-level output fields.
+        - The runtime evidence may use compact observation IDs such as o1, o2, and o3. Use only evidence IDs that appear in evidenceRegistry.evidenceIDs for supportEvidenceRefs and counterevidenceRefs.
+        - Do not substitute genotype labels, allele names, or target IDs for evidence IDs. Copy the evidenceRegistry ID exactly when citing support or counterevidence.
+        - For each call, sample must use evidenceRegistry.samples[].sample and locus must use evidenceRegistry.loci[].locus.
+        - For every sample in this chunk, emit exactly two calls, h1 and h2, for each of these six loci: MHC-A, MHC-E, MHC-B, MHC-DR, MHC-DQ, and MHC-DP. If a locus or slot is unresolved, emit it with "?" or "-" as appropriate rather than omitting it.
+        - patchOpID must be non-empty and unique within the chunk. Use a stable format such as patch:<chunkID>:<sample>:<locus>:<slot>:v1.
+        - counterevidenceRefs must contain at least one relevant allowed evidence ID. If there is no direct contradictory observation, cite the corresponding sample or locus evidence ID as reviewed context.
+        - haplotypeLabel, alternates, and proposedLabel must be concise labels only, such as M4A, M5A, M4/M5A, M7A-provisional, or "-".
+        - Put homozygous, dominant, dropout, ambiguity, and uncertainty language only in rationale or rationaleCode, never in haplotypeLabel, alternates, normalizedFamily, proposedLabel, or warnings.
+        - If evidence supports an unrealistic number of haplotypes at a locus or across a sample, do not force calls. Set the affected calls to unresolved review using "?" or "-" as appropriate and explain that the supplied evidence does not support confident haplotyping.
+        - If you assign the same haplotypeLabel to both h1 and h2 for a sample/locus, at least one of those calls must explicitly say homozygous or single haplotype in rationaleCode or rationale.
+        - Use conflictsCurrent only when the proposed haplotypeLabel differs from a callable current call. When changing a callable current call, set callState to conflictsCurrent, cite the current call as counterevidence, and explain in rationale why observation evidence conflicts with or supersedes the current call.
+        - Do not mention clinical decisions or clinical interpretation. Do not recommend downstream testing or experimental action; if evidence remains ambiguous, set callState to unresolved and state the evidence limit concisely.
+        - Do not use the literal substrings phase, phasing, copy number, inherited, inheritance, clinical, confirmation, or follow-up anywhere in output text.
+        - Do not emit discoveredDefinitions for known curated M1-M7 labels from the specialist prompt. Use calls for those labels.
+        - discoveredDefinitions are only for genuinely novel or provisional labels not already defined in the specialist prompt; each proposedLabel should appear at most once per chunk.
+
+        Prompt input JSON:
+        {{prompt_input_json}}
+        """
+    }
+
     static let builtInDiscovery = AIHaplotypingPromptTemplate(
         id: "lungfish.ai-haplotyping.discovery",
         mode: .aiDiscovery,
-        version: "2026-06-18.1",
+        version: "2026-06-18.3",
         evidenceSchemaVersion: 1,
         systemPrompt: """
         You are a macaque MHC immunogenetics analyst reconstructing reviewable haplotype calls from genotyping evidence.
@@ -126,7 +209,7 @@ public extension AIHaplotypingPromptTemplate {
         - In MCM, DP/DQ linkage means DPA/DPB and DQA/DQB discordance is more likely to reflect missing evidence, assay dropout, sample/report artifact, or rare recombination than an ordinary independently inherited DP or DQ haplotype.
         - For MCM, use a strong intact-extended-haplotype prior across MHC-A, MHC-B, MHC-DRB, MHC-DQ, and MHC-DP. If most loci support the same extended family, keep that extended haplotype intact on one slot unless multi-locus counterevidence supports recombination.
         - H1/H2 slot names are local report positions, not biological names. Prefer slot assignments that keep the same MCM family together across loci; the two slots may be swapped consistently across the sample if that preserves an intact extended haplotype.
-        - Do not split a coherent MCM family such as M1 between H1 and H2 because one or two loci are missing, weak, collapsed, or locally ambiguous. Treat those cases as dropout, collapsed evidence, or unresolved confirmation unless there is coherent linked evidence for recombination.
+        - Do not split a coherent MCM family such as M1 between H1 and H2 because one or two loci are missing, weak, collapsed, or locally ambiguous. Treat those cases as dropout, collapsed evidence, or unresolved review unless there is coherent linked evidence for recombination.
         - For MHC-A, prioritize Mafa-A1* evidence when assigning MCM A-region haplotypes, except that Mafa-A1*063 is shared by M1, M2, and M3 in the miSeq amplicon and must be resolved with other MHC-A-neighborhood markers before distinguishing those families.
         - For MHC-B, prioritize ordinary Mafa-B* markers over Mafa-B22* or equivalent B22-like markers when discriminating MCM haplotypes, because multiple B-region alleles can be present on each extended haplotype and B22-like evidence alone is lower weight.
         - For MHC-DP and MHC-DQ, when DP-only or DQ-only sequence evidence cannot distinguish between MCM haplotypes, lean on the adjacent DP or DQ locus as linked class II support before proposing a recombinant or unresolved class-II call.
@@ -149,7 +232,7 @@ public extension AIHaplotypingPromptTemplate {
         - schemaVersion must be the integer 1. Do not write true, false, "1", or any other value for schemaVersion.
         - Copy expectedRun exactly into run, including generationParameters, promptHash, registryDigest, and inputSnapshotDigest.
         - Copy chunkID, registryDigest, and inputSnapshotDigest exactly from the prompt input to the top-level output fields.
-        - Use only evidence IDs that appear in evidenceRegistry.
+        - Use only evidence IDs that appear in evidenceRegistry.evidenceIDs for supportEvidenceRefs and counterevidenceRefs. Never put knowledge-pack, reference, marker, allele, or literature IDs such as reference:* in evidence reference arrays; discuss those only in rationale prose when relevant.
         - Do not shorten evidence IDs at pipe (`|`), comma, or colon delimiters; copy the entire evidenceRegistry ID exactly when citing support or counterevidence.
         - Do not rewrite collapsed marker tokens such as M1M4 as M1, M4, or another component haplotype token. Copy the full observed genotype text inside each evidence ID exactly.
         - For each call, sample must use evidenceRegistry.samples[].sample and locus must use evidenceRegistry.loci[].locus; reserve sample:, locus:, obs:, current:, and manual: IDs for evidence reference arrays.
@@ -159,10 +242,10 @@ public extension AIHaplotypingPromptTemplate {
         - Put homozygous, dominant, dropout, ambiguity, and uncertainty language only in rationale or rationaleCode, never in haplotypeLabel, alternates, normalizedFamily, proposedLabel, or warnings.
         - If you assign the same haplotypeLabel to both h1 and h2 for a sample/locus, at least one of those calls must explicitly say homozygous or single haplotype in rationaleCode or rationale.
         - Use conflictsCurrent only when the proposed haplotypeLabel differs from a callable current call. When changing a callable current call, set callState to conflictsCurrent, cite the current call as counterevidence, and explain in rationale why observation evidence conflicts with or supersedes the current call. If the proposed label agrees with current evidence, use retainCurrent or called; do not mark conflictsCurrent.
-        - Do not mention clinical decisions or clinical interpretation. If follow-up is warranted, phrase it as downstream review or higher-resolution confirmation.
+        - Do not mention clinical decisions or clinical interpretation. Do not recommend follow-up, confirmation, downstream testing, or experimental action; if evidence remains ambiguous, set callState to unresolved and state the evidence limit concisely.
         - Do not use phase or phasing language for short-amplicon evidence. Say linked marker support, coherent marker pattern, or heterozygous configuration instead.
-        - Do not mention copy number, inheritance, or inherited status in labels, rationale, warnings, or follow-up suggestions. Use "higher-resolution confirmation" for any unresolved assay-resolution question.
-        - Do not use the literal substrings phase, phasing, copy number, inherited, inheritance, or clinical anywhere in output text; the validator rejects them. Prefer linked marker support, coherent marker pattern, assay-resolution question, downstream review, or higher-resolution confirmation.
+        - Do not mention copy number, inheritance, or inherited status in labels, rationale, warnings, or follow-up suggestions. For unresolved assay-resolution questions, set callState to unresolved and state that the supplied evidence does not distinguish the alternatives.
+        - Do not use the literal substrings phase, phasing, copy number, inherited, inheritance, clinical, confirmation, or follow-up anywhere in output text; the validator rejects several of these terms. Prefer linked marker support, coherent marker pattern, assay-resolution limit, or unresolved review.
         - Do not emit discoveredDefinitions for known curated labels from knowledgePack.haplotypeBlockDefinitions, such as M1A-M7A, M1B-M7B, M1DR-M7DR, M1DQ-M7DQ, or M1DP-M7DP. Use calls for those labels.
         - discoveredDefinitions are only for genuinely novel or provisional labels not already defined in the knowledge pack; each proposedLabel should appear at most once per chunk.
 
@@ -174,7 +257,7 @@ public extension AIHaplotypingPromptTemplate {
     static let builtInRefinement = AIHaplotypingPromptTemplate(
         id: "lungfish.ai-haplotyping.refinement",
         mode: .aiRefinement,
-        version: "2026-06-18.1",
+        version: "2026-06-18.3",
         evidenceSchemaVersion: 1,
         systemPrompt: """
         You are a macaque MHC immunogenetics analyst refining existing haplotype calls using supplied review evidence.
@@ -201,7 +284,7 @@ public extension AIHaplotypingPromptTemplate {
         - Use the Karl et al M3 organization as a broad landmark. DP/DQ linkage means MCM DP and DQ discordance needs explicit explanation, not routine independent reassignment.
         - For MCM, use a strong intact-extended-haplotype prior across MHC-A, MHC-B, MHC-DRB, MHC-DQ, and MHC-DP. If most loci support the same extended family, keep that extended haplotype intact on one slot unless multi-locus counterevidence supports recombination.
         - H1/H2 slot names are local report positions, not biological names. Prefer slot assignments that keep the same MCM family together across loci; the two slots may be swapped consistently across the sample if that preserves an intact extended haplotype.
-        - Do not split a coherent MCM family such as M1 between H1 and H2 because one or two loci are missing, weak, collapsed, or locally ambiguous. Treat those cases as dropout, collapsed evidence, or unresolved confirmation unless there is coherent linked evidence for recombination.
+        - Do not split a coherent MCM family such as M1 between H1 and H2 because one or two loci are missing, weak, collapsed, or locally ambiguous. Treat those cases as dropout, collapsed evidence, or unresolved review unless there is coherent linked evidence for recombination.
         - For MHC-A, prioritize Mafa-A1* evidence when assigning MCM A-region haplotypes, except that Mafa-A1*063 is shared by M1, M2, and M3 in the miSeq amplicon and must be resolved with other MHC-A-neighborhood markers before distinguishing those families.
         - For MHC-B, prioritize ordinary Mafa-B* markers over Mafa-B22* or equivalent B22-like markers when discriminating MCM haplotypes, because multiple B-region alleles can be present on each extended haplotype and B22-like evidence alone is lower weight.
         - For MHC-DP and MHC-DQ, when DP-only or DQ-only sequence evidence cannot distinguish between MCM haplotypes, lean on the adjacent DP or DQ locus as linked class II support before proposing a recombinant or unresolved class-II call.
@@ -221,7 +304,7 @@ public extension AIHaplotypingPromptTemplate {
         - schemaVersion must be the integer 1. Do not write true, false, "1", or any other value for schemaVersion.
         - Copy expectedRun exactly into run, including generationParameters, promptHash, registryDigest, and inputSnapshotDigest.
         - Copy chunkID, registryDigest, and inputSnapshotDigest exactly from the prompt input to the top-level output fields.
-        - Use only evidence IDs that appear in evidenceRegistry.
+        - Use only evidence IDs that appear in evidenceRegistry.evidenceIDs for supportEvidenceRefs and counterevidenceRefs. Never put knowledge-pack, reference, marker, allele, or literature IDs such as reference:* in evidence reference arrays; discuss those only in rationale prose when relevant.
         - Do not shorten evidence IDs at pipe (`|`), comma, or colon delimiters; copy the entire evidenceRegistry ID exactly when citing support or counterevidence.
         - Do not rewrite collapsed marker tokens such as M1M4 as M1, M4, or another component haplotype token. Copy the full observed genotype text inside each evidence ID exactly.
         - For each call, sample must use evidenceRegistry.samples[].sample and locus must use evidenceRegistry.loci[].locus; reserve sample:, locus:, obs:, current:, and manual: IDs for evidence reference arrays.
@@ -231,10 +314,10 @@ public extension AIHaplotypingPromptTemplate {
         - Put homozygous, dominant, dropout, ambiguity, and uncertainty language only in rationale or rationaleCode, never in haplotypeLabel, alternates, normalizedFamily, proposedLabel, or warnings.
         - If you assign the same haplotypeLabel to both h1 and h2 for a sample/locus, at least one of those calls must explicitly say homozygous or single haplotype in rationaleCode or rationale.
         - Use conflictsCurrent only when the proposed haplotypeLabel differs from a callable current call. When changing a callable current call, set callState to conflictsCurrent, cite the current call as counterevidence, and explain in rationale why observation evidence conflicts with or supersedes the current call. If the proposed label agrees with current evidence, use retainCurrent or called; do not mark conflictsCurrent.
-        - Do not mention clinical decisions or clinical interpretation. If follow-up is warranted, phrase it as downstream review or higher-resolution confirmation.
+        - Do not mention clinical decisions or clinical interpretation. Do not recommend follow-up, confirmation, downstream testing, or experimental action; if evidence remains ambiguous, set callState to unresolved and state the evidence limit concisely.
         - Do not use phase or phasing language for short-amplicon evidence. Say linked marker support, coherent marker pattern, or heterozygous configuration instead.
-        - Do not mention copy number, inheritance, or inherited status in labels, rationale, warnings, or follow-up suggestions. Use "higher-resolution confirmation" for any unresolved assay-resolution question.
-        - Do not use the literal substrings phase, phasing, copy number, inherited, inheritance, or clinical anywhere in output text; the validator rejects them. Prefer linked marker support, coherent marker pattern, assay-resolution question, downstream review, or higher-resolution confirmation.
+        - Do not mention copy number, inheritance, or inherited status in labels, rationale, warnings, or follow-up suggestions. For unresolved assay-resolution questions, set callState to unresolved and state that the supplied evidence does not distinguish the alternatives.
+        - Do not use the literal substrings phase, phasing, copy number, inherited, inheritance, clinical, confirmation, or follow-up anywhere in output text; the validator rejects several of these terms. Prefer linked marker support, coherent marker pattern, assay-resolution limit, or unresolved review.
         - Do not emit discoveredDefinitions for known curated labels from knowledgePack.haplotypeBlockDefinitions, such as M1A-M7A, M1B-M7B, M1DR-M7DR, M1DQ-M7DQ, or M1DP-M7DP. Use calls for those labels.
         - In refinement mode, leave discoveredDefinitions empty unless the chunk contains a genuinely novel or provisional label not already defined in the knowledge pack; each proposedLabel should appear at most once per chunk.
 

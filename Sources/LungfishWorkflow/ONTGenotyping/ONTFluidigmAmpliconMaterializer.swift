@@ -130,7 +130,16 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
             for try await record in reader.records(from: fastqURL) {
                 inputReadCount += 1
                 let bases = Self.normalizedDNABases(record.sequence)
-                guard let entry = barcodeMatcher.assign(bases: bases) else {
+                let primerExclusionRanges = Self.primerExclusionRanges(
+                    in: bases,
+                    forwardPrimer: request.forwardPrimer,
+                    reversePrimer: request.reversePrimer,
+                    maxMismatches: request.primerMismatches
+                )
+                guard let entry = barcodeMatcher.assign(
+                    bases: bases,
+                    excluding: primerExclusionRanges
+                ) else {
                     unassignedReadCount += 1
                     continue
                 }
@@ -460,6 +469,84 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
         return String(decoding: rc.lexicographicallyPrecedes(sequence) ? rc : sequence, as: UTF8.self)
     }
 
+    private static func primerExclusionRanges(
+        in bases: [UInt8],
+        forwardPrimer: String,
+        reversePrimer: String,
+        maxMismatches: Int
+    ) -> [Range<Int>] {
+        let forward = Array(forwardPrimer.utf8)
+        let reverse = Array(reversePrimer.utf8)
+        let primers = [
+            forward,
+            reverseComplementBytes(reverse),
+            reverse,
+            reverseComplementBytes(forward),
+        ]
+        let ranges = primers.flatMap { primer in
+            matchingRanges(pattern: primer, in: bases, maxMismatches: maxMismatches)
+        }
+        return mergedRanges(ranges)
+    }
+
+    private static func matchingRanges(
+        pattern: [UInt8],
+        in bases: [UInt8],
+        maxMismatches: Int
+    ) -> [Range<Int>] {
+        let patternCount = pattern.count
+        guard patternCount > 0, bases.count >= patternCount else { return [] }
+        let lastOffset = bases.count - patternCount
+        var ranges: [Range<Int>] = []
+
+        for offset in 0...lastOffset {
+            var mismatches = 0
+            var index = 0
+            while index < patternCount {
+                if bases[offset + index] != pattern[index] {
+                    mismatches += 1
+                    if mismatches > maxMismatches {
+                        break
+                    }
+                }
+                index += 1
+            }
+            if mismatches <= maxMismatches {
+                ranges.append(offset..<(offset + patternCount))
+            }
+        }
+        return ranges
+    }
+
+    private static func mergedRanges(_ ranges: [Range<Int>]) -> [Range<Int>] {
+        guard let first = ranges.sorted(by: { lhs, rhs in
+            lhs.lowerBound == rhs.lowerBound
+                ? lhs.upperBound < rhs.upperBound
+                : lhs.lowerBound < rhs.lowerBound
+        }).first else {
+            return []
+        }
+
+        var merged: [Range<Int>] = []
+        var currentLower = first.lowerBound
+        var currentUpper = first.upperBound
+        for range in ranges.sorted(by: { lhs, rhs in
+            lhs.lowerBound == rhs.lowerBound
+                ? lhs.upperBound < rhs.upperBound
+                : lhs.lowerBound < rhs.lowerBound
+        }).dropFirst() {
+            if range.lowerBound <= currentUpper {
+                currentUpper = max(currentUpper, range.upperBound)
+            } else {
+                merged.append(currentLower..<currentUpper)
+                currentLower = range.lowerBound
+                currentUpper = range.upperBound
+            }
+        }
+        merged.append(currentLower..<currentUpper)
+        return merged
+    }
+
     private static func reverseComplement(_ sequence: String) -> String {
         String(decoding: reverseComplementBytes(Array(sequence.utf8)), as: UTF8.self)
     }
@@ -677,13 +764,18 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
             self.lengths = mapsByLength.keys.sorted()
         }
 
-        func assign(bases bytes: [UInt8]) -> BarcodeEntry? {
+        func assign(bases bytes: [UInt8], excluding excludedRanges: [Range<Int>] = []) -> BarcodeEntry? {
             var bestStart: Int?
             var bestEntry: BarcodeEntry?
             for length in lengths {
                 guard length <= bytes.count,
                       let map = mapsByLength[length],
-                      let match = findFirst(in: bytes, length: length, map: map) else {
+                      let match = findFirst(
+                        in: bytes,
+                        length: length,
+                        map: map,
+                        excluding: excludedRanges
+                      ) else {
                     continue
                 }
                 if bestStart == nil || match.start < bestStart! {
@@ -697,7 +789,8 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
         private func findFirst(
             in bytes: [UInt8],
             length: Int,
-            map: [UInt64: [Candidate]]
+            map: [UInt64: [Candidate]],
+            excluding excludedRanges: [Range<Int>]
         ) -> (start: Int, entry: BarcodeEntry)? {
             guard length > 0, length <= 31 else { return nil }
             var code: UInt64 = 0
@@ -716,9 +809,27 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
 
                 let start = index - length + 1
                 guard let candidate = map[code]?.first else { continue }
+                guard !Self.overlapsExcludedRange(
+                    start: start,
+                    length: length,
+                    excludedRanges: excludedRanges
+                ) else {
+                    continue
+                }
                 return (start, candidate.entry)
             }
             return nil
+        }
+
+        private static func overlapsExcludedRange(
+            start: Int,
+            length: Int,
+            excludedRanges: [Range<Int>]
+        ) -> Bool {
+            let end = start + length
+            return excludedRanges.contains { range in
+                start < range.upperBound && end > range.lowerBound
+            }
         }
 
         private static func twoBitCode(_ sequence: String) -> UInt64? {

@@ -153,16 +153,9 @@ public struct AIHaplotypingRunContext: Codable, Equatable, Sendable {
     }
 
     private static func region(for call: ONTGenotypeCall) -> String {
-        let locus = call.locusGroup
-        if locus == "MHC-A" && call.genotype.range(of: "AG", options: .caseInsensitive) != nil {
-            return "MHC-AG"
-        }
+        let locus = GenotypeHaplotypeLocusResolver.haplotypeEvidenceLocusName(call.locusGroup)
         if locus == "MHC-DP" || locus == "MHC-DQ" || locus == "MHC-DRB" {
             return locus
-        }
-        if call.genotype.range(of: "Mamu-E", options: .caseInsensitive) != nil
-            || call.genotype.range(of: "Mafa-E", options: .caseInsensitive) != nil {
-            return "MHC-E"
         }
         return locus
     }
@@ -183,8 +176,8 @@ public struct AIHaplotypingRunContext: Codable, Equatable, Sendable {
         if assayResolution == "full_length_or_high_resolution" {
             notes.append("Detected full-length or high-resolution allele nomenclature; do not split familiar report haplotypes only because a subtle private full-length variant is present.")
         }
-        if observedRegions.contains("MHC-AG") {
-            notes.append("MHC-AG evidence is adjacent to MHC-A and can support A-region haplotype interpretation when the markers cohere.")
+        if observedRegions.contains("MHC-A") {
+            notes.append("MHC-A haplotypes may be supported by mapped class-I neighborhood evidence such as AG and G markers when the markers cohere.")
         }
         if let definitionSetID {
             notes.append("Active haplotype definition set: \(definitionSetID).")

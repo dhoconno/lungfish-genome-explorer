@@ -11,7 +11,7 @@ final class WorkflowLibraryTests: XCTestCase {
         let ont = try XCTUnwrap(WorkflowLibraryCatalog.item(for: .ontGenotyping))
         XCTAssertEqual(ont.maturity, .specialized)
         XCTAssertEqual(ont.requiredPluginPackIDs, ["lungfish-tools", "read-mapping"])
-        XCTAssertEqual(ont.title, "miSeq amplicon ONT MHC genotyping")
+        XCTAssertEqual(ont.title, "miSeq amplicon MHC genotyping")
 
         XCTAssertEqual(WorkflowLibraryCatalog.item(for: .minimap2)?.requiredPluginPackIDs, ["read-mapping"])
         XCTAssertEqual(WorkflowLibraryCatalog.item(for: .mafft)?.requiredPluginPackIDs, ["multiple-sequence-alignment"])

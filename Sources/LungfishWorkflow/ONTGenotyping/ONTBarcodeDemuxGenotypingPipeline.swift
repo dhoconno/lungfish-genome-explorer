@@ -24,6 +24,9 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
     public let haplotypeSpeciesCode: String?
     public let haplotypeDefinitionScope: HaplotypeDefinitionScope?
     public let haplotypeDefinitionSetID: String?
+    public let presetID: String?
+    public let presetVersion: String?
+    public let lockedReferenceSHA256: String?
     public let extraArguments: [String]
     public let mode: AmpliconGenotypingMode
     public let readType: AmpliconGenotypingReadType
@@ -49,6 +52,9 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
         haplotypeSpeciesCode: String? = nil,
         haplotypeDefinitionScope: HaplotypeDefinitionScope? = nil,
         haplotypeDefinitionSetID: String? = nil,
+        presetID: String? = nil,
+        presetVersion: String? = nil,
+        lockedReferenceSHA256: String? = nil,
         extraArguments: [String] = []
     ) {
         self.init(
@@ -72,6 +78,9 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
             haplotypeSpeciesCode: haplotypeSpeciesCode,
             haplotypeDefinitionScope: haplotypeDefinitionScope,
             haplotypeDefinitionSetID: haplotypeDefinitionSetID,
+            presetID: presetID,
+            presetVersion: presetVersion,
+            lockedReferenceSHA256: lockedReferenceSHA256,
             extraArguments: extraArguments,
             mode: .ontBarcodeDemux,
             readType: .ont
@@ -99,6 +108,9 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
         haplotypeSpeciesCode: String? = nil,
         haplotypeDefinitionScope: HaplotypeDefinitionScope? = nil,
         haplotypeDefinitionSetID: String? = nil,
+        presetID: String? = nil,
+        presetVersion: String? = nil,
+        lockedReferenceSHA256: String? = nil,
         extraArguments: [String] = [],
         mode: AmpliconGenotypingMode = .auto,
         readType: AmpliconGenotypingReadType = .auto
@@ -152,6 +164,14 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
         self.haplotypeDefinitionSetID = trimmedHaplotypeDefinitionSetID?.isEmpty == true
             ? nil
             : trimmedHaplotypeDefinitionSetID
+        let trimmedPresetID = presetID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.presetID = trimmedPresetID?.isEmpty == true ? nil : trimmedPresetID
+        let trimmedPresetVersion = presetVersion?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.presetVersion = trimmedPresetVersion?.isEmpty == true ? nil : trimmedPresetVersion
+        let trimmedLockedReferenceSHA256 = lockedReferenceSHA256?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.lockedReferenceSHA256 = trimmedLockedReferenceSHA256?.isEmpty == true
+            ? nil
+            : trimmedLockedReferenceSHA256
         self.extraArguments = extraArguments
         self.mode = effectiveMode
         self.readType = effectiveReadType
@@ -183,6 +203,9 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
             haplotypeSpeciesCode: haplotypeSpeciesCode,
             haplotypeDefinitionScope: haplotypeDefinitionScope,
             haplotypeDefinitionSetID: haplotypeDefinitionSetID,
+            presetID: presetID,
+            presetVersion: presetVersion,
+            lockedReferenceSHA256: lockedReferenceSHA256,
             extraArguments: extraArguments,
             mode: mode,
             readType: readType
@@ -321,10 +344,11 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
     }
 
     public var cliSubcommand: String {
+        let ontSampleBundleCohort = barcodeDefinitionsURL == nil && mode == .ontSampleBundles
         let illuminaCohort = inputFASTQURLs.count > 1
             && barcodeDefinitionsURL == nil
             && (mode == .illuminaPaired || (mode == .auto && readType == .illumina))
-        return illuminaCohort ? "genotype-cohort" : "genotype"
+        return ontSampleBundleCohort || illuminaCohort ? "genotype-cohort" : "genotype"
     }
 
     public var argv: [String] {
@@ -335,7 +359,6 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
         ] + inputFASTQURLs.map(\.path) + [
             "--mode", mode.cliArgument,
             "--read-type", readType.cliArgument,
-            "--reference", referenceSourceURL.path,
             "--output-dir", outputDirectory.path,
             "--output-name", outputName,
             "--threads", String(threads),
@@ -343,6 +366,11 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
             "--min-support", String(minSupport),
             "--analysis-name", analysisName,
         ]
+        if let presetID {
+            values += ["--preset", presetID]
+        } else {
+            values += ["--reference", referenceSourceURL.path]
+        }
         appendHaplotypeThresholdArguments(to: &values)
         if let barcodeDefinitionsURL {
             values += ["--barcodes", barcodeDefinitionsURL.path]
@@ -473,6 +501,7 @@ public enum ONTBarcodeDemuxGenotypingError: Error, LocalizedError, Sendable, Equ
     case invalidHaplotypeDefinition(String)
     case ambiguousHaplotypeDefinition(definitionID: String)
     case invalidHaplotypeDefinitionForAssay(definitionID: String, assayID: String)
+    case lockedReferenceDigestMismatch(expected: String, actual: String)
     case reportFailed(status: Int32, stderr: String)
     case invalidReportOutput(String)
 
@@ -514,6 +543,8 @@ public enum ONTBarcodeDemuxGenotypingError: Error, LocalizedError, Sendable, Equ
             return "Haplotype definition set \(definitionID) exists in more than one assay; specify --haplotype-assay."
         case .invalidHaplotypeDefinitionForAssay(let definitionID, let assayID):
             return "Haplotype definition set \(definitionID) is not available for assay \(assayID)"
+        case .lockedReferenceDigestMismatch(let expected, let actual):
+            return "Locked preset reference digest mismatch: expected \(expected), observed \(actual)."
         case .reportFailed(let status, let stderr):
             return "ONT barcode genotype workbook report failed with status \(status): \(stderr)"
         case .invalidReportOutput(let text):
@@ -571,6 +602,15 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
 
         progressHandler?(0.12, "Resolving reference and FASTQ inputs.")
         let reference = try await resolveReference(for: request)
+        if let expectedSHA256 = request.lockedReferenceSHA256 {
+            let actualSHA256 = try ProvenanceFileHasher.sha256(of: reference.referenceFASTAURL)
+            guard actualSHA256 == expectedSHA256 else {
+                throw ONTBarcodeDemuxGenotypingError.lockedReferenceDigestMismatch(
+                    expected: expectedSHA256,
+                    actual: actualSHA256
+                )
+            }
+        }
 
         progressHandler?(0.18, "Resolving managed minimap2, samtools, pysam, and openpyxl tools.")
         let minimap2URL = try await condaManager.toolPath(name: "minimap2", environment: "minimap2")
@@ -802,6 +842,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let fastqURL: URL
         let prefixedFASTQURL: URL
         let readCount: Int
+        let readCountSource: String
     }
 
     private struct IlluminaPreparation {
@@ -1083,6 +1124,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 "fastq": sample.fastqURL.path,
                 "mappingFASTQ": sample.prefixedFASTQURL.path,
                 "readCount": sample.readCount,
+                "readCountSource": sample.readCountSource,
                 "retainsFullReadContext": isONTSampleBundles
                     ? Self.sampleInputRetainsFullReadContext(sample.sourceURL)
                     : false,
@@ -1131,42 +1173,56 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         var assignedIDs = Set<String>()
         var assignedStems = Set<String>()
         for url in urls.map(\.standardizedFileURL) {
+            let rawDirectoryInput = Self.urlIsDirectory(url) && !FASTQBundle.isBundleURL(url)
             let resolvedFASTQs: [URL]
             if FASTQBundle.isFASTQFileURL(url) {
                 resolvedFASTQs = [url]
             } else if FASTQBundle.isBundleURL(url) {
                 resolvedFASTQs = try Self.resolveInputFASTQURLs(for: url)
+            } else if rawDirectoryInput {
+                resolvedFASTQs = Self.resolveRawFASTQDirectoryURLs(for: url)
             } else {
                 throw ONTBarcodeDemuxGenotypingError.unsupportedIlluminaInput(url)
             }
-            guard resolvedFASTQs.count == 1, let fastqURL = resolvedFASTQs.first else {
+            guard !resolvedFASTQs.isEmpty else {
                 throw ONTBarcodeDemuxGenotypingError.unsupportedIlluminaInput(url)
             }
-            let baseID = sampleID(from: url)
-            let sampleID = Self.disambiguatedSampleID(baseID, existing: assignedIDs)
-            assignedIDs.insert(sampleID)
-            // The staged filename must be disambiguated independently of `sampleID`:
-            // `safeFilenameStem` collapses runs of "-" (and folds other punctuation to
-            // "-"), so two distinct sample IDs can still map to an identical stem (e.g.
-            // "Sample-1" and "Sample--1" both yield "Sample-1"). Reusing the same numeric
-            // suffix scheme keeps stems unique so one staged FASTQ never overwrites another.
-            let stem = Self.disambiguatedSampleID(safeFilenameStem(sampleID), existing: assignedStems)
-            assignedStems.insert(stem)
-            let prefixedFASTQURL = stagingDirectory
-                .appendingPathComponent("\(stem).sample-prefixed.fastq")
-            // Reads stay tagged by the unique `sampleID`; only the filename derives from `stem`.
-            let readCount = try await writeSamplePrefixedFASTQ(
-                sourceURL: fastqURL,
-                destinationURL: prefixedFASTQURL,
-                sampleID: sampleID
-            )
-            samples.append(IlluminaSampleInput(
-                sampleID: sampleID,
-                sourceURL: url,
-                fastqURL: fastqURL.standardizedFileURL,
-                prefixedFASTQURL: prefixedFASTQURL.standardizedFileURL,
-                readCount: readCount
-            ))
+            if !rawDirectoryInput, resolvedFASTQs.count != 1 {
+                throw ONTBarcodeDemuxGenotypingError.unsupportedIlluminaInput(url)
+            }
+            for fastqURL in resolvedFASTQs {
+                let sourceURL = rawDirectoryInput ? fastqURL : url
+                let baseID = sampleID(from: sourceURL)
+                let sampleID = Self.disambiguatedSampleID(baseID, existing: assignedIDs)
+                assignedIDs.insert(sampleID)
+                // The staged filename must be disambiguated independently of `sampleID`:
+                // `safeFilenameStem` collapses runs of "-" (and folds other punctuation to
+                // "-"), so two distinct sample IDs can still map to an identical stem (e.g.
+                // "Sample-1" and "Sample--1" both yield "Sample-1"). Reusing the same numeric
+                // suffix scheme keeps stems unique so one staged FASTQ never overwrites another.
+                let stem = Self.disambiguatedSampleID(safeFilenameStem(sampleID), existing: assignedStems)
+                assignedStems.insert(stem)
+                let prefixedFASTQURL = stagingDirectory
+                    .appendingPathComponent("\(stem).sample-prefixed.fastq")
+                // Reads stay tagged by the unique `sampleID`; only the filename derives from `stem`.
+                let readCount = try await writeSamplePrefixedFASTQ(
+                    sourceURL: fastqURL,
+                    destinationURL: prefixedFASTQURL,
+                    sampleID: sampleID
+                )
+                let effectiveReadCount = Self.importedSampleReadCount(
+                    sourceURL: sourceURL,
+                    fastqURL: fastqURL
+                )
+                samples.append(IlluminaSampleInput(
+                    sampleID: sampleID,
+                    sourceURL: sourceURL.standardizedFileURL,
+                    fastqURL: fastqURL.standardizedFileURL,
+                    prefixedFASTQURL: prefixedFASTQURL.standardizedFileURL,
+                    readCount: effectiveReadCount?.count ?? readCount,
+                    readCountSource: effectiveReadCount?.source ?? "fastq-weighted-record-count"
+                ))
+            }
         }
         // Defense-in-depth: the disambiguation above guarantees uniqueness, but verify
         // both the sample IDs and the staged filenames before returning so a regression
@@ -1184,6 +1240,99 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             )
         }
         return samples
+    }
+
+    private static func importedSampleReadCount(sourceURL: URL, fastqURL: URL) -> (count: Int, source: String)? {
+        if let readCount = parentRecipeManifestReadCount(for: sourceURL) {
+            return (readCount, "parent-recipe-manifest-read-count")
+        }
+        if let readCount = parentRecipeManifestReadCount(for: fastqURL) {
+            return (readCount, "parent-recipe-manifest-read-count")
+        }
+        if let bundleURL = enclosingFASTQBundleURL(for: sourceURL),
+           let manifest = FASTQBundle.loadDerivedManifest(in: bundleURL),
+           manifest.cachedStatistics.readCount > 0 {
+            return (manifest.cachedStatistics.readCount, "bundle-derived-manifest-cached-statistics")
+        }
+        if let metadata = FASTQMetadataStore.load(for: sourceURL),
+           let readCount = metadata.computedStatistics?.readCount,
+           readCount > 0 {
+            return (readCount, "source-metadata-computed-statistics")
+        }
+        if sourceURL != fastqURL,
+           let metadata = FASTQMetadataStore.load(for: fastqURL),
+           let readCount = metadata.computedStatistics?.readCount,
+           readCount > 0 {
+            return (readCount, "fastq-metadata-computed-statistics")
+        }
+        return nil
+    }
+
+    private static func enclosingFASTQBundleURL(for url: URL) -> URL? {
+        let standardized = url.standardizedFileURL
+        if FASTQBundle.isBundleURL(standardized) {
+            return standardized
+        }
+        let parent = standardized.deletingLastPathComponent()
+        if FASTQBundle.isBundleURL(parent) {
+            return parent.standardizedFileURL
+        }
+        return nil
+    }
+
+    private static func parentRecipeManifestReadCount(for url: URL) -> Int? {
+        guard let bundleURL = enclosingFASTQBundleURL(for: url) else { return nil }
+        let parent = bundleURL.deletingLastPathComponent()
+        let sampleID = bundleURL.deletingPathExtension().lastPathComponent
+        let bundleName = bundleURL.lastPathComponent
+        for filename in [
+            ONTFluidigmAmpliconMaterializer.manifestFilename,
+            ONTFluidigmSampleMaterializer.manifestFilename,
+        ] {
+            let manifestURL = parent.appendingPathComponent(filename)
+            guard let data = try? Data(contentsOf: manifestURL),
+                  let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                continue
+            }
+            if let sampleTotals = payload["sampleTotals"] as? [String: Any],
+               let count = positiveInt(sampleTotals[sampleID]) {
+                return count
+            }
+            guard let samples = payload["samples"] as? [[String: Any]] else {
+                continue
+            }
+            for sample in samples {
+                let manifestSampleID = sample["sample"] as? String ?? sample["sampleID"] as? String
+                let manifestBundle = sample["bundle"] as? String
+                guard manifestSampleID == sampleID || manifestBundle == bundleName else {
+                    continue
+                }
+                if let count = positiveInt(sample["readCount"]) {
+                    return count
+                }
+                if let count = positiveInt(sample["totalPairs"]) {
+                    return count
+                }
+                if let count = positiveInt(sample["mergedPairs"]) {
+                    return count
+                }
+            }
+        }
+        return nil
+    }
+
+    private static func positiveInt(_ value: Any?) -> Int? {
+        switch value {
+        case let int as Int where int > 0:
+            return int
+        case let double as Double where double > 0:
+            return Int(double)
+        case let string as String:
+            guard let int = Int(string), int > 0 else { return nil }
+            return int
+        default:
+            return nil
+        }
     }
 
     /// Returns `base` when unused, otherwise the first `base-N` (N >= 2) not yet
@@ -2311,6 +2460,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "haplotypeDefinitionScope": request.haplotypeDefinitionScope?.rawValue as Any? ?? NSNull(),
             "haplotypeDefinitionSetID": request.haplotypeDefinitionSetID as Any? ?? NSNull(),
             "haplotypeDefinitionSHA256": haplotypeDefinitionSHA256,
+            "presetID": request.presetID as Any? ?? NSNull(),
+            "presetVersion": request.presetVersion as Any? ?? NSNull(),
+            "lockedReferenceSHA256": request.lockedReferenceSHA256 as Any? ?? NSNull(),
             "threads": request.threads,
             "sortThreads": request.sortThreads,
             "minSupport": request.minSupport,
@@ -2337,6 +2489,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "haplotypeSpeciesCode": NSNull(),
             "haplotypeDefinitionScope": NSNull(),
             "haplotypeDefinitionSetID": NSNull(),
+            "presetID": NSNull(),
+            "presetVersion": NSNull(),
+            "lockedReferenceSHA256": NSNull(),
             "sortThreads": 4,
             "minSupport": 1,
             "haplotypeDropoutSampleFraction": NSNull(),

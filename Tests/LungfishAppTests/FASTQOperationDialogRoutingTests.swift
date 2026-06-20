@@ -808,6 +808,79 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         )
     }
 
+    func testONTGenotypingAllowsMultiplePreparedONTSampleInputsWithoutBarcodes() throws {
+        let projectURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FASTQOperationDialogRouting-\(UUID().uuidString).lungfish", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: projectURL) }
+        let referenceURL = projectURL.appendingPathComponent("Reference Sequences/mhc.lungfishmhcref", isDirectory: true)
+        let firstReadsURL = projectURL.appendingPathComponent("Reads/LF2871.lungfishfastq", isDirectory: true)
+        let secondReadsURL = projectURL.appendingPathComponent("Reads/LF2872.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: referenceURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: firstReadsURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: secondReadsURL, withIntermediateDirectories: true)
+
+        let state = FASTQOperationDialogState(
+            initialCategory: .mapping,
+            selectedInputURLs: [firstReadsURL, secondReadsURL],
+            projectURL: projectURL
+        )
+        state.selectTool(.ontGenotyping)
+        state.setAuxiliaryInput(referenceURL, for: .referenceSequence)
+        state.ontGenotypingOutputName = "amplicon-genotyping"
+        state.ontGenotypingAnalysisName = "amplicon-genotyping"
+
+        state.prepareForRun()
+
+        guard case .ontGenotyping(let request) = state.pendingLaunchRequest else {
+            return XCTFail("Expected amplicon genotyping launch request")
+        }
+        XCTAssertEqual(request.inputFASTQURLs, [
+            firstReadsURL.standardizedFileURL,
+            secondReadsURL.standardizedFileURL,
+        ])
+        XCTAssertNil(request.barcodeDefinitionsURL)
+        XCTAssertEqual(request.mode, .ontSampleBundles)
+        XCTAssertEqual(request.readType, .ont)
+    }
+
+    func testONTGenotypingAllowsSelectedFolderOfPreparedONTSamplesWithoutBarcodes() throws {
+        let projectURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FASTQOperationDialogRouting-\(UUID().uuidString).lungfish", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: projectURL) }
+        let referenceURL = projectURL.appendingPathComponent("Reference Sequences/mhc.lungfishmhcref", isDirectory: true)
+        let demultiplexedFolderURL = projectURL.appendingPathComponent("Reads/Demultiplexed ONT", isDirectory: true)
+        try FileManager.default.createDirectory(at: referenceURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: demultiplexedFolderURL, withIntermediateDirectories: true)
+        try "@r1\nACGT\n+\nIIII\n".write(
+            to: demultiplexedFolderURL.appendingPathComponent("LF2871.fastq"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "@r2\nTGCA\n+\nIIII\n".write(
+            to: demultiplexedFolderURL.appendingPathComponent("LF2872.fastq"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let state = FASTQOperationDialogState(
+            initialCategory: .mapping,
+            selectedInputURLs: [demultiplexedFolderURL],
+            projectURL: projectURL
+        )
+        state.selectTool(.ontGenotyping)
+        state.setAuxiliaryInput(referenceURL, for: .referenceSequence)
+
+        state.prepareForRun()
+
+        guard case .ontGenotyping(let request) = state.pendingLaunchRequest else {
+            return XCTFail("Expected amplicon genotyping launch request")
+        }
+        XCTAssertEqual(request.inputFASTQURLs, [demultiplexedFolderURL.standardizedFileURL])
+        XCTAssertNil(request.barcodeDefinitionsURL)
+        XCTAssertEqual(request.mode, .ontSampleBundles)
+        XCTAssertEqual(request.readType, .ont)
+    }
+
     func testDeduplicatePresetSynthesizesCliCompatibleValues() {
         let state = FASTQOperationDialogState(
             initialCategory: .decontamination,

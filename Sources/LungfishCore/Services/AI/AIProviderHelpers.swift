@@ -90,9 +90,26 @@ func aiStopReason(from raw: String?, toolCallsPresent: Bool = false) -> AIRespon
 /// Extracts usage from OpenAI-style response usage.
 func openAIUsage(from json: [String: Any]) -> AIResponse.Usage? {
     guard let usage = json["usage"] as? [String: Any] else { return nil }
+    let promptDetails = usage["prompt_tokens_details"] as? [String: Any]
+    let completionDetails = usage["completion_tokens_details"] as? [String: Any]
     return AIResponse.Usage(
         inputTokens: usage["prompt_tokens"] as? Int ?? 0,
-        outputTokens: usage["completion_tokens"] as? Int ?? 0
+        outputTokens: usage["completion_tokens"] as? Int ?? 0,
+        cachedInputTokens: promptDetails?["cached_tokens"] as? Int,
+        reasoningOutputTokens: completionDetails?["reasoning_tokens"] as? Int
+    )
+}
+
+/// Extracts usage from OpenAI Responses API response usage.
+func openAIResponsesUsage(from json: [String: Any]) -> AIResponse.Usage? {
+    guard let usage = json["usage"] as? [String: Any] else { return nil }
+    let inputDetails = usage["input_tokens_details"] as? [String: Any]
+    let outputDetails = usage["output_tokens_details"] as? [String: Any]
+    return AIResponse.Usage(
+        inputTokens: usage["input_tokens"] as? Int ?? 0,
+        outputTokens: usage["output_tokens"] as? Int ?? 0,
+        cachedInputTokens: inputDetails?["cached_tokens"] as? Int,
+        reasoningOutputTokens: outputDetails?["reasoning_tokens"] as? Int
     )
 }
 

@@ -39,17 +39,6 @@ final class GenotypeAIHaplotypingExecutionService {
 
         do {
             let provider = try await resolveProvider()
-            let argv = commandPreview(
-                bundleURL: bundle,
-                mode: mode,
-                providerID: provider.providerID,
-                modelID: provider.structuredProvider.modelId
-            )
-            let cliCommand = ViralReconWorkflowCommandPreview.build(
-                executableName: argv.first ?? "lungfish-gui",
-                arguments: Array(argv.dropFirst())
-            )
-            operationCenter.log(id: operationID, level: .info, message: cliCommand)
             operationCenter.updateWithLog(id: operationID, progress: 0.1, detail: "Loading genotype bundle")
 
             let result = try ONTGenotypeResultBundle.loadResult(from: bundle)
@@ -63,18 +52,41 @@ final class GenotypeAIHaplotypingExecutionService {
             if mode == .aiRefinement, activeResult.haplotypeAnalysis == nil {
                 throw AIHaplotypingExecutionError.refinementRequiresCurrentAnalysis
             }
+            let promptSelection = AIHaplotypingPromptSelectionResolver.resolve(
+                result: activeResult,
+                mode: mode,
+                requestedPromptTemplateID: nil,
+                requestedPromptTemplateVersion: nil,
+                compactKnowledgePack: AIHaplotypingExecutionDefaults.compactKnowledgePack
+            )
+            let argv = commandPreview(
+                bundleURL: bundle,
+                mode: mode,
+                providerID: provider.providerID,
+                modelID: provider.structuredProvider.modelId,
+                promptSelection: promptSelection
+            )
+            let cliCommand = ViralReconWorkflowCommandPreview.build(
+                executableName: argv.first ?? "lungfish-gui",
+                arguments: Array(argv.dropFirst())
+            )
+            operationCenter.log(id: operationID, level: .info, message: cliCommand)
             operationCenter.updateWithLog(id: operationID, progress: 0.25, detail: "Running structured AI haplotyping")
 
             let options = AIHaplotypingRunOptions(
                 mode: mode,
                 providerID: provider.providerID,
                 credentialSource: provider.credentialSource,
+                promptTemplateID: promptSelection.promptTemplateID,
+                promptTemplateVersion: promptSelection.promptTemplateVersion,
                 maxObservationsPerChunk: AIHaplotypingExecutionDefaults.maxObservationsPerChunk,
                 maxOutputTokens: AIHaplotypingExecutionDefaults.maxOutputTokens,
                 temperature: AIHaplotypingExecutionDefaults.temperature,
+                reasoningEffort: AIHaplotypingExecutionDefaults.reasoningEffort,
                 maxProviderRetries: AIHaplotypingExecutionDefaults.maxProviderRetries,
                 provenancePath: AIHaplotypingPatchValidator.pendingProvenancePath,
-                compactKnowledgePack: AIHaplotypingExecutionDefaults.compactKnowledgePack
+                compactKnowledgePack: promptSelection.compactKnowledgePack,
+                includeKnowledgePack: promptSelection.includeKnowledgePack
             )
             let runnerOutput = try await AIHaplotypingRunner(provider: provider.structuredProvider).run(
                 result: activeResult,
@@ -92,13 +104,20 @@ final class GenotypeAIHaplotypingExecutionService {
                     "mode": .string(mode.rawValue),
                     "provider": .string(provider.providerID.rawValue),
                     "credentialSource": .string(provider.credentialSource.rawValue),
+                    "resolvedPromptTemplateID": promptSelection.promptTemplateID.map(ParameterValue.string) ?? .null,
+                    "resolvedPromptTemplateVersion": promptSelection.promptTemplateVersion.map(ParameterValue.string) ?? .null,
+                    "includeKnowledgePack": .string(promptSelection.includeKnowledgePack ? "true" : "false"),
+                    "resolvedCompactKnowledgePack": .string(promptSelection.compactKnowledgePack ? "true" : "false"),
                 ],
                 defaultOptions: [
                     "compactKnowledgePack": .string(AIHaplotypingExecutionDefaults.compactKnowledgePack ? "true" : "false"),
                     "maxObservationsPerChunk": .integer(AIHaplotypingExecutionDefaults.maxObservationsPerChunk),
                     "maxOutputTokens": .integer(AIHaplotypingExecutionDefaults.maxOutputTokens),
                     "temperature": .number(AIHaplotypingExecutionDefaults.temperature),
+                    "reasoningEffort": .string(AIHaplotypingExecutionDefaults.reasoningEffort),
+                    "openAIModel": .string(AIHaplotypingExecutionDefaults.openAIModel),
                     "maxProviderRetries": .integer(AIHaplotypingExecutionDefaults.maxProviderRetries),
+                    "includeKnowledgePack": .string("true"),
                 ],
                 resolvedOptions: [
                     "bundle": .file(bundle),
@@ -106,10 +125,15 @@ final class GenotypeAIHaplotypingExecutionService {
                     "provider": .string(provider.providerID.rawValue),
                     "model": .string(provider.structuredProvider.modelId),
                     "credentialSource": .string(provider.credentialSource.rawValue),
-                    "compactKnowledgePack": .string(AIHaplotypingExecutionDefaults.compactKnowledgePack ? "true" : "false"),
+                    "promptTemplateID": promptSelection.promptTemplateID.map(ParameterValue.string) ?? .null,
+                    "promptTemplateVersion": promptSelection.promptTemplateVersion.map(ParameterValue.string) ?? .null,
+                    "compactKnowledgePack": .string(promptSelection.compactKnowledgePack ? "true" : "false"),
+                    "includeKnowledgePack": .string(promptSelection.includeKnowledgePack ? "true" : "false"),
+                    "usesSpecialistPrompt": .string(promptSelection.usesSpecialistPrompt ? "true" : "false"),
                     "maxObservationsPerChunk": .integer(AIHaplotypingExecutionDefaults.maxObservationsPerChunk),
                     "maxOutputTokens": .integer(AIHaplotypingExecutionDefaults.maxOutputTokens),
                     "temperature": .number(AIHaplotypingExecutionDefaults.temperature),
+                    "reasoningEffort": .string(AIHaplotypingExecutionDefaults.reasoningEffort),
                     "maxProviderRetries": .integer(AIHaplotypingExecutionDefaults.maxProviderRetries),
                 ],
                 runtimeIdentity: ProvenanceRuntimeIdentity(),
@@ -171,7 +195,10 @@ final class GenotypeAIHaplotypingExecutionService {
                     return ResolvedProvider(
                         providerID: .openAI,
                         credentialSource: .keychainOpenAI,
-                        structuredProvider: OpenAIProvider(apiKey: apiKey, modelId: settings.openAIModel)
+                        structuredProvider: OpenAIProvider(
+                            apiKey: apiKey,
+                            modelId: AIHaplotypingExecutionDefaults.openAIModel
+                        )
                     )
                 }
             case .gemini:
@@ -185,9 +212,10 @@ final class GenotypeAIHaplotypingExecutionService {
         bundleURL: URL,
         mode: AIHaplotypingPromptMode,
         providerID: AIHaplotypingProviderID,
-        modelID: String
+        modelID: String,
+        promptSelection: AIHaplotypingPromptSelection
     ) -> [String] {
-        [
+        var command = [
             "lungfish-cli",
             "genotype",
             "ai-haplotyping",
@@ -198,10 +226,19 @@ final class GenotypeAIHaplotypingExecutionService {
             "--max-observations-per-chunk", "\(AIHaplotypingExecutionDefaults.maxObservationsPerChunk)",
             "--max-output-tokens", "\(AIHaplotypingExecutionDefaults.maxOutputTokens)",
             "--temperature", Self.commandLineNumber(AIHaplotypingExecutionDefaults.temperature),
+            "--reasoning-effort", AIHaplotypingExecutionDefaults.reasoningEffort,
             "--max-provider-retries", "\(AIHaplotypingExecutionDefaults.maxProviderRetries)",
-            AIHaplotypingExecutionDefaults.compactKnowledgePack ? "--compact-knowledge-pack" : "",
         ]
-        .filter { !$0.isEmpty }
+        if promptSelection.compactKnowledgePack {
+            command.append("--compact-knowledge-pack")
+        }
+        if let promptTemplateID = promptSelection.promptTemplateID {
+            command += ["--prompt-template-id", promptTemplateID]
+        }
+        if let promptTemplateVersion = promptSelection.promptTemplateVersion {
+            command += ["--prompt-template-version", promptTemplateVersion]
+        }
+        return command
     }
 
     private static func commandLineNumber(_ value: Double) -> String {
@@ -232,9 +269,11 @@ final class GenotypeAIHaplotypingExecutionService {
 }
 
 private enum AIHaplotypingExecutionDefaults {
-    static let maxObservationsPerChunk = 1
+    static let maxObservationsPerChunk = 10_000
     static let maxOutputTokens = 16_384
-    static let temperature = 1.0
+    static let temperature = 0.0
+    static let openAIModel = MCMHaplotypingPreset.mcmMHCmiseq.aiOpenAIModel
+    static let reasoningEffort = MCMHaplotypingPreset.mcmMHCmiseq.aiReasoningEffort
     static let maxProviderRetries = 5
     static let compactKnowledgePack = true
 }

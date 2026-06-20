@@ -802,6 +802,88 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(samples.map(\.readCount).reduce(0, +), 3)  // no overwrite: 2 + 1
     }
 
+    func testResolveSampleInputsExpandsSelectedFASTQFolder() async throws {
+        let tmp = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let demultiplexedFolder = tmp.appendingPathComponent("Demultiplexed ONT", isDirectory: true)
+        let staging = tmp.appendingPathComponent("staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: demultiplexedFolder, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        let firstFASTQ = demultiplexedFolder.appendingPathComponent("LF2871.fastq")
+        let secondFASTQ = demultiplexedFolder.appendingPathComponent("LF2872.fastq")
+        try "@r1\nACGT\n+\nIIII\n".write(to: firstFASTQ, atomically: true, encoding: .utf8)
+        try "@r2\nTGCA\n+\nIIII\n".write(to: secondFASTQ, atomically: true, encoding: .utf8)
+
+        let samples = try await ONTBarcodeDemuxGenotypingPipeline
+            .resolveIlluminaSampleInputsForTesting(from: [demultiplexedFolder], stagingDirectory: staging)
+
+        XCTAssertEqual(samples.map(\.sourceURL), [
+            firstFASTQ.standardizedFileURL,
+            secondFASTQ.standardizedFileURL,
+        ])
+        XCTAssertEqual(samples.map(\.sampleID), ["LF2871", "LF2872"])
+        XCTAssertEqual(samples.map(\.readCount), [1, 1])
+    }
+
+    func testResolveSampleInputsPrefersImportedBundleCachedReadCounts() async throws {
+        let tmp = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let staging = tmp.appendingPathComponent("staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        let bundle = try makeCountedFASTQBundleWithCachedStatistics(
+            root: tmp,
+            name: "LF2871",
+            records: [("u000001", "ACGTACGT")],
+            cachedReadCount: 42
+        )
+
+        let samples = try await ONTBarcodeDemuxGenotypingPipeline
+            .resolveIlluminaSampleInputsForTesting(from: [bundle.bundleURL], stagingDirectory: staging)
+
+        XCTAssertEqual(samples.count, 1)
+        XCTAssertEqual(samples[0].sampleID, "LF2871")
+        XCTAssertEqual(samples[0].readCount, 42)
+    }
+
+    func testResolveSampleInputsPrefersParentRecipeManifestReadCountOverCachedInsertCount() async throws {
+        let tmp = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let outputFolder = tmp.appendingPathComponent("ont-fluidigm-samples", isDirectory: true)
+        let staging = tmp.appendingPathComponent("staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: outputFolder, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        let bundle = try makeCountedFASTQBundleWithCachedStatistics(
+            root: outputFolder,
+            name: "LF2871",
+            records: [("u000001", "ACGTACGT")],
+            cachedReadCount: 1
+        )
+        try """
+        {
+          "inputReadCount": 100,
+          "samples": [
+            {
+              "sample": "LF2871",
+              "bundle": "LF2871.lungfishfastq",
+              "readCount": 42,
+              "extractedReadCount": 1
+            }
+          ]
+        }
+        """.write(
+            to: outputFolder.appendingPathComponent(ONTFluidigmAmpliconMaterializer.manifestFilename),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let samples = try await ONTBarcodeDemuxGenotypingPipeline
+            .resolveIlluminaSampleInputsForTesting(from: [bundle.bundleURL], stagingDirectory: staging)
+
+        XCTAssertEqual(samples.count, 1)
+        XCTAssertEqual(samples[0].sampleID, "LF2871")
+        XCTAssertEqual(samples[0].readCount, 42)
+    }
+
     func testRunRejectsInvalidHaplotypeDefinitionBeforeCreatingOutputs() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -2008,6 +2090,29 @@ print(json.dumps(payload))
         }.joined()
         try text.write(to: fastqURL, atomically: true, encoding: .utf8)
         return (bundleURL, fastqURL)
+    }
+
+    private func makeCountedFASTQBundleWithCachedStatistics(
+        root: URL,
+        name: String,
+        records: [(identifier: String, sequence: String)],
+        cachedReadCount: Int
+    ) throws -> (bundleURL: URL, fastqURL: URL) {
+        let output = try makeCountedFASTQBundle(root: root, name: name, records: records)
+        let operation = FASTQDerivativeOperation(kind: .demultiplex, createdAt: Date())
+        let manifest = FASTQDerivedBundleManifest(
+            name: name,
+            parentBundleRelativePath: ".",
+            rootBundleRelativePath: ".",
+            rootFASTQFilename: output.fastqURL.lastPathComponent,
+            payload: .full(fastqFilename: output.fastqURL.lastPathComponent),
+            lineage: [operation],
+            operation: operation,
+            cachedStatistics: .placeholder(readCount: cachedReadCount, baseCount: Int64(cachedReadCount * 8)),
+            pairingMode: nil
+        )
+        try FASTQBundle.saveDerivedManifest(manifest, in: output.bundleURL)
+        return output
     }
 
     private func makeIlluminaFastqBundle(

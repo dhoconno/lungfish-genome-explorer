@@ -8,10 +8,9 @@ final class AIHaplotypingRunnerTests: XCTestCase {
         let provider = MockStructuredProvider { request in
             let registry = try Self.registry(from: request)
             let sample = try XCTUnwrap(registry.samples.first?.sample)
-            let locus = try XCTUnwrap(registry.loci.first?.locus)
-            let observationID = try XCTUnwrap(registry.observations.first?.id)
-            let chunkID = sample == "DW473" ? "chunk-0001" : "chunk-0002"
-            let label = sample == "DW473" ? "M8A" : "M9B"
+            let (locus, observationID) = try Self.firstObservationLocusAndID(in: registry)
+            let chunkID = sample == "DW472" ? "chunk-0001" : "chunk-0002"
+            let label = sample == "DW472" ? "M9B" : "M8A"
             return try Self.response(
                 request: request,
                 chunkID: chunkID,
@@ -68,11 +67,14 @@ final class AIHaplotypingRunnerTests: XCTestCase {
         XCTAssertEqual(expectedRuns.map(\.model), ["gpt-5-mini", "gpt-5-mini"])
         XCTAssertEqual(expectedRuns[0].generationParameters["schemaName"], "lungfish_ai_haplotyping_result")
         XCTAssertEqual(expectedRuns[0].generationParameters["maxObservationsPerChunk"], "1")
-        XCTAssertEqual(promptInputs[0].knowledgePack.id, "macaque-mhc")
-        XCTAssertEqual(promptInputs[0].knowledgePack.version, "2026-06-15.2")
+        XCTAssertEqual(expectedRuns[0].generationParameters["reasoningEffort"], "none")
+        XCTAssertEqual(expectedRuns[0].generationParameters["reviewScope"], "all")
+        let knowledgePack = try XCTUnwrap(promptInputs[0].knowledgePack)
+        XCTAssertEqual(knowledgePack.id, "macaque-mhc")
+        XCTAssertEqual(knowledgePack.version, "2026-06-17.3")
         XCTAssertEqual(promptInputs[0].runContext.assayResolution, "short_exon_amplicon")
         XCTAssertEqual(promptInputs[0].runContext.populationHint, "mcm")
-        XCTAssertTrue(promptInputs[0].knowledgePack.haplotypeBlockDefinitions.contains { $0.reportLabel == "M1A" })
+        XCTAssertTrue(knowledgePack.haplotypeBlockDefinitions.contains { $0.reportLabel == "M1A" })
 
         XCTAssertEqual(output.mode, .aiDiscovery)
         XCTAssertEqual(output.registry.observations.count, 2)
@@ -82,7 +84,7 @@ final class AIHaplotypingRunnerTests: XCTestCase {
             "lungfish.ai-haplotyping.discovery",
         ])
         XCTAssertEqual(output.chunkOutputs[0].promptMetadata.knowledgePackID, "macaque-mhc")
-        XCTAssertEqual(output.chunkOutputs[0].promptMetadata.knowledgePackVersion, "2026-06-15.2")
+        XCTAssertEqual(output.chunkOutputs[0].promptMetadata.knowledgePackVersion, "2026-06-17.3")
         XCTAssertTrue(output.chunkOutputs[0].promptMetadata.knowledgePackDigest?.hasPrefix("sha256:") == true)
         XCTAssertTrue(output.chunkOutputs.allSatisfy { $0.payloadDigest.hasPrefix("sha256:") })
         XCTAssertEqual(output.providerAttempts.map(\.provider), ["openai", "openai"])
@@ -94,12 +96,148 @@ final class AIHaplotypingRunnerTests: XCTestCase {
         })
         XCTAssertEqual(
             output.normalizedCalls.map { "\($0.sample):\($0.locus):\($0.slot):\($0.primaryHaplotypeLabel ?? "")" },
-            ["DW473:MHC-A:h1:M8A", "DW472:MHC-B:h1:M9B"]
+            ["DW472:MHC-B:h1:M9B", "DW473:MHC-A:h1:M8A"]
         )
         XCTAssertEqual(output.validationReports.map(\.accepted), [true, true])
     }
 
-    func testRunnerRejectsResultWhenRunMetadataDoesNotMatchPrompt() async throws {
+    func testRunnerCanUseMCMSpecialistPromptWithCompactEvidenceTransport() async throws {
+        let preset = MCMHaplotypingPreset.mcmMHCmiseq
+        let provider = MockStructuredProvider { request in
+            let promptInput = try Self.compactPromptInput(from: request)
+            XCTAssertTrue(request.userPrompt.contains("MCM MHC MiSeq Haplotyping Specialist Prompt"))
+            XCTAssertTrue(request.userPrompt.contains("M4 and M7 have the same MHC-DP genotypes"))
+            XCTAssertFalse(request.userPrompt.contains("\"knowledgePack\""))
+            XCTAssertFalse(request.userPrompt.contains("source_loci="))
+            XCTAssertFalse(request.userPrompt.contains("accessions="))
+            XCTAssertNil(promptInput.knowledgePack)
+            XCTAssertEqual(promptInput.evidenceRegistry.encoding, "mcm-mhc-miseq-compact-v1")
+            XCTAssertEqual(promptInput.evidenceRegistry.samples.map(\.sample), ["LF2823"])
+            XCTAssertEqual(promptInput.evidenceRegistry.loci.map(\.locus), ["MHC-A"])
+            let observation = try XCTUnwrap(promptInput.evidenceRegistry.observations.first)
+            XCTAssertEqual(observation.id, "o1")
+            XCTAssertEqual(observation.sample, "LF2823")
+            XCTAssertEqual(observation.locus, "MHC-A")
+            XCTAssertEqual(observation.target, "0069")
+            XCTAssertEqual(observation.genotype, "0069[MHC-A1]")
+            XCTAssertEqual(observation.reads, 21)
+            XCTAssertEqual(promptInput.evidenceRegistry.evidenceIDs, [
+                "locus:MHC-A",
+                "o1",
+                "sample:LF2823",
+            ])
+            let result = AIHaplotypingStructuredResult(
+                schemaVersion: 1,
+                run: promptInput.expectedRun,
+                registryDigest: promptInput.expectedRun.registryDigest,
+                inputSnapshotDigest: promptInput.expectedRun.inputSnapshotDigest,
+                chunkID: promptInput.chunkID,
+                discoveredDefinitions: [],
+                calls: [
+                    Self.structuredCall(
+                        sample: "LF2823",
+                        locus: "MHC-A",
+                        slot: "h1",
+                        label: "M4A",
+                        evidenceID: "o1"
+                    ),
+                ],
+                warnings: []
+            )
+            return try Self.response(
+                request: request,
+                result: result
+            )
+        }
+        let runner = AIHaplotypingRunner(provider: provider, promptRegistry: .builtIn)
+
+        let output = try await runner.run(
+            result: makeResult(
+                calls: [makeCall(sample: "LF2823", genotype: Self.mcm0069Header)],
+                haplotypeDefinitionSetID: preset.haplotypeDefinitionSetID
+            ),
+            sidecar: nil,
+            options: AIHaplotypingRunOptions(
+                mode: .aiDiscovery,
+                providerID: .openAI,
+                promptTemplateID: preset.aiPromptTemplateID(for: .aiDiscovery),
+                promptTemplateVersion: preset.aiPromptTemplateVersion,
+                maxObservationsPerChunk: 16,
+                includeKnowledgePack: false
+            )
+        )
+
+        XCTAssertEqual(output.chunkOutputs.map(\.promptMetadata.promptTemplateID), [
+            preset.aiPromptTemplateID(for: .aiDiscovery),
+        ])
+        XCTAssertNil(output.chunkOutputs[0].promptMetadata.knowledgePackID)
+        XCTAssertNil(output.chunkOutputs[0].promptMetadata.knowledgePackVersion)
+        XCTAssertNil(output.chunkOutputs[0].promptMetadata.knowledgePackDigest)
+        XCTAssertEqual(output.chunkOutputs[0].promptMetadata.promptTemplateVersion, preset.aiPromptTemplateVersion)
+        XCTAssertEqual(output.normalizedCalls.first?.supportEvidenceRefs, [
+            "obs:LF2823:MHC-A:\(Self.mcm0069Header)",
+        ])
+        XCTAssertEqual(output.normalizedCalls.first?.aiMetadata.supportEvidenceRefs, [
+            "obs:LF2823:MHC-A:\(Self.mcm0069Header)",
+        ])
+    }
+
+    func testRunnerEnablesPromptCacheRetentionForOpenAIGPT55MCMSpecialistRuns() async throws {
+        let preset = MCMHaplotypingPreset.mcmMHCmiseq
+        let provider = MockStructuredProvider(modelId: "gpt-5.5") { request in
+            XCTAssertEqual(request.promptCacheRetention, "24h")
+            XCTAssertEqual(request.promptCacheKey, "mcm-mhc-miseq-specialist-2026-06-19-1")
+            let promptInput = try Self.compactPromptInput(from: request)
+            XCTAssertEqual(promptInput.expectedRun.generationParameters["promptCacheRetention"], "24h")
+            XCTAssertEqual(
+                promptInput.expectedRun.generationParameters["promptCacheKey"],
+                "mcm-mhc-miseq-specialist-2026-06-19-1"
+            )
+            let result = AIHaplotypingStructuredResult(
+                schemaVersion: 1,
+                run: promptInput.expectedRun,
+                registryDigest: promptInput.expectedRun.registryDigest,
+                inputSnapshotDigest: promptInput.expectedRun.inputSnapshotDigest,
+                chunkID: promptInput.chunkID,
+                discoveredDefinitions: [],
+                calls: [
+                    Self.structuredCall(
+                        sample: "LF2823",
+                        locus: "MHC-A",
+                        slot: "h1",
+                        label: "M4A",
+                        evidenceID: "o1"
+                    ),
+                ],
+                warnings: []
+            )
+            return try Self.response(
+                request: request,
+                result: result,
+                providerAttempt: Self.attemptMetadata(request: request, model: "gpt-5.5")
+            )
+        }
+        let runner = AIHaplotypingRunner(provider: provider, promptRegistry: .builtIn)
+
+        _ = try await runner.run(
+            result: makeResult(
+                calls: [makeCall(sample: "LF2823", genotype: Self.mcm0069Header)],
+                haplotypeDefinitionSetID: preset.haplotypeDefinitionSetID
+            ),
+            sidecar: nil,
+            options: AIHaplotypingRunOptions(
+                mode: .aiDiscovery,
+                providerID: .openAI,
+                promptTemplateID: preset.aiPromptTemplateID(for: .aiDiscovery),
+                promptTemplateVersion: preset.aiPromptTemplateVersion,
+                maxObservationsPerChunk: 16,
+                reasoningEffort: "medium",
+                includeKnowledgePack: false
+            )
+        )
+    }
+
+    func testRunnerStampsExpectedRunMetadataBeforeValidation() async throws {
         let provider = MockStructuredProvider { request in
             let registry = try Self.registry(from: request)
             var result = try Self.structuredResult(
@@ -141,24 +279,114 @@ final class AIHaplotypingRunnerTests: XCTestCase {
         }
         let runner = AIHaplotypingRunner(provider: provider, promptRegistry: .builtIn)
 
-        do {
-            _ = try await runner.run(
-                result: makeResult(calls: [makeCall(sample: "DW472", genotype: "12_M9_B_001_01")]),
-                sidecar: nil,
-                options: AIHaplotypingRunOptions(
-                    mode: .aiDiscovery,
-                    providerID: .openAI,
-                    credentialSource: .environmentOpenAI,
-                    maxObservationsPerChunk: 1
-                )
+        let output = try await runner.run(
+            result: makeResult(calls: [makeCall(sample: "DW472", genotype: "12_M9_B_001_01")]),
+            sidecar: nil,
+            options: AIHaplotypingRunOptions(
+                mode: .aiDiscovery,
+                providerID: .openAI,
+                credentialSource: .environmentOpenAI,
+                maxObservationsPerChunk: 1
             )
-            XCTFail("Expected run metadata mismatch")
-        } catch let failure as AIHaplotypingRunFailure {
-            XCTAssertEqual(failure.stage, .runMetadata)
-            XCTAssertEqual(failure.sanitizedErrorCategory, "run_metadata_mismatch")
-            XCTAssertTrue(failure.message.contains("promptHash"))
-            XCTAssertEqual(failure.attemptMetadata?.provider, "openai")
+        )
+
+        let requests = await provider.recordedRequests()
+        let request = try XCTUnwrap(requests.first)
+        let expectedRun = try Self.expectedRun(from: request)
+        XCTAssertEqual(output.validationReports.map(\.accepted), [true])
+        XCTAssertEqual(output.validationReports[0].run, expectedRun)
+        XCTAssertEqual(output.chunkOutputs[0].promptMetadata.promptHash, expectedRun.promptHash)
+    }
+
+    func testRefinementUnresolvedOnlyScopeSkipsFullyCalledCurrentLoci() async throws {
+        let provider = MockStructuredProvider { request in
+            let registry = try Self.registry(from: request)
+            let sample = try XCTUnwrap(registry.samples.first?.sample)
+            let (locus, observationID) = try Self.firstObservationLocusAndID(in: registry)
+            XCTAssertEqual(sample, "DW473")
+            XCTAssertEqual(locus, "MHC-A")
+            return try Self.response(
+                request: request,
+                chunkID: "chunk-0001",
+                registry: registry,
+                calls: [
+                    Self.structuredCall(
+                        sample: sample,
+                        locus: locus,
+                        slot: "h1",
+                        label: "M4A",
+                        evidenceID: observationID
+                    ),
+                ]
+            )
         }
+        let runner = AIHaplotypingRunner(provider: provider, promptRegistry: .builtIn)
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            definitionSetName: "Test definitions",
+            speciesName: "Macaca fascicularis",
+            generatedAt: "2026-06-18T00:00:00Z",
+            analysisRevisionID: "deterministic-1",
+            source: .deterministic,
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "DW472",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-B",
+                            sourceLocus: "MHC-B",
+                            haplotype1: "M9B",
+                            haplotype2: "M7B",
+                            status: .called,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 1,
+                            observedGenotypes: ["12_M9_B_001_01"]
+                        ),
+                    ]
+                ),
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "DW473",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-A",
+                            sourceLocus: "MHC-A",
+                            haplotype1: "ERR: TMH (M2, M4)",
+                            haplotype2: "ERR: TMH (M2, M4)",
+                            status: .tooManyHaplotypes,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 1,
+                            observedGenotypes: ["05_M4_A1_031_01"]
+                        ),
+                    ]
+                ),
+            ]
+        )
+
+        let output = try await runner.run(
+            result: makeResult(
+                calls: [
+                    makeCall(sample: "DW472", genotype: "12_M9_B_001_01"),
+                    makeCall(sample: "DW473", genotype: "05_M4_A1_031_01"),
+                ],
+                activeHaplotypeAnalysisRevisionID: "deterministic-1",
+                haplotypeAnalysis: analysis
+            ),
+            sidecar: nil,
+            options: AIHaplotypingRunOptions(
+                mode: .aiRefinement,
+                providerID: .openAI,
+                maxObservationsPerChunk: 1,
+                reviewScope: .unresolvedOnly
+            )
+        )
+
+        let requests = await provider.recordedRequests()
+        XCTAssertEqual(requests.count, 1)
+        XCTAssertFalse(requests[0].userPrompt.contains("DW472"))
+        XCTAssertTrue(requests[0].userPrompt.contains("DW473"))
+        XCTAssertEqual(output.registry.observations.map(\.sampleID), ["sample:DW473"])
+        XCTAssertEqual(output.normalizedCalls.map(\.sample), ["DW473"])
     }
 
     func testRunnerRejectsProviderAttemptMetadataMismatchBeforeAcceptingCalls() async throws {
@@ -334,8 +562,7 @@ final class AIHaplotypingRunnerTests: XCTestCase {
             }
             let registry = try Self.registry(from: request)
             let sample = try XCTUnwrap(registry.samples.first?.sample)
-            let locus = try XCTUnwrap(registry.loci.first?.locus)
-            let observationID = try XCTUnwrap(registry.observations.first?.id)
+            let (locus, observationID) = try Self.firstObservationLocusAndID(in: registry)
             return try Self.response(
                 request: request,
                 chunkID: "chunk-0001",
@@ -373,6 +600,60 @@ final class AIHaplotypingRunnerTests: XCTestCase {
         XCTAssertEqual(try Self.expectedRun(from: requests[1]).generationParameters["maxProviderRetries"], "1")
     }
 
+    func testRunnerRetriesRetryableStructuredValidationFailures() async throws {
+        let attempts = RetryAttemptCounter()
+        let provider = MockStructuredProvider { request in
+            let attempt = await attempts.next()
+            let registry = try Self.registry(from: request)
+            let sample = try XCTUnwrap(registry.samples.first?.sample)
+            let (locus, observationID) = try Self.firstObservationLocusAndID(in: registry)
+            var result = try Self.structuredResult(
+                request: request,
+                chunkID: "chunk-0001",
+                registry: registry,
+                calls: [
+                    Self.structuredCall(
+                        sample: sample,
+                        locus: locus,
+                        slot: "h1",
+                        label: "M9B",
+                        evidenceID: observationID
+                    ),
+                ]
+            )
+            if attempt == 1 {
+                result = AIHaplotypingStructuredResult(
+                    schemaVersion: result.schemaVersion,
+                    run: result.run,
+                    registryDigest: "sha256:bad-registry-digest",
+                    inputSnapshotDigest: result.inputSnapshotDigest,
+                    chunkID: result.chunkID,
+                    discoveredDefinitions: result.discoveredDefinitions,
+                    calls: result.calls,
+                    warnings: result.warnings
+                )
+            }
+            return try Self.response(request: request, result: result)
+        }
+        let runner = AIHaplotypingRunner(provider: provider, promptRegistry: .builtIn)
+
+        let output = try await runner.run(
+            result: makeResult(calls: [makeCall(sample: "DW472", genotype: "12_M9_B_001_01")]),
+            sidecar: nil,
+            options: AIHaplotypingRunOptions(
+                mode: .aiDiscovery,
+                providerID: .openAI,
+                maxObservationsPerChunk: 10,
+                maxProviderRetries: 1
+            )
+        )
+
+        let requests = await provider.recordedRequests()
+        XCTAssertEqual(requests.count, 2)
+        XCTAssertEqual(output.chunkOutputs.count, 1)
+        XCTAssertEqual(output.validationReports.map { $0.accepted }, [true])
+    }
+
     func testRunnerEmitsProgressEventsForChunkLifecycleAndRetries() async throws {
         let attempts = RetryAttemptCounter()
         let events = LockedProgressEvents()
@@ -383,8 +664,7 @@ final class AIHaplotypingRunnerTests: XCTestCase {
             }
             let registry = try Self.registry(from: request)
             let sample = try XCTUnwrap(registry.samples.first?.sample)
-            let locus = try XCTUnwrap(registry.loci.first?.locus)
-            let observationID = try XCTUnwrap(registry.observations.first?.id)
+            let (locus, observationID) = try Self.firstObservationLocusAndID(in: registry)
             return try Self.response(
                 request: request,
                 chunkID: "chunk-0001",
@@ -430,8 +710,7 @@ final class AIHaplotypingRunnerTests: XCTestCase {
         let provider = MockStructuredProvider { request in
             let registry = try Self.registry(from: request)
             let sample = try XCTUnwrap(registry.samples.first?.sample)
-            let locus = try XCTUnwrap(registry.loci.first?.locus)
-            let observationID = try XCTUnwrap(registry.observations.first?.id)
+            let (locus, observationID) = try Self.firstObservationLocusAndID(in: registry)
             return try Self.response(
                 request: request,
                 chunkID: "chunk-0002",
@@ -475,11 +754,10 @@ final class AIHaplotypingRunnerTests: XCTestCase {
         let provider = MockStructuredProvider { request in
             let registry = try Self.registry(from: request)
             let sample = try XCTUnwrap(registry.samples.first?.sample)
-            let locus = try XCTUnwrap(registry.loci.first?.locus)
-            let observationID = try XCTUnwrap(registry.observations.first?.id)
+            let (locus, observationID) = try Self.firstObservationLocusAndID(in: registry)
             return try Self.response(
                 request: request,
-                chunkID: sample == "DW473" ? "chunk-0001" : "chunk-0002",
+                chunkID: sample == "DW472" ? "chunk-0001" : "chunk-0002",
                 registry: registry,
                 discoveredDefinitions: [
                     Self.discoveredDefinition(locus: locus, evidenceID: observationID)
@@ -489,7 +767,7 @@ final class AIHaplotypingRunnerTests: XCTestCase {
                         sample: sample,
                         locus: locus,
                         slot: "h1",
-                        label: sample == "DW473" ? "M8A" : "M9B",
+                        label: sample == "DW472" ? "M9B" : "M8A",
                         evidenceID: observationID
                     ),
                 ]
@@ -538,7 +816,12 @@ final class AIHaplotypingRunnerTests: XCTestCase {
         )
     }
 
-    private func makeResult(calls: [ONTGenotypeCall]) -> ONTGenotypeResultBundleData {
+    private func makeResult(
+        calls: [ONTGenotypeCall],
+        activeHaplotypeAnalysisRevisionID: String? = nil,
+        haplotypeAnalysis: GenotypeHaplotypeAnalysis? = nil,
+        haplotypeDefinitionSetID: String = "MHC-exon2-miSeq.mauritian-cynomolgus-macaques"
+    ) -> ONTGenotypeResultBundleData {
         let manifest = ONTGenotypeResultBundleManifest(
             outputName: "out",
             analysisName: "Test",
@@ -547,8 +830,9 @@ final class AIHaplotypingRunnerTests: XCTestCase {
             sampleSummaryCSVPath: "samples.csv",
             statsJSONPath: "stats.json",
             provenancePath: "provenance.json",
-            haplotypeDefinitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
-            haplotypeAssayID: "MHC-exon2-miSeq"
+            haplotypeDefinitionSetID: haplotypeDefinitionSetID,
+            haplotypeAssayID: "MHC-exon2-miSeq",
+            activeHaplotypeAnalysisRevisionID: activeHaplotypeAnalysisRevisionID
         )
         let artifacts = ONTGenotypeResultArtifacts(
             workbookURL: URL(fileURLWithPath: "/tmp/workbook.xlsx"),
@@ -563,19 +847,26 @@ final class AIHaplotypingRunnerTests: XCTestCase {
             artifacts: artifacts,
             stats: ONTGenotypeRunStats(),
             calls: calls,
-            samples: []
+            samples: [],
+            haplotypeAnalysis: haplotypeAnalysis
         )
     }
+
+    private static let mcm0069Header = "MCM_MHC_MiSeq_0069|source_loci=MHC-A1|haplotype_groups=MHC-A|haplotypes=M4|alleles=Mafa-A1_031:01:01:01|accessions=OR823430|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00"
 }
 
 private actor MockStructuredProvider: StructuredAIProvider {
     nonisolated let name = "OpenAI"
-    nonisolated let modelId = "gpt-5-mini"
+    nonisolated let modelId: String
 
     private let handler: @Sendable (AIStructuredRequest) async throws -> AIStructuredResponse
     private var requests: [AIStructuredRequest] = []
 
-    init(handler: @escaping @Sendable (AIStructuredRequest) async throws -> AIStructuredResponse) {
+    init(
+        modelId: String = "gpt-5-mini",
+        handler: @escaping @Sendable (AIStructuredRequest) async throws -> AIStructuredResponse
+    ) {
+        self.modelId = modelId
         self.handler = handler
     }
 
@@ -629,10 +920,32 @@ private extension AIHaplotypingRunnerTests {
     }
 
     static func expectedRun(from request: AIStructuredRequest) throws -> AIHaplotypingRunMetadata {
-        try promptInput(from: request).expectedRun
+        try promptInputMetadata(from: request).expectedRun
+    }
+
+    static func firstObservationLocusAndID(
+        in registry: AIHaplotypingEvidenceRegistry
+    ) throws -> (locus: String, evidenceID: String) {
+        let observation = try XCTUnwrap(registry.observations.first)
+        let locus = try XCTUnwrap(
+            registry.loci.first { $0.id == observation.locusID }?.locus
+        )
+        return (locus, observation.id)
     }
 
     static func promptInput(from request: AIStructuredRequest) throws -> PromptInput {
+        try decodePromptInput(PromptInput.self, from: request)
+    }
+
+    static func compactPromptInput(from request: AIStructuredRequest) throws -> CompactPromptInput {
+        try decodePromptInput(CompactPromptInput.self, from: request)
+    }
+
+    static func promptInputMetadata(from request: AIStructuredRequest) throws -> PromptInputMetadata {
+        try decodePromptInput(PromptInputMetadata.self, from: request)
+    }
+
+    static func decodePromptInput<T: Decodable>(_ type: T.Type, from request: AIStructuredRequest) throws -> T {
         let markerRange = request.userPrompt.range(of: "Prompt input JSON:")
             ?? request.userPrompt.range(of: "Evidence registry JSON:")
         guard let markerRange else {
@@ -662,7 +975,7 @@ private extension AIHaplotypingRunnerTests {
             throw AIProviderError.invalidResponse("Unterminated prompt input JSON")
         }
         let json = String(suffix[start...end])
-        return try JSONDecoder().decode(PromptInput.self, from: Data(json.utf8))
+        return try JSONDecoder().decode(T.self, from: Data(json.utf8))
     }
 
     static func response(
@@ -787,15 +1100,60 @@ private extension AIHaplotypingRunnerTests {
             stopReason: "end_turn",
             inputTokens: 100,
             outputTokens: 50,
+            cachedInputTokens: nil,
+            reasoningOutputTokens: nil,
             sanitizedErrorCategory: nil
         )
+    }
+
+    struct PromptInputMetadata: Decodable {
+        let chunkID: String
+        let expectedRun: AIHaplotypingRunMetadata
+        let runContext: AIHaplotypingRunContext
+        let knowledgePack: JSONValue?
     }
 
     struct PromptInput: Decodable {
         let chunkID: String
         let expectedRun: AIHaplotypingRunMetadata
         let runContext: AIHaplotypingRunContext
-        let knowledgePack: AIHaplotypingKnowledgePack
+        let knowledgePack: AIHaplotypingKnowledgePack?
         let evidenceRegistry: AIHaplotypingEvidenceRegistry
+    }
+
+    struct CompactPromptInput: Decodable {
+        let chunkID: String
+        let expectedRun: AIHaplotypingRunMetadata
+        let runContext: AIHaplotypingRunContext
+        let knowledgePack: AIHaplotypingKnowledgePack?
+        let evidenceRegistry: CompactEvidenceRegistry
+    }
+
+    struct CompactEvidenceRegistry: Decodable {
+        let schemaVersion: Int
+        let encoding: String
+        let evidenceIDs: [String]
+        let samples: [CompactSample]
+        let loci: [CompactLocus]
+        let observations: [CompactObservation]
+    }
+
+    struct CompactSample: Decodable {
+        let id: String
+        let sample: String
+    }
+
+    struct CompactLocus: Decodable {
+        let id: String
+        let locus: String
+    }
+
+    struct CompactObservation: Decodable {
+        let id: String
+        let sample: String
+        let locus: String
+        let target: String
+        let genotype: String
+        let reads: Int
     }
 }

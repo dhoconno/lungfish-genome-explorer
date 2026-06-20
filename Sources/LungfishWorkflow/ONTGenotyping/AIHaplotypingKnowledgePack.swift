@@ -1,4 +1,5 @@
 import Foundation
+import LungfishIO
 
 public enum AIHaplotypingKnowledgePackError: Error, Equatable, LocalizedError, Sendable {
     case missingBundledPack(String)
@@ -23,6 +24,7 @@ public struct AIHaplotypingKnowledgePack: Codable, Equatable, Sendable {
     public var sources: [AIHaplotypingKnowledgeSource]
     public var populationProfiles: [AIHaplotypingPopulationProfile]
     public var alleleRecords: [AIHaplotypingAlleleRecord]
+    public var referenceRecords: [AIHaplotypingReferenceRecord]
     public var haplotypeBlockDefinitions: [AIHaplotypingHaplotypeBlockDefinition]
     public var markerRules: [AIHaplotypingMarkerRule]
     public var analystGuidance: [AIHaplotypingAnalystGuidance]
@@ -34,6 +36,7 @@ public struct AIHaplotypingKnowledgePack: Codable, Equatable, Sendable {
         case sources
         case populationProfiles
         case alleleRecords
+        case referenceRecords
         case haplotypeBlockDefinitions
         case markerRules
         case analystGuidance
@@ -46,6 +49,7 @@ public struct AIHaplotypingKnowledgePack: Codable, Equatable, Sendable {
         sources: [AIHaplotypingKnowledgeSource],
         populationProfiles: [AIHaplotypingPopulationProfile],
         alleleRecords: [AIHaplotypingAlleleRecord] = [],
+        referenceRecords: [AIHaplotypingReferenceRecord] = [],
         haplotypeBlockDefinitions: [AIHaplotypingHaplotypeBlockDefinition],
         markerRules: [AIHaplotypingMarkerRule],
         analystGuidance: [AIHaplotypingAnalystGuidance],
@@ -56,6 +60,7 @@ public struct AIHaplotypingKnowledgePack: Codable, Equatable, Sendable {
         self.sources = sources.sorted { $0.id < $1.id }
         self.populationProfiles = populationProfiles.sorted { $0.id < $1.id }
         self.alleleRecords = alleleRecords.map { $0.normalized() }.sorted { $0.id < $1.id }
+        self.referenceRecords = referenceRecords.map { $0.normalized() }.sorted { $0.id < $1.id }
         self.haplotypeBlockDefinitions = haplotypeBlockDefinitions.map { $0.normalized() }.sorted { $0.id < $1.id }
         self.markerRules = markerRules.map { $0.normalized() }.sorted { $0.id < $1.id }
         self.analystGuidance = analystGuidance.map { $0.normalized() }.sorted { $0.id < $1.id }
@@ -65,6 +70,7 @@ public struct AIHaplotypingKnowledgePack: Codable, Equatable, Sendable {
             sources: self.sources,
             populationProfiles: self.populationProfiles,
             alleleRecords: self.alleleRecords,
+            referenceRecords: self.referenceRecords,
             haplotypeBlockDefinitions: self.haplotypeBlockDefinitions,
             markerRules: self.markerRules,
             analystGuidance: self.analystGuidance
@@ -84,6 +90,10 @@ public struct AIHaplotypingKnowledgePack: Codable, Equatable, Sendable {
             alleleRecords: try container.decodeIfPresent(
                 [AIHaplotypingAlleleRecord].self,
                 forKey: .alleleRecords
+            ) ?? [],
+            referenceRecords: try container.decodeIfPresent(
+                [AIHaplotypingReferenceRecord].self,
+                forKey: .referenceRecords
             ) ?? [],
             haplotypeBlockDefinitions: try container.decode(
                 [AIHaplotypingHaplotypeBlockDefinition].self,
@@ -105,6 +115,7 @@ public struct AIHaplotypingKnowledgePack: Codable, Equatable, Sendable {
             sources: sources,
             populationProfiles: populationProfiles,
             alleleRecords: alleleRecords,
+            referenceRecords: referenceRecords,
             haplotypeBlockDefinitions: haplotypeBlockDefinitions,
             markerRules: markerRules,
             analystGuidance: analystGuidance
@@ -116,12 +127,16 @@ public struct AIHaplotypingKnowledgePack: Codable, Equatable, Sendable {
         try rejectDuplicateIDs(sources.map(\.id))
         try rejectDuplicateIDs(populationProfiles.map(\.id))
         try rejectDuplicateIDs(alleleRecords.map(\.id))
+        try rejectDuplicateIDs(referenceRecords.map(\.id))
         try rejectDuplicateIDs(haplotypeBlockDefinitions.map(\.id))
         try rejectDuplicateIDs(markerRules.map(\.id))
         try rejectDuplicateIDs(analystGuidance.map(\.id))
 
         for alleleRecord in alleleRecords {
             try validateSourceIDs(alleleRecord.sourceIDs, known: sourceIDs)
+        }
+        for referenceRecord in referenceRecords {
+            try validateSourceIDs(referenceRecord.sourceIDs, known: sourceIDs)
         }
         for definition in haplotypeBlockDefinitions {
             try validateSourceIDs(definition.sourceIDs, known: sourceIDs)
@@ -156,6 +171,7 @@ public struct AIHaplotypingKnowledgePack: Codable, Equatable, Sendable {
         sources: [AIHaplotypingKnowledgeSource],
         populationProfiles: [AIHaplotypingPopulationProfile],
         alleleRecords: [AIHaplotypingAlleleRecord],
+        referenceRecords: [AIHaplotypingReferenceRecord],
         haplotypeBlockDefinitions: [AIHaplotypingHaplotypeBlockDefinition],
         markerRules: [AIHaplotypingMarkerRule],
         analystGuidance: [AIHaplotypingAnalystGuidance]
@@ -166,6 +182,7 @@ public struct AIHaplotypingKnowledgePack: Codable, Equatable, Sendable {
             sources: sources,
             populationProfiles: populationProfiles,
             alleleRecords: alleleRecords,
+            referenceRecords: referenceRecords,
             haplotypeBlockDefinitions: haplotypeBlockDefinitions,
             markerRules: markerRules,
             analystGuidance: analystGuidance
@@ -178,6 +195,7 @@ public struct AIHaplotypingKnowledgePack: Codable, Equatable, Sendable {
         let sources: [AIHaplotypingKnowledgeSource]
         let populationProfiles: [AIHaplotypingPopulationProfile]
         let alleleRecords: [AIHaplotypingAlleleRecord]
+        let referenceRecords: [AIHaplotypingReferenceRecord]
         let haplotypeBlockDefinitions: [AIHaplotypingHaplotypeBlockDefinition]
         let markerRules: [AIHaplotypingMarkerRule]
         let analystGuidance: [AIHaplotypingAnalystGuidance]
@@ -193,6 +211,7 @@ public struct AIHaplotypingAlleleRecord: Codable, Equatable, Sendable {
     public var previousName: String?
     public var status: String?
     public var sourceIDs: [String]
+    public var locus: String?
 
     public init(
         id: String,
@@ -202,7 +221,8 @@ public struct AIHaplotypingAlleleRecord: Codable, Equatable, Sendable {
         comment: String?,
         previousName: String?,
         status: String?,
-        sourceIDs: [String]
+        sourceIDs: [String],
+        locus: String? = nil
     ) {
         self.id = id
         self.officialDesignation = officialDesignation
@@ -212,6 +232,56 @@ public struct AIHaplotypingAlleleRecord: Codable, Equatable, Sendable {
         self.previousName = previousName
         self.status = status
         self.sourceIDs = sourceIDs.sorted()
+        self.locus = locus
+    }
+}
+
+public struct AIHaplotypingReferenceRecord: Codable, Equatable, Sendable {
+    public var id: String
+    public var primaryName: String
+    public var fastaHeader: String
+    public var sourceLoci: [String]
+    public var haplotypeGroups: [String]
+    public var haplotypes: [String]
+    public var alleles: [String]
+    public var accessions: [String]
+    public var length: Int?
+    public var evidenceClasses: [String]
+    public var maxEvidenceWeight: Double?
+    public var evidenceWeightSum: Double?
+    public var aliases: [String]
+    public var sourceIDs: [String]
+
+    public init(
+        id: String,
+        primaryName: String,
+        fastaHeader: String,
+        sourceLoci: [String],
+        haplotypeGroups: [String],
+        haplotypes: [String],
+        alleles: [String],
+        accessions: [String],
+        length: Int?,
+        evidenceClasses: [String],
+        maxEvidenceWeight: Double?,
+        evidenceWeightSum: Double?,
+        aliases: [String],
+        sourceIDs: [String]
+    ) {
+        self.id = id
+        self.primaryName = primaryName
+        self.fastaHeader = fastaHeader
+        self.sourceLoci = sourceLoci
+        self.haplotypeGroups = haplotypeGroups
+        self.haplotypes = haplotypes
+        self.alleles = alleles
+        self.accessions = accessions
+        self.length = length
+        self.evidenceClasses = evidenceClasses
+        self.maxEvidenceWeight = maxEvidenceWeight
+        self.evidenceWeightSum = evidenceWeightSum
+        self.aliases = aliases
+        self.sourceIDs = sourceIDs
     }
 }
 
@@ -369,7 +439,11 @@ public struct AIHaplotypingAnalystGuidance: Codable, Equatable, Sendable {
 
 private extension AIHaplotypingAlleleRecord {
     func normalized() -> AIHaplotypingAlleleRecord {
-        AIHaplotypingAlleleRecord(
+        let trimmedLocus = locus?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let mappedLocus = trimmedLocus?.isEmpty == false
+            ? GenotypeHaplotypeLocusResolver.haplotypeEvidenceLocusName(trimmedLocus ?? "")
+            : GenotypeHaplotypeLocusResolver.haplotypeEvidenceLocusName(officialDesignation)
+        return AIHaplotypingAlleleRecord(
             id: id,
             officialDesignation: officialDesignation,
             accession: accession,
@@ -377,8 +451,36 @@ private extension AIHaplotypingAlleleRecord {
             comment: comment,
             previousName: previousName,
             status: status,
-            sourceIDs: sourceIDs
+            sourceIDs: sourceIDs,
+            locus: mappedLocus == "Unknown" ? nil : mappedLocus
         )
+    }
+}
+
+private extension AIHaplotypingReferenceRecord {
+    func normalized() -> AIHaplotypingReferenceRecord {
+        AIHaplotypingReferenceRecord(
+            id: id,
+            primaryName: primaryName,
+            fastaHeader: fastaHeader,
+            sourceLoci: sourceLoci.uniquedAndSorted(),
+            haplotypeGroups: haplotypeGroups.uniquedAndSorted(),
+            haplotypes: haplotypes.uniquedAndSorted(),
+            alleles: alleles.uniquedAndSorted(),
+            accessions: accessions.uniquedAndSorted(),
+            length: length,
+            evidenceClasses: evidenceClasses.uniquedAndSorted(),
+            maxEvidenceWeight: maxEvidenceWeight,
+            evidenceWeightSum: evidenceWeightSum,
+            aliases: aliases.uniquedAndSorted(),
+            sourceIDs: sourceIDs.uniquedAndSorted()
+        )
+    }
+}
+
+private extension Array where Element == String {
+    func uniquedAndSorted() -> [String] {
+        Array(Set(map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty })).sorted()
     }
 }
 

@@ -387,6 +387,8 @@ public enum AIHaplotypingResultSchema {
             "maxObservationsPerChunk": stringSchema(),
             "maxOutputTokens": stringSchema(),
             "maxProviderRetries": stringSchema(),
+            "reasoningEffort": stringSchema(),
+            "reviewScope": stringSchema(),
             "schemaName": stringSchema(),
             "temperature": stringSchema(),
         ]))

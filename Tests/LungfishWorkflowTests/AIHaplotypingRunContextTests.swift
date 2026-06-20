@@ -41,8 +41,8 @@ final class AIHaplotypingRunContextTests: XCTestCase {
         XCTAssertEqual(context.assayResolution, "short_exon_amplicon")
         XCTAssertEqual(context.haplotypeFrameworkHint, "indian-rhesus-regional-blocks")
         XCTAssertTrue(context.observedRegions.contains("MHC-A"))
-        XCTAssertTrue(context.observedRegions.contains("MHC-AG"))
-        XCTAssertTrue(context.notes.contains { $0.contains("MHC-AG") })
+        XCTAssertFalse(context.observedRegions.contains("MHC-AG"))
+        XCTAssertTrue(context.notes.contains { $0.contains("AG and G markers") })
     }
 
     func testInfersFullLengthContextWhenAlleleNamesUseStarNomenclature() {

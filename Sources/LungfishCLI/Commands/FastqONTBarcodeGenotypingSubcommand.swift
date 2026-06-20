@@ -15,7 +15,10 @@ struct FastqONTBarcodeGenotypingSubcommand: AsyncParsableCommand {
     static let referenceHelp = MHCReferenceBundleResolution.referenceHelp
 
     @Option(name: .customLong("reference"), help: ArgumentHelp(stringLiteral: referenceHelp))
-    var reference: String
+    var reference: String?
+
+    @Option(name: .customLong("preset"), help: "Locked genotyping preset. Supported value: mcm-mhc-miseq.")
+    var preset: String?
 
     @Option(name: .customLong("barcodes"), help: "CSV/TSV file containing sample ID and Fluidigm barcode sequence columns")
     var barcodes: String
@@ -81,6 +84,17 @@ struct FastqONTBarcodeGenotypingSubcommand: AsyncParsableCommand {
         max(1, globalOptions.threads ?? ProcessInfo.processInfo.activeProcessorCount)
     }
 
+    mutating func validate() throws {
+        try FastqGenotypingSubcommand.validateReferenceSelection(
+            reference: reference,
+            preset: preset,
+            haplotypeAssay: haplotypeAssay,
+            haplotypeSpecies: haplotypeSpecies,
+            haplotypeDefinitionScope: haplotypeDefinitionScope,
+            haplotypeDefinition: haplotypeDefinition
+        )
+    }
+
     func run() async throws {
         guard globalOptions.threads.map({ $0 > 0 }) ?? true else {
             throw ValidationError("--threads must be positive.")
@@ -107,18 +121,18 @@ struct FastqONTBarcodeGenotypingSubcommand: AsyncParsableCommand {
         } catch {
             throw ValidationError("Invalid --extra-args: \(error.localizedDescription)")
         }
-        let referenceURL = URL(fileURLWithPath: reference)
-        let bundledHaplotype = try Self.resolveBundleHaplotypeDefinition(
-            referenceURL: referenceURL,
-            explicitID: haplotypeDefinition
+        let referenceConfiguration = try FastqGenotypingSubcommand.resolvedReferenceConfiguration(
+            reference: reference,
+            preset: preset,
+            haplotypeAssay: haplotypeAssay,
+            haplotypeSpecies: haplotypeSpecies,
+            haplotypeDefinitionScope: haplotypeDefinitionScope,
+            haplotypeDefinition: haplotypeDefinition
         )
-        let effectiveHaplotypeDefinition = bundledHaplotype?.id ?? haplotypeDefinition
-        let effectiveHaplotypeAssay = bundledHaplotype?.assayID ?? haplotypeAssay
-        let effectiveHaplotypeSpecies = bundledHaplotype?.speciesCode ?? haplotypeSpecies
 
         let request = ONTBarcodeDemuxGenotypingRunRequest(
             inputFASTQURL: URL(fileURLWithPath: input),
-            referenceSourceURL: referenceURL,
+            referenceSourceURL: referenceConfiguration.referenceURL,
             barcodeDefinitionsURL: URL(fileURLWithPath: barcodes),
             outputDirectory: URL(fileURLWithPath: outputDir, isDirectory: true),
             outputName: outputName,
@@ -133,12 +147,15 @@ struct FastqONTBarcodeGenotypingSubcommand: AsyncParsableCommand {
             haplotypeDropoutSampleFraction: Self.fraction(fromPercent: haplotypeMinSamplePercent),
             haplotypeDropoutLocusFraction: Self.fraction(fromPercent: haplotypeMinLocusPercent),
             haplotypeDropoutLocusFractionOverrides: parsedLocusOverrides,
-            haplotypeAssayID: effectiveHaplotypeAssay,
-            haplotypeSpeciesCode: effectiveHaplotypeSpecies,
-            haplotypeDefinitionScope: effectiveHaplotypeDefinition == nil
+            haplotypeAssayID: referenceConfiguration.haplotypeAssayID,
+            haplotypeSpeciesCode: referenceConfiguration.haplotypeSpeciesCode,
+            haplotypeDefinitionScope: referenceConfiguration.haplotypeDefinitionSetID == nil
                 ? nil
                 : (parsedHaplotypeDefinitionScope ?? .project),
-            haplotypeDefinitionSetID: effectiveHaplotypeDefinition,
+            haplotypeDefinitionSetID: referenceConfiguration.haplotypeDefinitionSetID,
+            presetID: referenceConfiguration.preset?.id,
+            presetVersion: referenceConfiguration.preset?.version,
+            lockedReferenceSHA256: referenceConfiguration.preset?.referenceFASTASHA256,
             extraArguments: parsedExtraArguments
         )
 

@@ -80,7 +80,7 @@ public enum AIHaplotypingEvidenceBuilder {
                 let sample = normalizedSampleName(sampleAnalysis.sample)
                 _ = recordSample(sample)
                 for call in sampleAnalysis.calls {
-                    let locus = GenotypeHaplotypeLocusResolver.canonicalLocusName(call.locus)
+                    let locus = GenotypeHaplotypeLocusResolver.haplotypeEvidenceLocusName(call.locus)
                     _ = recordLocus(locus)
                     currentCalls.append(CurrentCallEvidence(
                         id: "current:\(sample):\(locus):h1",
@@ -108,7 +108,7 @@ public enum AIHaplotypingEvidenceBuilder {
             var manualReviewsByID: [String: ManualReviewEvidence] = [:]
             for override in sidecar?.callOverrides ?? [] {
                 let sample = normalizedSampleName(override.sample)
-                let locus = GenotypeHaplotypeLocusResolver.canonicalLocusName(override.locus)
+                let locus = GenotypeHaplotypeLocusResolver.haplotypeEvidenceLocusName(override.locus)
                 _ = recordSample(sample)
                 _ = recordLocus(locus)
                 let review = ManualReviewEvidence(
@@ -123,7 +123,7 @@ public enum AIHaplotypingEvidenceBuilder {
             }
             for assignment in sidecar?.manualHaplotypeAssignments ?? [] {
                 let sample = normalizedSampleName(assignment.sample)
-                let locus = GenotypeHaplotypeLocusResolver.canonicalLocusName(assignment.locus)
+                let locus = GenotypeHaplotypeLocusResolver.haplotypeEvidenceLocusName(assignment.locus)
                 _ = recordSample(sample)
                 _ = recordLocus(locus)
                 let rationale = assignment.notes.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -218,7 +218,7 @@ public enum AIHaplotypingEvidenceBuilder {
         let overrides = mode == .aiRefinement ? (sidecar?.callOverrides ?? []).map { override in
             OverrideSnapshot(
                 sample: normalizedSampleName(override.sample),
-                locus: GenotypeHaplotypeLocusResolver.canonicalLocusName(override.locus),
+                locus: GenotypeHaplotypeLocusResolver.haplotypeEvidenceLocusName(override.locus),
                 slot: override.slot.rawValue,
                 originalCall: override.originalCall,
                 overrideCall: override.overrideCall,
@@ -231,7 +231,7 @@ public enum AIHaplotypingEvidenceBuilder {
         let manualAssignments = mode == .aiRefinement ? (sidecar?.manualHaplotypeAssignments ?? []).map { assignment in
             ManualAssignmentSnapshot(
                 sample: normalizedSampleName(assignment.sample),
-                locus: GenotypeHaplotypeLocusResolver.canonicalLocusName(assignment.locus),
+                locus: GenotypeHaplotypeLocusResolver.haplotypeEvidenceLocusName(assignment.locus),
                 slot: assignment.slot.rawValue,
                 label: assignment.label,
                 diagnosticAlleles: assignment.diagnosticAlleles,
@@ -269,21 +269,58 @@ public enum AIHaplotypingEvidenceBuilder {
         if let reportLocus = reportLocusBySampleGenotype[SampleGenotypeKey(sample: sample, genotype: call.genotype)] {
             return reportLocus
         }
+        if let sourceLocus = pipeMetadataEvidenceLocus(for: call.genotype, key: "source_loci"),
+           sourceLocus == "MHC-E" || sourceLocus == "MHC-L" {
+            return sourceLocus
+        }
+        if let metadataGroupLocus = GenotypeHaplotypeLocusResolver.metadataHaplotypeGroupLocus(for: call.genotype) {
+            return metadataGroupLocus
+        }
+        if let metadataLocus = pipeMetadataEvidenceLocus(for: call.genotype, key: "source_loci") {
+            return metadataLocus
+        }
         let definitionLocus = GenotypeHaplotypeLocusResolver.canonicalLocus(for: call, definitionSet: definitionSet)
         let rawLocus = GenotypeHaplotypeLocusResolver.canonicalLocusName(call.locusGroup)
+        let evidenceLocus = GenotypeHaplotypeLocusResolver.haplotypeEvidenceLocusName(call.locusGroup)
         if definitionLocus != rawLocus {
-            return definitionLocus
+            return GenotypeHaplotypeLocusResolver.haplotypeEvidenceLocusName(definitionLocus)
         }
         if let reportLocus = reportLocusBySampleRawLocus[SampleRawLocusKey(sample: sample, rawLocus: rawLocus)] {
             return reportLocus
         }
-        return reportLocusByRawLocus[rawLocus] ?? rawLocus
+        return reportLocusByRawLocus[rawLocus] ?? evidenceLocus
+    }
+
+    private static func pipeMetadataEvidenceLocus(for genotype: String, key: String) -> String? {
+        guard let value = pipeMetadataValue(for: genotype, key: key) else { return nil }
+        let firstLocus = value
+            .split(separator: ",")
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+        guard let firstLocus else { return nil }
+        return GenotypeHaplotypeLocusResolver.haplotypeEvidenceLocusName(firstLocus)
+    }
+
+    private static func pipeMetadataValue(for genotype: String, key: String) -> String? {
+        let prefix = "\(key)="
+        return genotype
+            .split(separator: "|", omittingEmptySubsequences: false)
+            .dropFirst()
+            .compactMap { field -> String? in
+                guard field.hasPrefix(prefix) else { return nil }
+                return String(field.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            .first { !$0.isEmpty }
     }
 
     private static func activeDefinitionSetSnapshot(
         in bundleURL: URL
     ) throws -> GenotypeHaplotypeDefinitionSet? {
         let candidates = [
+            bundleURL
+                .appendingPathComponent(".amplicon-genotyping", isDirectory: true)
+                .appendingPathComponent("inputs", isDirectory: true)
+                .appendingPathComponent("haplotype-definition.json"),
             bundleURL
                 .appendingPathComponent(".ont-barcode-genotyping", isDirectory: true)
                 .appendingPathComponent("inputs", isDirectory: true)
@@ -309,7 +346,7 @@ public enum AIHaplotypingEvidenceBuilder {
         for sampleAnalysis in analysis.samples {
             let sample = normalizedSampleName(sampleAnalysis.sample)
             for call in sampleAnalysis.calls {
-                let locus = GenotypeHaplotypeLocusResolver.canonicalLocusName(call.locus)
+                let locus = GenotypeHaplotypeLocusResolver.haplotypeEvidenceLocusName(call.locus)
                 for observedGenotype in call.observedGenotypes {
                     let genotype = observedGenotype.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !genotype.isEmpty else { continue }
@@ -335,7 +372,7 @@ public enum AIHaplotypingEvidenceBuilder {
         for sampleAnalysis in analysis.samples {
             let sample = normalizedSampleName(sampleAnalysis.sample)
             for call in sampleAnalysis.calls {
-                let reportLocus = GenotypeHaplotypeLocusResolver.canonicalLocusName(call.locus)
+                let reportLocus = GenotypeHaplotypeLocusResolver.haplotypeEvidenceLocusName(call.locus)
                 for observedGenotype in call.observedGenotypes {
                     let genotype = observedGenotype.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !genotype.isEmpty else { continue }
@@ -361,7 +398,7 @@ public enum AIHaplotypingEvidenceBuilder {
         var candidateLociByRawLocus: [String: Set<String>] = [:]
         for sampleAnalysis in analysis.samples {
             for call in sampleAnalysis.calls {
-                let reportLocus = GenotypeHaplotypeLocusResolver.canonicalLocusName(call.locus)
+                let reportLocus = GenotypeHaplotypeLocusResolver.haplotypeEvidenceLocusName(call.locus)
                 for observedGenotype in call.observedGenotypes {
                     let genotype = observedGenotype.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !genotype.isEmpty else { continue }
@@ -391,7 +428,7 @@ public enum AIHaplotypingEvidenceBuilder {
             overallUniqueRetainedReads: nil,
             overallUniqueRetainedPercent: nil
         )
-        return GenotypeHaplotypeLocusResolver.canonicalLocusName(call.locusGroup)
+        return GenotypeHaplotypeLocusResolver.haplotypeEvidenceLocusName(call.locusGroup)
     }
 
     private struct InputSnapshot: Encodable {
@@ -559,25 +596,32 @@ public struct AIHaplotypingEvidenceChunker: Equatable, Sendable {
             lexicographicallyPrecedes(lhs.sortKey, rhs.sortKey)
         }
 
+        let clustersBySample = Dictionary(grouping: clusters, by: { $0.pair.sampleID })
+            .sorted { lhs, rhs in lhs.key < rhs.key }
+
         var chunkObservationGroups: [[ObservationEvidence]] = []
-        var currentObservations: [ObservationEvidence] = []
-        for cluster in clusters {
-            if !currentObservations.isEmpty,
-               currentObservations.count + cluster.observations.count > maxObservationsPerChunk {
-                chunkObservationGroups.append(currentObservations)
-                currentObservations.removeAll()
+        for (_, sampleClusters) in clustersBySample {
+            var currentObservations: [ObservationEvidence] = []
+            for cluster in sampleClusters.sorted(by: { lhs, rhs in
+                lexicographicallyPrecedes(lhs.sortKey, rhs.sortKey)
+            }) {
+                if !currentObservations.isEmpty,
+                   currentObservations.count + cluster.observations.count > maxObservationsPerChunk {
+                    chunkObservationGroups.append(currentObservations)
+                    currentObservations.removeAll()
+                }
+                currentObservations.append(contentsOf: cluster.observations)
             }
-            currentObservations.append(contentsOf: cluster.observations)
-        }
-        if !currentObservations.isEmpty {
-            chunkObservationGroups.append(currentObservations)
+            if !currentObservations.isEmpty {
+                chunkObservationGroups.append(currentObservations)
+            }
         }
 
         return chunkObservationGroups.enumerated().map { offset, chunkObservations in
             let observations = chunkObservations.sorted(by: observationPrecedes(_:_:))
             let pairs = Set(observations.map { EvidencePair(sampleID: $0.sampleID, locusID: $0.locusID) })
             let sampleIDs = Set(observations.map(\.sampleID))
-            let locusIDs = Set(observations.map(\.locusID))
+            let locusIDs = Set(registry.loci.map(\.id))
             let currentCalls = registry.currentCalls.filter {
                 pairs.contains(EvidencePair(sampleID: sampleID(for: $0.sample), locusID: locusID(for: $0.locus)))
             }

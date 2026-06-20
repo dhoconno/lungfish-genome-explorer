@@ -17,7 +17,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             packageStore: packageStore
         )
 
-        let ont = try XCTUnwrap(state.tools.first { $0.title == "miSeq amplicon ONT MHC genotyping" })
+        let ont = try XCTUnwrap(state.tools.first { $0.title == "miSeq amplicon MHC genotyping" })
         XCTAssertEqual(ont.availability, .available)
     }
 
@@ -61,8 +61,9 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
 
         try await waitForProjectDiscovery(state)
 
+        let presetReferenceURL = try MCMHaplotypingPreset.mcmMHCmiseq.bundledReferenceBundleURL()
         XCTAssertEqual(state.projectReferenceCandidates, [referenceURL.standardizedFileURL])
-        XCTAssertEqual(state.selectedReferenceURL, referenceURL.standardizedFileURL)
+        XCTAssertEqual(state.selectedReferenceURL, presetReferenceURL)
         XCTAssertEqual(state.projectBarcodeDefinitionCandidates, [barcodesURL.standardizedFileURL])
         XCTAssertEqual(state.selectedBarcodeDefinitionURL, barcodesURL.standardizedFileURL)
         XCTAssertFalse(state.isDiscoveringProjectResources)
@@ -99,7 +100,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
 
         try await waitForProjectDiscovery(state)
 
-        XCTAssertEqual(state.selectedReferenceURL, manualReferenceURL.standardizedFileURL)
+        XCTAssertEqual(state.selectedReferenceURL, try MCMHaplotypingPreset.mcmMHCmiseq.bundledReferenceBundleURL())
         XCTAssertEqual(state.selectedBarcodeDefinitionURL, manualBarcodesURL.standardizedFileURL)
         XCTAssertTrue(state.projectReferenceCandidates.contains(discoveredReferenceURL.standardizedFileURL))
         XCTAssertTrue(state.projectBarcodeDefinitionCandidates.contains(discoveredBarcodesURL.standardizedFileURL))
@@ -175,22 +176,21 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         state.setOutputDirectory(outputURL)
         state.outputName = "barcode10-mhc"
 
-        XCTAssertEqual(state.selectedHaplotypeDefinitionSetID, definition.id)
-        XCTAssertEqual(state.selectedHaplotypeAssayID, definition.assayID)
-        XCTAssertEqual(state.selectedHaplotypeSpeciesCode, definition.speciesCode)
-        XCTAssertEqual(state.selectedMHCReferenceBundleURL, referenceURL.standardizedFileURL)
-        let compatibleRecord = try XCTUnwrap(state.compatibleHaplotypeDefinitionRecords.first)
-        XCTAssertEqual(compatibleRecord.definitionSet.id, definition.id)
-        XCTAssertEqual(compatibleRecord.referenceBundleURL, referenceURL.standardizedFileURL)
-        XCTAssertEqual(compatibleRecord.sourceDisplayName, "MHC Reference Bundle")
+        let preset = MCMHaplotypingPreset.mcmMHCmiseq
+        let presetReferenceURL = try preset.bundledReferenceBundleURL()
+        XCTAssertEqual(state.selectedHaplotypeDefinitionSetID, preset.haplotypeDefinitionSetID)
+        XCTAssertEqual(state.selectedHaplotypeAssayID, preset.haplotypeAssayID)
+        XCTAssertEqual(state.selectedHaplotypeSpeciesCode, preset.haplotypeSpeciesCode)
+        XCTAssertEqual(state.selectedMHCReferenceBundleURL, presetReferenceURL)
         let launch = try state.makeLaunchRequest()
         guard case .ontGenotyping(let request) = launch else {
             return XCTFail("Expected ONT genotyping request")
         }
-        XCTAssertEqual(request.referenceSourceURL, referenceURL.standardizedFileURL)
-        XCTAssertEqual(request.haplotypeDefinitionSetID, definition.id)
-        XCTAssertEqual(request.haplotypeAssayID, definition.assayID)
-        XCTAssertEqual(request.haplotypeSpeciesCode, definition.speciesCode)
+        XCTAssertEqual(request.referenceSourceURL, presetReferenceURL)
+        XCTAssertEqual(request.presetID, preset.id)
+        XCTAssertEqual(request.haplotypeDefinitionSetID, preset.haplotypeDefinitionSetID)
+        XCTAssertEqual(request.haplotypeAssayID, preset.haplotypeAssayID)
+        XCTAssertEqual(request.haplotypeSpeciesCode, preset.haplotypeSpeciesCode)
     }
 
     func testMHCReferenceBundleSelectionCollapsesHaplotypePickerStackAndSummarizesBundle() throws {
@@ -230,13 +230,13 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         )
 
         state.setReference(plainFASTAURL)
-        XCTAssertFalse(state.usesBundledHaplotypeDefinitions)
-        XCTAssertNil(state.referenceBundleSummary)
+        XCTAssertTrue(state.usesBundledHaplotypeDefinitions)
+        XCTAssertEqual(state.referenceBundleSummary, "From bundle: MCM MHC miSeq reference 2026-06-17")
 
         state.setReference(referenceURL)
 
         XCTAssertTrue(state.usesBundledHaplotypeDefinitions)
-        XCTAssertEqual(state.referenceBundleSummary, "From bundle: MCM MHC")
+        XCTAssertEqual(state.referenceBundleSummary, "From bundle: MCM MHC miSeq reference 2026-06-17")
     }
 
     func testOperationsDialogReflectsWorkflowEnabledByLibraryStoreAfterDialogStoreWasCreated() throws {
@@ -254,7 +254,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         // dialog reflects a library-store change made after it was created.
         let twelveSItem = try XCTUnwrap(WorkflowLibraryCatalog.item(id: WorkflowLibraryCatalog.twelveSAmpliconMatchingID))
         libraryStore.setWorkflow(twelveSItem, enabled: true)
-        var ont = try XCTUnwrap(state.tools.first { $0.title == "miSeq amplicon ONT MHC genotyping" })
+        var ont = try XCTUnwrap(state.tools.first { $0.title == "miSeq amplicon MHC genotyping" })
         XCTAssertEqual(ont.availability, .available)
         var twelveS = try XCTUnwrap(state.tools.first { $0.title == "12S Amplicon Matching" })
         XCTAssertEqual(twelveS.availability, .available)
@@ -262,7 +262,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         libraryStore.setWorkflow(.ontGenotyping, enabled: false)
         libraryStore.setWorkflow(twelveSItem, enabled: false)
 
-        ont = try XCTUnwrap(state.tools.first { $0.title == "miSeq amplicon ONT MHC genotyping" })
+        ont = try XCTUnwrap(state.tools.first { $0.title == "miSeq amplicon MHC genotyping" })
         XCTAssertEqual(ont.availability, .disabled(reason: "Enable in Library"))
         twelveS = try XCTUnwrap(state.tools.first { $0.title == "12S Amplicon Matching" })
         XCTAssertEqual(twelveS.availability, .disabled(reason: "Enable in Library"))
@@ -270,7 +270,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         libraryStore.setWorkflow(.ontGenotyping, enabled: true)
         libraryStore.setWorkflow(twelveSItem, enabled: true)
 
-        ont = try XCTUnwrap(state.tools.first { $0.title == "miSeq amplicon ONT MHC genotyping" })
+        ont = try XCTUnwrap(state.tools.first { $0.title == "miSeq amplicon MHC genotyping" })
         XCTAssertEqual(ont.availability, .available)
         twelveS = try XCTUnwrap(state.tools.first { $0.title == "12S Amplicon Matching" })
         XCTAssertEqual(twelveS.availability, .available)
@@ -571,7 +571,8 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         }
 
         XCTAssertEqual(request.inputFASTQURL, readsURL.standardizedFileURL)
-        XCTAssertEqual(request.referenceSourceURL, referenceURL.standardizedFileURL)
+        XCTAssertEqual(request.referenceSourceURL, try MCMHaplotypingPreset.mcmMHCmiseq.bundledReferenceBundleURL())
+        XCTAssertEqual(request.presetID, MCMHaplotypingPreset.mcmMHCmiseq.id)
         XCTAssertEqual(request.barcodeDefinitionsURL, barcodesURL.standardizedFileURL)
         XCTAssertEqual(
             request.outputDirectory,
@@ -581,8 +582,8 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertEqual(request.analysisName, "sample-ont")
         XCTAssertEqual(request.threads, 6)
         XCTAssertEqual(request.minSupport, 3)
-        XCTAssertNil(request.haplotypeAssayID)
-        XCTAssertNil(request.haplotypeDefinitionSetID)
+        XCTAssertEqual(request.haplotypeAssayID, MCMHaplotypingPreset.mcmMHCmiseq.haplotypeAssayID)
+        XCTAssertEqual(request.haplotypeDefinitionSetID, MCMHaplotypingPreset.mcmMHCmiseq.haplotypeDefinitionSetID)
     }
 
     func testTwelveSAmpliconMatchingLaunchRequestUsesFastaReferenceAndMultipleReadBundles() throws {
@@ -931,7 +932,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertThrowsError(try state.makeLaunchRequest())
     }
 
-    func testONTGenotypingLaunchRequestUsesExplicitAssayScopedHaplotypeDefinition() throws {
+    func testONTGenotypingLaunchRequestKeepsLockedPresetDefinitionWhenStateIsMutated() throws {
         let defaults = try makeDefaults()
         let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
         enablementStore.setWorkflow(.ontGenotyping, enabled: true)
@@ -956,7 +957,10 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         state.setReads([readsURL])
         state.setOutputDirectory(outputURL)
 
-        XCTAssertNil(state.selectedHaplotypeDefinitionSetID)
+        XCTAssertEqual(
+            state.selectedHaplotypeDefinitionSetID,
+            MCMHaplotypingPreset.mcmMHCmiseq.haplotypeDefinitionSetID
+        )
         state.selectedHaplotypeAssayID = "MHC-exon2-miSeq"
         state.selectedHaplotypeDefinitionSetID = "MHC-exon2-miSeq.mauritian-cynomolgus-macaques"
 
@@ -965,8 +969,8 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             return XCTFail("Expected ONT genotyping request")
         }
 
-        XCTAssertEqual(request.haplotypeAssayID, "MHC-exon2-miSeq")
-        XCTAssertEqual(request.haplotypeDefinitionSetID, "MHC-exon2-miSeq.mauritian-cynomolgus-macaques")
+        XCTAssertEqual(request.haplotypeAssayID, MCMHaplotypingPreset.mcmMHCmiseq.haplotypeAssayID)
+        XCTAssertEqual(request.haplotypeDefinitionSetID, MCMHaplotypingPreset.mcmMHCmiseq.haplotypeDefinitionSetID)
     }
 
     func testONTGenotypingLaunchRequestIncludesOperationHaplotypeThresholds() throws {
@@ -1312,6 +1316,53 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertEqual(request.readType, .ont)
     }
 
+    func testAmpliconGenotypingONTSampleBundleModeAllowsSelectedFolderWithoutBarcodes() throws {
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        enablementStore.setWorkflow(.ontGenotyping, enabled: true)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let temp = try temporaryDirectory()
+        let referenceURL = temp.appendingPathComponent("ref.lungfishref", isDirectory: true)
+        let demultiplexedFolderURL = temp.appendingPathComponent("Reads/Demultiplexed ONT", isDirectory: true)
+        let outputURL = temp.appendingPathComponent("Analyses", isDirectory: true)
+        for url in [referenceURL, demultiplexedFolderURL, outputURL] {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        }
+        try "@r1\nACGT\n+\nIIII\n".write(
+            to: demultiplexedFolderURL.appendingPathComponent("LF2871.fastq"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "@r2\nTGCA\n+\nIIII\n".write(
+            to: demultiplexedFolderURL.appendingPathComponent("LF2872.fastq"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let state = WorkflowOperationDialogState(
+            projectURL: temp,
+            selectedReadURLs: [demultiplexedFolderURL],
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+        state.selectedGenotypingMode = .ontSampleBundles
+        state.selectedGenotypingReadType = .ont
+        state.setReference(referenceURL)
+        state.setBarcodeDefinition(nil)
+        state.setOutputDirectory(outputURL)
+
+        XCTAssertTrue(state.isRunEnabled)
+        XCTAssertEqual(state.readinessText, "Ready to run.")
+        let launchRequest = try state.makeLaunchRequest()
+        guard case .ontGenotyping(let request) = launchRequest else {
+            return XCTFail("Expected amplicon genotyping request")
+        }
+        XCTAssertEqual(request.inputFASTQURLs, [demultiplexedFolderURL.standardizedFileURL])
+        XCTAssertNil(request.barcodeDefinitionsURL)
+        XCTAssertEqual(request.mode, .ontSampleBundles)
+        XCTAssertEqual(request.readType, .ont)
+    }
+
     func testAmpliconGenotypingDefaultsReadTypeFromSelectedFASTQMetadata() throws {
         let defaults = try makeDefaults()
         let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
@@ -1535,7 +1586,8 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             enablementStore: enablementStore,
             packageStore: packageStore
         )
-        XCTAssertEqual(state.selectedReferenceURL, firstReferenceURL.standardizedFileURL)
+        let presetReferenceURL = try MCMHaplotypingPreset.mcmMHCmiseq.bundledReferenceBundleURL()
+        XCTAssertEqual(state.selectedReferenceURL, presetReferenceURL)
         XCTAssertEqual(
             state.outputDirectoryURL,
             firstProjectURL
@@ -1546,7 +1598,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         state.configureProject(projectURL: secondProjectURL, selectedReadURLs: [secondReadsURL])
 
         XCTAssertEqual(state.projectURL, secondProjectURL.standardizedFileURL)
-        XCTAssertEqual(state.selectedReferenceURL, secondReferenceURL.standardizedFileURL)
+        XCTAssertEqual(state.selectedReferenceURL, presetReferenceURL)
         XCTAssertEqual(state.selectedReadURLs, [secondReadsURL.standardizedFileURL])
         XCTAssertEqual(
             state.outputDirectoryURL,

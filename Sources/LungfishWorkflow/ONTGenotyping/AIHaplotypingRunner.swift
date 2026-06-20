@@ -2,6 +2,11 @@ import Foundation
 import LungfishCore
 import LungfishIO
 
+public enum AIHaplotypingReviewScope: String, Codable, Equatable, Sendable {
+    case all
+    case unresolvedOnly = "unresolved-only"
+}
+
 public struct AIHaplotypingRunOptions: Codable, Equatable, Sendable {
     public let mode: AIHaplotypingPromptMode
     public let providerID: AIHaplotypingProviderID
@@ -15,8 +20,10 @@ public struct AIHaplotypingRunOptions: Codable, Equatable, Sendable {
     public let maxProviderRetries: Int
     public let provenancePath: String
     public let compactKnowledgePack: Bool
+    public let includeKnowledgePack: Bool
     public let chunkStartIndex: Int
     public let chunkEndIndex: Int
+    public let reviewScope: AIHaplotypingReviewScope
 
     public init(
         mode: AIHaplotypingPromptMode,
@@ -31,8 +38,10 @@ public struct AIHaplotypingRunOptions: Codable, Equatable, Sendable {
         maxProviderRetries: Int = 2,
         provenancePath: String = "ai-haplotyping/provenance.json",
         compactKnowledgePack: Bool = false,
+        includeKnowledgePack: Bool = true,
         chunkStartIndex: Int = 1,
-        chunkEndIndex: Int = 0
+        chunkEndIndex: Int = 0,
+        reviewScope: AIHaplotypingReviewScope = .all
     ) {
         self.mode = mode
         self.providerID = providerID
@@ -50,24 +59,34 @@ public struct AIHaplotypingRunOptions: Codable, Equatable, Sendable {
             ? "ai-haplotyping/provenance.json"
             : trimmedProvenancePath
         self.compactKnowledgePack = compactKnowledgePack
+        self.includeKnowledgePack = includeKnowledgePack
         self.chunkStartIndex = max(1, chunkStartIndex)
         self.chunkEndIndex = max(0, chunkEndIndex)
+        self.reviewScope = reviewScope
     }
 
-    public func generationParameters(schemaName: String) -> [String: String] {
-        var parameters = [
+    public func generationParameters(
+        schemaName: String,
+        evidenceEncoding: String = "full-v1",
+        promptCacheRetention: String? = nil,
+        promptCacheKey: String? = nil
+    ) -> [String: String] {
+        let parameters = [
             "chunkEndIndex": String(chunkEndIndex),
             "chunkStartIndex": String(chunkStartIndex),
             "compactKnowledgePack": compactKnowledgePack ? "true" : "false",
+            "evidenceEncoding": evidenceEncoding,
+            "knowledgePackMode": includeKnowledgePack ? (compactKnowledgePack ? "compact" : "full") : "disabled",
             "maxObservationsPerChunk": String(maxObservationsPerChunk),
             "maxOutputTokens": String(maxOutputTokens),
             "maxProviderRetries": String(maxProviderRetries),
+            "promptCacheKey": promptCacheKey ?? "none",
+            "promptCacheRetention": promptCacheRetention ?? "none",
+            "reasoningEffort": reasoningEffort ?? "none",
+            "reviewScope": reviewScope.rawValue,
             "schemaName": schemaName,
             "temperature": Self.formatNumber(temperature),
         ]
-        if let reasoningEffort {
-            parameters["reasoningEffort"] = reasoningEffort
-        }
         return parameters
     }
 
@@ -198,9 +217,9 @@ public struct AIHaplotypingRunner: Sendable {
         sidecar: GenotypeAnnotationSidecar?,
         options: AIHaplotypingRunOptions
     ) async throws -> AIHaplotypingRunnerOutput {
-        let registry: AIHaplotypingEvidenceRegistry
+        let fullRegistry: AIHaplotypingEvidenceRegistry
         do {
-            registry = try AIHaplotypingEvidenceBuilder.build(
+            fullRegistry = try AIHaplotypingEvidenceBuilder.build(
                 result: result,
                 sidecar: sidecar,
                 mode: options.mode,
@@ -214,6 +233,7 @@ public struct AIHaplotypingRunner: Sendable {
                 message: error.localizedDescription
             )
         }
+        let registry = Self.registry(fullRegistry, filteredFor: options.reviewScope, result: result)
 
         let chunks: [AIHaplotypingEvidenceChunk]
         do {
@@ -245,15 +265,19 @@ public struct AIHaplotypingRunner: Sendable {
         }
 
         let runContext = AIHaplotypingRunContext.infer(from: result)
-        let knowledgePack: AIHaplotypingKnowledgePack
-        do {
-            knowledgePack = try AIHaplotypingKnowledgePackLoader.bundledMacaqueMHC()
-        } catch {
-            throw AIHaplotypingRunFailure(
-                stage: .prompt,
-                sanitizedErrorCategory: "knowledge_pack_load_failed",
-                message: error.localizedDescription
-            )
+        let knowledgePack: AIHaplotypingKnowledgePack?
+        if options.includeKnowledgePack {
+            do {
+                knowledgePack = try AIHaplotypingKnowledgePackLoader.bundledMacaqueMHC()
+            } catch {
+                throw AIHaplotypingRunFailure(
+                    stage: .prompt,
+                    sanitizedErrorCategory: "knowledge_pack_load_failed",
+                    message: error.localizedDescription
+                )
+            }
+        } else {
+            knowledgePack = nil
         }
 
         var chunkOutputs: [AIHaplotypingChunkOutput] = []
@@ -277,20 +301,40 @@ public struct AIHaplotypingRunner: Sendable {
                 chunkCount: chunks.count,
                 observationCount: chunk.registry.observations.count
             ))
-            let promptKnowledgePack = options.compactKnowledgePack
-                ? AIHaplotypingKnowledgePackRetriever.compact(
-                    knowledgePack,
-                    for: chunk.registry,
-                    runContext: runContext
-                )
-                : knowledgePack
+            let promptKnowledgePack = knowledgePack.map { pack in
+                options.compactKnowledgePack
+                    ? AIHaplotypingKnowledgePackRetriever.compact(
+                        pack,
+                        for: chunk.registry,
+                        runContext: runContext
+                    )
+                    : pack
+            }
             let promptMetadata = template.metadata(
                 registryDigest: chunk.registry.digest,
                 inputSnapshotDigest: chunk.registry.inputSnapshotDigest,
                 evidenceSnapshotPath: "ai-haplotyping/evidence/\(chunk.id).json",
                 knowledgePack: knowledgePack
             )
-            let generationParameters = options.generationParameters(schemaName: Self.schemaName)
+            let compactMCMEvidence = Self.usesCompactMCMEvidence(template: template, mode: options.mode)
+            let promptCacheRetention = Self.promptCacheRetention(
+                template: template,
+                options: options,
+                provider: provider
+            )
+            let promptCacheKey = Self.promptCacheKey(
+                template: template,
+                options: options
+            )
+            let promptInputPayload: AIHaplotypingPromptInputPayload
+            let generationParameters = options.generationParameters(
+                schemaName: Self.schemaName,
+                evidenceEncoding: compactMCMEvidence
+                    ? AIHaplotypingPromptInputEncoder.compactMCMEncoding
+                    : AIHaplotypingPromptInputEncoder.fullEncoding,
+                promptCacheRetention: promptCacheRetention,
+                promptCacheKey: promptCacheKey
+            )
             let expectedRun = AIHaplotypingRunMetadata(
                 mode: options.mode,
                 promptTemplateID: template.id,
@@ -305,15 +349,17 @@ public struct AIHaplotypingRunner: Sendable {
             )
             let request: AIStructuredRequest
             do {
+                promptInputPayload = try AIHaplotypingPromptInputEncoder.payload(
+                    chunk: chunk,
+                    expectedRun: expectedRun,
+                    runContext: runContext,
+                    knowledgePack: promptKnowledgePack,
+                    compactMCMEvidence: compactMCMEvidence
+                )
                 request = AIStructuredRequest(
                     systemPrompt: template.systemPrompt,
                     userPrompt: template.render(
-                        promptInputJSON: try promptInputJSONString(
-                            chunk: chunk,
-                            expectedRun: expectedRun,
-                            runContext: runContext,
-                            knowledgePack: promptKnowledgePack
-                        ),
+                        promptInputJSON: promptInputPayload.json,
                         evidenceRegistryJSON: chunk.registry.canonicalJSONString()
                     ),
                     schemaName: Self.schemaName,
@@ -321,6 +367,8 @@ public struct AIHaplotypingRunner: Sendable {
                     maxOutputTokens: options.maxOutputTokens,
                     temperature: options.temperature,
                     reasoningEffort: options.reasoningEffort,
+                    promptCacheRetention: promptCacheRetention,
+                    promptCacheKey: promptCacheKey,
                     attemptIndex: offset,
                     fallbackIndex: 0,
                     credentialSource: options.credentialSource?.rawValue
@@ -333,83 +381,17 @@ public struct AIHaplotypingRunner: Sendable {
                 )
             }
 
-            let response: AIStructuredResponse
-            do {
-                response = try await requestStructuredResultWithRetries(
-                    request,
-                    chunkID: chunk.id,
-                    provider: provider,
-                    maxRetries: options.maxProviderRetries
-                )
-            } catch {
-                throw AIHaplotypingRunFailure(
-                    stage: .provider,
-                    sanitizedErrorCategory: sanitizedProviderErrorCategory(error),
-                    message: "AI provider request for \(chunk.id) failed: \(sanitizedProviderFailureMessage(error))"
-                )
-            }
-            if let mismatch = providerAttemptMismatch(
-                response.attemptMetadata,
-                expectedProvider: options.providerID.rawValue,
-                expectedModel: provider.modelId
-            ) {
-                throw AIHaplotypingRunFailure(
-                    stage: .runMetadata,
-                    sanitizedErrorCategory: "provider_attempt_mismatch",
-                    message: "AI provider attempt metadata did not match the configured AI haplotyping provider.",
-                    attemptMetadata: response.attemptMetadata,
-                    validationReport: AIHaplotypingValidationReport(
-                        accepted: false,
-                        run: expectedRun,
-                        chunkID: chunk.id,
-                        registryDigest: chunk.registry.digest,
-                        inputSnapshotDigest: chunk.registry.inputSnapshotDigest,
-                        normalizedCalls: [],
-                        validatedDefinitions: [],
-                        warnings: [],
-                        errors: [.runMetadataMismatch(mismatch)]
-                    )
-                )
-            }
-            providerAttempts.append(response.attemptMetadata)
-
-            let structuredResult: AIHaplotypingStructuredResult
-            do {
-                let data = try JSONEncoder().encode(response.payload)
-                structuredResult = try JSONDecoder().decode(AIHaplotypingStructuredResult.self, from: data)
-            } catch {
-                throw AIHaplotypingRunFailure(
-                    stage: .decoding,
-                    sanitizedErrorCategory: "decode_structured_result",
-                    message: "AI structured result for \(chunk.id) could not be decoded: \(Self.decodingErrorDescription(error))",
-                    attemptMetadata: response.attemptMetadata
-                )
-            }
-
-            let report = AIHaplotypingPatchValidator(
-                registry: chunk.registry,
+            let accepted = try await requestValidatedStructuredResultWithRetries(
+                request,
+                chunk: chunk,
+                provider: provider,
+                options: options,
                 expectedRun: expectedRun,
-                expectedChunkID: chunk.id,
-                provenancePath: options.provenancePath
-            ).validate(structuredResult)
-            guard report.accepted else {
-                let stage: AIHaplotypingRunFailureStage
-                let category: String
-                if isRunMetadataFailure(report) {
-                    stage = .runMetadata
-                    category = "run_metadata_mismatch"
-                } else {
-                    stage = .validation
-                    category = "validation_rejected"
-                }
-                throw AIHaplotypingRunFailure(
-                    stage: stage,
-                    sanitizedErrorCategory: category,
-                    message: report.errors.first?.message ?? "AI haplotyping structured result was rejected.",
-                    attemptMetadata: response.attemptMetadata,
-                    validationReport: report
-                )
-            }
+                evidenceReferenceMap: promptInputPayload.evidenceReferenceMap
+            )
+            let response = accepted.response
+            let report = accepted.report
+            providerAttempts.append(contentsOf: accepted.providerAttempts)
             for definition in report.validatedDefinitions {
                 if !seenDefinitionIDs.insert(definition.definitionID).inserted {
                     let reducerReport = reducerRejectedReport(
@@ -479,6 +461,100 @@ public struct AIHaplotypingRunner: Sendable {
         )
     }
 
+    private static func registry(
+        _ registry: AIHaplotypingEvidenceRegistry,
+        filteredFor scope: AIHaplotypingReviewScope,
+        result: ONTGenotypeResultBundleData
+    ) -> AIHaplotypingEvidenceRegistry {
+        guard scope == .unresolvedOnly, registry.mode == .aiRefinement else {
+            return registry
+        }
+        let targetPairs = unresolvedRefinementPairs(in: result.haplotypeAnalysis)
+        guard !targetPairs.isEmpty else {
+            return AIHaplotypingEvidenceRegistry(
+                schemaVersion: registry.schemaVersion,
+                mode: registry.mode,
+                parentRevisionID: registry.parentRevisionID,
+                inputSnapshotDigest: registry.inputSnapshotDigest,
+                samples: [],
+                loci: [],
+                observations: [],
+                currentCalls: [],
+                manualReviews: []
+            )
+        }
+
+        let observations = registry.observations.filter {
+            targetPairs.contains(EvidencePair(sampleID: $0.sampleID, locusID: $0.locusID))
+        }
+        let retainedPairs = Set(observations.map { EvidencePair(sampleID: $0.sampleID, locusID: $0.locusID) })
+        let sampleIDs = Set(observations.map(\.sampleID))
+        let locusIDs = Set(observations.map(\.locusID))
+        return AIHaplotypingEvidenceRegistry(
+            schemaVersion: registry.schemaVersion,
+            mode: registry.mode,
+            parentRevisionID: registry.parentRevisionID,
+            inputSnapshotDigest: registry.inputSnapshotDigest,
+            samples: registry.samples.filter { sampleIDs.contains($0.id) },
+            loci: registry.loci.filter { locusIDs.contains($0.id) },
+            observations: observations,
+            currentCalls: registry.currentCalls.filter {
+                retainedPairs.contains(EvidencePair(sampleID: sampleID(for: $0.sample), locusID: locusID(for: $0.locus)))
+            },
+            manualReviews: registry.manualReviews.filter {
+                retainedPairs.contains(EvidencePair(sampleID: sampleID(for: $0.sample), locusID: locusID(for: $0.locus)))
+            }
+        )
+    }
+
+    private static func unresolvedRefinementPairs(
+        in analysis: GenotypeHaplotypeAnalysis?
+    ) -> Set<EvidencePair> {
+        guard let analysis else { return [] }
+        var pairs: Set<EvidencePair> = []
+        for sampleAnalysis in analysis.samples {
+            let sample = sampleAnalysis.sample.trimmingCharacters(in: .whitespacesAndNewlines)
+            for call in sampleAnalysis.calls where callNeedsReview(call) {
+                let locus = GenotypeHaplotypeLocusResolver.haplotypeEvidenceLocusName(call.locus)
+                pairs.insert(EvidencePair(sampleID: sampleID(for: sample), locusID: locusID(for: locus)))
+            }
+        }
+        return pairs
+    }
+
+    private static func callNeedsReview(_ call: GenotypeHaplotypeLocusCall) -> Bool {
+        guard call.observedGenotypeCount > 0, call.status != .notAssayed else {
+            return false
+        }
+        if call.status != .called {
+            return true
+        }
+        return labelNeedsReview(call.haplotype1) || labelNeedsReview(call.haplotype2)
+    }
+
+    private static func labelNeedsReview(_ label: String) -> Bool {
+        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty || trimmed == "-" { return true }
+        let lowercased = trimmed.lowercased()
+        return lowercased.hasPrefix("err:")
+            || lowercased.contains("err:")
+            || lowercased == "unresolved"
+            || lowercased == "no haplotype"
+    }
+
+    private static func sampleID(for sample: String) -> String {
+        "sample:\(sample)"
+    }
+
+    private static func locusID(for locus: String) -> String {
+        "locus:\(locus)"
+    }
+
+    private struct EvidencePair: Hashable {
+        let sampleID: String
+        let locusID: String
+    }
+
     private func selectedChunkOffsets(
         from chunks: [AIHaplotypingEvidenceChunk],
         options: AIHaplotypingRunOptions
@@ -501,7 +577,7 @@ public struct AIHaplotypingRunner: Sendable {
         chunk: AIHaplotypingEvidenceChunk,
         expectedRun: AIHaplotypingRunMetadata,
         runContext: AIHaplotypingRunContext,
-        knowledgePack: AIHaplotypingKnowledgePack
+        knowledgePack: AIHaplotypingKnowledgePack?
     ) throws -> String {
         let input = PromptInput(
             chunkID: chunk.id,
@@ -515,6 +591,42 @@ public struct AIHaplotypingRunner: Sendable {
             throw AIProviderError.decodingError("AI haplotyping prompt input was not UTF-8.")
         }
         return json
+    }
+
+    private static func usesCompactMCMEvidence(
+        template: AIHaplotypingPromptTemplate,
+        mode: AIHaplotypingPromptMode
+    ) -> Bool {
+        AIHaplotypingPromptSelectionResolver.isMCMSpecialistPrompt(
+            id: template.id,
+            version: template.version,
+            mode: mode
+        )
+    }
+
+    private static func promptCacheRetention(
+        template: AIHaplotypingPromptTemplate,
+        options: AIHaplotypingRunOptions,
+        provider: any StructuredAIProvider
+    ) -> String? {
+        guard options.providerID == .openAI,
+              options.reasoningEffort != nil,
+              provider.modelId.lowercased() == "gpt-5.5",
+              usesCompactMCMEvidence(template: template, mode: options.mode) else {
+            return nil
+        }
+        return "24h"
+    }
+
+    private static func promptCacheKey(
+        template: AIHaplotypingPromptTemplate,
+        options: AIHaplotypingRunOptions
+    ) -> String? {
+        guard options.providerID == .openAI,
+              usesCompactMCMEvidence(template: template, mode: options.mode) else {
+            return nil
+        }
+        return "mcm-mhc-miseq-specialist-\(template.version.replacingOccurrences(of: ".", with: "-"))"
     }
 
     private func isRunMetadataFailure(_ report: AIHaplotypingValidationReport) -> Bool {
@@ -591,6 +703,238 @@ public struct AIHaplotypingRunner: Sendable {
         }
     }
 
+    private func requestValidatedStructuredResultWithRetries(
+        _ request: AIStructuredRequest,
+        chunk: AIHaplotypingEvidenceChunk,
+        provider: any StructuredAIProvider,
+        options: AIHaplotypingRunOptions,
+        expectedRun: AIHaplotypingRunMetadata,
+        evidenceReferenceMap: [String: String]
+    ) async throws -> ValidatedStructuredResponse {
+        var retriesRemaining = max(0, options.maxProviderRetries)
+        var retryIndex = 0
+        var providerAttempts: [AIProviderAttemptMetadata] = []
+
+        while true {
+            let response: AIStructuredResponse
+            do {
+                response = try await requestStructuredResultWithRetries(
+                    request,
+                    chunkID: chunk.id,
+                    provider: provider,
+                    maxRetries: options.maxProviderRetries
+                )
+            } catch {
+                throw AIHaplotypingRunFailure(
+                    stage: .provider,
+                    sanitizedErrorCategory: sanitizedProviderErrorCategory(error),
+                    message: "AI provider request for \(chunk.id) failed: \(sanitizedProviderFailureMessage(error))"
+                )
+            }
+            providerAttempts.append(response.attemptMetadata)
+
+            if let mismatch = providerAttemptMismatch(
+                response.attemptMetadata,
+                expectedProvider: options.providerID.rawValue,
+                expectedModel: provider.modelId
+            ) {
+                let report = AIHaplotypingValidationReport(
+                    accepted: false,
+                    run: expectedRun,
+                    chunkID: chunk.id,
+                    registryDigest: chunk.registry.digest,
+                    inputSnapshotDigest: chunk.registry.inputSnapshotDigest,
+                    normalizedCalls: [],
+                    validatedDefinitions: [],
+                    warnings: [],
+                    errors: [.runMetadataMismatch(mismatch)]
+                )
+                if retriesRemaining > 0 {
+                    retriesRemaining -= 1
+                    retryIndex += 1
+                    emit(.providerRetry(
+                        chunkID: chunk.id,
+                        retryIndex: retryIndex,
+                        maxRetries: max(0, options.maxProviderRetries),
+                        errorCategory: "provider_attempt_mismatch"
+                    ))
+                    continue
+                }
+                throw AIHaplotypingRunFailure(
+                    stage: .runMetadata,
+                    sanitizedErrorCategory: "provider_attempt_mismatch",
+                    message: "AI provider attempt metadata did not match the configured AI haplotyping provider.",
+                    attemptMetadata: response.attemptMetadata,
+                    validationReport: report
+                )
+            }
+
+            let structuredResult: AIHaplotypingStructuredResult
+            do {
+                let data = try JSONEncoder().encode(response.payload)
+                structuredResult = try JSONDecoder().decode(AIHaplotypingStructuredResult.self, from: data)
+            } catch {
+                if retriesRemaining > 0 {
+                    retriesRemaining -= 1
+                    retryIndex += 1
+                    emit(.providerRetry(
+                        chunkID: chunk.id,
+                        retryIndex: retryIndex,
+                        maxRetries: max(0, options.maxProviderRetries),
+                        errorCategory: "decode_structured_result"
+                    ))
+                    continue
+                }
+                throw AIHaplotypingRunFailure(
+                    stage: .decoding,
+                    sanitizedErrorCategory: "decode_structured_result",
+                    message: "AI structured result for \(chunk.id) could not be decoded: \(Self.decodingErrorDescription(error))",
+                    attemptMetadata: response.attemptMetadata
+                )
+            }
+
+            let stampedResult = structuredResultByStampingExpectedRun(
+                structuredResult,
+                expectedRun: expectedRun
+            )
+            let validationResult = structuredResultByMappingEvidenceReferences(
+                stampedResult,
+                evidenceReferenceMap: evidenceReferenceMap
+            )
+            let report = AIHaplotypingPatchValidator(
+                registry: chunk.registry,
+                expectedRun: expectedRun,
+                expectedChunkID: chunk.id,
+                provenancePath: options.provenancePath
+            ).validate(validationResult)
+            if report.accepted {
+                return ValidatedStructuredResponse(
+                    response: response,
+                    report: report,
+                    providerAttempts: providerAttempts
+                )
+            }
+
+            let stage: AIHaplotypingRunFailureStage
+            let category: String
+            if isRunMetadataFailure(report) {
+                stage = .runMetadata
+                category = "run_metadata_mismatch"
+            } else {
+                stage = .validation
+                category = "validation_rejected"
+            }
+            if retriesRemaining > 0, shouldRetryValidationReport(report) {
+                retriesRemaining -= 1
+                retryIndex += 1
+                emit(.providerRetry(
+                    chunkID: chunk.id,
+                    retryIndex: retryIndex,
+                    maxRetries: max(0, options.maxProviderRetries),
+                    errorCategory: category
+                ))
+                continue
+            }
+            throw AIHaplotypingRunFailure(
+                stage: stage,
+                sanitizedErrorCategory: category,
+                message: report.errors.first?.message ?? "AI haplotyping structured result was rejected.",
+                attemptMetadata: response.attemptMetadata,
+                validationReport: report
+            )
+        }
+    }
+
+    private func shouldRetryValidationReport(_ report: AIHaplotypingValidationReport) -> Bool {
+        guard let firstError = report.errors.first else { return false }
+        switch firstError {
+        case .runMetadataMismatch,
+             .chunkIDMismatch,
+             .registryDigestMismatch,
+             .inputSnapshotDigestMismatch,
+             .unknownEvidenceID,
+             .duplicatePatchOpID,
+             .duplicateCallTarget,
+             .unsupportedClaim:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func structuredResultByStampingExpectedRun(
+        _ result: AIHaplotypingStructuredResult,
+        expectedRun: AIHaplotypingRunMetadata
+    ) -> AIHaplotypingStructuredResult {
+        AIHaplotypingStructuredResult(
+            schemaVersion: result.schemaVersion,
+            run: expectedRun,
+            registryDigest: result.registryDigest,
+            inputSnapshotDigest: result.inputSnapshotDigest,
+            chunkID: result.chunkID,
+            discoveredDefinitions: result.discoveredDefinitions,
+            calls: result.calls,
+            warnings: result.warnings
+        )
+    }
+
+    private func structuredResultByMappingEvidenceReferences(
+        _ result: AIHaplotypingStructuredResult,
+        evidenceReferenceMap: [String: String]
+    ) -> AIHaplotypingStructuredResult {
+        guard !evidenceReferenceMap.isEmpty else { return result }
+        let definitions = result.discoveredDefinitions.map { definition in
+            AIHaplotypingDiscoveredDefinition(
+                definitionID: definition.definitionID,
+                locus: definition.locus,
+                proposedLabel: definition.proposedLabel,
+                normalizedFamily: definition.normalizedFamily,
+                supportEvidenceRefs: mapEvidenceReferences(definition.supportEvidenceRefs, using: evidenceReferenceMap),
+                counterevidenceRefs: mapEvidenceReferences(definition.counterevidenceRefs, using: evidenceReferenceMap),
+                confidenceTier: definition.confidenceTier,
+                rationaleCode: definition.rationaleCode,
+                rationale: definition.rationale
+            )
+        }
+        let calls = result.calls.map { call in
+            AIHaplotypingStructuredCall(
+                patchOpID: call.patchOpID,
+                sample: call.sample,
+                locus: call.locus,
+                slot: call.slot,
+                haplotypeLabel: call.haplotypeLabel,
+                normalizedFamily: call.normalizedFamily,
+                source: call.source,
+                sourceState: call.sourceState,
+                reviewState: call.reviewState,
+                callState: call.callState,
+                confidenceTier: call.confidenceTier,
+                supportEvidenceRefs: mapEvidenceReferences(call.supportEvidenceRefs, using: evidenceReferenceMap),
+                counterevidenceRefs: mapEvidenceReferences(call.counterevidenceRefs, using: evidenceReferenceMap),
+                alternates: call.alternates,
+                rationaleCode: call.rationaleCode,
+                rationale: call.rationale
+            )
+        }
+        return AIHaplotypingStructuredResult(
+            schemaVersion: result.schemaVersion,
+            run: result.run,
+            registryDigest: result.registryDigest,
+            inputSnapshotDigest: result.inputSnapshotDigest,
+            chunkID: result.chunkID,
+            discoveredDefinitions: definitions,
+            calls: calls,
+            warnings: result.warnings
+        )
+    }
+
+    private func mapEvidenceReferences(
+        _ references: [String],
+        using evidenceReferenceMap: [String: String]
+    ) -> [String] {
+        references.map { evidenceReferenceMap[$0] ?? $0 }
+    }
+
     private func emit(_ event: AIHaplotypingProgressEvent) {
         progressHandler?(event)
     }
@@ -600,12 +944,11 @@ public struct AIHaplotypingRunner: Sendable {
             return false
         }
         switch providerError {
-        case .networkError, .rateLimited:
+        case .networkError, .rateLimited, .invalidResponse:
             return true
         case .httpError(let statusCode, _):
             return statusCode >= 500 && statusCode < 600
         case .missingAPIKey,
-             .invalidResponse,
              .quotaExceeded,
              .modelNotAvailable,
              .contextTooLong,
@@ -705,7 +1048,13 @@ public struct AIHaplotypingRunner: Sendable {
         let chunkID: String
         let expectedRun: AIHaplotypingRunMetadata
         let runContext: AIHaplotypingRunContext
-        let knowledgePack: AIHaplotypingKnowledgePack
+        let knowledgePack: AIHaplotypingKnowledgePack?
         let evidenceRegistry: AIHaplotypingEvidenceRegistry
+    }
+
+    private struct ValidatedStructuredResponse {
+        let response: AIStructuredResponse
+        let report: AIHaplotypingValidationReport
+        let providerAttempts: [AIProviderAttemptMetadata]
     }
 }

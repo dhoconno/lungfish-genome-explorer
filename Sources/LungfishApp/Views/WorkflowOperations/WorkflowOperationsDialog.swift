@@ -67,7 +67,11 @@ private struct WorkflowOperationsDetailPane: View {
                 }
 
                 section(DatasetOperationSection.inputs.title) {
-                    referencePicker
+                    if case .ontGenotyping = state.selectedTool?.kind {
+                        lockedMCMReferenceSummary
+                    } else {
+                        referencePicker
+                    }
                     if case .ontGenotyping = state.selectedTool?.kind,
                        state.effectiveGenotypingMode == .ontBarcodeDemux {
                         barcodePicker
@@ -152,6 +156,18 @@ private struct WorkflowOperationsDetailPane: View {
                     }
                 }
             }
+        }
+    }
+
+    private var lockedMCMReferenceSummary: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            groupLabel("Preset")
+            Text(MCMHaplotypingPreset.mcmMHCmiseq.displayName)
+                .font(.callout)
+            Text(state.referenceBundleSummary ?? "Locked bundled MCM MHC miSeq reference")
+                .font(.caption)
+                .foregroundStyle(Color.lungfishSecondaryText)
+                .lineLimit(2)
         }
     }
 

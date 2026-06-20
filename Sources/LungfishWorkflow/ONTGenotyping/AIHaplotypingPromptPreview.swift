@@ -14,9 +14,11 @@ public struct AIHaplotypingPromptPreviewRequest: Sendable {
     public let maxObservationsPerChunk: Int
     public let maxOutputTokens: Int
     public let temperature: Double
+    public let reasoningEffort: String?
     public let maxProviderRetries: Int
     public let provenancePath: String
     public let compactKnowledgePack: Bool
+    public let includeKnowledgePack: Bool
 
     public init(
         result: ONTGenotypeResultBundleData,
@@ -30,9 +32,11 @@ public struct AIHaplotypingPromptPreviewRequest: Sendable {
         maxObservationsPerChunk: Int = 1,
         maxOutputTokens: Int = 4096,
         temperature: Double = 0,
+        reasoningEffort: String? = nil,
         maxProviderRetries: Int = 2,
         provenancePath: String = AIHaplotypingPatchValidator.pendingProvenancePath,
-        compactKnowledgePack: Bool = false
+        compactKnowledgePack: Bool = false,
+        includeKnowledgePack: Bool = true
     ) {
         self.result = result
         self.sidecar = sidecar
@@ -45,16 +49,19 @@ public struct AIHaplotypingPromptPreviewRequest: Sendable {
         self.maxObservationsPerChunk = max(1, maxObservationsPerChunk)
         self.maxOutputTokens = max(1, maxOutputTokens)
         self.temperature = max(0, min(2, temperature))
+        let trimmedReasoningEffort = reasoningEffort?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.reasoningEffort = trimmedReasoningEffort.isEmpty ? nil : trimmedReasoningEffort
         self.maxProviderRetries = max(0, maxProviderRetries)
         self.provenancePath = provenancePath
         self.compactKnowledgePack = compactKnowledgePack
+        self.includeKnowledgePack = includeKnowledgePack
     }
 }
 
 public struct AIHaplotypingPromptPreview: Codable, Equatable, Sendable {
     public let mode: AIHaplotypingPromptMode
     public let promptTemplate: AIHaplotypingPromptPreviewTemplateSummary
-    public let knowledgePack: AIHaplotypingPromptPreviewKnowledgePackSummary
+    public let knowledgePack: AIHaplotypingPromptPreviewKnowledgePackSummary?
     public let runContext: AIHaplotypingRunContext
     public let chunkCount: Int
     public let observationCount: Int
@@ -63,7 +70,7 @@ public struct AIHaplotypingPromptPreview: Codable, Equatable, Sendable {
     public init(
         mode: AIHaplotypingPromptMode,
         promptTemplate: AIHaplotypingPromptPreviewTemplateSummary,
-        knowledgePack: AIHaplotypingPromptPreviewKnowledgePackSummary,
+        knowledgePack: AIHaplotypingPromptPreviewKnowledgePackSummary?,
         runContext: AIHaplotypingRunContext,
         chunkCount: Int,
         observationCount: Int,
@@ -168,7 +175,9 @@ public struct AIHaplotypingPromptPreviewBuilder: Sendable {
             mode: request.mode
         )
         let runContext = AIHaplotypingRunContext.infer(from: request.result)
-        let knowledgePack = try AIHaplotypingKnowledgePackLoader.bundledMacaqueMHC()
+        let knowledgePack = request.includeKnowledgePack
+            ? try AIHaplotypingKnowledgePackLoader.bundledMacaqueMHC()
+            : nil
         let options = AIHaplotypingRunOptions(
             mode: request.mode,
             providerID: request.providerID,
@@ -178,19 +187,28 @@ public struct AIHaplotypingPromptPreviewBuilder: Sendable {
             maxObservationsPerChunk: request.maxObservationsPerChunk,
             maxOutputTokens: request.maxOutputTokens,
             temperature: request.temperature,
+            reasoningEffort: request.reasoningEffort,
             maxProviderRetries: request.maxProviderRetries,
             provenancePath: request.provenancePath,
-            compactKnowledgePack: request.compactKnowledgePack
+            compactKnowledgePack: request.compactKnowledgePack,
+            includeKnowledgePack: request.includeKnowledgePack
         )
 
-        let previewChunks = chunks.map { chunk in
-            let promptKnowledgePack = request.compactKnowledgePack
-                ? AIHaplotypingKnowledgePackRetriever.compact(
-                    knowledgePack,
-                    for: chunk.registry,
-                    runContext: runContext
-                )
-                : knowledgePack
+        let previewChunks = try chunks.map { chunk in
+            let promptKnowledgePack = knowledgePack.map { pack in
+                request.compactKnowledgePack
+                    ? AIHaplotypingKnowledgePackRetriever.compact(
+                        pack,
+                        for: chunk.registry,
+                        runContext: runContext
+                    )
+                    : pack
+            }
+            let compactMCMEvidence = AIHaplotypingPromptSelectionResolver.isMCMSpecialistPrompt(
+                id: template.id,
+                version: template.version,
+                mode: request.mode
+            )
             let expectedRun = AIHaplotypingRunMetadata(
                 mode: request.mode,
                 promptTemplateID: template.id,
@@ -198,7 +216,20 @@ public struct AIHaplotypingPromptPreviewBuilder: Sendable {
                 promptHash: template.promptHash,
                 provider: request.providerID.rawValue,
                 model: request.modelID,
-                generationParameters: options.generationParameters(schemaName: AIHaplotypingRunner.schemaName),
+                generationParameters: options.generationParameters(
+                    schemaName: AIHaplotypingRunner.schemaName,
+                    evidenceEncoding: compactMCMEvidence
+                        ? AIHaplotypingPromptInputEncoder.compactMCMEncoding
+                        : AIHaplotypingPromptInputEncoder.fullEncoding,
+                    promptCacheRetention: Self.promptCacheRetention(
+                        template: template,
+                        request: request
+                    ),
+                    promptCacheKey: Self.promptCacheKey(
+                        template: template,
+                        request: request
+                    )
+                ),
                 parentRevisionID: chunk.registry.parentRevisionID,
                 registryDigest: chunk.registry.digest,
                 inputSnapshotDigest: chunk.registry.inputSnapshotDigest
@@ -209,17 +240,13 @@ public struct AIHaplotypingPromptPreviewBuilder: Sendable {
                 evidenceSnapshotPath: "ai-haplotyping/evidence/\(chunk.id).json",
                 knowledgePack: knowledgePack
             )
-            let promptInput = PromptInput(
-                chunkID: chunk.id,
+            let promptInputPayload = try AIHaplotypingPromptInputEncoder.payload(
+                chunk: chunk,
                 expectedRun: expectedRun,
                 runContext: runContext,
                 knowledgePack: promptKnowledgePack,
-                evidenceRegistry: chunk.registry
+                compactMCMEvidence: compactMCMEvidence
             )
-            let promptInputJSON = String(
-                data: AIHaplotypingCanonicalJSON.canonicalData(of: promptInput),
-                encoding: .utf8
-            ) ?? "{}"
             return AIHaplotypingPromptPreviewChunk(
                 chunkID: chunk.id,
                 registryDigest: chunk.registry.digest,
@@ -227,7 +254,7 @@ public struct AIHaplotypingPromptPreviewBuilder: Sendable {
                 promptMetadata: promptMetadata,
                 systemPrompt: template.systemPrompt,
                 userPrompt: template.render(
-                    promptInputJSON: promptInputJSON,
+                    promptInputJSON: promptInputPayload.json,
                     evidenceRegistryJSON: chunk.registry.canonicalJSONString()
                 ),
                 evidenceRegistry: chunk.registry
@@ -241,14 +268,16 @@ public struct AIHaplotypingPromptPreviewBuilder: Sendable {
                 version: template.version,
                 hash: template.promptHash
             ),
-            knowledgePack: AIHaplotypingPromptPreviewKnowledgePackSummary(
-                id: knowledgePack.id,
-                version: knowledgePack.version,
-                digest: knowledgePack.digest,
-                populationProfileCount: knowledgePack.populationProfiles.count,
-                alleleRecordCount: knowledgePack.alleleRecords.count,
-                haplotypeBlockDefinitionCount: knowledgePack.haplotypeBlockDefinitions.count
-            ),
+            knowledgePack: knowledgePack.map {
+                AIHaplotypingPromptPreviewKnowledgePackSummary(
+                    id: $0.id,
+                    version: $0.version,
+                    digest: $0.digest,
+                    populationProfileCount: $0.populationProfiles.count,
+                    alleleRecordCount: $0.alleleRecords.count,
+                    haplotypeBlockDefinitionCount: $0.haplotypeBlockDefinitions.count
+                )
+            },
             runContext: runContext,
             chunkCount: previewChunks.count,
             observationCount: registry.observations.count,
@@ -267,11 +296,35 @@ public struct AIHaplotypingPromptPreviewBuilder: Sendable {
         return try promptRegistry.currentTemplate(for: mode)
     }
 
-    private struct PromptInput: Encodable {
-        let chunkID: String
-        let expectedRun: AIHaplotypingRunMetadata
-        let runContext: AIHaplotypingRunContext
-        let knowledgePack: AIHaplotypingKnowledgePack
-        let evidenceRegistry: AIHaplotypingEvidenceRegistry
+    private static func promptCacheRetention(
+        template: AIHaplotypingPromptTemplate,
+        request: AIHaplotypingPromptPreviewRequest
+    ) -> String? {
+        guard request.providerID == .openAI,
+              request.reasoningEffort != nil,
+              request.modelID.lowercased() == "gpt-5.5",
+              AIHaplotypingPromptSelectionResolver.isMCMSpecialistPrompt(
+                id: template.id,
+                version: template.version,
+                mode: request.mode
+              ) else {
+            return nil
+        }
+        return "24h"
+    }
+
+    private static func promptCacheKey(
+        template: AIHaplotypingPromptTemplate,
+        request: AIHaplotypingPromptPreviewRequest
+    ) -> String? {
+        guard request.providerID == .openAI,
+              AIHaplotypingPromptSelectionResolver.isMCMSpecialistPrompt(
+                id: template.id,
+                version: template.version,
+                mode: request.mode
+              ) else {
+            return nil
+        }
+        return "mcm-mhc-miseq-specialist-\(template.version.replacingOccurrences(of: ".", with: "-"))"
     }
 }

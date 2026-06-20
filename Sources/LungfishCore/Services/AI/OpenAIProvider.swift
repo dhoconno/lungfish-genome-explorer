@@ -16,7 +16,10 @@ public actor OpenAIProvider: StructuredAIProvider {
     private let apiKey: String
     public let modelId: String
     private let httpClient: HTTPClient
-    private let baseURL = URL(string: "https://api.openai.com/v1/chat/completions")!
+    private let chatCompletionsURL = URL(string: "https://api.openai.com/v1/chat/completions")!
+    private let responsesURL = URL(string: "https://api.openai.com/v1/responses")!
+    private let chatCompletionsTimeout: TimeInterval = 120
+    private let responsesTimeout: TimeInterval = 600
 
     public nonisolated var name: String { "OpenAI" }
 
@@ -34,13 +37,13 @@ public actor OpenAIProvider: StructuredAIProvider {
         let requestBody = buildRequestBody(messages: messages, systemPrompt: systemPrompt, tools: tools)
         let jsonData = try JSONSerialization.data(withJSONObject: requestBody)
 
-        var request = URLRequest(url: baseURL)
+        var request = URLRequest(url: chatCompletionsURL)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("Lungfish Genome Explorer", forHTTPHeaderField: "User-Agent")
         request.httpBody = jsonData
-        request.timeoutInterval = 120
+        request.timeoutInterval = chatCompletionsTimeout
 
         let data: Data
         let response: URLResponse
@@ -77,16 +80,19 @@ public actor OpenAIProvider: StructuredAIProvider {
     }
 
     public func requestStructuredResult(_ structuredRequest: AIStructuredRequest) async throws -> AIStructuredResponse {
-        let requestBody = buildStructuredRequestBody(structuredRequest)
+        let useResponsesAPI = structuredRequest.reasoningEffort != nil
+        let requestBody = useResponsesAPI
+            ? buildResponsesStructuredRequestBody(structuredRequest)
+            : buildStructuredRequestBody(structuredRequest)
         let jsonData = try JSONSerialization.data(withJSONObject: requestBody)
 
-        var request = URLRequest(url: baseURL)
+        var request = URLRequest(url: useResponsesAPI ? responsesURL : chatCompletionsURL)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("Lungfish Genome Explorer", forHTTPHeaderField: "User-Agent")
         request.httpBody = jsonData
-        request.timeoutInterval = 120
+        request.timeoutInterval = useResponsesAPI ? responsesTimeout : chatCompletionsTimeout
 
         let data: Data
         let response: URLResponse
@@ -104,6 +110,9 @@ public actor OpenAIProvider: StructuredAIProvider {
 
         switch httpResponse.statusCode {
         case 200...299:
+            if useResponsesAPI {
+                return try parseResponsesStructuredResponse(data, httpResponse: httpResponse, request: structuredRequest)
+            }
             return try parseStructuredResponse(data, httpResponse: httpResponse, request: structuredRequest)
         case 401:
             throw AIProviderError.missingAPIKey
@@ -145,6 +154,41 @@ public actor OpenAIProvider: StructuredAIProvider {
             body["max_completion_tokens"] = request.maxOutputTokens
         } else {
             body["max_tokens"] = request.maxOutputTokens
+        }
+        if let promptCacheRetention = request.promptCacheRetention {
+            body["prompt_cache_retention"] = promptCacheRetention
+        }
+        if let promptCacheKey = request.promptCacheKey {
+            body["prompt_cache_key"] = promptCacheKey
+        }
+        return body
+    }
+
+    private func buildResponsesStructuredRequestBody(_ request: AIStructuredRequest) -> [String: Any] {
+        var body: [String: Any] = [
+            "model": modelId,
+            "input": [
+                ["role": "system", "content": request.systemPrompt],
+                ["role": "user", "content": request.userPrompt],
+            ],
+            "max_output_tokens": request.maxOutputTokens,
+            "text": [
+                "format": [
+                    "type": "json_schema",
+                    "name": request.schemaName,
+                    "strict": true,
+                    "schema": jsonValueToAny(.object(request.schema)),
+                ],
+            ],
+        ]
+        if let reasoningEffort = request.reasoningEffort {
+            body["reasoning"] = ["effort": reasoningEffort]
+        }
+        if let promptCacheRetention = request.promptCacheRetention {
+            body["prompt_cache_retention"] = promptCacheRetention
+        }
+        if let promptCacheKey = request.promptCacheKey {
+            body["prompt_cache_key"] = promptCacheKey
         }
         return body
     }
@@ -292,7 +336,7 @@ public actor OpenAIProvider: StructuredAIProvider {
             fallbackIndex: request.fallbackIndex,
             provider: "openai",
             model: modelId,
-            endpoint: baseURL.absoluteString,
+            endpoint: chatCompletionsURL.absoluteString,
             apiVersion: "chat.completions.v1",
             credentialSource: request.credentialSource,
             apiKeyAvailable: !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -301,6 +345,8 @@ public actor OpenAIProvider: StructuredAIProvider {
             stopReason: finishReason,
             inputTokens: usage?.inputTokens,
             outputTokens: usage?.outputTokens,
+            cachedInputTokens: usage?.cachedInputTokens,
+            reasoningOutputTokens: usage?.reasoningOutputTokens,
             sanitizedErrorCategory: nil
         )
 
@@ -311,6 +357,76 @@ public actor OpenAIProvider: StructuredAIProvider {
             stopReason: aiStopReason(from: finishReason),
             attemptMetadata: metadata
         )
+    }
+
+    private func parseResponsesStructuredResponse(
+        _ data: Data,
+        httpResponse: HTTPURLResponse,
+        request: AIStructuredRequest
+    ) throws -> AIStructuredResponse {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw AIProviderError.decodingError("Invalid OpenAI Responses response structure")
+        }
+
+        let status = json["status"] as? String
+        if status == "incomplete" {
+            throw AIProviderError.invalidResponse("Structured response was incomplete before a complete JSON object was returned")
+        }
+
+        let rawText = try responsesOutputText(from: json)
+        let payload = try parseJSONObjectString(rawText)
+        let usage = openAIResponsesUsage(from: json)
+        let requestID = httpResponse.value(forHTTPHeaderField: "x-request-id")
+            ?? httpResponse.value(forHTTPHeaderField: "request-id")
+            ?? json["id"] as? String
+        let metadata = AIProviderAttemptMetadata(
+            attemptIndex: request.attemptIndex,
+            fallbackIndex: request.fallbackIndex,
+            provider: "openai",
+            model: modelId,
+            endpoint: responsesURL.absoluteString,
+            apiVersion: "responses.v1",
+            credentialSource: request.credentialSource,
+            apiKeyAvailable: !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            requestID: requestID,
+            statusCode: httpResponse.statusCode,
+            stopReason: status,
+            inputTokens: usage?.inputTokens,
+            outputTokens: usage?.outputTokens,
+            cachedInputTokens: usage?.cachedInputTokens,
+            reasoningOutputTokens: usage?.reasoningOutputTokens,
+            sanitizedErrorCategory: nil
+        )
+
+        return AIStructuredResponse(
+            payload: payload,
+            rawText: rawText,
+            usage: usage,
+            stopReason: status == "completed" ? .endTurn : .maxTokens,
+            attemptMetadata: metadata
+        )
+    }
+
+    private func responsesOutputText(from json: [String: Any]) throws -> String {
+        if let outputText = json["output_text"] as? String,
+           !outputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return outputText
+        }
+        guard let output = json["output"] as? [[String: Any]] else {
+            throw AIProviderError.invalidResponse("Structured OpenAI Responses result is missing output")
+        }
+        let texts = output.flatMap { item -> [String] in
+            guard let content = item["content"] as? [[String: Any]] else { return [] }
+            return content.compactMap { block in
+                guard block["type"] as? String == "output_text" else { return nil }
+                return block["text"] as? String
+            }
+        }
+        let rawText = texts.joined()
+        guard !rawText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw AIProviderError.invalidResponse("Structured OpenAI Responses result is missing output_text content")
+        }
+        return rawText
     }
 
     private func parseResponse(_ data: Data) throws -> AIResponse {
@@ -351,12 +467,7 @@ public actor OpenAIProvider: StructuredAIProvider {
         default: stopReason = toolCalls.isEmpty ? .endTurn : .toolUse
         }
 
-        var usage: AIResponse.Usage?
-        if let usageDict = json["usage"] as? [String: Any] {
-            let input = usageDict["prompt_tokens"] as? Int ?? 0
-            let output = usageDict["completion_tokens"] as? Int ?? 0
-            usage = AIResponse.Usage(inputTokens: input, outputTokens: output)
-        }
+        let usage = openAIUsage(from: json)
 
         return AIResponse(text: text, toolCalls: toolCalls, stopReason: stopReason, usage: usage)
     }

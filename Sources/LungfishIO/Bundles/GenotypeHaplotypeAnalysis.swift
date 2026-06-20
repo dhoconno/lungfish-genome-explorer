@@ -251,6 +251,10 @@ public enum GenotypeHaplotypeDiagnosticMatcher {
 }
 
 public enum GenotypeHaplotypeLocusResolver {
+    public static func metadataHaplotypeGroupLocus(for genotype: String) -> String? {
+        pipeMetadataEvidenceLocus(for: genotype, key: "haplotype_groups")
+    }
+
     public static func canonicalLocusName(_ rawLocus: String) -> String {
         let trimmed = rawLocus.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "Unknown" }
@@ -289,6 +293,41 @@ public enum GenotypeHaplotypeLocusResolver {
         return "MHC-\(uppercased)"
     }
 
+    public static func haplotypeEvidenceLocusName(_ rawLocus: String) -> String {
+        let canonical = canonicalLocusName(rawLocus)
+        let token = locusToken(fromCanonicalLocus: canonical)
+        switch token {
+        case "AG", "F", "G", "70":
+            return "MHC-A"
+        case "E":
+            return "MHC-E"
+        case "L":
+            return "MHC-L"
+        case "I", "J", "K", "S", "V":
+            return "MHC-B"
+        default:
+            return canonical
+        }
+    }
+
+    public static func isReportableHaplotypeLocus(_ rawLocus: String) -> Bool {
+        let canonical = haplotypeEvidenceLocusName(rawLocus)
+        return canonical != "MHC-L"
+    }
+
+    private static func locusToken(fromCanonicalLocus canonical: String) -> String {
+        var token = canonical
+        if token.uppercased().hasPrefix("MHC-") {
+            token = String(token.dropFirst(4))
+        }
+        let separators = CharacterSet(charactersIn: "*_:")
+        return token
+            .components(separatedBy: separators)
+            .first?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased() ?? ""
+    }
+
     private static func alleleToken(_ token: String, belongsTo locus: Character) -> Bool {
         guard token.first == locus else { return false }
         let suffix = token.dropFirst()
@@ -300,6 +339,15 @@ public enum GenotypeHaplotypeLocusResolver {
         for call: ONTGenotypeCall,
         definitionSet: GenotypeHaplotypeDefinitionSet?
     ) -> String {
+        if let groupLocus = metadataHaplotypeGroupLocus(for: call.genotype) {
+            guard let definitionSet else { return groupLocus }
+            if let definition = definitionSet.locusDefinitions.first(where: {
+                locus($0, isCompatibleWith: groupLocus)
+            }) {
+                return definition.locus
+            }
+            return groupLocus
+        }
         let raw = canonicalLocusName(call.locusGroup)
         guard let definitionSet else { return raw }
         if let definition = definitionSet.locusDefinitions.first(where: {
@@ -314,6 +362,10 @@ public enum GenotypeHaplotypeLocusResolver {
     }
 
     public static func rawCall(_ call: ONTGenotypeCall, belongsTo definition: GenotypeHaplotypeLocusDefinition) -> Bool {
+        if let groupLocus = metadataHaplotypeGroupLocus(for: call.genotype),
+           locus(definition, isCompatibleWith: groupLocus) {
+            return true
+        }
         let raw = canonicalLocusName(call.locusGroup)
         let definitionLocus = canonicalLocusName(definition.locus)
         let sourceLocus = canonicalLocusName(definition.sourceLocus)
@@ -350,6 +402,37 @@ public enum GenotypeHaplotypeLocusResolver {
         default:
             return false
         }
+    }
+
+    private static func pipeMetadataEvidenceLocus(for genotype: String, key: String) -> String? {
+        guard let value = pipeMetadataValue(for: genotype, key: key) else { return nil }
+        let firstLocus = value
+            .split(separator: ",")
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+        guard let firstLocus else { return nil }
+        return haplotypeEvidenceLocusName(firstLocus)
+    }
+
+    private static func pipeMetadataValue(for genotype: String, key: String) -> String? {
+        let prefix = "\(key)="
+        return genotype
+            .split(separator: "|", omittingEmptySubsequences: false)
+            .dropFirst()
+            .compactMap { field -> String? in
+                guard field.hasPrefix(prefix) else { return nil }
+                return String(field.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            .first { !$0.isEmpty }
+    }
+
+    private static func locus(
+        _ definition: GenotypeHaplotypeLocusDefinition,
+        isCompatibleWith locus: String
+    ) -> Bool {
+        let candidate = canonicalLocusName(locus)
+        return candidate == canonicalLocusName(definition.locus)
+            || candidate == canonicalLocusName(definition.sourceLocus)
     }
 
     private static func speciesFreeToken(_ token: String) -> String? {
@@ -938,19 +1021,24 @@ public enum GenotypeHaplotypeAnalyzer {
         let canonicalDefinitionLocusByRawLocus = canonicalLocusLookup(for: definitionSet)
         for call in calls {
             let sample = normalizedSampleName(call.sample)
+            let effectiveLocus = GenotypeHaplotypeLocusResolver.canonicalLocus(
+                for: call,
+                definitionSet: definitionSet
+            )
             sampleTotals[sample, default: 0] += max(0, call.passedUniqueReads)
-            sampleLocusTotals[sample, default: [:]][call.locusGroup, default: 0] += max(0, call.passedUniqueReads)
+            sampleLocusTotals[sample, default: [:]][effectiveLocus, default: 0] += max(0, call.passedUniqueReads)
         }
         return calls.filter { call in
             let sample = normalizedSampleName(call.sample)
             let sampleTotal = sampleTotals[sample] ?? 0
-            let locusTotal = sampleLocusTotals[sample]?[call.locusGroup] ?? 0
+            let effectiveLocus = GenotypeHaplotypeLocusResolver.canonicalLocus(
+                for: call,
+                definitionSet: definitionSet
+            )
+            let locusTotal = sampleLocusTotals[sample]?[effectiveLocus] ?? 0
             let rawLocus = GenotypeHaplotypeLocusResolver.canonicalLocusName(call.locusGroup)
             let canonicalLocus = canonicalDefinitionLocusByRawLocus[rawLocus]
-                ?? GenotypeHaplotypeLocusResolver.canonicalLocus(
-                    for: call,
-                    definitionSet: definitionSet
-                )
+                ?? effectiveLocus
             return !evaluator.isLowSupport(
                 reads: call.passedUniqueReads,
                 sampleTotal: sampleTotal,
@@ -1151,7 +1239,8 @@ public enum GenotypeHaplotypeAnalyzer {
         for call in calls {
             let raw = GenotypeHaplotypeLocusResolver.canonicalLocusName(call.locusGroup)
             for definition in definitionSet.locusDefinitions where
-                raw == definition.locus
+                GenotypeHaplotypeLocusResolver.rawCall(call, belongsTo: definition)
+                    || raw == definition.locus
                     || raw == GenotypeHaplotypeLocusResolver.canonicalLocusName(definition.sourceLocus)
                     || GenotypeHaplotypeLocusResolver.diagnosticCall(call, belongsTo: definition) {
                 observed.insert(definition.locus)

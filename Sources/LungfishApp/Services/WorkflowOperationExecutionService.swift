@@ -297,8 +297,8 @@ final class WorkflowOperationExecutionService {
             arguments: arguments
         )
         let operationID = operationCenter.start(
-            title: "miSeq amplicon ONT MHC genotyping",
-            detail: "Running miSeq amplicon ONT MHC genotyping workflow",
+            title: "miSeq amplicon MHC genotyping",
+            detail: "Running miSeq amplicon MHC genotyping workflow",
             operationType: .workflow,
             targetBundleURL: request.outputDirectory,
             cliCommand: cliCommand,
@@ -308,7 +308,7 @@ final class WorkflowOperationExecutionService {
         operationCenter.updateWithLog(
             id: operationID,
             progress: 0.01,
-            detail: "Launching lungfish-cli for miSeq amplicon ONT MHC genotyping..."
+            detail: "Launching lungfish-cli for miSeq amplicon MHC genotyping..."
         )
 
         do {
@@ -323,12 +323,12 @@ final class WorkflowOperationExecutionService {
                 logProcessOutput(result, operationID: operationID)
             }
             if result.exitCode != 0 {
-                let failureDetail = "miSeq amplicon ONT MHC genotyping failed with exit code \(result.exitCode)"
+                let failureDetail = "miSeq amplicon MHC genotyping failed with exit code \(result.exitCode)"
                 operationCenter.log(id: operationID, level: .error, message: failureDetail)
                 operationCenter.fail(
                     id: operationID,
                     detail: failureDetail,
-                    errorMessage: "miSeq amplicon ONT MHC genotyping failed",
+                    errorMessage: "miSeq amplicon MHC genotyping failed",
                     errorDetail: failureDiagnostics(
                         result: result,
                         cliCommand: cliCommand
@@ -344,7 +344,7 @@ final class WorkflowOperationExecutionService {
             operationCenter.log(id: operationID, level: .info, message: "Status: completed")
             operationCenter.complete(
                 id: operationID,
-                detail: "miSeq amplicon ONT MHC genotyping completed. Output: \(request.outputDirectory.path)",
+                detail: "miSeq amplicon MHC genotyping completed. Output: \(request.outputDirectory.path)",
                 outputURLs: outputURLs
             )
             resultRefresher.refresh(
@@ -358,8 +358,8 @@ final class WorkflowOperationExecutionService {
         } catch {
             operationCenter.fail(
                 id: operationID,
-                detail: "miSeq amplicon ONT MHC genotyping failed",
-                errorMessage: "miSeq amplicon ONT MHC genotyping failed",
+                detail: "miSeq amplicon MHC genotyping failed",
+                errorMessage: "miSeq amplicon MHC genotyping failed",
                 errorDetail: error.localizedDescription
             )
             throw error
@@ -438,50 +438,7 @@ final class WorkflowOperationExecutionService {
     }
 
     func ontGenotypingArguments(for request: ONTBarcodeDemuxGenotypingRunRequest) -> [String] {
-        var arguments = ["fastq", ontGenotypingSubcommand(for: request)] + request.inputFASTQURLs.map(\.path)
-        arguments += [
-            "--mode", request.mode.cliArgument,
-            "--read-type", request.readType.cliArgument,
-            "--reference", request.referenceSourceURL.path,
-            "--output-dir", request.outputDirectory.path,
-            "--output-name", request.outputName,
-            "--analysis-name", request.analysisName,
-            "--threads", String(request.threads),
-            "--sort-threads", String(request.sortThreads),
-            "--min-support", String(request.minSupport),
-        ]
-        request.appendHaplotypeThresholdArguments(to: &arguments)
-        if let barcodeDefinitionsURL = request.barcodeDefinitionsURL {
-            arguments += ["--barcodes", barcodeDefinitionsURL.path]
-        }
-        if let demuxManifestURL = request.demuxManifestURL {
-            arguments += ["--demux-manifest", demuxManifestURL.path]
-        }
-        if let comparisonWorkbookURL = request.comparisonWorkbookURL {
-            arguments += ["--comparison-workbook", comparisonWorkbookURL.path]
-        }
-        if let comparisonName = request.comparisonName {
-            arguments += ["--comparison-name", comparisonName]
-        }
-        if let haplotypeDefinitionSetID = request.haplotypeDefinitionSetID {
-            if let haplotypeAssayID = request.haplotypeAssayID {
-                arguments += ["--haplotype-assay", haplotypeAssayID]
-            }
-            if let haplotypeSpeciesCode = request.haplotypeSpeciesCode {
-                arguments += ["--haplotype-species", haplotypeSpeciesCode]
-            }
-            if let haplotypeDefinitionScope = request.haplotypeDefinitionScope {
-                arguments += ["--haplotype-definition-scope", haplotypeDefinitionScope.rawValue]
-            }
-            arguments += ["--haplotype-definition", haplotypeDefinitionSetID]
-        }
-        if let projectURL = request.projectURL {
-            arguments += ["--project", projectURL.path]
-        }
-        if !request.extraArguments.isEmpty {
-            arguments += ["--extra-args", AdvancedCommandLineOptions.join(request.extraArguments)]
-        }
-        return arguments
+        Array(request.argv.dropFirst())
     }
 
     func fullLengthONTMHCGenotypingArguments(for request: FullLengthONTMHCGenotypingRunRequest) -> [String] {

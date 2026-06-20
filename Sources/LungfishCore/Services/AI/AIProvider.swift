@@ -299,10 +299,19 @@ public struct AIResponse: Sendable {
     public struct Usage: Sendable {
         public let inputTokens: Int
         public let outputTokens: Int
+        public let cachedInputTokens: Int?
+        public let reasoningOutputTokens: Int?
 
-        public init(inputTokens: Int, outputTokens: Int) {
+        public init(
+            inputTokens: Int,
+            outputTokens: Int,
+            cachedInputTokens: Int? = nil,
+            reasoningOutputTokens: Int? = nil
+        ) {
             self.inputTokens = inputTokens
             self.outputTokens = outputTokens
+            self.cachedInputTokens = cachedInputTokens
+            self.reasoningOutputTokens = reasoningOutputTokens
         }
     }
 
@@ -324,6 +333,9 @@ public struct AIStructuredRequest: Sendable {
     public let schema: [String: JSONValue]
     public let temperature: Double
     public let maxOutputTokens: Int
+    public let reasoningEffort: String?
+    public let promptCacheRetention: String?
+    public let promptCacheKey: String?
     public let attemptIndex: Int
     public let fallbackIndex: Int
     public let credentialSource: String?
@@ -335,6 +347,9 @@ public struct AIStructuredRequest: Sendable {
         schema: [String: JSONValue],
         maxOutputTokens: Int = 4096,
         temperature: Double = 0,
+        reasoningEffort: String? = nil,
+        promptCacheRetention: String? = nil,
+        promptCacheKey: String? = nil,
         attemptIndex: Int = 0,
         fallbackIndex: Int = 0,
         credentialSource: String? = nil
@@ -345,6 +360,12 @@ public struct AIStructuredRequest: Sendable {
         self.schema = schema
         self.temperature = max(0, min(2, temperature))
         self.maxOutputTokens = max(1, maxOutputTokens)
+        let trimmedReasoningEffort = reasoningEffort?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.reasoningEffort = trimmedReasoningEffort.isEmpty ? nil : trimmedReasoningEffort
+        let trimmedPromptCacheRetention = promptCacheRetention?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.promptCacheRetention = trimmedPromptCacheRetention.isEmpty ? nil : trimmedPromptCacheRetention
+        let trimmedPromptCacheKey = promptCacheKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.promptCacheKey = trimmedPromptCacheKey.isEmpty ? nil : trimmedPromptCacheKey
         self.attemptIndex = max(0, attemptIndex)
         self.fallbackIndex = max(0, fallbackIndex)
         self.credentialSource = credentialSource
@@ -389,6 +410,8 @@ public struct AIProviderAttemptMetadata: Sendable, Codable, Equatable {
     public let stopReason: String?
     public let inputTokens: Int?
     public let outputTokens: Int?
+    public let cachedInputTokens: Int?
+    public let reasoningOutputTokens: Int?
     public let sanitizedErrorCategory: String?
 
     public init(
@@ -405,6 +428,8 @@ public struct AIProviderAttemptMetadata: Sendable, Codable, Equatable {
         stopReason: String?,
         inputTokens: Int?,
         outputTokens: Int?,
+        cachedInputTokens: Int? = nil,
+        reasoningOutputTokens: Int? = nil,
         sanitizedErrorCategory: String?
     ) {
         self.attemptIndex = attemptIndex
@@ -420,6 +445,8 @@ public struct AIProviderAttemptMetadata: Sendable, Codable, Equatable {
         self.stopReason = stopReason
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
+        self.cachedInputTokens = cachedInputTokens
+        self.reasoningOutputTokens = reasoningOutputTokens
         self.sanitizedErrorCategory = sanitizedErrorCategory
     }
 }

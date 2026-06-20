@@ -202,7 +202,7 @@ final class WorkflowOperationDialogState {
             toolKind: initialTools.first { $0.id == initialToolID }?.kind
         )
         if initialToolID == Self.ontGenotypingID {
-            applyBundledMHCReferenceDefaultsIfAvailable(for: self.selectedReferenceURL)
+            applyLockedMCMMiSeqPreset()
         }
         cacheReferenceBundleSummaryIfNeeded(self.selectedReferenceURL)
         self.enablementObserver = WorkflowOperationNotificationObserver(
@@ -540,9 +540,7 @@ final class WorkflowOperationDialogState {
             outputName = Self.defaultTwelveSOutputName(for: selectedReadURLs)
         } else {
             outputName = Self.defaultONTGenotypingOutputName(for: selectedReadURLs)
-            if selectedHaplotypeAssayID == nil {
-                selectedHaplotypeAssayID = Self.defaultHaplotypeAssayID()
-            }
+            applyLockedMCMMiSeqPreset()
         }
     }
 
@@ -764,7 +762,7 @@ final class WorkflowOperationDialogState {
 
         refreshHaplotypeSelectionForCurrentProject()
         if selectedToolID == Self.ontGenotypingID {
-            applyBundledMHCReferenceDefaultsIfAvailable(for: selectedReferenceURL)
+            applyLockedMCMMiSeqPreset()
         }
         if resetBarcodeSelection || selectedBarcodeDefinitionURL == nil {
             selectedBarcodeDefinitionURL = snapshot.barcodeDefinitionCandidates.first
@@ -844,11 +842,27 @@ final class WorkflowOperationDialogState {
     }
 
     func setReference(_ url: URL?) {
+        if selectedToolID == Self.ontGenotypingID {
+            applyLockedMCMMiSeqPreset()
+            return
+        }
         selectedReferenceURL = url?.standardizedFileURL
         cacheReferenceBundleSummaryIfNeeded(selectedReferenceURL)
-        if selectedToolID == Self.ontGenotypingID {
-            applyBundledMHCReferenceDefaultsIfAvailable(for: selectedReferenceURL)
+    }
+
+    private func applyLockedMCMMiSeqPreset() {
+        let preset = MCMHaplotypingPreset.mcmMHCmiseq
+        guard let bundleURL = try? preset.bundledReferenceBundleURL() else {
+            selectedReferenceURL = nil
+            selectedHaplotypeAssayID = preset.haplotypeAssayID
+            selectedHaplotypeSpeciesCode = preset.haplotypeSpeciesCode
+            selectedHaplotypeDefinitionScope = nil
+            selectedHaplotypeDefinitionSetID = preset.haplotypeDefinitionSetID
+            return
         }
+        selectedReferenceURL = bundleURL
+        cacheReferenceBundleSummaryIfNeeded(bundleURL)
+        applyBundledMHCReferenceDefaultsIfAvailable(for: bundleURL)
     }
 
     func setGuide(_ url: URL?) {
@@ -980,9 +994,8 @@ final class WorkflowOperationDialogState {
             } else {
                 barcodeDefinitionURL = nil
             }
-            let request = ONTBarcodeDemuxGenotypingRunRequest(
+            let request = try MCMHaplotypingPreset.mcmMHCmiseq.makeGenotypingRunRequest(
                 inputFASTQURLs: selectedReadURLs,
-                referenceSourceURL: selectedReferenceURL,
                 barcodeDefinitionsURL: barcodeDefinitionURL,
                 outputDirectory: Self.ontGenotypingBundleURL(
                     outputLocationURL: outputDirectoryURL,
@@ -994,14 +1007,8 @@ final class WorkflowOperationDialogState {
                 threads: threads,
                 minSupport: minSupport,
                 haplotypeDropoutSampleFraction: nil,
-                haplotypeDropoutLocusFraction: selectedHaplotypeDefinitionSetID == nil
-                    ? nil
-                    : Self.fraction(fromPercent: haplotypeDropoutLocusPercent),
+                haplotypeDropoutLocusFraction: Self.fraction(fromPercent: haplotypeDropoutLocusPercent),
                 haplotypeDropoutLocusFractionOverrides: [:],
-                haplotypeAssayID: selectedHaplotypeDefinitionSetID == nil ? nil : selectedHaplotypeAssayID,
-                haplotypeSpeciesCode: selectedHaplotypeDefinitionSetID == nil ? nil : selectedHaplotypeSpeciesCode,
-                haplotypeDefinitionScope: selectedHaplotypeDefinitionSetID == nil ? nil : selectedHaplotypeDefinitionScope,
-                haplotypeDefinitionSetID: selectedHaplotypeDefinitionSetID,
                 extraArguments: try AdvancedCommandLineOptions.parse(extraArgumentsText),
                 mode: launchMode,
                 readType: selectedGenotypingReadType

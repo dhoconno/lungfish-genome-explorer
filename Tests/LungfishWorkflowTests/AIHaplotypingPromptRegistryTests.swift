@@ -10,8 +10,8 @@ final class AIHaplotypingPromptRegistryTests: XCTestCase {
 
         XCTAssertEqual(discovery.id, "lungfish.ai-haplotyping.discovery")
         XCTAssertEqual(refinement.id, "lungfish.ai-haplotyping.refinement")
-        XCTAssertEqual(discovery.version, "2026-06-18.1")
-        XCTAssertEqual(refinement.version, "2026-06-18.1")
+        XCTAssertEqual(discovery.version, "2026-06-18.3")
+        XCTAssertEqual(refinement.version, "2026-06-18.3")
         XCTAssertEqual(discovery.evidenceSchemaVersion, 1)
         XCTAssertEqual(refinement.evidenceSchemaVersion, 1)
         XCTAssertTrue(discovery.hash.hasPrefix("sha256:"))
@@ -87,13 +87,54 @@ final class AIHaplotypingPromptRegistryTests: XCTestCase {
         XCTAssertTrue(refinement.userPromptTemplate.contains("Do not mention clinical decisions"))
         XCTAssertTrue(discovery.userPromptTemplate.contains("Do not use phase or phasing language"))
         XCTAssertTrue(refinement.userPromptTemplate.contains("Do not use phase or phasing language"))
-        XCTAssertTrue(discovery.userPromptTemplate.contains("the validator rejects them"))
-        XCTAssertTrue(refinement.userPromptTemplate.contains("the validator rejects them"))
+        XCTAssertTrue(discovery.userPromptTemplate.contains("the validator rejects several of these terms"))
+        XCTAssertTrue(refinement.userPromptTemplate.contains("the validator rejects several of these terms"))
+        XCTAssertTrue(discovery.userPromptTemplate.contains("confirmation, or follow-up anywhere in output text"))
+        XCTAssertTrue(refinement.userPromptTemplate.contains("confirmation, or follow-up anywhere in output text"))
         XCTAssertTrue(discovery.userPromptTemplate.contains("Do not mention copy number"))
         XCTAssertTrue(refinement.userPromptTemplate.contains("Do not mention copy number"))
         XCTAssertTrue(discovery.userPromptTemplate.contains("Do not emit discoveredDefinitions for known curated labels"))
         XCTAssertTrue(refinement.userPromptTemplate.contains("Do not emit discoveredDefinitions for known curated labels"))
         XCTAssertTrue(refinement.userPromptTemplate.contains("In refinement mode, leave discoveredDefinitions empty unless"))
+        XCTAssertTrue(discovery.userPromptTemplate.contains("{{prompt_input_json}}"))
+        XCTAssertTrue(refinement.userPromptTemplate.contains("{{prompt_input_json}}"))
+    }
+
+    func testMCMSpecialistPromptsAreAddressableButNotGenericCurrentTemplates() throws {
+        let registry = AIHaplotypingPromptRegistry.builtIn
+        let preset = MCMHaplotypingPreset.mcmMHCmiseq
+
+        let discovery = try registry.template(
+            id: preset.aiPromptTemplateID(for: .aiDiscovery),
+            version: preset.aiPromptTemplateVersion
+        )
+        let refinement = try registry.template(
+            id: preset.aiPromptTemplateID(for: .aiRefinement),
+            version: preset.aiPromptTemplateVersion
+        )
+
+        XCTAssertEqual(discovery.mode, .aiDiscovery)
+        XCTAssertEqual(refinement.mode, .aiRefinement)
+        XCTAssertFalse(discovery.isDefaultCandidate)
+        XCTAssertFalse(refinement.isDefaultCandidate)
+        XCTAssertNotEqual(try registry.currentTemplate(for: .aiDiscovery).id, preset.aiPromptTemplateID(for: .aiDiscovery))
+        XCTAssertNotEqual(try registry.currentTemplate(for: .aiRefinement).id, preset.aiPromptTemplateID(for: .aiRefinement))
+        XCTAssertTrue(discovery.userPromptTemplate.contains("MCM MHC MiSeq Haplotyping Specialist Prompt"))
+        XCTAssertTrue(refinement.userPromptTemplate.contains("MCM MHC MiSeq Haplotyping Specialist Prompt"))
+        XCTAssertTrue(discovery.userPromptTemplate.contains("Secondary Allele Map"))
+        XCTAssertTrue(refinement.userPromptTemplate.contains("Overcall Guard And Human-Curation Trigger"))
+        XCTAssertTrue(discovery.userPromptTemplate.contains("MHC-A secondary-conflict calibration"))
+        XCTAssertTrue(discovery.userPromptTemplate.contains("M4 and M7 have the same MHC-DP genotypes"))
+        XCTAssertTrue(refinement.userPromptTemplate.contains("Do not split M4/M7 or M5/M6 shared DP evidence using MHC-A, MHC-E, or MHC-B context alone"))
+        XCTAssertTrue(discovery.userPromptTemplate.contains("return exactly six locus rows: MHC-A, MHC-E, MHC-B, MHC-DR, MHC-DQ, and MHC-DP"))
+        XCTAssertTrue(refinement.userPromptTemplate.contains("Use `?` for unresolved slots instead of omitting the locus"))
+        XCTAssertTrue(discovery.userPromptTemplate.contains("overcall-human-curation"))
+        XCTAssertTrue(discovery.userPromptTemplate.contains("emit exactly two calls, h1 and h2, for each of these six loci"))
+        XCTAssertTrue(refinement.userPromptTemplate.contains("MHC-A, MHC-E, MHC-B, MHC-DR, MHC-DQ, and MHC-DP"))
+        XCTAssertFalse(discovery.userPromptTemplate.contains("knowledgePack.populationProfiles"))
+        XCTAssertFalse(refinement.userPromptTemplate.contains("knowledgePack.haplotypeBlockDefinitions"))
+        XCTAssertTrue(discovery.userPromptTemplate.contains("Copy every expectedRun.generationParameters key and value"))
+        XCTAssertTrue(refinement.userPromptTemplate.contains("do not convert \"true\", \"false\", \"0\", \"1\", or numeric-looking values"))
         XCTAssertTrue(discovery.userPromptTemplate.contains("{{prompt_input_json}}"))
         XCTAssertTrue(refinement.userPromptTemplate.contains("{{prompt_input_json}}"))
     }

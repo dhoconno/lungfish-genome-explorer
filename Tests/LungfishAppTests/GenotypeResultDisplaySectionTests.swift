@@ -100,7 +100,7 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         XCTAssertFalse(source.contains("Minimum Reads"))
         XCTAssertFalse(source.contains("Slider("))
         XCTAssertTrue(source.contains("Thresholds are fixed by the genotyping run"))
-        XCTAssertTrue(source.contains("Re-run miSeq amplicon ONT MHC genotyping"))
+        XCTAssertTrue(source.contains("Re-run miSeq amplicon MHC genotyping"))
     }
 
     func testGenotypeDisplaySectionKeepsThresholdGuidanceSeparateFromColorControls() throws {
