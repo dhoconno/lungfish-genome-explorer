@@ -135,6 +135,7 @@ class MacaqueMHCPromptLabTests(unittest.TestCase):
         self.assertIn("DRB compound multi-gene haplotypes", template)
         self.assertIn("MHC-B compound multi-gene haplotypes", template)
         self.assertIn("discriminatory value", template)
+        self.assertIn("Mamu-B source-locus alleles", template)
         self.assertIn("- label", haplotype_schema)
         self.assertNotIn("- haplotype", haplotype_schema)
         self.assertIn("- reason", unresolved_schema)
