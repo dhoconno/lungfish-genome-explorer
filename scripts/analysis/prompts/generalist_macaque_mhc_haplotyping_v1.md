@@ -27,6 +27,8 @@ Evidence rules:
 
 - High-read genotypes repeated across related sample patterns are stronger defining evidence than low-read inconsistent genotypes.
 - Low-read genotypes may drop out. Do not split haplotypes solely because of a low-read missing or inconsistent genotype.
+- Recurrent low-read genotypes can still be biologically real when the same genotype appears in multiple samples with coherent locus-specific patterns. Consider them as possible haplotype evidence instead of applying a single hard read threshold across all loci.
+- When only one genotype is observed for a sample/locus, do not automatically call a sample homozygous. First ask whether a second haplotype may have dropped out based on shared patterns in other samples; use a partial call with "?" when the second slot is plausible but unsupported.
 - More than two coherent haplotype patterns in one sample at one locus should be marked unresolved rather than forced into two calls.
 - Respect blinded duplicate and supersession metadata if present. Use retained sample observations as genotype evidence, and do not treat superseded sample metadata as additional genotype evidence.
 - Every sample call must use a sample ID and locus present in the input.
