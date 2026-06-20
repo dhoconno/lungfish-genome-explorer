@@ -288,10 +288,59 @@ class MacaqueMHCPromptLabTests(unittest.TestCase):
             provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
             self.assertEqual(provenance["status"], "failed")
             self.assertEqual(provenance["exitStatus"], 1)
-            output_paths = {record["path"] for record in provenance["outputs"]}
-            self.assertIn(str((iteration_dir / "prompt_input.json").resolve()), output_paths)
-            self.assertIn(str((iteration_dir / "rendered_prompt.md").resolve()), output_paths)
-            self.assertTrue(output_paths.isdisjoint({str(path.resolve()) for path in provider_paths}))
+            self.assertEqual(provenance["outputs"], [])
+            for path in provider_paths:
+                self.assertFalse(path.exists(), path)
+
+    def test_run_iteration_missing_workbook_clears_stale_iteration_outputs_before_failed_provenance(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            prompt_path = root / "prompt.md"
+            prompt_path.write_text("# Prompt\n\n{{PROMPT_INPUT_JSON}}\n", encoding="utf-8")
+            iteration_dir = root / "iteration"
+            iteration_dir.mkdir()
+            stale_paths = [
+                iteration_dir / "prompt_input.json",
+                iteration_dir / "truth_calls.json",
+                iteration_dir / "samples.json",
+                iteration_dir / "rendered_prompt.md",
+                iteration_dir / "model_output_validation.json",
+                iteration_dir / "parsed_model_output.json",
+                iteration_dir / "score.json",
+                iteration_dir / "score.md",
+            ]
+            for path in stale_paths:
+                path.write_text("stale\n", encoding="utf-8")
+            (iteration_dir / "run-iteration.provenance.json").write_text(
+                json.dumps({"workflowName": "run-iteration", "status": "completed", "exitStatus": 0}),
+                encoding="utf-8",
+            )
+            missing_workbook = root / "missing.xlsx"
+
+            with self.assertRaises(SystemExit):
+                lab.main(
+                    [
+                        "run-iteration",
+                        "--workbook",
+                        str(missing_workbook),
+                        "--iteration-dir",
+                        str(iteration_dir),
+                        "--prompt",
+                        str(prompt_path),
+                    ]
+                )
+
+            for path in stale_paths:
+                self.assertFalse(path.exists(), path)
+            provenance_path = iteration_dir / "run-iteration.provenance.json"
+            self.assertTrue(provenance_path.is_file())
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            self.assertEqual(provenance["workflowName"], "run-iteration")
+            self.assertEqual(provenance["status"], "failed")
+            self.assertEqual(provenance["exitStatus"], 1)
+            self.assertIsNotNone(provenance["stderr"])
+            self.assertIn("run-iteration failed", provenance["stderr"])
+            self.assertEqual(provenance["outputs"], [])
 
     def test_run_iteration_requires_key_only_when_running_provider(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -392,6 +441,68 @@ class MacaqueMHCPromptLabTests(unittest.TestCase):
             "unresolved": [],
         }
         self.assertEqual(lab.validate_model_output(output, prompt_input), [])
+
+    def test_validate_model_output_rejects_duplicate_sample_locus_calls(self):
+        prompt_input = {
+            "samples": [{"gs_id": "LC1729"}],
+            "instructions": {"report_loci": ["MHC-A"]},
+            "observations": [
+                {"sample_id": "LC1729", "report_locus": "MHC-A", "genotype": "01_Mamu-A1_002g", "reads": 90},
+                {"sample_id": "LC1729", "report_locus": "MHC-A", "genotype": "01_Mamu-A1_004g", "reads": 80},
+            ],
+        }
+        output = {
+            "schema_version": 1,
+            "prompt_version": "generalist_macaque_mhc_haplotyping_v1",
+            "haplotype_definitions": [
+                {
+                    "locus": "MHC-A",
+                    "label": "A-A1*002-H01",
+                    "supporting_genotypes": ["01_Mamu-A1_002g"],
+                    "seed_samples": ["LC1729"],
+                    "confidence": "high",
+                    "rationale": "seed",
+                },
+                {
+                    "locus": "MHC-A",
+                    "label": "A-A1*004-H02",
+                    "supporting_genotypes": ["01_Mamu-A1_004g"],
+                    "seed_samples": ["LC1729"],
+                    "confidence": "medium",
+                    "rationale": "seed",
+                },
+            ],
+            "sample_calls": [
+                {
+                    "sample_id": "LC1729",
+                    "locus": "MHC-A",
+                    "h1": "A-A1*002-H01",
+                    "h2": "A-A1*002-H01",
+                    "status": "called",
+                    "h1_supporting_genotypes": ["01_Mamu-A1_002g"],
+                    "h2_supporting_genotypes": ["01_Mamu-A1_002g"],
+                    "rationale": "first call",
+                },
+                {
+                    "sample_id": "LC1729",
+                    "locus": "MHC-A",
+                    "h1": "A-A1*004-H02",
+                    "h2": "A-A1*004-H02",
+                    "status": "called",
+                    "h1_supporting_genotypes": ["01_Mamu-A1_004g"],
+                    "h2_supporting_genotypes": ["01_Mamu-A1_004g"],
+                    "rationale": "contradictory duplicate call",
+                },
+            ],
+            "unresolved": [],
+        }
+
+        errors = lab.validate_model_output(output, prompt_input)
+
+        self.assertTrue(
+            any("duplicate" in error and "LC1729" in error and "MHC-A" in error for error in errors),
+            errors,
+        )
 
     def test_validate_model_output_rejects_non_integer_schema_version(self):
         prompt_input = {
@@ -1232,6 +1343,85 @@ class MacaqueMHCPromptLabTests(unittest.TestCase):
             )
             self.assertEqual(len(provenance["outputs"]), 1)
             self.assertEqual({record["path"] for record in provenance["outputs"]}, {str(validation_path.resolve())})
+
+    def test_import_output_cli_rejects_duplicate_sample_locus_calls_without_parsed_output(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            iteration_dir = root / "iteration-001"
+            iteration_dir.mkdir()
+            prompt_input_path = iteration_dir / "prompt_input.json"
+            model_output_path = root / "model_output.json"
+            validation_path = iteration_dir / "model_output_validation.json"
+            parsed_path = iteration_dir / "parsed_model_output.json"
+            prompt_input = {
+                "samples": [{"gs_id": "LC1729"}],
+                "instructions": {"report_loci": ["MHC-A"]},
+                "observations": [
+                    {"sample_id": "LC1729", "report_locus": "MHC-A", "genotype": "01_Mamu-A1_002g", "reads": 90},
+                    {"sample_id": "LC1729", "report_locus": "MHC-A", "genotype": "01_Mamu-A1_004g", "reads": 80},
+                ],
+            }
+            model_output = {
+                "schema_version": 1,
+                "prompt_version": "generalist_macaque_mhc_haplotyping_v1",
+                "haplotype_definitions": [
+                    {
+                        "locus": "MHC-A",
+                        "label": "A-A1*002-H01",
+                        "supporting_genotypes": ["01_Mamu-A1_002g"],
+                        "seed_samples": ["LC1729"],
+                        "confidence": "high",
+                        "rationale": "seed",
+                    },
+                    {
+                        "locus": "MHC-A",
+                        "label": "A-A1*004-H02",
+                        "supporting_genotypes": ["01_Mamu-A1_004g"],
+                        "seed_samples": ["LC1729"],
+                        "confidence": "medium",
+                        "rationale": "seed",
+                    },
+                ],
+                "sample_calls": [
+                    {
+                        "sample_id": "LC1729",
+                        "locus": "MHC-A",
+                        "h1": "A-A1*002-H01",
+                        "h2": "A-A1*002-H01",
+                        "status": "called",
+                        "h1_supporting_genotypes": ["01_Mamu-A1_002g"],
+                        "h2_supporting_genotypes": ["01_Mamu-A1_002g"],
+                        "rationale": "first call",
+                    },
+                    {
+                        "sample_id": "LC1729",
+                        "locus": "MHC-A",
+                        "h1": "A-A1*004-H02",
+                        "h2": "A-A1*004-H02",
+                        "status": "called",
+                        "h1_supporting_genotypes": ["01_Mamu-A1_004g"],
+                        "h2_supporting_genotypes": ["01_Mamu-A1_004g"],
+                        "rationale": "contradictory duplicate call",
+                    },
+                ],
+                "unresolved": [],
+            }
+            prompt_input_path.write_text(json.dumps(prompt_input), encoding="utf-8")
+            model_output_path.write_text(json.dumps(model_output), encoding="utf-8")
+            parsed_path.write_text(json.dumps({"stale": True}), encoding="utf-8")
+            argv = ["import-output", "--iteration-dir", str(iteration_dir), "--model-output", str(model_output_path)]
+
+            with self.assertRaisesRegex(SystemExit, "model output validation failed"):
+                lab.main(argv)
+
+            self.assertTrue(validation_path.is_file())
+            self.assertFalse(parsed_path.exists())
+            validation = json.loads(validation_path.read_text(encoding="utf-8"))
+            self.assertFalse(validation["accepted"])
+            self.assertTrue(
+                any("duplicate" in error and "LC1729" in error and "MHC-A" in error for error in validation["errors"]),
+                validation["errors"],
+            )
 
     def test_import_output_cli_replaces_stale_success_artifacts_after_json_parse_failure(self):
         with tempfile.TemporaryDirectory() as temp:

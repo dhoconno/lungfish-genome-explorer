@@ -482,6 +482,7 @@ def validate_model_output(output: Any, prompt_input: dict[str, Any]) -> list[str
     if not isinstance(calls, list):
         errors.append("sample_calls must be a list")
     else:
+        seen_sample_locus_calls: set[tuple[str, str]] = set()
         call_required = {
             "sample_id",
             "locus",
@@ -501,6 +502,12 @@ def validate_model_output(output: Any, prompt_input: dict[str, Any]) -> list[str
                 errors.append(f"{prefix} missing required key: {key}")
             sample_id = string_field(call, "sample_id", prefix, errors)
             locus = string_field(call, "locus", prefix, errors)
+            if isinstance(sample_id, str) and isinstance(locus, str):
+                call_key = (sample_id, locus)
+                if call_key in seen_sample_locus_calls:
+                    errors.append(f"{prefix} duplicate sample/locus call for {sample_id} {locus}")
+                else:
+                    seen_sample_locus_calls.add(call_key)
             if sample_id is not None and sample_id not in sample_ids:
                 errors.append(f"{prefix}.sample_id unknown sample: {sample_id}")
             if locus is not None and locus not in known_loci:
@@ -939,24 +946,19 @@ def resolved_run_iteration_options(
 
 
 def iteration_output_paths(iteration_dir: Path, run_provider: bool) -> list[Path]:
-    paths = [
+    paths = extract_render_artifact_paths(iteration_dir)
+    if run_provider:
+        paths.extend(provider_artifact_paths(iteration_dir))
+    return paths
+
+
+def extract_render_artifact_paths(iteration_dir: Path) -> list[Path]:
+    return [
         iteration_dir / "prompt_input.json",
         iteration_dir / "truth_calls.json",
         iteration_dir / "samples.json",
         iteration_dir / "rendered_prompt.md",
     ]
-    if run_provider:
-        paths.extend(
-            [
-                iteration_dir / "openai_response.json",
-                iteration_dir / "model_output.json",
-                iteration_dir / "model_output_validation.json",
-                iteration_dir / "parsed_model_output.json",
-                iteration_dir / "score.json",
-                iteration_dir / "score.md",
-            ]
-        )
-    return paths
 
 
 def provider_artifact_paths(iteration_dir: Path) -> list[Path]:
@@ -968,6 +970,10 @@ def provider_artifact_paths(iteration_dir: Path) -> list[Path]:
         iteration_dir / "score.json",
         iteration_dir / "score.md",
     ]
+
+
+def run_iteration_managed_output_paths(iteration_dir: Path) -> list[Path]:
+    return [*extract_render_artifact_paths(iteration_dir), *provider_artifact_paths(iteration_dir)]
 
 
 def remove_existing_paths(paths: list[Path]) -> None:
@@ -1326,8 +1332,7 @@ def command_run_iteration(args: argparse.Namespace) -> None:
     options = resolved_run_iteration_options(workbook, iteration_dir, prompt, args.model, args.run_provider)
     inputs = [workbook, prompt]
     outputs = iteration_output_paths(iteration_dir, args.run_provider)
-    if args.run_provider:
-        remove_existing_paths(provider_artifact_paths(iteration_dir))
+    remove_existing_paths(run_iteration_managed_output_paths(iteration_dir))
 
     try:
         run_iteration(
@@ -1344,7 +1349,7 @@ def command_run_iteration(args: argparse.Namespace) -> None:
             "run-iteration",
             args.effective_argv,
             inputs,
-            outputs,
+            [],
             started,
             options,
             status="failed",
@@ -1358,7 +1363,7 @@ def command_run_iteration(args: argparse.Namespace) -> None:
             "run-iteration",
             args.effective_argv,
             inputs,
-            outputs,
+            [],
             started,
             options,
             status="failed",
