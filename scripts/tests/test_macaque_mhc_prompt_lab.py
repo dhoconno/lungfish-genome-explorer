@@ -130,6 +130,7 @@ class MacaqueMHCPromptLabTests(unittest.TestCase):
         self.assertIn("schema_version must be integer 1", template)
         self.assertIn("Recurrent low-read genotypes", template)
         self.assertIn("do not automatically call a sample homozygous", template)
+        self.assertIn("chain-pair dropout", template)
         self.assertIn("- label", haplotype_schema)
         self.assertNotIn("- haplotype", haplotype_schema)
         self.assertIn("- reason", unresolved_schema)
