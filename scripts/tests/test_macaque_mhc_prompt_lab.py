@@ -439,6 +439,30 @@ class MacaqueMHCPromptLabTests(unittest.TestCase):
         self.assertEqual(score["overall"]["pair_hits"], 0)
         self.assertEqual(score["overall"]["pair_concordance"], 0.0)
 
+    def test_score_mapping_ignores_status_unresolved_calls(self):
+        truth = {
+            "LC-called": {"MHC-A": ["A001", "A002"]},
+            "LC-unresolved-1": {"MHC-A": ["A003", "A004"]},
+            "LC-unresolved-2": {"MHC-A": ["A003", "A004"]},
+            "LC-unresolved-3": {"MHC-A": ["A003", "A004"]},
+        }
+        output = {
+            "sample_calls": [
+                {"sample_id": "LC-called", "locus": "MHC-A", "h1": "P1", "h2": "P2", "status": "called"},
+                {"sample_id": "LC-unresolved-1", "locus": "MHC-A", "h1": "P1", "h2": "P2", "status": "unresolved"},
+                {"sample_id": "LC-unresolved-2", "locus": "MHC-A", "h1": "P1", "h2": "P2", "status": "unresolved"},
+                {"sample_id": "LC-unresolved-3", "locus": "MHC-A", "h1": "P1", "h2": "P2", "status": "unresolved"},
+            ]
+        }
+
+        score = lab.score_predictions(output, truth, loci=["MHC-A"])
+
+        self.assertEqual(score["loci"]["MHC-A"]["label_mapping"]["P1"], "A001")
+        self.assertEqual(score["overall"]["slot_hits"], 2)
+        self.assertEqual(score["overall"]["pair_hits"], 1)
+        self.assertEqual(score["overall"]["false_merge_count"], 0)
+        self.assertEqual(score["overall"]["false_split_count"], 0)
+
     def test_score_status_unresolved_does_not_receive_concordance_credit(self):
         truth = {"LC1": {"MHC-A": ["A001", "A002"]}}
         output = {

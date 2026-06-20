@@ -586,6 +586,8 @@ def mapping_weights(output: dict[str, Any], truth: dict[str, dict[str, list[str]
         call = calls.get(sample_id, {}).get(locus)
         if not isinstance(call, dict):
             continue
+        if clean(call.get("status")).lower() == "unresolved":
+            continue
         predicted_counter = label_counter([call.get("h1"), call.get("h2")])
         human_counter = label_counter(truth_slots[:2])
         if not predicted_counter or not human_counter:
