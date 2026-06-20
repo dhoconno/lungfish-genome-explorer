@@ -22,6 +22,7 @@ from openpyxl import load_workbook
 
 TOOL_NAME = "macaque-mhc-prompt-lab"
 TOOL_VERSION = "2026-06-20.1"
+PROMPT_VERSION = "generalist_macaque_mhc_haplotyping_v1"
 REPORT_LOCI = ["MHC-A", "MHC-B", "MHC-DRB", "MHC-DQA", "MHC-DQB", "MHC-DPA", "MHC-DPB"]
 FULL_RESULT_SHEETS = ["Full Sequencing Results 1", "Full Sequencing Results 2"]
 DUPLICATE_SAMPLE_POLICY = "FULL_RESULT_SHEETS are ordered older-to-newer; later duplicate gs_id entries supersede earlier sample, truth, and observations."
@@ -303,6 +304,134 @@ def render_prompt_text(prompt_template: str, prompt_input: dict[str, Any]) -> st
     return prompt_template.replace(PROMPT_INPUT_PLACEHOLDER, prompt_json)
 
 
+def validate_model_output(output: Any, prompt_input: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    if not isinstance(output, dict):
+        return ["model output must be a JSON object"]
+
+    required_top_level = {"schema_version", "prompt_version", "haplotype_definitions", "sample_calls", "unresolved"}
+    for key in sorted(required_top_level - set(output)):
+        errors.append(f"missing top-level key: {key}")
+    if output.get("schema_version") != 1:
+        errors.append("schema_version must be 1")
+    if output.get("prompt_version") != PROMPT_VERSION:
+        errors.append(f"prompt_version must be {PROMPT_VERSION}")
+
+    samples = prompt_input.get("samples", [])
+    sample_ids = {sample.get("gs_id") for sample in samples if isinstance(sample, dict) and sample.get("gs_id")}
+    instructions = prompt_input.get("instructions", {})
+    report_loci = instructions.get("report_loci", []) if isinstance(instructions, dict) else []
+    known_loci = {locus for locus in report_loci if isinstance(locus, str)}
+    observations = prompt_input.get("observations", [])
+    known_genotypes = {
+        observation.get("genotype")
+        for observation in observations
+        if isinstance(observation, dict) and observation.get("genotype")
+    }
+    known_loci.update(
+        observation.get("report_locus")
+        for observation in observations
+        if isinstance(observation, dict) and isinstance(observation.get("report_locus"), str)
+    )
+
+    definitions = output.get("haplotype_definitions")
+    labels_by_locus: dict[str, set[str]] = defaultdict(set)
+    if not isinstance(definitions, list):
+        errors.append("haplotype_definitions must be a list")
+    else:
+        definition_required = {"locus", "label", "supporting_genotypes", "seed_samples", "confidence", "rationale"}
+        for index, definition in enumerate(definitions):
+            prefix = f"haplotype_definitions[{index}]"
+            if not isinstance(definition, dict):
+                errors.append(f"{prefix} must be an object")
+                continue
+            for key in sorted(definition_required - set(definition)):
+                errors.append(f"{prefix} missing required key: {key}")
+            locus = definition.get("locus")
+            label = definition.get("label")
+            if isinstance(locus, str) and isinstance(label, str):
+                labels_by_locus[locus].add(label)
+            if locus not in known_loci:
+                errors.append(f"{prefix}.locus unknown locus: {locus}")
+            supporting_genotypes = definition.get("supporting_genotypes")
+            if not isinstance(supporting_genotypes, list):
+                errors.append(f"{prefix}.supporting_genotypes must be a list")
+            else:
+                for genotype in supporting_genotypes:
+                    if genotype not in known_genotypes:
+                        errors.append(f"{prefix}.supporting_genotypes unknown genotype: {genotype}")
+            seed_samples = definition.get("seed_samples")
+            if not isinstance(seed_samples, list):
+                errors.append(f"{prefix}.seed_samples must be a list")
+            else:
+                for sample_id in seed_samples:
+                    if sample_id not in sample_ids:
+                        errors.append(f"{prefix}.seed_samples unknown sample: {sample_id}")
+            if definition.get("confidence") not in {"high", "medium", "low"}:
+                errors.append(f"{prefix}.confidence must be high, medium, or low")
+
+    calls = output.get("sample_calls")
+    if not isinstance(calls, list):
+        errors.append("sample_calls must be a list")
+    else:
+        call_required = {
+            "sample_id",
+            "locus",
+            "h1",
+            "h2",
+            "status",
+            "h1_supporting_genotypes",
+            "h2_supporting_genotypes",
+            "rationale",
+        }
+        for index, call in enumerate(calls):
+            prefix = f"sample_calls[{index}]"
+            if not isinstance(call, dict):
+                errors.append(f"{prefix} must be an object")
+                continue
+            for key in sorted(call_required - set(call)):
+                errors.append(f"{prefix} missing required key: {key}")
+            sample_id = call.get("sample_id")
+            locus = call.get("locus")
+            if sample_id not in sample_ids:
+                errors.append(f"{prefix}.sample_id unknown sample: {sample_id}")
+            if locus not in known_loci:
+                errors.append(f"{prefix}.locus unknown locus: {locus}")
+            if call.get("status") not in {"called", "partial", "unresolved"}:
+                errors.append(f"{prefix}.status must be called, partial, or unresolved")
+            for haplotype_key in ("h1", "h2"):
+                label = call.get(haplotype_key)
+                if label != "?" and label not in labels_by_locus.get(locus, set()):
+                    errors.append(f"{prefix}.{haplotype_key} unknown haplotype label for locus {locus}: {label}")
+            for genotype_key in ("h1_supporting_genotypes", "h2_supporting_genotypes"):
+                genotypes = call.get(genotype_key)
+                if not isinstance(genotypes, list):
+                    errors.append(f"{prefix}.{genotype_key} must be a list")
+                    continue
+                for genotype in genotypes:
+                    if genotype not in known_genotypes:
+                        errors.append(f"{prefix}.{genotype_key} unknown genotype: {genotype}")
+
+    unresolved = output.get("unresolved")
+    if not isinstance(unresolved, list):
+        errors.append("unresolved must be a list")
+    else:
+        unresolved_required = {"sample_id", "locus", "reason", "evidence_summary"}
+        for index, item in enumerate(unresolved):
+            prefix = f"unresolved[{index}]"
+            if not isinstance(item, dict):
+                errors.append(f"{prefix} must be an object")
+                continue
+            for key in sorted(unresolved_required - set(item)):
+                errors.append(f"{prefix} missing required key: {key}")
+            if "sample_id" in item and item.get("sample_id") not in sample_ids:
+                errors.append(f"{prefix}.sample_id unknown sample: {item.get('sample_id')}")
+            if "locus" in item and item.get("locus") not in known_loci:
+                errors.append(f"{prefix}.locus unknown locus: {item.get('locus')}")
+
+    return errors
+
+
 def runtime_identity() -> dict[str, Any]:
     return {
         "python": sys.version.split()[0],
@@ -331,6 +460,20 @@ def resolved_render_prompt_options(iteration_dir: Path, prompt: Path) -> dict[st
     return {
         "iterationDir": str(iteration_dir),
         "prompt": str(prompt),
+        "defaults": {
+            "workbook": str(DEFAULT_SNPRC_WORKBOOK),
+            "prompt": str(DEFAULT_PROMPT),
+            "outputRoot": str(DEFAULT_OUTPUT_ROOT),
+            "reportLoci": REPORT_LOCI,
+            "fullResultSheets": FULL_RESULT_SHEETS,
+        },
+    }
+
+
+def resolved_import_output_options(iteration_dir: Path, model_output: Path) -> dict[str, Any]:
+    return {
+        "iterationDir": str(iteration_dir),
+        "modelOutput": str(model_output),
         "defaults": {
             "workbook": str(DEFAULT_SNPRC_WORKBOOK),
             "prompt": str(DEFAULT_PROMPT),
@@ -417,6 +560,70 @@ def command_render_prompt(args: argparse.Namespace) -> None:
     )
 
 
+def command_import_output(args: argparse.Namespace) -> None:
+    started = time.time()
+    iteration_dir = args.iteration_dir.resolve()
+    model_output_path = args.model_output.resolve()
+    prompt_input_path = iteration_dir / "prompt_input.json"
+    validation_path = iteration_dir / "model_output_validation.json"
+    parsed_output_path = iteration_dir / "parsed_model_output.json"
+    options = resolved_import_output_options(iteration_dir, model_output_path)
+    inputs = [prompt_input_path, model_output_path]
+
+    try:
+        prompt_input = json.loads(prompt_input_path.read_text(encoding="utf-8"))
+        model_output = json.loads(model_output_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        message = f"import-output failed: {exc}"
+        write_provenance(
+            iteration_dir,
+            "import-output",
+            args.effective_argv,
+            inputs,
+            [],
+            started,
+            options,
+            status="failed",
+            stderr=message,
+        )
+        raise SystemExit(message) from exc
+
+    errors = validate_model_output(model_output, prompt_input)
+    validation = {
+        "schemaVersion": 1,
+        "accepted": not errors,
+        "errors": errors,
+    }
+    write_json(validation_path, validation)
+    if errors:
+        if parsed_output_path.exists():
+            parsed_output_path.unlink()
+        message = "model output validation failed: " + "; ".join(errors)
+        write_provenance(
+            iteration_dir,
+            "import-output",
+            args.effective_argv,
+            inputs,
+            [validation_path],
+            started,
+            options,
+            status="failed",
+            stderr=message,
+        )
+        raise SystemExit(message)
+
+    write_json(parsed_output_path, model_output)
+    write_provenance(
+        iteration_dir,
+        "import-output",
+        args.effective_argv,
+        inputs,
+        [validation_path, parsed_output_path],
+        started,
+        options,
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -428,6 +635,10 @@ def build_parser() -> argparse.ArgumentParser:
     render.add_argument("--iteration-dir", type=Path, required=True)
     render.add_argument("--prompt", type=Path, default=DEFAULT_PROMPT)
     render.set_defaults(func=command_render_prompt)
+    import_output = sub.add_parser("import-output", help="Validate and import a model output JSON file.")
+    import_output.add_argument("--iteration-dir", type=Path, required=True)
+    import_output.add_argument("--model-output", type=Path, required=True)
+    import_output.set_defaults(func=command_import_output)
     return parser
 
 

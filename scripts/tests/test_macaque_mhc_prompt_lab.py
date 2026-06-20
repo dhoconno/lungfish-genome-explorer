@@ -164,6 +164,83 @@ class MacaqueMHCPromptLabTests(unittest.TestCase):
             with self.subTest(genotype=genotype):
                 self.assertEqual(lab.locus_from_genotype(genotype), expected)
 
+    def test_validate_model_output_accepts_expected_shape(self):
+        prompt_input = {
+            "samples": [{"gs_id": "LC1729"}],
+            "instructions": {"report_loci": ["MHC-A"]},
+            "observations": [
+                {"sample_id": "LC1729", "report_locus": "MHC-A", "genotype": "01_Mamu-A1_002g", "reads": 90}
+            ],
+        }
+        output = {
+            "schema_version": 1,
+            "prompt_version": "generalist_macaque_mhc_haplotyping_v1",
+            "haplotype_definitions": [
+                {
+                    "locus": "MHC-A",
+                    "label": "A-A1*002-H01",
+                    "supporting_genotypes": ["01_Mamu-A1_002g"],
+                    "seed_samples": ["LC1729"],
+                    "confidence": "high",
+                    "rationale": "seed",
+                }
+            ],
+            "sample_calls": [
+                {
+                    "sample_id": "LC1729",
+                    "locus": "MHC-A",
+                    "h1": "A-A1*002-H01",
+                    "h2": "A-A1*002-H01",
+                    "status": "called",
+                    "h1_supporting_genotypes": ["01_Mamu-A1_002g"],
+                    "h2_supporting_genotypes": ["01_Mamu-A1_002g"],
+                    "rationale": "called",
+                }
+            ],
+            "unresolved": [],
+        }
+        self.assertEqual(lab.validate_model_output(output, prompt_input), [])
+
+    def test_validate_model_output_rejects_unknown_sample_locus_and_genotype(self):
+        prompt_input = {
+            "samples": [{"gs_id": "LC1729"}],
+            "instructions": {"report_loci": ["MHC-A"]},
+            "observations": [
+                {"sample_id": "LC1729", "report_locus": "MHC-A", "genotype": "01_Mamu-A1_002g", "reads": 90}
+            ],
+        }
+        output = {
+            "schema_version": 1,
+            "prompt_version": "generalist_macaque_mhc_haplotyping_v1",
+            "haplotype_definitions": [
+                {
+                    "locus": "MHC-Z",
+                    "label": "bad",
+                    "supporting_genotypes": ["missing"],
+                    "seed_samples": ["LC9999"],
+                    "confidence": "high",
+                    "rationale": "bad",
+                }
+            ],
+            "sample_calls": [
+                {
+                    "sample_id": "LC9999",
+                    "locus": "MHC-Z",
+                    "h1": "bad",
+                    "h2": "?",
+                    "status": "called",
+                    "h1_supporting_genotypes": ["missing"],
+                    "h2_supporting_genotypes": [],
+                    "rationale": "bad",
+                }
+            ],
+            "unresolved": [],
+        }
+        errors = lab.validate_model_output(output, prompt_input)
+        self.assertTrue(any("unknown sample" in error for error in errors))
+        self.assertTrue(any("unknown locus" in error for error in errors))
+        self.assertTrue(any("unknown genotype" in error for error in errors))
+
     def test_later_full_result_sheet_supersedes_duplicate_sample(self):
         with tempfile.TemporaryDirectory() as temp:
             workbook = self.make_synthetic_snprc_workbook(Path(temp))
@@ -401,6 +478,178 @@ class MacaqueMHCPromptLabTests(unittest.TestCase):
             self.assertEqual(output_record["path"], str(output_path.resolve()))
             self.assertEqual(output_record["sha256"], lab.sha256_file(output_path))
             self.assertEqual(output_record["sizeBytes"], output_path.stat().st_size)
+
+    def test_import_output_cli_writes_parsed_output_validation_and_complete_provenance(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            iteration_dir = root / "iteration-001"
+            iteration_dir.mkdir()
+            prompt_input_path = iteration_dir / "prompt_input.json"
+            model_output_path = root / "model_output.json"
+            prompt_input = {
+                "samples": [{"gs_id": "LC1729"}],
+                "instructions": {"report_loci": ["MHC-A"]},
+                "observations": [
+                    {"sample_id": "LC1729", "report_locus": "MHC-A", "genotype": "01_Mamu-A1_002g", "reads": 90}
+                ],
+            }
+            model_output = {
+                "schema_version": 1,
+                "prompt_version": "generalist_macaque_mhc_haplotyping_v1",
+                "haplotype_definitions": [
+                    {
+                        "locus": "MHC-A",
+                        "label": "A-A1*002-H01",
+                        "supporting_genotypes": ["01_Mamu-A1_002g"],
+                        "seed_samples": ["LC1729"],
+                        "confidence": "high",
+                        "rationale": "seed",
+                    }
+                ],
+                "sample_calls": [
+                    {
+                        "sample_id": "LC1729",
+                        "locus": "MHC-A",
+                        "h1": "A-A1*002-H01",
+                        "h2": "A-A1*002-H01",
+                        "status": "called",
+                        "h1_supporting_genotypes": ["01_Mamu-A1_002g"],
+                        "h2_supporting_genotypes": ["01_Mamu-A1_002g"],
+                        "rationale": "called",
+                    }
+                ],
+                "unresolved": [],
+            }
+            prompt_input_path.write_text(json.dumps(prompt_input), encoding="utf-8")
+            model_output_path.write_text(json.dumps(model_output), encoding="utf-8")
+            argv = ["import-output", "--iteration-dir", str(iteration_dir), "--model-output", str(model_output_path)]
+
+            self.assertEqual(lab.main(argv), 0)
+
+            validation_path = iteration_dir / "model_output_validation.json"
+            parsed_path = iteration_dir / "parsed_model_output.json"
+            provenance_path = iteration_dir / "import-output.provenance.json"
+            self.assertTrue(validation_path.is_file())
+            self.assertTrue(parsed_path.is_file())
+            self.assertTrue(provenance_path.is_file())
+            self.assertEqual(json.loads(parsed_path.read_text(encoding="utf-8")), model_output)
+            validation = json.loads(validation_path.read_text(encoding="utf-8"))
+            self.assertTrue(validation["accepted"])
+            self.assertEqual(validation["errors"], [])
+
+            provenance = json.loads(provenance_path.read_text())
+            expected_argv = [str(Path(lab.__file__)), *argv]
+            self.assertEqual(provenance["schemaVersion"], 1)
+            self.assertEqual(provenance["workflowName"], "import-output")
+            self.assertEqual(provenance["toolName"], lab.TOOL_NAME)
+            self.assertEqual(provenance["toolVersion"], lab.TOOL_VERSION)
+            self.assertEqual(provenance["argv"], expected_argv)
+            self.assertEqual(
+                provenance["reproducibleShellCommand"],
+                " ".join(shlex.quote(part) for part in [sys.executable, *expected_argv]),
+            )
+            self.assertEqual(provenance["options"]["iterationDir"], str(iteration_dir.resolve()))
+            self.assertEqual(provenance["options"]["modelOutput"], str(model_output_path.resolve()))
+            self.assertEqual(provenance["options"]["defaults"]["workbook"], str(lab.DEFAULT_SNPRC_WORKBOOK))
+            self.assertEqual(provenance["options"]["defaults"]["prompt"], str(lab.DEFAULT_PROMPT))
+            self.assertEqual(provenance["options"]["defaults"]["outputRoot"], str(lab.DEFAULT_OUTPUT_ROOT))
+            self.assertEqual(provenance["options"]["defaults"]["reportLoci"], lab.REPORT_LOCI)
+            self.assertEqual(provenance["options"]["defaults"]["fullResultSheets"], lab.FULL_RESULT_SHEETS)
+            self.assertEqual(provenance["exitStatus"], 0)
+            self.assertEqual(provenance["status"], "completed")
+            self.assertIsNone(provenance["stderr"])
+            self.assertIsInstance(provenance["wallTimeSeconds"], float)
+            for key in ["python", "platform", "executable", "condaPrefix", "container"]:
+                self.assertIn(key, provenance["runtimeIdentity"])
+
+            expected_inputs = {
+                str(prompt_input_path.resolve()): prompt_input_path,
+                str(model_output_path.resolve()): model_output_path,
+            }
+            self.assertEqual(len(provenance["inputs"]), 2)
+            self.assertEqual({record["path"] for record in provenance["inputs"]}, set(expected_inputs))
+            for record in provenance["inputs"]:
+                input_path = expected_inputs[record["path"]]
+                self.assertEqual(record["role"], "input")
+                self.assertEqual(record["sha256"], lab.sha256_file(input_path))
+                self.assertEqual(record["sizeBytes"], input_path.stat().st_size)
+
+            expected_outputs = {
+                str(validation_path.resolve()): validation_path,
+                str(parsed_path.resolve()): parsed_path,
+            }
+            self.assertEqual(len(provenance["outputs"]), 2)
+            self.assertEqual({record["path"] for record in provenance["outputs"]}, set(expected_outputs))
+            for record in provenance["outputs"]:
+                output_path = expected_outputs[record["path"]]
+                self.assertEqual(record["role"], "output")
+                self.assertEqual(record["sha256"], lab.sha256_file(output_path))
+                self.assertEqual(record["sizeBytes"], output_path.stat().st_size)
+
+    def test_import_output_cli_records_failed_validation_provenance_without_parsed_output(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            iteration_dir = root / "iteration-001"
+            iteration_dir.mkdir()
+            prompt_input_path = iteration_dir / "prompt_input.json"
+            model_output_path = root / "model_output.json"
+            prompt_input = {
+                "samples": [{"gs_id": "LC1729"}],
+                "instructions": {"report_loci": ["MHC-A"]},
+                "observations": [
+                    {"sample_id": "LC1729", "report_locus": "MHC-A", "genotype": "01_Mamu-A1_002g", "reads": 90}
+                ],
+            }
+            model_output = {
+                "schema_version": 1,
+                "prompt_version": "generalist_macaque_mhc_haplotyping_v1",
+                "haplotype_definitions": [],
+                "sample_calls": [
+                    {
+                        "sample_id": "LC9999",
+                        "locus": "MHC-Z",
+                        "h1": "?",
+                        "h2": "?",
+                        "status": "called",
+                        "h1_supporting_genotypes": ["missing"],
+                        "h2_supporting_genotypes": [],
+                        "rationale": "bad",
+                    }
+                ],
+                "unresolved": [],
+            }
+            prompt_input_path.write_text(json.dumps(prompt_input), encoding="utf-8")
+            model_output_path.write_text(json.dumps(model_output), encoding="utf-8")
+            argv = ["import-output", "--iteration-dir", str(iteration_dir), "--model-output", str(model_output_path)]
+
+            with self.assertRaisesRegex(SystemExit, "model output validation failed"):
+                lab.main(argv)
+
+            validation_path = iteration_dir / "model_output_validation.json"
+            parsed_path = iteration_dir / "parsed_model_output.json"
+            provenance_path = iteration_dir / "import-output.provenance.json"
+            self.assertTrue(validation_path.is_file())
+            self.assertFalse(parsed_path.exists())
+            self.assertTrue(provenance_path.is_file())
+            validation = json.loads(validation_path.read_text(encoding="utf-8"))
+            self.assertFalse(validation["accepted"])
+            self.assertTrue(any("unknown sample" in error for error in validation["errors"]))
+            self.assertTrue(any("unknown locus" in error for error in validation["errors"]))
+            self.assertTrue(any("unknown genotype" in error for error in validation["errors"]))
+
+            provenance = json.loads(provenance_path.read_text())
+            self.assertEqual(provenance["workflowName"], "import-output")
+            self.assertEqual(provenance["exitStatus"], 1)
+            self.assertEqual(provenance["status"], "failed")
+            self.assertIsNotNone(provenance["stderr"])
+            self.assertIn("model output validation failed", provenance["stderr"])
+            self.assertEqual(len(provenance["inputs"]), 2)
+            self.assertEqual(
+                {record["path"] for record in provenance["inputs"]},
+                {str(prompt_input_path.resolve()), str(model_output_path.resolve())},
+            )
+            self.assertEqual(len(provenance["outputs"]), 1)
+            self.assertEqual({record["path"] for record in provenance["outputs"]}, {str(validation_path.resolve())})
 
 
 if __name__ == "__main__":
