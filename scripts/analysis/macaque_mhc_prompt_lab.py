@@ -12,7 +12,7 @@ import re
 import shlex
 import sys
 import time
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -459,6 +459,252 @@ def validate_model_output(output: Any, prompt_input: dict[str, Any]) -> list[str
     return errors
 
 
+def is_resolved_label(label: Any) -> bool:
+    text = clean(label)
+    return bool(text) and text != "?"
+
+
+def call_index(output: dict[str, Any]) -> dict[str, dict[str, dict[str, Any]]]:
+    indexed: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
+    calls = output.get("sample_calls", []) if isinstance(output, dict) else []
+    if not isinstance(calls, list):
+        return {}
+    for call in calls:
+        if not isinstance(call, dict):
+            continue
+        sample_id = clean(call.get("sample_id"))
+        locus = clean(call.get("locus"))
+        if sample_id and locus:
+            indexed[sample_id][locus] = call
+    return {sample_id: dict(locus_calls) for sample_id, locus_calls in sorted(indexed.items())}
+
+
+def label_counter(labels: list[Any] | tuple[Any, ...]) -> Counter[str]:
+    counts: Counter[str] = Counter()
+    for label in labels:
+        text = clean(label)
+        if text and text != "?":
+            counts[text] += 1
+    return counts
+
+
+def max_weight_label_mapping(weights: dict[str, dict[str, int | float]]) -> dict[str, str]:
+    positive_weights: dict[str, dict[str, float]] = defaultdict(dict)
+    for pred_label, human_weights in weights.items():
+        pred = clean(pred_label)
+        if not pred or not isinstance(human_weights, dict):
+            continue
+        for human_label, weight in human_weights.items():
+            human = clean(human_label)
+            if not human:
+                continue
+            try:
+                numeric_weight = float(weight)
+            except (TypeError, ValueError):
+                continue
+            if numeric_weight > 0:
+                positive_weights[pred][human] = positive_weights[pred].get(human, 0.0) + numeric_weight
+
+    pred_labels = sorted(label for label, row in positive_weights.items() if row)
+    human_labels = sorted({human for row in positive_weights.values() for human in row})
+    if not pred_labels or not human_labels:
+        return {}
+
+    source = 0
+    pred_offset = 1
+    human_offset = pred_offset + len(pred_labels)
+    sink = human_offset + len(human_labels)
+    graph: list[list[dict[str, Any]]] = [[] for _ in range(sink + 1)]
+    pred_nodes = {label: pred_offset + index for index, label in enumerate(pred_labels)}
+    human_nodes = {label: human_offset + index for index, label in enumerate(human_labels)}
+
+    def add_edge(start: int, end: int, capacity: int, cost: float, pred: str | None = None, human: str | None = None) -> None:
+        forward = {"to": end, "rev": len(graph[end]), "cap": capacity, "cost": cost, "pred": pred, "human": human}
+        reverse = {"to": start, "rev": len(graph[start]), "cap": 0, "cost": -cost, "pred": None, "human": None}
+        graph[start].append(forward)
+        graph[end].append(reverse)
+
+    for pred in pred_labels:
+        add_edge(source, pred_nodes[pred], 1, 0.0)
+    for pred in pred_labels:
+        for human in sorted(positive_weights[pred]):
+            add_edge(pred_nodes[pred], human_nodes[human], 1, -positive_weights[pred][human], pred=pred, human=human)
+    for human in human_labels:
+        add_edge(human_nodes[human], sink, 1, 0.0)
+
+    while True:
+        distance = [float("inf")] * len(graph)
+        parent: list[tuple[int, int] | None] = [None] * len(graph)
+        in_queue = [False] * len(graph)
+        distance[source] = 0.0
+        queue: deque[int] = deque([source])
+        in_queue[source] = True
+        while queue:
+            node = queue.popleft()
+            in_queue[node] = False
+            for edge_index, edge in enumerate(graph[node]):
+                if edge["cap"] <= 0:
+                    continue
+                next_node = edge["to"]
+                candidate = distance[node] + edge["cost"]
+                if candidate < distance[next_node]:
+                    distance[next_node] = candidate
+                    parent[next_node] = (node, edge_index)
+                    if not in_queue[next_node]:
+                        queue.append(next_node)
+                        in_queue[next_node] = True
+
+        if parent[sink] is None or distance[sink] >= 0:
+            break
+
+        node = sink
+        while node != source:
+            prev_node, edge_index = parent[node]
+            edge = graph[prev_node][edge_index]
+            edge["cap"] -= 1
+            graph[node][edge["rev"]]["cap"] += 1
+            node = prev_node
+
+    mapping: dict[str, str] = {}
+    for pred in pred_labels:
+        pred_node = pred_nodes[pred]
+        for edge in graph[pred_node]:
+            if edge.get("human") is not None and edge["cap"] == 0:
+                mapping[pred] = edge["human"]
+                break
+    return mapping
+
+
+def mapping_weights(output: dict[str, Any], truth: dict[str, dict[str, list[str]]], locus: str) -> dict[str, dict[str, int]]:
+    calls = call_index(output)
+    weights: dict[str, Counter[str]] = defaultdict(Counter)
+    for sample_id in sorted(truth):
+        truth_slots = truth.get(sample_id, {}).get(locus)
+        if not isinstance(truth_slots, list):
+            continue
+        call = calls.get(sample_id, {}).get(locus)
+        if not isinstance(call, dict):
+            continue
+        predicted_slots = [call.get("h1"), call.get("h2")]
+        for predicted_label, human_label in zip(predicted_slots, truth_slots[:2]):
+            predicted = clean(predicted_label)
+            human = clean(human_label)
+            if predicted and predicted != "?" and human and human != "?":
+                weights[predicted][human] += 1
+    return {predicted: dict(weights[predicted]) for predicted in sorted(weights)}
+
+
+def metric_rate(numerator: int, denominator: int) -> float:
+    return round(numerator / denominator, 6) if denominator else 0.0
+
+
+def false_merge_count(weights: dict[str, dict[str, int]]) -> int:
+    return sum(1 for human_weights in weights.values() if sum(1 for weight in human_weights.values() if weight > 0) > 1)
+
+
+def false_split_count(weights: dict[str, dict[str, int]]) -> int:
+    humans_to_predictions: dict[str, set[str]] = defaultdict(set)
+    for predicted, human_weights in weights.items():
+        for human, weight in human_weights.items():
+            if weight > 0:
+                humans_to_predictions[human].add(predicted)
+    return sum(1 for predictions in humans_to_predictions.values() if len(predictions) > 1)
+
+
+def score_predictions(output: dict[str, Any], truth: dict[str, dict[str, list[str]]], loci: list[str] | None = None) -> dict[str, Any]:
+    calls = call_index(output)
+    sample_calls = output.get("sample_calls", []) if isinstance(output, dict) else []
+    if not isinstance(sample_calls, list):
+        sample_calls = []
+    output_loci = {
+        clean(call.get("locus"))
+        for call in sample_calls
+        if isinstance(call, dict) and clean(call.get("locus"))
+    }
+    truth_loci = {locus for sample_calls in truth.values() for locus in sample_calls}
+    if loci is None:
+        ordered_loci = [locus for locus in REPORT_LOCI if locus in truth_loci or locus in output_loci]
+        ordered_loci.extend(sorted((truth_loci | output_loci) - set(ordered_loci)))
+    else:
+        ordered_loci = sorted(loci)
+
+    overall = {
+        "slot_hits": 0,
+        "slot_total": 0,
+        "pair_hits": 0,
+        "pair_total": 0,
+        "unresolved_count": 0,
+        "call_total": 0,
+        "false_merge_count": 0,
+        "false_split_count": 0,
+    }
+    locus_scores: dict[str, Any] = {}
+
+    for locus in ordered_loci:
+        weights = mapping_weights(output, truth, locus)
+        label_mapping = max_weight_label_mapping(weights)
+        locus_counts = {
+            "slot_hits": 0,
+            "slot_total": 0,
+            "pair_hits": 0,
+            "pair_total": 0,
+            "unresolved_count": 0,
+            "call_total": 0,
+            "false_merge_count": false_merge_count(weights),
+            "false_split_count": false_split_count(weights),
+        }
+
+        for sample_id in sorted(truth):
+            truth_slots = truth.get(sample_id, {}).get(locus)
+            if not isinstance(truth_slots, list):
+                continue
+            human_counter = label_counter(truth_slots[:2])
+            if not human_counter:
+                continue
+            call = calls.get(sample_id, {}).get(locus)
+            predicted_slots = [call.get("h1"), call.get("h2")] if isinstance(call, dict) else []
+            is_unresolved = (
+                not isinstance(call, dict)
+                or clean(call.get("status")).lower() == "unresolved"
+                or len(predicted_slots) < 2
+                or any(not is_resolved_label(slot) for slot in predicted_slots[:2])
+            )
+            if is_unresolved:
+                locus_counts["unresolved_count"] += 1
+            mapped_slots = [
+                label_mapping[clean(slot)]
+                for slot in predicted_slots[:2]
+                if is_resolved_label(slot) and clean(slot) in label_mapping
+            ]
+            predicted_counter = label_counter(mapped_slots)
+            slot_hits = sum(min(predicted_counter[label], human_counter[label]) for label in human_counter)
+            slot_total = sum(human_counter.values())
+            locus_counts["slot_hits"] += slot_hits
+            locus_counts["slot_total"] += slot_total
+            locus_counts["pair_hits"] += int(predicted_counter == human_counter)
+            locus_counts["pair_total"] += 1
+            locus_counts["call_total"] += 1
+
+        locus_score = {
+            **locus_counts,
+            "slot_concordance": metric_rate(locus_counts["slot_hits"], locus_counts["slot_total"]),
+            "pair_concordance": metric_rate(locus_counts["pair_hits"], locus_counts["pair_total"]),
+            "unresolved_rate": metric_rate(locus_counts["unresolved_count"], locus_counts["call_total"]),
+            "label_mapping": {predicted: label_mapping[predicted] for predicted in sorted(label_mapping)},
+        }
+        locus_scores[locus] = locus_score
+        for key in overall:
+            overall[key] += locus_counts[key]
+
+    overall_score = {
+        **overall,
+        "slot_concordance": metric_rate(overall["slot_hits"], overall["slot_total"]),
+        "pair_concordance": metric_rate(overall["pair_hits"], overall["pair_total"]),
+        "unresolved_rate": metric_rate(overall["unresolved_count"], overall["call_total"]),
+    }
+    return {"schemaVersion": 1, "overall": overall_score, "loci": locus_scores}
+
+
 def runtime_identity() -> dict[str, Any]:
     return {
         "python": sys.version.split()[0],
@@ -501,6 +747,19 @@ def resolved_import_output_options(iteration_dir: Path, model_output: Path) -> d
     return {
         "iterationDir": str(iteration_dir),
         "modelOutput": str(model_output),
+        "defaults": {
+            "workbook": str(DEFAULT_SNPRC_WORKBOOK),
+            "prompt": str(DEFAULT_PROMPT),
+            "outputRoot": str(DEFAULT_OUTPUT_ROOT),
+            "reportLoci": REPORT_LOCI,
+            "fullResultSheets": FULL_RESULT_SHEETS,
+        },
+    }
+
+
+def resolved_score_options(iteration_dir: Path) -> dict[str, Any]:
+    return {
+        "iterationDir": str(iteration_dir),
         "defaults": {
             "workbook": str(DEFAULT_SNPRC_WORKBOOK),
             "prompt": str(DEFAULT_PROMPT),
@@ -664,6 +923,72 @@ def command_import_output(args: argparse.Namespace) -> None:
     )
 
 
+def markdown_score_report(score: dict[str, Any]) -> str:
+    overall = score["overall"]
+    lines = [
+        "# Macaque MHC Prompt Lab Score",
+        "",
+        "## Overall",
+        "",
+        "| metric | value |",
+        "| --- | ---: |",
+        f"| slot_concordance | {overall['slot_concordance']:.3f} |",
+        f"| pair_concordance | {overall['pair_concordance']:.3f} |",
+        f"| unresolved_rate | {overall['unresolved_rate']:.3f} |",
+        f"| slot_hits / slot_total | {overall['slot_hits']} / {overall['slot_total']} |",
+        f"| pair_hits / pair_total | {overall['pair_hits']} / {overall['pair_total']} |",
+        f"| false_merge_count | {overall['false_merge_count']} |",
+        f"| false_split_count | {overall['false_split_count']} |",
+        "",
+        "## Per Locus",
+        "",
+        "| locus | slot_concordance | pair_concordance | unresolved_rate | slots | pairs | false_merges | false_splits |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ]
+    for locus in sorted(score["loci"]):
+        row = score["loci"][locus]
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    locus,
+                    f"{row['slot_concordance']:.3f}",
+                    f"{row['pair_concordance']:.3f}",
+                    f"{row['unresolved_rate']:.3f}",
+                    f"{row['slot_hits']} / {row['slot_total']}",
+                    f"{row['pair_hits']} / {row['pair_total']}",
+                    str(row["false_merge_count"]),
+                    str(row["false_split_count"]),
+                ]
+            )
+            + " |"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def command_score(args: argparse.Namespace) -> None:
+    started = time.time()
+    iteration_dir = args.iteration_dir.resolve()
+    truth_path = iteration_dir / "truth_calls.json"
+    parsed_output_path = iteration_dir / "parsed_model_output.json"
+    score_path = iteration_dir / "score.json"
+    report_path = iteration_dir / "score.md"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    output = json.loads(parsed_output_path.read_text(encoding="utf-8"))
+    score = score_predictions(output, truth)
+    write_json(score_path, score)
+    report_path.write_text(markdown_score_report(score), encoding="utf-8")
+    write_provenance(
+        iteration_dir,
+        "score",
+        args.effective_argv,
+        [truth_path, parsed_output_path],
+        [score_path, report_path],
+        started,
+        resolved_score_options(iteration_dir),
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -679,6 +1004,9 @@ def build_parser() -> argparse.ArgumentParser:
     import_output.add_argument("--iteration-dir", type=Path, required=True)
     import_output.add_argument("--model-output", type=Path, required=True)
     import_output.set_defaults(func=command_import_output)
+    score = sub.add_parser("score", help="Score parsed model output against held-out human calls.")
+    score.add_argument("--iteration-dir", type=Path, required=True)
+    score.set_defaults(func=command_score)
     return parser
 
 

@@ -360,6 +360,145 @@ class MacaqueMHCPromptLabTests(unittest.TestCase):
         self.assertTrue(any("label" in error and "must be a string" in error for error in errors))
         self.assertTrue(any("rationale" in error and "must be a string" in error for error in errors))
 
+    def test_score_maps_predicted_labels_to_human_labels(self):
+        truth = {
+            "LC1729": {"MHC-A": ["A002.01", "A002.01"]},
+            "LC1730": {"MHC-A": ["A008.01", "A004.01"]},
+        }
+        output = {
+            "sample_calls": [
+                {"sample_id": "LC1729", "locus": "MHC-A", "h1": "A-A1*002-H01", "h2": "A-A1*002-H01", "status": "called"},
+                {"sample_id": "LC1730", "locus": "MHC-A", "h1": "A-A1*008-H02", "h2": "A-A1*004-H03", "status": "called"},
+            ]
+        }
+        score = lab.score_predictions(output, truth, loci=["MHC-A"])
+        self.assertEqual(score["overall"]["slot_concordance"], 1.0)
+        self.assertEqual(score["overall"]["pair_concordance"], 1.0)
+        self.assertEqual(score["loci"]["MHC-A"]["label_mapping"]["A-A1*002-H01"], "A002.01")
+
+    def test_score_counts_unresolved_and_false_merge(self):
+        truth = {
+            "LC1": {"MHC-A": ["A001.01", "A002.01"]},
+            "LC2": {"MHC-A": ["A001.01", "A003.01"]},
+        }
+        output = {
+            "sample_calls": [
+                {"sample_id": "LC1", "locus": "MHC-A", "h1": "A-shared", "h2": "?", "status": "partial"},
+                {"sample_id": "LC2", "locus": "MHC-A", "h1": "A-shared", "h2": "A-shared", "status": "called"},
+            ]
+        }
+        score = lab.score_predictions(output, truth, loci=["MHC-A"])
+        self.assertGreater(score["overall"]["unresolved_rate"], 0)
+        self.assertGreaterEqual(score["loci"]["MHC-A"]["false_merge_count"], 1)
+
+    def test_max_weight_label_mapping_finds_global_optimum(self):
+        weights = {"predA": {"humanX": 10, "humanY": 9}, "predB": {"humanX": 9}}
+
+        mapping = lab.max_weight_label_mapping(weights)
+
+        self.assertEqual(mapping, {"predA": "humanY", "predB": "humanX"})
+
+    def test_score_cli_writes_score_reports_and_complete_provenance(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            iteration_dir = root / "iteration-001"
+            iteration_dir.mkdir()
+            truth_path = iteration_dir / "truth_calls.json"
+            parsed_path = iteration_dir / "parsed_model_output.json"
+            truth = {
+                "LC1729": {"MHC-A": ["A002.01", "A002.01"]},
+                "LC1730": {"MHC-A": ["A008.01", "A004.01"]},
+            }
+            output = {
+                "schema_version": 1,
+                "prompt_version": lab.PROMPT_VERSION,
+                "haplotype_definitions": [],
+                "sample_calls": [
+                    {
+                        "sample_id": "LC1729",
+                        "locus": "MHC-A",
+                        "h1": "A-A1*002-H01",
+                        "h2": "A-A1*002-H01",
+                        "status": "called",
+                    },
+                    {
+                        "sample_id": "LC1730",
+                        "locus": "MHC-A",
+                        "h1": "A-A1*008-H02",
+                        "h2": "A-A1*004-H03",
+                        "status": "called",
+                    },
+                ],
+                "unresolved": [],
+            }
+            truth_path.write_text(json.dumps(truth), encoding="utf-8")
+            parsed_path.write_text(json.dumps(output), encoding="utf-8")
+            argv = ["score", "--iteration-dir", str(iteration_dir)]
+
+            self.assertEqual(lab.main(argv), 0)
+
+            score_path = iteration_dir / "score.json"
+            report_path = iteration_dir / "score.md"
+            provenance_path = iteration_dir / "score.provenance.json"
+            self.assertTrue(score_path.is_file())
+            self.assertTrue(report_path.is_file())
+            self.assertTrue(provenance_path.is_file())
+            score = json.loads(score_path.read_text(encoding="utf-8"))
+            self.assertEqual(score["overall"]["slot_concordance"], 1.0)
+            self.assertEqual(score["overall"]["pair_concordance"], 1.0)
+            self.assertEqual(score["overall"]["unresolved_rate"], 0.0)
+            report = report_path.read_text(encoding="utf-8")
+            self.assertIn("slot_concordance", report)
+            self.assertIn("MHC-A", report)
+
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            expected_argv = [str(Path(lab.__file__)), *argv]
+            self.assertEqual(provenance["schemaVersion"], 1)
+            self.assertEqual(provenance["workflowName"], "score")
+            self.assertEqual(provenance["toolName"], lab.TOOL_NAME)
+            self.assertEqual(provenance["toolVersion"], lab.TOOL_VERSION)
+            self.assertEqual(provenance["argv"], expected_argv)
+            self.assertEqual(
+                provenance["reproducibleShellCommand"],
+                " ".join(shlex.quote(part) for part in [sys.executable, *expected_argv]),
+            )
+            self.assertEqual(provenance["options"]["iterationDir"], str(iteration_dir.resolve()))
+            self.assertEqual(provenance["options"]["defaults"]["workbook"], str(lab.DEFAULT_SNPRC_WORKBOOK))
+            self.assertEqual(provenance["options"]["defaults"]["prompt"], str(lab.DEFAULT_PROMPT))
+            self.assertEqual(provenance["options"]["defaults"]["outputRoot"], str(lab.DEFAULT_OUTPUT_ROOT))
+            self.assertEqual(provenance["options"]["defaults"]["reportLoci"], lab.REPORT_LOCI)
+            self.assertEqual(provenance["options"]["defaults"]["fullResultSheets"], lab.FULL_RESULT_SHEETS)
+            self.assertEqual(provenance["exitStatus"], 0)
+            self.assertEqual(provenance["status"], "completed")
+            self.assertIsNone(provenance["stderr"])
+            self.assertIsInstance(provenance["wallTimeSeconds"], float)
+            for key in ["python", "platform", "executable", "condaPrefix", "container"]:
+                self.assertIn(key, provenance["runtimeIdentity"])
+
+            expected_inputs = {
+                str(truth_path.resolve()): truth_path,
+                str(parsed_path.resolve()): parsed_path,
+            }
+            self.assertEqual(len(provenance["inputs"]), 2)
+            self.assertEqual({record["path"] for record in provenance["inputs"]}, set(expected_inputs))
+            for record in provenance["inputs"]:
+                input_path = expected_inputs[record["path"]]
+                self.assertEqual(record["role"], "input")
+                self.assertEqual(record["sha256"], lab.sha256_file(input_path))
+                self.assertEqual(record["sizeBytes"], input_path.stat().st_size)
+
+            expected_outputs = {
+                str(score_path.resolve()): score_path,
+                str(report_path.resolve()): report_path,
+            }
+            self.assertEqual(len(provenance["outputs"]), 2)
+            self.assertEqual({record["path"] for record in provenance["outputs"]}, set(expected_outputs))
+            for record in provenance["outputs"]:
+                output_path = expected_outputs[record["path"]]
+                self.assertEqual(record["role"], "output")
+                self.assertEqual(record["sha256"], lab.sha256_file(output_path))
+                self.assertEqual(record["sizeBytes"], output_path.stat().st_size)
+
     def test_later_full_result_sheet_supersedes_duplicate_sample(self):
         with tempfile.TemporaryDirectory() as temp:
             workbook = self.make_synthetic_snprc_workbook(Path(temp))
