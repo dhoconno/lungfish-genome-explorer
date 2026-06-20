@@ -139,6 +139,7 @@ class MacaqueMHCPromptLabTests(unittest.TestCase):
         self.assertIn("discriminatory value", template)
         self.assertIn("Mamu-B source-locus alleles", template)
         self.assertIn("multi-Mamu-B patterns", template)
+        self.assertIn("dominant co-segregating Mamu-B clusters", template)
         self.assertIn("- label", haplotype_schema)
         self.assertNotIn("- haplotype", haplotype_schema)
         self.assertIn("- reason", unresolved_schema)
