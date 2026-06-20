@@ -49,11 +49,12 @@ Output only JSON. Do not include markdown fences, prose outside JSON, comments, 
 - unresolved
 
 Set prompt_version to "generalist_macaque_mhc_haplotyping_v1".
+schema_version must be integer 1.
 
 haplotype_definitions must be a list of objects with:
 
 - locus
-- haplotype
+- label
 - supporting_genotypes
 - seed_samples
 - confidence
@@ -70,7 +71,12 @@ sample_calls must be a list of objects with:
 - h2_supporting_genotypes
 - rationale
 
-unresolved must be a list of objects describing sample or locus cases that should not be forced, with the sample_id, locus, evidence summary, and rationale when applicable.
+unresolved must be a list of objects describing sample or locus cases that should not be forced, with:
+
+- sample_id
+- locus
+- reason
+- evidence_summary
 
 Allowed confidence values are "high", "medium", and "low". Allowed status values are "called", "partial", and "unresolved". Use "?" for unresolved haplotype slots.
 

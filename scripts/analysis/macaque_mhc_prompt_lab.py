@@ -28,6 +28,7 @@ DUPLICATE_SAMPLE_POLICY = "FULL_RESULT_SHEETS are ordered older-to-newer; later 
 DEFAULT_SNPRC_WORKBOOK = Path("/Users/dho/Downloads/30783_SNPRC22_MHC_Genotype_Report_31Dec24.xlsx")
 DEFAULT_PROMPT = Path("scripts/analysis/prompts/generalist_macaque_mhc_haplotyping_v1.md")
 DEFAULT_OUTPUT_ROOT = Path("outputs/macaque-mhc-prompt-lab")
+PROMPT_INPUT_PLACEHOLDER = "{{PROMPT_INPUT_JSON}}"
 TRUTH_ROW_RE = re.compile(r"^MHC-(A|B|DRB|DQA|DQB|DPA|DPB)\s+Haplotype\s+([12])$", re.IGNORECASE)
 GENOTYPE_PREFIX_RE = re.compile(r"^\d+_(Mamu-[A-Za-z0-9*]+)")
 
@@ -295,8 +296,11 @@ def write_json(path: Path, payload: Any) -> None:
 
 
 def render_prompt_text(prompt_template: str, prompt_input: dict[str, Any]) -> str:
+    placeholder_count = prompt_template.count(PROMPT_INPUT_PLACEHOLDER)
+    if placeholder_count != 1:
+        raise ValueError(f"Prompt template must contain exactly one {PROMPT_INPUT_PLACEHOLDER} placeholder")
     prompt_json = json.dumps(prompt_input, indent=2, sort_keys=True)
-    return prompt_template.replace("{{PROMPT_INPUT_JSON}}", prompt_json)
+    return prompt_template.replace(PROMPT_INPUT_PLACEHOLDER, prompt_json)
 
 
 def runtime_identity() -> dict[str, Any]:

@@ -114,6 +114,39 @@ class MacaqueMHCPromptLabTests(unittest.TestCase):
         self.assertIn("01_Mamu-A1_002g", rendered)
         self.assertNotIn("A002.01", rendered)
 
+    def test_committed_prompt_template_defines_concrete_output_schema(self):
+        template = lab.DEFAULT_PROMPT.read_text(encoding="utf-8")
+        haplotype_schema = template.split("haplotype_definitions must be a list of objects with:", 1)[1].split(
+            "sample_calls must be a list of objects with:",
+            1,
+        )[0]
+        unresolved_schema = template.split("unresolved must be a list of objects", 1)[1].split(
+            "Allowed confidence values",
+            1,
+        )[0]
+
+        self.assertEqual(template.count("{{PROMPT_INPUT_JSON}}"), 1)
+        self.assertIn("schema_version must be integer 1", template)
+        self.assertIn("- label", haplotype_schema)
+        self.assertNotIn("- haplotype", haplotype_schema)
+        self.assertIn("- reason", unresolved_schema)
+        self.assertIn("- evidence_summary", unresolved_schema)
+        template_without_allowed_prohibition = template.replace("Do not use any MCM M1-M7 prior", "").replace(
+            "do not use any MCM M1-M7 prior",
+            "",
+        )
+        self.assertNotRegex(template_without_allowed_prohibition, r"\bM[1-7]\b")
+        self.assertNotIn("M1-M7", template_without_allowed_prohibition)
+
+    def test_render_prompt_rejects_missing_prompt_input_placeholder(self):
+        with self.assertRaisesRegex(ValueError, "exactly one"):
+            lab.render_prompt_text("# Prompt\n", {"schema_version": 1})
+
+    def test_render_prompt_rejects_duplicate_prompt_input_placeholders(self):
+        prompt_template = "# Prompt\n\n{{PROMPT_INPUT_JSON}}\n\n{{PROMPT_INPUT_JSON}}\n"
+        with self.assertRaisesRegex(ValueError, "exactly one"):
+            lab.render_prompt_text(prompt_template, {"schema_version": 1})
+
     def test_locus_mapping_keeps_report_loci_separate(self):
         cases = {
             "01_Mamu-A1_002g": ("MHC-A", "Mamu-A1"),
