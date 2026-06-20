@@ -437,11 +437,22 @@ def validate_model_output(output: Any, prompt_input: dict[str, Any]) -> list[str
     report_loci = instructions.get("report_loci", []) if isinstance(instructions, dict) else []
     known_loci = {locus for locus in report_loci if isinstance(locus, str)}
     observations = prompt_input.get("observations", [])
-    known_genotypes = {
-        observation.get("genotype")
-        for observation in observations
-        if isinstance(observation, dict) and observation.get("genotype")
-    }
+    known_genotypes: set[str] = set()
+    genotypes_by_locus: dict[str, set[str]] = defaultdict(set)
+    genotypes_by_sample_locus: dict[tuple[str, str], set[str]] = defaultdict(set)
+    for observation in observations:
+        if not isinstance(observation, dict):
+            continue
+        genotype = observation.get("genotype")
+        locus = observation.get("report_locus")
+        sample_id = observation.get("sample_id")
+        if not isinstance(genotype, str) or not genotype:
+            continue
+        known_genotypes.add(genotype)
+        if isinstance(locus, str) and locus:
+            genotypes_by_locus[locus].add(genotype)
+            if isinstance(sample_id, str) and sample_id:
+                genotypes_by_sample_locus[(sample_id, locus)].add(genotype)
     known_loci.update(
         observation.get("report_locus")
         for observation in observations
@@ -470,6 +481,10 @@ def validate_model_output(output: Any, prompt_input: dict[str, Any]) -> list[str
             for genotype in string_list_field(definition, "supporting_genotypes", prefix, errors):
                 if genotype not in known_genotypes:
                     errors.append(f"{prefix}.supporting_genotypes unknown genotype: {genotype}")
+                elif isinstance(locus, str) and locus in known_loci and genotype not in genotypes_by_locus.get(locus, set()):
+                    errors.append(
+                        f"{prefix}.supporting_genotypes not observed for locus {locus}: {genotype}"
+                    )
             for sample_id in string_list_field(definition, "seed_samples", prefix, errors):
                 if sample_id not in sample_ids:
                     errors.append(f"{prefix}.seed_samples unknown sample: {sample_id}")
@@ -523,6 +538,16 @@ def validate_model_output(output: Any, prompt_input: dict[str, Any]) -> list[str
                 for genotype in string_list_field(call, genotype_key, prefix, errors):
                     if genotype not in known_genotypes:
                         errors.append(f"{prefix}.{genotype_key} unknown genotype: {genotype}")
+                    elif (
+                        isinstance(sample_id, str)
+                        and sample_id in sample_ids
+                        and isinstance(locus, str)
+                        and locus in known_loci
+                        and genotype not in genotypes_by_sample_locus.get((sample_id, locus), set())
+                    ):
+                        errors.append(
+                            f"{prefix}.{genotype_key} not observed for sample/locus {sample_id} {locus}: {genotype}"
+                        )
             string_field(call, "rationale", prefix, errors)
 
     unresolved = output.get("unresolved")
@@ -1018,21 +1043,43 @@ def command_extract(args: argparse.Namespace) -> None:
     started = time.time()
     workbook = args.workbook.resolve()
     out = args.output_dir.resolve()
-    extracted = extract_workbook(workbook)
     evidence_path = out / "prompt_input.json"
     truth_path = out / "truth_calls.json"
     samples_path = out / "samples.json"
-    write_json(evidence_path, extracted["prompt_input"])
-    write_json(truth_path, extracted["truth_calls"])
-    write_json(samples_path, extracted["samples"])
+    output_paths = [evidence_path, truth_path, samples_path]
+    options = resolved_extract_options(workbook, out)
+    inputs = [workbook]
+    remove_existing_paths(output_paths)
+
+    try:
+        extracted = extract_workbook(workbook)
+        write_json(evidence_path, extracted["prompt_input"])
+        write_json(truth_path, extracted["truth_calls"])
+        write_json(samples_path, extracted["samples"])
+    except Exception as exc:
+        message = f"extract failed: {exc}"
+        remove_existing_paths(output_paths)
+        write_provenance(
+            out,
+            "extract",
+            args.effective_argv,
+            inputs,
+            [],
+            started,
+            options,
+            status="failed",
+            stderr=message,
+        )
+        raise SystemExit(message) from exc
+
     write_provenance(
         out,
         "extract",
         args.effective_argv,
-        [workbook],
-        [evidence_path, truth_path, samples_path],
+        inputs,
+        output_paths,
         started,
-        resolved_extract_options(workbook, out),
+        options,
     )
 
 
@@ -1042,19 +1089,40 @@ def command_render_prompt(args: argparse.Namespace) -> None:
     prompt_path = args.prompt.resolve()
     prompt_input_path = iteration_dir / "prompt_input.json"
     output_path = iteration_dir / "rendered_prompt.md"
-    prompt_template = prompt_path.read_text(encoding="utf-8")
-    prompt_input = json.loads(prompt_input_path.read_text(encoding="utf-8"))
-    rendered = render_prompt_text(prompt_template, prompt_input)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(rendered, encoding="utf-8")
+    inputs = [prompt_path, prompt_input_path]
+    options = resolved_render_prompt_options(iteration_dir, prompt_path)
+    remove_existing_paths([output_path])
+
+    try:
+        prompt_template = prompt_path.read_text(encoding="utf-8")
+        prompt_input = json.loads(prompt_input_path.read_text(encoding="utf-8"))
+        rendered = render_prompt_text(prompt_template, prompt_input)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(rendered, encoding="utf-8")
+    except Exception as exc:
+        message = f"render-prompt failed: {exc}"
+        remove_existing_paths([output_path])
+        write_provenance(
+            iteration_dir,
+            "render-prompt",
+            args.effective_argv,
+            inputs,
+            [],
+            started,
+            options,
+            status="failed",
+            stderr=message,
+        )
+        raise SystemExit(message) from exc
+
     write_provenance(
         iteration_dir,
         "render-prompt",
         args.effective_argv,
-        [prompt_path, prompt_input_path],
+        inputs,
         [output_path],
         started,
-        resolved_render_prompt_options(iteration_dir, prompt_path),
+        options,
     )
 
 

@@ -504,6 +504,89 @@ class MacaqueMHCPromptLabTests(unittest.TestCase):
             errors,
         )
 
+    def test_validate_model_output_rejects_definition_support_from_wrong_locus(self):
+        prompt_input = {
+            "samples": [{"gs_id": "LC1729"}],
+            "instructions": {"report_loci": ["MHC-A", "MHC-B"]},
+            "observations": [
+                {"sample_id": "LC1729", "report_locus": "MHC-A", "genotype": "01_Mamu-A1_002g", "reads": 90},
+                {"sample_id": "LC1729", "report_locus": "MHC-B", "genotype": "03_Mamu-B_001g1", "reads": 75},
+            ],
+        }
+        output = {
+            "schema_version": 1,
+            "prompt_version": "generalist_macaque_mhc_haplotyping_v1",
+            "haplotype_definitions": [
+                {
+                    "locus": "MHC-A",
+                    "label": "A-A1*002-H01",
+                    "supporting_genotypes": ["03_Mamu-B_001g1"],
+                    "seed_samples": ["LC1729"],
+                    "confidence": "high",
+                    "rationale": "wrong-locus support",
+                }
+            ],
+            "sample_calls": [],
+            "unresolved": [],
+        }
+
+        errors = lab.validate_model_output(output, prompt_input)
+
+        self.assertTrue(
+            any("supporting_genotypes" in error and "MHC-A" in error and "03_Mamu-B_001g1" in error for error in errors),
+            errors,
+        )
+
+    def test_validate_model_output_rejects_call_support_from_wrong_sample_locus(self):
+        prompt_input = {
+            "samples": [{"gs_id": "LC1729"}, {"gs_id": "LC1730"}],
+            "instructions": {"report_loci": ["MHC-A"]},
+            "observations": [
+                {"sample_id": "LC1729", "report_locus": "MHC-A", "genotype": "01_Mamu-A1_002g", "reads": 90},
+                {"sample_id": "LC1730", "report_locus": "MHC-A", "genotype": "01_Mamu-A1_004g", "reads": 80},
+            ],
+        }
+        output = {
+            "schema_version": 1,
+            "prompt_version": "generalist_macaque_mhc_haplotyping_v1",
+            "haplotype_definitions": [
+                {
+                    "locus": "MHC-A",
+                    "label": "A-A1*002-H01",
+                    "supporting_genotypes": ["01_Mamu-A1_002g"],
+                    "seed_samples": ["LC1729"],
+                    "confidence": "high",
+                    "rationale": "seed",
+                }
+            ],
+            "sample_calls": [
+                {
+                    "sample_id": "LC1729",
+                    "locus": "MHC-A",
+                    "h1": "A-A1*002-H01",
+                    "h2": "A-A1*002-H01",
+                    "status": "called",
+                    "h1_supporting_genotypes": ["01_Mamu-A1_004g"],
+                    "h2_supporting_genotypes": ["01_Mamu-A1_002g"],
+                    "rationale": "wrong sample support",
+                }
+            ],
+            "unresolved": [],
+        }
+
+        errors = lab.validate_model_output(output, prompt_input)
+
+        self.assertTrue(
+            any(
+                "h1_supporting_genotypes" in error
+                and "LC1729" in error
+                and "MHC-A" in error
+                and "01_Mamu-A1_004g" in error
+                for error in errors
+            ),
+            errors,
+        )
+
     def test_validate_model_output_rejects_non_integer_schema_version(self):
         prompt_input = {
             "samples": [{"gs_id": "LC1729"}],
@@ -1094,6 +1177,36 @@ class MacaqueMHCPromptLabTests(unittest.TestCase):
                 self.assertEqual(record["sha256"], lab.sha256_file(output_path))
                 self.assertEqual(record["sizeBytes"], output_path.stat().st_size)
 
+    def test_extract_cli_records_failed_provenance_and_removes_stale_artifacts(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            output_dir = root / "out"
+            output_dir.mkdir()
+            stale_paths = [
+                output_dir / "prompt_input.json",
+                output_dir / "truth_calls.json",
+                output_dir / "samples.json",
+            ]
+            for path in stale_paths:
+                path.write_text(json.dumps({"stale": True}), encoding="utf-8")
+            provenance_path = output_dir / "extract.provenance.json"
+            provenance_path.write_text(json.dumps({"status": "completed", "outputs": ["stale"]}), encoding="utf-8")
+            missing_workbook = root / "missing.xlsx"
+            argv = ["extract", "--workbook", str(missing_workbook), "--output-dir", str(output_dir)]
+
+            with self.assertRaisesRegex(SystemExit, "extract failed"):
+                lab.main(argv)
+
+            for path in stale_paths:
+                self.assertFalse(path.exists(), path.name)
+            self.assertTrue(provenance_path.is_file())
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            self.assertEqual(provenance["workflowName"], "extract")
+            self.assertEqual(provenance["status"], "failed")
+            self.assertEqual(provenance["exitStatus"], 1)
+            self.assertIn("extract failed", provenance["stderr"])
+            self.assertEqual(provenance["outputs"], [])
+
     def test_render_prompt_cli_writes_prompt_and_complete_provenance(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -1171,6 +1284,33 @@ class MacaqueMHCPromptLabTests(unittest.TestCase):
             self.assertEqual(output_record["path"], str(output_path.resolve()))
             self.assertEqual(output_record["sha256"], lab.sha256_file(output_path))
             self.assertEqual(output_record["sizeBytes"], output_path.stat().st_size)
+
+    def test_render_prompt_cli_records_failed_provenance_and_removes_stale_prompt(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            iteration_dir = root / "iteration-001"
+            iteration_dir.mkdir()
+            prompt_input_path = iteration_dir / "prompt_input.json"
+            prompt_input_path.write_text(json.dumps({"schema_version": 1}), encoding="utf-8")
+            prompt_path = root / "prompt.md"
+            prompt_path.write_text("# Prompt without placeholder\n", encoding="utf-8")
+            rendered_path = iteration_dir / "rendered_prompt.md"
+            rendered_path.write_text("stale rendered prompt\n", encoding="utf-8")
+            provenance_path = iteration_dir / "render-prompt.provenance.json"
+            provenance_path.write_text(json.dumps({"status": "completed", "outputs": ["stale"]}), encoding="utf-8")
+            argv = ["render-prompt", "--iteration-dir", str(iteration_dir), "--prompt", str(prompt_path)]
+
+            with self.assertRaisesRegex(SystemExit, "render-prompt failed"):
+                lab.main(argv)
+
+            self.assertFalse(rendered_path.exists())
+            self.assertTrue(provenance_path.is_file())
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            self.assertEqual(provenance["workflowName"], "render-prompt")
+            self.assertEqual(provenance["status"], "failed")
+            self.assertEqual(provenance["exitStatus"], 1)
+            self.assertIn("render-prompt failed", provenance["stderr"])
+            self.assertEqual(provenance["outputs"], [])
 
     def test_import_output_cli_writes_parsed_output_validation_and_complete_provenance(self):
         with tempfile.TemporaryDirectory() as temp:
