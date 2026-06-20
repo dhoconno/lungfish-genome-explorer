@@ -422,6 +422,23 @@ class MacaqueMHCPromptLabTests(unittest.TestCase):
         self.assertGreater(score["overall"]["unresolved_rate"], 0)
         self.assertGreaterEqual(score["loci"]["MHC-A"]["false_merge_count"], 1)
 
+    def test_score_partial_call_counts_resolved_slot_credit(self):
+        truth = {"LC1": {"MHC-A": ["A001", "A002"]}}
+        output = {
+            "sample_calls": [
+                {"sample_id": "LC1", "locus": "MHC-A", "h1": "pred-A001", "h2": "?", "status": "partial"}
+            ]
+        }
+
+        score = lab.score_predictions(output, truth, loci=["MHC-A"])
+
+        self.assertEqual(score["overall"]["unresolved_rate"], 1.0)
+        self.assertEqual(score["overall"]["slot_hits"], 1)
+        self.assertEqual(score["overall"]["slot_total"], 2)
+        self.assertEqual(score["overall"]["slot_concordance"], 0.5)
+        self.assertEqual(score["overall"]["pair_hits"], 0)
+        self.assertEqual(score["overall"]["pair_concordance"], 0.0)
+
     def test_score_status_unresolved_does_not_receive_concordance_credit(self):
         truth = {"LC1": {"MHC-A": ["A001", "A002"]}}
         output = {

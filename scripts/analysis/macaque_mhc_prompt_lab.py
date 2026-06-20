@@ -692,14 +692,16 @@ def score_predictions(output: dict[str, Any], truth: dict[str, dict[str, list[st
                 continue
             call = calls.get(sample_id, {}).get(locus)
             predicted_slots = [call.get("h1"), call.get("h2")] if isinstance(call, dict) else []
+            status = clean(call.get("status")).lower() if isinstance(call, dict) else ""
             is_unresolved = (
                 not isinstance(call, dict)
-                or clean(call.get("status")).lower() == "unresolved"
+                or status == "unresolved"
                 or len(predicted_slots) < 2
                 or any(not is_resolved_label(slot) for slot in predicted_slots[:2])
             )
             if is_unresolved:
                 locus_counts["unresolved_count"] += 1
+            if not isinstance(call, dict) or status == "unresolved":
                 mapped_slots = []
             else:
                 mapped_slots = [
