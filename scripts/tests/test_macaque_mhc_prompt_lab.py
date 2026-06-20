@@ -132,6 +132,7 @@ class MacaqueMHCPromptLabTests(unittest.TestCase):
         self.assertIn("do not automatically call a sample homozygous", template)
         self.assertIn("chain-pair dropout", template)
         self.assertIn("group exact A1 genotype variants", template)
+        self.assertIn("DRB compound multi-gene haplotypes", template)
         self.assertIn("- label", haplotype_schema)
         self.assertNotIn("- haplotype", haplotype_schema)
         self.assertIn("- reason", unresolved_schema)
