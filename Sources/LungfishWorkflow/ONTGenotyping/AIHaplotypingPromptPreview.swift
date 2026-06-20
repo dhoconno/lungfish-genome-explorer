@@ -209,6 +209,9 @@ public struct AIHaplotypingPromptPreviewBuilder: Sendable {
                 version: template.version,
                 mode: request.mode
             )
+            let responseSchemaName = compactMCMEvidence
+                ? AIHaplotypingRunner.minimalMCMSchemaName
+                : AIHaplotypingRunner.schemaName
             let expectedRun = AIHaplotypingRunMetadata(
                 mode: request.mode,
                 promptTemplateID: template.id,
@@ -217,7 +220,7 @@ public struct AIHaplotypingPromptPreviewBuilder: Sendable {
                 provider: request.providerID.rawValue,
                 model: request.modelID,
                 generationParameters: options.generationParameters(
-                    schemaName: AIHaplotypingRunner.schemaName,
+                    schemaName: responseSchemaName,
                     evidenceEncoding: compactMCMEvidence
                         ? AIHaplotypingPromptInputEncoder.compactMCMEncoding
                         : AIHaplotypingPromptInputEncoder.fullEncoding,

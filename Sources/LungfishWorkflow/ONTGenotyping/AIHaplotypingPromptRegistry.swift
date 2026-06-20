@@ -151,28 +151,24 @@ public extension AIHaplotypingPromptTemplate {
         Specialist prompt:
         \(promptMarkdown)
 
+        Silent decision checklist:
+        - Before choosing h1/h2 for a locus, internally enumerate credible M-family evidence from primary alleles, secondary alleles, read support, and linked-locus context.
+        - Apply the overcall guard before choosing best-two haplotypes. If more than two M-family haplotypes have credible nontrivial support at a locus or across the sample, do not force a best-two call; output "?" for affected slots.
+        - For MHC-A, apply the overcall guard before choosing the best two haplotypes. Secondary MHC-A-region evidence can make M2/M3/M4 or other multi-family patterns unresolved even when two primary branches are present.
+        - For MHC-E, prioritize direct MHC-E evidence over adjacency. Call unique MHC-E targets and shared-marker intersections when present; use adjacency only to resolve incomplete MHC-E evidence and do not erase direct MHC-E calls because adjacent loci are discordant.
+        - Keep H1/H2 labels internally consistent across neighboring loci when evidence allows, but never use slot consistency to override direct defining evidence or an overcall-human-curation trigger.
+        - After the checklist, return only the minimal JSON object described below.
+
         Output JSON contract:
-        - schemaVersion must be the integer 1. Do not write true, false, "1", or any other value for schemaVersion.
-        - Copy expectedRun exactly into run, including generationParameters, promptHash, registryDigest, and inputSnapshotDigest.
-        - Treat expectedRun as an audit checksum object. Do not recalculate, summarize, or normalize it.
-        - Copy every expectedRun.generationParameters key and value into run.generationParameters exactly. The values are JSON strings by design; do not convert "true", "false", "0", "1", or numeric-looking values to booleans or numbers.
-        - Before returning output, compare run.generationParameters against expectedRun.generationParameters. If any key is missing, added, or has a different value, fix run before returning JSON.
-        - Copy chunkID, registryDigest, and inputSnapshotDigest exactly from the prompt input to the top-level output fields.
-        - The runtime evidence may use compact observation IDs such as o1, o2, and o3. Use only evidence IDs that appear in evidenceRegistry.evidenceIDs for supportEvidenceRefs and counterevidenceRefs.
-        - Do not substitute genotype labels, allele names, or target IDs for evidence IDs. Copy the evidenceRegistry ID exactly when citing support or counterevidence.
-        - For each call, sample must use evidenceRegistry.samples[].sample and locus must use evidenceRegistry.loci[].locus.
-        - For every sample in this chunk, emit exactly two calls, h1 and h2, for each of these six loci: MHC-A, MHC-E, MHC-B, MHC-DR, MHC-DQ, and MHC-DP. If a locus or slot is unresolved, emit it with "?" or "-" as appropriate rather than omitting it.
-        - patchOpID must be non-empty and unique within the chunk. Use a stable format such as patch:<chunkID>:<sample>:<locus>:<slot>:v1.
-        - counterevidenceRefs must contain at least one relevant allowed evidence ID. If there is no direct contradictory observation, cite the corresponding sample or locus evidence ID as reviewed context.
-        - haplotypeLabel, alternates, and proposedLabel must be concise labels only, such as M4A, M5A, M4/M5A, M7A-provisional, or "-".
-        - Put homozygous, dominant, dropout, ambiguity, and uncertainty language only in rationale or rationaleCode, never in haplotypeLabel, alternates, normalizedFamily, proposedLabel, or warnings.
-        - If evidence supports an unrealistic number of haplotypes at a locus or across a sample, do not force calls. Set the affected calls to unresolved review using "?" or "-" as appropriate and explain that the supplied evidence does not support confident haplotyping.
-        - If you assign the same haplotypeLabel to both h1 and h2 for a sample/locus, at least one of those calls must explicitly say homozygous or single haplotype in rationaleCode or rationale.
-        - Use conflictsCurrent only when the proposed haplotypeLabel differs from a callable current call. When changing a callable current call, set callState to conflictsCurrent, cite the current call as counterevidence, and explain in rationale why observation evidence conflicts with or supersedes the current call.
-        - Do not mention clinical decisions or clinical interpretation. Do not recommend downstream testing or experimental action; if evidence remains ambiguous, set callState to unresolved and state the evidence limit concisely.
-        - Do not use the literal substrings phase, phasing, copy number, inherited, inheritance, clinical, confirmation, or follow-up anywhere in output text.
-        - Do not emit discoveredDefinitions for known curated M1-M7 labels from the specialist prompt. Use calls for those labels.
-        - discoveredDefinitions are only for genuinely novel or provisional labels not already defined in the specialist prompt; each proposedLabel should appear at most once per chunk.
+        - Return only the minimal haplotype calls JSON required by the schema.
+        - Do not include rationale, evidence IDs, run metadata, comments, warnings, prose, markdown, or discovered definitions.
+        - Emit one calls[] row for every sample/locus pair that should appear in the haplotype table.
+        - For every sample in this chunk, emit exactly one row for each of these six loci: MHC-A, MHC-E, MHC-B, MHC-DR, MHC-DQ, and MHC-DP.
+        - Each row must use evidenceRegistry.samples[].sample exactly as sample and one of the six report loci exactly as locus.
+        - Put the H1 and H2 haplotype labels in h1 and h2. Use concise labels only, such as M4A, M5A, M4/M5A, M7A-provisional, ?, or -.
+        - If a locus or slot is unresolved, put "?" or "-" in h1/h2 rather than explaining.
+        - If evidence supports an unrealistic number of haplotypes at a locus or across a sample, do not force calls. Set the affected h1/h2 values to "?" or "-" as appropriate.
+        - Do not emit MHC-I, MHC-L, MHC-AG, MHC-G, MHC-S, or MHC-V as report-level loci.
 
         Prompt input JSON:
         {{prompt_input_json}}

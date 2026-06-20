@@ -70,6 +70,28 @@ public struct AIHaplotypingStructuredResult: Codable, Equatable, Sendable {
     }
 }
 
+public struct AIHaplotypingMinimalMCMResult: Codable, Equatable, Sendable {
+    public let calls: [AIHaplotypingMinimalMCMCall]
+
+    public init(calls: [AIHaplotypingMinimalMCMCall]) {
+        self.calls = calls
+    }
+}
+
+public struct AIHaplotypingMinimalMCMCall: Codable, Equatable, Sendable {
+    public let sample: String
+    public let locus: String
+    public let h1: String
+    public let h2: String
+
+    public init(sample: String, locus: String, h1: String, h2: String) {
+        self.sample = sample
+        self.locus = locus
+        self.h1 = h1
+        self.h2 = h2
+    }
+}
+
 public struct AIHaplotypingStructuredCall: Codable, Equatable, Sendable {
     public let patchOpID: String
     public let sample: String
@@ -272,6 +294,21 @@ public enum AIHaplotypingResultSchema {
         ])
     }
 
+    public static func minimalMCMCallSchema() -> [String: JSONValue] {
+        closedObject([
+            "calls": arraySchema(minimalMCMCallSchema(), maxItems: 512),
+        ])
+    }
+
+    private static func minimalMCMCallSchema() -> JSONValue {
+        .object(closedObject([
+            "sample": stringSchema(maxLength: 128),
+            "locus": stringEnum(["MHC-A", "MHC-E", "MHC-B", "MHC-DR", "MHC-DQ", "MHC-DP"]),
+            "h1": stringSchema(maxLength: 32),
+            "h2": stringSchema(maxLength: 32),
+        ]))
+    }
+
     private static func runSchema() -> JSONValue {
         .object(closedObject([
             "mode": stringEnum(AIHaplotypingPromptMode.allCases.map(\.rawValue)),
@@ -331,10 +368,10 @@ public enum AIHaplotypingResultSchema {
         ]
     }
 
-    private static func stringSchema() -> JSONValue {
+    private static func stringSchema(maxLength: Int = 4_096) -> JSONValue {
         .object([
             "type": .string("string"),
-            "maxLength": .integer(4_096),
+            "maxLength": .integer(maxLength),
         ])
     }
 
@@ -384,9 +421,13 @@ public enum AIHaplotypingResultSchema {
             "chunkEndIndex": stringSchema(),
             "chunkStartIndex": stringSchema(),
             "compactKnowledgePack": stringSchema(),
+            "evidenceEncoding": stringSchema(),
+            "knowledgePackMode": stringSchema(),
             "maxObservationsPerChunk": stringSchema(),
             "maxOutputTokens": stringSchema(),
             "maxProviderRetries": stringSchema(),
+            "promptCacheKey": stringSchema(),
+            "promptCacheRetention": stringSchema(),
             "reasoningEffort": stringSchema(),
             "reviewScope": stringSchema(),
             "schemaName": stringSchema(),

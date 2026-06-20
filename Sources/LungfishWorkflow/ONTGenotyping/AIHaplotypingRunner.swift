@@ -197,6 +197,7 @@ public struct AIHaplotypingRunFailure: Error, LocalizedError, Codable, Equatable
 
 public struct AIHaplotypingRunner: Sendable {
     public static let schemaName = "lungfish_ai_haplotyping_result"
+    public static let minimalMCMSchemaName = "lungfish_mcm_miseq_haplotyping_calls"
 
     private let provider: any StructuredAIProvider
     private let promptRegistry: AIHaplotypingPromptRegistry
@@ -327,8 +328,12 @@ public struct AIHaplotypingRunner: Sendable {
                 options: options
             )
             let promptInputPayload: AIHaplotypingPromptInputPayload
+            let responseSchemaName = compactMCMEvidence ? Self.minimalMCMSchemaName : Self.schemaName
+            let responseSchema = compactMCMEvidence
+                ? AIHaplotypingResultSchema.minimalMCMCallSchema()
+                : AIHaplotypingResultSchema.jsonSchema()
             let generationParameters = options.generationParameters(
-                schemaName: Self.schemaName,
+                schemaName: responseSchemaName,
                 evidenceEncoding: compactMCMEvidence
                     ? AIHaplotypingPromptInputEncoder.compactMCMEncoding
                     : AIHaplotypingPromptInputEncoder.fullEncoding,
@@ -362,8 +367,8 @@ public struct AIHaplotypingRunner: Sendable {
                         promptInputJSON: promptInputPayload.json,
                         evidenceRegistryJSON: chunk.registry.canonicalJSONString()
                     ),
-                    schemaName: Self.schemaName,
-                    schema: AIHaplotypingResultSchema.jsonSchema(),
+                    schemaName: responseSchemaName,
+                    schema: responseSchema,
                     maxOutputTokens: options.maxOutputTokens,
                     temperature: options.temperature,
                     reasoningEffort: options.reasoningEffort,
@@ -387,7 +392,8 @@ public struct AIHaplotypingRunner: Sendable {
                 provider: provider,
                 options: options,
                 expectedRun: expectedRun,
-                evidenceReferenceMap: promptInputPayload.evidenceReferenceMap
+                evidenceReferenceMap: promptInputPayload.evidenceReferenceMap,
+                minimalMCMOutput: compactMCMEvidence
             )
             let response = accepted.response
             let report = accepted.report
@@ -709,7 +715,8 @@ public struct AIHaplotypingRunner: Sendable {
         provider: any StructuredAIProvider,
         options: AIHaplotypingRunOptions,
         expectedRun: AIHaplotypingRunMetadata,
-        evidenceReferenceMap: [String: String]
+        evidenceReferenceMap: [String: String],
+        minimalMCMOutput: Bool
     ) async throws -> ValidatedStructuredResponse {
         var retriesRemaining = max(0, options.maxProviderRetries)
         var retryIndex = 0
@@ -772,7 +779,16 @@ public struct AIHaplotypingRunner: Sendable {
             let structuredResult: AIHaplotypingStructuredResult
             do {
                 let data = try JSONEncoder().encode(response.payload)
-                structuredResult = try JSONDecoder().decode(AIHaplotypingStructuredResult.self, from: data)
+                if minimalMCMOutput {
+                    let minimalResult = try JSONDecoder().decode(AIHaplotypingMinimalMCMResult.self, from: data)
+                    structuredResult = self.structuredResult(
+                        from: minimalResult,
+                        chunk: chunk,
+                        expectedRun: expectedRun
+                    )
+                } else {
+                    structuredResult = try JSONDecoder().decode(AIHaplotypingStructuredResult.self, from: data)
+                }
             } catch {
                 if retriesRemaining > 0 {
                     retriesRemaining -= 1
@@ -876,6 +892,121 @@ public struct AIHaplotypingRunner: Sendable {
             calls: result.calls,
             warnings: result.warnings
         )
+    }
+
+    private func structuredResult(
+        from minimalResult: AIHaplotypingMinimalMCMResult,
+        chunk: AIHaplotypingEvidenceChunk,
+        expectedRun: AIHaplotypingRunMetadata
+    ) -> AIHaplotypingStructuredResult {
+        let calls = minimalResult.calls.flatMap { call in
+            [
+                structuredCall(
+                    from: call,
+                    slot: "h1",
+                    label: call.h1,
+                    chunkID: chunk.id,
+                    registry: chunk.registry
+                ),
+                structuredCall(
+                    from: call,
+                    slot: "h2",
+                    label: call.h2,
+                    chunkID: chunk.id,
+                    registry: chunk.registry
+                ),
+            ]
+        }
+        return AIHaplotypingStructuredResult(
+            schemaVersion: 1,
+            run: expectedRun,
+            registryDigest: expectedRun.registryDigest,
+            inputSnapshotDigest: expectedRun.inputSnapshotDigest,
+            chunkID: chunk.id,
+            discoveredDefinitions: [],
+            calls: calls,
+            warnings: []
+        )
+    }
+
+    private func structuredCall(
+        from call: AIHaplotypingMinimalMCMCall,
+        slot: String,
+        label: String,
+        chunkID: String,
+        registry: AIHaplotypingEvidenceRegistry
+    ) -> AIHaplotypingStructuredCall {
+        let sample = call.sample.trimmingCharacters(in: .whitespacesAndNewlines)
+        let locus = call.locus.trimmingCharacters(in: .whitespacesAndNewlines)
+        let haplotypeLabel = normalizedMinimalHaplotypeLabel(label)
+        let support = isUnresolvedMinimalHaplotypeLabel(haplotypeLabel)
+            ? []
+            : supportEvidenceReferences(sample: sample, locus: locus, registry: registry)
+        let isCalled = !isUnresolvedMinimalHaplotypeLabel(haplotypeLabel) && !support.isEmpty
+        let counter = counterevidenceReferences(sample: sample, locus: locus, registry: registry)
+        let rationaleCode = isCalled ? "minimal_call" : "minimal_unresolved"
+        let rationale = isCalled
+            ? (call.h1 == call.h2 ? "Local expansion of minimal LLM call; single haplotype." : "Local expansion of minimal LLM call.")
+            : "Local expansion of minimal LLM unresolved slot."
+        return AIHaplotypingStructuredCall(
+            patchOpID: "patch:\(chunkID):\(sample):\(locus):\(slot):v1",
+            sample: sample,
+            locus: locus,
+            slot: slot,
+            haplotypeLabel: haplotypeLabel,
+            normalizedFamily: nil,
+            source: .ai,
+            sourceState: .raw,
+            reviewState: .needsReview,
+            callState: isCalled ? .called : .unresolved,
+            confidenceTier: isCalled ? .medium : .low,
+            supportEvidenceRefs: isCalled ? support : [],
+            counterevidenceRefs: counter,
+            alternates: [],
+            rationaleCode: rationaleCode,
+            rationale: rationale
+        )
+    }
+
+    private func normalizedMinimalHaplotypeLabel(_ label: String) -> String {
+        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "?" : trimmed
+    }
+
+    private func isUnresolvedMinimalHaplotypeLabel(_ label: String) -> Bool {
+        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty || trimmed == "?" || trimmed == "-"
+    }
+
+    private func supportEvidenceReferences(
+        sample: String,
+        locus: String,
+        registry: AIHaplotypingEvidenceRegistry
+    ) -> [String] {
+        let samplesByID = Dictionary(uniqueKeysWithValues: registry.samples.map { ($0.id, $0.sample) })
+        let lociByID = Dictionary(uniqueKeysWithValues: registry.loci.map { ($0.id, $0.locus) })
+        let direct = registry.observations.filter {
+            samplesByID[$0.sampleID] == sample && lociByID[$0.locusID] == locus
+        }.map(\.id)
+        if !direct.isEmpty { return direct }
+        return registry.observations.filter {
+            samplesByID[$0.sampleID] == sample
+                && GenotypeHaplotypeLocusResolver.isReportableHaplotypeLocus(lociByID[$0.locusID] ?? "")
+        }.map(\.id)
+    }
+
+    private func counterevidenceReferences(
+        sample: String,
+        locus: String,
+        registry: AIHaplotypingEvidenceRegistry
+    ) -> [String] {
+        if let sampleID = registry.samples.first(where: { $0.sample == sample })?.id {
+            return [sampleID]
+        }
+        if let locusID = registry.loci.first(where: { $0.locus == locus })?.id {
+            return [locusID]
+        }
+        return []
     }
 
     private func structuredResultByMappingEvidenceReferences(

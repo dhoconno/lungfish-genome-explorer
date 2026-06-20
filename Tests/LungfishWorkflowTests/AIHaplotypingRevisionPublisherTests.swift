@@ -188,6 +188,48 @@ final class AIHaplotypingRevisionPublisherTests: XCTestCase {
 
         XCTAssertFalse(analysis.samples.flatMap(\.calls).contains { $0.locus == "MHC-L" })
     }
+
+    func testPublishStoresMCMSpecialistPromptMarkdownWithRevisionAndProvenance() throws {
+        let fixture = try makeFixture(runnerOutput: makeMCMSpecialistRunnerOutput())
+        let publisher = AIHaplotypingRevisionPublisher(
+            dateProvider: { Self.fixedDate },
+            revisionIDProvider: { "haprev-ai-mcm" }
+        )
+
+        let published = try publisher.publish(
+            AIHaplotypingRevisionPublishRequest(
+                bundleURL: fixture.bundleURL,
+                result: fixture.result,
+                sidecarURL: fixture.sidecarURL,
+                sidecar: fixture.sidecar,
+                runnerOutput: fixture.runnerOutput,
+                context: makeContext(bundleURL: fixture.bundleURL)
+            )
+        )
+
+        let revision = published.revision
+        let promptPath = try XCTUnwrap(revision.promptSnapshotPath)
+        XCTAssertEqual(
+            promptPath,
+            "artifacts/ai-haplotyping/revisions/haprev-ai-mcm/mcm-mhc-haplotyping-specialist-prompt.md"
+        )
+        let promptURL = ONTGenotypeResultBundle.resolvedURL(for: promptPath, in: fixture.bundleURL)
+        XCTAssertEqual(
+            try String(contentsOf: promptURL, encoding: .utf8),
+            try MCMHaplotypingPreset.mcmMHCmiseq.bundledSpecialistPromptMarkdown()
+        )
+
+        let manifest = try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
+        XCTAssertEqual(manifest.haplotypeAnalysisRevisions?.last?.promptSnapshotPath, promptPath)
+
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: published.provenanceURL))
+        XCTAssertEqual(envelope.options.resolvedDefaults["specialistPromptPath"]?.stringValue, promptPath)
+        XCTAssertTrue(envelope.outputs.contains { $0.path == promptURL.standardizedFileURL.path })
+        XCTAssertTrue(envelope.steps.contains { step in
+            step.toolName == "MCM specialist prompt snapshot"
+                && step.outputs.contains { $0.path == promptURL.standardizedFileURL.path }
+        }, "\(envelope.steps)")
+    }
 }
 
 private enum IntentionalPublisherFailure: Error {
@@ -500,6 +542,88 @@ private extension AIHaplotypingRevisionPublisherTests {
             validatedDefinitions: base.validatedDefinitions,
             validationReports: base.validationReports,
             providerAttempts: base.providerAttempts
+        )
+    }
+
+    func makeMCMSpecialistRunnerOutput() -> AIHaplotypingRunnerOutput {
+        let base = makeRunnerOutput()
+        let preset = MCMHaplotypingPreset.mcmMHCmiseq
+        let registry = base.registry
+        let run = AIHaplotypingRunMetadata(
+            mode: base.mode,
+            promptTemplateID: preset.aiPromptTemplateID(for: base.mode),
+            promptTemplateVersion: preset.aiPromptTemplateVersion,
+            promptHash: "sha256:\(String(repeating: "4", count: 64))",
+            provider: "openai",
+            model: preset.aiOpenAIModel,
+            generationParameters: [
+                "maxObservationsPerChunk": "128",
+                "maxOutputTokens": "1024",
+                "reasoningEffort": preset.aiReasoningEffort,
+                "schemaName": AIHaplotypingRunner.minimalMCMSchemaName,
+                "temperature": "0",
+            ],
+            parentRevisionID: "haprev-det-0001",
+            registryDigest: registry.digest,
+            inputSnapshotDigest: registry.inputSnapshotDigest
+        )
+        let report = AIHaplotypingValidationReport(
+            accepted: true,
+            run: run,
+            chunkID: "chunk-0001",
+            registryDigest: registry.digest,
+            inputSnapshotDigest: registry.inputSnapshotDigest,
+            normalizedCalls: base.normalizedCalls,
+            validatedDefinitions: base.validatedDefinitions,
+            warnings: [],
+            errors: []
+        )
+        let prompt = AIHaplotypingPromptMetadata(
+            promptTemplateID: run.promptTemplateID,
+            promptTemplateVersion: run.promptTemplateVersion,
+            promptHash: run.promptHash,
+            evidenceSchemaVersion: 1,
+            registryDigest: registry.digest,
+            inputSnapshotDigest: registry.inputSnapshotDigest,
+            evidenceSnapshotPath: "ai-haplotyping/evidence/chunk-0001.json",
+            knowledgePackID: nil,
+            knowledgePackVersion: nil,
+            knowledgePackDigest: nil
+        )
+        let attempt = AIProviderAttemptMetadata(
+            attemptIndex: 0,
+            fallbackIndex: 0,
+            provider: "openai",
+            model: preset.aiOpenAIModel,
+            endpoint: "/v1/responses",
+            apiVersion: "2026-01-01",
+            credentialSource: "environment:OPENAI_API_KEY",
+            apiKeyAvailable: true,
+            requestID: "req-mcm",
+            statusCode: 200,
+            stopReason: "stop",
+            inputTokens: 27000,
+            outputTokens: 800,
+            sanitizedErrorCategory: nil
+        )
+        return AIHaplotypingRunnerOutput(
+            mode: base.mode,
+            registry: registry,
+            chunkOutputs: [
+                AIHaplotypingChunkOutput(
+                    chunkID: "chunk-0001",
+                    registryDigest: registry.digest,
+                    inputSnapshotDigest: registry.inputSnapshotDigest,
+                    promptMetadata: prompt,
+                    payloadDigest: "sha256:\(String(repeating: "5", count: 64))",
+                    validationReport: report,
+                    providerAttempt: attempt
+                )
+            ],
+            normalizedCalls: base.normalizedCalls,
+            validatedDefinitions: base.validatedDefinitions,
+            validationReports: [report],
+            providerAttempts: [attempt]
         )
     }
 

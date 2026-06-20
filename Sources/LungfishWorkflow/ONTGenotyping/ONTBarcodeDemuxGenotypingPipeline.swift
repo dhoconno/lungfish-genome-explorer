@@ -343,6 +343,12 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
             .appendingPathComponent("current-workbook-provenance.json")
     }
 
+    public var specialistPromptSnapshotURL: URL {
+        outputDirectory
+            .appendingPathComponent("artifacts/ai-haplotyping/prompts", isDirectory: true)
+            .appendingPathComponent("mcm-mhc-haplotyping-specialist-prompt.md")
+    }
+
     public var cliSubcommand: String {
         let ontSampleBundleCohort = barcodeDefinitionsURL == nil && mode == .ontSampleBundles
         let illuminaCohort = inputFASTQURLs.count > 1
@@ -593,6 +599,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         _ = try resolveHaplotypeDefinitionSet(for: request)
         try FileManager.default.createDirectory(at: request.outputDirectory, withIntermediateDirectories: true)
         progressHandler?(0.04, "Preparing amplicon genotyping output workspace.")
+        _ = try copySpecialistPromptSnapshotIfNeeded(for: request)
         let supportDirectory = request.outputDirectory
             .appendingPathComponent(".amplicon-genotyping", isDirectory: true)
         let scriptURL = supportDirectory.appendingPathComponent("filter-demux-retained-bam.py")
@@ -2128,6 +2135,40 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             .appendingPathComponent("haplotype-definition.json")
     }
 
+    private func copySpecialistPromptSnapshotIfNeeded(
+        for request: ONTBarcodeDemuxGenotypingRunRequest
+    ) throws -> URL? {
+        guard let sourceURL = try specialistPromptSourceURL(for: request) else {
+            return nil
+        }
+        let destinationURL = request.specialistPromptSnapshotURL
+        try FileManager.default.createDirectory(
+            at: destinationURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        if FileManager.default.fileExists(atPath: destinationURL.path) {
+            try FileManager.default.removeItem(at: destinationURL)
+        }
+        try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+        return destinationURL
+    }
+
+    private func specialistPromptSourceURL(
+        for request: ONTBarcodeDemuxGenotypingRunRequest
+    ) throws -> URL? {
+        guard let preset = MCMHaplotypingPreset.preset(id: request.presetID) else {
+            return nil
+        }
+        return try preset.bundledSpecialistPromptURL()
+    }
+
+    private func specialistPromptSnapshotIfPresent(
+        for request: ONTBarcodeDemuxGenotypingRunRequest
+    ) -> URL? {
+        let url = request.specialistPromptSnapshotURL
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
     private func copyFilterOutput(from source: URL, to destination: URL) throws {
         guard source != destination else { return }
         if FileManager.default.fileExists(atPath: destination.path) {
@@ -2393,6 +2434,16 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             ? []
             : [fileDescriptorDictionary(url: haplotypeDefinitionSnapshotURL, role: "haplotype-definition")]
         let haplotypeDefinitionSHA256 = (try? ProvenanceFileHasher.sha256(of: haplotypeDefinitionSnapshotURL)) as Any? ?? NSNull()
+        let specialistPromptSourceURL = try specialistPromptSourceURL(for: request)
+        let specialistPromptSnapshotURL = specialistPromptSnapshotIfPresent(for: request)
+        let specialistPromptInputs = specialistPromptSourceURL
+            .map { [fileDescriptorDictionary(url: $0, role: "bundled-specialist-prompt")] } ?? []
+        let specialistPromptOutputs = specialistPromptSnapshotURL
+            .map { [fileDescriptorDictionary(url: $0, role: "specialist-prompt")] } ?? []
+        let specialistPromptPath = specialistPromptSnapshotURL
+            .map { relativePath(from: request.outputDirectory, to: $0) } as Any? ?? NSNull()
+        let specialistPromptSHA256 = specialistPromptSnapshotURL
+            .flatMap { try? ProvenanceFileHasher.sha256(of: $0) } as Any? ?? NSNull()
         let haplotypeSteps: [[String: Any]] = haplotypeAnalysis.map { analysis in
             [[
                 "toolName": "deterministic genotype haplotype assignment",
@@ -2405,6 +2456,21 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 "definitionSHA256": haplotypeDefinitionSHA256,
                 "output": request.haplotypeAnalysisURL.path,
                 "sampleCount": analysis.samples.count,
+                "exitStatus": 0,
+                "wallTimeSeconds": 0,
+            ]]
+        } ?? []
+        let specialistPromptSteps: [[String: Any]] = specialistPromptSnapshotURL.map { outputURL in
+            [[
+                "toolName": "MCM specialist prompt snapshot",
+                "argv": [
+                    "copy",
+                    specialistPromptSourceURL?.path ?? "",
+                    outputURL.path,
+                ],
+                "input": specialistPromptSourceURL?.path as Any? ?? NSNull(),
+                "output": outputURL.path,
+                "sha256": specialistPromptSHA256,
                 "exitStatus": 0,
                 "wallTimeSeconds": 0,
             ]]
@@ -2460,6 +2526,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "haplotypeDefinitionScope": request.haplotypeDefinitionScope?.rawValue as Any? ?? NSNull(),
             "haplotypeDefinitionSetID": request.haplotypeDefinitionSetID as Any? ?? NSNull(),
             "haplotypeDefinitionSHA256": haplotypeDefinitionSHA256,
+            "specialistPromptPath": specialistPromptPath,
+            "specialistPromptSHA256": specialistPromptSHA256,
             "presetID": request.presetID as Any? ?? NSNull(),
             "presetVersion": request.presetVersion as Any? ?? NSNull(),
             "lockedReferenceSHA256": request.lockedReferenceSHA256 as Any? ?? NSNull(),
@@ -2492,6 +2560,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "presetID": NSNull(),
             "presetVersion": NSNull(),
             "lockedReferenceSHA256": NSNull(),
+            "specialistPromptPath": NSNull(),
+            "specialistPromptSHA256": NSNull(),
             "sortThreads": 4,
             "minSupport": 1,
             "haplotypeDropoutSampleFraction": NSNull(),
@@ -2522,7 +2592,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             fileDescriptorDictionary(url: scriptURL, role: "input"),
             fileDescriptorDictionary(url: reportScriptURL, role: "input"),
         ] + (request.barcodeDefinitionsURL.map { [fileDescriptorDictionary(url: $0, role: "input")] } ?? [])
-            + comparisonInputs + stagedInputs + haplotypeDefinitionInputs
+            + comparisonInputs + stagedInputs + haplotypeDefinitionInputs + specialistPromptInputs
         let transientAlignmentOutputs: [[String: Any]] = [
             fileDescriptorDictionary(url: request.mappingBAMURL, role: "intermediate"),
             fileDescriptorDictionary(url: request.mappingBAIURL, role: "intermediate-index"),
@@ -2539,7 +2609,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             fileDescriptorDictionary(url: request.workbookURL, role: "original-report"),
             fileDescriptorDictionary(url: request.currentWorkbookURL, role: "current-report"),
             fileDescriptorDictionary(url: request.reportProvenanceURL, role: "provenance"),
-        ] + currentWorkbookProvenanceOutputs
+        ] + currentWorkbookProvenanceOutputs + specialistPromptOutputs
         let primaryOutput = fileDescriptorDictionary(url: request.outputDirectory, role: "output")
         let provenanceFiles = provenanceInputs + transientAlignmentOutputs + provenanceOutputs
         let statistics: [String: Any] = [
@@ -2597,7 +2667,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 "wallTimeSeconds": filter.wallClockSeconds,
                 "stderr": filter.stderr,
             ],
-        ] + haplotypeSteps + currentHaplotypeSteps + [
+        ] + haplotypeSteps + currentHaplotypeSteps + specialistPromptSteps + [
             [
                 "toolName": "openpyxl ONT genotype workbook report",
                 "argv": [reportPythonURL.path] + report.arguments,
@@ -2739,6 +2809,12 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let haplotypeDefinitionInput = try haplotypeAnalysis.map { _ in
             try canonicalFileDescriptor(url: haplotypeDefinitionSnapshotURL(for: request), role: .input)
         }
+        let specialistPromptSource = try specialistPromptSourceURL(for: request).map {
+            try canonicalFileDescriptor(url: $0, role: .input)
+        }
+        let specialistPromptOutput = try specialistPromptSnapshotIfPresent(for: request).map {
+            try canonicalFileDescriptor(url: $0, role: .report)
+        }
         let canonicalInputs = deduplicated(
             fastqInputs
                 + mappingFastqInputs
@@ -2747,6 +2823,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 + comparisonInputs
                 + stagedInputs
                 + (haplotypeDefinitionInput.map { [$0] } ?? [])
+                + (specialistPromptSource.map { [$0] } ?? [])
         )
 
         let mappingBAM = try canonicalFileDescriptor(url: request.mappingBAMURL, role: .output)
@@ -2779,6 +2856,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 + (currentHaplotypeOutput.map { [$0] } ?? [])
                 + [workbook, currentWorkbook, reportProvenance, legacyProvenance]
                 + (currentWorkbookProvenance.map { [$0] } ?? [])
+                + (specialistPromptOutput.map { [$0] } ?? [])
         )
         let outputDirectory = ProvenanceFileDescriptor(
             path: request.outputDirectory.standardizedFileURL.path,
@@ -2877,6 +2955,19 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                     ],
                     inputs: [genotypeCSV] + (haplotypeDefinitionInput.map { [$0] } ?? []),
                     outputs: [currentHaplotypeOutput],
+                    exitStatus: 0,
+                    wallTimeSeconds: 0
+                )
+            )
+        }
+        if let specialistPromptSource, let specialistPromptOutput {
+            canonicalSteps.append(
+                ProvenanceStep(
+                    toolName: "MCM specialist prompt snapshot",
+                    toolVersion: WorkflowRun.currentAppVersion,
+                    argv: ["copy", specialistPromptSource.path, specialistPromptOutput.path],
+                    inputs: [specialistPromptSource],
+                    outputs: [specialistPromptOutput],
                     exitStatus: 0,
                     wallTimeSeconds: 0
                 )

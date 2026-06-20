@@ -419,7 +419,9 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             minSupport: 1,
             haplotypeDropoutLocusFraction: 0.05,
             haplotypeAssayID: "MHC-exon2-miSeq",
-            haplotypeDefinitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques"
+            haplotypeDefinitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            presetID: MCMHaplotypingPreset.mcmMHCmiseq.id,
+            presetVersion: MCMHaplotypingPreset.mcmMHCmiseq.version
         )
 
         _ = try await ONTBarcodeDemuxGenotypingPipeline(
@@ -467,6 +469,11 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             firstHaplotypeCall(in: currentAnalysis, sample: "DW472", locus: "MHC-DQ")?["haplotype1"] as? String,
             "M1DQ"
         )
+        let promptSnapshotURL = request.specialistPromptSnapshotURL
+        XCTAssertEqual(
+            try String(contentsOf: promptSnapshotURL, encoding: .utf8),
+            try MCMHaplotypingPreset.mcmMHCmiseq.bundledSpecialistPromptMarkdown()
+        )
 
         let legacyProvenance = try jsonObject(at: request.provenanceURL)
         let legacyOutputs = try XCTUnwrap(legacyProvenance["outputs"] as? [[String: Any]])
@@ -474,17 +481,30 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             record["path"] as? String == request.currentWorkbookProvenanceURL.path
                 && record["role"] as? String == "current-report-provenance"
         }, "\(legacyOutputs)")
+        XCTAssertTrue(legacyOutputs.contains { record in
+            record["path"] as? String == promptSnapshotURL.path
+                && record["role"] as? String == "specialist-prompt"
+        }, "\(legacyOutputs)")
         let legacySteps = try XCTUnwrap(legacyProvenance["steps"] as? [[String: Any]])
         XCTAssertTrue(legacySteps.contains { step in
             step["toolName"] as? String == "openpyxl MCM current workbook report"
                 && ((step["argv"] as? [String])?.contains("--client-current-workbook") ?? false)
         }, "\(legacySteps)")
+        XCTAssertTrue(legacySteps.contains { step in
+            step["toolName"] as? String == "MCM specialist prompt snapshot"
+                && step["output"] as? String == promptSnapshotURL.path
+        }, "\(legacySteps)")
 
         let canonicalEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: outputDirectory))
         XCTAssertTrue(canonicalEnvelope.outputs.contains { $0.path == request.currentWorkbookProvenanceURL.path })
+        XCTAssertTrue(canonicalEnvelope.outputs.contains { $0.path == promptSnapshotURL.path })
         XCTAssertTrue(canonicalEnvelope.steps.contains { step in
             step.toolName == "openpyxl MCM current workbook report"
                 && step.argv.contains("--client-current-workbook")
+        }, "\(canonicalEnvelope.steps)")
+        XCTAssertTrue(canonicalEnvelope.steps.contains { step in
+            step.toolName == "MCM specialist prompt snapshot"
+                && step.outputs.contains { $0.path == promptSnapshotURL.path }
         }, "\(canonicalEnvelope.steps)")
     }
 

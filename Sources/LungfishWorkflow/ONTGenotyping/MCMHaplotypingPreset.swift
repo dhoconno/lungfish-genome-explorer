@@ -5,7 +5,7 @@ public struct MCMHaplotypingPreset: Codable, Equatable, Sendable {
     public static let mcmMHCmiseq = MCMHaplotypingPreset(
         id: "mcm-mhc-miseq",
         displayName: "MCM MHC miSeq",
-        version: "2026-06-19.1",
+        version: "2026-06-19.4",
         referenceBundleResourceName: "MCM-MHC-miSeq-20260617",
         referenceBundleResourceExtension: MHCAmpliconReferenceBundle.directoryExtension,
         referenceBundleResourceSubdirectory: "MCMHaplotyping",
@@ -16,7 +16,7 @@ public struct MCMHaplotypingPreset: Codable, Equatable, Sendable {
         haplotypeDefinitionSetID: "mcm-mhc-miseq-20260617",
         aiDiscoveryPromptTemplateID: "lungfish.ai-haplotyping.mcm-mhc-miseq-specialist.discovery",
         aiRefinementPromptTemplateID: "lungfish.ai-haplotyping.mcm-mhc-miseq-specialist.refinement",
-        aiPromptTemplateVersion: "2026-06-19.1",
+        aiPromptTemplateVersion: "2026-06-19.4",
         aiPromptResourceName: "mcm-mhc-haplotyping-specialist-prompt",
         aiPromptResourceExtension: "md",
         aiPromptResourceSubdirectory: "MCMHaplotyping",

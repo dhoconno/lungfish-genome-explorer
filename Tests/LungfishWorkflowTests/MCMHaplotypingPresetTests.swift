@@ -45,7 +45,7 @@ final class MCMHaplotypingPresetTests: XCTestCase {
 
         XCTAssertEqual(preset.aiPromptTemplateID(for: .aiDiscovery), "lungfish.ai-haplotyping.mcm-mhc-miseq-specialist.discovery")
         XCTAssertEqual(preset.aiPromptTemplateID(for: .aiRefinement), "lungfish.ai-haplotyping.mcm-mhc-miseq-specialist.refinement")
-        XCTAssertEqual(preset.aiPromptTemplateVersion, "2026-06-19.1")
+        XCTAssertEqual(preset.aiPromptTemplateVersion, "2026-06-19.4")
         XCTAssertTrue(prompt.contains("MCM MHC MiSeq Haplotyping Specialist Prompt"))
         XCTAssertTrue(prompt.contains("Overcall Guard And Human-Curation Trigger"))
         XCTAssertTrue(prompt.contains("Secondary Allele Map"))

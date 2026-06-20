@@ -138,6 +138,7 @@ public struct AIHaplotypingRevisionPublisher {
 
         do {
             try fileManager.createDirectory(at: revisionDirectory, withIntermediateDirectories: true)
+            _ = try copySpecialistPromptSnapshotIfNeeded(request: request, paths: paths)
 
             let calls = try remappedCalls(request.runnerOutput.normalizedCalls, provenancePath: provenancePath)
             let analysis = try makeAnalysis(
@@ -169,6 +170,8 @@ public struct AIHaplotypingRevisionPublisher {
                 analysisPath: relativePath(from: bundleURL, to: paths.analysisURL),
                 evidencePath: relativePath(from: bundleURL, to: paths.evidenceURL),
                 validationPath: relativePath(from: bundleURL, to: paths.validationURL),
+                promptSnapshotPath: specialistPromptSnapshotIfPresent(paths: paths)
+                    .map { relativePath(from: bundleURL, to: $0) },
                 provenancePath: provenancePath
             )
             let manifest = manifestByAppendingRevision(
@@ -222,6 +225,7 @@ public struct AIHaplotypingRevisionPublisher {
         analysisPath: String,
         evidencePath: String,
         validationPath: String,
+        promptSnapshotPath: String?,
         provenancePath: String
     ) throws -> ONTGenotypeHaplotypeAnalysisRevision {
         let prompt = request.runnerOutput.chunkOutputs.first?.promptMetadata
@@ -247,6 +251,7 @@ public struct AIHaplotypingRevisionPublisher {
             promptTemplateID: prompt?.promptTemplateID,
             promptTemplateVersion: prompt?.promptTemplateVersion,
             promptHash: prompt?.promptHash,
+            promptSnapshotPath: promptSnapshotPath,
             evidenceSnapshotPath: evidencePath,
             validationReportPath: validationPath
         )
@@ -530,6 +535,69 @@ public struct AIHaplotypingRevisionPublisher {
         return sidecar
     }
 
+    private func copySpecialistPromptSnapshotIfNeeded(
+        request: AIHaplotypingRevisionPublishRequest,
+        paths: RevisionPaths
+    ) throws -> URL? {
+        guard let sourceURL = try specialistPromptSourceURL(for: request.runnerOutput) else {
+            return nil
+        }
+        try fileManager.createDirectory(
+            at: paths.promptSnapshotURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        if fileManager.fileExists(atPath: paths.promptSnapshotURL.path) {
+            try fileManager.removeItem(at: paths.promptSnapshotURL)
+        }
+        try fileManager.copyItem(at: sourceURL, to: paths.promptSnapshotURL)
+        return paths.promptSnapshotURL
+    }
+
+    private func specialistPromptSourceURL(
+        for output: AIHaplotypingRunnerOutput
+    ) throws -> URL? {
+        let preset = MCMHaplotypingPreset.mcmMHCmiseq
+        let specialistPromptIDs: Set<String> = [
+            preset.aiDiscoveryPromptTemplateID,
+            preset.aiRefinementPromptTemplateID,
+        ]
+        let templateIDs = output.chunkOutputs.map(\.promptMetadata.promptTemplateID)
+            + output.validationReports.compactMap(\.run?.promptTemplateID)
+        guard templateIDs.contains(where: specialistPromptIDs.contains) else {
+            return nil
+        }
+        return try preset.bundledSpecialistPromptURL()
+    }
+
+    private func specialistPromptSnapshotIfPresent(paths: RevisionPaths) -> URL? {
+        fileManager.fileExists(atPath: paths.promptSnapshotURL.path) ? paths.promptSnapshotURL : nil
+    }
+
+    private func specialistPromptSnapshotStep(
+        request: AIHaplotypingRevisionPublishRequest,
+        paths: RevisionPaths,
+        startedAt: Date,
+        completedAt: Date
+    ) throws -> ProvenanceStep? {
+        guard let sourceURL = try specialistPromptSourceURL(for: request.runnerOutput),
+              let outputURL = specialistPromptSnapshotIfPresent(paths: paths) else {
+            return nil
+        }
+        let source = try ProvenanceFileDescriptor.file(url: sourceURL, format: .text, role: .input)
+        let output = try ProvenanceFileDescriptor.file(url: outputURL, format: .text, role: .output)
+        return ProvenanceStep(
+            toolName: "MCM specialist prompt snapshot",
+            toolVersion: WorkflowRun.currentAppVersion,
+            argv: ["copy", source.path, output.path],
+            inputs: [source],
+            outputs: [output],
+            exitStatus: 0,
+            wallTimeSeconds: 0,
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+    }
+
     private func makeProvenanceEnvelope(
         request: AIHaplotypingRevisionPublishRequest,
         revisionDirectory: URL,
@@ -563,12 +631,20 @@ public struct AIHaplotypingRevisionPublisher {
             request.result.artifacts.haplotypeAnalysisURL,
         ].compactMap { $0 }.filter { fileManager.fileExists(atPath: $0.path) }
             .map { try ProvenanceFileDescriptor.file(url: $0, format: format(for: $0), role: .input) }
+        if let specialistPromptSourceURL = try specialistPromptSourceURL(for: request.runnerOutput) {
+            inputs.append(try ProvenanceFileDescriptor.file(
+                url: specialistPromptSourceURL,
+                format: .text,
+                role: .input
+            ))
+        }
         let outputs = try [
             paths.analysisURL,
             paths.evidenceURL,
             paths.validationURL,
             paths.callsURL,
             paths.definitionsURL,
+            specialistPromptSnapshotIfPresent(paths: paths),
             ONTGenotypeResultBundle.manifestURL(in: request.bundleURL),
             sidecarURL,
         ].compactMap { $0 }.filter { fileManager.fileExists(atPath: $0.path) }
@@ -577,6 +653,12 @@ public struct AIHaplotypingRevisionPublisher {
             request: request,
             revisionDirectory: revisionDirectory,
             paths: paths
+        )
+        let promptStep = try specialistPromptSnapshotStep(
+            request: request,
+            paths: paths,
+            startedAt: startedAt,
+            completedAt: completedAt
         )
         let step = ProvenanceStep(
             toolName: "\(request.context.toolName) publish AI haplotypes",
@@ -591,7 +673,7 @@ public struct AIHaplotypingRevisionPublisher {
             startedAt: startedAt,
             completedAt: completedAt
         )
-        return try ProvenanceRunBuilder(
+        var builder = ProvenanceRunBuilder(
             workflowName: "AI Haplotype Revision",
             workflowVersion: WorkflowRun.currentAppVersion,
             toolName: request.context.toolName,
@@ -605,6 +687,10 @@ public struct AIHaplotypingRevisionPublisher {
             resolved: provenanceOptions.resolved
         )
         .runtime(request.context.runtimeIdentity)
+        if let promptStep {
+            builder = builder.step(promptStep)
+        }
+        return try builder
         .step(step)
         .complete(
             exitStatus: 0,
@@ -656,6 +742,13 @@ public struct AIHaplotypingRevisionPublisher {
         resolved["promptTemplateID"] = .string(firstRun?.promptTemplateID ?? "unknown")
         resolved["promptTemplateVersion"] = .string(firstRun?.promptTemplateVersion ?? "unknown")
         resolved["promptHash"] = .string(firstRun?.promptHash ?? "unknown")
+        if let promptURL = specialistPromptSnapshotIfPresent(paths: paths) {
+            resolved["specialistPromptPath"] = .string(relativePath(from: request.bundleURL, to: promptURL))
+            resolved["specialistPromptSHA256"] = .string((try? ProvenanceFileHasher.sha256(of: promptURL)) ?? "unknown")
+        } else {
+            resolved["specialistPromptPath"] = .null
+            resolved["specialistPromptSHA256"] = .null
+        }
         if let promptMetadata = request.runnerOutput.chunkOutputs.first?.promptMetadata {
             if let knowledgePackID = promptMetadata.knowledgePackID {
                 resolved["knowledgePackID"] = .string(knowledgePackID)
@@ -781,7 +874,11 @@ public struct AIHaplotypingRevisionPublisher {
     }
 
     private func format(for url: URL) -> FileFormat {
-        url.pathExtension.lowercased() == "json" ? .json : .unknown
+        switch url.pathExtension.lowercased() {
+        case "json": return .json
+        case "md", "markdown": return .text
+        default: return .unknown
+        }
     }
 
     private func sanitizedStderr(_ stderr: String?) -> String? {
@@ -812,6 +909,7 @@ private struct RevisionPaths {
     let validationURL: URL
     let callsURL: URL
     let definitionsURL: URL
+    let promptSnapshotURL: URL
     let provenanceURL: URL
 
     init(bundleURL: URL, revisionDirectory: URL) {
@@ -820,6 +918,7 @@ private struct RevisionPaths {
         self.validationURL = revisionDirectory.appendingPathComponent("validation-report.json")
         self.callsURL = revisionDirectory.appendingPathComponent("calls.json")
         self.definitionsURL = revisionDirectory.appendingPathComponent("discovered-definitions.json")
+        self.promptSnapshotURL = revisionDirectory.appendingPathComponent("mcm-mhc-haplotyping-specialist-prompt.md")
         self.provenanceURL = revisionDirectory.appendingPathComponent("ai-haplotyping.lungfish-provenance.json")
     }
 }

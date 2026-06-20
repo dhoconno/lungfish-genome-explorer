@@ -38,6 +38,7 @@ public struct ONTGenotypeHaplotypeAnalysisRevision: Codable, Equatable, Sendable
     public let promptTemplateID: String?
     public let promptTemplateVersion: String?
     public let promptHash: String?
+    public let promptSnapshotPath: String?
     public let evidenceSnapshotPath: String?
     public let validationReportPath: String?
 
@@ -57,6 +58,7 @@ public struct ONTGenotypeHaplotypeAnalysisRevision: Codable, Equatable, Sendable
         promptTemplateID: String? = nil,
         promptTemplateVersion: String? = nil,
         promptHash: String? = nil,
+        promptSnapshotPath: String? = nil,
         evidenceSnapshotPath: String? = nil,
         validationReportPath: String? = nil
     ) {
@@ -75,6 +77,7 @@ public struct ONTGenotypeHaplotypeAnalysisRevision: Codable, Equatable, Sendable
         self.promptTemplateID = promptTemplateID
         self.promptTemplateVersion = promptTemplateVersion
         self.promptHash = promptHash
+        self.promptSnapshotPath = promptSnapshotPath
         self.evidenceSnapshotPath = evidenceSnapshotPath
         self.validationReportPath = validationReportPath
     }
