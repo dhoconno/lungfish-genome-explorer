@@ -204,6 +204,95 @@ class MacaqueMHCPromptLabTests(unittest.TestCase):
                 if original_call_openai is not None:
                     lab.call_openai_responses = original_call_openai
 
+    def test_run_openai_redacts_api_key_from_failed_provenance(self):
+        with tempfile.TemporaryDirectory() as temp:
+            iteration_dir = Path(temp) / "iteration"
+            iteration_dir.mkdir()
+            (iteration_dir / "rendered_prompt.md").write_text("prompt", encoding="utf-8")
+            stale_response_path = iteration_dir / "openai_response.json"
+            stale_model_output_path = iteration_dir / "model_output.json"
+            stale_response_path.write_text(json.dumps({"stale": True}), encoding="utf-8")
+            stale_model_output_path.write_text(json.dumps({"stale": True}), encoding="utf-8")
+            sentinel = "sk-test-secret-123"
+            old_key = os.environ.get("OPENAI_API_KEY")
+            os.environ["OPENAI_API_KEY"] = sentinel
+            original_call_openai = lab.call_openai_responses
+
+            def raise_key_leaking_failure(api_key, payload):
+                raise RuntimeError(f"proxy failure Authorization: Bearer {sentinel} echoed key {sentinel}")
+
+            lab.call_openai_responses = raise_key_leaking_failure
+            try:
+                with self.assertRaises(SystemExit) as raised:
+                    lab.main(["run-openai", "--iteration-dir", str(iteration_dir)])
+            finally:
+                lab.call_openai_responses = original_call_openai
+                if old_key is None:
+                    os.environ.pop("OPENAI_API_KEY", None)
+                else:
+                    os.environ["OPENAI_API_KEY"] = old_key
+
+            self.assertNotIn(sentinel, str(raised.exception))
+            self.assertNotIn(f"Bearer {sentinel}", str(raised.exception))
+            self.assertFalse(stale_response_path.exists())
+            self.assertFalse(stale_model_output_path.exists())
+            provenance_path = iteration_dir / "run-openai.provenance.json"
+            self.assertTrue(provenance_path.is_file())
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            self.assertEqual(provenance["status"], "failed")
+            self.assertEqual(provenance["exitStatus"], 1)
+            self.assertNotIn(sentinel, provenance["stderr"])
+            self.assertNotIn(f"Bearer {sentinel}", provenance["stderr"])
+            self.assertIn("[REDACTED", provenance["stderr"])
+            self.assertEqual(provenance["outputs"], [])
+
+    def test_run_iteration_failed_provider_provenance_does_not_attribute_stale_downstream_outputs(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            workbook = self.make_synthetic_snprc_workbook(root)
+            prompt_path = root / "prompt.md"
+            prompt_path.write_text("# Prompt\n\n{{PROMPT_INPUT_JSON}}\n", encoding="utf-8")
+            iteration_dir = root / "iteration"
+            iteration_dir.mkdir()
+            provider_paths = [
+                iteration_dir / "openai_response.json",
+                iteration_dir / "model_output.json",
+                iteration_dir / "model_output_validation.json",
+                iteration_dir / "parsed_model_output.json",
+                iteration_dir / "score.json",
+                iteration_dir / "score.md",
+            ]
+            for path in provider_paths:
+                path.write_text("stale\n", encoding="utf-8")
+            old_key = os.environ.pop("OPENAI_API_KEY", None)
+            try:
+                with self.assertRaisesRegex(SystemExit, "OPENAI_API_KEY is required for run-openai"):
+                    lab.main(
+                        [
+                            "run-iteration",
+                            "--workbook",
+                            str(workbook),
+                            "--iteration-dir",
+                            str(iteration_dir),
+                            "--prompt",
+                            str(prompt_path),
+                            "--run-provider",
+                        ]
+                    )
+            finally:
+                if old_key is not None:
+                    os.environ["OPENAI_API_KEY"] = old_key
+
+            provenance_path = iteration_dir / "run-iteration.provenance.json"
+            self.assertTrue(provenance_path.is_file())
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            self.assertEqual(provenance["status"], "failed")
+            self.assertEqual(provenance["exitStatus"], 1)
+            output_paths = {record["path"] for record in provenance["outputs"]}
+            self.assertIn(str((iteration_dir / "prompt_input.json").resolve()), output_paths)
+            self.assertIn(str((iteration_dir / "rendered_prompt.md").resolve()), output_paths)
+            self.assertTrue(output_paths.isdisjoint({str(path.resolve()) for path in provider_paths}))
+
     def test_run_iteration_requires_key_only_when_running_provider(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

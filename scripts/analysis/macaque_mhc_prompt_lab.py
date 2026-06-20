@@ -35,6 +35,7 @@ DEFAULT_OPENAI_MODEL = "gpt-5.5"
 DEFAULT_OPENAI_MAX_OUTPUT_TOKENS = 24000
 DEFAULT_OPENAI_REASONING_EFFORT = "medium"
 OPENAI_SYSTEM_PROMPT = "Follow the user prompt exactly and return only valid JSON."
+SECRET_REDACTION_MARKER = "[REDACTED_SECRET]"
 PROMPT_INPUT_PLACEHOLDER = "{{PROMPT_INPUT_JSON}}"
 TRUTH_ROW_RE = re.compile(r"^MHC-(A|B|DRB|DQA|DQB|DPA|DPB)\s+Haplotype\s+([12])$", re.IGNORECASE)
 GENOTYPE_PREFIX_RE = re.compile(r"^\d+_(Mamu-[A-Za-z0-9*]+)")
@@ -348,6 +349,25 @@ def extract_response_text(response: dict[str, Any]) -> str:
     raise ValueError("OpenAI response did not contain output text")
 
 
+def redact_sensitive_text(text: Any, secrets: list[str | None] | None = None) -> str:
+    redacted = "" if text is None else str(text)
+    redacted = re.sub(
+        r"(?i)(authorization\s*:\s*bearer\s+)[^\s,;\"']+",
+        rf"\1{SECRET_REDACTION_MARKER}",
+        redacted,
+    )
+    redacted = re.sub(r"(?i)(bearer\s+)[^\s,;\"']+", rf"\1{SECRET_REDACTION_MARKER}", redacted)
+    redacted = re.sub(
+        r"(?i)((?:api[_-]?key|token)\s*[:=]\s*)[^\s,;\"']+",
+        rf"\1{SECRET_REDACTION_MARKER}",
+        redacted,
+    )
+    for secret in secrets or []:
+        if secret:
+            redacted = redacted.replace(secret, SECRET_REDACTION_MARKER)
+    return redacted
+
+
 def call_openai_responses(api_key: str, payload: dict[str, Any]) -> dict[str, Any]:
     body = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(
@@ -363,7 +383,7 @@ def call_openai_responses(api_key: str, payload: dict[str, Any]) -> dict[str, An
         with urllib.request.urlopen(request, timeout=300) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        error_body = exc.read().decode("utf-8", errors="replace")
+        error_body = redact_sensitive_text(exc.read().decode("utf-8", errors="replace"), [api_key])
         raise RuntimeError(f"OpenAI Responses API request failed with HTTP {exc.code}: {error_body}") from exc
 
 
@@ -939,6 +959,23 @@ def iteration_output_paths(iteration_dir: Path, run_provider: bool) -> list[Path
     return paths
 
 
+def provider_artifact_paths(iteration_dir: Path) -> list[Path]:
+    return [
+        iteration_dir / "openai_response.json",
+        iteration_dir / "model_output.json",
+        iteration_dir / "model_output_validation.json",
+        iteration_dir / "parsed_model_output.json",
+        iteration_dir / "score.json",
+        iteration_dir / "score.md",
+    ]
+
+
+def remove_existing_paths(paths: list[Path]) -> None:
+    for path in paths:
+        if path.exists():
+            path.unlink()
+
+
 def write_provenance(
     output_dir: Path,
     workflow: str,
@@ -1195,9 +1232,7 @@ def command_run_openai(args: argparse.Namespace) -> None:
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
         message = "OPENAI_API_KEY is required for run-openai"
-        for stale_path in (openai_response_path, model_output_path):
-            if stale_path.exists():
-                stale_path.unlink()
+        remove_existing_paths([openai_response_path, model_output_path])
         write_provenance(
             iteration_dir,
             "run-openai",
@@ -1211,9 +1246,7 @@ def command_run_openai(args: argparse.Namespace) -> None:
         )
         raise SystemExit(message)
 
-    for stale_path in (openai_response_path, model_output_path):
-        if stale_path.exists():
-            stale_path.unlink()
+    remove_existing_paths([openai_response_path, model_output_path])
 
     try:
         rendered_prompt = rendered_prompt_path.read_text(encoding="utf-8")
@@ -1230,9 +1263,8 @@ def command_run_openai(args: argparse.Namespace) -> None:
         model_output = json.loads(response_text)
         write_json(model_output_path, model_output)
     except Exception as exc:
-        message = f"run-openai failed: {exc}"
-        if model_output_path.exists():
-            model_output_path.unlink()
+        message = redact_sensitive_text(f"run-openai failed: {exc}", [api_key])
+        remove_existing_paths([model_output_path])
         write_provenance(
             iteration_dir,
             "run-openai",
@@ -1294,6 +1326,8 @@ def command_run_iteration(args: argparse.Namespace) -> None:
     options = resolved_run_iteration_options(workbook, iteration_dir, prompt, args.model, args.run_provider)
     inputs = [workbook, prompt]
     outputs = iteration_output_paths(iteration_dir, args.run_provider)
+    if args.run_provider:
+        remove_existing_paths(provider_artifact_paths(iteration_dir))
 
     try:
         run_iteration(
