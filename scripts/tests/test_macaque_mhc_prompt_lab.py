@@ -100,6 +100,20 @@ class MacaqueMHCPromptLabTests(unittest.TestCase):
         self.assertNotIn("B001.01", prompt_json)
         self.assertNotIn("DR09.01", prompt_json)
 
+    def test_render_prompt_includes_generalist_rules_and_blinded_input(self):
+        prompt_template = "# Prompt\n\n{{PROMPT_INPUT_JSON}}\n"
+        prompt_input = {
+            "schema_version": 1,
+            "dataset": "synthetic.xlsx",
+            "instructions": {"truth_blinded": True, "report_loci": lab.REPORT_LOCI},
+            "samples": [{"gs_id": "LC1729", "client_id": "44470"}],
+            "observations": [{"sample_id": "LC1729", "report_locus": "MHC-A", "genotype": "01_Mamu-A1_002g", "reads": 90}],
+        }
+        rendered = lab.render_prompt_text(prompt_template, prompt_input)
+        self.assertIn('"truth_blinded": true', rendered)
+        self.assertIn("01_Mamu-A1_002g", rendered)
+        self.assertNotIn("A002.01", rendered)
+
     def test_locus_mapping_keeps_report_loci_separate(self):
         cases = {
             "01_Mamu-A1_002g": ("MHC-A", "Mamu-A1"),
@@ -276,6 +290,84 @@ class MacaqueMHCPromptLabTests(unittest.TestCase):
                 self.assertEqual(record["role"], "output")
                 self.assertEqual(record["sha256"], lab.sha256_file(output_path))
                 self.assertEqual(record["sizeBytes"], output_path.stat().st_size)
+
+    def test_render_prompt_cli_writes_prompt_and_complete_provenance(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            iteration_dir = root / "iteration-001"
+            iteration_dir.mkdir()
+            prompt_input_path = iteration_dir / "prompt_input.json"
+            prompt_input = {
+                "schema_version": 1,
+                "dataset": "synthetic.xlsx",
+                "instructions": {"truth_blinded": True, "report_loci": lab.REPORT_LOCI},
+                "samples": [{"gs_id": "LC1729", "client_id": "44470"}],
+                "observations": [
+                    {
+                        "sample_id": "LC1729",
+                        "report_locus": "MHC-A",
+                        "genotype": "01_Mamu-A1_002g",
+                        "reads": 90,
+                    }
+                ],
+            }
+            prompt_input_path.write_text(json.dumps(prompt_input), encoding="utf-8")
+            prompt_path = root / "prompt.md"
+            prompt_path.write_text("# Prompt\n\n{{PROMPT_INPUT_JSON}}\n", encoding="utf-8")
+            argv = ["render-prompt", "--iteration-dir", str(iteration_dir), "--prompt", str(prompt_path)]
+
+            self.assertEqual(lab.main(argv), 0)
+
+            output_path = iteration_dir / "rendered_prompt.md"
+            provenance_path = iteration_dir / "render-prompt.provenance.json"
+            self.assertTrue(output_path.is_file())
+            self.assertTrue(provenance_path.is_file())
+            rendered = output_path.read_text(encoding="utf-8")
+            self.assertIn('"truth_blinded": true', rendered)
+            self.assertIn("01_Mamu-A1_002g", rendered)
+
+            provenance = json.loads(provenance_path.read_text())
+            expected_argv = [str(Path(lab.__file__)), *argv]
+            self.assertEqual(provenance["schemaVersion"], 1)
+            self.assertEqual(provenance["workflowName"], "render-prompt")
+            self.assertEqual(provenance["toolName"], lab.TOOL_NAME)
+            self.assertEqual(provenance["toolVersion"], lab.TOOL_VERSION)
+            self.assertEqual(provenance["argv"], expected_argv)
+            self.assertEqual(
+                provenance["reproducibleShellCommand"],
+                " ".join(shlex.quote(part) for part in [sys.executable, *expected_argv]),
+            )
+            self.assertEqual(provenance["options"]["iterationDir"], str(iteration_dir.resolve()))
+            self.assertEqual(provenance["options"]["prompt"], str(prompt_path.resolve()))
+            self.assertEqual(provenance["options"]["defaults"]["workbook"], str(lab.DEFAULT_SNPRC_WORKBOOK))
+            self.assertEqual(provenance["options"]["defaults"]["prompt"], str(lab.DEFAULT_PROMPT))
+            self.assertEqual(provenance["options"]["defaults"]["outputRoot"], str(lab.DEFAULT_OUTPUT_ROOT))
+            self.assertEqual(provenance["options"]["defaults"]["reportLoci"], lab.REPORT_LOCI)
+            self.assertEqual(provenance["options"]["defaults"]["fullResultSheets"], lab.FULL_RESULT_SHEETS)
+            self.assertEqual(provenance["exitStatus"], 0)
+            self.assertEqual(provenance["status"], "completed")
+            self.assertIsNone(provenance["stderr"])
+            self.assertIsInstance(provenance["wallTimeSeconds"], float)
+            for key in ["python", "platform", "executable", "condaPrefix", "container"]:
+                self.assertIn(key, provenance["runtimeIdentity"])
+
+            expected_inputs = {
+                str(prompt_path.resolve()): prompt_path,
+                str(prompt_input_path.resolve()): prompt_input_path,
+            }
+            self.assertEqual({record["path"] for record in provenance["inputs"]}, set(expected_inputs))
+            for record in provenance["inputs"]:
+                input_path = expected_inputs[record["path"]]
+                self.assertEqual(record["role"], "input")
+                self.assertEqual(record["sha256"], lab.sha256_file(input_path))
+                self.assertEqual(record["sizeBytes"], input_path.stat().st_size)
+
+            self.assertEqual(len(provenance["outputs"]), 1)
+            output_record = provenance["outputs"][0]
+            self.assertEqual(output_record["role"], "output")
+            self.assertEqual(output_record["path"], str(output_path.resolve()))
+            self.assertEqual(output_record["sha256"], lab.sha256_file(output_path))
+            self.assertEqual(output_record["sizeBytes"], output_path.stat().st_size)
 
 
 if __name__ == "__main__":

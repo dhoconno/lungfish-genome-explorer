@@ -294,6 +294,11 @@ def write_json(path: Path, payload: Any) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def render_prompt_text(prompt_template: str, prompt_input: dict[str, Any]) -> str:
+    prompt_json = json.dumps(prompt_input, indent=2, sort_keys=True)
+    return prompt_template.replace("{{PROMPT_INPUT_JSON}}", prompt_json)
+
+
 def runtime_identity() -> dict[str, Any]:
     return {
         "python": sys.version.split()[0],
@@ -308,6 +313,20 @@ def resolved_extract_options(workbook: Path, output_dir: Path) -> dict[str, Any]
     return {
         "workbook": str(workbook),
         "outputDir": str(output_dir),
+        "defaults": {
+            "workbook": str(DEFAULT_SNPRC_WORKBOOK),
+            "prompt": str(DEFAULT_PROMPT),
+            "outputRoot": str(DEFAULT_OUTPUT_ROOT),
+            "reportLoci": REPORT_LOCI,
+            "fullResultSheets": FULL_RESULT_SHEETS,
+        },
+    }
+
+
+def resolved_render_prompt_options(iteration_dir: Path, prompt: Path) -> dict[str, Any]:
+    return {
+        "iterationDir": str(iteration_dir),
+        "prompt": str(prompt),
         "defaults": {
             "workbook": str(DEFAULT_SNPRC_WORKBOOK),
             "prompt": str(DEFAULT_PROMPT),
@@ -372,6 +391,28 @@ def command_extract(args: argparse.Namespace) -> None:
     )
 
 
+def command_render_prompt(args: argparse.Namespace) -> None:
+    started = time.time()
+    iteration_dir = args.iteration_dir.resolve()
+    prompt_path = args.prompt.resolve()
+    prompt_input_path = iteration_dir / "prompt_input.json"
+    output_path = iteration_dir / "rendered_prompt.md"
+    prompt_template = prompt_path.read_text(encoding="utf-8")
+    prompt_input = json.loads(prompt_input_path.read_text(encoding="utf-8"))
+    rendered = render_prompt_text(prompt_template, prompt_input)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(rendered, encoding="utf-8")
+    write_provenance(
+        iteration_dir,
+        "render-prompt",
+        args.effective_argv,
+        [prompt_path, prompt_input_path],
+        [output_path],
+        started,
+        resolved_render_prompt_options(iteration_dir, prompt_path),
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -379,6 +420,10 @@ def build_parser() -> argparse.ArgumentParser:
     extract.add_argument("--workbook", type=Path, default=DEFAULT_SNPRC_WORKBOOK)
     extract.add_argument("--output-dir", type=Path, required=True)
     extract.set_defaults(func=command_extract)
+    render = sub.add_parser("render-prompt", help="Render the generalist prompt with blinded prompt input.")
+    render.add_argument("--iteration-dir", type=Path, required=True)
+    render.add_argument("--prompt", type=Path, default=DEFAULT_PROMPT)
+    render.set_defaults(func=command_render_prompt)
     return parser
 
 
