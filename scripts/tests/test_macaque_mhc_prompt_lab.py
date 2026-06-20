@@ -1,9 +1,11 @@
 import json
+import shlex
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 
 from scripts.analysis import macaque_mhc_prompt_lab as lab
 
@@ -107,6 +109,86 @@ class MacaqueMHCPromptLabTests(unittest.TestCase):
         for genotype, expected in cases.items():
             with self.subTest(genotype=genotype):
                 self.assertEqual(lab.locus_from_genotype(genotype), expected)
+
+    def test_extract_rejects_workbook_missing_expected_result_sheet(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "missing_sheet.xlsx"
+            wb = Workbook()
+            wb.active.title = "Full Sequencing Results 1"
+            wb.save(path)
+
+            with self.assertRaisesRegex(ValueError, "missing.*Full Sequencing Results 2"):
+                lab.extract_workbook(path)
+
+    def test_extract_rejects_incomplete_truth_slots(self):
+        with tempfile.TemporaryDirectory() as temp:
+            workbook = self.make_synthetic_snprc_workbook(Path(temp))
+            wb = load_workbook(workbook)
+            wb["Full Sequencing Results 1"]["D6"] = None
+            wb.save(workbook)
+
+            with self.assertRaisesRegex(ValueError, "LC1729.*MHC-A"):
+                lab.extract_workbook(workbook)
+
+    def test_extract_cli_writes_artifacts_and_complete_provenance(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            workbook = self.make_synthetic_snprc_workbook(root)
+            output_dir = root / "out"
+            argv = ["extract", "--workbook", str(workbook), "--output-dir", str(output_dir)]
+
+            self.assertEqual(lab.main(argv), 0)
+
+            artifact_names = ["prompt_input.json", "truth_calls.json", "samples.json", "extract.provenance.json"]
+            for name in artifact_names:
+                self.assertTrue((output_dir / name).is_file(), name)
+
+            provenance = json.loads((output_dir / "extract.provenance.json").read_text())
+            expected_argv = [str(Path(lab.__file__)), *argv]
+            self.assertEqual(provenance["schemaVersion"], 1)
+            self.assertEqual(provenance["workflowName"], "extract")
+            self.assertEqual(provenance["toolName"], lab.TOOL_NAME)
+            self.assertEqual(provenance["toolVersion"], lab.TOOL_VERSION)
+            self.assertEqual(provenance["argv"], expected_argv)
+            self.assertEqual(
+                provenance["reproducibleShellCommand"],
+                " ".join(shlex.quote(part) for part in [sys.executable, *expected_argv]),
+            )
+            self.assertEqual(provenance["options"]["workbook"], str(workbook.resolve()))
+            self.assertEqual(provenance["options"]["outputDir"], str(output_dir.resolve()))
+            self.assertEqual(provenance["options"]["defaults"]["workbook"], str(lab.DEFAULT_SNPRC_WORKBOOK))
+            self.assertEqual(provenance["options"]["defaults"]["prompt"], str(lab.DEFAULT_PROMPT))
+            self.assertEqual(provenance["options"]["defaults"]["outputRoot"], str(lab.DEFAULT_OUTPUT_ROOT))
+            self.assertEqual(provenance["options"]["defaults"]["reportLoci"], lab.REPORT_LOCI)
+            self.assertEqual(provenance["options"]["defaults"]["fullResultSheets"], lab.FULL_RESULT_SHEETS)
+            self.assertEqual(provenance["exitStatus"], 0)
+            self.assertEqual(provenance["status"], "completed")
+            self.assertIsNone(provenance["stderr"])
+            self.assertIsInstance(provenance["wallTimeSeconds"], float)
+            for key in ["python", "platform", "executable", "condaPrefix", "container"]:
+                self.assertIn(key, provenance["runtimeIdentity"])
+            self.assertTrue(provenance["runtimeIdentity"]["python"])
+            self.assertTrue(provenance["runtimeIdentity"]["platform"])
+            self.assertEqual(provenance["runtimeIdentity"]["executable"], sys.executable)
+
+            self.assertEqual(len(provenance["inputs"]), 1)
+            input_record = provenance["inputs"][0]
+            self.assertEqual(input_record["role"], "input")
+            self.assertEqual(input_record["path"], str(workbook.resolve()))
+            self.assertEqual(input_record["sha256"], lab.sha256_file(workbook))
+            self.assertEqual(input_record["sizeBytes"], workbook.stat().st_size)
+
+            expected_outputs = {
+                str((output_dir / "prompt_input.json").resolve()): output_dir / "prompt_input.json",
+                str((output_dir / "truth_calls.json").resolve()): output_dir / "truth_calls.json",
+                str((output_dir / "samples.json").resolve()): output_dir / "samples.json",
+            }
+            self.assertEqual({record["path"] for record in provenance["outputs"]}, set(expected_outputs))
+            for record in provenance["outputs"]:
+                output_path = expected_outputs[record["path"]]
+                self.assertEqual(record["role"], "output")
+                self.assertEqual(record["sha256"], lab.sha256_file(output_path))
+                self.assertEqual(record["sizeBytes"], output_path.stat().st_size)
 
 
 if __name__ == "__main__":

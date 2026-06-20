@@ -160,6 +160,25 @@ def normalize_truth_locus(raw: str) -> str:
     return "MHC-" + raw.upper()
 
 
+def validate_extracted_dataset(
+    workbook_path: Path,
+    samples: list[dict[str, Any]],
+    truth: dict[str, dict[str, list[str]]],
+    observations: list[dict[str, Any]],
+) -> None:
+    if not samples:
+        raise ValueError(f"Workbook {workbook_path} yielded no samples")
+    if not observations:
+        raise ValueError(f"Workbook {workbook_path} yielded no genotype observations")
+    if not truth:
+        raise ValueError(f"Workbook {workbook_path} yielded no truth calls")
+    for sample_id, calls in truth.items():
+        for locus in REPORT_LOCI:
+            slots = calls.get(locus)
+            if slots is None or len(slots) != 2 or any(not clean(slot) for slot in slots):
+                raise ValueError(f"Workbook {workbook_path} has incomplete truth calls for {sample_id} {locus}")
+
+
 def extract_sheet(ws) -> tuple[list[dict[str, Any]], dict[str, dict[str, list[str]]], list[dict[str, Any]]]:
     samples = []
     truth: dict[str, dict[str, list[str]]] = defaultdict(lambda: {locus: ["", ""] for locus in REPORT_LOCI})
@@ -215,12 +234,13 @@ def extract_sheet(ws) -> tuple[list[dict[str, Any]], dict[str, dict[str, list[st
 
 def extract_workbook(workbook_path: Path) -> dict[str, Any]:
     wb = load_workbook(workbook_path, read_only=True, data_only=True)
+    missing_sheets = [sheet_name for sheet_name in FULL_RESULT_SHEETS if sheet_name not in wb.sheetnames]
+    if missing_sheets:
+        raise ValueError(f"Workbook {workbook_path} missing required result sheets: {', '.join(missing_sheets)}")
     all_samples: dict[str, dict[str, Any]] = {}
     truth: dict[str, dict[str, list[str]]] = {}
     observations: list[dict[str, Any]] = []
     for sheet_name in FULL_RESULT_SHEETS:
-        if sheet_name not in wb.sheetnames:
-            continue
         sheet_samples, sheet_truth, sheet_observations = extract_sheet(wb[sheet_name])
         for sample in sheet_samples:
             all_samples[sample["gs_id"]] = sample
@@ -228,6 +248,7 @@ def extract_workbook(workbook_path: Path) -> dict[str, Any]:
             truth[sample_id] = calls
         observations.extend(sheet_observations)
     samples = [all_samples[key] for key in sorted(all_samples)]
+    validate_extracted_dataset(workbook_path, samples, truth, observations)
     prompt_input = {
         "schema_version": 1,
         "dataset": workbook_path.name,
@@ -317,7 +338,7 @@ def command_extract(args: argparse.Namespace) -> None:
     write_provenance(
         out,
         "extract",
-        sys.argv,
+        args.effective_argv,
         [workbook],
         [evidence_path, truth_path, samples_path],
         started,
@@ -338,6 +359,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    args.effective_argv = sys.argv if argv is None else [str(Path(__file__)), *argv]
     args.func(args)
     return 0
 
