@@ -29,6 +29,7 @@ Naming rules:
 Evidence rules:
 
 - High-read genotypes repeated across related sample patterns are stronger defining evidence than low-read inconsistent genotypes.
+- For highly polygenic loci such as MHC-B, rank genotypes by discriminatory value as well as read count. A very common high-read genotype may be less useful for defining a haplotype than a moderately supported genotype that appears only in a coherent subset of samples.
 - Low-read genotypes may drop out. Do not split haplotypes solely because of a low-read missing or inconsistent genotype.
 - Recurrent low-read genotypes can still be biologically real when the same genotype appears in multiple samples with coherent locus-specific patterns. Consider them as possible haplotype evidence instead of applying a single hard read threshold across all loci.
 - When only one genotype is observed for a sample/locus, do not automatically call a sample homozygous. First ask whether a second haplotype may have dropped out based on shared patterns in other samples; use a partial call with "?" when the second slot is plausible but unsupported.
