@@ -577,7 +577,8 @@ def max_weight_label_mapping(weights: dict[str, dict[str, int | float]]) -> dict
 
 def mapping_weights(output: dict[str, Any], truth: dict[str, dict[str, list[str]]], locus: str) -> dict[str, dict[str, int]]:
     calls = call_index(output)
-    weights: dict[str, Counter[str]] = defaultdict(Counter)
+    sample_counters: list[tuple[Counter[str], Counter[str]]] = []
+    cooccurrence_weights: dict[str, Counter[str]] = defaultdict(Counter)
     for sample_id in sorted(truth):
         truth_slots = truth.get(sample_id, {}).get(locus)
         if not isinstance(truth_slots, list):
@@ -585,12 +586,40 @@ def mapping_weights(output: dict[str, Any], truth: dict[str, dict[str, list[str]
         call = calls.get(sample_id, {}).get(locus)
         if not isinstance(call, dict):
             continue
-        predicted_slots = [call.get("h1"), call.get("h2")]
-        for predicted_label, human_label in zip(predicted_slots, truth_slots[:2]):
-            predicted = clean(predicted_label)
-            human = clean(human_label)
-            if predicted and predicted != "?" and human and human != "?":
-                weights[predicted][human] += 1
+        predicted_counter = label_counter([call.get("h1"), call.get("h2")])
+        human_counter = label_counter(truth_slots[:2])
+        if not predicted_counter or not human_counter:
+            continue
+        sample_counters.append((predicted_counter, human_counter))
+        for predicted in sorted(predicted_counter):
+            for human in sorted(human_counter):
+                cooccurrence_weights[predicted][human] += min(predicted_counter[predicted], human_counter[human])
+
+    inferred_mapping = max_weight_label_mapping(
+        {predicted: dict(cooccurrence_weights[predicted]) for predicted in sorted(cooccurrence_weights)}
+    )
+    weights: dict[str, Counter[str]] = defaultdict(Counter)
+    for predicted_counter, human_counter in sample_counters:
+        remaining_predicted = Counter(predicted_counter)
+        remaining_human = Counter(human_counter)
+        for predicted in sorted(remaining_predicted):
+            human = inferred_mapping.get(predicted)
+            if human is None:
+                continue
+            matched = min(remaining_predicted[predicted], remaining_human.get(human, 0))
+            if matched <= 0:
+                continue
+            weights[predicted][human] += matched
+            remaining_predicted[predicted] -= matched
+            remaining_human[human] -= matched
+
+        residual_humans = []
+        for human in sorted(remaining_human):
+            residual_humans.extend([human] * remaining_human[human])
+        for predicted in sorted(remaining_predicted):
+            while remaining_predicted[predicted] > 0 and residual_humans:
+                weights[predicted][residual_humans.pop(0)] += 1
+                remaining_predicted[predicted] -= 1
     return {predicted: dict(weights[predicted]) for predicted in sorted(weights)}
 
 

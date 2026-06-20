@@ -376,6 +376,37 @@ class MacaqueMHCPromptLabTests(unittest.TestCase):
         self.assertEqual(score["overall"]["pair_concordance"], 1.0)
         self.assertEqual(score["loci"]["MHC-A"]["label_mapping"]["A-A1*002-H01"], "A002.01")
 
+    def test_score_label_mapping_is_slot_order_independent(self):
+        truth = {
+            "LC1": {"MHC-A": ["A001", "A002"]},
+            "LC2": {"MHC-A": ["A001", "A003"]},
+        }
+        output_in_order = {
+            "sample_calls": [
+                {"sample_id": "LC1", "locus": "MHC-A", "h1": "pred-A001", "h2": "pred-A002", "status": "called"},
+                {"sample_id": "LC2", "locus": "MHC-A", "h1": "pred-A001", "h2": "pred-A003", "status": "called"},
+            ]
+        }
+        output_swapped = {
+            "sample_calls": [
+                {"sample_id": "LC1", "locus": "MHC-A", "h1": "pred-A002", "h2": "pred-A001", "status": "called"},
+                {"sample_id": "LC2", "locus": "MHC-A", "h1": "pred-A001", "h2": "pred-A003", "status": "called"},
+            ]
+        }
+
+        score_in_order = lab.score_predictions(output_in_order, truth, loci=["MHC-A"])
+        score_swapped = lab.score_predictions(output_swapped, truth, loci=["MHC-A"])
+
+        for score in (score_in_order, score_swapped):
+            self.assertEqual(score["overall"]["slot_concordance"], 1.0)
+            self.assertEqual(score["overall"]["pair_concordance"], 1.0)
+            self.assertEqual(score["overall"]["false_merge_count"], 0)
+            self.assertEqual(score["overall"]["false_split_count"], 0)
+        self.assertEqual(
+            set(score_in_order["loci"]["MHC-A"]["label_mapping"].items()),
+            set(score_swapped["loci"]["MHC-A"]["label_mapping"].items()),
+        )
+
     def test_score_counts_unresolved_and_false_merge(self):
         truth = {
             "LC1": {"MHC-A": ["A001.01", "A002.01"]},
