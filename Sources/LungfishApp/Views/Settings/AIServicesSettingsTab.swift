@@ -127,7 +127,6 @@ struct AIServicesSettingsTab: View {
                     Toggle("Use Azure-hosted OpenAI endpoint", isOn: $settings.openAIHostedEndpointEnabled)
                     TextField("Endpoint", text: $settings.openAIHostedEndpoint, prompt: Text("https://example.openai.azure.com"))
                     TextField("Deployment", text: $settings.openAIHostedDeployment, prompt: Text("gpt-5-mini"))
-                    TextField("API Version", text: $settings.openAIHostedAPIVersion, prompt: Text(OpenAIEndpointConfiguration.defaultAzureAPIVersion))
                 }
             }
 
@@ -183,7 +182,6 @@ struct AIServicesSettingsTab: View {
         .onChange(of: settings.openAIHostedEndpointEnabled) { _, _ in settings.save() }
         .onChange(of: settings.openAIHostedEndpoint) { _, _ in settings.save() }
         .onChange(of: settings.openAIHostedDeployment) { _, _ in settings.save() }
-        .onChange(of: settings.openAIHostedAPIVersion) { _, _ in settings.save() }
         .onDisappear {
             cancelPendingSaves()
         }

@@ -119,7 +119,6 @@ final class GenotypeAIHaplotypingExecutionService {
                 "includeKnowledgePack": .string("true"),
                 "azureOpenAIEndpoint": .null,
                 "azureOpenAIDeployment": .null,
-                "azureOpenAIAPIVersion": .string(OpenAIEndpointConfiguration.defaultAzureAPIVersion),
             ]
 
             var resolvedOptions: [String: ParameterValue] = [
@@ -263,13 +262,12 @@ final class GenotypeAIHaplotypingExecutionService {
         _ configuration: OpenAIEndpointConfiguration?,
         to command: inout [String]
     ) {
-        guard case .azure(let endpoint, let deployment, let apiVersion) = configuration else {
+        guard case .azure(let endpoint, let deployment) = configuration else {
             return
         }
         command += [
             "--azure-openai-endpoint", endpoint.absoluteString,
             "--azure-openai-deployment", deployment,
-            "--azure-openai-api-version", apiVersion,
         ]
     }
 
@@ -277,12 +275,11 @@ final class GenotypeAIHaplotypingExecutionService {
         _ configuration: OpenAIEndpointConfiguration?,
         to options: inout [String: ParameterValue]
     ) {
-        guard case .azure(let endpoint, let deployment, let apiVersion) = configuration else {
+        guard case .azure(let endpoint, let deployment) = configuration else {
             return
         }
         options["azureOpenAIEndpoint"] = .string(endpoint.absoluteString)
         options["azureOpenAIDeployment"] = .string(deployment)
-        options["azureOpenAIAPIVersion"] = .string(apiVersion)
     }
 
     private static func commandLineNumber(_ value: Double) -> String {

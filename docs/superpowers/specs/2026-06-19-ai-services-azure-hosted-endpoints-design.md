@@ -29,13 +29,13 @@ OpenAI, and Gemini based on the current first-party API model lists as of
 - Update model picker entries to current API models.
 - Add an advanced OpenAI-hosted endpoint mode for Azure OpenAI and compatible
   Azure AI Foundry deployments.
-- Support Azure endpoint, deployment, and API version values equivalent to:
+- Support Azure endpoint and deployment values equivalent to:
   `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT`,
-  `AZURE_OPENAI_API_VERSION`, and `AZURE_OPENAI_API_KEY`.
+  and `AZURE_OPENAI_API_KEY`.
 - Reuse the existing OpenAI API key Keychain entry as the Azure API key when
   Azure mode is enabled.
 - Preserve fallback ordering between configured providers.
-- Record the actual endpoint, API version, deployment/model value, credential
+- Record the actual endpoint, deployment/model value, credential
   source, and request status in provider attempt metadata.
 - Ensure AI haplotyping and other scientific data-producing workflows preserve
   final-path provenance that names the hosted endpoint configuration used.
@@ -141,7 +141,6 @@ When enabled, settings expose:
   `https://oc-aiservices.openai.azure.com`
 - `openAIHostedDeployment`: free-text deployment/model name, for example
   `gpt-5-mini`
-- `openAIHostedAPIVersion`: default `2025-01-01-preview`
 
 The deployment field is intentionally not constrained to the OpenAI picker.
 Azure deployments can be named after the underlying model, a local project, a
@@ -164,14 +163,9 @@ The configuration should normalize:
   `<endpoint>/openai/v1/chat/completions`
 - Azure v1 responses URL:
   `<endpoint>/openai/v1/responses`
-- Azure preview/legacy chat URL when an API version is configured:
-  `<endpoint>/openai/deployments/<deployment>/chat/completions?api-version=<version>`
 
-For Azure responses requests, prefer the v1 endpoint shape when possible:
-`<endpoint>/openai/v1/responses`. The body `model` remains the configured
-deployment name. For deployments or regions that only expose legacy chat
-completion, structured requests without `reasoningEffort` can still use chat
-completions.
+Azure requests always use the v1 endpoint shape. The body `model` remains the
+configured deployment name.
 
 Authentication header behavior:
 
@@ -189,9 +183,8 @@ Provider attempt metadata should record:
 - provider: `"openai"`
 - model: effective request model or deployment name
 - endpoint: actual URL used, without secrets
-- apiVersion: direct API marker such as `responses.v1`, or Azure API version
-  plus operation marker, such as `azure.responses.v1` or
-  `azure.chat.completions.2025-01-01-preview`
+- apiVersion: operation marker such as `responses.v1` or
+  `chat.completions.v1`
 - credentialSource: existing Keychain/environment source
 
 ## Settings Persistence
@@ -240,7 +233,6 @@ or same implementation pass should allow the CLI path to resolve:
 
 - `AZURE_OPENAI_ENDPOINT`
 - `AZURE_OPENAI_DEPLOYMENT`
-- `AZURE_OPENAI_API_VERSION`
 - `AZURE_OPENAI_API_KEY`
 
 When these are present for provider `openai`, the CLI should construct the same

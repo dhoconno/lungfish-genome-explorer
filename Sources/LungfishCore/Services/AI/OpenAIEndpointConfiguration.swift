@@ -7,7 +7,6 @@ import Foundation
 public enum OpenAIEndpointConfigurationError: Error, LocalizedError, Sendable {
     case invalidEndpoint(String)
     case missingAzureDeployment
-    case missingAzureAPIVersion
     case unsupportedHostedEndpointKind(String)
 
     public var errorDescription: String? {
@@ -16,8 +15,6 @@ public enum OpenAIEndpointConfigurationError: Error, LocalizedError, Sendable {
             return "Invalid Azure OpenAI endpoint: \(endpoint)"
         case .missingAzureDeployment:
             return "Azure OpenAI deployment must not be empty."
-        case .missingAzureAPIVersion:
-            return "Azure OpenAI API version must not be empty."
         case .unsupportedHostedEndpointKind(let kind):
             return "Unsupported OpenAI hosted endpoint kind: \(kind)"
         }
@@ -31,15 +28,13 @@ public enum OpenAIEndpointOperation: Sendable {
 
 public enum OpenAIEndpointConfiguration: Sendable, Equatable {
     public static let defaultOpenAIModel = "gpt-5.5"
-    public static let defaultAzureAPIVersion = "2025-01-01-preview"
 
     case direct
-    case azure(endpoint: URL, deployment: String, apiVersion: String)
+    case azure(endpoint: URL, deployment: String)
 
     public static func azure(
         endpointString: String,
-        deployment: String,
-        apiVersion: String
+        deployment: String
     ) throws -> OpenAIEndpointConfiguration {
         let normalizedEndpoint = normalizeEndpointString(endpointString)
         guard
@@ -56,12 +51,7 @@ public enum OpenAIEndpointConfiguration: Sendable, Equatable {
             throw OpenAIEndpointConfigurationError.missingAzureDeployment
         }
 
-        let trimmedAPIVersion = apiVersion.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedAPIVersion.isEmpty else {
-            throw OpenAIEndpointConfigurationError.missingAzureAPIVersion
-        }
-
-        return .azure(endpoint: url, deployment: trimmedDeployment, apiVersion: trimmedAPIVersion)
+        return .azure(endpoint: url, deployment: trimmedDeployment)
     }
 
     public static func normalizeEndpointString(_ endpoint: String) -> String {
@@ -77,7 +67,7 @@ public enum OpenAIEndpointConfiguration: Sendable, Equatable {
         case .direct:
             let trimmed = configuredModel.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? Self.defaultOpenAIModel : trimmed
-        case .azure(_, let deployment, _):
+        case .azure(_, let deployment):
             return deployment
         }
     }
@@ -85,7 +75,7 @@ public enum OpenAIEndpointConfiguration: Sendable, Equatable {
     public var supportsResponsesAPI: Bool {
         switch self {
         case .direct: return true
-        case .azure: return false
+        case .azure: return true
         }
     }
 
@@ -93,13 +83,8 @@ public enum OpenAIEndpointConfiguration: Sendable, Equatable {
         switch self {
         case .direct:
             return URL(string: "https://api.openai.com/v1/chat/completions")!
-        case .azure(let endpoint, let deployment, let apiVersion):
-            return azureDeploymentURL(
-                endpoint: endpoint,
-                deployment: deployment,
-                pathComponents: ["chat", "completions"],
-                apiVersion: apiVersion
-            )
+        case .azure(let endpoint, _):
+            return azureV1URL(endpoint: endpoint, pathComponents: ["chat", "completions"])
         }
     }
 
@@ -107,15 +92,8 @@ public enum OpenAIEndpointConfiguration: Sendable, Equatable {
         switch self {
         case .direct:
             return URL(string: "https://api.openai.com/v1/responses")!
-        case .azure(let endpoint, _, let apiVersion):
-            var url = endpoint
-                .appendingPathComponent("openai")
-                .appendingPathComponent("v1")
-                .appendingPathComponent("responses")
-            var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
-            components.queryItems = [URLQueryItem(name: "api-version", value: apiVersion)]
-            url = components.url ?? url
-            return url
+        case .azure(let endpoint, _):
+            return azureV1URL(endpoint: endpoint, pathComponents: ["responses"])
         }
     }
 
@@ -135,26 +113,22 @@ public enum OpenAIEndpointConfiguration: Sendable, Equatable {
             case .chatCompletions: return "chat.completions.v1"
             case .responses: return "responses.v1"
             }
-        case .azure(_, _, let apiVersion):
-            return apiVersion
+        case .azure:
+            switch operation {
+            case .chatCompletions: return "chat.completions.v1"
+            case .responses: return "responses.v1"
+            }
         }
     }
 
-    private func azureDeploymentURL(
+    private func azureV1URL(
         endpoint: URL,
-        deployment: String,
-        pathComponents: [String],
-        apiVersion: String
+        pathComponents: [String]
     ) -> URL {
-        var url = endpoint
-            .appendingPathComponent("openai")
-            .appendingPathComponent("deployments")
-            .appendingPathComponent(deployment)
+        var url = endpoint.appendingPathComponent("openai").appendingPathComponent("v1")
         for component in pathComponents {
             url.appendPathComponent(component)
         }
-        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
-        components.queryItems = [URLQueryItem(name: "api-version", value: apiVersion)]
-        return components.url ?? url
+        return url
     }
 }

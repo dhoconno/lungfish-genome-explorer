@@ -161,9 +161,6 @@ public final class AppSettings: Sendable {
     /// Azure OpenAI deployment name.
     public var openAIHostedDeployment: String = ""
 
-    /// Azure OpenAI REST API version.
-    public var openAIHostedAPIVersion: String = OpenAIEndpointConfiguration.defaultAzureAPIVersion
-
     // MARK: - Advanced
 
     /// Whether work-in-progress and experimental GUI features are shown.
@@ -332,7 +329,6 @@ public final class AppSettings: Sendable {
         var openAIHostedEndpointKind: String
         var openAIHostedEndpoint: String
         var openAIHostedDeployment: String
-        var openAIHostedAPIVersion: String
         // Advanced
         var experimentalFeaturesEnabled: Bool
 
@@ -366,7 +362,6 @@ public final class AppSettings: Sendable {
             openAIHostedEndpointKind: String,
             openAIHostedEndpoint: String,
             openAIHostedDeployment: String,
-            openAIHostedAPIVersion: String,
             experimentalFeaturesEnabled: Bool
         ) {
             self.defaultZoomWindow = defaultZoomWindow
@@ -398,7 +393,6 @@ public final class AppSettings: Sendable {
             self.openAIHostedEndpointKind = openAIHostedEndpointKind
             self.openAIHostedEndpoint = openAIHostedEndpoint
             self.openAIHostedDeployment = openAIHostedDeployment
-            self.openAIHostedAPIVersion = openAIHostedAPIVersion
             self.experimentalFeaturesEnabled = experimentalFeaturesEnabled
         }
 
@@ -447,7 +441,6 @@ public final class AppSettings: Sendable {
             openAIHostedEndpointKind = try container.decodeIfPresent(String.self, forKey: .openAIHostedEndpointKind) ?? "azure"
             openAIHostedEndpoint = try container.decodeIfPresent(String.self, forKey: .openAIHostedEndpoint) ?? ""
             openAIHostedDeployment = try container.decodeIfPresent(String.self, forKey: .openAIHostedDeployment) ?? ""
-            openAIHostedAPIVersion = try container.decodeIfPresent(String.self, forKey: .openAIHostedAPIVersion) ?? OpenAIEndpointConfiguration.defaultAzureAPIVersion
             // Advanced
             experimentalFeaturesEnabled = try container.decodeIfPresent(
                 Bool.self,
@@ -531,7 +524,6 @@ public final class AppSettings: Sendable {
             openAIHostedEndpointKind: Self.normalizedHostedEndpointKind(openAIHostedEndpointKind),
             openAIHostedEndpoint: Self.normalizedHostedEndpoint(openAIHostedEndpoint),
             openAIHostedDeployment: openAIHostedDeployment.trimmingCharacters(in: .whitespacesAndNewlines),
-            openAIHostedAPIVersion: openAIHostedAPIVersion.trimmingCharacters(in: .whitespacesAndNewlines),
             experimentalFeaturesEnabled: experimentalFeaturesEnabled
         )
     }
@@ -566,7 +558,6 @@ public final class AppSettings: Sendable {
         openAIHostedEndpointKind = Self.normalizedHostedEndpointKind(snapshot.openAIHostedEndpointKind)
         openAIHostedEndpoint = Self.normalizedHostedEndpoint(snapshot.openAIHostedEndpoint)
         openAIHostedDeployment = snapshot.openAIHostedDeployment.trimmingCharacters(in: .whitespacesAndNewlines)
-        openAIHostedAPIVersion = snapshot.openAIHostedAPIVersion.trimmingCharacters(in: .whitespacesAndNewlines)
         experimentalFeaturesEnabled = snapshot.experimentalFeaturesEnabled
     }
 
@@ -655,7 +646,6 @@ public final class AppSettings: Sendable {
             openAIHostedEndpointKind = fresh.openAIHostedEndpointKind
             openAIHostedEndpoint = fresh.openAIHostedEndpoint
             openAIHostedDeployment = fresh.openAIHostedDeployment
-            openAIHostedAPIVersion = fresh.openAIHostedAPIVersion
         case .storage:
             resetManagedStorageState()
         case .advanced:
@@ -687,8 +677,7 @@ public final class AppSettings: Sendable {
 
         return try .azure(
             endpointString: openAIHostedEndpoint,
-            deployment: openAIHostedDeployment,
-            apiVersion: openAIHostedAPIVersion
+            deployment: openAIHostedDeployment
         )
     }
 

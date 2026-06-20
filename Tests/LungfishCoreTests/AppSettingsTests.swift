@@ -62,7 +62,6 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.openAIHostedEndpointKind, "azure")
         XCTAssertEqual(settings.openAIHostedEndpoint, "")
         XCTAssertEqual(settings.openAIHostedDeployment, "")
-        XCTAssertEqual(settings.openAIHostedAPIVersion, "2025-01-01-preview")
         XCTAssertEqual(settings.defaultAnnotationHeight, 16)
         XCTAssertEqual(settings.defaultAnnotationSpacing, 2)
         XCTAssertEqual(settings.horizontalScrollDirection, .traditional)
@@ -104,7 +103,6 @@ final class AppSettingsTests: XCTestCase {
         settings.openAIHostedEndpointEnabled = true
         settings.openAIHostedEndpoint = " https://oc-aiservices.openai.azure.com/ "
         settings.openAIHostedDeployment = " gpt-5-mini "
-        settings.openAIHostedAPIVersion = " 2025-01-01-preview "
         settings.provenanceSigningProvider = "local"
         settings.provenanceSigningPublicKeyPath = "/tmp/lungfish-provenance.pub"
         settings.experimentalFeaturesEnabled = false
@@ -126,7 +124,6 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertTrue(settings.openAIHostedEndpointEnabled)
         XCTAssertEqual(settings.openAIHostedEndpoint, "https://oc-aiservices.openai.azure.com")
         XCTAssertEqual(settings.openAIHostedDeployment, "gpt-5-mini")
-        XCTAssertEqual(settings.openAIHostedAPIVersion, "2025-01-01-preview")
         XCTAssertEqual(settings.provenanceSigningProvider, "local")
         XCTAssertEqual(settings.provenanceSigningPublicKeyPath, "/tmp/lungfish-provenance.pub")
         XCTAssertFalse(settings.experimentalFeaturesEnabled)
@@ -138,7 +135,6 @@ final class AppSettingsTests: XCTestCase {
         settings.openAIHostedEndpointEnabled = true
         settings.openAIHostedEndpoint = "https://oc-aiservices.openai.azure.com/"
         settings.openAIHostedDeployment = "gpt-5-mini"
-        settings.openAIHostedAPIVersion = "2025-01-01-preview"
 
         let configuration = try settings.openAIEndpointConfiguration()
 
@@ -146,10 +142,29 @@ final class AppSettingsTests: XCTestCase {
             configuration,
             .azure(
                 endpoint: URL(string: "https://oc-aiservices.openai.azure.com")!,
-                deployment: "gpt-5-mini",
-                apiVersion: "2025-01-01-preview"
+                deployment: "gpt-5-mini"
             )
         )
+    }
+
+    @MainActor
+    func testOpenAIHostedEndpointConfigurationUsesAzureV1URLs() throws {
+        let settings = AppSettings.shared
+        settings.openAIHostedEndpointEnabled = true
+        settings.openAIHostedEndpoint = "https://oc-aiservices.cognitiveservices.azure.com/"
+        settings.openAIHostedDeployment = "gpt-5-5"
+
+        let configuration = try settings.openAIEndpointConfiguration()
+
+        XCTAssertEqual(
+            configuration,
+            .azure(
+                endpoint: URL(string: "https://oc-aiservices.cognitiveservices.azure.com")!,
+                deployment: "gpt-5-5"
+            )
+        )
+        XCTAssertEqual(configuration.chatCompletionsURL.absoluteString, "https://oc-aiservices.cognitiveservices.azure.com/openai/v1/chat/completions")
+        XCTAssertEqual(configuration.responsesURL.absoluteString, "https://oc-aiservices.cognitiveservices.azure.com/openai/v1/responses")
     }
 
     @MainActor

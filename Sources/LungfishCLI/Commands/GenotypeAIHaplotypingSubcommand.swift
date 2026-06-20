@@ -7,7 +7,6 @@ import LungfishWorkflow
 private struct AzureOpenAISettings {
     let endpoint: String
     let deployment: String
-    let apiVersion: String
 }
 
 struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
@@ -48,9 +47,6 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
 
     @Option(name: .customLong("azure-openai-deployment"), help: "Azure OpenAI deployment name to use instead of a direct OpenAI model.")
     var azureOpenAIDeployment: String?
-
-    @Option(name: .customLong("azure-openai-api-version"), help: "Azure OpenAI REST API version.")
-    var azureOpenAIAPIVersion: String?
 
     @Option(name: .customLong("prompt-template-id"), help: "Prompt template ID to pin for this run.")
     var promptTemplateID: String?
@@ -156,7 +152,6 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
         let explicitAzureValues = [
             azureOpenAIEndpoint,
             azureOpenAIDeployment,
-            azureOpenAIAPIVersion,
         ].contains { value in
             !(value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "").isEmpty
         }
@@ -705,8 +700,7 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
         }
         return try .azure(
             endpointString: azure.endpoint,
-            deployment: azure.deployment,
-            apiVersion: azure.apiVersion
+            deployment: azure.deployment
         )
     }
 
@@ -715,14 +709,9 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
             ?? Self.nonEmpty(environment["AZURE_OPENAI_ENDPOINT"])
         let deployment = Self.nonEmpty(azureOpenAIDeployment)
             ?? Self.nonEmpty(environment["AZURE_OPENAI_DEPLOYMENT"])
-        let apiVersion = Self.nonEmpty(azureOpenAIAPIVersion)
-            ?? Self.nonEmpty(environment["AZURE_OPENAI_API_VERSION"])
-            ?? OpenAIEndpointConfiguration.defaultAzureAPIVersion
 
         let hasAnyAzureSetting = endpoint != nil
             || deployment != nil
-            || Self.nonEmpty(azureOpenAIAPIVersion) != nil
-            || Self.nonEmpty(environment["AZURE_OPENAI_API_VERSION"]) != nil
         guard hasAnyAzureSetting else {
             return nil
         }
@@ -737,20 +726,17 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
         }
         _ = try OpenAIEndpointConfiguration.azure(
             endpointString: endpoint,
-            deployment: deployment,
-            apiVersion: apiVersion
+            deployment: deployment
         )
         return AzureOpenAISettings(
             endpoint: OpenAIEndpointConfiguration.normalizeEndpointString(endpoint),
-            deployment: deployment,
-            apiVersion: apiVersion
+            deployment: deployment
         )
     }
 
     private static func environmentHasAzureOpenAISettings(_ environment: [String: String]) -> Bool {
         nonEmpty(environment["AZURE_OPENAI_ENDPOINT"]) != nil
             || nonEmpty(environment["AZURE_OPENAI_DEPLOYMENT"]) != nil
-            || nonEmpty(environment["AZURE_OPENAI_API_VERSION"]) != nil
     }
 
     private func makeProvider(apiKey: String) throws -> any StructuredAIProvider {
@@ -920,7 +906,6 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
             "anthropicModel": .string("claude-sonnet-4-6"),
             "azureOpenAIEndpoint": .null,
             "azureOpenAIDeployment": .null,
-            "azureOpenAIAPIVersion": .string(OpenAIEndpointConfiguration.defaultAzureAPIVersion),
             "maxObservationsPerChunk": .integer(10_000),
             "maxOutputTokens": .integer(4096),
             "temperature": .number(0),
@@ -976,7 +961,6 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
         command += [
             "--azure-openai-endpoint", azure.endpoint,
             "--azure-openai-deployment", azure.deployment,
-            "--azure-openai-api-version", azure.apiVersion,
         ]
     }
 
@@ -986,7 +970,6 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
     ) {
         options["azureOpenAIEndpoint"] = .string(azure.endpoint)
         options["azureOpenAIDeployment"] = .string(azure.deployment)
-        options["azureOpenAIAPIVersion"] = .string(azure.apiVersion)
     }
 
     private func resolvedPromptSelection(for result: ONTGenotypeResultBundleData) -> AIHaplotypingPromptSelection {
