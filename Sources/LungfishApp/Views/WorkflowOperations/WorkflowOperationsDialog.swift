@@ -53,7 +53,6 @@ private struct WorkflowOperationsDetailPane: View {
     @Bindable var state: WorkflowOperationDialogState
     let onCreateTwelveSReferenceBundle: (TwelveSReferenceBundleBuildConfiguration) -> Void
     @State private var showingReferencePanel = false
-    @State private var showingBarcodePanel = false
     @State private var showingOutputPanel = false
     @State private var showingTwelveSReferenceBuilder = false
     @State private var twelveSReferenceDraft = TwelveSReferenceBundleDraft()
@@ -67,14 +66,10 @@ private struct WorkflowOperationsDetailPane: View {
                 }
 
                 section(DatasetOperationSection.inputs.title) {
-                    if case .ontGenotyping = state.selectedTool?.kind {
-                        lockedMCMReferenceSummary
-                    } else {
+                    if state.shouldShowManualAmpliconReferencePicker {
                         referencePicker
-                    }
-                    if case .ontGenotyping = state.selectedTool?.kind,
-                       state.effectiveGenotypingMode == .ontBarcodeDemux {
-                        barcodePicker
+                    } else {
+                        ampliconPresetSummary
                     }
                     if case .twelveSAmpliconMatching = state.selectedTool?.kind {
                         twelveSSampleMetadataPicker
@@ -159,12 +154,16 @@ private struct WorkflowOperationsDetailPane: View {
         }
     }
 
-    private var lockedMCMReferenceSummary: some View {
+    private var ampliconPresetSummary: some View {
         VStack(alignment: .leading, spacing: 8) {
             groupLabel("Preset")
-            Text(MCMHaplotypingPreset.mcmMHCmiseq.displayName)
+            Text(state.selectedAmpliconPresetDisplayName)
                 .font(.callout)
-            Text(state.referenceBundleSummary ?? "Locked bundled MCM MHC miSeq reference")
+            Text(state.selectedAmpliconPresetReferenceSummary)
+                .font(.caption)
+                .foregroundStyle(Color.lungfishSecondaryText)
+                .lineLimit(2)
+            Text(state.selectedAmpliconPresetPromptSummary)
                 .font(.caption)
                 .foregroundStyle(Color.lungfishSecondaryText)
                 .lineLimit(2)
@@ -219,43 +218,6 @@ private struct WorkflowOperationsDetailPane: View {
         }
     }
 
-    private var barcodePicker: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            groupLabel("Barcode Definition")
-            if state.isDiscoveringProjectResources && state.projectBarcodeDefinitionCandidates.isEmpty {
-                helperText("Scanning project resources...")
-                    .accessibilityIdentifier("workflow-operations-barcode-scan-status")
-            }
-            if !state.projectBarcodeDefinitionCandidates.isEmpty {
-                Picker("Project File", selection: barcodeDefinitionProjectFileBinding) {
-                    Text("Choose project file").tag(URL?.none)
-                    ForEach(state.projectBarcodeDefinitionCandidates, id: \.self) { url in
-                        Text(WorkflowOperationDialogState.displayPath(for: url, relativeTo: state.projectURL))
-                            .tag(URL?.some(url))
-                    }
-                }
-                .pickerStyle(.menu)
-            }
-            HStack(spacing: 10) {
-                Text(state.selectedBarcodeDefinitionURL.map {
-                    WorkflowOperationDialogState.displayPath(for: $0, relativeTo: state.projectURL)
-                } ?? "No barcode definition selected")
-                .font(.caption)
-                .foregroundStyle(state.selectedBarcodeDefinitionURL == nil ? Color.lungfishOrangeFallback : Color.lungfishSecondaryText)
-                .lineLimit(2)
-                Spacer()
-                Button(state.selectedBarcodeDefinitionURL == nil ? "Choose…" : "Replace…") {
-                    browseForBarcodeDefinition()
-                }
-                if state.selectedBarcodeDefinitionURL != nil {
-                    Button("Clear") {
-                        state.setBarcodeDefinition(nil)
-                    }
-                }
-            }
-        }
-    }
-
     private var twelveSSampleMetadataPicker: some View {
         VStack(alignment: .leading, spacing: 8) {
             groupLabel("Analysis Metadata")
@@ -286,17 +248,15 @@ private struct WorkflowOperationsDetailPane: View {
                     labeledTextField("Report Name", text: $state.outputName)
                 }
                 workflowFormGroup("Run Parameters") {
-                    genotypingModePicker
                     HStack(spacing: 12) {
                         labeledCompactTextField("Threads", value: $state.threads)
                         labeledCompactTextField("Min Reads", value: $state.minSupport)
                     }
+                    Text(state.effectiveGenotypingMode.displayName)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                workflowFormGroup("Call Thresholds") {
-                    labeledCompactDoubleTextField("Locus %", value: $state.haplotypeDropoutLocusPercent)
-                    helperText("Used for haplotype calls and Excel output. Inspector filters only change what is shown.")
-                }
-                haplotypeDefinitionPicker
+                ampliconAnalysisModePicker
             }
         case .fullLengthONTMHCGenotyping:
             VStack(alignment: .leading, spacing: 12) {
@@ -351,19 +311,61 @@ private struct WorkflowOperationsDetailPane: View {
         }
     }
 
-    private var genotypingModePicker: some View {
+    private var ampliconAnalysisModePicker: some View {
         VStack(alignment: .leading, spacing: 8) {
-            groupLabel("Read Type")
-            Picker("Read Type", selection: genotypingReadTypeBinding) {
-                ForEach(AmpliconGenotypingReadType.allCases, id: \.rawValue) { readType in
-                    Text(readType.displayName).tag(readType.rawValue)
+            groupLabel("Haplotyping")
+            Picker("Analysis Mode", selection: ampliconAnalysisModeBinding) {
+                ForEach(WorkflowOperationAmpliconAnalysisMode.allCases, id: \.rawValue) { mode in
+                    Text(mode.displayName)
+                        .tag(mode.rawValue)
+                        .disabled(mode == .aiSpecialistPreset && !state.aiSpecialistPresetsAvailable)
                 }
             }
-            .pickerStyle(.menu)
-            Text(state.effectiveGenotypingMode.displayName)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            .pickerStyle(.segmented)
+            if !state.aiSpecialistPresetsAvailable {
+                helperText("AI specialist presets require configured API access.")
+            }
+            if state.selectedAmpliconAnalysisMode == .aiSpecialistPreset {
+                Picker("Preset", selection: ampliconPresetBinding) {
+                    ForEach(state.availableAmpliconPresets, id: \.id) { preset in
+                        Text(preset.displayName).tag(preset.id)
+                    }
+                }
+                .pickerStyle(.menu)
+                .disabled(!state.aiSpecialistPresetsAvailable)
+                helperText(state.aiSpecialistPresetsAvailable
+                    ? WorkflowOperationAmpliconAnalysisMode.aiSpecialistPreset.helpText
+                    : "AI API access must be configured before running a specialist preset.")
+            } else if state.selectedAmpliconAnalysisMode == .deterministicHaplotyping {
+                workflowFormGroup("Call Thresholds") {
+                    labeledCompactDoubleTextField("Locus %", value: $state.haplotypeDropoutLocusPercent)
+                    helperText("Used for deterministic haplotype calls and Excel output.")
+                }
+                haplotypeDefinitionPicker
+            } else {
+                Text(WorkflowOperationAmpliconAnalysisMode.genotypeOnly.helpText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
+    }
+
+    private var ampliconAnalysisModeBinding: Binding<String> {
+        Binding(
+            get: { state.selectedAmpliconAnalysisMode.rawValue },
+            set: { value in
+                if let mode = WorkflowOperationAmpliconAnalysisMode(rawValue: value) {
+                    state.setAmpliconAnalysisMode(mode)
+                }
+            }
+        )
+    }
+
+    private var ampliconPresetBinding: Binding<String> {
+        Binding(
+            get: { state.selectedAmpliconPresetID ?? "" },
+            set: { state.setAmpliconPreset($0) }
+        )
     }
 
     private var haplotypeDefinitionPicker: some View {
@@ -510,34 +512,10 @@ private struct WorkflowOperationsDetailPane: View {
         )
     }
 
-    private var barcodeDefinitionProjectFileBinding: Binding<URL?> {
-        Binding(
-            get: {
-                guard let selected = state.selectedBarcodeDefinitionURL,
-                      state.projectBarcodeDefinitionCandidates.contains(selected) else {
-                    return nil
-                }
-                return selected
-            },
-            set: { state.setBarcodeDefinition($0) }
-        )
-    }
-
     private var haplotypeDefinitionBinding: Binding<String> {
         Binding(
             get: { state.selectedHaplotypeDefinitionSetID ?? "" },
             set: { state.setHaplotypeDefinition($0.isEmpty ? nil : $0) }
-        )
-    }
-
-    private var genotypingReadTypeBinding: Binding<String> {
-        Binding(
-            get: { state.selectedGenotypingReadType.rawValue },
-            set: { value in
-                if let readType = AmpliconGenotypingReadType(cliArgument: value) {
-                    state.selectedGenotypingReadType = readType
-                }
-            }
         )
     }
 
@@ -719,32 +697,6 @@ private struct WorkflowOperationsDetailPane: View {
             panel.beginSheetModal(for: window, completionHandler: handler)
         } else {
             panel.begin(completionHandler: handler)
-        }
-    }
-
-    private func browseForBarcodeDefinition() {
-        let panel = NSOpenPanel()
-        panel.title = "Choose Barcode Definition"
-        panel.message = "Select a CSV, TSV, or text file containing sample names and barcodes."
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        var contentTypes: [UTType] = [.plainText]
-        if let csv = UTType(filenameExtension: "csv") {
-            contentTypes.append(csv)
-        }
-        if let tsv = UTType(filenameExtension: "tsv") {
-            contentTypes.append(tsv)
-        }
-        panel.allowedContentTypes = contentTypes
-        let completion: (NSApplication.ModalResponse) -> Void = { response in
-            guard response == .OK else { return }
-            state.setBarcodeDefinition(panel.url)
-        }
-        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
-            panel.beginSheetModal(for: window, completionHandler: completion)
-        } else {
-            panel.begin(completionHandler: completion)
         }
     }
 

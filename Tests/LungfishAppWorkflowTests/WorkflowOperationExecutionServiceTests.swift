@@ -6,26 +6,26 @@ import LungfishKit
 
 @MainActor
 final class WorkflowOperationExecutionServiceTests: XCTestCase {
-    func testONTGenotypingRunsThroughRetainedDemuxCLIAndReportsWorkbookOutput() async throws {
+    func testONTGenotypingRunsThroughSampleBundleCLIAndReportsWorkbookOutput() async throws {
         let temp = try temporaryDirectory()
         let readsURL = temp.appendingPathComponent("reads.lungfishfastq", isDirectory: true)
         let referenceURL = temp.appendingPathComponent("ref.lungfishref", isDirectory: true)
-        let barcodesURL = temp.appendingPathComponent("barcodes.csv")
         let outputURL = temp.appendingPathComponent("Analyses/reads-ont.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: readsURL, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: referenceURL, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
-        try Data("sample,barcode\nDW472,ACGT\n".utf8).write(to: barcodesURL)
         let request = ONTBarcodeDemuxGenotypingRunRequest(
-            inputFASTQURL: readsURL,
+            inputFASTQURLs: [readsURL],
             referenceSourceURL: referenceURL,
-            barcodeDefinitionsURL: barcodesURL,
+            barcodeDefinitionsURL: nil,
             outputDirectory: outputURL,
             outputName: "reads-ont",
             analysisName: "ONT08",
             projectURL: temp,
             threads: 4,
-            minSupport: 2
+            minSupport: 2,
+            mode: .ontSampleBundles,
+            readType: .ont
         )
         let operationCenter = OperationCenter()
         let runner = StubWorkflowOperationCLIProcessRunner()
@@ -43,14 +43,13 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
         let outputs = try await service.run(.ontGenotyping(request))
 
         let invocation = try XCTUnwrap(runner.invocations.first)
-        XCTAssertEqual(invocation.arguments.prefix(2), ["fastq", "genotype"])
-        XCTAssertEqual(try testValue(after: "--mode", in: invocation.arguments), "ont-barcode-demux")
+        XCTAssertEqual(invocation.arguments.prefix(2), ["fastq", "genotype-cohort"])
+        XCTAssertEqual(try testValue(after: "--mode", in: invocation.arguments), "ont-sample-bundles")
         XCTAssertEqual(try testValue(after: "--read-type", in: invocation.arguments), "ont")
         XCTAssertTrue(invocation.arguments.contains(readsURL.standardizedFileURL.path))
         XCTAssertTrue(invocation.arguments.contains("--reference"))
         XCTAssertTrue(invocation.arguments.contains(referenceURL.standardizedFileURL.path))
-        XCTAssertTrue(invocation.arguments.contains("--barcodes"))
-        XCTAssertTrue(invocation.arguments.contains(barcodesURL.standardizedFileURL.path))
+        XCTAssertFalse(invocation.arguments.contains("--barcodes"))
         XCTAssertTrue(invocation.arguments.contains("--min-support"))
         XCTAssertTrue(invocation.arguments.contains("2"))
         XCTAssertEqual(invocation.workingDirectory, outputURL.standardizedFileURL)

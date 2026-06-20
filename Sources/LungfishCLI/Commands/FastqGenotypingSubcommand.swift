@@ -12,7 +12,7 @@ struct FastqGenotypingSubcommand: AsyncParsableCommand {
     @Argument(help: "Input FASTQ file, folder, or .lungfishfastq bundle. Sample-bundle modes accept multiple prepared per-sample bundles.")
     var inputs: [String]
 
-    @Option(name: .customLong("mode"), help: "Genotyping mode: auto, ont-barcode-demux, ont-sample-bundles, or illumina-paired")
+    @Option(name: .customLong("mode"), help: "Genotyping mode: auto, ont-sample-bundles, illumina-paired, or deprecated ont-barcode-demux")
     var mode: String = "auto"
 
     @Option(name: .customLong("read-type"), help: "Read type override: auto, ont, or illumina")
@@ -26,7 +26,7 @@ struct FastqGenotypingSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("preset"), help: "Locked genotyping preset. Supported value: mcm-mhc-miseq.")
     var preset: String?
 
-    @Option(name: .customLong("barcodes"), help: "CSV/TSV file containing sample ID and Fluidigm barcode sequence columns for ONT barcode-demux mode")
+    @Option(name: .customLong("barcodes"), help: "Deprecated. CSV/TSV file containing sample ID and Fluidigm barcode sequence columns for ONT barcode-demux mode")
     var barcodes: String?
 
     @Option(name: .customLong("demux-manifest"), help: "Optional demux-manifest.json with total input/sample read counts for ONT barcode-demux mode")
@@ -127,6 +127,7 @@ struct FastqGenotypingSubcommand: AsyncParsableCommand {
         guard let parsedReadType = AmpliconGenotypingReadType(cliArgument: readType) else {
             throw ValidationError("Unknown --read-type '\(readType)'. Use auto, ont, or illumina.")
         }
+        Self.writeDeprecatedBarcodeDemuxWarningIfNeeded(mode: parsedMode, barcodes: barcodes)
         let parsedHaplotypeDefinitionScope = try Self.parseHaplotypeDefinitionScope(haplotypeDefinitionScope)
         let parsedExtraArguments: [String]
         do {
@@ -309,6 +310,20 @@ struct FastqGenotypingSubcommand: AsyncParsableCommand {
         return min(percent, 100) / 100
     }
 
+    static let deprecatedBarcodeDemuxWarning = """
+    warning: ONT barcode-demux genotyping is deprecated. Demultiplex with a FASTQ import recipe first, then run `lungfish-cli fastq genotype` or `lungfish-cli fastq genotype-cohort` on prepared per-sample bundles.
+
+    """
+
+    static func writeDeprecatedBarcodeDemuxWarningIfNeeded(
+        mode: AmpliconGenotypingMode,
+        barcodes: String?
+    ) {
+        let hasBarcodeDefinitions = !(barcodes?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "").isEmpty
+        guard mode == .ontBarcodeDemux || hasBarcodeDefinitions else { return }
+        FileHandle.standardError.write(Data(deprecatedBarcodeDemuxWarning.utf8))
+    }
+
     static func parseLocusPercentOverrides(_ rawValues: [String]) throws -> [String: Double] {
         var values: [String: Double] = [:]
         for rawValue in rawValues {
@@ -353,7 +368,7 @@ struct FastqGenotypingCohortSubcommand: AsyncParsableCommand {
     @Argument(help: "Input .lungfishfastq bundles. Each bundle must contain one prepared per-sample FASTQ.")
     var inputs: [String]
 
-    @Option(name: .customLong("mode"), help: "Genotyping mode: auto, ont-barcode-demux, ont-sample-bundles, or illumina-paired")
+    @Option(name: .customLong("mode"), help: "Genotyping mode: auto, ont-sample-bundles, illumina-paired, or deprecated ont-barcode-demux")
     var mode: String = "illumina-paired"
 
     @Option(name: .customLong("read-type"), help: "Read type override: auto, ont, or illumina")
@@ -367,7 +382,7 @@ struct FastqGenotypingCohortSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("preset"), help: "Locked genotyping preset. Supported value: mcm-mhc-miseq.")
     var preset: String?
 
-    @Option(name: .customLong("barcodes"), help: "CSV/TSV file containing sample ID and Fluidigm barcode sequence columns for ONT barcode-demux mode")
+    @Option(name: .customLong("barcodes"), help: "Deprecated. CSV/TSV file containing sample ID and Fluidigm barcode sequence columns for ONT barcode-demux mode")
     var barcodes: String?
 
     @Option(name: .customLong("demux-manifest"), help: "Optional demux-manifest.json with total input/sample read counts for ONT barcode-demux mode")
@@ -470,6 +485,7 @@ struct FastqGenotypingCohortSubcommand: AsyncParsableCommand {
         guard let parsedReadType = AmpliconGenotypingReadType(cliArgument: readType) else {
             throw ValidationError("Unknown --read-type '\(readType)'. Use auto, ont, or illumina.")
         }
+        FastqGenotypingSubcommand.writeDeprecatedBarcodeDemuxWarningIfNeeded(mode: parsedMode, barcodes: barcodes)
         let parsedHaplotypeDefinitionScope = try FastqGenotypingSubcommand.parseHaplotypeDefinitionScope(
             haplotypeDefinitionScope
         )

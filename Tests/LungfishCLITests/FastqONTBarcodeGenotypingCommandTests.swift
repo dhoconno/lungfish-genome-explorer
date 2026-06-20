@@ -5,6 +5,10 @@ final class FastqONTBarcodeGenotypingCommandTests: XCTestCase {
     func testFastqCommandRegistersONTBarcodeGenotype() {
         let names = FastqCommand.configuration.subcommands.map { $0.configuration.commandName }
         XCTAssertTrue(names.contains("ont-barcode-genotype"))
+        XCTAssertTrue(FastqONTBarcodeGenotypingSubcommand.configuration.abstract.contains("Deprecated"))
+        XCTAssertTrue(FastqONTBarcodeGenotypingSubcommand.configuration.discussion.contains("demultiplexing now belongs in FASTQ import recipes"))
+        XCTAssertTrue(FastqGenotypingSubcommand.deprecatedBarcodeDemuxWarning.contains("deprecated"))
+        XCTAssertTrue(FastqGenotypingSubcommand.deprecatedBarcodeDemuxWarning.contains("prepared per-sample bundles"))
     }
 
     func testONTBarcodeGenotypeParsesExcelReportOptions() throws {

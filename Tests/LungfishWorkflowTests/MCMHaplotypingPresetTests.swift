@@ -8,6 +8,8 @@ final class MCMHaplotypingPresetTests: XCTestCase {
         let bundleURL = try preset.bundledReferenceBundleURL()
 
         XCTAssertTrue(MHCAmpliconReferenceBundle.isBundleURL(bundleURL))
+        XCTAssertNotNil(MCMHaplotypingPreset.builtInPresetDescriptorURL(id: preset.id))
+        XCTAssertTrue(MCMHaplotypingPreset.builtInPresets.contains(preset))
         XCTAssertEqual(preset.id, "mcm-mhc-miseq")
         XCTAssertEqual(preset.referenceFASTASHA256, "13134729eba56d42479e251b53299152d823947a0bc2c64fb82a61023e1b6561")
         XCTAssertEqual(preset.referenceFASTARecordCount, 189)
@@ -61,6 +63,57 @@ final class MCMHaplotypingPresetTests: XCTestCase {
         XCTAssertTrue(prompt.contains("Do not use the words phase, phasing, copy number, inherited, inheritance, clinical, confirmation, or follow-up"))
         XCTAssertFalse(prompt.contains("knowledgePack.populationProfiles"))
         XCTAssertFalse(prompt.contains("knowledgePack.haplotypeBlockDefinitions"))
+    }
+
+    func testPresetManifestSelectsSpecialistPromptWithoutKnowledgePack() {
+        let preset = MCMHaplotypingPreset.mcmMHCmiseq
+        let result = Self.makeResult(presetID: preset.id, presetVersion: preset.version)
+
+        let selection = AIHaplotypingPromptSelectionResolver.resolve(
+            result: result,
+            mode: .aiDiscovery,
+            requestedPromptTemplateID: nil,
+            requestedPromptTemplateVersion: nil,
+            compactKnowledgePack: true
+        )
+
+        XCTAssertEqual(selection.promptTemplateID, preset.aiPromptTemplateID(for: .aiDiscovery))
+        XCTAssertEqual(selection.promptTemplateVersion, preset.aiPromptTemplateVersion)
+        XCTAssertTrue(selection.usesSpecialistPrompt)
+        XCTAssertFalse(selection.includeKnowledgePack)
+        XCTAssertFalse(selection.compactKnowledgePack)
+    }
+
+    private static func makeResult(
+        presetID: String?,
+        presetVersion: String?
+    ) -> ONTGenotypeResultBundleData {
+        let manifest = ONTGenotypeResultBundleManifest(
+            outputName: "out",
+            analysisName: "out",
+            primaryWorkbookPath: "workbook.xlsx",
+            longSummaryCSVPath: "long.csv",
+            sampleSummaryCSVPath: "samples.csv",
+            statsJSONPath: "stats.json",
+            provenancePath: "provenance.json",
+            presetID: presetID,
+            presetVersion: presetVersion
+        )
+        let artifacts = ONTGenotypeResultArtifacts(
+            workbookURL: URL(fileURLWithPath: "/tmp/workbook.xlsx"),
+            longSummaryCSVURL: URL(fileURLWithPath: "/tmp/long.csv"),
+            sampleSummaryCSVURL: URL(fileURLWithPath: "/tmp/samples.csv"),
+            statsJSONURL: URL(fileURLWithPath: "/tmp/stats.json"),
+            provenanceURL: URL(fileURLWithPath: "/tmp/provenance.json")
+        )
+        return ONTGenotypeResultBundleData(
+            bundleURL: URL(fileURLWithPath: "/tmp/out.lungfishgenotype", isDirectory: true),
+            manifest: manifest,
+            artifacts: artifacts,
+            stats: ONTGenotypeRunStats(),
+            calls: [],
+            samples: []
+        )
     }
 }
 

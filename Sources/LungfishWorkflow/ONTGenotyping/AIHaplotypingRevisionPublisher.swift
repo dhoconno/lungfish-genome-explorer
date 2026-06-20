@@ -276,6 +276,8 @@ public struct AIHaplotypingRevisionPublisher {
             haplotypeAnalysisPath: revision.path,
             haplotypeDefinitionSetID: manifest.haplotypeDefinitionSetID,
             haplotypeAssayID: manifest.haplotypeAssayID,
+            presetID: manifest.presetID,
+            presetVersion: manifest.presetVersion,
             createdAt: manifest.createdAt,
             activeHaplotypeAnalysisRevisionID: revision.id,
             haplotypeAnalysisRevisions: (manifest.haplotypeAnalysisRevisions ?? []) + [revision]

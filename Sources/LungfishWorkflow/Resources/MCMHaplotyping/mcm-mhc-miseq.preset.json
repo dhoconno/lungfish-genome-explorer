@@ -1,0 +1,21 @@
+{
+  "id": "mcm-mhc-miseq",
+  "displayName": "MCM MHC miSeq",
+  "version": "2026-06-19.4",
+  "referenceBundleResourceName": "MCM-MHC-miSeq-20260617",
+  "referenceBundleResourceExtension": "lungfishmhcref",
+  "referenceBundleResourceSubdirectory": "MCMHaplotyping",
+  "referenceFASTASHA256": "13134729eba56d42479e251b53299152d823947a0bc2c64fb82a61023e1b6561",
+  "referenceFASTARecordCount": 189,
+  "haplotypeAssayID": "MHC-exon2-miSeq",
+  "haplotypeSpeciesCode": "MCM",
+  "haplotypeDefinitionSetID": "mcm-mhc-miseq-20260617",
+  "aiDiscoveryPromptTemplateID": "lungfish.ai-haplotyping.mcm-mhc-miseq-specialist.discovery",
+  "aiRefinementPromptTemplateID": "lungfish.ai-haplotyping.mcm-mhc-miseq-specialist.refinement",
+  "aiPromptTemplateVersion": "2026-06-19.4",
+  "aiPromptResourceName": "mcm-mhc-haplotyping-specialist-prompt",
+  "aiPromptResourceExtension": "md",
+  "aiPromptResourceSubdirectory": "MCMHaplotyping",
+  "aiOpenAIModel": "gpt-5.5",
+  "aiReasoningEffort": "medium"
+}

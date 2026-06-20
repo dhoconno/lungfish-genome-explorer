@@ -77,6 +77,7 @@ final class WorkflowOperationsWindowController: NSWindowController {
                 }
             )
         )
+        refreshAISpecialistPresetAvailability()
     }
 
     @available(*, unavailable)
@@ -105,6 +106,14 @@ final class WorkflowOperationsWindowController: NSWindowController {
             selectedReadURLs: selectedReadURLs,
             sidebarInputSelection: sidebarInputSelection
         )
+        refreshAISpecialistPresetAvailability()
+    }
+
+    private func refreshAISpecialistPresetAvailability() {
+        Task { @MainActor [weak self] in
+            let available = await GenotypeAIHaplotypingExecutionService.hasConfiguredProvider()
+            self?.state.setAISpecialistPresetsAvailable(available)
+        }
     }
 
     private func run(_ request: WorkflowOperationLaunchRequest) {

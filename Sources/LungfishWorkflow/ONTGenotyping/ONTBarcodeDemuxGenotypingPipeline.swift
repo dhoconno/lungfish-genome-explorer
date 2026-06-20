@@ -30,6 +30,7 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
     public let extraArguments: [String]
     public let mode: AmpliconGenotypingMode
     public let readType: AmpliconGenotypingReadType
+    public let aiSpecialistPresetID: String?
 
     public init(
         inputFASTQURL: URL,
@@ -55,7 +56,8 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
         presetID: String? = nil,
         presetVersion: String? = nil,
         lockedReferenceSHA256: String? = nil,
-        extraArguments: [String] = []
+        extraArguments: [String] = [],
+        aiSpecialistPresetID: String? = nil
     ) {
         self.init(
             inputFASTQURLs: [inputFASTQURL],
@@ -83,7 +85,8 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
             lockedReferenceSHA256: lockedReferenceSHA256,
             extraArguments: extraArguments,
             mode: .ontBarcodeDemux,
-            readType: .ont
+            readType: .ont,
+            aiSpecialistPresetID: aiSpecialistPresetID
         )
     }
 
@@ -113,7 +116,8 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
         lockedReferenceSHA256: String? = nil,
         extraArguments: [String] = [],
         mode: AmpliconGenotypingMode = .auto,
-        readType: AmpliconGenotypingReadType = .auto
+        readType: AmpliconGenotypingReadType = .auto,
+        aiSpecialistPresetID: String? = nil
     ) {
         let normalizedOutputName = Self.sanitizedOutputName(outputName)
         let standardizedInputURLs = inputFASTQURLs.isEmpty
@@ -175,6 +179,8 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
         self.extraArguments = extraArguments
         self.mode = effectiveMode
         self.readType = effectiveReadType
+        let trimmedAISpecialistPresetID = aiSpecialistPresetID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.aiSpecialistPresetID = trimmedAISpecialistPresetID?.isEmpty == true ? nil : trimmedAISpecialistPresetID
     }
 
     public func replacingOutput(
@@ -208,7 +214,8 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
             lockedReferenceSHA256: lockedReferenceSHA256,
             extraArguments: extraArguments,
             mode: mode,
-            readType: readType
+            readType: readType,
+            aiSpecialistPresetID: aiSpecialistPresetID
         )
     }
 
@@ -2027,7 +2034,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             statsJSONPath: relativePath(from: request.outputDirectory, to: request.statsJSONURL),
             provenancePath: relativePath(from: request.outputDirectory, to: request.provenanceURL),
             haplotypeDefinitionSetID: definitionSetID,
-            haplotypeAssayID: assayID
+            haplotypeAssayID: assayID,
+            presetID: request.presetID,
+            presetVersion: request.presetVersion
         )
         let result = try ONTGenotypeResultBundle.loadResult(from: request.outputDirectory, manifest: manifest)
         let analysis = GenotypeHaplotypeAnalyzer.analyze(
@@ -2375,7 +2384,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             statsJSONPath: relativePath(from: request.outputDirectory, to: request.statsJSONURL),
             provenancePath: relativePath(from: request.outputDirectory, to: request.provenanceURL),
             haplotypeDefinitionSetID: definitionSet.id,
-            haplotypeAssayID: definitionSet.assayID
+            haplotypeAssayID: definitionSet.assayID,
+            presetID: request.presetID,
+            presetVersion: request.presetVersion
         )
         let result = try ONTGenotypeResultBundle.loadResult(from: request.outputDirectory, manifest: manifest)
         let analysis = GenotypeHaplotypeAnalyzer.analyze(
@@ -3067,6 +3078,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 : relativePath(from: request.outputDirectory, to: request.haplotypeAnalysisURL),
             haplotypeDefinitionSetID: request.haplotypeDefinitionSetID,
             haplotypeAssayID: resolvedHaplotypeDefinitionSet?.assayID,
+            presetID: request.presetID,
+            presetVersion: request.presetVersion,
             createdAt: ISO8601DateFormatter().string(from: completedAt)
         )
         try ONTGenotypeResultBundle.writeManifest(manifest, to: request.outputDirectory)

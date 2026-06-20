@@ -61,9 +61,8 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
 
         try await waitForProjectDiscovery(state)
 
-        let presetReferenceURL = try MCMHaplotypingPreset.mcmMHCmiseq.bundledReferenceBundleURL()
         XCTAssertEqual(state.projectReferenceCandidates, [referenceURL.standardizedFileURL])
-        XCTAssertEqual(state.selectedReferenceURL, presetReferenceURL)
+        XCTAssertEqual(state.selectedReferenceURL, referenceURL.standardizedFileURL)
         XCTAssertEqual(state.projectBarcodeDefinitionCandidates, [barcodesURL.standardizedFileURL])
         XCTAssertEqual(state.selectedBarcodeDefinitionURL, barcodesURL.standardizedFileURL)
         XCTAssertFalse(state.isDiscoveringProjectResources)
@@ -100,7 +99,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
 
         try await waitForProjectDiscovery(state)
 
-        XCTAssertEqual(state.selectedReferenceURL, try MCMHaplotypingPreset.mcmMHCmiseq.bundledReferenceBundleURL())
+        XCTAssertEqual(state.selectedReferenceURL, manualReferenceURL.standardizedFileURL)
         XCTAssertEqual(state.selectedBarcodeDefinitionURL, manualBarcodesURL.standardizedFileURL)
         XCTAssertTrue(state.projectReferenceCandidates.contains(discoveredReferenceURL.standardizedFileURL))
         XCTAssertTrue(state.projectBarcodeDefinitionCandidates.contains(discoveredBarcodesURL.standardizedFileURL))
@@ -128,7 +127,6 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             packageStore: packageStore
         )
         state.setReference(referenceURL)
-        state.setBarcodeDefinition(barcodesURL)
         state.setOutputDirectory(outputURL)
         state.outputName = "sample-ont"
 
@@ -171,26 +169,24 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             enablementStore: enablementStore,
             packageStore: packageStore
         )
+        state.setAmpliconAnalysisMode(.deterministicHaplotyping)
         state.setReference(referenceURL)
-        state.setBarcodeDefinition(barcodesURL)
         state.setOutputDirectory(outputURL)
         state.outputName = "barcode10-mhc"
 
-        let preset = MCMHaplotypingPreset.mcmMHCmiseq
-        let presetReferenceURL = try preset.bundledReferenceBundleURL()
-        XCTAssertEqual(state.selectedHaplotypeDefinitionSetID, preset.haplotypeDefinitionSetID)
-        XCTAssertEqual(state.selectedHaplotypeAssayID, preset.haplotypeAssayID)
-        XCTAssertEqual(state.selectedHaplotypeSpeciesCode, preset.haplotypeSpeciesCode)
-        XCTAssertEqual(state.selectedMHCReferenceBundleURL, presetReferenceURL)
+        XCTAssertEqual(state.selectedHaplotypeDefinitionSetID, definition.id)
+        XCTAssertEqual(state.selectedHaplotypeAssayID, definition.assayID)
+        XCTAssertEqual(state.selectedHaplotypeSpeciesCode, definition.speciesCode)
+        XCTAssertEqual(state.selectedMHCReferenceBundleURL, referenceURL.standardizedFileURL)
         let launch = try state.makeLaunchRequest()
         guard case .ontGenotyping(let request) = launch else {
             return XCTFail("Expected ONT genotyping request")
         }
-        XCTAssertEqual(request.referenceSourceURL, presetReferenceURL)
-        XCTAssertEqual(request.presetID, preset.id)
-        XCTAssertEqual(request.haplotypeDefinitionSetID, preset.haplotypeDefinitionSetID)
-        XCTAssertEqual(request.haplotypeAssayID, preset.haplotypeAssayID)
-        XCTAssertEqual(request.haplotypeSpeciesCode, preset.haplotypeSpeciesCode)
+        XCTAssertEqual(request.referenceSourceURL, referenceURL.standardizedFileURL)
+        XCTAssertNil(request.presetID)
+        XCTAssertEqual(request.haplotypeDefinitionSetID, definition.id)
+        XCTAssertEqual(request.haplotypeAssayID, definition.assayID)
+        XCTAssertEqual(request.haplotypeSpeciesCode, definition.speciesCode)
     }
 
     func testMHCReferenceBundleSelectionCollapsesHaplotypePickerStackAndSummarizesBundle() throws {
@@ -228,15 +224,16 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             enablementStore: enablementStore,
             packageStore: packageStore
         )
+        state.setAmpliconAnalysisMode(.deterministicHaplotyping)
 
         state.setReference(plainFASTAURL)
-        XCTAssertTrue(state.usesBundledHaplotypeDefinitions)
-        XCTAssertEqual(state.referenceBundleSummary, "From bundle: MCM MHC miSeq reference 2026-06-17")
+        XCTAssertFalse(state.usesBundledHaplotypeDefinitions)
+        XCTAssertNil(state.referenceBundleSummary)
 
         state.setReference(referenceURL)
 
         XCTAssertTrue(state.usesBundledHaplotypeDefinitions)
-        XCTAssertEqual(state.referenceBundleSummary, "From bundle: MCM MHC miSeq reference 2026-06-17")
+        XCTAssertEqual(state.referenceBundleSummary, "From bundle: MCM MHC")
     }
 
     func testOperationsDialogReflectsWorkflowEnabledByLibraryStoreAfterDialogStoreWasCreated() throws {
@@ -545,12 +542,10 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         let temp = try temporaryDirectory()
         let referenceURL = temp.appendingPathComponent("ref.lungfishref", isDirectory: true)
         let readsURL = temp.appendingPathComponent("reads.lungfishfastq", isDirectory: true)
-        let barcodesURL = temp.appendingPathComponent("barcodes.csv")
         let outputURL = temp.appendingPathComponent("Analyses", isDirectory: true)
         try FileManager.default.createDirectory(at: referenceURL, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: readsURL, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
-        try Data("sample,barcode\nDW472,ACGT\n".utf8).write(to: barcodesURL)
 
         let state = WorkflowOperationDialogState(
             projectURL: temp,
@@ -558,7 +553,6 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             packageStore: packageStore
         )
         state.setReference(referenceURL)
-        state.setBarcodeDefinition(barcodesURL)
         state.setReads([readsURL])
         state.setOutputDirectory(outputURL)
         state.outputName = "sample-ont"
@@ -571,9 +565,11 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         }
 
         XCTAssertEqual(request.inputFASTQURL, readsURL.standardizedFileURL)
-        XCTAssertEqual(request.referenceSourceURL, try MCMHaplotypingPreset.mcmMHCmiseq.bundledReferenceBundleURL())
-        XCTAssertEqual(request.presetID, MCMHaplotypingPreset.mcmMHCmiseq.id)
-        XCTAssertEqual(request.barcodeDefinitionsURL, barcodesURL.standardizedFileURL)
+        XCTAssertEqual(request.referenceSourceURL, referenceURL.standardizedFileURL)
+        XCTAssertNil(request.presetID)
+        XCTAssertNil(request.barcodeDefinitionsURL)
+        XCTAssertEqual(request.mode, .ontSampleBundles)
+        XCTAssertEqual(request.readType, .ont)
         XCTAssertEqual(
             request.outputDirectory,
             outputURL.appendingPathComponent("sample-ont.lungfishgenotype", isDirectory: true).standardizedFileURL
@@ -582,8 +578,8 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertEqual(request.analysisName, "sample-ont")
         XCTAssertEqual(request.threads, 6)
         XCTAssertEqual(request.minSupport, 3)
-        XCTAssertEqual(request.haplotypeAssayID, MCMHaplotypingPreset.mcmMHCmiseq.haplotypeAssayID)
-        XCTAssertEqual(request.haplotypeDefinitionSetID, MCMHaplotypingPreset.mcmMHCmiseq.haplotypeDefinitionSetID)
+        XCTAssertNil(request.haplotypeAssayID)
+        XCTAssertNil(request.haplotypeDefinitionSetID)
     }
 
     func testTwelveSAmpliconMatchingLaunchRequestUsesFastaReferenceAndMultipleReadBundles() throws {
@@ -932,35 +928,27 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertThrowsError(try state.makeLaunchRequest())
     }
 
-    func testONTGenotypingLaunchRequestKeepsLockedPresetDefinitionWhenStateIsMutated() throws {
+    func testONTGenotypingAISpecialistPresetUsesPromptPresetWithoutDeterministicDefinition() throws {
         let defaults = try makeDefaults()
         let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
         enablementStore.setWorkflow(.ontGenotyping, enabled: true)
         let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
         let temp = try temporaryDirectory()
-        let referenceURL = temp.appendingPathComponent("ref.lungfishref", isDirectory: true)
         let readsURL = temp.appendingPathComponent("reads.lungfishfastq", isDirectory: true)
-        let barcodesURL = temp.appendingPathComponent("barcodes.csv")
         let outputURL = temp.appendingPathComponent("Analyses", isDirectory: true)
-        try FileManager.default.createDirectory(at: referenceURL, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: readsURL, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
-        try Data("sample,barcode\nDW472,ACGT\n".utf8).write(to: barcodesURL)
 
         let state = WorkflowOperationDialogState(
             projectURL: temp,
+            aiSpecialistPresetsAvailable: true,
             enablementStore: enablementStore,
             packageStore: packageStore
         )
-        state.setReference(referenceURL)
-        state.setBarcodeDefinition(barcodesURL)
+        state.setAmpliconAnalysisMode(.aiSpecialistPreset)
         state.setReads([readsURL])
         state.setOutputDirectory(outputURL)
 
-        XCTAssertEqual(
-            state.selectedHaplotypeDefinitionSetID,
-            MCMHaplotypingPreset.mcmMHCmiseq.haplotypeDefinitionSetID
-        )
         state.selectedHaplotypeAssayID = "MHC-exon2-miSeq"
         state.selectedHaplotypeDefinitionSetID = "MHC-exon2-miSeq.mauritian-cynomolgus-macaques"
 
@@ -969,8 +957,11 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             return XCTFail("Expected ONT genotyping request")
         }
 
-        XCTAssertEqual(request.haplotypeAssayID, MCMHaplotypingPreset.mcmMHCmiseq.haplotypeAssayID)
-        XCTAssertEqual(request.haplotypeDefinitionSetID, MCMHaplotypingPreset.mcmMHCmiseq.haplotypeDefinitionSetID)
+        XCTAssertEqual(request.referenceSourceURL, try MCMHaplotypingPreset.mcmMHCmiseq.bundledReferenceBundleURL())
+        XCTAssertEqual(request.presetID, MCMHaplotypingPreset.mcmMHCmiseq.id)
+        XCTAssertEqual(request.aiSpecialistPresetID, MCMHaplotypingPreset.mcmMHCmiseq.id)
+        XCTAssertNil(request.haplotypeAssayID)
+        XCTAssertNil(request.haplotypeDefinitionSetID)
     }
 
     func testONTGenotypingLaunchRequestIncludesOperationHaplotypeThresholds() throws {
@@ -993,8 +984,8 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             enablementStore: enablementStore,
             packageStore: packageStore
         )
+        state.setAmpliconAnalysisMode(.deterministicHaplotyping)
         state.setReference(referenceURL)
-        state.setBarcodeDefinition(barcodesURL)
         state.setReads([readsURL])
         state.setOutputDirectory(outputURL)
         state.selectedHaplotypeAssayID = "MHC-exon2-miSeq"
@@ -1144,7 +1135,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertEqual(state.selectedBarcodeDefinitionURL, barcodesURL.standardizedFileURL)
     }
 
-    func testExternalBarcodeDefinitionIsImportedIntoProjectBeforeONTLaunch() throws {
+    func testExternalBarcodeDefinitionIsIgnoredByPerSampleBundleONTLaunch() throws {
         let defaults = try makeDefaults()
         let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
         enablementStore.setWorkflow(.ontGenotyping, enabled: true)
@@ -1177,17 +1168,8 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         }
 
         let importedURL = projectURL.appendingPathComponent("Barcode Definitions/barcodes.csv").standardizedFileURL
-        XCTAssertEqual(request.barcodeDefinitionsURL, importedURL)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: importedURL.path))
-        XCTAssertEqual(try String(contentsOf: importedURL, encoding: .utf8), "sample,barcode\nDW472,ACGT\n")
-
-        let provenanceURL = importedURL.appendingPathExtension("lungfish-provenance.json")
-        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL))
-        XCTAssertEqual(envelope.workflowName, "Workflow Operations Barcode Definition Import")
-        XCTAssertEqual(envelope.outputs.map(\.path), [importedURL.path])
-        XCTAssertTrue(envelope.files.contains {
-            $0.path == externalURL.standardizedFileURL.path && $0.role == .input
-        })
+        XCTAssertNil(request.barcodeDefinitionsURL)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: importedURL.path))
     }
 
     func testONTGenotypingTreatsMultipleSelectedReadBundlesAsSampleBundles() throws {
@@ -1586,8 +1568,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             enablementStore: enablementStore,
             packageStore: packageStore
         )
-        let presetReferenceURL = try MCMHaplotypingPreset.mcmMHCmiseq.bundledReferenceBundleURL()
-        XCTAssertEqual(state.selectedReferenceURL, presetReferenceURL)
+        XCTAssertEqual(state.selectedReferenceURL, firstReferenceURL.standardizedFileURL)
         XCTAssertEqual(
             state.outputDirectoryURL,
             firstProjectURL
@@ -1598,7 +1579,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         state.configureProject(projectURL: secondProjectURL, selectedReadURLs: [secondReadsURL])
 
         XCTAssertEqual(state.projectURL, secondProjectURL.standardizedFileURL)
-        XCTAssertEqual(state.selectedReferenceURL, presetReferenceURL)
+        XCTAssertEqual(state.selectedReferenceURL, secondReferenceURL.standardizedFileURL)
         XCTAssertEqual(state.selectedReadURLs, [secondReadsURL.standardizedFileURL])
         XCTAssertEqual(
             state.outputDirectoryURL,
@@ -1635,7 +1616,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         )
         let readPicker = try sourceBlock(
             startingAt: "    private var readPicker: some View",
-            endingBefore: "    private var barcodePicker: some View",
+            endingBefore: "    private var twelveSSampleMetadataPicker: some View",
             in: source
         )
         let referencePicker = try sourceBlock(
@@ -1673,21 +1654,26 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertTrue(source.contains("workflow-operations-duplicate-folder-inputs"))
     }
 
-    func testWorkflowOperationsDialogShowsProjectBarcodeDefinitionPicker() throws {
+    func testWorkflowOperationsDialogRemovesBarcodeDefinitionPickerAndShowsMutuallyExclusiveAnalysisModes() throws {
         let source = try String(
             contentsOf: repositoryRoot()
                 .appendingPathComponent("Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationsDialog.swift"),
             encoding: .utf8
         )
-        let barcodePicker = try sourceBlock(
-            startingAt: "    private var barcodePicker: some View",
-            endingBefore: "    @ViewBuilder\n    private var primarySettings",
+        let analysisModePicker = try sourceBlock(
+            startingAt: "    private var ampliconAnalysisModePicker: some View",
+            endingBefore: "    private var haplotypeDefinitionPicker: some View",
             in: source
         )
 
-        XCTAssertTrue(source.contains("state.effectiveGenotypingMode == .ontBarcodeDemux"))
-        XCTAssertTrue(barcodePicker.contains("Picker(\"Project File\""))
-        XCTAssertTrue(barcodePicker.contains("barcodeDefinitionProjectFileBinding"))
+        XCTAssertFalse(source.contains("barcodePicker"))
+        XCTAssertFalse(source.contains("barcodeDefinitionProjectFileBinding"))
+        XCTAssertFalse(source.contains("browseForBarcodeDefinition"))
+        XCTAssertTrue(analysisModePicker.contains("WorkflowOperationAmpliconAnalysisMode.allCases"))
+        XCTAssertTrue(analysisModePicker.contains(".pickerStyle(.segmented)"))
+        XCTAssertTrue(analysisModePicker.contains("state.setAmpliconAnalysisMode(mode)"))
+        XCTAssertTrue(analysisModePicker.contains(".disabled(mode == .aiSpecialistPreset && !state.aiSpecialistPresetsAvailable)"))
+        XCTAssertTrue(analysisModePicker.contains("AI specialist presets require configured API access."))
     }
 
     func testWorkflowOperationsDialogShowsTwelveSMatchingModeAsPrimaryGUIControl() throws {
@@ -1698,12 +1684,12 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         )
         let primarySettings = try sourceBlock(
             startingAt: "    @ViewBuilder\n    private var primarySettings",
-            endingBefore: "    private var genotypingModePicker",
+            endingBefore: "    private var ampliconAnalysisModePicker",
             in: source
         )
         let matchingModePicker = try sourceBlock(
             startingAt: "    private var twelveSMatchingModePicker: some View",
-            endingBefore: "    private var genotypingModePicker",
+            endingBefore: "    private var ampliconAnalysisModePicker",
             in: source
         )
 

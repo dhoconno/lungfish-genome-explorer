@@ -31,6 +31,31 @@ enum WorkflowOperationProjectDiscoveryMode: Sendable {
     case asynchronous
 }
 
+enum WorkflowOperationAmpliconAnalysisMode: String, CaseIterable, Sendable {
+    case aiSpecialistPreset
+    case deterministicHaplotyping
+    case genotypeOnly
+
+    var displayName: String {
+        switch self {
+        case .aiSpecialistPreset: return "AI preset"
+        case .deterministicHaplotyping: return "Deterministic"
+        case .genotypeOnly: return "Genotype only"
+        }
+    }
+
+    var helpText: String {
+        switch self {
+        case .aiSpecialistPreset:
+            return "Uses a preset reference and specialist analyst prompt."
+        case .deterministicHaplotyping:
+            return "Uses the selected reference and a haplotype definition."
+        case .genotypeOnly:
+            return "Maps reads and reports genotypes without haplotyping."
+        }
+    }
+}
+
 private struct WorkflowOperationProjectDiscoverySnapshot: Sendable {
     let referenceCandidates: [URL]
     let guideCandidates: [URL]
@@ -99,6 +124,9 @@ final class WorkflowOperationDialogState {
     var haplotypeDropoutLocusOverridePercents: [String: Double]
     var selectedGenotypingMode: AmpliconGenotypingMode
     var selectedGenotypingReadType: AmpliconGenotypingReadType
+    var selectedAmpliconAnalysisMode: WorkflowOperationAmpliconAnalysisMode
+    var selectedAmpliconPresetID: String?
+    var aiSpecialistPresetsAvailable: Bool
     var twelveSMinimumSoftClipBases: Int
     var twelveSMaximumIndelBases: Int
     var twelveSMatchingMode: TwelveSAmpliconMatchingMode
@@ -133,6 +161,7 @@ final class WorkflowOperationDialogState {
         selectedReadURLs: [URL] = [],
         sidebarInputSelection: WorkflowSidebarInputSelection? = nil,
         projectDiscoveryMode: WorkflowOperationProjectDiscoveryMode = .synchronous,
+        aiSpecialistPresetsAvailable: Bool = false,
         enablementStore: WorkflowLibraryEnablementStore = .shared,
         packageStore: WorkflowLibraryImportedPackageStore = .shared
     ) {
@@ -154,6 +183,9 @@ final class WorkflowOperationDialogState {
         self.haplotypeDropoutLocusOverridePercents = [:]
         self.selectedGenotypingMode = .auto
         self.selectedGenotypingReadType = Self.defaultGenotypingReadType(for: standardizedReadURLs)
+        self.aiSpecialistPresetsAvailable = aiSpecialistPresetsAvailable
+        self.selectedAmpliconAnalysisMode = aiSpecialistPresetsAvailable ? .aiSpecialistPreset : .genotypeOnly
+        self.selectedAmpliconPresetID = MCMHaplotypingPreset.mcmMHCmiseq.id
         self.twelveSMinimumSoftClipBases = 1
         self.twelveSMaximumIndelBases = 3
         self.twelveSMatchingMode = .illuminaExact
@@ -201,9 +233,7 @@ final class WorkflowOperationDialogState {
             projectURL: self.projectURL,
             toolKind: initialTools.first { $0.id == initialToolID }?.kind
         )
-        if initialToolID == Self.ontGenotypingID {
-            applyLockedMCMMiSeqPreset()
-        }
+        applyReferenceDefaultsForCurrentAmpliconMode()
         cacheReferenceBundleSummaryIfNeeded(self.selectedReferenceURL)
         self.enablementObserver = WorkflowOperationNotificationObserver(
             NotificationCenter.default.addObserver(
@@ -330,26 +360,57 @@ final class WorkflowOperationDialogState {
         selectedMHCReferenceBundleURL != nil
     }
 
-    var effectiveGenotypingMode: AmpliconGenotypingMode {
-        if selectedGenotypingMode == .ontSampleBundles {
-            return .ontSampleBundles
+    var availableAmpliconPresets: [AmpliconGenotypingPreset] {
+        MCMHaplotypingPreset.builtInPresets
+    }
+
+    var selectedAmpliconPreset: AmpliconGenotypingPreset? {
+        MCMHaplotypingPreset.preset(id: selectedAmpliconPresetID)
+    }
+
+    var selectedAmpliconPresetDisplayName: String {
+        selectedAmpliconPreset?.displayName ?? "No preset selected"
+    }
+
+    var selectedAmpliconPresetReferenceSummary: String {
+        guard let preset = selectedAmpliconPreset else {
+            return "No preset reference selected"
         }
+        return "\(preset.displayName) reference, \(preset.referenceFASTARecordCount) records"
+    }
+
+    var selectedAmpliconPresetPromptSummary: String {
+        guard let preset = selectedAmpliconPreset else {
+            return "No specialist prompt selected"
+        }
+        return "Specialist prompt \(preset.aiPromptTemplateVersion), \(preset.aiOpenAIModel) \(preset.aiReasoningEffort)"
+    }
+
+    var shouldShowManualAmpliconReferencePicker: Bool {
+        selectedTool?.kind != .ontGenotyping || selectedAmpliconAnalysisMode != .aiSpecialistPreset
+    }
+
+    var effectiveGenotypingMode: AmpliconGenotypingMode {
         switch selectedGenotypingReadType {
         case .ont:
-            if selectedReadURLs.count > 1 {
-                return .ontSampleBundles
-            }
-            return .ontBarcodeDemux
+            return .ontSampleBundles
         case .illumina:
             return .illuminaPaired
         case .auto:
-            if selectedGenotypingMode != .auto {
-                return selectedGenotypingMode
-            }
-            if selectedBarcodeDefinitionURL != nil {
-                return .ontBarcodeDemux
-            }
-            return .auto
+            return selectedReadURLs.contains { Self.genotypingReadTypeFromFASTQMetadata($0) == .illumina }
+                ? .illuminaPaired
+                : .ontSampleBundles
+        }
+    }
+
+    var effectiveGenotypingReadType: AmpliconGenotypingReadType {
+        switch effectiveGenotypingMode {
+        case .illuminaPaired:
+            return .illumina
+        case .ontBarcodeDemux, .ontSampleBundles:
+            return .ont
+        case .auto:
+            return selectedGenotypingReadType == .illumina ? .illumina : .ont
         }
     }
 
@@ -422,6 +483,14 @@ final class WorkflowOperationDialogState {
         return Self.displayPath(for: twelveSSampleMetadataURL, relativeTo: projectURL)
     }
 
+    func referenceURLForSelectedTool() -> URL? {
+        guard selectedTool?.kind == .ontGenotyping,
+              selectedAmpliconAnalysisMode == .aiSpecialistPreset else {
+            return selectedReferenceURL
+        }
+        return try? selectedAmpliconPreset?.bundledReferenceBundleURL()
+    }
+
     var selectedToolSummary: String {
         selectedTool?.subtitle ?? "Select a workflow to configure."
     }
@@ -433,22 +502,24 @@ final class WorkflowOperationDialogState {
         guard selectedTool?.availability == .available else {
             return selectedTool?.availability.badgeText ?? "Workflow unavailable."
         }
-        guard let selectedReferenceURL else {
-            return "Select a reference bundle or FASTA file."
+        guard referenceURLForSelectedTool() != nil else {
+            return selectedTool?.kind == .ontGenotyping && selectedAmpliconAnalysisMode == .aiSpecialistPreset
+                ? "Select an AI specialist preset."
+                : "Select a reference bundle or FASTA file."
+        }
+        guard selectedTool?.kind != .ontGenotyping
+                || selectedAmpliconAnalysisMode != .aiSpecialistPreset
+                || aiSpecialistPresetsAvailable else {
+            return "Configure AI API access before using an AI specialist preset."
         }
         if selectedTool?.kind == .twelveSAmpliconMatching,
-           Self.twelveSReferenceInput(for: selectedReferenceURL) == nil {
+           Self.twelveSReferenceInput(for: referenceURLForSelectedTool()!) == nil {
             return "Select a 12S reference FASTA file or reference bundle."
         }
         if selectedTool?.kind == .twelveSAmpliconMatching,
            let twelveSSampleMetadataURL,
            !FileManager.default.fileExists(atPath: twelveSSampleMetadataURL.path) {
             return "Select a valid analysis metadata CSV or TSV file."
-        }
-        if selectedTool?.kind == .ontGenotyping,
-           effectiveGenotypingMode == .ontBarcodeDemux,
-           selectedBarcodeDefinitionURL == nil {
-            return "Select a project barcode definition or choose a CSV/TSV file."
         }
         guard !selectedReadURLs.isEmpty else {
             return "Select one or more FASTQ bundles."
@@ -472,6 +543,11 @@ final class WorkflowOperationDialogState {
         }
         if selectedTool?.kind == .ontGenotyping, minSupport < 1 {
             return "Minimum read threshold must be at least 1."
+        }
+        if selectedTool?.kind == .ontGenotyping,
+           selectedAmpliconAnalysisMode == .deterministicHaplotyping,
+           selectedHaplotypeDefinitionSetID == nil {
+            return "Select a deterministic haplotype definition, or choose genotype-only."
         }
         if (selectedTool?.kind == .ontGenotyping || selectedTool?.kind == .fullLengthONTMHCGenotyping),
            haplotypeDropoutLocusPercent < 0 || haplotypeDropoutLocusPercent > 100 {
@@ -540,8 +616,31 @@ final class WorkflowOperationDialogState {
             outputName = Self.defaultTwelveSOutputName(for: selectedReadURLs)
         } else {
             outputName = Self.defaultONTGenotypingOutputName(for: selectedReadURLs)
-            applyLockedMCMMiSeqPreset()
+            applyReferenceDefaultsForCurrentAmpliconMode()
         }
+    }
+
+    func setAmpliconAnalysisMode(_ mode: WorkflowOperationAmpliconAnalysisMode) {
+        guard mode != .aiSpecialistPreset || aiSpecialistPresetsAvailable else {
+            selectedAmpliconAnalysisMode = .genotypeOnly
+            return
+        }
+        selectedAmpliconAnalysisMode = mode
+        applyReferenceDefaultsForCurrentAmpliconMode()
+    }
+
+    func setAmpliconPreset(_ id: String?) {
+        selectedAmpliconPresetID = MCMHaplotypingPreset.preset(id: id)?.id
+            ?? MCMHaplotypingPreset.mcmMHCmiseq.id
+        applyReferenceDefaultsForCurrentAmpliconMode()
+    }
+
+    func setAISpecialistPresetsAvailable(_ available: Bool) {
+        aiSpecialistPresetsAvailable = available
+        if !available, selectedAmpliconAnalysisMode == .aiSpecialistPreset {
+            selectedAmpliconAnalysisMode = .genotypeOnly
+        }
+        applyReferenceDefaultsForCurrentAmpliconMode()
     }
 
     func refreshWorkflowAvailability() {
@@ -761,9 +860,6 @@ final class WorkflowOperationDialogState {
         }
 
         refreshHaplotypeSelectionForCurrentProject()
-        if selectedToolID == Self.ontGenotypingID {
-            applyLockedMCMMiSeqPreset()
-        }
         if resetBarcodeSelection || selectedBarcodeDefinitionURL == nil {
             selectedBarcodeDefinitionURL = snapshot.barcodeDefinitionCandidates.first
         }
@@ -842,27 +938,44 @@ final class WorkflowOperationDialogState {
     }
 
     func setReference(_ url: URL?) {
-        if selectedToolID == Self.ontGenotypingID {
-            applyLockedMCMMiSeqPreset()
-            return
-        }
         selectedReferenceURL = url?.standardizedFileURL
         cacheReferenceBundleSummaryIfNeeded(selectedReferenceURL)
+        if selectedAmpliconAnalysisMode == .deterministicHaplotyping {
+            applyBundledMHCReferenceDefaultsIfAvailable(for: selectedReferenceURL)
+        }
     }
 
-    private func applyLockedMCMMiSeqPreset() {
+    private func applyReferenceDefaultsForCurrentAmpliconMode() {
+        guard selectedToolID == Self.ontGenotypingID else { return }
+        switch selectedAmpliconAnalysisMode {
+        case .aiSpecialistPreset:
+            applySelectedAmpliconPresetReference()
+        case .deterministicHaplotyping:
+            applyBundledMHCReferenceDefaultsIfAvailable(for: selectedReferenceURL)
+        case .genotypeOnly:
+            selectedHaplotypeAssayID = nil
+            selectedHaplotypeSpeciesCode = nil
+            selectedHaplotypeDefinitionScope = nil
+            selectedHaplotypeDefinitionSetID = nil
+        }
+    }
+
+    private func applySelectedAmpliconPresetReference() {
         let preset = MCMHaplotypingPreset.mcmMHCmiseq
         guard let bundleURL = try? preset.bundledReferenceBundleURL() else {
             selectedReferenceURL = nil
-            selectedHaplotypeAssayID = preset.haplotypeAssayID
-            selectedHaplotypeSpeciesCode = preset.haplotypeSpeciesCode
+            selectedHaplotypeAssayID = nil
+            selectedHaplotypeSpeciesCode = nil
             selectedHaplotypeDefinitionScope = nil
-            selectedHaplotypeDefinitionSetID = preset.haplotypeDefinitionSetID
+            selectedHaplotypeDefinitionSetID = nil
             return
         }
         selectedReferenceURL = bundleURL
         cacheReferenceBundleSummaryIfNeeded(bundleURL)
-        applyBundledMHCReferenceDefaultsIfAvailable(for: bundleURL)
+        selectedHaplotypeAssayID = nil
+        selectedHaplotypeSpeciesCode = nil
+        selectedHaplotypeDefinitionScope = nil
+        selectedHaplotypeDefinitionSetID = nil
     }
 
     func setGuide(_ url: URL?) {
@@ -968,7 +1081,6 @@ final class WorkflowOperationDialogState {
 
     func makeLaunchRequest() throws -> WorkflowOperationLaunchRequest {
         guard let selectedTool,
-              let selectedReferenceURL,
               let outputDirectoryURL else {
             throw WorkflowOperationError.incompleteConfiguration(readinessText)
         }
@@ -980,43 +1092,86 @@ final class WorkflowOperationDialogState {
             guard !selectedReadURLs.isEmpty else {
                 throw WorkflowOperationError.incompleteConfiguration(readinessText)
             }
-            let barcodeDefinitionURL: URL?
+            guard let referenceURL = referenceURLForSelectedTool() else {
+                throw WorkflowOperationError.incompleteConfiguration(readinessText)
+            }
             let launchMode = effectiveGenotypingMode
-            if launchMode == .ontBarcodeDemux {
-                guard let selectedBarcodeDefinitionURL else {
+            let readType = effectiveGenotypingReadType
+            let outputBundleURL = Self.ontGenotypingBundleURL(
+                outputLocationURL: outputDirectoryURL,
+                outputName: outputName
+            )
+            let parsedExtraArguments = try AdvancedCommandLineOptions.parse(extraArgumentsText)
+            let request: ONTBarcodeDemuxGenotypingRunRequest
+            switch selectedAmpliconAnalysisMode {
+            case .aiSpecialistPreset:
+                guard aiSpecialistPresetsAvailable,
+                      let preset = selectedAmpliconPreset else {
                     throw WorkflowOperationError.incompleteConfiguration(readinessText)
                 }
-                do {
-                    barcodeDefinitionURL = try projectOwnedBarcodeDefinitionURL(for: selectedBarcodeDefinitionURL)
-                } catch {
-                    throw WorkflowOperationError.barcodeDefinitionImportFailed(error.localizedDescription)
-                }
-            } else {
-                barcodeDefinitionURL = nil
+                request = try preset.makeGenotypingRunRequest(
+                    inputFASTQURLs: selectedReadURLs,
+                    barcodeDefinitionsURL: nil,
+                    outputDirectory: outputBundleURL,
+                    outputName: outputName,
+                    analysisName: outputName,
+                    projectURL: projectURL,
+                    threads: threads,
+                    minSupport: minSupport,
+                    haplotypeDropoutSampleFraction: nil,
+                    haplotypeDropoutLocusFraction: nil,
+                    haplotypeDropoutLocusFractionOverrides: [:],
+                    extraArguments: parsedExtraArguments,
+                    mode: launchMode,
+                    readType: readType,
+                    includeDeterministicHaplotyping: false,
+                    aiSpecialistPresetID: preset.id
+                )
+            case .deterministicHaplotyping:
+                request = ONTBarcodeDemuxGenotypingRunRequest(
+                    inputFASTQURLs: selectedReadURLs,
+                    referenceSourceURL: referenceURL,
+                    barcodeDefinitionsURL: nil,
+                    outputDirectory: outputBundleURL,
+                    outputName: outputName,
+                    analysisName: outputName,
+                    projectURL: projectURL,
+                    threads: threads,
+                    minSupport: minSupport,
+                    haplotypeDropoutSampleFraction: nil,
+                    haplotypeDropoutLocusFraction: Self.fraction(fromPercent: haplotypeDropoutLocusPercent),
+                    haplotypeDropoutLocusFractionOverrides: [:],
+                    haplotypeAssayID: selectedHaplotypeAssayID,
+                    haplotypeSpeciesCode: selectedHaplotypeSpeciesCode,
+                    haplotypeDefinitionScope: selectedHaplotypeDefinitionScope,
+                    haplotypeDefinitionSetID: selectedHaplotypeDefinitionSetID,
+                    extraArguments: parsedExtraArguments,
+                    mode: launchMode,
+                    readType: readType
+                )
+            case .genotypeOnly:
+                request = ONTBarcodeDemuxGenotypingRunRequest(
+                    inputFASTQURLs: selectedReadURLs,
+                    referenceSourceURL: referenceURL,
+                    barcodeDefinitionsURL: nil,
+                    outputDirectory: outputBundleURL,
+                    outputName: outputName,
+                    analysisName: outputName,
+                    projectURL: projectURL,
+                    threads: threads,
+                    minSupport: minSupport,
+                    extraArguments: parsedExtraArguments,
+                    mode: launchMode,
+                    readType: readType
+                )
             }
-            let request = try MCMHaplotypingPreset.mcmMHCmiseq.makeGenotypingRunRequest(
-                inputFASTQURLs: selectedReadURLs,
-                barcodeDefinitionsURL: barcodeDefinitionURL,
-                outputDirectory: Self.ontGenotypingBundleURL(
-                    outputLocationURL: outputDirectoryURL,
-                    outputName: outputName
-                ),
-                outputName: outputName,
-                analysisName: outputName,
-                projectURL: projectURL,
-                threads: threads,
-                minSupport: minSupport,
-                haplotypeDropoutSampleFraction: nil,
-                haplotypeDropoutLocusFraction: Self.fraction(fromPercent: haplotypeDropoutLocusPercent),
-                haplotypeDropoutLocusFractionOverrides: [:],
-                extraArguments: try AdvancedCommandLineOptions.parse(extraArgumentsText),
-                mode: launchMode,
-                readType: selectedGenotypingReadType
-            )
             return .ontGenotyping(request)
 
         case .fullLengthONTMHCGenotyping:
             guard !selectedReadURLs.isEmpty else {
+                throw WorkflowOperationError.incompleteConfiguration(readinessText)
+            }
+            guard let selectedReferenceURL = referenceURLForSelectedTool() else {
                 throw WorkflowOperationError.incompleteConfiguration(readinessText)
             }
             let request = FullLengthONTMHCGenotypingRunRequest(
@@ -1050,7 +1205,8 @@ final class WorkflowOperationDialogState {
             guard !selectedReadURLs.isEmpty else {
                 throw WorkflowOperationError.incompleteConfiguration(readinessText)
             }
-            guard let referenceInput = Self.twelveSReferenceInput(for: selectedReferenceURL) else {
+            guard let selectedReferenceURL = referenceURLForSelectedTool(),
+                  let referenceInput = Self.twelveSReferenceInput(for: selectedReferenceURL) else {
                 throw WorkflowOperationError.incompleteConfiguration(readinessText)
             }
             let config = TwelveSAmpliconMatchingConfiguration(

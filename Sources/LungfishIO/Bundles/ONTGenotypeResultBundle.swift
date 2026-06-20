@@ -145,6 +145,8 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
     public let haplotypeAnalysisRevisions: [ONTGenotypeHaplotypeAnalysisRevision]?
     public let haplotypeDefinitionSetID: String?
     public let haplotypeAssayID: String?
+    public let presetID: String?
+    public let presetVersion: String?
     public let createdAt: String?
 
     public init(
@@ -162,6 +164,8 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
         haplotypeAnalysisPath: String? = nil,
         haplotypeDefinitionSetID: String? = nil,
         haplotypeAssayID: String? = nil,
+        presetID: String? = nil,
+        presetVersion: String? = nil,
         createdAt: String? = nil,
         activeHaplotypeAnalysisRevisionID: String? = nil,
         haplotypeAnalysisRevisions: [ONTGenotypeHaplotypeAnalysisRevision]? = nil
@@ -182,6 +186,8 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
         self.haplotypeAnalysisRevisions = haplotypeAnalysisRevisions
         self.haplotypeDefinitionSetID = haplotypeDefinitionSetID
         self.haplotypeAssayID = haplotypeAssayID
+        self.presetID = presetID
+        self.presetVersion = presetVersion
         self.createdAt = createdAt
     }
 
@@ -200,6 +206,8 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
         haplotypeAnalysisPath: String? = nil,
         haplotypeDefinitionSetID: String? = nil,
         haplotypeAssayID: String? = nil,
+        presetID: String? = nil,
+        presetVersion: String? = nil,
         createdAt: String? = nil
     ) {
         self.init(
@@ -217,6 +225,8 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
             haplotypeAnalysisPath: haplotypeAnalysisPath,
             haplotypeDefinitionSetID: haplotypeDefinitionSetID,
             haplotypeAssayID: haplotypeAssayID,
+            presetID: presetID,
+            presetVersion: presetVersion,
             createdAt: createdAt,
             activeHaplotypeAnalysisRevisionID: nil,
             haplotypeAnalysisRevisions: nil
@@ -236,6 +246,8 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
         haplotypeAnalysisPath: String? = nil,
         haplotypeDefinitionSetID: String? = nil,
         haplotypeAssayID: String? = nil,
+        presetID: String? = nil,
+        presetVersion: String? = nil,
         createdAt: String? = nil,
         activeHaplotypeAnalysisRevisionID: String? = nil,
         haplotypeAnalysisRevisions: [ONTGenotypeHaplotypeAnalysisRevision]? = nil
@@ -255,6 +267,8 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
             haplotypeAnalysisPath: haplotypeAnalysisPath,
             haplotypeDefinitionSetID: haplotypeDefinitionSetID,
             haplotypeAssayID: haplotypeAssayID,
+            presetID: presetID,
+            presetVersion: presetVersion,
             createdAt: createdAt,
             activeHaplotypeAnalysisRevisionID: activeHaplotypeAnalysisRevisionID,
             haplotypeAnalysisRevisions: haplotypeAnalysisRevisions
@@ -274,6 +288,8 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
         haplotypeAnalysisPath: String? = nil,
         haplotypeDefinitionSetID: String? = nil,
         haplotypeAssayID: String? = nil,
+        presetID: String? = nil,
+        presetVersion: String? = nil,
         createdAt: String? = nil
     ) {
         self.init(
@@ -289,6 +305,8 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
             haplotypeAnalysisPath: haplotypeAnalysisPath,
             haplotypeDefinitionSetID: haplotypeDefinitionSetID,
             haplotypeAssayID: haplotypeAssayID,
+            presetID: presetID,
+            presetVersion: presetVersion,
             createdAt: createdAt,
             activeHaplotypeAnalysisRevisionID: nil,
             haplotypeAnalysisRevisions: nil

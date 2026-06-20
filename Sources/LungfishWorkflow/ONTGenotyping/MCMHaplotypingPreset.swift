@@ -2,27 +2,8 @@ import Foundation
 import LungfishIO
 
 public struct MCMHaplotypingPreset: Codable, Equatable, Sendable {
-    public static let mcmMHCmiseq = MCMHaplotypingPreset(
-        id: "mcm-mhc-miseq",
-        displayName: "MCM MHC miSeq",
-        version: "2026-06-19.4",
-        referenceBundleResourceName: "MCM-MHC-miSeq-20260617",
-        referenceBundleResourceExtension: MHCAmpliconReferenceBundle.directoryExtension,
-        referenceBundleResourceSubdirectory: "MCMHaplotyping",
-        referenceFASTASHA256: "13134729eba56d42479e251b53299152d823947a0bc2c64fb82a61023e1b6561",
-        referenceFASTARecordCount: 189,
-        haplotypeAssayID: "MHC-exon2-miSeq",
-        haplotypeSpeciesCode: "MCM",
-        haplotypeDefinitionSetID: "mcm-mhc-miseq-20260617",
-        aiDiscoveryPromptTemplateID: "lungfish.ai-haplotyping.mcm-mhc-miseq-specialist.discovery",
-        aiRefinementPromptTemplateID: "lungfish.ai-haplotyping.mcm-mhc-miseq-specialist.refinement",
-        aiPromptTemplateVersion: "2026-06-19.4",
-        aiPromptResourceName: "mcm-mhc-haplotyping-specialist-prompt",
-        aiPromptResourceExtension: "md",
-        aiPromptResourceSubdirectory: "MCMHaplotyping",
-        aiOpenAIModel: "gpt-5.5",
-        aiReasoningEffort: "medium"
-    )
+    public static let mcmMHCmiseq = loadBuiltInPreset(resourceName: "mcm-mhc-miseq")
+    public static let builtInPresets: [MCMHaplotypingPreset] = [mcmMHCmiseq]
 
     public let id: String
     public let displayName: String
@@ -49,9 +30,30 @@ public struct MCMHaplotypingPreset: Codable, Equatable, Sendable {
               !trimmed.isEmpty else {
             return nil
         }
-        return trimmed.caseInsensitiveCompare(mcmMHCmiseq.id) == .orderedSame
-            ? mcmMHCmiseq
-            : nil
+        return builtInPresets.first { $0.id.caseInsensitiveCompare(trimmed) == .orderedSame }
+    }
+
+    public static func builtInPresetDescriptorURL(id: String) -> URL? {
+        builtInPresetDescriptorURL(id: id, bundle: .module)
+    }
+
+    public static func builtInPresetDescriptorURL(id: String, bundle: Bundle) -> URL? {
+        bundle.url(
+            forResource: id,
+            withExtension: "preset.json",
+            subdirectory: "MCMHaplotyping"
+        )?.standardizedFileURL
+    }
+
+    private static func loadBuiltInPreset(resourceName: String) -> MCMHaplotypingPreset {
+        do {
+            guard let url = builtInPresetDescriptorURL(id: resourceName) else {
+                throw MCMHaplotypingPresetError.missingBundledPreset(resourceName)
+            }
+            return try JSONDecoder().decode(MCMHaplotypingPreset.self, from: Data(contentsOf: url))
+        } catch {
+            preconditionFailure("Invalid built-in amplicon genotyping preset \(resourceName): \(error)")
+        }
     }
 
     public func aiPromptTemplateID(for mode: AIHaplotypingPromptMode) -> String {
@@ -102,6 +104,9 @@ public struct MCMHaplotypingPreset: Codable, Equatable, Sendable {
     }
 
     public func matches(result: ONTGenotypeResultBundleData) -> Bool {
+        if matches(result.manifest.presetID, expected: id) {
+            return true
+        }
         let definitionIDs = [
             result.manifest.haplotypeDefinitionSetID,
             result.haplotypeAnalysis?.definitionSetID,
@@ -145,7 +150,9 @@ public struct MCMHaplotypingPreset: Codable, Equatable, Sendable {
         haplotypeDropoutLocusFractionOverrides: [String: Double] = [:],
         extraArguments: [String] = [],
         mode: AmpliconGenotypingMode = .auto,
-        readType: AmpliconGenotypingReadType = .auto
+        readType: AmpliconGenotypingReadType = .auto,
+        includeDeterministicHaplotyping: Bool = true,
+        aiSpecialistPresetID: String? = nil
     ) throws -> ONTBarcodeDemuxGenotypingRunRequest {
         ONTBarcodeDemuxGenotypingRunRequest(
             inputFASTQURLs: inputFASTQURLs,
@@ -164,21 +171,25 @@ public struct MCMHaplotypingPreset: Codable, Equatable, Sendable {
             haplotypeDropoutSampleFraction: haplotypeDropoutSampleFraction,
             haplotypeDropoutLocusFraction: haplotypeDropoutLocusFraction,
             haplotypeDropoutLocusFractionOverrides: haplotypeDropoutLocusFractionOverrides,
-            haplotypeAssayID: haplotypeAssayID,
-            haplotypeSpeciesCode: haplotypeSpeciesCode,
+            haplotypeAssayID: includeDeterministicHaplotyping ? haplotypeAssayID : nil,
+            haplotypeSpeciesCode: includeDeterministicHaplotyping ? haplotypeSpeciesCode : nil,
             haplotypeDefinitionScope: nil,
-            haplotypeDefinitionSetID: haplotypeDefinitionSetID,
+            haplotypeDefinitionSetID: includeDeterministicHaplotyping ? haplotypeDefinitionSetID : nil,
             presetID: id,
             presetVersion: version,
             lockedReferenceSHA256: referenceFASTASHA256,
             extraArguments: extraArguments,
             mode: mode,
-            readType: readType
+            readType: readType,
+            aiSpecialistPresetID: aiSpecialistPresetID
         )
     }
 }
 
+public typealias AmpliconGenotypingPreset = MCMHaplotypingPreset
+
 public enum MCMHaplotypingPresetError: Error, LocalizedError, Sendable, Equatable {
+    case missingBundledPreset(String)
     case missingBundledReferenceBundle(String)
     case missingBundledSpecialistPrompt(String)
     case unknownPreset(String)
@@ -187,6 +198,8 @@ public enum MCMHaplotypingPresetError: Error, LocalizedError, Sendable, Equatabl
 
     public var errorDescription: String? {
         switch self {
+        case .missingBundledPreset(let id):
+            return "Bundled amplicon genotyping preset descriptor \(id) was not found."
         case .missingBundledReferenceBundle(let id):
             return "Bundled MCM MHC miSeq reference bundle for preset \(id) was not found."
         case .missingBundledSpecialistPrompt(let id):

@@ -6,7 +6,10 @@ import LungfishWorkflow
 struct FastqONTBarcodeGenotypingSubcommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "ont-barcode-genotype",
-        abstract: "Map an ONT barcode FASTQ once, retain exact+indel MHC alignments, and demultiplex retained reads"
+        abstract: "Deprecated ONT barcode demux genotyping workflow",
+        discussion: """
+        Deprecated: demultiplexing now belongs in FASTQ import recipes. Use those recipes to create per-sample .lungfishfastq bundles, then run `lungfish-cli fastq genotype` or `lungfish-cli fastq genotype-cohort`.
+        """
     )
 
     @Argument(help: "Original ONT FASTQ file or multi-file .lungfishfastq bundle")
@@ -96,6 +99,7 @@ struct FastqONTBarcodeGenotypingSubcommand: AsyncParsableCommand {
     }
 
     func run() async throws {
+        FileHandle.standardError.write(Data(FastqGenotypingSubcommand.deprecatedBarcodeDemuxWarning.utf8))
         guard globalOptions.threads.map({ $0 > 0 }) ?? true else {
             throw ValidationError("--threads must be positive.")
         }

@@ -337,10 +337,35 @@ final class WorkflowOperationExecutionService {
                 throw LocalWorkflowExecutionError.nonZeroExit(result.exitCode)
             }
             let cliPayload = decodeONTGenotypingPayload(from: result.standardOutput)
-            let outputURLs = ontGenotypingOutputURLs(
+            var outputURLs = ontGenotypingOutputURLs(
                 for: request,
                 cliPayload: cliPayload
             )
+            if request.aiSpecialistPresetID != nil {
+                operationCenter.updateWithLog(
+                    id: operationID,
+                    progress: 0.9,
+                    detail: "Running specialist AI haplotyping..."
+                )
+                let published = try await GenotypeAIHaplotypingExecutionService(
+                    operationCenter: operationCenter
+                ).run(
+                    bundleURL: request.outputDirectory,
+                    mode: .aiDiscovery,
+                    routeContext: routeContext
+                )
+                let analysisURL = ONTGenotypeResultBundle.resolvedURL(
+                    for: published.revision.path,
+                    in: request.outputDirectory
+                )
+                outputURLs = deduplicatedExistingURLs(
+                    outputURLs + [
+                        analysisURL,
+                        published.provenanceURL,
+                        ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: request.outputDirectory),
+                    ]
+                )
+            }
             operationCenter.log(id: operationID, level: .info, message: "Status: completed")
             operationCenter.complete(
                 id: operationID,

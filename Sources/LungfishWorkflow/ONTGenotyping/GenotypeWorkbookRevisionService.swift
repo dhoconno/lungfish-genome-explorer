@@ -937,6 +937,8 @@ wb.save(output_path)
             haplotypeAnalysisPath: manifest.haplotypeAnalysisPath,
             haplotypeDefinitionSetID: manifest.haplotypeDefinitionSetID,
             haplotypeAssayID: manifest.haplotypeAssayID,
+            presetID: manifest.presetID,
+            presetVersion: manifest.presetVersion,
             createdAt: manifest.createdAt,
             activeHaplotypeAnalysisRevisionID: manifest.activeHaplotypeAnalysisRevisionID,
             haplotypeAnalysisRevisions: manifest.haplotypeAnalysisRevisions
