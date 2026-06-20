@@ -342,8 +342,9 @@ def validate_model_output(output: Any, prompt_input: dict[str, Any]) -> list[str
         errors.append(f"missing top-level key: {key}")
     for key in sorted(set(output) - required_top_level):
         errors.append(f"extra top-level key: {key}")
-    if output.get("schema_version") != 1:
-        errors.append("schema_version must be 1")
+    schema_version = output.get("schema_version")
+    if not (type(schema_version) is int and schema_version == 1):
+        errors.append("schema_version must be integer 1")
     if output.get("prompt_version") != PROMPT_VERSION:
         errors.append(f"prompt_version must be {PROMPT_VERSION}")
 

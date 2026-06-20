@@ -201,6 +201,28 @@ class MacaqueMHCPromptLabTests(unittest.TestCase):
         }
         self.assertEqual(lab.validate_model_output(output, prompt_input), [])
 
+    def test_validate_model_output_rejects_non_integer_schema_version(self):
+        prompt_input = {
+            "samples": [{"gs_id": "LC1729"}],
+            "instructions": {"report_loci": ["MHC-A"]},
+            "observations": [
+                {"sample_id": "LC1729", "report_locus": "MHC-A", "genotype": "01_Mamu-A1_002g", "reads": 90}
+            ],
+        }
+        for schema_version in (True, 1.0):
+            with self.subTest(schema_version=schema_version):
+                output = {
+                    "schema_version": schema_version,
+                    "prompt_version": "generalist_macaque_mhc_haplotyping_v1",
+                    "haplotype_definitions": [],
+                    "sample_calls": [],
+                    "unresolved": [],
+                }
+
+                errors = lab.validate_model_output(output, prompt_input)
+
+                self.assertTrue(any("schema_version" in error for error in errors))
+
     def test_validate_model_output_rejects_unknown_sample_locus_and_genotype(self):
         prompt_input = {
             "samples": [{"gs_id": "LC1729"}],
