@@ -134,6 +134,7 @@ class MacaqueMHCPromptLabTests(unittest.TestCase):
         self.assertIn("group exact A1 genotype variants", template)
         self.assertIn("DRB compound multi-gene haplotypes", template)
         self.assertIn("residual DRB evidence", template)
+        self.assertIn("recurrent residual W-region", template)
         self.assertIn("MHC-B compound multi-gene haplotypes", template)
         self.assertIn("discriminatory value", template)
         self.assertIn("Mamu-B source-locus alleles", template)
