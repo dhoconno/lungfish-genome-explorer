@@ -22,6 +22,7 @@ Naming rules:
 - MHC-A labels should include an abbreviated high-confidence A1 genotype when available, such as an A1 allele group from a repeatedly supported genotype.
 - For MHC-A, group exact A1 genotype variants into the most informative repeated A1 allele family when suffix-only variants or composite names share the same leading A1 signal. Do not over-split A haplotypes solely because one sample reports a rare g1/g2 or composite representation of the same A1 family.
 - MHC-B and MHC-DRB labels should use compact informative genotype-pattern names based on the strongest repeated evidence. Do not assume the lowest-numbered allele is always the best biological label.
+- For MHC-B, expect MHC-B compound multi-gene haplotypes. A B haplotype may include several coherent Mamu-B, B17, B02/B10/B14/B16 pseudogene, I, or J-region genotypes. Do not define B haplotypes from only the two highest-read genes when broader repeated patterns are present; common B17/I/J signals may be shared background unless their pairing pattern is consistent.
 - For MHC-DRB, expect DRB compound multi-gene haplotypes. A single DRB haplotype may include multiple coherent high-read DRB1, DRB3/4/5/6, or W-region genotypes, so do not treat every high-read DRB1 genotype as a separate haplotype. Seed DRB labels from recurrent whole-pattern evidence in homozygous or near-homozygous samples, then subtract those compound signatures from heterozygous samples.
 - Avoid a small fixed vocabulary. Add new de novo labels when the evidence supports a distinct shared pattern.
 
