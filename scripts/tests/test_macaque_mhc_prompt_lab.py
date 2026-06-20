@@ -422,6 +422,22 @@ class MacaqueMHCPromptLabTests(unittest.TestCase):
         self.assertGreater(score["overall"]["unresolved_rate"], 0)
         self.assertGreaterEqual(score["loci"]["MHC-A"]["false_merge_count"], 1)
 
+    def test_score_status_unresolved_does_not_receive_concordance_credit(self):
+        truth = {"LC1": {"MHC-A": ["A001", "A002"]}}
+        output = {
+            "sample_calls": [
+                {"sample_id": "LC1", "locus": "MHC-A", "h1": "pred-A001", "h2": "pred-A002", "status": "unresolved"}
+            ]
+        }
+
+        score = lab.score_predictions(output, truth, loci=["MHC-A"])
+
+        self.assertEqual(score["overall"]["unresolved_rate"], 1.0)
+        self.assertEqual(score["overall"]["slot_concordance"], 0.0)
+        self.assertEqual(score["overall"]["pair_concordance"], 0.0)
+        self.assertEqual(score["overall"]["slot_hits"], 0)
+        self.assertEqual(score["overall"]["pair_hits"], 0)
+
     def test_max_weight_label_mapping_finds_global_optimum(self):
         weights = {"predA": {"humanX": 10, "humanY": 9}, "predB": {"humanX": 9}}
 
@@ -529,6 +545,50 @@ class MacaqueMHCPromptLabTests(unittest.TestCase):
                 self.assertEqual(record["role"], "output")
                 self.assertEqual(record["sha256"], lab.sha256_file(output_path))
                 self.assertEqual(record["sizeBytes"], output_path.stat().st_size)
+
+    def test_score_cli_records_failed_provenance_and_removes_stale_success_artifacts(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            iteration_dir = root / "iteration-001"
+            iteration_dir.mkdir()
+            truth_path = iteration_dir / "truth_calls.json"
+            parsed_path = iteration_dir / "parsed_model_output.json"
+            score_path = iteration_dir / "score.json"
+            report_path = iteration_dir / "score.md"
+            provenance_path = iteration_dir / "score.provenance.json"
+            truth_path.write_text(json.dumps({"LC1": {"MHC-A": ["A001", "A002"]}}), encoding="utf-8")
+            parsed_path.write_text('{"sample_calls": ', encoding="utf-8")
+            score_path.write_text(json.dumps({"stale": True}), encoding="utf-8")
+            report_path.write_text("stale success report\n", encoding="utf-8")
+            provenance_path.write_text(
+                json.dumps({"workflowName": "score", "status": "completed", "exitStatus": 0}),
+                encoding="utf-8",
+            )
+            argv = ["score", "--iteration-dir", str(iteration_dir)]
+
+            try:
+                lab.main(argv)
+            except SystemExit as exc:
+                self.assertIn("score failed", str(exc))
+            except Exception as exc:
+                self.fail(f"expected SystemExit for score failure, got {type(exc).__name__}: {exc}")
+            else:
+                self.fail("expected SystemExit for score failure")
+
+            self.assertFalse(score_path.exists())
+            self.assertFalse(report_path.exists())
+            self.assertTrue(provenance_path.is_file())
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            self.assertEqual(provenance["workflowName"], "score")
+            self.assertEqual(provenance["exitStatus"], 1)
+            self.assertEqual(provenance["status"], "failed")
+            self.assertIsNotNone(provenance["stderr"])
+            self.assertIn("score failed", provenance["stderr"])
+            self.assertEqual(
+                {record["path"] for record in provenance["inputs"]},
+                {str(truth_path.resolve()), str(parsed_path.resolve())},
+            )
+            self.assertEqual(provenance["outputs"], [])
 
     def test_later_full_result_sheet_supersedes_duplicate_sample(self):
         with tempfile.TemporaryDirectory() as temp:

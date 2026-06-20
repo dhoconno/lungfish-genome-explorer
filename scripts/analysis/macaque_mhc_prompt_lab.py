@@ -700,11 +700,13 @@ def score_predictions(output: dict[str, Any], truth: dict[str, dict[str, list[st
             )
             if is_unresolved:
                 locus_counts["unresolved_count"] += 1
-            mapped_slots = [
-                label_mapping[clean(slot)]
-                for slot in predicted_slots[:2]
-                if is_resolved_label(slot) and clean(slot) in label_mapping
-            ]
+                mapped_slots = []
+            else:
+                mapped_slots = [
+                    label_mapping[clean(slot)]
+                    for slot in predicted_slots[:2]
+                    if is_resolved_label(slot) and clean(slot) in label_mapping
+                ]
             predicted_counter = label_counter(mapped_slots)
             slot_hits = sum(min(predicted_counter[label], human_counter[label]) for label in human_counter)
             slot_total = sum(human_counter.values())
@@ -1002,19 +1004,39 @@ def command_score(args: argparse.Namespace) -> None:
     parsed_output_path = iteration_dir / "parsed_model_output.json"
     score_path = iteration_dir / "score.json"
     report_path = iteration_dir / "score.md"
-    truth = json.loads(truth_path.read_text(encoding="utf-8"))
-    output = json.loads(parsed_output_path.read_text(encoding="utf-8"))
-    score = score_predictions(output, truth)
-    write_json(score_path, score)
-    report_path.write_text(markdown_score_report(score), encoding="utf-8")
+    options = resolved_score_options(iteration_dir)
+    inputs = [truth_path, parsed_output_path]
+    try:
+        truth = json.loads(truth_path.read_text(encoding="utf-8"))
+        output = json.loads(parsed_output_path.read_text(encoding="utf-8"))
+        score = score_predictions(output, truth)
+        write_json(score_path, score)
+        report_path.write_text(markdown_score_report(score), encoding="utf-8")
+    except Exception as exc:
+        message = f"score failed: {exc}"
+        for stale_path in (score_path, report_path):
+            if stale_path.exists():
+                stale_path.unlink()
+        write_provenance(
+            iteration_dir,
+            "score",
+            args.effective_argv,
+            inputs,
+            [],
+            started,
+            options,
+            status="failed",
+            stderr=message,
+        )
+        raise SystemExit(message) from exc
     write_provenance(
         iteration_dir,
         "score",
         args.effective_argv,
-        [truth_path, parsed_output_path],
+        inputs,
         [score_path, report_path],
         started,
-        resolved_score_options(iteration_dir),
+        options,
     )
 
 
