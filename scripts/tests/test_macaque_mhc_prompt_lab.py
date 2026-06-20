@@ -770,6 +770,48 @@ class MacaqueMHCPromptLabTests(unittest.TestCase):
             self.assertEqual(len(provenance["outputs"]), 1)
             self.assertEqual({record["path"] for record in provenance["outputs"]}, {str(validation_path.resolve())})
 
+    def test_import_output_cli_replaces_stale_success_artifacts_after_json_parse_failure(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            iteration_dir = root / "iteration-001"
+            iteration_dir.mkdir()
+            prompt_input_path = iteration_dir / "prompt_input.json"
+            model_output_path = root / "model_output.json"
+            validation_path = iteration_dir / "model_output_validation.json"
+            parsed_path = iteration_dir / "parsed_model_output.json"
+            provenance_path = iteration_dir / "import-output.provenance.json"
+            prompt_input = {
+                "samples": [{"gs_id": "LC1729"}],
+                "instructions": {"report_loci": ["MHC-A"]},
+                "observations": [
+                    {"sample_id": "LC1729", "report_locus": "MHC-A", "genotype": "01_Mamu-A1_002g", "reads": 90}
+                ],
+            }
+            prompt_input_path.write_text(json.dumps(prompt_input), encoding="utf-8")
+            model_output_path.write_text('{"schema_version": ', encoding="utf-8")
+            parsed_path.write_text(json.dumps({"stale": True}), encoding="utf-8")
+            validation_path.write_text(json.dumps({"schemaVersion": 1, "accepted": True, "errors": []}), encoding="utf-8")
+            argv = ["import-output", "--iteration-dir", str(iteration_dir), "--model-output", str(model_output_path)]
+
+            with self.assertRaisesRegex(SystemExit, "read/parse failure"):
+                lab.main(argv)
+
+            self.assertFalse(parsed_path.exists())
+            self.assertTrue(validation_path.is_file())
+            validation = json.loads(validation_path.read_text(encoding="utf-8"))
+            self.assertFalse(validation["accepted"])
+            self.assertTrue(any("read/parse failure" in error for error in validation["errors"]))
+
+            self.assertTrue(provenance_path.is_file())
+            provenance = json.loads(provenance_path.read_text())
+            self.assertEqual(provenance["workflowName"], "import-output")
+            self.assertEqual(provenance["exitStatus"], 1)
+            self.assertEqual(provenance["status"], "failed")
+            self.assertIsNotNone(provenance["stderr"])
+            self.assertIn("read/parse failure", provenance["stderr"])
+            self.assertEqual({record["path"] for record in provenance["outputs"]}, {str(validation_path.resolve())})
+            self.assertNotIn(str(parsed_path.resolve()), {record["path"] for record in provenance["outputs"]})
+
     def test_import_output_cli_rejects_extra_top_level_keys_without_parsed_output(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

@@ -601,13 +601,23 @@ def command_import_output(args: argparse.Namespace) -> None:
         prompt_input = json.loads(prompt_input_path.read_text(encoding="utf-8"))
         model_output = json.loads(model_output_path.read_text(encoding="utf-8"))
     except Exception as exc:
-        message = f"import-output failed: {exc}"
+        message = f"model output read/parse failure: {exc}"
+        if parsed_output_path.exists():
+            parsed_output_path.unlink()
+        write_json(
+            validation_path,
+            {
+                "schemaVersion": 1,
+                "accepted": False,
+                "errors": [message],
+            },
+        )
         write_provenance(
             iteration_dir,
             "import-output",
             args.effective_argv,
             inputs,
-            [],
+            [validation_path],
             started,
             options,
             status="failed",
