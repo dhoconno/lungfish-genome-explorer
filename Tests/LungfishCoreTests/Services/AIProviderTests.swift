@@ -438,6 +438,7 @@ final class AIProviderTests: XCTestCase {
             ],
         ]))
         let provider = OpenAIProvider(apiKey: "test-key", modelId: "gpt-5.5", httpClient: mockClient)
+
         let request = AIStructuredRequest(
             systemPrompt: "Return JSON only.",
             userPrompt: "Classify this evidence.",
@@ -487,6 +488,94 @@ final class AIProviderTests: XCTestCase {
         XCTAssertEqual(format["strict"] as? Bool, true)
         let schema = try XCTUnwrap(format["schema"] as? [String: Any])
         XCTAssertEqual(schema["additionalProperties"] as? Bool, false)
+    }
+
+    func testAIStructuredRequestPreservesReasoningEffort() {
+        let request = AIStructuredRequest(
+            systemPrompt: "Return JSON only.",
+            userPrompt: "Classify this evidence.",
+            schemaName: "ai_haplotype_result",
+            schema: Self.strictHaplotypeSchema,
+            maxOutputTokens: 2048,
+            temperature: 0,
+            reasoningEffort: "low",
+            attemptIndex: 2,
+            fallbackIndex: 1,
+            credentialSource: "environment:OPENAI_API_KEY"
+        )
+
+        XCTAssertEqual(request.reasoningEffort, "low")
+    }
+
+    func testOpenAIAzureEndpointUsesDeploymentURLAndAPIKeyHeader() async throws {
+        let mockClient = MockHTTPClient()
+        await mockClient.setDefault(response: .json([
+            "id": "chatcmpl_azure",
+            "choices": [[
+                "message": ["content": "OK"],
+                "finish_reason": "stop",
+            ]],
+            "usage": ["prompt_tokens": 3, "completion_tokens": 1],
+        ]))
+        let provider = OpenAIProvider(
+            apiKey: "azure-key",
+            modelId: "gpt-5.5",
+            endpointConfiguration: .azure(
+                endpoint: URL(string: "https://oc-aiservices.openai.azure.com/")!,
+                deployment: "gpt-5-mini",
+                apiVersion: "2025-01-01-preview"
+            ),
+            httpClient: mockClient
+        )
+
+        _ = try await provider.sendMessage(messages: [AIMessage.user("Hello")], systemPrompt: "Reply.", tools: [])
+
+        XCTAssertEqual(provider.modelId, "gpt-5-mini")
+        let requests = await mockClient.requests
+        let request = try XCTUnwrap(requests.first)
+        XCTAssertEqual(
+            request.url?.absoluteString,
+            "https://oc-aiservices.openai.azure.com/openai/deployments/gpt-5-mini/chat/completions?api-version=2025-01-01-preview"
+        )
+        XCTAssertEqual(request.value(forHTTPHeaderField: "api-key"), "azure-key")
+        XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+
+        let captured = try XCTUnwrap(request.httpBody)
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: captured) as? [String: Any])
+        XCTAssertEqual(body["model"] as? String, "gpt-5-mini")
+    }
+
+    func testOpenAIStructuredResultRecordsAzureEndpointMetadata() async throws {
+        let mockClient = MockHTTPClient()
+        await mockClient.setDefault(response: .json([
+            "id": "chatcmpl_azure_structured",
+            "choices": [[
+                "message": ["content": #"{"schemaVersion":1,"ok":true}"#],
+                "finish_reason": "stop",
+            ]],
+            "usage": ["prompt_tokens": 11, "completion_tokens": 7],
+        ]))
+        let provider = OpenAIProvider(
+            apiKey: "azure-key",
+            modelId: "gpt-5.5",
+            endpointConfiguration: .azure(
+                endpoint: URL(string: "https://oc-aiservices.openai.azure.com")!,
+                deployment: "gpt-5-mini",
+                apiVersion: "2025-01-01-preview"
+            ),
+            httpClient: mockClient
+        )
+
+        let response = try await provider.requestStructuredResult(AIStructuredRequest.minimalHaplotypeSchemaRequest())
+
+        XCTAssertEqual(response.payload["ok"]?.boolValue, true)
+        XCTAssertEqual(response.attemptMetadata.provider, "openai")
+        XCTAssertEqual(response.attemptMetadata.model, "gpt-5-mini")
+        XCTAssertEqual(
+            response.attemptMetadata.endpoint,
+            "https://oc-aiservices.openai.azure.com/openai/deployments/gpt-5-mini/chat/completions?api-version=2025-01-01-preview"
+        )
+        XCTAssertEqual(response.attemptMetadata.apiVersion, "2025-01-01-preview")
     }
 
     func testOpenAIStructuredResultDistinguishesInsufficientQuotaFromRetryableRateLimit() async throws {

@@ -4,6 +4,12 @@ import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
+private struct AzureOpenAISettings {
+    let endpoint: String
+    let deployment: String
+    let apiVersion: String
+}
+
 struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "ai-haplotyping",
@@ -36,6 +42,15 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
 
     @Option(name: .customLong("model"), help: "Provider model override. Defaults to the provider's app default.")
     var model: String?
+
+    @Option(name: .customLong("azure-openai-endpoint"), help: "Azure OpenAI endpoint, such as https://example.openai.azure.com.")
+    var azureOpenAIEndpoint: String?
+
+    @Option(name: .customLong("azure-openai-deployment"), help: "Azure OpenAI deployment name to use instead of a direct OpenAI model.")
+    var azureOpenAIDeployment: String?
+
+    @Option(name: .customLong("azure-openai-api-version"), help: "Azure OpenAI REST API version.")
+    var azureOpenAIAPIVersion: String?
 
     @Option(name: .customLong("prompt-template-id"), help: "Prompt template ID to pin for this run.")
     var promptTemplateID: String?
@@ -138,6 +153,19 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
         if maxProviderRetries < 0 {
             throw ValidationError("--max-provider-retries must be at least 0.")
         }
+        let explicitAzureValues = [
+            azureOpenAIEndpoint,
+            azureOpenAIDeployment,
+            azureOpenAIAPIVersion,
+        ].contains { value in
+            !(value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "").isEmpty
+        }
+        if explicitAzureValues && provider != .openAI {
+            throw ValidationError("--azure-openai-* options can only be used with --provider openai.")
+        }
+        if explicitAzureValues {
+            _ = try resolvedAzureOpenAISettings(environment: [:])
+        }
         if chunkStartIndex < 1 {
             throw ValidationError("--chunk-start-index must be at least 1.")
         }
@@ -194,7 +222,7 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
             throw ValidationError("AI refinement requires an existing deterministic, manual, or AI haplotype analysis in the bundle.")
         }
         let credential = try await resolvedCredential()
-        let providerInstance = makeProvider(apiKey: credential.apiKey)
+        let providerInstance = try makeProvider(apiKey: credential.apiKey)
         let promptSelection = resolvedPromptSelection(for: activeResult)
         let runOptions = AIHaplotypingRunOptions(
             mode: mode.promptMode,
@@ -282,7 +310,7 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
             throw ValidationError("AI refinement requires an existing deterministic, manual, or AI haplotype analysis in the bundle.")
         }
         let credential = try await resolvedCredential()
-        let providerInstance = makeProvider(apiKey: credential.apiKey)
+        let providerInstance = try makeProvider(apiKey: credential.apiKey)
         let promptSelection = resolvedPromptSelection(for: activeResult)
         let runOptions = AIHaplotypingRunOptions(
             mode: mode.promptMode,
@@ -328,7 +356,7 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
             sidecar: input.sidecar,
             mode: mode.promptMode,
             providerID: provider.providerID,
-            modelID: modelValue(default: provider.defaultPreviewModel),
+            modelID: try previewModelID(),
             credentialSource: provider.credentialSource,
             promptTemplateID: promptSelection.promptTemplateID,
             promptTemplateVersion: promptSelection.promptTemplateVersion,
@@ -449,7 +477,7 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
         var parameters: [String: ParameterValue] = [
             "mode": .string(mode.promptMode.rawValue),
             "provider": .string(provider.providerID.rawValue),
-            "model": .string(modelValue(default: provider.defaultPreviewModel)),
+            "model": .string(try previewModelID()),
             "output": .file(outputURL),
             "previewPrompt": .string("true"),
             "compactKnowledgePack": .string(compactKnowledgePack ? "true" : "false"),
@@ -487,6 +515,9 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
         }
         if let haplotypeAssay, !haplotypeAssay.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             parameters["haplotypeAssay"] = .string(haplotypeAssay)
+        }
+        if let azure = try resolvedAzureOpenAISettings(environment: ProcessInfo.processInfo.environment) {
+            addAzureOpenAIOptions(azure, to: &parameters)
         }
 
         let inputs = [inputURL].compactMap { url in
@@ -618,9 +649,16 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
     }
 
     private func resolvedCredential() async throws -> (apiKey: String, source: AIHaplotypingCredentialSource) {
-        try await Self.resolveCredential(
+        let prefersAzureOpenAI: Bool
+        if provider == .openAI {
+            prefersAzureOpenAI = try resolvedAzureOpenAISettings(environment: ProcessInfo.processInfo.environment) != nil
+        } else {
+            prefersAzureOpenAI = false
+        }
+        return try await Self.resolveCredential(
             provider: provider,
             environment: ProcessInfo.processInfo.environment,
+            preferAzureOpenAI: prefersAzureOpenAI,
             keychainLookup: { key in
                 try await KeychainSecretStorage.shared.retrieve(forKey: key)
             }
@@ -630,8 +668,18 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
     static func resolveCredential(
         provider: AIHaplotypingProviderArgument,
         environment: [String: String],
+        preferAzureOpenAI: Bool? = nil,
         keychainLookup: (String) async throws -> String?
     ) async throws -> (apiKey: String, source: AIHaplotypingCredentialSource) {
+        let shouldUseAzureOpenAI = preferAzureOpenAI ?? environmentHasAzureOpenAISettings(environment)
+        if provider == .openAI && shouldUseAzureOpenAI {
+            let azureAPIKey = environment["AZURE_OPENAI_API_KEY"]?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !azureAPIKey.isEmpty {
+                return (azureAPIKey, .environmentAzureOpenAI)
+            }
+        }
+
         let environmentName = provider.defaultEnvironmentVariable
         let environmentAPIKey = environment[environmentName]?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -648,13 +696,81 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
         throw ValidationError("Missing API key. Set \(environmentName) or configure \(provider.keychainKey) in the app settings.")
     }
 
-    private func makeProvider(apiKey: String) -> any StructuredAIProvider {
+    private func openAIEndpointConfiguration(environment: [String: String] = ProcessInfo.processInfo.environment) throws -> OpenAIEndpointConfiguration {
+        guard provider == .openAI else {
+            return .direct
+        }
+        guard let azure = try resolvedAzureOpenAISettings(environment: environment) else {
+            return .direct
+        }
+        return try .azure(
+            endpointString: azure.endpoint,
+            deployment: azure.deployment,
+            apiVersion: azure.apiVersion
+        )
+    }
+
+    private func resolvedAzureOpenAISettings(environment: [String: String]) throws -> AzureOpenAISettings? {
+        let endpoint = Self.nonEmpty(azureOpenAIEndpoint)
+            ?? Self.nonEmpty(environment["AZURE_OPENAI_ENDPOINT"])
+        let deployment = Self.nonEmpty(azureOpenAIDeployment)
+            ?? Self.nonEmpty(environment["AZURE_OPENAI_DEPLOYMENT"])
+        let apiVersion = Self.nonEmpty(azureOpenAIAPIVersion)
+            ?? Self.nonEmpty(environment["AZURE_OPENAI_API_VERSION"])
+            ?? OpenAIEndpointConfiguration.defaultAzureAPIVersion
+
+        let hasAnyAzureSetting = endpoint != nil
+            || deployment != nil
+            || Self.nonEmpty(azureOpenAIAPIVersion) != nil
+            || Self.nonEmpty(environment["AZURE_OPENAI_API_VERSION"]) != nil
+        guard hasAnyAzureSetting else {
+            return nil
+        }
+        guard provider == .openAI else {
+            throw ValidationError("Azure OpenAI settings can only be used with --provider openai.")
+        }
+        guard let endpoint else {
+            throw ValidationError("Azure OpenAI endpoint is required when Azure OpenAI settings are supplied.")
+        }
+        guard let deployment else {
+            throw ValidationError("Azure OpenAI deployment is required when Azure OpenAI settings are supplied.")
+        }
+        _ = try OpenAIEndpointConfiguration.azure(
+            endpointString: endpoint,
+            deployment: deployment,
+            apiVersion: apiVersion
+        )
+        return AzureOpenAISettings(
+            endpoint: OpenAIEndpointConfiguration.normalizeEndpointString(endpoint),
+            deployment: deployment,
+            apiVersion: apiVersion
+        )
+    }
+
+    private static func environmentHasAzureOpenAISettings(_ environment: [String: String]) -> Bool {
+        nonEmpty(environment["AZURE_OPENAI_ENDPOINT"]) != nil
+            || nonEmpty(environment["AZURE_OPENAI_DEPLOYMENT"]) != nil
+            || nonEmpty(environment["AZURE_OPENAI_API_VERSION"]) != nil
+    }
+
+    private func makeProvider(apiKey: String) throws -> any StructuredAIProvider {
         switch provider {
         case .openAI:
-            return OpenAIProvider(apiKey: apiKey, modelId: modelValue(default: MCMHaplotypingPreset.mcmMHCmiseq.aiOpenAIModel))
+            return OpenAIProvider(
+                apiKey: apiKey,
+                modelId: modelValue(default: MCMHaplotypingPreset.mcmMHCmiseq.aiOpenAIModel),
+                endpointConfiguration: try openAIEndpointConfiguration()
+            )
         case .anthropic:
-            return AnthropicProvider(apiKey: apiKey, modelId: modelValue(default: "claude-sonnet-4-5-20250929"))
+            return AnthropicProvider(apiKey: apiKey, modelId: modelValue(default: "claude-sonnet-4-6"))
         }
+    }
+
+    private func previewModelID(environment: [String: String] = ProcessInfo.processInfo.environment) throws -> String {
+        if provider == .openAI, let azure = try resolvedAzureOpenAISettings(environment: environment) {
+            return azure.deployment
+        }
+        return modelValue(default: provider.defaultPreviewModel)
     }
 
     private func modelValue(default defaultModel: String) -> String {
@@ -688,12 +804,13 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
             "--output", outputURL.path,
             "--mode", mode.rawValue,
             "--provider", provider.rawValue,
-            "--model", modelValue(default: provider.defaultPreviewModel),
+            "--model", (try? previewModelID()) ?? modelValue(default: provider.defaultPreviewModel),
             "--max-observations-per-chunk", String(maxObservationsPerChunk),
             "--max-output-tokens", String(maxOutputTokens),
             "--temperature", String(temperature),
             "--max-provider-retries", String(maxProviderRetries),
         ]
+        appendAzureOpenAIArguments(to: &command)
         if let reasoningEffort = effectiveReasoningEffortValue() {
             command += ["--reasoning-effort", reasoningEffort]
         }
@@ -740,6 +857,7 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
             "--chunk-start-index", String(chunkStartIndex),
             "--chunk-end-index", String(chunkEndIndex),
         ]
+        appendAzureOpenAIArguments(to: &command)
         if let reasoningEffort = effectiveReasoningEffortValue() {
             command += ["--reasoning-effort", reasoningEffort]
         }
@@ -783,6 +901,9 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
         if let model, !model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             options["model"] = .string(model)
         }
+        if let azure = try? resolvedAzureOpenAISettings(environment: ProcessInfo.processInfo.environment) {
+            addAzureOpenAIOptions(azure, to: &options)
+        }
         if let promptTemplateID {
             options["promptTemplateID"] = .string(promptTemplateID)
         }
@@ -796,7 +917,10 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
         [
             "provider": .string(AIHaplotypingProviderArgument.openAI.providerID.rawValue),
             "openAIModel": .string(MCMHaplotypingPreset.mcmMHCmiseq.aiOpenAIModel),
-            "anthropicModel": .string("claude-sonnet-4-5-20250929"),
+            "anthropicModel": .string("claude-sonnet-4-6"),
+            "azureOpenAIEndpoint": .null,
+            "azureOpenAIDeployment": .null,
+            "azureOpenAIAPIVersion": .string(OpenAIEndpointConfiguration.defaultAzureAPIVersion),
             "maxObservationsPerChunk": .integer(10_000),
             "maxOutputTokens": .integer(4096),
             "temperature": .number(0),
@@ -816,7 +940,7 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
         credentialSource: String,
         promptSelection: AIHaplotypingPromptSelection
     ) -> [String: ParameterValue] {
-        [
+        var options: [String: ParameterValue] = [
             "bundle": .file(bundleURL),
             "mode": .string(mode.promptMode.rawValue),
             "provider": .string(provider.providerID.rawValue),
@@ -836,6 +960,33 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
             "chunkStartIndex": .integer(chunkStartIndex),
             "chunkEndIndex": .integer(chunkEndIndex),
         ]
+        if let azure = try? resolvedAzureOpenAISettings(environment: ProcessInfo.processInfo.environment) {
+            addAzureOpenAIOptions(azure, to: &options)
+        }
+        return options
+    }
+
+    private func appendAzureOpenAIArguments(
+        to command: inout [String],
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) {
+        guard let azure = try? resolvedAzureOpenAISettings(environment: environment) else {
+            return
+        }
+        command += [
+            "--azure-openai-endpoint", azure.endpoint,
+            "--azure-openai-deployment", azure.deployment,
+            "--azure-openai-api-version", azure.apiVersion,
+        ]
+    }
+
+    private func addAzureOpenAIOptions(
+        _ azure: AzureOpenAISettings,
+        to options: inout [String: ParameterValue]
+    ) {
+        options["azureOpenAIEndpoint"] = .string(azure.endpoint)
+        options["azureOpenAIDeployment"] = .string(azure.deployment)
+        options["azureOpenAIAPIVersion"] = .string(azure.apiVersion)
     }
 
     private func resolvedPromptSelection(for result: ONTGenotypeResultBundleData) -> AIHaplotypingPromptSelection {
@@ -947,7 +1098,7 @@ enum AIHaplotypingProviderArgument: String, CaseIterable, ExpressibleByArgument 
     var defaultPreviewModel: String {
         switch self {
         case .openAI: return MCMHaplotypingPreset.mcmMHCmiseq.aiOpenAIModel
-        case .anthropic: return "claude-sonnet-4-5-20250929"
+        case .anthropic: return "claude-sonnet-4-6"
         }
     }
 }

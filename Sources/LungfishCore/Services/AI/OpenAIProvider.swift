@@ -14,18 +14,27 @@ private let logger = Logger(subsystem: LogSubsystem.core, category: "OpenAIProvi
 /// message/tool_calls format.
 public actor OpenAIProvider: StructuredAIProvider {
     private let apiKey: String
-    public let modelId: String
+    public nonisolated let modelId: String
     private let httpClient: HTTPClient
-    private let chatCompletionsURL = URL(string: "https://api.openai.com/v1/chat/completions")!
-    private let responsesURL = URL(string: "https://api.openai.com/v1/responses")!
+    private let endpointConfiguration: OpenAIEndpointConfiguration
+    private let chatCompletionsURL: URL
+    private let responsesURL: URL
     private let chatCompletionsTimeout: TimeInterval = 120
     private let responsesTimeout: TimeInterval = 600
 
     public nonisolated var name: String { "OpenAI" }
 
-    public init(apiKey: String, modelId: String = "gpt-5-mini", httpClient: HTTPClient = URLSessionHTTPClient()) {
+    public init(
+        apiKey: String,
+        modelId: String = OpenAIEndpointConfiguration.defaultOpenAIModel,
+        endpointConfiguration: OpenAIEndpointConfiguration = .direct,
+        httpClient: HTTPClient = URLSessionHTTPClient()
+    ) {
         self.apiKey = apiKey
-        self.modelId = modelId
+        self.modelId = endpointConfiguration.effectiveModel(configuredModel: modelId)
+        self.endpointConfiguration = endpointConfiguration
+        self.chatCompletionsURL = endpointConfiguration.chatCompletionsURL
+        self.responsesURL = endpointConfiguration.responsesURL
         self.httpClient = httpClient
     }
 
@@ -39,9 +48,7 @@ public actor OpenAIProvider: StructuredAIProvider {
 
         var request = URLRequest(url: chatCompletionsURL)
         request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.setValue("Lungfish Genome Explorer", forHTTPHeaderField: "User-Agent")
+        applyCommonHeaders(to: &request)
         request.httpBody = jsonData
         request.timeoutInterval = chatCompletionsTimeout
 
@@ -80,7 +87,7 @@ public actor OpenAIProvider: StructuredAIProvider {
     }
 
     public func requestStructuredResult(_ structuredRequest: AIStructuredRequest) async throws -> AIStructuredResponse {
-        let useResponsesAPI = structuredRequest.reasoningEffort != nil
+        let useResponsesAPI = endpointConfiguration.supportsResponsesAPI && structuredRequest.reasoningEffort != nil
         let requestBody = useResponsesAPI
             ? buildResponsesStructuredRequestBody(structuredRequest)
             : buildStructuredRequestBody(structuredRequest)
@@ -88,9 +95,7 @@ public actor OpenAIProvider: StructuredAIProvider {
 
         var request = URLRequest(url: useResponsesAPI ? responsesURL : chatCompletionsURL)
         request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.setValue("Lungfish Genome Explorer", forHTTPHeaderField: "User-Agent")
+        applyCommonHeaders(to: &request)
         request.httpBody = jsonData
         request.timeoutInterval = useResponsesAPI ? responsesTimeout : chatCompletionsTimeout
 
@@ -132,6 +137,13 @@ public actor OpenAIProvider: StructuredAIProvider {
     }
 
     // MARK: - Request Building
+
+    private func applyCommonHeaders(to request: inout URLRequest) {
+        let authHeader = endpointConfiguration.authenticationHeader(apiKey: apiKey)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(authHeader.value, forHTTPHeaderField: authHeader.name)
+        request.setValue("Lungfish Genome Explorer", forHTTPHeaderField: "User-Agent")
+    }
 
     private func buildStructuredRequestBody(_ request: AIStructuredRequest) -> [String: Any] {
         var body: [String: Any] = [
@@ -337,7 +349,7 @@ public actor OpenAIProvider: StructuredAIProvider {
             provider: "openai",
             model: modelId,
             endpoint: chatCompletionsURL.absoluteString,
-            apiVersion: "chat.completions.v1",
+            apiVersion: endpointConfiguration.apiVersionLabel(for: .chatCompletions),
             credentialSource: request.credentialSource,
             apiKeyAvailable: !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
             requestID: requestID,
@@ -385,7 +397,7 @@ public actor OpenAIProvider: StructuredAIProvider {
             provider: "openai",
             model: modelId,
             endpoint: responsesURL.absoluteString,
-            apiVersion: "responses.v1",
+            apiVersion: endpointConfiguration.apiVersionLabel(for: .responses),
             credentialSource: request.credentialSource,
             apiKeyAvailable: !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
             requestID: requestID,
