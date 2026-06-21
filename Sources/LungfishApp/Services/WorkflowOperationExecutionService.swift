@@ -55,6 +55,114 @@ protocol WorkflowOperationResultRefreshing: Sendable {
     func refresh(routeContext: OperationRouteContext?, preferredSelectionURL: URL)
 }
 
+struct WorkflowOperationAIHaplotypingPublication: Sendable {
+    let revision: ONTGenotypeHaplotypeAnalysisRevision
+    let analysis: GenotypeHaplotypeAnalysis
+    let provenanceURL: URL
+}
+
+protocol WorkflowOperationAIHaplotypingRunning: Sendable {
+    @MainActor
+    func run(
+        bundleURL: URL,
+        mode: AIHaplotypingPromptMode,
+        routeContext: OperationRouteContext?,
+        parentOperationID: UUID?
+    ) async throws -> WorkflowOperationAIHaplotypingPublication
+}
+
+final class DefaultWorkflowOperationAIHaplotyper: WorkflowOperationAIHaplotypingRunning, @unchecked Sendable {
+    private let operationCenter: OperationCenter
+
+    @MainActor
+    init(operationCenter: OperationCenter = .shared) {
+        self.operationCenter = operationCenter
+    }
+
+    @MainActor
+    func run(
+        bundleURL: URL,
+        mode: AIHaplotypingPromptMode,
+        routeContext: OperationRouteContext?,
+        parentOperationID: UUID?
+    ) async throws -> WorkflowOperationAIHaplotypingPublication {
+        let published = try await GenotypeAIHaplotypingExecutionService(
+            operationCenter: operationCenter
+        ).run(
+            bundleURL: bundleURL,
+            mode: mode,
+            routeContext: routeContext,
+            parentOperationID: parentOperationID
+        )
+        return WorkflowOperationAIHaplotypingPublication(
+            revision: published.revision,
+            analysis: published.analysis,
+            provenanceURL: published.provenanceURL
+        )
+    }
+}
+
+protocol WorkflowOperationWorkbookUpdating: Sendable {
+    func applyHaplotypeCalls(
+        _ calls: [GenotypeWorkbookHaplotypeCall],
+        annotationSidecarURL: URL?,
+        into bundleURL: URL,
+        provenanceContext: GenotypeWorkbookRevisionProvenanceContext?
+    ) async throws -> URL
+}
+
+struct DefaultWorkflowOperationWorkbookUpdater: WorkflowOperationWorkbookUpdating {
+    typealias PythonExecutableResolver = @Sendable () async throws -> URL
+    typealias HaplotypeOverrideApplier = @Sendable (
+        _ calls: [GenotypeWorkbookHaplotypeCall],
+        _ annotationSidecarURL: URL?,
+        _ bundleURL: URL,
+        _ provenanceContext: GenotypeWorkbookRevisionProvenanceContext?,
+        _ pythonExecutableURL: URL
+    ) throws -> URL
+
+    private let pythonExecutableResolver: PythonExecutableResolver
+    private let haplotypeOverrideApplier: HaplotypeOverrideApplier
+
+    init(
+        pythonExecutableResolver: @escaping PythonExecutableResolver = {
+            try await CondaManager.shared.toolPath(name: "python", environment: "openpyxl")
+        },
+        haplotypeOverrideApplier: @escaping HaplotypeOverrideApplier = { calls, annotationSidecarURL, bundleURL, provenanceContext, pythonExecutableURL in
+            let manifest = try GenotypeWorkbookRevisionService(pythonExecutableURL: pythonExecutableURL)
+                .applyHaplotypeOverrides(
+                    calls,
+                    annotationSidecarURL: annotationSidecarURL,
+                    into: bundleURL,
+                    provenanceContext: provenanceContext
+                )
+            if let currentWorkbookPath = manifest.currentWorkbookPath {
+                return ONTGenotypeResultBundle.resolvedURL(for: currentWorkbookPath, in: bundleURL)
+            }
+            return try ONTGenotypeResultBundle.currentWorkbookURL(for: bundleURL)
+        }
+    ) {
+        self.pythonExecutableResolver = pythonExecutableResolver
+        self.haplotypeOverrideApplier = haplotypeOverrideApplier
+    }
+
+    func applyHaplotypeCalls(
+        _ calls: [GenotypeWorkbookHaplotypeCall],
+        annotationSidecarURL: URL?,
+        into bundleURL: URL,
+        provenanceContext: GenotypeWorkbookRevisionProvenanceContext?
+    ) async throws -> URL {
+        let pythonExecutableURL = try await pythonExecutableResolver()
+        return try haplotypeOverrideApplier(
+            calls,
+            annotationSidecarURL,
+            bundleURL,
+            provenanceContext,
+            pythonExecutableURL
+        )
+    }
+}
+
 struct DefaultWorkflowOperationResultRefresher: WorkflowOperationResultRefreshing {
     @MainActor
     func refresh(routeContext: OperationRouteContext?, preferredSelectionURL: URL) {
@@ -83,6 +191,8 @@ final class WorkflowOperationExecutionService {
     private let viewerBundlePreparer: WorkflowOperationViewerBundlePreparing
     private let bamImporter: WorkflowOperationBAMImporting
     private let resultRefresher: WorkflowOperationResultRefreshing
+    private let aiHaplotyper: WorkflowOperationAIHaplotypingRunning
+    private let workbookUpdater: WorkflowOperationWorkbookUpdating
     private let fileManager: FileManager
 
     init(
@@ -91,6 +201,8 @@ final class WorkflowOperationExecutionService {
         viewerBundlePreparer: WorkflowOperationViewerBundlePreparing = DefaultWorkflowOperationViewerBundlePreparer(),
         bamImporter: WorkflowOperationBAMImporting = DefaultWorkflowOperationBAMImporter(),
         resultRefresher: WorkflowOperationResultRefreshing = DefaultWorkflowOperationResultRefresher(),
+        aiHaplotyper: WorkflowOperationAIHaplotypingRunning? = nil,
+        workbookUpdater: WorkflowOperationWorkbookUpdating = DefaultWorkflowOperationWorkbookUpdater(),
         fileManager: FileManager = .default
     ) {
         self.operationCenter = operationCenter
@@ -98,6 +210,8 @@ final class WorkflowOperationExecutionService {
         self.viewerBundlePreparer = viewerBundlePreparer
         self.bamImporter = bamImporter
         self.resultRefresher = resultRefresher
+        self.aiHaplotyper = aiHaplotyper ?? DefaultWorkflowOperationAIHaplotyper(operationCenter: operationCenter)
+        self.workbookUpdater = workbookUpdater
         self.fileManager = fileManager
     }
 
@@ -347,12 +461,27 @@ final class WorkflowOperationExecutionService {
                     progress: 0.9,
                     detail: "Running specialist AI haplotyping..."
                 )
-                let published = try await GenotypeAIHaplotypingExecutionService(
-                    operationCenter: operationCenter
-                ).run(
+                let published = try await aiHaplotyper.run(
                     bundleURL: request.outputDirectory,
                     mode: .aiDiscovery,
-                    routeContext: routeContext
+                    routeContext: routeContext,
+                    parentOperationID: operationID
+                )
+                operationCenter.updateWithLog(
+                    id: operationID,
+                    progress: 0.96,
+                    detail: "Updating current.xlsx with specialist AI haplotypes..."
+                )
+                let currentWorkbookURL = try await workbookUpdater.applyHaplotypeCalls(
+                    Self.workbookHaplotypeCalls(from: published.analysis),
+                    annotationSidecarURL: ONTGenotypeResultBundleData.annotationSidecarURL(
+                        forBundleAt: request.outputDirectory
+                    ),
+                    into: request.outputDirectory,
+                    provenanceContext: Self.aiWorkbookUpdateProvenanceContext(
+                        request: request,
+                        publication: published
+                    )
                 )
                 let analysisURL = ONTGenotypeResultBundle.resolvedURL(
                     for: published.revision.path,
@@ -362,6 +491,7 @@ final class WorkflowOperationExecutionService {
                     outputURLs + [
                         analysisURL,
                         published.provenanceURL,
+                        currentWorkbookURL,
                         ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: request.outputDirectory),
                     ]
                 )
@@ -662,6 +792,47 @@ final class WorkflowOperationExecutionService {
         urls.append(request.provenanceURL)
         urls.append(request.outputDirectory)
         return deduplicatedExistingURLs(urls)
+    }
+
+    static func workbookHaplotypeCalls(
+        from analysis: GenotypeHaplotypeAnalysis
+    ) -> [GenotypeWorkbookHaplotypeCall] {
+        analysis.samples.flatMap { sample in
+            sample.calls.map { call in
+                GenotypeWorkbookHaplotypeCall(
+                    sample: sample.sample,
+                    locus: call.locus,
+                    haplotype1: call.haplotype1,
+                    haplotype2: call.haplotype2,
+                    status: call.status.rawValue,
+                    notes: call.notes
+                )
+            }
+        }
+    }
+
+    private static func aiWorkbookUpdateProvenanceContext(
+        request: ONTBarcodeDemuxGenotypingRunRequest,
+        publication: WorkflowOperationAIHaplotypingPublication
+    ) -> GenotypeWorkbookRevisionProvenanceContext {
+        let argv = [
+            "lungfish-gui",
+            "workflow",
+            "miseq-amplicon-mhc-genotyping",
+            "--output-dir",
+            request.outputDirectory.path,
+            "--output-name",
+            request.outputName,
+            "--ai-specialist-preset",
+            request.aiSpecialistPresetID ?? "unspecified",
+            "--ai-revision",
+            publication.revision.id,
+        ]
+        return GenotypeWorkbookRevisionProvenanceContext(
+            toolName: "Lungfish Genome Explorer miSeq amplicon MHC AI haplotyping workflow",
+            toolKind: "gui",
+            argv: argv
+        )
     }
 
     private func fullLengthONTMHCGenotypingOutputURLs(

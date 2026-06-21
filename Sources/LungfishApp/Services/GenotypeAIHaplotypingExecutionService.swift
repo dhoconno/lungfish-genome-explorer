@@ -60,22 +60,38 @@ final class GenotypeAIHaplotypingExecutionService {
     func run(
         bundleURL: URL,
         mode: AIHaplotypingPromptMode,
-        routeContext: OperationRouteContext? = nil
+        routeContext: OperationRouteContext? = nil,
+        parentOperationID: UUID? = nil
     ) async throws -> AIHaplotypingRevisionPublishResult {
         let bundle = bundleURL.standardizedFileURL
         let startedAt = Date()
-        let operationID = operationCenter.start(
-            title: "AI Haplotyping",
-            detail: "Preparing \(displayName(for: mode))",
-            operationType: .fastqOperation,
-            targetBundleURL: bundle,
-            cliCommand: nil,
-            routeContext: routeContext
-        )
+        let ownsOperation = parentOperationID == nil
+        let operationID: UUID
+        if let parentOperationID {
+            operationID = parentOperationID
+            operationCenter.updateWithLog(
+                id: operationID,
+                progress: Self.nestedProgress(0),
+                detail: "Preparing \(displayName(for: mode))"
+            )
+        } else {
+            operationID = operationCenter.start(
+                title: "AI Haplotyping",
+                detail: "Preparing \(displayName(for: mode))",
+                operationType: .fastqOperation,
+                targetBundleURL: bundle,
+                cliCommand: nil,
+                routeContext: routeContext
+            )
+        }
 
         do {
             let provider = try await resolveProvider()
-            operationCenter.updateWithLog(id: operationID, progress: 0.1, detail: "Loading genotype bundle")
+            operationCenter.updateWithLog(
+                id: operationID,
+                progress: progress(0.1, ownsOperation: ownsOperation),
+                detail: "Loading genotype bundle"
+            )
 
             let result = try ONTGenotypeResultBundle.loadResult(from: bundle)
             let sidecarURL = ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: bundle)
@@ -108,7 +124,11 @@ final class GenotypeAIHaplotypingExecutionService {
                 arguments: Array(argv.dropFirst())
             )
             operationCenter.log(id: operationID, level: .info, message: cliCommand)
-            operationCenter.updateWithLog(id: operationID, progress: 0.25, detail: "Running structured AI haplotyping")
+            operationCenter.updateWithLog(
+                id: operationID,
+                progress: progress(0.25, ownsOperation: ownsOperation),
+                detail: "Running structured AI haplotyping"
+            )
 
             let options = AIHaplotypingRunOptions(
                 mode: mode,
@@ -130,7 +150,11 @@ final class GenotypeAIHaplotypingExecutionService {
                 sidecar: sidecar,
                 options: options
             )
-            operationCenter.updateWithLog(id: operationID, progress: 0.75, detail: "Publishing AI haplotype revision")
+            operationCenter.updateWithLog(
+                id: operationID,
+                progress: progress(0.75, ownsOperation: ownsOperation),
+                detail: "Publishing AI haplotype revision"
+            )
 
             var explicitOptions: [String: ParameterValue] = [
                 "bundle": .file(bundle),
@@ -197,23 +221,46 @@ final class GenotypeAIHaplotypingExecutionService {
                 )
             )
             let analysisURL = ONTGenotypeResultBundle.resolvedURL(for: published.revision.path, in: bundle)
-            operationCenter.complete(
-                id: operationID,
-                detail: "Created AI haplotype revision \(published.revision.id)",
-                outputURLs: [analysisURL, published.provenanceURL, sidecarURL]
-            )
+            if ownsOperation {
+                operationCenter.complete(
+                    id: operationID,
+                    detail: "Created AI haplotype revision \(published.revision.id)",
+                    outputURLs: [analysisURL, published.provenanceURL, sidecarURL]
+                )
+            } else {
+                operationCenter.updateWithLog(
+                    id: operationID,
+                    progress: Self.nestedProgress(1),
+                    detail: "Created AI haplotype revision \(published.revision.id)"
+                )
+            }
             return published
         } catch {
-            if operationCenter.items.first(where: { $0.id == operationID })?.state == .running {
+            if ownsOperation,
+               operationCenter.items.first(where: { $0.id == operationID })?.state == .running {
                 operationCenter.fail(
                     id: operationID,
                     detail: "AI haplotyping failed",
                     errorMessage: "AI haplotyping failed",
                     errorDetail: Self.failureDetail(for: error)
                 )
+            } else if !ownsOperation {
+                operationCenter.log(
+                    id: operationID,
+                    level: .error,
+                    message: "AI haplotyping failed: \(Self.failureDetail(for: error))"
+                )
             }
             throw error
         }
+    }
+
+    private func progress(_ value: Double, ownsOperation: Bool) -> Double {
+        ownsOperation ? value : Self.nestedProgress(value)
+    }
+
+    private static func nestedProgress(_ value: Double) -> Double {
+        0.9 + (min(max(value, 0), 1) * 0.05)
     }
 
     private func resolveProvider() async throws -> ResolvedProvider {

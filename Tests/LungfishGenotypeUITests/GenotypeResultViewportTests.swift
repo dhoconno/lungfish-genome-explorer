@@ -2632,6 +2632,60 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(h2Override.rationale.contains("MHC-DP H2 M7DP -> M5DP"))
     }
 
+    func testInspectorOverrideCanApplyBothHaplotypeSlotsInOneBatch() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeResultBatchOverride-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            definitionSetName: "Mauritian cynomolgus macaques",
+            speciesName: "Mauritian cynomolgus macaques",
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "DW472",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-DP",
+                            sourceLocus: "Mafa-DP",
+                            haplotype1: "M4DP",
+                            haplotype2: "M7DP",
+                            status: .tooManyHaplotypes,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 3,
+                            observedGenotypes: ["15_M3_DPA1_01", "15_M4_DPA1_01", "15_M7_DPB1_01"]
+                        )
+                    ]
+                )
+            ]
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(bundleURL: bundleURL, samples: [], calls: [], haplotypeAnalysis: analysis))
+        controller.testingSelectCellEvidence(animalId: "DW472", locus: "MHC-DP")
+
+        controller.testingApplyOverridesFromInspector([
+            .init(slot: .h1, haplotypeName: "M3DP"),
+            .init(slot: .h2, haplotypeName: "M5DP"),
+        ])
+
+        let sidecar = try GenotypeAnnotationSidecar.decode(Data(
+            contentsOf: bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        ))
+        let h1Override = try XCTUnwrap(sidecar.callOverrides.first { $0.sample == "DW472" && $0.locus == "MHC-DP" && $0.slot == .h1 })
+        let h2Override = try XCTUnwrap(sidecar.callOverrides.first { $0.sample == "DW472" && $0.locus == "MHC-DP" && $0.slot == .h2 })
+        XCTAssertEqual(h1Override.originalCall, "M4DP")
+        XCTAssertEqual(h1Override.overrideCall, "M3DP")
+        XCTAssertEqual(h2Override.originalCall, "M7DP")
+        XCTAssertEqual(h2Override.overrideCall, "M5DP")
+
+        let evidence = try XCTUnwrap(controller.callEvidence(sample: "DW472", locus: "MHC-DP"))
+        XCTAssertEqual(evidence.h1Name, "M3DP")
+        XCTAssertEqual(evidence.h2Name, "M5DP")
+    }
+
     func testQuestionMarkOverrideRemainsUnresolvedInEvidenceAndOutline() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeResultUnknownOverride-\(UUID().uuidString)", isDirectory: true)

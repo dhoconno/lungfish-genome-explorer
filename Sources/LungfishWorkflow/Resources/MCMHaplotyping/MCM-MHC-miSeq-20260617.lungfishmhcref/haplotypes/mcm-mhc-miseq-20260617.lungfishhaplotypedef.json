@@ -24,24 +24,29 @@
             "MCM_MHC_MiSeq_0133"
           ],
           "evidenceWeights": {
-            "MCM_MHC_MiSeq_0003": 1.0,
-            "MCM_MHC_MiSeq_0004": 1.0,
-            "MCM_MHC_MiSeq_0010": 1.0,
-            "MCM_MHC_MiSeq_0017": 1.0,
-            "MCM_MHC_MiSeq_0041": 1.0,
-            "MCM_MHC_MiSeq_0053": 1.0,
-            "MCM_MHC_MiSeq_0054": 1.0,
-            "MCM_MHC_MiSeq_0059": 1.0,
-            "MCM_MHC_MiSeq_0066": 1.0,
-            "MCM_MHC_MiSeq_0068": 1.0,
+            "MCM_MHC_MiSeq_0003": 1,
+            "MCM_MHC_MiSeq_0004": 1,
+            "MCM_MHC_MiSeq_0010": 1,
+            "MCM_MHC_MiSeq_0017": 1,
+            "MCM_MHC_MiSeq_0041": 1,
+            "MCM_MHC_MiSeq_0053": 1,
+            "MCM_MHC_MiSeq_0054": 1,
+            "MCM_MHC_MiSeq_0059": 1,
+            "MCM_MHC_MiSeq_0066": 1,
+            "MCM_MHC_MiSeq_0068": 1,
             "MCM_MHC_MiSeq_0079": 0.25,
-            "MCM_MHC_MiSeq_0081": 1.0,
-            "MCM_MHC_MiSeq_0090": 1.0,
-            "MCM_MHC_MiSeq_0129": 1.0,
-            "MCM_MHC_MiSeq_0133": 1.0
+            "MCM_MHC_MiSeq_0081": 1,
+            "MCM_MHC_MiSeq_0090": 1,
+            "MCM_MHC_MiSeq_0129": 1,
+            "MCM_MHC_MiSeq_0133": 1
           },
           "minimumMatches": 1,
-          "name": "M1"
+          "name": "M1",
+          "primaryAlleles": [
+            "MCM_MHC_MiSeq_0068",
+            "MCM_MHC_MiSeq_0129",
+            "MCM_MHC_MiSeq_0079"
+          ]
         },
         {
           "diagnosticAlleles": [
@@ -61,21 +66,26 @@
           ],
           "evidenceWeights": {
             "MCM_MHC_MiSeq_0012": 0.25,
-            "MCM_MHC_MiSeq_0040": 1.0,
-            "MCM_MHC_MiSeq_0054": 1.0,
-            "MCM_MHC_MiSeq_0059": 1.0,
-            "MCM_MHC_MiSeq_0066": 1.0,
-            "MCM_MHC_MiSeq_0068": 1.0,
-            "MCM_MHC_MiSeq_0081": 1.0,
-            "MCM_MHC_MiSeq_0090": 1.0,
-            "MCM_MHC_MiSeq_0091": 1.0,
-            "MCM_MHC_MiSeq_0115": 1.0,
-            "MCM_MHC_MiSeq_0129": 1.0,
-            "MCM_MHC_MiSeq_0133": 1.0,
-            "MCM_MHC_MiSeq_0145": 1.0
+            "MCM_MHC_MiSeq_0040": 1,
+            "MCM_MHC_MiSeq_0054": 1,
+            "MCM_MHC_MiSeq_0059": 1,
+            "MCM_MHC_MiSeq_0066": 1,
+            "MCM_MHC_MiSeq_0068": 1,
+            "MCM_MHC_MiSeq_0081": 1,
+            "MCM_MHC_MiSeq_0090": 1,
+            "MCM_MHC_MiSeq_0091": 1,
+            "MCM_MHC_MiSeq_0115": 1,
+            "MCM_MHC_MiSeq_0129": 1,
+            "MCM_MHC_MiSeq_0133": 1,
+            "MCM_MHC_MiSeq_0145": 1
           },
           "minimumMatches": 1,
-          "name": "M2"
+          "name": "M2",
+          "primaryAlleles": [
+            "MCM_MHC_MiSeq_0068",
+            "MCM_MHC_MiSeq_0129",
+            "MCM_MHC_MiSeq_0145"
+          ]
         },
         {
           "diagnosticAlleles": [
@@ -103,29 +113,33 @@
           ],
           "evidenceWeights": {
             "MCM_MHC_MiSeq_0012": 0.25,
-            "MCM_MHC_MiSeq_0018": 1.0,
-            "MCM_MHC_MiSeq_0040": 1.0,
-            "MCM_MHC_MiSeq_0047": 1.0,
-            "MCM_MHC_MiSeq_0050": 1.0,
-            "MCM_MHC_MiSeq_0052": 1.0,
-            "MCM_MHC_MiSeq_0059": 1.0,
-            "MCM_MHC_MiSeq_0060": 1.0,
-            "MCM_MHC_MiSeq_0066": 1.0,
-            "MCM_MHC_MiSeq_0068": 1.0,
-            "MCM_MHC_MiSeq_0075": 1.0,
-            "MCM_MHC_MiSeq_0078": 1.0,
-            "MCM_MHC_MiSeq_0086": 1.0,
-            "MCM_MHC_MiSeq_0091": 1.0,
-            "MCM_MHC_MiSeq_0100": 1.0,
-            "MCM_MHC_MiSeq_0122": 1.0,
-            "MCM_MHC_MiSeq_0127": 1.0,
-            "MCM_MHC_MiSeq_0133": 1.0,
-            "MCM_MHC_MiSeq_0137": 1.0,
-            "MCM_MHC_MiSeq_0146": 1.0,
-            "MCM_MHC_MiSeq_0155": 1.0
+            "MCM_MHC_MiSeq_0018": 1,
+            "MCM_MHC_MiSeq_0040": 1,
+            "MCM_MHC_MiSeq_0047": 1,
+            "MCM_MHC_MiSeq_0050": 1,
+            "MCM_MHC_MiSeq_0052": 1,
+            "MCM_MHC_MiSeq_0059": 1,
+            "MCM_MHC_MiSeq_0060": 1,
+            "MCM_MHC_MiSeq_0066": 1,
+            "MCM_MHC_MiSeq_0068": 1,
+            "MCM_MHC_MiSeq_0075": 1,
+            "MCM_MHC_MiSeq_0078": 1,
+            "MCM_MHC_MiSeq_0086": 1,
+            "MCM_MHC_MiSeq_0091": 1,
+            "MCM_MHC_MiSeq_0100": 1,
+            "MCM_MHC_MiSeq_0122": 1,
+            "MCM_MHC_MiSeq_0127": 1,
+            "MCM_MHC_MiSeq_0133": 1,
+            "MCM_MHC_MiSeq_0137": 1,
+            "MCM_MHC_MiSeq_0146": 1,
+            "MCM_MHC_MiSeq_0155": 1
           },
           "minimumMatches": 1,
-          "name": "M3"
+          "name": "M3",
+          "primaryAlleles": [
+            "MCM_MHC_MiSeq_0068",
+            "MCM_MHC_MiSeq_0127"
+          ]
         },
         {
           "diagnosticAlleles": [
@@ -153,31 +167,34 @@
             "MCM_MHC_MiSeq_0150"
           ],
           "evidenceWeights": {
-            "MCM_MHC_MiSeq_0002": 1.0,
-            "MCM_MHC_MiSeq_0004": 1.0,
-            "MCM_MHC_MiSeq_0017": 1.0,
-            "MCM_MHC_MiSeq_0019": 1.0,
-            "MCM_MHC_MiSeq_0039": 1.0,
-            "MCM_MHC_MiSeq_0049": 1.0,
-            "MCM_MHC_MiSeq_0054": 1.0,
-            "MCM_MHC_MiSeq_0055": 1.0,
-            "MCM_MHC_MiSeq_0059": 1.0,
-            "MCM_MHC_MiSeq_0066": 1.0,
-            "MCM_MHC_MiSeq_0069": 1.0,
+            "MCM_MHC_MiSeq_0002": 1,
+            "MCM_MHC_MiSeq_0004": 1,
+            "MCM_MHC_MiSeq_0017": 1,
+            "MCM_MHC_MiSeq_0019": 1,
+            "MCM_MHC_MiSeq_0039": 1,
+            "MCM_MHC_MiSeq_0049": 1,
+            "MCM_MHC_MiSeq_0054": 1,
+            "MCM_MHC_MiSeq_0055": 1,
+            "MCM_MHC_MiSeq_0059": 1,
+            "MCM_MHC_MiSeq_0066": 1,
+            "MCM_MHC_MiSeq_0069": 1,
             "MCM_MHC_MiSeq_0076": 0.25,
-            "MCM_MHC_MiSeq_0081": 1.0,
-            "MCM_MHC_MiSeq_0082": 1.0,
-            "MCM_MHC_MiSeq_0086": 1.0,
-            "MCM_MHC_MiSeq_0090": 1.0,
-            "MCM_MHC_MiSeq_0093": 1.0,
-            "MCM_MHC_MiSeq_0128": 1.0,
-            "MCM_MHC_MiSeq_0133": 1.0,
-            "MCM_MHC_MiSeq_0138": 1.0,
-            "MCM_MHC_MiSeq_0144": 1.0,
-            "MCM_MHC_MiSeq_0150": 1.0
+            "MCM_MHC_MiSeq_0081": 1,
+            "MCM_MHC_MiSeq_0082": 1,
+            "MCM_MHC_MiSeq_0086": 1,
+            "MCM_MHC_MiSeq_0090": 1,
+            "MCM_MHC_MiSeq_0093": 1,
+            "MCM_MHC_MiSeq_0128": 1,
+            "MCM_MHC_MiSeq_0133": 1,
+            "MCM_MHC_MiSeq_0138": 1,
+            "MCM_MHC_MiSeq_0144": 1,
+            "MCM_MHC_MiSeq_0150": 1
           },
           "minimumMatches": 1,
-          "name": "M4"
+          "name": "M4",
+          "primaryAlleles": [
+            "MCM_MHC_MiSeq_0069"
+          ]
         },
         {
           "diagnosticAlleles": [
@@ -196,22 +213,25 @@
             "MCM_MHC_MiSeq_0142"
           ],
           "evidenceWeights": {
-            "MCM_MHC_MiSeq_0004": 1.0,
-            "MCM_MHC_MiSeq_0015": 1.0,
-            "MCM_MHC_MiSeq_0019": 1.0,
-            "MCM_MHC_MiSeq_0040": 1.0,
-            "MCM_MHC_MiSeq_0047": 1.0,
-            "MCM_MHC_MiSeq_0051": 1.0,
-            "MCM_MHC_MiSeq_0066": 1.0,
-            "MCM_MHC_MiSeq_0072": 1.0,
-            "MCM_MHC_MiSeq_0088": 1.0,
-            "MCM_MHC_MiSeq_0092": 1.0,
-            "MCM_MHC_MiSeq_0099": 1.0,
-            "MCM_MHC_MiSeq_0130": 1.0,
-            "MCM_MHC_MiSeq_0142": 1.0
+            "MCM_MHC_MiSeq_0004": 1,
+            "MCM_MHC_MiSeq_0015": 1,
+            "MCM_MHC_MiSeq_0019": 1,
+            "MCM_MHC_MiSeq_0040": 1,
+            "MCM_MHC_MiSeq_0047": 1,
+            "MCM_MHC_MiSeq_0051": 1,
+            "MCM_MHC_MiSeq_0066": 1,
+            "MCM_MHC_MiSeq_0072": 1,
+            "MCM_MHC_MiSeq_0088": 1,
+            "MCM_MHC_MiSeq_0092": 1,
+            "MCM_MHC_MiSeq_0099": 1,
+            "MCM_MHC_MiSeq_0130": 1,
+            "MCM_MHC_MiSeq_0142": 1
           },
           "minimumMatches": 1,
-          "name": "M5"
+          "name": "M5",
+          "primaryAlleles": [
+            "MCM_MHC_MiSeq_0099"
+          ]
         },
         {
           "diagnosticAlleles": [
@@ -233,25 +253,29 @@
             "MCM_MHC_MiSeq_0132"
           ],
           "evidenceWeights": {
-            "MCM_MHC_MiSeq_0004": 1.0,
-            "MCM_MHC_MiSeq_0011": 1.0,
-            "MCM_MHC_MiSeq_0013": 1.0,
-            "MCM_MHC_MiSeq_0015": 1.0,
-            "MCM_MHC_MiSeq_0042": 1.0,
-            "MCM_MHC_MiSeq_0047": 1.0,
-            "MCM_MHC_MiSeq_0070": 1.0,
-            "MCM_MHC_MiSeq_0075": 1.0,
-            "MCM_MHC_MiSeq_0083": 1.0,
-            "MCM_MHC_MiSeq_0084": 1.0,
-            "MCM_MHC_MiSeq_0088": 1.0,
-            "MCM_MHC_MiSeq_0100": 1.0,
-            "MCM_MHC_MiSeq_0103": 1.0,
-            "MCM_MHC_MiSeq_0123": 1.0,
-            "MCM_MHC_MiSeq_0131": 1.0,
-            "MCM_MHC_MiSeq_0132": 1.0
+            "MCM_MHC_MiSeq_0004": 1,
+            "MCM_MHC_MiSeq_0011": 1,
+            "MCM_MHC_MiSeq_0013": 1,
+            "MCM_MHC_MiSeq_0015": 1,
+            "MCM_MHC_MiSeq_0042": 1,
+            "MCM_MHC_MiSeq_0047": 1,
+            "MCM_MHC_MiSeq_0070": 1,
+            "MCM_MHC_MiSeq_0075": 1,
+            "MCM_MHC_MiSeq_0083": 1,
+            "MCM_MHC_MiSeq_0084": 1,
+            "MCM_MHC_MiSeq_0088": 1,
+            "MCM_MHC_MiSeq_0100": 1,
+            "MCM_MHC_MiSeq_0103": 1,
+            "MCM_MHC_MiSeq_0123": 1,
+            "MCM_MHC_MiSeq_0131": 1,
+            "MCM_MHC_MiSeq_0132": 1
           },
           "minimumMatches": 1,
-          "name": "M6"
+          "name": "M6",
+          "primaryAlleles": [
+            "MCM_MHC_MiSeq_0103",
+            "MCM_MHC_MiSeq_0070"
+          ]
         },
         {
           "diagnosticAlleles": [
@@ -277,29 +301,32 @@
             "MCM_MHC_MiSeq_0149"
           ],
           "evidenceWeights": {
-            "MCM_MHC_MiSeq_0004": 1.0,
-            "MCM_MHC_MiSeq_0014": 1.0,
-            "MCM_MHC_MiSeq_0016": 1.0,
-            "MCM_MHC_MiSeq_0040": 1.0,
-            "MCM_MHC_MiSeq_0048": 1.0,
-            "MCM_MHC_MiSeq_0049": 1.0,
-            "MCM_MHC_MiSeq_0053": 1.0,
-            "MCM_MHC_MiSeq_0054": 1.0,
-            "MCM_MHC_MiSeq_0055": 1.0,
-            "MCM_MHC_MiSeq_0061": 1.0,
-            "MCM_MHC_MiSeq_0071": 1.0,
-            "MCM_MHC_MiSeq_0075": 1.0,
-            "MCM_MHC_MiSeq_0083": 1.0,
-            "MCM_MHC_MiSeq_0087": 1.0,
-            "MCM_MHC_MiSeq_0089": 1.0,
-            "MCM_MHC_MiSeq_0090": 1.0,
-            "MCM_MHC_MiSeq_0093": 1.0,
-            "MCM_MHC_MiSeq_0124": 1.0,
-            "MCM_MHC_MiSeq_0133": 1.0,
-            "MCM_MHC_MiSeq_0149": 1.0
+            "MCM_MHC_MiSeq_0004": 1,
+            "MCM_MHC_MiSeq_0014": 1,
+            "MCM_MHC_MiSeq_0016": 1,
+            "MCM_MHC_MiSeq_0040": 1,
+            "MCM_MHC_MiSeq_0048": 1,
+            "MCM_MHC_MiSeq_0049": 1,
+            "MCM_MHC_MiSeq_0053": 1,
+            "MCM_MHC_MiSeq_0054": 1,
+            "MCM_MHC_MiSeq_0055": 1,
+            "MCM_MHC_MiSeq_0061": 1,
+            "MCM_MHC_MiSeq_0071": 1,
+            "MCM_MHC_MiSeq_0075": 1,
+            "MCM_MHC_MiSeq_0083": 1,
+            "MCM_MHC_MiSeq_0087": 1,
+            "MCM_MHC_MiSeq_0089": 1,
+            "MCM_MHC_MiSeq_0090": 1,
+            "MCM_MHC_MiSeq_0093": 1,
+            "MCM_MHC_MiSeq_0124": 1,
+            "MCM_MHC_MiSeq_0133": 1,
+            "MCM_MHC_MiSeq_0149": 1
           },
           "minimumMatches": 1,
-          "name": "M7"
+          "name": "M7",
+          "primaryAlleles": [
+            "MCM_MHC_MiSeq_0061"
+          ]
         }
       ],
       "locus": "MHC-A",
@@ -323,21 +350,25 @@
             "MCM_MHC_MiSeq_0134"
           ],
           "evidenceWeights": {
-            "MCM_MHC_MiSeq_0032": 1.0,
-            "MCM_MHC_MiSeq_0037": 1.0,
-            "MCM_MHC_MiSeq_0043": 1.0,
-            "MCM_MHC_MiSeq_0046": 1.0,
-            "MCM_MHC_MiSeq_0062": 1.0,
+            "MCM_MHC_MiSeq_0032": 1,
+            "MCM_MHC_MiSeq_0037": 1,
+            "MCM_MHC_MiSeq_0043": 1,
+            "MCM_MHC_MiSeq_0046": 1,
+            "MCM_MHC_MiSeq_0062": 1,
             "MCM_MHC_MiSeq_0065": 0.25,
-            "MCM_MHC_MiSeq_0073": 1.0,
-            "MCM_MHC_MiSeq_0080": 1.0,
-            "MCM_MHC_MiSeq_0110": 1.0,
-            "MCM_MHC_MiSeq_0120": 1.0,
-            "MCM_MHC_MiSeq_0126": 1.0,
-            "MCM_MHC_MiSeq_0134": 1.0
+            "MCM_MHC_MiSeq_0073": 1,
+            "MCM_MHC_MiSeq_0080": 1,
+            "MCM_MHC_MiSeq_0110": 1,
+            "MCM_MHC_MiSeq_0120": 1,
+            "MCM_MHC_MiSeq_0126": 1,
+            "MCM_MHC_MiSeq_0134": 1
           },
           "minimumMatches": 1,
-          "name": "M1"
+          "name": "M1",
+          "primaryAlleles": [
+            "MCM_MHC_MiSeq_0073",
+            "MCM_MHC_MiSeq_0065"
+          ]
         },
         {
           "diagnosticAlleles": [
@@ -353,19 +384,23 @@
             "MCM_MHC_MiSeq_0139"
           ],
           "evidenceWeights": {
-            "MCM_MHC_MiSeq_0033": 1.0,
-            "MCM_MHC_MiSeq_0064": 1.0,
-            "MCM_MHC_MiSeq_0067": 1.0,
+            "MCM_MHC_MiSeq_0033": 1,
+            "MCM_MHC_MiSeq_0064": 1,
+            "MCM_MHC_MiSeq_0067": 1,
             "MCM_MHC_MiSeq_0098": 0.25,
-            "MCM_MHC_MiSeq_0102": 1.0,
-            "MCM_MHC_MiSeq_0108": 1.0,
-            "MCM_MHC_MiSeq_0121": 1.0,
-            "MCM_MHC_MiSeq_0135": 1.0,
-            "MCM_MHC_MiSeq_0136": 1.0,
-            "MCM_MHC_MiSeq_0139": 1.0
+            "MCM_MHC_MiSeq_0102": 1,
+            "MCM_MHC_MiSeq_0108": 1,
+            "MCM_MHC_MiSeq_0121": 1,
+            "MCM_MHC_MiSeq_0135": 1,
+            "MCM_MHC_MiSeq_0136": 1,
+            "MCM_MHC_MiSeq_0139": 1
           },
           "minimumMatches": 1,
-          "name": "M2"
+          "name": "M2",
+          "primaryAlleles": [
+            "MCM_MHC_MiSeq_0136",
+            "MCM_MHC_MiSeq_0135"
+          ]
         },
         {
           "diagnosticAlleles": [
@@ -383,21 +418,25 @@
             "MCM_MHC_MiSeq_0172"
           ],
           "evidenceWeights": {
-            "MCM_MHC_MiSeq_0028": 1.0,
+            "MCM_MHC_MiSeq_0028": 1,
             "MCM_MHC_MiSeq_0030": 0.25,
-            "MCM_MHC_MiSeq_0033": 1.0,
-            "MCM_MHC_MiSeq_0057": 1.0,
-            "MCM_MHC_MiSeq_0063": 1.0,
-            "MCM_MHC_MiSeq_0096": 1.0,
+            "MCM_MHC_MiSeq_0033": 1,
+            "MCM_MHC_MiSeq_0057": 1,
+            "MCM_MHC_MiSeq_0063": 1,
+            "MCM_MHC_MiSeq_0096": 1,
             "MCM_MHC_MiSeq_0098": 0.25,
-            "MCM_MHC_MiSeq_0119": 1.0,
-            "MCM_MHC_MiSeq_0126": 1.0,
-            "MCM_MHC_MiSeq_0140": 1.0,
+            "MCM_MHC_MiSeq_0119": 1,
+            "MCM_MHC_MiSeq_0126": 1,
+            "MCM_MHC_MiSeq_0140": 1,
             "MCM_MHC_MiSeq_0151": 0.25,
             "MCM_MHC_MiSeq_0172": 0.25
           },
           "minimumMatches": 1,
-          "name": "M3"
+          "name": "M3",
+          "primaryAlleles": [
+            "MCM_MHC_MiSeq_0063",
+            "MCM_MHC_MiSeq_0096"
+          ]
         },
         {
           "diagnosticAlleles": [
@@ -413,17 +452,20 @@
           ],
           "evidenceWeights": {
             "MCM_MHC_MiSeq_0029": 0.25,
-            "MCM_MHC_MiSeq_0032": 1.0,
-            "MCM_MHC_MiSeq_0036": 1.0,
-            "MCM_MHC_MiSeq_0058": 1.0,
-            "MCM_MHC_MiSeq_0074": 1.0,
-            "MCM_MHC_MiSeq_0104": 1.0,
-            "MCM_MHC_MiSeq_0106": 1.0,
-            "MCM_MHC_MiSeq_0126": 1.0,
-            "MCM_MHC_MiSeq_0141": 1.0
+            "MCM_MHC_MiSeq_0032": 1,
+            "MCM_MHC_MiSeq_0036": 1,
+            "MCM_MHC_MiSeq_0058": 1,
+            "MCM_MHC_MiSeq_0074": 1,
+            "MCM_MHC_MiSeq_0104": 1,
+            "MCM_MHC_MiSeq_0106": 1,
+            "MCM_MHC_MiSeq_0126": 1,
+            "MCM_MHC_MiSeq_0141": 1
           },
           "minimumMatches": 1,
-          "name": "M4"
+          "name": "M4",
+          "primaryAlleles": [
+            "MCM_MHC_MiSeq_0074"
+          ]
         },
         {
           "diagnosticAlleles": [
@@ -444,24 +486,28 @@
             "MCM_MHC_MiSeq_0152"
           ],
           "evidenceWeights": {
-            "MCM_MHC_MiSeq_0034": 1.0,
-            "MCM_MHC_MiSeq_0035": 1.0,
-            "MCM_MHC_MiSeq_0056": 1.0,
-            "MCM_MHC_MiSeq_0077": 1.0,
-            "MCM_MHC_MiSeq_0085": 1.0,
-            "MCM_MHC_MiSeq_0094": 1.0,
+            "MCM_MHC_MiSeq_0034": 1,
+            "MCM_MHC_MiSeq_0035": 1,
+            "MCM_MHC_MiSeq_0056": 1,
+            "MCM_MHC_MiSeq_0077": 1,
+            "MCM_MHC_MiSeq_0085": 1,
+            "MCM_MHC_MiSeq_0094": 1,
             "MCM_MHC_MiSeq_0095": 0.25,
-            "MCM_MHC_MiSeq_0102": 1.0,
-            "MCM_MHC_MiSeq_0107": 1.0,
-            "MCM_MHC_MiSeq_0108": 1.0,
-            "MCM_MHC_MiSeq_0114": 1.0,
-            "MCM_MHC_MiSeq_0116": 1.0,
+            "MCM_MHC_MiSeq_0102": 1,
+            "MCM_MHC_MiSeq_0107": 1,
+            "MCM_MHC_MiSeq_0108": 1,
+            "MCM_MHC_MiSeq_0114": 1,
+            "MCM_MHC_MiSeq_0116": 1,
             "MCM_MHC_MiSeq_0118": 0.25,
-            "MCM_MHC_MiSeq_0126": 1.0,
+            "MCM_MHC_MiSeq_0126": 1,
             "MCM_MHC_MiSeq_0152": 0.25
           },
           "minimumMatches": 1,
-          "name": "M5"
+          "name": "M5",
+          "primaryAlleles": [
+            "MCM_MHC_MiSeq_0095",
+            "MCM_MHC_MiSeq_0107"
+          ]
         },
         {
           "diagnosticAlleles": [
@@ -481,23 +527,27 @@
             "MCM_MHC_MiSeq_0148"
           ],
           "evidenceWeights": {
-            "MCM_MHC_MiSeq_0034": 1.0,
-            "MCM_MHC_MiSeq_0036": 1.0,
-            "MCM_MHC_MiSeq_0038": 1.0,
-            "MCM_MHC_MiSeq_0044": 1.0,
-            "MCM_MHC_MiSeq_0045": 1.0,
-            "MCM_MHC_MiSeq_0057": 1.0,
-            "MCM_MHC_MiSeq_0097": 1.0,
-            "MCM_MHC_MiSeq_0109": 1.0,
-            "MCM_MHC_MiSeq_0112": 1.0,
-            "MCM_MHC_MiSeq_0113": 1.0,
-            "MCM_MHC_MiSeq_0117": 1.0,
-            "MCM_MHC_MiSeq_0125": 1.0,
-            "MCM_MHC_MiSeq_0147": 1.0,
-            "MCM_MHC_MiSeq_0148": 1.0
+            "MCM_MHC_MiSeq_0034": 1,
+            "MCM_MHC_MiSeq_0036": 1,
+            "MCM_MHC_MiSeq_0038": 1,
+            "MCM_MHC_MiSeq_0044": 1,
+            "MCM_MHC_MiSeq_0045": 1,
+            "MCM_MHC_MiSeq_0057": 1,
+            "MCM_MHC_MiSeq_0097": 1,
+            "MCM_MHC_MiSeq_0109": 1,
+            "MCM_MHC_MiSeq_0112": 1,
+            "MCM_MHC_MiSeq_0113": 1,
+            "MCM_MHC_MiSeq_0117": 1,
+            "MCM_MHC_MiSeq_0125": 1,
+            "MCM_MHC_MiSeq_0147": 1,
+            "MCM_MHC_MiSeq_0148": 1
           },
           "minimumMatches": 1,
-          "name": "M6"
+          "name": "M6",
+          "primaryAlleles": [
+            "MCM_MHC_MiSeq_0125",
+            "MCM_MHC_MiSeq_0097"
+          ]
         },
         {
           "diagnosticAlleles": [
@@ -511,17 +561,21 @@
             "MCM_MHC_MiSeq_0143"
           ],
           "evidenceWeights": {
-            "MCM_MHC_MiSeq_0031": 1.0,
-            "MCM_MHC_MiSeq_0032": 1.0,
-            "MCM_MHC_MiSeq_0037": 1.0,
+            "MCM_MHC_MiSeq_0031": 1,
+            "MCM_MHC_MiSeq_0032": 1,
+            "MCM_MHC_MiSeq_0037": 1,
             "MCM_MHC_MiSeq_0101": 0.25,
-            "MCM_MHC_MiSeq_0105": 1.0,
-            "MCM_MHC_MiSeq_0111": 1.0,
-            "MCM_MHC_MiSeq_0126": 1.0,
-            "MCM_MHC_MiSeq_0143": 1.0
+            "MCM_MHC_MiSeq_0105": 1,
+            "MCM_MHC_MiSeq_0111": 1,
+            "MCM_MHC_MiSeq_0126": 1,
+            "MCM_MHC_MiSeq_0143": 1
           },
           "minimumMatches": 1,
-          "name": "M7"
+          "name": "M7",
+          "primaryAlleles": [
+            "MCM_MHC_MiSeq_0143",
+            "MCM_MHC_MiSeq_0101"
+          ]
         }
       ],
       "locus": "MHC-B",
@@ -536,12 +590,16 @@
             "MCM_MHC_MiSeq_0163"
           ],
           "evidenceWeights": {
-            "MCM_MHC_MiSeq_0007": 1.0,
-            "MCM_MHC_MiSeq_0154": 1.0,
+            "MCM_MHC_MiSeq_0007": 1,
+            "MCM_MHC_MiSeq_0154": 1,
             "MCM_MHC_MiSeq_0163": 0.25
           },
           "minimumMatches": 1,
-          "name": "M1"
+          "name": "M1",
+          "primaryAlleles": [
+            "MCM_MHC_MiSeq_0007",
+            "MCM_MHC_MiSeq_0154"
+          ]
         },
         {
           "diagnosticAlleles": [
@@ -550,12 +608,16 @@
             "MCM_MHC_MiSeq_0187"
           ],
           "evidenceWeights": {
-            "MCM_MHC_MiSeq_0153": 1.0,
-            "MCM_MHC_MiSeq_0162": 1.0,
-            "MCM_MHC_MiSeq_0187": 1.0
+            "MCM_MHC_MiSeq_0153": 1,
+            "MCM_MHC_MiSeq_0162": 1,
+            "MCM_MHC_MiSeq_0187": 1
           },
           "minimumMatches": 1,
-          "name": "M2"
+          "name": "M2",
+          "primaryAlleles": [
+            "MCM_MHC_MiSeq_0187",
+            "MCM_MHC_MiSeq_0153"
+          ]
         },
         {
           "diagnosticAlleles": [
@@ -563,11 +625,14 @@
             "MCM_MHC_MiSeq_0157"
           ],
           "evidenceWeights": {
-            "MCM_MHC_MiSeq_0006": 1.0,
-            "MCM_MHC_MiSeq_0157": 1.0
+            "MCM_MHC_MiSeq_0006": 1,
+            "MCM_MHC_MiSeq_0157": 1
           },
           "minimumMatches": 1,
-          "name": "M3"
+          "name": "M3",
+          "primaryAlleles": [
+            "MCM_MHC_MiSeq_0157"
+          ]
         },
         {
           "diagnosticAlleles": [
@@ -578,12 +643,15 @@
           ],
           "evidenceWeights": {
             "MCM_MHC_MiSeq_0158": 0.25,
-            "MCM_MHC_MiSeq_0159": 1.0,
-            "MCM_MHC_MiSeq_0160": 1.0,
-            "MCM_MHC_MiSeq_0186": 1.0
+            "MCM_MHC_MiSeq_0159": 1,
+            "MCM_MHC_MiSeq_0160": 1,
+            "MCM_MHC_MiSeq_0186": 1
           },
           "minimumMatches": 1,
-          "name": "M4"
+          "name": "M4",
+          "primaryAlleles": [
+            "MCM_MHC_MiSeq_0159"
+          ]
         },
         {
           "diagnosticAlleles": [
@@ -592,12 +660,15 @@
             "MCM_MHC_MiSeq_0161"
           ],
           "evidenceWeights": {
-            "MCM_MHC_MiSeq_0006": 1.0,
-            "MCM_MHC_MiSeq_0156": 1.0,
+            "MCM_MHC_MiSeq_0006": 1,
+            "MCM_MHC_MiSeq_0156": 1,
             "MCM_MHC_MiSeq_0161": 0.25
           },
           "minimumMatches": 1,
-          "name": "M5"
+          "name": "M5",
+          "primaryAlleles": [
+            "MCM_MHC_MiSeq_0156"
+          ]
         },
         {
           "diagnosticAlleles": [
@@ -606,12 +677,15 @@
             "MCM_MHC_MiSeq_0161"
           ],
           "evidenceWeights": {
-            "MCM_MHC_MiSeq_0006": 1.0,
-            "MCM_MHC_MiSeq_0156": 1.0,
+            "MCM_MHC_MiSeq_0006": 1,
+            "MCM_MHC_MiSeq_0156": 1,
             "MCM_MHC_MiSeq_0161": 0.25
           },
           "minimumMatches": 1,
-          "name": "M6"
+          "name": "M6",
+          "primaryAlleles": [
+            "MCM_MHC_MiSeq_0156"
+          ]
         },
         {
           "diagnosticAlleles": [
@@ -622,12 +696,15 @@
           ],
           "evidenceWeights": {
             "MCM_MHC_MiSeq_0158": 0.25,
-            "MCM_MHC_MiSeq_0159": 1.0,
-            "MCM_MHC_MiSeq_0160": 1.0,
-            "MCM_MHC_MiSeq_0186": 1.0
+            "MCM_MHC_MiSeq_0159": 1,
+            "MCM_MHC_MiSeq_0160": 1,
+            "MCM_MHC_MiSeq_0186": 1
           },
           "minimumMatches": 1,
-          "name": "M7"
+          "name": "M7",
+          "primaryAlleles": [
+            "MCM_MHC_MiSeq_0159"
+          ]
         }
       ],
       "locus": "MHC-DP",
@@ -641,11 +718,14 @@
             "MCM_MHC_MiSeq_0173"
           ],
           "evidenceWeights": {
-            "MCM_MHC_MiSeq_0009": 1.0,
-            "MCM_MHC_MiSeq_0173": 1.0
+            "MCM_MHC_MiSeq_0009": 1,
+            "MCM_MHC_MiSeq_0173": 1
           },
           "minimumMatches": 1,
-          "name": "M1"
+          "name": "M1",
+          "primaryAlleles": [
+            "MCM_MHC_MiSeq_0173"
+          ]
         },
         {
           "diagnosticAlleles": [
@@ -653,11 +733,14 @@
             "MCM_MHC_MiSeq_0178"
           ],
           "evidenceWeights": {
-            "MCM_MHC_MiSeq_0025": 1.0,
-            "MCM_MHC_MiSeq_0178": 1.0
+            "MCM_MHC_MiSeq_0025": 1,
+            "MCM_MHC_MiSeq_0178": 1
           },
           "minimumMatches": 1,
-          "name": "M2"
+          "name": "M2",
+          "primaryAlleles": [
+            "MCM_MHC_MiSeq_0025"
+          ]
         },
         {
           "diagnosticAlleles": [
@@ -665,11 +748,15 @@
             "MCM_MHC_MiSeq_0177"
           ],
           "evidenceWeights": {
-            "MCM_MHC_MiSeq_0026": 1.0,
-            "MCM_MHC_MiSeq_0177": 1.0
+            "MCM_MHC_MiSeq_0026": 1,
+            "MCM_MHC_MiSeq_0177": 1
           },
           "minimumMatches": 1,
-          "name": "M3"
+          "name": "M3",
+          "primaryAlleles": [
+            "MCM_MHC_MiSeq_0177",
+            "MCM_MHC_MiSeq_0026"
+          ]
         },
         {
           "diagnosticAlleles": [
@@ -677,11 +764,15 @@
             "MCM_MHC_MiSeq_0179"
           ],
           "evidenceWeights": {
-            "MCM_MHC_MiSeq_0023": 1.0,
-            "MCM_MHC_MiSeq_0179": 1.0
+            "MCM_MHC_MiSeq_0023": 1,
+            "MCM_MHC_MiSeq_0179": 1
           },
           "minimumMatches": 1,
-          "name": "M4"
+          "name": "M4",
+          "primaryAlleles": [
+            "MCM_MHC_MiSeq_0179",
+            "MCM_MHC_MiSeq_0023"
+          ]
         },
         {
           "diagnosticAlleles": [
@@ -689,11 +780,15 @@
             "MCM_MHC_MiSeq_0188"
           ],
           "evidenceWeights": {
-            "MCM_MHC_MiSeq_0024": 1.0,
-            "MCM_MHC_MiSeq_0188": 1.0
+            "MCM_MHC_MiSeq_0024": 1,
+            "MCM_MHC_MiSeq_0188": 1
           },
           "minimumMatches": 1,
-          "name": "M5"
+          "name": "M5",
+          "primaryAlleles": [
+            "MCM_MHC_MiSeq_0024",
+            "MCM_MHC_MiSeq_0188"
+          ]
         },
         {
           "diagnosticAlleles": [
@@ -701,11 +796,14 @@
             "MCM_MHC_MiSeq_0178"
           ],
           "evidenceWeights": {
-            "MCM_MHC_MiSeq_0022": 1.0,
-            "MCM_MHC_MiSeq_0178": 1.0
+            "MCM_MHC_MiSeq_0022": 1,
+            "MCM_MHC_MiSeq_0178": 1
           },
           "minimumMatches": 1,
-          "name": "M6"
+          "name": "M6",
+          "primaryAlleles": [
+            "MCM_MHC_MiSeq_0022"
+          ]
         },
         {
           "diagnosticAlleles": [
@@ -713,11 +811,15 @@
             "MCM_MHC_MiSeq_0180"
           ],
           "evidenceWeights": {
-            "MCM_MHC_MiSeq_0008": 1.0,
-            "MCM_MHC_MiSeq_0180": 1.0
+            "MCM_MHC_MiSeq_0008": 1,
+            "MCM_MHC_MiSeq_0180": 1
           },
           "minimumMatches": 1,
-          "name": "M7"
+          "name": "M7",
+          "primaryAlleles": [
+            "MCM_MHC_MiSeq_0008",
+            "MCM_MHC_MiSeq_0180"
+          ]
         }
       ],
       "locus": "MHC-DQ",
@@ -732,12 +834,16 @@
             "MCM_MHC_MiSeq_0169"
           ],
           "evidenceWeights": {
-            "MCM_MHC_MiSeq_0001": 1.0,
-            "MCM_MHC_MiSeq_0166": 1.0,
-            "MCM_MHC_MiSeq_0169": 1.0
+            "MCM_MHC_MiSeq_0001": 1,
+            "MCM_MHC_MiSeq_0166": 1,
+            "MCM_MHC_MiSeq_0169": 1
           },
           "minimumMatches": 1,
-          "name": "M1"
+          "name": "M1",
+          "primaryAlleles": [
+            "MCM_MHC_MiSeq_0169",
+            "MCM_MHC_MiSeq_0166"
+          ]
         },
         {
           "diagnosticAlleles": [
@@ -746,12 +852,16 @@
             "MCM_MHC_MiSeq_0185"
           ],
           "evidenceWeights": {
-            "MCM_MHC_MiSeq_0164": 1.0,
-            "MCM_MHC_MiSeq_0165": 1.0,
-            "MCM_MHC_MiSeq_0185": 1.0
+            "MCM_MHC_MiSeq_0164": 1,
+            "MCM_MHC_MiSeq_0165": 1,
+            "MCM_MHC_MiSeq_0185": 1
           },
           "minimumMatches": 1,
-          "name": "M2"
+          "name": "M2",
+          "primaryAlleles": [
+            "MCM_MHC_MiSeq_0164",
+            "MCM_MHC_MiSeq_0165"
+          ]
         },
         {
           "diagnosticAlleles": [
@@ -760,12 +870,16 @@
             "MCM_MHC_MiSeq_0184"
           ],
           "evidenceWeights": {
-            "MCM_MHC_MiSeq_0167": 1.0,
-            "MCM_MHC_MiSeq_0170": 1.0,
-            "MCM_MHC_MiSeq_0184": 1.0
+            "MCM_MHC_MiSeq_0167": 1,
+            "MCM_MHC_MiSeq_0170": 1,
+            "MCM_MHC_MiSeq_0184": 1
           },
           "minimumMatches": 1,
-          "name": "M3"
+          "name": "M3",
+          "primaryAlleles": [
+            "MCM_MHC_MiSeq_0170",
+            "MCM_MHC_MiSeq_0167"
+          ]
         },
         {
           "diagnosticAlleles": [
@@ -776,12 +890,15 @@
           ],
           "evidenceWeights": {
             "MCM_MHC_MiSeq_0020": 0.25,
-            "MCM_MHC_MiSeq_0027": 1.0,
-            "MCM_MHC_MiSeq_0174": 1.0,
-            "MCM_MHC_MiSeq_0182": 1.0
+            "MCM_MHC_MiSeq_0027": 1,
+            "MCM_MHC_MiSeq_0174": 1,
+            "MCM_MHC_MiSeq_0182": 1
           },
           "minimumMatches": 1,
-          "name": "M4"
+          "name": "M4",
+          "primaryAlleles": [
+            "MCM_MHC_MiSeq_0174"
+          ]
         },
         {
           "diagnosticAlleles": [
@@ -792,12 +909,15 @@
           ],
           "evidenceWeights": {
             "MCM_MHC_MiSeq_0020": 0.25,
-            "MCM_MHC_MiSeq_0027": 1.0,
-            "MCM_MHC_MiSeq_0175": 1.0,
-            "MCM_MHC_MiSeq_0182": 1.0
+            "MCM_MHC_MiSeq_0027": 1,
+            "MCM_MHC_MiSeq_0175": 1,
+            "MCM_MHC_MiSeq_0182": 1
           },
           "minimumMatches": 1,
-          "name": "M5"
+          "name": "M5",
+          "primaryAlleles": [
+            "MCM_MHC_MiSeq_0175"
+          ]
         },
         {
           "diagnosticAlleles": [
@@ -806,12 +926,16 @@
             "MCM_MHC_MiSeq_0181"
           ],
           "evidenceWeights": {
-            "MCM_MHC_MiSeq_0168": 1.0,
-            "MCM_MHC_MiSeq_0176": 1.0,
-            "MCM_MHC_MiSeq_0181": 1.0
+            "MCM_MHC_MiSeq_0168": 1,
+            "MCM_MHC_MiSeq_0176": 1,
+            "MCM_MHC_MiSeq_0181": 1
           },
           "minimumMatches": 1,
-          "name": "M6"
+          "name": "M6",
+          "primaryAlleles": [
+            "MCM_MHC_MiSeq_0168",
+            "MCM_MHC_MiSeq_0176"
+          ]
         },
         {
           "diagnosticAlleles": [
@@ -822,14 +946,18 @@
             "MCM_MHC_MiSeq_0189"
           ],
           "evidenceWeights": {
-            "MCM_MHC_MiSeq_0005": 1.0,
-            "MCM_MHC_MiSeq_0021": 1.0,
-            "MCM_MHC_MiSeq_0171": 1.0,
-            "MCM_MHC_MiSeq_0183": 1.0,
-            "MCM_MHC_MiSeq_0189": 1.0
+            "MCM_MHC_MiSeq_0005": 1,
+            "MCM_MHC_MiSeq_0021": 1,
+            "MCM_MHC_MiSeq_0171": 1,
+            "MCM_MHC_MiSeq_0183": 1,
+            "MCM_MHC_MiSeq_0189": 1
           },
           "minimumMatches": 1,
-          "name": "M7"
+          "name": "M7",
+          "primaryAlleles": [
+            "MCM_MHC_MiSeq_0005",
+            "MCM_MHC_MiSeq_0021"
+          ]
         }
       ],
       "locus": "MHC-DR",

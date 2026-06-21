@@ -496,9 +496,68 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         )
 
         let progressEvents = progressRecorder.events()
-        XCTAssertEqual(progressEvents.count, 1)
-        XCTAssertEqual(progressEvents[0].0, 0.46, accuracy: 0.0001)
-        XCTAssertEqual(progressEvents[0].1, "Processed 1/2 chunks")
+        XCTAssertEqual(progressEvents.count, 2)
+        XCTAssertEqual(progressEvents[0].0, 0.01, accuracy: 0.0001)
+        XCTAssertEqual(progressEvents[0].1, "Launching lungfish-cli...")
+        XCTAssertEqual(progressEvents[1].0, 0.46, accuracy: 0.0001)
+        XCTAssertEqual(progressEvents[1].1, "Processed 1/2 chunks")
+    }
+
+    func testExecuteEmitsLaunchProgressBeforeWaitingForFASTQCommand() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecLaunchProgress")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let inputDirectory = tempDir.appendingPathComponent("barcode05", isDirectory: true)
+        try FileManager.default.createDirectory(at: inputDirectory, withIntermediateDirectories: true)
+        let barcodesURL = tempDir.appendingPathComponent("NB05_samples.csv")
+        try "sample,barcode\nLF1001,ACGT\n".write(to: barcodesURL, atomically: true, encoding: .utf8)
+
+        let progressRecorder = ProgressRecorder()
+        let runner = SpyCommandRunner { _, outputDirectory in
+            let events = progressRecorder.events()
+            XCTAssertTrue(
+                events.contains { $0.0 > 0 && $0.1 == "Launching lungfish-cli..." },
+                "Large FASTQ operations must leave Preparing before the subprocess waits."
+            )
+            let outputTarget = outputDirectory.appendingPathComponent("ont-fluidigm-samples", isDirectory: true)
+            try FileManager.default.createDirectory(at: outputTarget, withIntermediateDirectories: true)
+            return FASTQCLIExecutionResult(outputURLs: [outputTarget])
+        }
+        let service = FASTQOperationExecutionService(
+            commandRunner: runner,
+            directImporter: SpyDirectImporter()
+        )
+
+        _ = try await service.execute(
+            request: .ontFluidigmSampleSplit(
+                inputFASTQURL: inputDirectory,
+                barcodeDefinitionsURL: barcodesURL,
+                threads: 4
+            ),
+            workingDirectory: tempDir.appendingPathComponent("operation-output", isDirectory: true),
+            progress: { fraction, message in
+                progressRecorder.append(fraction, message)
+            }
+        )
+    }
+
+    func testFASTQCLIProcessRunnerClosesPipeWriteHandlesAfterProcessExit() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishApp/Services/FASTQOperationExecutionService.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let runnerSource = try XCTUnwrap(
+            source.range(of: "private struct LungfishCLIProcessRunner")
+                .flatMap { start in
+                    source[start.lowerBound...].range(of: "\n    }\n}")
+                        .map { String(source[start.lowerBound..<$0.upperBound]) }
+                }
+        )
+
+        XCTAssertTrue(runnerSource.contains("stdout.fileHandleForWriting.closeFile()"))
+        XCTAssertTrue(runnerSource.contains("stderr.fileHandleForWriting.closeFile()"))
     }
 
     func testExecuteDoesNotPrecreateFreshONTPacBioDemuxOutputDirectoryBeforeLaunchingCLI() async throws {

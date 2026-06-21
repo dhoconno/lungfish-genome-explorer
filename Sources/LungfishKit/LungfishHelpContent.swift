@@ -318,14 +318,6 @@ public enum LungfishHelpContent {
         provenanceRelevant: true
     )
 
-    public static let fastqLocusPercent = HelpItem(
-        id: "workflow.fastq.field.locusPercent",
-        summary: "Percent threshold used for locus-level haplotype dropout calls.",
-        detail: "Locus threshold changes reported calls and is written with command provenance.",
-        audience: .analyst,
-        provenanceRelevant: true
-    )
-
     public static let fastqProportion = HelpItem(
         id: "workflow.fastq.field.proportion",
         summary: "Fraction of reads to sample, from 0 to 1.",
@@ -898,7 +890,6 @@ public enum LungfishHelpContent {
         fastqThreads,
         fastqSeed,
         fastqMinReads,
-        fastqLocusPercent,
         fastqProportion,
         fastqCount,
         fastqQuery,

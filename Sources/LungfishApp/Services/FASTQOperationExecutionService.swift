@@ -269,6 +269,7 @@ struct FASTQOperationExecutionService {
                     outputTargetPath: executionPlan.outputTarget.path
                 )
                 invocations.append(invocation)
+                progress(0.01, "Launching lungfish-cli...")
                 let result = try await commandRunner.run(
                     invocation: invocation,
                     outputDirectory: executionDirectory,
@@ -597,6 +598,8 @@ private struct LungfishCLIProcessRunner: FASTQOperationCommandRunning {
                 do {
                     try process.run()
                 } catch {
+                    stdout.fileHandleForWriting.closeFile()
+                    stderr.fileHandleForWriting.closeFile()
                     continuation.resume(
                         throwing: LungfishCLIRunner.RunError.launchFailed(error.localizedDescription)
                     )
@@ -608,6 +611,8 @@ private struct LungfishCLIProcessRunner: FASTQOperationCommandRunning {
             throw error
         }
 
+        stdout.fileHandleForWriting.closeFile()
+        stderr.fileHandleForWriting.closeFile()
         await stderrTask.value
         let stderrData = stderrCapture.data
         let stdoutData = await stdoutTask.value

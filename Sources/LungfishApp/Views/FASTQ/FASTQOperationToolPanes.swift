@@ -445,10 +445,6 @@ private struct FASTQOperationPrimarySettingsSection: View {
                         labeledCompactTextField("Min Reads", text: Self.intBinding(state, \.ontGenotypingMinSupport), help: LungfishHelpContent.fastqMinReads)
                     }
                 }
-                workflowFormGroup("Call Thresholds") {
-                    labeledCompactTextField("Locus %", text: Self.doubleBinding(state, \.ontGenotypingHaplotypeDropoutLocusPercent), help: LungfishHelpContent.fastqLocusPercent)
-                    helperText("Used for haplotype calls and Excel output. Inspector filters only change what is shown.")
-                }
                 helperText("Select a MiSeq allele reference and barcode definition in the Inputs section. The workflow retains exact+indel full-amplicon mappings, then demultiplexes retained reads.")
 
             case .correctSequencingErrors:

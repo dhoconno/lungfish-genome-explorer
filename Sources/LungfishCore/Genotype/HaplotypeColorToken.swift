@@ -112,6 +112,7 @@ public extension HaplotypeColorToken {
     static let canonicalByName: [String: Int] = [
         "M0": 0, "M1": 1, "M2": 2, "M3": 3, "M4": 4, "M5": 5, "M6": 6, "M7": 7,
         "M1A": 1, "M2A": 2, "M3A": 3, "M4A": 4, "M5A": 5, "M6A": 6, "M7A": 7,
+        "M1E": 1, "M2E": 2, "M3E": 3, "M4E": 4, "M5E": 5, "M6E": 6, "M7E": 7,
         "M1B": 1, "M2B": 2, "M3B": 3, "M4B": 4, "M5B": 5, "M6B": 6, "M7B": 7,
         "M1DR": 1, "M2DR": 2, "M3DR": 3, "M4DR": 4, "M5DR": 5, "M6DR": 6, "M7DR": 7,
         "M1DQ": 1, "M2DQ": 2, "M3DQ": 3, "M4DQ": 4, "M5DQ": 5, "M6DQ": 6, "M7DQ": 7,

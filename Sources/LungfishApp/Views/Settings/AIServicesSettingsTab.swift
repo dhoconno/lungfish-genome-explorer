@@ -114,7 +114,7 @@ struct AIServicesSettingsTab: View {
             Section("OpenAI") {
                 HStack {
                     statusIndicator(state: openAIValidation)
-                    SecureField("API Key", text: $openAIKey, prompt: Text("sk-... or Azure key"))
+                    SecureField("API Key", text: $openAIKey, prompt: Text("sk-..."))
                         .accessibilityIdentifier(SettingsAccessibilityID.aiOpenAIKeyField)
                 }
                 validationText(for: openAIValidation)
@@ -122,12 +122,6 @@ struct AIServicesSettingsTab: View {
                     modelOptions(Self.openAIModelOptions, selection: settings.openAIModel)
                 }
                 .accessibilityIdentifier(SettingsAccessibilityID.aiOpenAIModelPicker)
-
-                DisclosureGroup("Advanced Hosted Endpoint") {
-                    Toggle("Use Azure-hosted OpenAI endpoint", isOn: $settings.openAIHostedEndpointEnabled)
-                    TextField("Endpoint", text: $settings.openAIHostedEndpoint, prompt: Text("https://example.openai.azure.com"))
-                    TextField("Deployment", text: $settings.openAIHostedDeployment, prompt: Text("gpt-5-mini"))
-                }
             }
 
             Section("Google Gemini") {
@@ -141,6 +135,15 @@ struct AIServicesSettingsTab: View {
                     modelOptions(Self.geminiModelOptions, selection: settings.geminiModel)
                 }
                 .accessibilityIdentifier(SettingsAccessibilityID.aiGeminiModelPicker)
+            }
+
+            Section("Azure AI") {
+                Toggle("Use Azure AI-hosted endpoint", isOn: $settings.openAIHostedEndpointEnabled)
+                TextField("Endpoint", text: $settings.openAIHostedEndpoint, prompt: Text("https://example.openai.azure.com"))
+                TextField("Deployment", text: $settings.openAIHostedDeployment, prompt: Text("gpt-5-mini"))
+                Text("Use this for models deployed through Azure AI or Azure OpenAI endpoints. The deployment field accepts the deployment name exposed by your Azure resource.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             HStack {

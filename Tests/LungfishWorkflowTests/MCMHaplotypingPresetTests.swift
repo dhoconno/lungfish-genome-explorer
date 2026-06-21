@@ -23,6 +23,30 @@ final class MCMHaplotypingPresetTests: XCTestCase {
         XCTAssertEqual(definition.speciesCode, preset.haplotypeSpeciesCode)
     }
 
+    func testBundledMCMDefinitionMarksSharedA1063HaplotypesWithCompletePrimaryAlleles() throws {
+        let bundleURL = try MCMHaplotypingPreset.mcmMHCmiseq.bundledReferenceBundleURL()
+        let definition = try XCTUnwrap(MHCAmpliconReferenceBundle.defaultHaplotypeDefinition(in: bundleURL))
+        let mhcA = try XCTUnwrap(definition.locusDefinitions.first { $0.locus == "MHC-A" })
+        let m1 = try XCTUnwrap(mhcA.haplotypes.first { $0.name == "M1" })
+        let m2 = try XCTUnwrap(mhcA.haplotypes.first { $0.name == "M2" })
+        let m3 = try XCTUnwrap(mhcA.haplotypes.first { $0.name == "M3" })
+
+        XCTAssertEqual(m1.primaryAllelesForDominance, [
+            "MCM_MHC_MiSeq_0068",
+            "MCM_MHC_MiSeq_0129",
+            "MCM_MHC_MiSeq_0079",
+        ])
+        XCTAssertEqual(m2.primaryAllelesForDominance, [
+            "MCM_MHC_MiSeq_0068",
+            "MCM_MHC_MiSeq_0129",
+            "MCM_MHC_MiSeq_0145",
+        ])
+        XCTAssertEqual(m3.primaryAllelesForDominance, [
+            "MCM_MHC_MiSeq_0068",
+            "MCM_MHC_MiSeq_0127",
+        ])
+    }
+
     func testPresetRequestUsesBundledReferenceAndReplayablePresetArgument() throws {
         let preset = MCMHaplotypingPreset.mcmMHCmiseq
         let request = try preset.makeGenotypingRunRequest(

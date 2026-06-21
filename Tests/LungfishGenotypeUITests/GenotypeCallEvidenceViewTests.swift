@@ -152,6 +152,19 @@ final class GenotypeCallEvidenceViewTests: XCTestCase {
         XCTAssertTrue(actions.first?.help.contains("Leave H1 unresolved") ?? false)
     }
 
+    func testPendingOverridesCanStageBothSlotsBeforeApply() {
+        var pending = GenotypeCallEvidenceView.PendingOverrides()
+
+        pending.stage(.init(slot: .h1, haplotypeName: "M3DP"))
+        pending.stage(.init(slot: .h2, haplotypeName: "M5DP"))
+
+        XCTAssertEqual(pending.requests, [
+            .init(slot: .h1, haplotypeName: "M3DP"),
+            .init(slot: .h2, haplotypeName: "M5DP"),
+        ])
+        XCTAssertFalse(pending.isEmpty)
+    }
+
     func testCandidateRowsUseSlotExplicitSetHaplotypeButtonsAndNotObservedMarkers() throws {
         let sourceURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -163,7 +176,8 @@ final class GenotypeCallEvidenceViewTests: XCTestCase {
         XCTAssertFalse(source.contains("Menu(\"Override"))
         XCTAssertFalse(source.contains("Button(\"Set haplotype"))
         XCTAssertTrue(source.contains("overrideActions(for: candidate, evidence: evidence)"))
-        XCTAssertTrue(source.contains("onOverrideRequested?(action.haplotypeName, action.slot)"))
+        XCTAssertTrue(source.contains("@State private var pendingOverrides"))
+        XCTAssertTrue(source.contains("onOverridesRequested?(requests)"))
         XCTAssertTrue(source.contains("[not observed]"))
     }
 

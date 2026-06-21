@@ -549,7 +549,7 @@ final class WorkflowOperationDialogState {
            selectedHaplotypeDefinitionSetID == nil {
             return "Select a deterministic haplotype definition, or choose genotype-only."
         }
-        if (selectedTool?.kind == .ontGenotyping || selectedTool?.kind == .fullLengthONTMHCGenotyping),
+        if selectedTool?.kind == .fullLengthONTMHCGenotyping,
            haplotypeDropoutLocusPercent < 0 || haplotypeDropoutLocusPercent > 100 {
             return "Locus percent threshold must be between 0 and 100."
         }
@@ -1139,7 +1139,7 @@ final class WorkflowOperationDialogState {
                     threads: threads,
                     minSupport: minSupport,
                     haplotypeDropoutSampleFraction: nil,
-                    haplotypeDropoutLocusFraction: Self.fraction(fromPercent: haplotypeDropoutLocusPercent),
+                    haplotypeDropoutLocusFraction: nil,
                     haplotypeDropoutLocusFractionOverrides: [:],
                     haplotypeAssayID: selectedHaplotypeAssayID,
                     haplotypeSpeciesCode: selectedHaplotypeSpeciesCode,

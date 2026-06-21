@@ -25,6 +25,8 @@ final class HaplotypeColorTokenTests: XCTestCase {
         XCTAssertEqual(HaplotypeColorToken.assigned(forName: "M1").canonicalIndex, 1)
         XCTAssertEqual(HaplotypeColorToken.assigned(forName: "M7").canonicalIndex, 7)
         XCTAssertEqual(HaplotypeColorToken.assigned(forName: "M1A").canonicalIndex, 1)
+        XCTAssertEqual(HaplotypeColorToken.assigned(forName: "M1E").canonicalIndex, 1)
+        XCTAssertEqual(HaplotypeColorToken.assigned(forName: "M7E").canonicalIndex, 7)
         XCTAssertEqual(HaplotypeColorToken.assigned(forName: "M3DR").canonicalIndex, 3)
         XCTAssertEqual(HaplotypeColorToken.assigned(forName: "M7B").canonicalIndex, 7)
         XCTAssertEqual(HaplotypeColorToken.assigned(forName: "M4DP").canonicalIndex, 4)

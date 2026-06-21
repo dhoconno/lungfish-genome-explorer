@@ -669,7 +669,7 @@ final class FASTQOperationDialogState {
                     threads: ontGenotypingThreads,
                     minSupport: ontGenotypingMinSupport,
                     haplotypeDropoutSampleFraction: nil,
-                    haplotypeDropoutLocusFraction: Self.fraction(fromPercent: ontGenotypingHaplotypeDropoutLocusPercent),
+                    haplotypeDropoutLocusFraction: nil,
                     haplotypeDropoutLocusFractionOverrides: [:],
                     extraArguments: AdvancedCommandLineOptions.parse(ontGenotypingExtraArguments),
                     mode: ontGenotypingUsesPreparedSampleInputs ? .ontSampleBundles : .ontBarcodeDemux,
@@ -1241,9 +1241,6 @@ final class FASTQOperationDialogState {
             }
             if ontGenotypingMinSupport <= 0 {
                 return "Enter a positive minimum read threshold."
-            }
-            if ontGenotypingHaplotypeDropoutLocusPercent < 0 || ontGenotypingHaplotypeDropoutLocusPercent > 100 {
-                return "Enter a locus percent threshold between 0 and 100."
             }
             do {
                 _ = try AdvancedCommandLineOptions.parse(ontGenotypingExtraArguments)

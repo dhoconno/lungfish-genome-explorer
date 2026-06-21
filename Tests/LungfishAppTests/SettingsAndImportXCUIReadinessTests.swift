@@ -95,6 +95,22 @@ final class SettingsAndImportXCUIReadinessTests: XCTestCase {
         XCTAssertTrue(source.contains("shouldApplyValidationResult(expectedKey: value, provider: provider)"))
     }
 
+    func testAzureAISettingsArePresentedAsTheirOwnProviderAgnosticSection() throws {
+        let source = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/Settings/AIServicesSettingsTab.swift"),
+            encoding: .utf8
+        )
+        let openAISectionStart = try XCTUnwrap(source.range(of: "Section(\"OpenAI\")"))
+        let nextSectionStart = try XCTUnwrap(source.range(of: "Section(\"Google Gemini\")", range: openAISectionStart.upperBound..<source.endIndex))
+        let openAISection = source[openAISectionStart.lowerBound..<nextSectionStart.lowerBound]
+
+        XCTAssertTrue(source.contains("Section(\"Azure AI\")"))
+        XCTAssertTrue(source.contains("Use Azure AI-hosted endpoint"))
+        XCTAssertFalse(openAISection.contains("openAIHostedEndpointEnabled"))
+        XCTAssertFalse(openAISection.contains("Advanced Hosted Endpoint"))
+    }
+
     func testAdvancedSettingsSourceAppliesStableXCUIIdentifiersAndExperimentalToggle() throws {
         let settingsSource = try String(
             contentsOf: repositoryRoot()

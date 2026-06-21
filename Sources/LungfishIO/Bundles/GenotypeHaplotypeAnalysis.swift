@@ -146,6 +146,7 @@ public struct GenotypeHaplotypeLocusDefinition: Codable, Equatable, Sendable {
 public struct GenotypeHaplotypeDefinition: Codable, Equatable, Sendable {
     public let name: String
     public let diagnosticAlleles: [String]
+    public let primaryAlleles: [String]?
     public let colorTokenIndex: Int
     /// Minimum number of `diagnosticAlleles` that must be observed for
     /// this haplotype to match. `nil` means "all" (the strict notebook
@@ -156,11 +157,28 @@ public struct GenotypeHaplotypeDefinition: Codable, Equatable, Sendable {
     /// every single allele to be present.
     public let minimumMatches: Int?
 
-    public init(name: String, diagnosticAlleles: [String], colorTokenIndex: Int? = nil, minimumMatches: Int? = nil) {
+    public init(
+        name: String,
+        diagnosticAlleles: [String],
+        primaryAlleles: [String]? = nil,
+        colorTokenIndex: Int? = nil,
+        minimumMatches: Int? = nil
+    ) {
         self.name = name
         self.diagnosticAlleles = diagnosticAlleles
+        self.primaryAlleles = primaryAlleles
         self.colorTokenIndex = colorTokenIndex ?? HaplotypeColorToken.assigned(forName: name).canonicalIndex
         self.minimumMatches = minimumMatches
+    }
+
+    public init(name: String, diagnosticAlleles: [String], colorTokenIndex: Int? = nil, minimumMatches: Int? = nil) {
+        self.init(
+            name: name,
+            diagnosticAlleles: diagnosticAlleles,
+            primaryAlleles: nil,
+            colorTokenIndex: colorTokenIndex,
+            minimumMatches: minimumMatches
+        )
     }
 
     /// Effective threshold for matching: `minimumMatches` when set,
@@ -170,8 +188,15 @@ public struct GenotypeHaplotypeDefinition: Codable, Equatable, Sendable {
         return diagnosticAlleles.count
     }
 
+    public var primaryAllelesForDominance: [String] {
+        guard let primaryAlleles, !primaryAlleles.isEmpty else {
+            return diagnosticAlleles
+        }
+        return primaryAlleles
+    }
+
     private enum CodingKeys: String, CodingKey {
-        case name, diagnosticAlleles, colorTokenIndex, minimumMatches
+        case name, diagnosticAlleles, primaryAlleles, colorTokenIndex, minimumMatches
     }
 
     public init(from decoder: Decoder) throws {
@@ -182,6 +207,7 @@ public struct GenotypeHaplotypeDefinition: Codable, Equatable, Sendable {
             ?? HaplotypeColorToken.assigned(forName: name).canonicalIndex
         self.name = name
         self.diagnosticAlleles = diagnosticAlleles
+        self.primaryAlleles = try container.decodeIfPresent([String].self, forKey: .primaryAlleles)
         self.colorTokenIndex = colorTokenIndex
         self.minimumMatches = try container.decodeIfPresent(Int.self, forKey: .minimumMatches)
     }
@@ -1090,7 +1116,7 @@ public enum GenotypeHaplotypeAnalyzer {
             .map(\.genotype)
             .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
 
-        var matched = locusDefinition.haplotypes.compactMap { haplotype -> GenotypeHaplotypeMatchedDefinition? in
+        var scoredMatches = locusDefinition.haplotypes.compactMap { haplotype -> ScoredHaplotypeMatch? in
             let observedDiagnostics = haplotype.diagnosticAlleles.filter { allele in
                 diagnosticCalls.contains { call in
                     GenotypeHaplotypeDiagnosticMatcher.matches(
@@ -1110,16 +1136,38 @@ public enum GenotypeHaplotypeAnalyzer {
                         haplotype: haplotype,
                         observedDiagnostics: observedDiagnostics
                     ) else { return nil }
-            return GenotypeHaplotypeMatchedDefinition(
+            let readSupport = diagnosticCalls.reduce(0) { total, call in
+                let supportsHaplotype = haplotype.diagnosticAlleles.contains { allele in
+                    GenotypeHaplotypeDiagnosticMatcher.matches(
+                        genotype: call.genotype,
+                        diagnosticAllele: allele
+                    )
+                }
+                return supportsHaplotype ? total + max(0, call.passedUniqueReads) : total
+            }
+            let hasCompletePrimaryEvidence = Self.hasCompletePrimaryEvidence(
+                haplotype: haplotype,
+                diagnosticCalls: diagnosticCalls
+            )
+            let match = GenotypeHaplotypeMatchedDefinition(
                 name: haplotype.name,
                 diagnosticAlleles: haplotype.diagnosticAlleles,
                 observedDiagnosticAlleles: observedDiagnostics
             )
+            return ScoredHaplotypeMatch(
+                match: match,
+                readSupport: readSupport,
+                hasCompletePrimaryEvidence: hasCompletePrimaryEvidence
+            )
         }
+        var matched = scoredMatches.map(\.match)
         matched = trimMCMClassIARescueOvercalls(
             matched,
             locusDefinition: locusDefinition
         )
+        scoredMatches = scoredMatches.filter { scored in
+            matched.contains(where: { $0.name == scored.match.name })
+        }
 
         var haplotype1: String
         var haplotype2: String
@@ -1157,6 +1205,12 @@ public enum GenotypeHaplotypeAnalyzer {
             haplotype1 = matched[0].name
             haplotype2 = matched[1].name
             status = .called
+        } else if let dominant = dominantTopTwoMatches(scoredMatches) {
+            matched = dominant.matches
+            haplotype1 = matched[0].name
+            haplotype2 = matched[1].name
+            status = .called
+            notes = dominant.note
         } else {
             let joined = matched.map(\.name).joined(separator: ", ")
             haplotype1 = "ERR: TMH (\(joined))"
@@ -1166,9 +1220,17 @@ public enum GenotypeHaplotypeAnalyzer {
 
         if status != .notAssayed,
            diploidClassIILocusHasTooManyGenotypes(locusDefinition: locusDefinition, calls: calls) {
-            haplotype1 = "ERR: TMG"
-            haplotype2 = "ERR: TMG"
-            status = .tooManyGenotypes
+            if let dominanceNote = dominantTopTwoClassIIGenotypeNote(
+                locusDefinition: locusDefinition,
+                calls: calls,
+                matched: matched
+            ) {
+                notes = notes.isEmpty ? dominanceNote : "\(notes) \(dominanceNote)"
+            } else {
+                haplotype1 = "ERR: TMG"
+                haplotype2 = "ERR: TMG"
+                status = .tooManyGenotypes
+            }
         }
 
         return GenotypeHaplotypeLocusCall(
@@ -1182,6 +1244,64 @@ public enum GenotypeHaplotypeAnalyzer {
             observedGenotypes: observedGenotypes,
             notes: notes
         )
+    }
+
+    private struct ScoredHaplotypeMatch {
+        let match: GenotypeHaplotypeMatchedDefinition
+        let readSupport: Int
+        let hasCompletePrimaryEvidence: Bool
+    }
+
+    private struct DominantHaplotypeMatches {
+        let matches: [GenotypeHaplotypeMatchedDefinition]
+        let note: String
+    }
+
+    private static func dominantTopTwoMatches(
+        _ scoredMatches: [ScoredHaplotypeMatch]
+    ) -> DominantHaplotypeMatches? {
+        guard scoredMatches.count > 2 else { return nil }
+        let rankedComplete = scoredMatches.enumerated()
+            .filter { $0.element.hasCompletePrimaryEvidence }
+            .sorted { lhs, rhs in
+            if lhs.element.readSupport != rhs.element.readSupport {
+                return lhs.element.readSupport > rhs.element.readSupport
+            }
+            return lhs.offset < rhs.offset
+        }.map(\.element)
+        let selected = Array(rankedComplete.prefix(2))
+        let selectedNames = Set(selected.map(\.match.name))
+        let remaining = scoredMatches.filter { !selectedNames.contains($0.match.name) }
+        guard selected.count == 2,
+              selected[1].readSupport > 0,
+              remaining.allSatisfy({ selected[1].readSupport > $0.readSupport * 10 }) else {
+            return nil
+        }
+        let selectedText = selected
+            .map { "\($0.match.name)=\($0.readSupport)" }
+            .joined(separator: ", ")
+        let suppressedText = remaining
+            .map { "\($0.match.name)=\($0.readSupport)" }
+            .joined(separator: ", ")
+        let note = "Read-dominance deterministic call: top haplotypes \(selectedText) each exceed other genotype-matching read support by more than 10x"
+            + (suppressedText.isEmpty ? "." : " (suppressed: \(suppressedText)).")
+        return DominantHaplotypeMatches(matches: selected.map(\.match), note: note)
+    }
+
+    private static func hasCompletePrimaryEvidence(
+        haplotype: GenotypeHaplotypeDefinition,
+        diagnosticCalls: [ONTGenotypeCall]
+    ) -> Bool {
+        let primaryAlleles = haplotype.primaryAllelesForDominance
+        guard !primaryAlleles.isEmpty else { return false }
+        return primaryAlleles.allSatisfy { primaryAllele in
+            diagnosticCalls.contains { call in
+                GenotypeHaplotypeDiagnosticMatcher.matches(
+                    genotype: call.genotype,
+                    diagnosticAllele: primaryAllele
+                )
+            }
+        }
     }
 
     private static func usesMCMAClassIGAGSpecificRescue(
@@ -1211,7 +1331,8 @@ public enum GenotypeHaplotypeAnalyzer {
         let definitionsByName = Dictionary(uniqueKeysWithValues: locusDefinition.haplotypes.map { ($0.name, $0) })
         let strict = matched.filter { match in
             guard let definition = definitionsByName[match.name] else { return true }
-            return match.observedDiagnosticAlleles.count >= definition.effectiveMinimumMatches
+            let observed = Set(match.observedDiagnosticAlleles)
+            return definition.primaryAllelesForDominance.allSatisfy { observed.contains($0) }
         }
         guard strict.count >= 2 else {
             return matched
@@ -1269,5 +1390,74 @@ public enum GenotypeHaplotypeAnalyzer {
             GenotypeHaplotypeLocusResolver.rawCall($0, belongsTo: locusDefinition)
         }, by: { GenotypeHaplotypeLocusResolver.canonicalLocusName($0.locusGroup) })
         return rawCounts.values.contains { $0.count > 2 }
+    }
+
+    private static func dominantTopTwoClassIIGenotypeNote(
+        locusDefinition: GenotypeHaplotypeLocusDefinition,
+        calls: [ONTGenotypeCall],
+        matched: [GenotypeHaplotypeMatchedDefinition]
+    ) -> String? {
+        let definitionLocus = GenotypeHaplotypeLocusResolver.canonicalLocusName(locusDefinition.sourceLocus)
+        let classIILoci = Set(["MHC-DPA", "MHC-DPB", "MHC-DQA", "MHC-DQB", "MHC-DP", "MHC-DQ"])
+        guard classIILoci.contains(definitionLocus),
+              matched.count == 2 else {
+            return nil
+        }
+
+        let diagnosticCalls = calls.filter {
+            GenotypeHaplotypeLocusResolver.diagnosticCall($0, belongsTo: locusDefinition)
+        }
+        let scoredPotential = locusDefinition.haplotypes.compactMap { haplotype -> ScoredHaplotypeMatch? in
+            let observedDiagnostics = haplotype.diagnosticAlleles.filter { allele in
+                diagnosticCalls.contains { call in
+                    GenotypeHaplotypeDiagnosticMatcher.matches(
+                        genotype: call.genotype,
+                        diagnosticAllele: allele
+                    )
+                }
+            }
+            guard !observedDiagnostics.isEmpty else { return nil }
+            let readSupport = diagnosticCalls.reduce(0) { total, call in
+                let supportsHaplotype = haplotype.diagnosticAlleles.contains { allele in
+                    GenotypeHaplotypeDiagnosticMatcher.matches(
+                        genotype: call.genotype,
+                        diagnosticAllele: allele
+                    )
+                }
+                return supportsHaplotype ? total + max(0, call.passedUniqueReads) : total
+            }
+            return ScoredHaplotypeMatch(
+                match: GenotypeHaplotypeMatchedDefinition(
+                    name: haplotype.name,
+                    diagnosticAlleles: haplotype.diagnosticAlleles,
+                    observedDiagnosticAlleles: observedDiagnostics
+                ),
+                readSupport: readSupport,
+                hasCompletePrimaryEvidence: Self.hasCompletePrimaryEvidence(
+                    haplotype: haplotype,
+                    diagnosticCalls: diagnosticCalls
+                )
+            )
+        }
+        let selectedNames = Set(matched.map(\.name))
+        let selectedScores = scoredPotential.filter { selectedNames.contains($0.match.name) }
+        let remainingScores = scoredPotential.filter { !selectedNames.contains($0.match.name) && $0.readSupport > 0 }
+        guard selectedScores.count == 2,
+              selectedScores.allSatisfy(\.hasCompletePrimaryEvidence),
+              !remainingScores.isEmpty,
+              let minimumSelectedSupport = selectedScores.map(\.readSupport).min(),
+              minimumSelectedSupport > 0,
+              remainingScores.allSatisfy({ minimumSelectedSupport > $0.readSupport * 10 }) else {
+            return nil
+        }
+
+        let selectedText = selectedScores
+            .map { "\($0.match.name)=\($0.readSupport)" }
+            .joined(separator: ", ")
+        let suppressedText = remainingScores
+            .map { "\($0.match.name)=\($0.readSupport)" }
+            .joined(separator: ", ")
+        return "Class II read-dominance deterministic call: top haplotypes \(selectedText) each exceed additional genotype support by more than 10x"
+            + (suppressedText.isEmpty ? "." : " (suppressed: \(suppressedText)).")
     }
 }

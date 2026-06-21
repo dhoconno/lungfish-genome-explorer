@@ -91,6 +91,40 @@ struct GenotypeCallEvidenceView: View {
         var id: String { "\(slot.rawValue)-\(haplotypeName)" }
     }
 
+    struct HaplotypeOverrideRequest: Identifiable, Equatable {
+        let slot: HaplotypeSlot
+        let haplotypeName: String
+
+        var id: String { "\(slot.rawValue)-\(haplotypeName)" }
+    }
+
+    struct PendingOverrides: Equatable {
+        private var targets: [HaplotypeSlot: String] = [:]
+
+        var isEmpty: Bool {
+            targets.isEmpty
+        }
+
+        var requests: [HaplotypeOverrideRequest] {
+            HaplotypeSlot.allCases.compactMap { slot in
+                guard let haplotypeName = targets[slot] else { return nil }
+                return HaplotypeOverrideRequest(slot: slot, haplotypeName: haplotypeName)
+            }
+        }
+
+        mutating func stage(_ request: HaplotypeOverrideRequest) {
+            targets[request.slot] = request.haplotypeName
+        }
+
+        mutating func clear() {
+            targets.removeAll()
+        }
+
+        func target(for slot: HaplotypeSlot) -> String? {
+            targets[slot]
+        }
+    }
+
     struct DiagnosticAllele: Identifiable, Equatable {
         let allele: String
         let reads: Int
@@ -117,8 +151,11 @@ struct GenotypeCallEvidenceView: View {
     /// Optional callback that fires when the analyst promotes a candidate
     /// haplotype from the review matrix.
     var onOverrideRequested: ((String, HaplotypeSlot) -> Void)?
+    var onOverridesRequested: (([HaplotypeOverrideRequest]) -> Void)?
     var onConfirmRequested: (() -> Void)?
     var onSkipRequested: (() -> Void)?
+
+    @State private var pendingOverrides = PendingOverrides()
 
     static func overrideActions(
         for candidate: CandidateHaplotype,
@@ -191,6 +228,10 @@ struct GenotypeCallEvidenceView: View {
             VStack(alignment: .leading, spacing: 14) {
                 if let evidence {
                     header(evidence)
+                    if !pendingOverrides.isEmpty {
+                        Divider()
+                        pendingOverridesBlock(evidence)
+                    }
                     if !evidence.errorExplanation.isEmpty {
                         Divider()
                         errorExplanationBlock(evidence)
@@ -320,13 +361,15 @@ struct GenotypeCallEvidenceView: View {
                 .foregroundStyle(.secondary)
             Spacer()
             ForEach(actions) { action in
+                let isPending = pendingOverrides.target(for: action.slot) == action.haplotypeName
                 Button(action.label) {
-                    onOverrideRequested?(action.haplotypeName, action.slot)
+                    stageOverride(action)
                 }
                 .controlSize(.small)
                 .lineLimit(1)
                 .help(action.help)
                 .accessibilityLabel(action.help)
+                .foregroundStyle(isPending ? Color.accentColor : Color.primary)
             }
         }
         .padding(.vertical, 3)
@@ -362,13 +405,15 @@ struct GenotypeCallEvidenceView: View {
                 Spacer()
                 if !actions.isEmpty {
                     ForEach(actions) { action in
+                        let isPending = pendingOverrides.target(for: action.slot) == action.haplotypeName
                         Button(action.label) {
-                            onOverrideRequested?(action.haplotypeName, action.slot)
+                            stageOverride(action)
                         }
                         .controlSize(.small)
                         .lineLimit(1)
                         .help(action.help)
                         .accessibilityLabel(action.help)
+                        .foregroundStyle(isPending ? Color.accentColor : Color.primary)
                     }
                 }
             }
@@ -407,6 +452,56 @@ struct GenotypeCallEvidenceView: View {
         .background(
             RoundedRectangle(cornerRadius: 5)
                 .fill(isCurrentCall ? Color.accentColor.opacity(0.08) : Color.secondary.opacity(0.04))
+        )
+    }
+
+    private func stageOverride(_ action: HaplotypeOverrideAction) {
+        pendingOverrides.stage(.init(slot: action.slot, haplotypeName: action.haplotypeName))
+    }
+
+    private func pendingOverridesBlock(_ evidence: Evidence) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Pending haplotype overrides")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            ForEach(pendingOverrides.requests) { request in
+                HStack(spacing: 6) {
+                    Text(request.slot.displayName)
+                        .font(.caption.monospaced().weight(.semibold))
+                        .frame(width: 24, alignment: .leading)
+                    Text("\(Self.displayOverrideValue(Self.currentHaplotypeName(in: evidence, slot: request.slot))) -> \(request.haplotypeName)")
+                        .font(.caption.monospaced())
+                        .textSelection(.enabled)
+                    Spacer()
+                }
+            }
+            HStack {
+                Spacer()
+                Button("Clear") {
+                    pendingOverrides.clear()
+                }
+                .controlSize(.small)
+                Button("Apply pending") {
+                    let requests = pendingOverrides.requests
+                    pendingOverrides.clear()
+                    if onOverridesRequested != nil {
+                        onOverridesRequested?(requests)
+                    } else {
+                        for request in requests {
+                            onOverrideRequested?(request.haplotypeName, request.slot)
+                        }
+                    }
+                }
+                .controlSize(.small)
+                .keyboardShortcut(.defaultAction)
+                .disabled(pendingOverrides.isEmpty)
+            }
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 5)
+                .fill(Color.accentColor.opacity(0.08))
         )
     }
 

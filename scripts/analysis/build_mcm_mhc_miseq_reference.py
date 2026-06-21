@@ -36,6 +36,63 @@ DEFAULT_REFERENCE_ID_PREFIX = "MCM_MHC_MiSeq"
 DEFAULT_DEFINITION_ID = "mcm-mhc-miseq-20260617"
 DEFAULT_ASSAY_ID = "MHC-exon2-miSeq"
 
+MCM_PRIMARY_HAPLOTYPE_ALLELES: dict[str, dict[str, list[str]]] = {
+    "MHC-A": {
+        "M1": ["MCM_MHC_MiSeq_0068", "MCM_MHC_MiSeq_0129", "MCM_MHC_MiSeq_0079"],
+        "M2": ["MCM_MHC_MiSeq_0068", "MCM_MHC_MiSeq_0129", "MCM_MHC_MiSeq_0145"],
+        "M3": ["MCM_MHC_MiSeq_0068", "MCM_MHC_MiSeq_0127"],
+        "M4": ["MCM_MHC_MiSeq_0069"],
+        "M5": ["MCM_MHC_MiSeq_0099"],
+        "M6": ["MCM_MHC_MiSeq_0103", "MCM_MHC_MiSeq_0070"],
+        "M7": ["MCM_MHC_MiSeq_0061"],
+    },
+    "MHC-E": {
+        "M1": ["MCM_MHC_MiSeq_0010", "MCM_MHC_MiSeq_0017"],
+        "M2": ["MCM_MHC_MiSeq_0012"],
+        "M3": ["MCM_MHC_MiSeq_0012", "MCM_MHC_MiSeq_0018", "MCM_MHC_MiSeq_0137"],
+        "M4": ["MCM_MHC_MiSeq_0017", "MCM_MHC_MiSeq_0019"],
+        "M5": ["MCM_MHC_MiSeq_0015", "MCM_MHC_MiSeq_0019"],
+        "M6": ["MCM_MHC_MiSeq_0011", "MCM_MHC_MiSeq_0013", "MCM_MHC_MiSeq_0015"],
+        "M7": ["MCM_MHC_MiSeq_0014", "MCM_MHC_MiSeq_0016"],
+    },
+    "MHC-B": {
+        "M1": ["MCM_MHC_MiSeq_0073", "MCM_MHC_MiSeq_0065"],
+        "M2": ["MCM_MHC_MiSeq_0136", "MCM_MHC_MiSeq_0135"],
+        "M3": ["MCM_MHC_MiSeq_0063", "MCM_MHC_MiSeq_0096"],
+        "M4": ["MCM_MHC_MiSeq_0074"],
+        "M5": ["MCM_MHC_MiSeq_0095", "MCM_MHC_MiSeq_0107"],
+        "M6": ["MCM_MHC_MiSeq_0125", "MCM_MHC_MiSeq_0097"],
+        "M7": ["MCM_MHC_MiSeq_0143", "MCM_MHC_MiSeq_0101"],
+    },
+    "MHC-DR": {
+        "M1": ["MCM_MHC_MiSeq_0169", "MCM_MHC_MiSeq_0166"],
+        "M2": ["MCM_MHC_MiSeq_0164", "MCM_MHC_MiSeq_0165"],
+        "M3": ["MCM_MHC_MiSeq_0170", "MCM_MHC_MiSeq_0167"],
+        "M4": ["MCM_MHC_MiSeq_0174"],
+        "M5": ["MCM_MHC_MiSeq_0175"],
+        "M6": ["MCM_MHC_MiSeq_0168", "MCM_MHC_MiSeq_0176"],
+        "M7": ["MCM_MHC_MiSeq_0005", "MCM_MHC_MiSeq_0021"],
+    },
+    "MHC-DQ": {
+        "M1": ["MCM_MHC_MiSeq_0173"],
+        "M2": ["MCM_MHC_MiSeq_0025"],
+        "M3": ["MCM_MHC_MiSeq_0177", "MCM_MHC_MiSeq_0026"],
+        "M4": ["MCM_MHC_MiSeq_0179", "MCM_MHC_MiSeq_0023"],
+        "M5": ["MCM_MHC_MiSeq_0024", "MCM_MHC_MiSeq_0188"],
+        "M6": ["MCM_MHC_MiSeq_0022"],
+        "M7": ["MCM_MHC_MiSeq_0008", "MCM_MHC_MiSeq_0180"],
+    },
+    "MHC-DP": {
+        "M1": ["MCM_MHC_MiSeq_0007", "MCM_MHC_MiSeq_0154"],
+        "M2": ["MCM_MHC_MiSeq_0187", "MCM_MHC_MiSeq_0153"],
+        "M3": ["MCM_MHC_MiSeq_0157"],
+        "M4": ["MCM_MHC_MiSeq_0159"],
+        "M5": ["MCM_MHC_MiSeq_0156"],
+        "M6": ["MCM_MHC_MiSeq_0156"],
+        "M7": ["MCM_MHC_MiSeq_0159"],
+    },
+}
+
 
 @dataclass(frozen=True)
 class PrimerScheme:
@@ -497,14 +554,16 @@ def build_haplotype_definition(
         hap_defs = []
         for haplotype in sorted(by_locus_haplotype[locus], key=haplotype_sort_key):
             alleles = sorted(by_locus_haplotype[locus][haplotype])
-            hap_defs.append(
-                {
-                    "name": haplotype,
-                    "diagnosticAlleles": alleles,
-                    "evidenceWeights": {allele: evidence_by_reference[allele] for allele in alleles},
-                    "minimumMatches": 1,
-                }
-            )
+            hap_def = {
+                "name": haplotype,
+                "diagnosticAlleles": alleles,
+                "evidenceWeights": {allele: evidence_by_reference[allele] for allele in alleles},
+                "minimumMatches": 1,
+            }
+            primary = MCM_PRIMARY_HAPLOTYPE_ALLELES.get(locus, {}).get(haplotype, [])
+            if primary:
+                hap_def["primaryAlleles"] = [allele for allele in primary if allele in alleles]
+            hap_defs.append(hap_def)
         locus_definitions.append(
             {
                 "locus": locus,

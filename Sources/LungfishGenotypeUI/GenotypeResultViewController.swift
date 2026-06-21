@@ -838,6 +838,9 @@ public final class GenotypeResultViewController: NSViewController {
         view.onOverrideRequested = { [weak self] haplotypeName, slot in
             self?.applyOverrideFromInspector(haplotype: haplotypeName, slot: slot)
         }
+        view.onOverridesRequested = { [weak self] requests in
+            self?.applyOverridesFromInspector(requests)
+        }
         view.onConfirmRequested = { [weak self] in
             self?.confirmCurrentCallEvidence()
         }
@@ -1149,7 +1152,7 @@ public final class GenotypeResultViewController: NSViewController {
             return "Too many haplotypes matched (\(locusCall.matchedHaplotypes.count)): \(names). A diploid sample should match at most two. Likely cross-well contamination, an over-permissive threshold, or shared diagnostic alleles between haplotypes."
         case .tooManyGenotypes:
             let extras = max(0, locusCall.observedGenotypeCount - 2)
-            return "Too many genotypes observed at \(locusCall.locus) (\(locusCall.observedGenotypeCount)). For diploid Class II loci, each raw DPA/DPB or DQA/DQB sub-locus should contribute at most two genotypes to the combined DP or DQ haplotype call. The extra \(extras) genotype\(extras == 1 ? "" : "s") suggests cross-well contamination, a barcoding error, or low-support spurious calls — raise the per-locus dropout threshold to filter them out."
+            return "Too many genotypes observed at \(locusCall.locus) (\(locusCall.observedGenotypeCount)). For diploid Class II loci, each raw DPA/DPB or DQA/DQB sub-locus should contribute at most two genotypes to the combined DP or DQ haplotype call. The extra \(extras) genotype\(extras == 1 ? "" : "s") suggests cross-well contamination, a barcoding error, or low-support spurious calls. If the automatic 10x dominance rule cannot resolve the call, this locus requires human curation."
         }
     }
 
@@ -2925,23 +2928,31 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func applyOverrideFromInspector(haplotype: String, slot: HaplotypeSlot) {
+        applyOverridesFromInspector([.init(slot: slot, haplotypeName: haplotype)])
+    }
+
+    private func applyOverridesFromInspector(_ requests: [GenotypeCallEvidenceView.HaplotypeOverrideRequest]) {
         guard let store = annotationStore else { return }
-        guard let evidence = callEvidence, !haplotype.isEmpty else { return }
+        guard let evidence = callEvidence else { return }
+        let requests = requests.filter { !$0.haplotypeName.isEmpty }
+        guard !requests.isEmpty else { return }
         let rawCall = rawLocusCall(sample: evidence.sample, locus: evidence.locus)
-        let originalCall = slot == .h1
-            ? (rawCall?.haplotype1 ?? evidence.h1Name)
-            : (rawCall?.haplotype2 ?? evidence.h2Name)
-        let displayOriginal = originalCall.isEmpty ? "-" : originalCall
         do {
-            try store.applyOverride(
-                sample: evidence.sample,
-                locus: evidence.locus,
-                slot: slot,
-                originalCall: originalCall,
-                overrideCall: haplotype,
-                reasonTag: .misCall,
-                rationale: "Replaced \(evidence.locus) \(slot.displayName) \(displayOriginal) -> \(haplotype) from Review inspector candidate matrix."
-            )
+            for request in requests {
+                let originalCall = request.slot == .h1
+                    ? (rawCall?.haplotype1 ?? evidence.h1Name)
+                    : (rawCall?.haplotype2 ?? evidence.h2Name)
+                let displayOriginal = originalCall.isEmpty ? "-" : originalCall
+                try store.applyOverride(
+                    sample: evidence.sample,
+                    locus: evidence.locus,
+                    slot: request.slot,
+                    originalCall: originalCall,
+                    overrideCall: request.haplotypeName,
+                    reasonTag: .misCall,
+                    rationale: "Replaced \(evidence.locus) \(request.slot.displayName) \(displayOriginal) -> \(request.haplotypeName) from Review inspector candidate matrix."
+                )
+            }
             currentWorkbookNeedsRefresh = true
             currentWorkbookUpdateStatus = "current.xlsx does not include manual haplotype changes."
             refreshAfterHaplotypeOverride()
@@ -4228,6 +4239,10 @@ extension GenotypeResultViewController {
 
     func testingApplyOverrideFromInspector(haplotype: String, slot: HaplotypeSlot) {
         applyOverrideFromInspector(haplotype: haplotype, slot: slot)
+    }
+
+    func testingApplyOverridesFromInspector(_ requests: [GenotypeCallEvidenceView.HaplotypeOverrideRequest]) {
+        applyOverridesFromInspector(requests)
     }
 
     var testingCurrentSelectedSample: String? {

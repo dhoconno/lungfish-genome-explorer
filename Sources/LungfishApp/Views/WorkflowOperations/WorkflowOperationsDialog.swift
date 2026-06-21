@@ -337,10 +337,6 @@ private struct WorkflowOperationsDetailPane: View {
                     ? WorkflowOperationAmpliconAnalysisMode.aiSpecialistPreset.helpText
                     : "AI API access must be configured before running a specialist preset.")
             } else if state.selectedAmpliconAnalysisMode == .deterministicHaplotyping {
-                workflowFormGroup("Call Thresholds") {
-                    labeledCompactDoubleTextField("Locus %", value: $state.haplotypeDropoutLocusPercent)
-                    helperText("Used for deterministic haplotype calls and Excel output.")
-                }
                 haplotypeDefinitionPicker
             } else {
                 Text(WorkflowOperationAmpliconAnalysisMode.genotypeOnly.helpText)

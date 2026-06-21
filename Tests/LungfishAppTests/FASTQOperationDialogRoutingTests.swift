@@ -841,6 +841,8 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertNil(request.barcodeDefinitionsURL)
         XCTAssertEqual(request.mode, .ontSampleBundles)
         XCTAssertEqual(request.readType, .ont)
+        XCTAssertNil(request.haplotypeDropoutLocusFraction)
+        XCTAssertTrue(request.haplotypeDropoutLocusFractionOverrides.isEmpty)
     }
 
     func testONTGenotypingAllowsSelectedFolderOfPreparedONTSamplesWithoutBarcodes() throws {

@@ -455,6 +455,187 @@ final class GenotypeHaplotypeAnalyzerTests: XCTestCase {
         XCTAssertEqual(b.haplotype1, "M1B")
     }
 
+    func testDeterministicMCMCallUsesReadDominanceToPruneLowSupportThirdHaplotype() throws {
+        let definition = GenotypeHaplotypeDefinitionSet(
+            id: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques.test",
+            assayID: "MHC-exon2-miSeq",
+            displayName: "MCM test",
+            speciesName: "Mauritian cynomolgus macaque",
+            speciesCode: "MCM",
+            prefix: "Mafa",
+            locusDefinitions: [
+                GenotypeHaplotypeLocusDefinition(
+                    locus: "MHC-B",
+                    sourceLocus: "Mafa-B",
+                    haplotypes: [
+                        GenotypeHaplotypeDefinition(name: "M1B", diagnosticAlleles: ["M1B_1", "M1B_2"], minimumMatches: 2),
+                        GenotypeHaplotypeDefinition(name: "M2B", diagnosticAlleles: ["M2B_1", "M2B_2"], minimumMatches: 2),
+                        GenotypeHaplotypeDefinition(name: "M3B", diagnosticAlleles: ["M3B_1", "M3B_2"], minimumMatches: 2),
+                    ]
+                )
+            ]
+        )
+
+        let analysis = GenotypeHaplotypeAnalyzer.analyze(
+            calls: [
+                Self.call(sample: "LF0001", genotype: "M1B_1|haplotype_groups=MHC-B", reads: 600),
+                Self.call(sample: "LF0001", genotype: "M1B_2|haplotype_groups=MHC-B", reads: 500),
+                Self.call(sample: "LF0001", genotype: "M2B_1|haplotype_groups=MHC-B", reads: 550),
+                Self.call(sample: "LF0001", genotype: "M2B_2|haplotype_groups=MHC-B", reads: 450),
+                Self.call(sample: "LF0001", genotype: "M3B_1|haplotype_groups=MHC-B", reads: 40),
+                Self.call(sample: "LF0001", genotype: "M3B_2|haplotype_groups=MHC-B", reads: 35),
+            ],
+            definitionSet: definition
+        )
+
+        let sample = try XCTUnwrap(analysis.samples.first)
+        let b = try XCTUnwrap(sample.calls.first { $0.locus == "MHC-B" })
+        XCTAssertEqual(b.haplotype1, "M1B")
+        XCTAssertEqual(b.haplotype2, "M2B")
+        XCTAssertEqual(b.status, .called)
+        XCTAssertEqual(b.matchedHaplotypes.map(\.name), ["M1B", "M2B"])
+        XCTAssertTrue(b.notes.contains("10x"))
+    }
+
+    func testDeterministicMCMCallKeepsTooManyHaplotypesWhenThirdSupportIsWithinTenFold() throws {
+        let definition = GenotypeHaplotypeDefinitionSet(
+            id: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques.test",
+            assayID: "MHC-exon2-miSeq",
+            displayName: "MCM test",
+            speciesName: "Mauritian cynomolgus macaque",
+            speciesCode: "MCM",
+            prefix: "Mafa",
+            locusDefinitions: [
+                GenotypeHaplotypeLocusDefinition(
+                    locus: "MHC-B",
+                    sourceLocus: "Mafa-B",
+                    haplotypes: [
+                        GenotypeHaplotypeDefinition(name: "M1B", diagnosticAlleles: ["M1B_1", "M1B_2"], minimumMatches: 2),
+                        GenotypeHaplotypeDefinition(name: "M2B", diagnosticAlleles: ["M2B_1", "M2B_2"], minimumMatches: 2),
+                        GenotypeHaplotypeDefinition(name: "M3B", diagnosticAlleles: ["M3B_1", "M3B_2"], minimumMatches: 2),
+                    ]
+                )
+            ]
+        )
+
+        let analysis = GenotypeHaplotypeAnalyzer.analyze(
+            calls: [
+                Self.call(sample: "LF0001", genotype: "M1B_1|haplotype_groups=MHC-B", reads: 600),
+                Self.call(sample: "LF0001", genotype: "M1B_2|haplotype_groups=MHC-B", reads: 500),
+                Self.call(sample: "LF0001", genotype: "M2B_1|haplotype_groups=MHC-B", reads: 550),
+                Self.call(sample: "LF0001", genotype: "M2B_2|haplotype_groups=MHC-B", reads: 450),
+                Self.call(sample: "LF0001", genotype: "M3B_1|haplotype_groups=MHC-B", reads: 70),
+                Self.call(sample: "LF0001", genotype: "M3B_2|haplotype_groups=MHC-B", reads: 60),
+            ],
+            definitionSet: definition
+        )
+
+        let sample = try XCTUnwrap(analysis.samples.first)
+        let b = try XCTUnwrap(sample.calls.first { $0.locus == "MHC-B" })
+        XCTAssertEqual(b.status, .tooManyHaplotypes)
+    }
+
+    func testDeterministicMCMClassIIDQDoesNotVetoDominantTopTwoWithLowSupportThirdGenotype() throws {
+        let definition = GenotypeHaplotypeDefinitionSet(
+            id: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques.test",
+            assayID: "MHC-exon2-miSeq",
+            displayName: "MCM test",
+            speciesName: "Mauritian cynomolgus macaque",
+            speciesCode: "MCM",
+            prefix: "Mafa",
+            locusDefinitions: [
+                GenotypeHaplotypeLocusDefinition(
+                    locus: "MHC-DQ",
+                    sourceLocus: "Mafa-DQ",
+                    haplotypes: [
+                        GenotypeHaplotypeDefinition(name: "M1DQ", diagnosticAlleles: ["MCM_MHC_MiSeq_0173"], minimumMatches: 1),
+                        GenotypeHaplotypeDefinition(name: "M2DQ", diagnosticAlleles: ["MCM_MHC_MiSeq_0025"], minimumMatches: 1),
+                        GenotypeHaplotypeDefinition(
+                            name: "M4DQ",
+                            diagnosticAlleles: ["MCM_MHC_MiSeq_0023", "MCM_MHC_MiSeq_0179"],
+                            minimumMatches: 2
+                        ),
+                    ]
+                )
+            ]
+        )
+
+        let analysis = GenotypeHaplotypeAnalyzer.analyze(
+            calls: [
+                Self.call(sample: "LF2829", genotype: "MCM_MHC_MiSeq_0173|source_loci=MHC-DQB1|haplotype_groups=MHC-DQ", reads: 412),
+                Self.call(sample: "LF2829", genotype: "MCM_MHC_MiSeq_0025|source_loci=MHC-DQA1|haplotype_groups=MHC-DQ", reads: 325),
+                Self.call(sample: "LF2829", genotype: "MCM_MHC_MiSeq_0179|source_loci=MHC-DQB1|haplotype_groups=MHC-DQ", reads: 13),
+            ],
+            definitionSet: definition
+        )
+
+        let sample = try XCTUnwrap(analysis.samples.first)
+        let dq = try XCTUnwrap(sample.calls.first { $0.locus == "MHC-DQ" })
+        XCTAssertEqual(dq.haplotype1, "M1DQ")
+        XCTAssertEqual(dq.haplotype2, "M2DQ")
+        XCTAssertEqual(dq.status, .called)
+        XCTAssertEqual(dq.matchedHaplotypes.map(\.name), ["M1DQ", "M2DQ"])
+        XCTAssertTrue(dq.notes.contains("10x"))
+    }
+
+    func testReadDominanceDoesNotCallIncompletePrimaryHaplotypesFromSharedMCMAMarker() throws {
+        let definition = try JSONDecoder().decode(
+            GenotypeHaplotypeDefinitionSet.self,
+            from: Data(
+                """
+                {
+                  "id": "MHC-exon2-miSeq.mauritian-cynomolgus-macaques.test",
+                  "assayID": "MHC-exon2-miSeq",
+                  "displayName": "MCM test",
+                  "speciesName": "Mauritian cynomolgus macaque",
+                  "speciesCode": "MCM",
+                  "prefix": "Mafa",
+                  "locusDefinitions": [
+                    {
+                      "locus": "MHC-A",
+                      "sourceLocus": "Mafa-A",
+                      "haplotypes": [
+                        {
+                          "name": "M1A",
+                          "diagnosticAlleles": ["MCM_MHC_MiSeq_0068", "MCM_MHC_MiSeq_0129", "MCM_MHC_MiSeq_0079"],
+                          "primaryAlleles": ["MCM_MHC_MiSeq_0068", "MCM_MHC_MiSeq_0129", "MCM_MHC_MiSeq_0079"],
+                          "minimumMatches": 1
+                        },
+                        {
+                          "name": "M2A",
+                          "diagnosticAlleles": ["MCM_MHC_MiSeq_0068", "MCM_MHC_MiSeq_0129", "MCM_MHC_MiSeq_0145"],
+                          "primaryAlleles": ["MCM_MHC_MiSeq_0068", "MCM_MHC_MiSeq_0129", "MCM_MHC_MiSeq_0145"],
+                          "minimumMatches": 1
+                        },
+                        {
+                          "name": "M3A",
+                          "diagnosticAlleles": ["MCM_MHC_MiSeq_0068", "MCM_MHC_MiSeq_0127"],
+                          "primaryAlleles": ["MCM_MHC_MiSeq_0068", "MCM_MHC_MiSeq_0127"],
+                          "minimumMatches": 1
+                        }
+                      ]
+                    }
+                  ]
+                }
+                """.utf8
+            )
+        )
+
+        let analysis = GenotypeHaplotypeAnalyzer.analyze(
+            calls: [
+                Self.call(sample: "LF0001", genotype: "MCM_MHC_MiSeq_0068|source_loci=MHC-A1|haplotype_groups=MHC-A", reads: 1_000),
+                Self.call(sample: "LF0001", genotype: "MCM_MHC_MiSeq_0129|source_loci=MHC-K|haplotype_groups=MHC-A", reads: 900),
+                Self.call(sample: "LF0001", genotype: "MCM_MHC_MiSeq_0127|source_loci=MHC-K|haplotype_groups=MHC-A", reads: 20),
+            ],
+            definitionSet: definition
+        )
+
+        let sample = try XCTUnwrap(analysis.samples.first)
+        let a = try XCTUnwrap(sample.calls.first { $0.locus == "MHC-A" })
+        XCTAssertEqual(a.status, .tooManyHaplotypes)
+        XCTAssertTrue(a.haplotype1.contains("ERR: TMH"))
+    }
+
     private static func call(sample: String, genotype: String, reads: Int) -> ONTGenotypeCall {
         ONTGenotypeCall(
             sample: sample,
