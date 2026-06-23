@@ -1759,6 +1759,23 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(slot.h2.testingIsWeakSupport)
     }
 
+    func testWeakHaplotypeTintUsesSameColorAtHalfOpacity() throws {
+        let view = GenotypeHaplotypeTapeView(frame: NSRect(x: 0, y: 0, width: 120, height: 40))
+        view.appearance = NSAppearance(named: .aqua)
+        let tokenIndex = HaplotypeColorToken.assigned(forName: "M2B").canonicalIndex
+        let referenceColor = try XCTUnwrap(
+            view.testingFillColor(for: .reference(tokenIndex: tokenIndex, label: "M2B"))?.testingSRGBComponents
+        )
+        let weakColor = try XCTUnwrap(
+            view.testingFillColor(for: .weakReference(tokenIndex: tokenIndex, label: "M2B"))?.testingSRGBComponents
+        )
+
+        XCTAssertEqual(weakColor.red, referenceColor.red, accuracy: 0.001)
+        XCTAssertEqual(weakColor.green, referenceColor.green, accuracy: 0.001)
+        XCTAssertEqual(weakColor.blue, referenceColor.blue, accuracy: 0.001)
+        XCTAssertEqual(weakColor.alpha, 0.5, accuracy: 0.001)
+    }
+
     func testWeakHaplotypeSlotIsTintedBelowFiveReads() throws {
         let controller = GenotypeResultViewController()
         _ = controller.view
@@ -2344,19 +2361,29 @@ final class GenotypeResultViewportTests: XCTestCase {
                             observedGenotypeCount: 1,
                             observedGenotypes: ["M2E-read"]
                         ),
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-DRB",
+                            sourceLocus: "MHC-DRB",
+                            haplotype1: "M3DR",
+                            haplotype2: "-",
+                            status: .called,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 1,
+                            observedGenotypes: ["M3DR-read"]
+                        ),
                     ]
                 ),
             ]
         )
         controller.configure(result: makeResult(samples: [], calls: [], haplotypeAnalysis: analysis))
 
-        XCTAssertEqual(controller.testingOutlineSlots(sample: "LF2832").map(\.locus), ["MHC-A"])
+        XCTAssertEqual(controller.testingOutlineSlots(sample: "LF2832").map(\.locus), ["MHC-A", "MHC-DRB"])
         XCTAssertEqual(controller.testingCurrentWorkbookHaplotypeCalls().map(\.locus), ["MHC-A"])
 
-        controller.testingApplyDisplayState(GenotypeResultDisplayState(includedLoci: ["MHC-A", "MHC-E"]))
+        controller.testingApplyDisplayState(GenotypeResultDisplayState(includedLoci: ["MHC-A", "MHC-E", "MHC-DRB"]))
 
-        XCTAssertEqual(controller.testingOutlineSlots(sample: "LF2832").map(\.locus), ["MHC-A", "MHC-E"])
-        XCTAssertEqual(controller.testingCurrentWorkbookHaplotypeCalls().map(\.locus), ["MHC-A", "MHC-E"])
+        XCTAssertEqual(controller.testingOutlineSlots(sample: "LF2832").map(\.locus), ["MHC-A", "MHC-E", "MHC-DRB"])
+        XCTAssertEqual(controller.testingCurrentWorkbookHaplotypeCalls().map(\.locus), ["MHC-A"])
     }
 
     func testCurrentWorkbookSnapshotIncludesManualHaplotypeAssignments() throws {
@@ -3539,6 +3566,13 @@ private extension GenotypeHaplotypeTapeView.Cell {
     var testingIsWeakSupport: Bool {
         if case .weakReference = self { return true }
         return false
+    }
+}
+
+private extension NSColor {
+    var testingSRGBComponents: (red: CGFloat, green: CGFloat, blue: CGFloat, alpha: CGFloat)? {
+        guard let color = usingColorSpace(.sRGB) else { return nil }
+        return (color.redComponent, color.greenComponent, color.blueComponent, color.alphaComponent)
     }
 }
 

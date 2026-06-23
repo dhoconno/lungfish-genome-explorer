@@ -234,7 +234,7 @@ public struct GenotypeResultDocumentSection: View {
     private var includedLociSection: some View {
         DisclosureGroup("Included Loci", isExpanded: $isIncludedLociExpanded) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Included loci appear in Outline and are written to current.xlsx when you update the workbook.")
+                Text("Included loci appear in Outline. Workbook-supported loci are written to current.xlsx when you update the workbook.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

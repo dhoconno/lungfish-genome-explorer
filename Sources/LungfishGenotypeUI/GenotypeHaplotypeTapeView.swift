@@ -269,18 +269,7 @@ final class GenotypeHaplotypeTapeView: NSView {
     }
 
     private func weakSupportColor(forTokenIndex tokenIndex: Int) -> NSColor {
-        let base = tokenNSColor(tokenIndex: tokenIndex)
-        let warning = NSColor.lungfishDanger
-        let isDark: Bool = {
-            if let match = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) {
-                return match == .darkAqua
-            }
-            return false
-        }()
-        return base.blended(
-            withFraction: isDark ? 0.42 : 0.58,
-            of: warning.withAlphaComponent(isDark ? 0.70 : 0.45)
-        ) ?? warning.withAlphaComponent(isDark ? 0.45 : 0.28)
+        tokenNSColor(tokenIndex: tokenIndex).withAlphaComponent(0.5)
     }
 
     private func selectionSeparatorColor() -> NSColor {
@@ -361,6 +350,21 @@ final class GenotypeHaplotypeTapeView: NSView {
 extension GenotypeHaplotypeTapeView {
     var testingSelectedLocus: String? { selectedLocus }
     var testingIsReviewSelected: Bool { isReviewSelected }
+
+    func testingFillColor(for cell: Cell) -> NSColor? {
+        switch cell {
+        case .empty:
+            return tokenNSColor(tokenIndex: 0)
+        case .reference(let i, _), .manual(let i, _):
+            return tokenNSColor(tokenIndex: i)
+        case .weakReference(let i, _):
+            return weakSupportColor(forTokenIndex: i)
+        case .error, .notAssayed, .unanalyzed:
+            return NSColor.controlBackgroundColor
+        case .recombinant:
+            return nil
+        }
+    }
 }
 #endif
 

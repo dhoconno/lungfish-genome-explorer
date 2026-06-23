@@ -798,7 +798,9 @@ final class WorkflowOperationExecutionService {
         from analysis: GenotypeHaplotypeAnalysis
     ) -> [GenotypeWorkbookHaplotypeCall] {
         analysis.samples.flatMap { sample in
-            sample.calls.map { call in
+            sample.calls.filter {
+                GenotypeWorkbookHaplotypeCall.isWritableCurrentWorkbookLocus($0.locus)
+            }.map { call in
                 GenotypeWorkbookHaplotypeCall(
                     sample: sample.sample,
                     locus: call.locus,

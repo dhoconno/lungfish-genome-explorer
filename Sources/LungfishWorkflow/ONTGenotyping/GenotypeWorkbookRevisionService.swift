@@ -44,6 +44,26 @@ public struct GenotypeWorkbookHaplotypeCall: Codable, Equatable, Sendable {
         self.status = status
         self.notes = notes
     }
+
+    public static func isWritableCurrentWorkbookLocus(_ locus: String) -> Bool {
+        switch canonicalCurrentWorkbookLocus(locus) {
+        case "MHC-A", "MHC-B", "MHC-DQ", "MHC-DP":
+            return true
+        default:
+            return false
+        }
+    }
+
+    public static func canonicalCurrentWorkbookLocus(_ locus: String) -> String {
+        let trimmed = locus.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed == "MHC-DQA" || trimmed == "MHC-DQB" {
+            return "MHC-DQ"
+        }
+        if trimmed == "MHC-DPA" || trimmed == "MHC-DPB" {
+            return "MHC-DP"
+        }
+        return trimmed
+    }
 }
 
 public struct GenotypeWorkbookRevisionProvenanceContext: Equatable, Sendable {
@@ -405,11 +425,11 @@ MCM_STYLES = {
 SUMMARY_LOCI = [
     ("MHC-A", "MHC-A"),
     ("MHC-B", "MHC-B"),
-    ("MHC-DRB", "MHC-DRB"),
     ("MHC-DQ", "MHC-DQA/B"),
     ("MHC-DP", "MHC-DPA/B"),
 ]
-FULL_LOCI = ["MHC-A", "MHC-B", "MHC-DRB", "MHC-DQA", "MHC-DQB", "MHC-DPA", "MHC-DPB"]
+FULL_LOCI = ["MHC-A", "MHC-B", "MHC-DQA", "MHC-DQB", "MHC-DPA", "MHC-DPB"]
+WRITABLE_LOCI = {"MHC-A", "MHC-B", "MHC-DQ", "MHC-DP"}
 
 
 def clean(value):
@@ -444,6 +464,8 @@ for call in call_rows:
     sample = clean(call.get("sample"))
     locus = canonical_locus(call.get("locus"))
     if not sample or not locus:
+        continue
+    if locus not in WRITABLE_LOCI:
         continue
     calls_by_sample_locus.setdefault(sample, {})[locus] = {
         "haplotype1": clean(call.get("haplotype1")),

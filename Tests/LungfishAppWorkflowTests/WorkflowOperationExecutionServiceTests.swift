@@ -1237,6 +1237,17 @@ private final class StubWorkflowOperationAIHaplotyper: WorkflowOperationAIHaplot
                                 observedGenotypes: [],
                                 notes: "AI specialist call"
                             ),
+                            GenotypeHaplotypeLocusCall(
+                                locus: "MHC-DRB",
+                                sourceLocus: "MHC-DRB",
+                                haplotype1: "M2DR",
+                                haplotype2: "M4DR",
+                                status: .called,
+                                matchedHaplotypes: [],
+                                observedGenotypeCount: 0,
+                                observedGenotypes: [],
+                                notes: "AI specialist call"
+                            ),
                         ]
                     ),
                 ]

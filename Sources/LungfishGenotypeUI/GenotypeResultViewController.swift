@@ -2188,7 +2188,10 @@ public final class GenotypeResultViewController: NSViewController {
         guard let analysis = activeHaplotypeAnalysis() else { return [] }
         let includedLoci = Set(currentWorkbookIncludedLoci())
         return analysis.samples.flatMap { sample in
-            sample.calls.filter { includedLoci.contains($0.locus) }.map { call in
+            sample.calls.filter {
+                includedLoci.contains($0.locus)
+                    && GenotypeWorkbookHaplotypeCall.isWritableCurrentWorkbookLocus($0.locus)
+            }.map { call in
                 let effective = effectiveHaplotypeCall(sample: sample.sample, call: call)
                 return GenotypeWorkbookHaplotypeCall(
                     sample: sample.sample,
@@ -2220,6 +2223,7 @@ public final class GenotypeResultViewController: NSViewController {
     private func currentWorkbookIncludedLoci() -> [String] {
         guard let analysis = activeHaplotypeAnalysis() else { return [] }
         return effectiveIncludedLoci(for: analysis)
+            .filter { GenotypeWorkbookHaplotypeCall.isWritableCurrentWorkbookLocus($0) }
     }
 
     private func currentWorkbookRevisionProvenanceContext(

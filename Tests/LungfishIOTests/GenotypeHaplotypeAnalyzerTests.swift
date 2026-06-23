@@ -359,6 +359,62 @@ final class GenotypeHaplotypeAnalyzerTests: XCTestCase {
         XCTAssertEqual(filteredDQ.observedGenotypes, ["14_M1_DQA1_24_03"])
     }
 
+    func testDropoutThresholdCollapsesVeryWeakHeterozygousTailToSingleHaplotypeCall() throws {
+        let definition = GenotypeHaplotypeDefinitionSet(
+            id: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques.test",
+            assayID: "MHC-exon2-miSeq",
+            displayName: "MCM test",
+            speciesName: "Mauritian cynomolgus macaque",
+            speciesCode: "MCM",
+            prefix: "Mafa",
+            locusDefinitions: [
+                GenotypeHaplotypeLocusDefinition(
+                    locus: "MHC-DR",
+                    sourceLocus: "MHC-DR",
+                    haplotypes: [
+                        GenotypeHaplotypeDefinition(
+                            name: "M1DR",
+                            diagnosticAlleles: ["MCM_MHC_MiSeq_0169", "MCM_MHC_MiSeq_0166"],
+                            minimumMatches: 2
+                        ),
+                        GenotypeHaplotypeDefinition(
+                            name: "M5DR",
+                            diagnosticAlleles: ["MCM_MHC_MiSeq_0175"],
+                            minimumMatches: 1
+                        ),
+                    ]
+                )
+            ]
+        )
+
+        let calls = [
+            Self.call(sample: "DW474b", genotype: "MCM_MHC_MiSeq_0169|haplotype_groups=MHC-DR", reads: 1_800),
+            Self.call(sample: "DW474b", genotype: "MCM_MHC_MiSeq_0166|haplotype_groups=MHC-DR", reads: 1_646),
+            Self.call(sample: "DW474b", genotype: "MCM_MHC_MiSeq_0175|haplotype_groups=MHC-DR", reads: 3),
+        ]
+
+        let unfiltered = GenotypeHaplotypeAnalyzer.analyze(calls: calls, definitionSet: definition)
+        let filtered = GenotypeHaplotypeAnalyzer.analyze(
+            calls: calls,
+            definitionSet: definition,
+            dropoutFilter: GenotypeDropoutEvaluator(absolute: nil, sampleFraction: nil, locusFraction: 0.01)
+        )
+
+        let unfilteredDR = try XCTUnwrap(unfiltered.samples.first?.calls.first { $0.locus == "MHC-DR" })
+        XCTAssertEqual(unfilteredDR.haplotype1, "M1DR")
+        XCTAssertEqual(unfilteredDR.haplotype2, "M5DR")
+        XCTAssertEqual(unfilteredDR.status, .called)
+
+        let filteredDR = try XCTUnwrap(filtered.samples.first?.calls.first { $0.locus == "MHC-DR" })
+        XCTAssertEqual(filteredDR.haplotype1, "M1DR")
+        XCTAssertEqual(filteredDR.haplotype2, "-")
+        XCTAssertEqual(filteredDR.status, .called)
+        XCTAssertEqual(filteredDR.observedGenotypes, [
+            "MCM_MHC_MiSeq_0166|haplotype_groups=MHC-DR",
+            "MCM_MHC_MiSeq_0169|haplotype_groups=MHC-DR",
+        ])
+    }
+
     func testMCMASingleSpecificGOrAGDiagnosticResolvesA1063UnderStrictDefinition() throws {
         let definition = GenotypeHaplotypeDefinitionSet(
             id: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques.test",

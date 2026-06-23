@@ -45,7 +45,7 @@ public extension Notification.Name {
     static let genotypeResultShowsAncillaryLociChanged = Notification.Name("com.lungfish.genotypeResultShowsAncillaryLociChanged")
 
     /// Posted when the analyst changes which deterministic haplotype loci are
-    /// included in the Outline and current.xlsx update snapshot.
+    /// included in the Outline. current.xlsx updates use the supported subset.
     /// `userInfo["includedLoci"]` is a [String].
     static let genotypeResultIncludedLociChanged = Notification.Name("com.lungfish.genotypeResultIncludedLociChanged")
 }

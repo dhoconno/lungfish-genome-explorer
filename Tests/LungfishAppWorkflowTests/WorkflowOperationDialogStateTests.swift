@@ -964,7 +964,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertNil(request.haplotypeDefinitionSetID)
     }
 
-    func testONTGenotypingLaunchRequestOmitsDeprecatedHaplotypePercentageThresholds() throws {
+    func testONTGenotypingLaunchRequestPassesDeterministicHaplotypeDropoutThresholds() throws {
         let defaults = try makeDefaults()
         let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
         enablementStore.setWorkflow(.ontGenotyping, enabled: true)
@@ -1002,9 +1002,12 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             return XCTFail("Expected ONT genotyping request")
         }
 
-        XCTAssertNil(request.haplotypeDropoutSampleFraction)
-        XCTAssertNil(request.haplotypeDropoutLocusFraction)
-        XCTAssertTrue(request.haplotypeDropoutLocusFractionOverrides.isEmpty)
+        XCTAssertEqual(request.haplotypeDropoutSampleFraction, 0.001)
+        XCTAssertEqual(request.haplotypeDropoutLocusFraction, 0.01)
+        XCTAssertEqual(request.haplotypeDropoutLocusFractionOverrides, [
+            "MHC-DQ": 0.10,
+            "MHC-DP": 0.10,
+        ])
     }
 
     func testHaplotypeDefinitionSelectionTracksAssayScope() throws {

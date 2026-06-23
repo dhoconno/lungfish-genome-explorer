@@ -51,6 +51,14 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
                     haplotype2: "M7DP",
                     status: "called",
                     notes: "Manual override"
+                ),
+                GenotypeWorkbookHaplotypeCall(
+                    sample: "DW472",
+                    locus: "MHC-DRB",
+                    haplotype1: "M2DR",
+                    haplotype2: "M4DR",
+                    status: "called",
+                    notes: "DRB should not be written to current workbook calls"
                 )
             ],
             annotationSidecarURL: annotationURL,
@@ -63,7 +71,14 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
         XCTAssertEqual(inspection["fullDPAHaplotype1"], "M3DP")
         XCTAssertEqual(inspection["fullDPBHaplotype2"], "M7DP")
         XCTAssertEqual(inspection["customDPHaplotype1"], "M3DP")
+        XCTAssertEqual(inspection["abbreviatedDRBHaplotype1"], "")
+        XCTAssertEqual(inspection["abbreviatedDRBHaplotype2"], "")
+        XCTAssertEqual(inspection["fullDRBHaplotype1"], "")
+        XCTAssertEqual(inspection["fullDRBHaplotype2"], "")
+        XCTAssertFalse(inspection["abbreviatedComments"]?.contains("DRB should not be written") == true)
+        XCTAssertFalse(inspection["fullComments"]?.contains("DRB should not be written") == true)
         XCTAssertEqual(inspection["guideWorkbookUpdateSource"], "Lungfish.app Review viewport")
+        XCTAssertEqual(inspection["guideUpdatedHaplotypeCalls"], "1")
         XCTAssertEqual(inspection["guideAuditEntries"], "1")
         XCTAssertEqual(inspection["hasOverridesSheet"], "true")
         XCTAssertEqual(inspection["hasAuditLogSheet"], "true")
@@ -438,7 +453,7 @@ headers = [
     "Comments",
 ]
 abbr.append(headers)
-abbr.append(["DW472", "DW472", 100, "M4", "M7", None, "M4A", "M4B", "M4DR", "M4DQ", "M4DP", None, "M7A", "M7B", "M7DR", "M7DQ", "M7DP", None])
+abbr.append(["DW472", "DW472", 100, "M4", "M7", None, "M4A", "M4B", None, "M4DQ", "M4DP", None, "M7A", "M7B", None, "M7DQ", "M7DP", None])
 
 full = wb.create_sheet("Full Sequencing Results 1")
 full.cell(1, 1).value = "Client ID"
@@ -458,12 +473,12 @@ for row, label in enumerate([
     "Comments",
 ], start=4):
     full.cell(row, 1).value = label
-    full.cell(row, 4).value = "old"
+    full.cell(row, 4).value = "" if "DRB" in label else "old"
 
 custom = wb.create_sheet("Custom Sort")
 custom.append(headers)
 custom.append(["MHC heterozygous  MCM animals"] + [None for _ in headers[1:]])
-custom.append(["DW472", "DW472", 100, "M4", "M7", None, "M4A", "M4B", "M4DR", "M4DQ", "M4DP", None, "M7A", "M7B", "M7DR", "M7DQ", "M7DP", None])
+custom.append(["DW472", "DW472", 100, "M4", "M7", None, "M4A", "M4B", None, "M4DQ", "M4DP", None, "M7A", "M7B", None, "M7DQ", "M7DP", None])
 wb.save(path)
 """#
         _ = try runPython(["-c", code, url.path])
@@ -530,12 +545,19 @@ def row_values(sheet, row_index, col_count):
 payload = {
     "hasOverridesSheet": str("Overrides" in wb.sheetnames).lower(),
     "hasAuditLogSheet": str("Audit Log" in wb.sheetnames).lower(),
-    "abbreviatedDPHaplotype1": abbr.cell(abbr_row, abbr_headers["MHC-DPA/B Haplotype 1"]).value,
-    "abbreviatedDPHaplotype2": abbr.cell(abbr_row, abbr_headers["MHC-DPA/B Haplotype 2"]).value,
-    "customDPHaplotype1": custom.cell(custom_row, custom_headers["MHC-DPA/B Haplotype 1"]).value,
-    "fullDPAHaplotype1": full.cell(row_for(full, "MHC-DPA Haplotype 1"), full_col).value,
-    "fullDPBHaplotype2": full.cell(row_for(full, "MHC-DPB Haplotype 2"), full_col).value,
+    "abbreviatedDPHaplotype1": text(abbr.cell(abbr_row, abbr_headers["MHC-DPA/B Haplotype 1"]).value),
+    "abbreviatedDPHaplotype2": text(abbr.cell(abbr_row, abbr_headers["MHC-DPA/B Haplotype 2"]).value),
+    "abbreviatedDRBHaplotype1": text(abbr.cell(abbr_row, abbr_headers["MHC-DRB Haplotype 1"]).value),
+    "abbreviatedDRBHaplotype2": text(abbr.cell(abbr_row, abbr_headers["MHC-DRB Haplotype 2"]).value),
+    "abbreviatedComments": text(abbr.cell(abbr_row, abbr_headers["Comments"]).value),
+    "customDPHaplotype1": text(custom.cell(custom_row, custom_headers["MHC-DPA/B Haplotype 1"]).value),
+    "fullDPAHaplotype1": text(full.cell(row_for(full, "MHC-DPA Haplotype 1"), full_col).value),
+    "fullDPBHaplotype2": text(full.cell(row_for(full, "MHC-DPB Haplotype 2"), full_col).value),
+    "fullDRBHaplotype1": text(full.cell(row_for(full, "MHC-DRB Haplotype 1"), full_col).value),
+    "fullDRBHaplotype2": text(full.cell(row_for(full, "MHC-DRB Haplotype 2"), full_col).value),
+    "fullComments": text(full.cell(row_for(full, "Comments"), full_col).value),
     "guideWorkbookUpdateSource": guide_value("Workbook update source"),
+    "guideUpdatedHaplotypeCalls": text(guide_value("Workbook updated haplotype calls")),
     "guideAuditEntries": text(guide_value("Workbook update audit entries")),
     "firstOverrideRow": row_values("Overrides", 2, 9),
     "firstAuditRow": row_values("Audit Log", 2, 10),
