@@ -147,6 +147,7 @@ public struct GenotypeHaplotypeDefinition: Codable, Equatable, Sendable {
     public let name: String
     public let diagnosticAlleles: [String]
     public let primaryAlleles: [String]?
+    public let evidenceWeights: [String: Double]?
     public let colorTokenIndex: Int
     /// Minimum number of `diagnosticAlleles` that must be observed for
     /// this haplotype to match. `nil` means "all" (the strict notebook
@@ -161,12 +162,14 @@ public struct GenotypeHaplotypeDefinition: Codable, Equatable, Sendable {
         name: String,
         diagnosticAlleles: [String],
         primaryAlleles: [String]? = nil,
+        evidenceWeights: [String: Double]? = nil,
         colorTokenIndex: Int? = nil,
         minimumMatches: Int? = nil
     ) {
         self.name = name
         self.diagnosticAlleles = diagnosticAlleles
         self.primaryAlleles = primaryAlleles
+        self.evidenceWeights = evidenceWeights
         self.colorTokenIndex = colorTokenIndex ?? HaplotypeColorToken.assigned(forName: name).canonicalIndex
         self.minimumMatches = minimumMatches
     }
@@ -176,6 +179,7 @@ public struct GenotypeHaplotypeDefinition: Codable, Equatable, Sendable {
             name: name,
             diagnosticAlleles: diagnosticAlleles,
             primaryAlleles: nil,
+            evidenceWeights: nil,
             colorTokenIndex: colorTokenIndex,
             minimumMatches: minimumMatches
         )
@@ -196,7 +200,7 @@ public struct GenotypeHaplotypeDefinition: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case name, diagnosticAlleles, primaryAlleles, colorTokenIndex, minimumMatches
+        case name, diagnosticAlleles, primaryAlleles, evidenceWeights, colorTokenIndex, minimumMatches
     }
 
     public init(from decoder: Decoder) throws {
@@ -208,6 +212,7 @@ public struct GenotypeHaplotypeDefinition: Codable, Equatable, Sendable {
         self.name = name
         self.diagnosticAlleles = diagnosticAlleles
         self.primaryAlleles = try container.decodeIfPresent([String].self, forKey: .primaryAlleles)
+        self.evidenceWeights = try container.decodeIfPresent([String: Double].self, forKey: .evidenceWeights)
         self.colorTokenIndex = colorTokenIndex
         self.minimumMatches = try container.decodeIfPresent(Int.self, forKey: .minimumMatches)
     }
@@ -279,6 +284,16 @@ public enum GenotypeHaplotypeDiagnosticMatcher {
 public enum GenotypeHaplotypeLocusResolver {
     public static func metadataHaplotypeGroupLocus(for genotype: String) -> String? {
         pipeMetadataEvidenceLocus(for: genotype, key: "haplotype_groups")
+    }
+
+    public static func metadataSourceLocus(for genotype: String) -> String? {
+        guard let value = pipeMetadataValue(for: genotype, key: "source_loci") else { return nil }
+        let firstLocus = value
+            .split(separator: ",")
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+        guard let firstLocus else { return nil }
+        return canonicalLocusName(firstLocus)
     }
 
     public static func canonicalLocusName(_ rawLocus: String) -> String {
@@ -838,7 +853,7 @@ public enum GenotypeHaplotypeAnalyzer {
             let sampleCalls = callsBySample[sample] ?? []
             return GenotypeHaplotypeSampleAnalysis(
                 sample: sample,
-                calls: definitionSet.locusDefinitions.map { definition in
+                calls: deterministicHaplotypingLocusDefinitions(in: definitionSet).map { definition in
                     callHaplotype(
                         locusDefinition: definition,
                         calls: sampleCalls,
@@ -847,7 +862,9 @@ public enum GenotypeHaplotypeAnalyzer {
                 }
             )
         }
-        let resolvedSamples = resolveLinkedMCMClassIIAmbiguousDP(in: samples, definitionSet: definitionSet)
+        let classIIResolvedSamples = resolveLinkedMCMClassIIAmbiguousDP(in: samples, definitionSet: definitionSet)
+        let eResolvedSamples = resolveLinkedMCMMHCEAmbiguousSupport(in: classIIResolvedSamples, definitionSet: definitionSet)
+        let resolvedSamples = enforceMCMHaplotypeSlotContiguity(in: eResolvedSamples, definitionSet: definitionSet)
         return GenotypeHaplotypeAnalysis(
             assayID: definitionSet.assayID,
             definitionSetID: definitionSet.id,
@@ -856,6 +873,237 @@ public enum GenotypeHaplotypeAnalyzer {
             generatedAt: generatedAt,
             samples: resolvedSamples
         )
+    }
+
+    private static func deterministicHaplotypingLocusDefinitions(
+        in definitionSet: GenotypeHaplotypeDefinitionSet
+    ) -> [GenotypeHaplotypeLocusDefinition] {
+        guard definitionSet.speciesCode.caseInsensitiveCompare("MCM") == .orderedSame else {
+            return definitionSet.locusDefinitions
+        }
+        return definitionSet.locusDefinitions.filter {
+            GenotypeHaplotypeLocusResolver.canonicalLocusName($0.locus) != "MHC-E"
+        }
+    }
+
+    private struct OrderedMCMFamilyPair: Hashable {
+        let first: String
+        let second: String
+
+        var families: [String] { [first, second] }
+        var familySet: Set<String> { Set(families) }
+    }
+
+    private static func enforceMCMHaplotypeSlotContiguity(
+        in samples: [GenotypeHaplotypeSampleAnalysis],
+        definitionSet: GenotypeHaplotypeDefinitionSet
+    ) -> [GenotypeHaplotypeSampleAnalysis] {
+        guard definitionSet.speciesCode.caseInsensitiveCompare("MCM") == .orderedSame else {
+            return samples
+        }
+        return samples.map { sample in
+            var changed = false
+            let calls = sample.calls.map { call -> GenotypeHaplotypeLocusCall in
+                let reordered = reorderMCMHaplotypeSlotsByFamilyNumber(in: call)
+                if reordered != call { changed = true }
+                return reordered
+            }
+            return changed ? GenotypeHaplotypeSampleAnalysis(sample: sample.sample, calls: calls) : sample
+        }
+    }
+
+    private static func reorderMCMHaplotypeSlotsByFamilyNumber(
+        in call: GenotypeHaplotypeLocusCall
+    ) -> GenotypeHaplotypeLocusCall {
+        guard let callPair = orderedMCMFamilyPair(from: call),
+              let firstKey = mcmFamilySortKey(callPair.first),
+              let secondKey = mcmFamilySortKey(callPair.second),
+              firstKey > secondKey else {
+            return call
+        }
+        let orderedPair = OrderedMCMFamilyPair(first: callPair.second, second: callPair.first)
+
+        let haplotypeByFamily = [
+            callPair.first: call.haplotype1,
+            callPair.second: call.haplotype2,
+        ]
+        guard let haplotype1 = haplotypeByFamily[orderedPair.first],
+              let haplotype2 = haplotypeByFamily[orderedPair.second] else {
+            return call
+        }
+        let matchedHaplotypes = reorderMatchedMCMHaplotypes(
+            call.matchedHaplotypes,
+            using: orderedPair
+        )
+        let note = "MCM haplotype-slot contiguity: reordered \(call.locus) to \(orderedPair.first)/\(orderedPair.second) by ascending haplotype family number."
+        let notes = ([call.notes].filter { !$0.isEmpty } + [note]).joined(separator: " ")
+        return GenotypeHaplotypeLocusCall(
+            locus: call.locus,
+            sourceLocus: call.sourceLocus,
+            haplotype1: haplotype1,
+            haplotype2: haplotype2,
+            status: call.status,
+            matchedHaplotypes: matchedHaplotypes,
+            observedGenotypeCount: call.observedGenotypeCount,
+            observedGenotypes: call.observedGenotypes,
+            notes: notes
+        )
+    }
+
+    private static func reorderMatchedMCMHaplotypes(
+        _ matchedHaplotypes: [GenotypeHaplotypeMatchedDefinition],
+        using pair: OrderedMCMFamilyPair
+    ) -> [GenotypeHaplotypeMatchedDefinition] {
+        guard matchedHaplotypes.count == 2 else { return matchedHaplotypes }
+        var matchByFamily: [String: GenotypeHaplotypeMatchedDefinition] = [:]
+        for match in matchedHaplotypes {
+            guard let family = singletonMCMFamily(in: match.name),
+                  matchByFamily[family] == nil else {
+                return matchedHaplotypes
+            }
+            matchByFamily[family] = match
+        }
+        guard Set(matchByFamily.keys) == pair.familySet else { return matchedHaplotypes }
+        return pair.families.compactMap { matchByFamily[$0] }
+    }
+
+    private static func orderedMCMFamilyPair(
+        from call: GenotypeHaplotypeLocusCall
+    ) -> OrderedMCMFamilyPair? {
+        guard call.status == .called || call.status == .specialCase,
+              let first = singletonMCMFamily(in: call.haplotype1),
+              let second = singletonMCMFamily(in: call.haplotype2),
+              first != second else {
+            return nil
+        }
+        return OrderedMCMFamilyPair(first: first, second: second)
+    }
+
+    private static func mcmFamilySortKey(_ family: String) -> Int? {
+        guard family.first == "M",
+              let value = Int(family.dropFirst()) else {
+            return nil
+        }
+        return value
+    }
+
+    private static func singletonMCMFamily(in value: String) -> String? {
+        guard !value.isEmpty,
+              value != "-",
+              value != "Not assayed",
+              !value.hasPrefix("ERR:") else {
+            return nil
+        }
+        let families = mcmFamilies(inAlleleName: value)
+        guard families.count == 1 else { return nil }
+        return families.first
+    }
+
+    private static func resolveLinkedMCMMHCEAmbiguousSupport(
+        in samples: [GenotypeHaplotypeSampleAnalysis],
+        definitionSet: GenotypeHaplotypeDefinitionSet
+    ) -> [GenotypeHaplotypeSampleAnalysis] {
+        guard definitionSet.speciesCode.caseInsensitiveCompare("MCM") == .orderedSame,
+              let eDefinition = definitionSet.locusDefinitions.first(where: {
+                  GenotypeHaplotypeLocusResolver.canonicalLocusName($0.locus) == "MHC-E"
+              }) else {
+            return samples
+        }
+        return samples.map { sample in
+            guard let aIndex = sample.calls.firstIndex(where: {
+                GenotypeHaplotypeLocusResolver.canonicalLocusName($0.locus) == "MHC-A"
+            }),
+            let eIndex = sample.calls.firstIndex(where: {
+                GenotypeHaplotypeLocusResolver.canonicalLocusName($0.locus) == "MHC-E"
+            }) else {
+                return sample
+            }
+            let aCall = sample.calls[aIndex]
+            let eCall = sample.calls[eIndex]
+            let resolved = resolveMCMMHCECall(eCall, usingLinkedA: aCall, locusDefinition: eDefinition)
+            guard resolved != eCall else { return sample }
+            var calls = sample.calls
+            calls[eIndex] = resolved
+            return GenotypeHaplotypeSampleAnalysis(sample: sample.sample, calls: calls)
+        }
+    }
+
+    private static func resolveMCMMHCECall(
+        _ eCall: GenotypeHaplotypeLocusCall,
+        usingLinkedA aCall: GenotypeHaplotypeLocusCall,
+        locusDefinition: GenotypeHaplotypeLocusDefinition
+    ) -> GenotypeHaplotypeLocusCall {
+        guard eCall.status == .noHaplotype || eCall.status == .called else { return eCall }
+        let aFamilies = Set(linkedMCMFamilies(from: aCall))
+        guard !aFamilies.isEmpty else { return eCall }
+
+        let existingNames = Set(eCall.matchedHaplotypes.map(\.name))
+        let candidateMatches = supportOnlyMHCECandidateMatches(
+            locusDefinition: locusDefinition,
+            observedGenotypes: eCall.observedGenotypes,
+            linkedFamilies: aFamilies,
+            excludingNames: existingNames
+        )
+        guard candidateMatches.count == 1, let candidate = candidateMatches.first else { return eCall }
+
+        var matched = eCall.status == .called ? eCall.matchedHaplotypes : []
+        guard matched.count < 2 else { return eCall }
+        matched.append(candidate)
+        let haplotype1 = matched[0].name
+        let haplotype2 = matched.count > 1 ? matched[1].name : "-"
+        let note = "MHC-E support-only evidence resolved to \(candidate.name) from linked MHC-A call."
+        let notes = ([eCall.notes].filter { !$0.isEmpty } + [note]).joined(separator: " ")
+        return GenotypeHaplotypeLocusCall(
+            locus: eCall.locus,
+            sourceLocus: eCall.sourceLocus,
+            haplotype1: haplotype1,
+            haplotype2: haplotype2,
+            status: .called,
+            matchedHaplotypes: matched,
+            observedGenotypeCount: eCall.observedGenotypeCount,
+            observedGenotypes: eCall.observedGenotypes,
+            notes: notes
+        )
+    }
+
+    private static func supportOnlyMHCECandidateMatches(
+        locusDefinition: GenotypeHaplotypeLocusDefinition,
+        observedGenotypes: [String],
+        linkedFamilies: Set<String>,
+        excludingNames: Set<String>
+    ) -> [GenotypeHaplotypeMatchedDefinition] {
+        locusDefinition.haplotypes.compactMap { haplotype -> GenotypeHaplotypeMatchedDefinition? in
+            guard !excludingNames.contains(haplotype.name),
+                  let family = mcmFamily(haplotype.name),
+                  linkedFamilies.contains(family) else {
+                return nil
+            }
+            let supportOnlyObserved = haplotype.diagnosticAlleles.filter { allele in
+                isSupportOnlyAllele(allele, in: haplotype)
+                    && observedGenotypes.contains { genotype in
+                        isSupportOnlyGenotype(genotype)
+                            && GenotypeHaplotypeDiagnosticMatcher.matches(
+                                genotype: genotype,
+                                diagnosticAllele: allele
+                            )
+                    }
+            }
+            guard !supportOnlyObserved.isEmpty else { return nil }
+            return GenotypeHaplotypeMatchedDefinition(
+                name: haplotype.name,
+                diagnosticAlleles: haplotype.diagnosticAlleles,
+                observedDiagnosticAlleles: supportOnlyObserved
+            )
+        }
+    }
+
+    private static func isSupportOnlyAllele(_ allele: String, in haplotype: GenotypeHaplotypeDefinition) -> Bool {
+        guard let evidenceWeights = haplotype.evidenceWeights else { return false }
+        return (evidenceWeights[allele] ?? 1.0) < 1.0
+    }
+
+    private static func isSupportOnlyGenotype(_ genotype: String) -> Bool {
+        genotype.localizedCaseInsensitiveContains("evidence_classes=support_only")
     }
 
     private static func resolveLinkedMCMClassIIAmbiguousDP(
@@ -1000,6 +1248,19 @@ public enum GenotypeHaplotypeAnalyzer {
         }
     }
 
+    private static func linkedMCMFamilies(from call: GenotypeHaplotypeLocusCall) -> [String] {
+        guard call.status == .called || call.status == .specialCase else { return [] }
+        return [call.haplotype1, call.haplotype2].compactMap { value in
+            guard !value.isEmpty,
+                  value != "-",
+                  value != "Not assayed",
+                  !value.hasPrefix("ERR:") else {
+                return nil
+            }
+            return mcmFamily(value)
+        }
+    }
+
     private static func linkedMCMFamily(
         at index: Int,
         candidates: Set<String>,
@@ -1125,12 +1386,21 @@ public enum GenotypeHaplotypeAnalyzer {
                     )
                 }
             }
+            let requiredDiagnostics = requiredDiagnosticAlleles(for: haplotype)
+            let observedRequiredDiagnostics = requiredDiagnostics.filter { allele in
+                diagnosticCalls.contains { call in
+                    GenotypeHaplotypeDiagnosticMatcher.matches(
+                        genotype: call.genotype,
+                        diagnosticAllele: allele
+                    )
+                }
+            }
             // Haplotypes can opt into a "K of N" rule by setting
             // `minimumMatches`. The default behaviour (no override)
             // remains the strict "all alleles must be observed" rule
             // the notebook uses — preserves backwards compatibility for
             // any caller that hasn't specified a threshold.
-            guard observedDiagnostics.count >= haplotype.effectiveMinimumMatches
+            guard observedRequiredDiagnostics.count >= effectiveMinimumMatches(for: haplotype)
                     || usesMCMAClassIGAGSpecificRescue(
                         locusDefinition: locusDefinition,
                         haplotype: haplotype,
@@ -1202,8 +1472,19 @@ public enum GenotypeHaplotypeAnalyzer {
                 status = .called
             }
         } else if matched.count == 2 {
-            haplotype1 = matched[0].name
-            haplotype2 = matched[1].name
+            if let dominant = dominantMHCBSingletonHomozygousResolution(
+                locusDefinition: locusDefinition,
+                calls: calls,
+                matched: matched
+            ) {
+                matched = dominant.matches
+                haplotype1 = matched[0].name
+                haplotype2 = "-"
+                notes = dominant.note
+            } else {
+                haplotype1 = matched[0].name
+                haplotype2 = matched[1].name
+            }
             status = .called
         } else if let dominant = dominantTopTwoMatches(scoredMatches) {
             matched = dominant.matches
@@ -1220,12 +1501,15 @@ public enum GenotypeHaplotypeAnalyzer {
 
         if status != .notAssayed,
            diploidClassIILocusHasTooManyGenotypes(locusDefinition: locusDefinition, calls: calls) {
-            if let dominanceNote = dominantTopTwoClassIIGenotypeNote(
+            if let dominant = dominantClassIITMGResolution(
                 locusDefinition: locusDefinition,
-                calls: calls,
-                matched: matched
+                calls: calls
             ) {
-                notes = notes.isEmpty ? dominanceNote : "\(notes) \(dominanceNote)"
+                matched = dominant.matches
+                haplotype1 = matched[0].name
+                haplotype2 = matched.count > 1 ? matched[1].name : "-"
+                status = .called
+                notes = notes.isEmpty ? dominant.note : "\(notes) \(dominant.note)"
             } else {
                 haplotype1 = "ERR: TMG"
                 haplotype2 = "ERR: TMG"
@@ -1255,6 +1539,24 @@ public enum GenotypeHaplotypeAnalyzer {
     private struct DominantHaplotypeMatches {
         let matches: [GenotypeHaplotypeMatchedDefinition]
         let note: String
+    }
+
+    private struct ClassIIHaplotypeScore {
+        let match: GenotypeHaplotypeMatchedDefinition
+        let readSupport: Int
+        let observedAlleleReadSupport: [String: Int]
+        let hasCompleteRequiredEvidence: Bool
+    }
+
+    private struct ClassIIResidualEvidence {
+        let name: String
+        let readSupport: Int
+    }
+
+    private struct HaplotypeSupportScore {
+        let match: GenotypeHaplotypeMatchedDefinition
+        let readSupport: Int
+        let hasCompleteRequiredEvidence: Bool
     }
 
     private static func dominantTopTwoMatches(
@@ -1288,11 +1590,101 @@ public enum GenotypeHaplotypeAnalyzer {
         return DominantHaplotypeMatches(matches: selected.map(\.match), note: note)
     }
 
+    private static func dominantMHCBSingletonHomozygousResolution(
+        locusDefinition: GenotypeHaplotypeLocusDefinition,
+        calls: [ONTGenotypeCall],
+        matched: [GenotypeHaplotypeMatchedDefinition]
+    ) -> DominantHaplotypeMatches? {
+        let definitionLocus = GenotypeHaplotypeLocusResolver.canonicalLocusName(locusDefinition.sourceLocus)
+        guard definitionLocus == "MHC-B",
+              matched.count == 2 else {
+            return nil
+        }
+        let diagnosticCalls = calls.filter {
+            GenotypeHaplotypeLocusResolver.diagnosticCall($0, belongsTo: locusDefinition)
+        }
+        let scores = haplotypeSupportScores(
+            locusDefinition: locusDefinition,
+            diagnosticCalls: diagnosticCalls
+        )
+        let scoresByName = Dictionary(uniqueKeysWithValues: scores.map { ($0.match.name, $0) })
+        guard let first = scoresByName[matched[0].name],
+              let second = scoresByName[matched[1].name] else {
+            return nil
+        }
+        let dominant = first.readSupport >= second.readSupport ? first : second
+        let weak = first.readSupport >= second.readSupport ? second : first
+        let residual = scores.filter { $0.match.name != dominant.match.name }
+        guard dominant.hasCompleteRequiredEvidence,
+              dominant.readSupport >= 10,
+              weak.readSupport <= 1,
+              dominant.readSupport > weak.readSupport * 10,
+              residual.allSatisfy({ $0.readSupport <= 1 }) else {
+            return nil
+        }
+        let residualText = residual
+            .map { "\($0.match.name)=\($0.readSupport)" }
+            .joined(separator: ", ")
+        let note = "MHC-B homozygous read-dominance deterministic call: selected \(dominant.match.name)=\(dominant.readSupport); all other haplotype support is singleton-level"
+            + (residualText.isEmpty ? "." : " (singleton residual: \(residualText)).")
+        return DominantHaplotypeMatches(matches: [dominant.match], note: note)
+    }
+
+    private static func haplotypeSupportScores(
+        locusDefinition: GenotypeHaplotypeLocusDefinition,
+        diagnosticCalls: [ONTGenotypeCall]
+    ) -> [HaplotypeSupportScore] {
+        locusDefinition.haplotypes.enumerated().compactMap { offset, haplotype -> (Int, HaplotypeSupportScore)? in
+            let observedDiagnostics = haplotype.diagnosticAlleles.filter { allele in
+                diagnosticCalls.contains { call in
+                    GenotypeHaplotypeDiagnosticMatcher.matches(
+                        genotype: call.genotype,
+                        diagnosticAllele: allele
+                    )
+                }
+            }
+            guard !observedDiagnostics.isEmpty else { return nil }
+            let requiredDiagnostics = requiredDiagnosticAlleles(for: haplotype)
+            let observedRequiredDiagnostics = requiredDiagnostics.filter { allele in
+                diagnosticCalls.contains { call in
+                    GenotypeHaplotypeDiagnosticMatcher.matches(
+                        genotype: call.genotype,
+                        diagnosticAllele: allele
+                    )
+                }
+            }
+            let readSupport = diagnosticCalls.reduce(0) { total, call in
+                let supportsHaplotype = haplotype.diagnosticAlleles.contains { allele in
+                    GenotypeHaplotypeDiagnosticMatcher.matches(
+                        genotype: call.genotype,
+                        diagnosticAllele: allele
+                    )
+                }
+                return supportsHaplotype ? total + max(0, call.passedUniqueReads) : total
+            }
+            let match = GenotypeHaplotypeMatchedDefinition(
+                name: haplotype.name,
+                diagnosticAlleles: haplotype.diagnosticAlleles,
+                observedDiagnosticAlleles: observedDiagnostics
+            )
+            return (offset, HaplotypeSupportScore(
+                match: match,
+                readSupport: readSupport,
+                hasCompleteRequiredEvidence: observedRequiredDiagnostics.count >= effectiveMinimumMatches(for: haplotype)
+            ))
+        }.sorted { lhs, rhs in
+            if lhs.1.readSupport != rhs.1.readSupport {
+                return lhs.1.readSupport > rhs.1.readSupport
+            }
+            return lhs.0 < rhs.0
+        }.map(\.1)
+    }
+
     private static func hasCompletePrimaryEvidence(
         haplotype: GenotypeHaplotypeDefinition,
         diagnosticCalls: [ONTGenotypeCall]
     ) -> Bool {
-        let primaryAlleles = haplotype.primaryAllelesForDominance
+        let primaryAlleles = primaryAllelesForDominance(haplotype)
         guard !primaryAlleles.isEmpty else { return false }
         return primaryAlleles.allSatisfy { primaryAllele in
             diagnosticCalls.contains { call in
@@ -1302,6 +1694,29 @@ public enum GenotypeHaplotypeAnalyzer {
                 )
             }
         }
+    }
+
+    private static func effectiveMinimumMatches(for haplotype: GenotypeHaplotypeDefinition) -> Int {
+        let requiredAlleles = requiredDiagnosticAlleles(for: haplotype)
+        guard !requiredAlleles.isEmpty else { return Int.max }
+        return min(haplotype.effectiveMinimumMatches, requiredAlleles.count)
+    }
+
+    private static func requiredDiagnosticAlleles(for haplotype: GenotypeHaplotypeDefinition) -> [String] {
+        guard let evidenceWeights = haplotype.evidenceWeights else {
+            return haplotype.diagnosticAlleles
+        }
+        return haplotype.diagnosticAlleles.filter { allele in
+            (evidenceWeights[allele] ?? 1.0) >= 1.0
+        }
+    }
+
+    private static func primaryAllelesForDominance(_ haplotype: GenotypeHaplotypeDefinition) -> [String] {
+        guard let primaryAlleles = haplotype.primaryAlleles, !primaryAlleles.isEmpty else {
+            return requiredDiagnosticAlleles(for: haplotype)
+        }
+        let required = Set(requiredDiagnosticAlleles(for: haplotype))
+        return primaryAlleles.filter { required.contains($0) }
     }
 
     private static func usesMCMAClassIGAGSpecificRescue(
@@ -1388,26 +1803,29 @@ public enum GenotypeHaplotypeAnalyzer {
         }
         let rawCounts = Dictionary(grouping: calls.filter {
             GenotypeHaplotypeLocusResolver.rawCall($0, belongsTo: locusDefinition)
-        }, by: { GenotypeHaplotypeLocusResolver.canonicalLocusName($0.locusGroup) })
+        }, by: { preciseClassIISourceLocus(for: $0) })
         return rawCounts.values.contains { $0.count > 2 }
     }
 
-    private static func dominantTopTwoClassIIGenotypeNote(
+    private static func preciseClassIISourceLocus(for call: ONTGenotypeCall) -> String {
+        GenotypeHaplotypeLocusResolver.metadataSourceLocus(for: call.genotype)
+            ?? GenotypeHaplotypeLocusResolver.canonicalLocusName(call.locusGroup)
+    }
+
+    private static func dominantClassIITMGResolution(
         locusDefinition: GenotypeHaplotypeLocusDefinition,
-        calls: [ONTGenotypeCall],
-        matched: [GenotypeHaplotypeMatchedDefinition]
-    ) -> String? {
+        calls: [ONTGenotypeCall]
+    ) -> DominantHaplotypeMatches? {
         let definitionLocus = GenotypeHaplotypeLocusResolver.canonicalLocusName(locusDefinition.sourceLocus)
         let classIILoci = Set(["MHC-DPA", "MHC-DPB", "MHC-DQA", "MHC-DQB", "MHC-DP", "MHC-DQ"])
-        guard classIILoci.contains(definitionLocus),
-              matched.count == 2 else {
+        guard classIILoci.contains(definitionLocus) else {
             return nil
         }
 
         let diagnosticCalls = calls.filter {
             GenotypeHaplotypeLocusResolver.diagnosticCall($0, belongsTo: locusDefinition)
         }
-        let scoredPotential = locusDefinition.haplotypes.compactMap { haplotype -> ScoredHaplotypeMatch? in
+        let scoredPotential = locusDefinition.haplotypes.enumerated().compactMap { offset, haplotype -> (Int, ClassIIHaplotypeScore)? in
             let observedDiagnostics = haplotype.diagnosticAlleles.filter { allele in
                 diagnosticCalls.contains { call in
                     GenotypeHaplotypeDiagnosticMatcher.matches(
@@ -1416,48 +1834,95 @@ public enum GenotypeHaplotypeAnalyzer {
                     )
                 }
             }
-            guard !observedDiagnostics.isEmpty else { return nil }
-            let readSupport = diagnosticCalls.reduce(0) { total, call in
-                let supportsHaplotype = haplotype.diagnosticAlleles.contains { allele in
+            let requiredDiagnostics = requiredDiagnosticAlleles(for: haplotype)
+            let observedRequiredDiagnostics = requiredDiagnostics.filter { allele in
+                diagnosticCalls.contains { call in
                     GenotypeHaplotypeDiagnosticMatcher.matches(
                         genotype: call.genotype,
                         diagnosticAllele: allele
                     )
                 }
-                return supportsHaplotype ? total + max(0, call.passedUniqueReads) : total
             }
-            return ScoredHaplotypeMatch(
+            guard !observedRequiredDiagnostics.isEmpty else { return nil }
+            let alleleReadSupport = Dictionary(uniqueKeysWithValues: haplotype.diagnosticAlleles.compactMap { allele in
+                let support = diagnosticCalls.reduce(0) { total, call in
+                    GenotypeHaplotypeDiagnosticMatcher.matches(
+                        genotype: call.genotype,
+                        diagnosticAllele: allele
+                    ) ? total + max(0, call.passedUniqueReads) : total
+                }
+                return support > 0 ? (allele, support) : nil
+            })
+            let readSupport = alleleReadSupport.values.reduce(0, +)
+            let score = ClassIIHaplotypeScore(
                 match: GenotypeHaplotypeMatchedDefinition(
                     name: haplotype.name,
                     diagnosticAlleles: haplotype.diagnosticAlleles,
                     observedDiagnosticAlleles: observedDiagnostics
                 ),
                 readSupport: readSupport,
-                hasCompletePrimaryEvidence: Self.hasCompletePrimaryEvidence(
-                    haplotype: haplotype,
-                    diagnosticCalls: diagnosticCalls
-                )
+                observedAlleleReadSupport: alleleReadSupport,
+                hasCompleteRequiredEvidence: observedRequiredDiagnostics.count >= effectiveMinimumMatches(for: haplotype)
+            )
+            return (offset, score)
+        }.sorted { lhs, rhs in
+            if lhs.1.readSupport != rhs.1.readSupport {
+                return lhs.1.readSupport > rhs.1.readSupport
+            }
+            return lhs.0 < rhs.0
+        }.map(\.1)
+
+        let completeScores = scoredPotential.filter {
+            $0.hasCompleteRequiredEvidence && $0.readSupport >= 2
+        }
+        guard !completeScores.isEmpty else { return nil }
+
+        for selectedCount in [2, 1] {
+            guard completeScores.count >= selectedCount else { continue }
+            let selected = Array(completeScores.prefix(selectedCount))
+            let selectedNames = Set(selected.map(\.match.name))
+            if selectedCount == 1,
+               completeScores.count > 1,
+               selected[0].readSupport <= completeScores[1].readSupport * 10 {
+                continue
+            }
+            let selectedObservedAlleles = Set(selected.flatMap(\.match.observedDiagnosticAlleles))
+            let residual = scoredPotential
+                .filter { !selectedNames.contains($0.match.name) }
+                .compactMap { score -> ClassIIResidualEvidence? in
+                    let readSupport = score.observedAlleleReadSupport.reduce(0) { total, item in
+                        selectedObservedAlleles.contains(item.key) ? total : total + item.value
+                    }
+                    return readSupport > 0
+                        ? ClassIIResidualEvidence(name: score.match.name, readSupport: readSupport)
+                        : nil
+                }
+                .sorted { lhs, rhs in
+                    if lhs.readSupport != rhs.readSupport {
+                        return lhs.readSupport > rhs.readSupport
+                    }
+                    return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+                }
+            let minimumSelectedSupport = selected.map(\.readSupport).min() ?? 0
+            guard minimumSelectedSupport > 0,
+                  residual.allSatisfy({ minimumSelectedSupport > $0.readSupport * 10 }) else {
+                continue
+            }
+
+            let selectedText = selected
+                .map { "\($0.match.name)=\($0.readSupport)" }
+                .joined(separator: ", ")
+            let residualText = residual
+                .map { "\($0.name)=\($0.readSupport)" }
+                .joined(separator: ", ")
+            let note = "Class II TMG read-dominance deterministic call: selected haplotypes \(selectedText) each exceed residual unshared genotype support by more than 10x"
+                + (residualText.isEmpty ? "." : " (residual: \(residualText)).")
+            return DominantHaplotypeMatches(
+                matches: selected.map(\.match),
+                note: note
             )
         }
-        let selectedNames = Set(matched.map(\.name))
-        let selectedScores = scoredPotential.filter { selectedNames.contains($0.match.name) }
-        let remainingScores = scoredPotential.filter { !selectedNames.contains($0.match.name) && $0.readSupport > 0 }
-        guard selectedScores.count == 2,
-              selectedScores.allSatisfy(\.hasCompletePrimaryEvidence),
-              !remainingScores.isEmpty,
-              let minimumSelectedSupport = selectedScores.map(\.readSupport).min(),
-              minimumSelectedSupport > 0,
-              remainingScores.allSatisfy({ minimumSelectedSupport > $0.readSupport * 10 }) else {
-            return nil
-        }
 
-        let selectedText = selectedScores
-            .map { "\($0.match.name)=\($0.readSupport)" }
-            .joined(separator: ", ")
-        let suppressedText = remainingScores
-            .map { "\($0.match.name)=\($0.readSupport)" }
-            .joined(separator: ", ")
-        return "Class II read-dominance deterministic call: top haplotypes \(selectedText) each exceed additional genotype support by more than 10x"
-            + (suppressedText.isEmpty ? "." : " (suppressed: \(suppressedText)).")
+        return nil
     }
 }

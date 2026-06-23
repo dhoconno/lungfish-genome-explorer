@@ -109,6 +109,7 @@ extension InspectorViewController {
         viewModel.documentSectionViewModel.analysisManifestEntries = []
         viewModel.documentSectionViewModel.updateMappingDocument(nil)
         viewModel.documentSectionViewModel.updateAssemblyDocument(nil)
+        loadedGenotypeResult = nil
         viewModel.documentSectionViewModel.navigateToSourceData = nil
         viewModel.provenanceSectionViewModel.clear()
 

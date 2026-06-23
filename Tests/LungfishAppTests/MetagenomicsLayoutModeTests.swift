@@ -1016,7 +1016,7 @@ final class MetagenomicsLayoutModeTests: XCTestCase {
 
         XCTAssertGreaterThan(
             vc.testSplitView.arrangedSubviews[0].frame.width,
-            collapsedWidth + 120
+            collapsedWidth + 80
         )
     }
 

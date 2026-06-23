@@ -2569,10 +2569,11 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertFalse(runner.invocations[0].arguments.contains(materializedURL.path))
     }
 
-    func testExecuteONTFluidigmSampleSplitPassesOriginalBulkBundleWithoutResolvingChunks() async throws {
+    func testExecuteONTFluidigmSampleSplitUsesWorkingDirectoryAsCLIOutputWithoutResolvingChunks() async throws {
         let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecONTFluidigmNoResolve")
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
+        let workingDirectory = tempDir.appendingPathComponent("32271-NB05", isDirectory: true)
         let inputBundle = try makeVirtualDerivedFASTQBundle(named: "bulk-barcode11", in: tempDir)
         let materializedURL = tempDir.appendingPathComponent("materialized.fastq")
         try FASTQOperationTestHelper.writeSyntheticFASTQ(to: materializedURL, readCount: 2, readLength: 20)
@@ -2600,7 +2601,11 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
                 FileManager.default.fileExists(atPath: outputTarget.path),
                 "ONT Fluidigm materializer rejects pre-existing output directories."
             )
-            XCTAssertEqual(outputTarget.deletingLastPathComponent(), outputDirectory.standardizedFileURL)
+            XCTAssertEqual(outputTarget.standardizedFileURL, workingDirectory.standardizedFileURL)
+            XCTAssertEqual(
+                outputDirectory.standardizedFileURL,
+                workingDirectory.deletingLastPathComponent().standardizedFileURL
+            )
             try FileManager.default.createDirectory(at: outputTarget, withIntermediateDirectories: true)
             let sampleBundle = try FASTQOperationTestHelper.makeBundle(named: "LF1001", in: outputTarget)
             try FASTQOperationTestHelper.writeSyntheticFASTQ(to: sampleBundle.fastqURL, readCount: 1, readLength: 20)
@@ -2615,7 +2620,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
 
         let result = try await service.execute(
             request: originalRequest,
-            workingDirectory: tempDir.appendingPathComponent("operation-output", isDirectory: true)
+            workingDirectory: workingDirectory
         )
 
         XCTAssertTrue(resolver.requests.isEmpty)

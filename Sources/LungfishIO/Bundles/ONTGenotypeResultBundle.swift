@@ -722,7 +722,7 @@ public struct ONTGenotypeSampleResult: Codable, Equatable, Sendable {
         guard !calls.isEmpty, passedAlignments > 0, passedUniqueReads > 0 else {
             return .review
         }
-        if passedAlignments < 20 || passedUniqueReads < 5 {
+        if passedAlignments < 20 || passedUniqueReads < 1_000 {
             return .lowSupport
         }
         return .ok

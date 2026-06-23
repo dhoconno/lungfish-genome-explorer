@@ -546,6 +546,17 @@ public struct DocumentSection: View {
                         userInfo: ["showsAncillaryLoci": newValue]
                     )
                 },
+                onIncludedLociChange: { loci in
+                    var userInfo: [AnyHashable: Any] = ["includedLoci": Array(loci).sorted()]
+                    if let scope = genotypeResultDocument.windowStateScope {
+                        userInfo[NotificationUserInfoKey.windowStateScope] = scope
+                    }
+                    NotificationCenter.default.post(
+                        name: .genotypeResultIncludedLociChanged,
+                        object: nil,
+                        userInfo: userInfo
+                    )
+                },
                 onSmartCohortSelected: { cohort in
                     guard let data = try? JSONEncoder().encode(cohort) else { return }
                     var userInfo: [AnyHashable: Any] = ["cohort": data]

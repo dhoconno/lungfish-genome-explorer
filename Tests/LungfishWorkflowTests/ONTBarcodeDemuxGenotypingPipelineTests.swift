@@ -132,6 +132,7 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             sortThreads: 1,
             minSupport: 1,
             haplotypeAssayID: "MHC-exon2-miSeq",
+            haplotypeSpeciesCode: "MCM",
             haplotypeDefinitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
             extraArguments: ["-N", "5"]
         )
@@ -162,8 +163,12 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(options["minSupport"] as? Int, 1)
         XCTAssertEqual(options["mappingPreset"] as? String, "map-ont")
         XCTAssertEqual(options["haplotypeAssayID"] as? String, "MHC-exon2-miSeq")
+        XCTAssertEqual(options["haplotypeSpeciesCode"] as? String, "MCM")
         XCTAssertEqual(options["haplotypeDefinitionSetID"] as? String, "MHC-exon2-miSeq.mauritian-cynomolgus-macaques")
         XCTAssertNotNil(options["haplotypeDefinitionSHA256"] as? String)
+        XCTAssertEqual(options["requireFullReferenceSpan"] as? Bool, true)
+        XCTAssertEqual(options["diagnosticPositionFilter"] as? Bool, false)
+        XCTAssertEqual(options["diagnosticPositionStrictLoci"] as? [String], [])
         XCTAssertEqual(options["extraArguments"] as? [String], ["-N", "5"])
         let defaults = try XCTUnwrap(provenance["resolvedDefaults"] as? [String: Any])
         XCTAssertEqual(defaults["sortThreads"] as? Int, 4)
@@ -1306,6 +1311,124 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(stats["assignedUniqueRetainedReads"] as? Int, 10)
     }
 
+    func testRetainedDemuxFilterRequiresFullReferenceExactSubstitutionMatch() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let scriptURL = root.appendingPathComponent("filter-demux-retained-bam.py")
+        let fakePysamURL = root.appendingPathComponent("pysam.py")
+        let referenceFASTA = root.appendingPathComponent("reference.fa")
+        let sampleManifest = root.appendingPathComponent("sample-manifest.json")
+        let outputDirectory = root.appendingPathComponent("out", isDirectory: true)
+
+        try ONTBarcodeDemuxGenotypingPipeline.writeFilterScript(to: scriptURL)
+        try """
+        __version__ = "fake"
+
+        class Header:
+            def to_dict(self):
+                return {"HD": {"VN": "1.6"}}
+
+        class Read:
+            def __init__(self, query_name, reference_name, start, end, md, pairs):
+                self.query_name = query_name
+                self.reference_name = reference_name
+                self.reference_start = start
+                self.reference_end = end
+                self.query_sequence = "TTACGTAA"
+                self.cigartuples = [(0, max(0, end - start))]
+                self.is_unmapped = False
+                self.tags = {}
+                self.md = md
+                self.pairs = pairs
+
+            def get_tag(self, tag):
+                if tag == "MD":
+                    return self.md
+                raise KeyError(tag)
+
+            def set_tag(self, tag, value, value_type=None):
+                self.tags[tag] = value
+
+            def get_aligned_pairs(self, matches_only=False):
+                return list(self.pairs)
+
+        READS = [
+            # Exact full-reference alignments are retained and indels remain allowed elsewhere by CIGAR/MD semantics.
+            Read("LF2871|exact;size=13", "MHC-A-ref1|source_loci=MHC-A", 0, 6, "6", [(0, 0), (1, 1), (2, 2), (3, 3), (4, 4), (5, 5)]),
+            # Any substitution mismatch is rejected, even when it is not diagnostic for the reference set.
+            Read("LF2871|non_diag;size=5", "MHC-A-ref1|source_loci=MHC-A", 0, 6, "1C4", [(0, 0), (1, 1), (2, 2), (3, 3), (4, 4), (5, 5)]),
+            # Mismatch at a diagnostic position is also rejected by the same exact-read rule.
+            Read("LF2871|diag_mismatch;size=7", "MHC-A-ref1|source_loci=MHC-A", 0, 6, "4T1", [(0, 0), (1, 1), (2, 2), (3, 3), (4, 4), (5, 5)]),
+            # Clipped relative to the reference is rejected even if diagnostic positions would be covered.
+            Read("LF2871|clipped;size=3", "MHC-A-ref1|source_loci=MHC-A", 2, 5, "3", [(0, 2), (1, 3), (2, 4)]),
+            # MHC-E follows the same strict rule as the other loci.
+            Read("LF2871|mhce_mismatch;size=11", "MHC-E-ref1|source_loci=MHC-E", 0, 6, "1C4", [(0, 0), (1, 1), (2, 2), (3, 3), (4, 4), (5, 5)]),
+        ]
+
+        class AlignmentFile:
+            def __init__(self, path, mode, header=None):
+                self.path = path
+                self.mode = mode
+                self.header = header or Header()
+                if "w" in mode:
+                    open(path, "w").close()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def fetch(self, until_eof=True):
+                return list(READS)
+
+            def write(self, read):
+                with open(self.path, "a") as handle:
+                    handle.write(read.query_name + "\\n")
+
+        def index(path):
+            with open(path + ".bai", "w") as handle:
+                handle.write("index\\n")
+        """.write(to: fakePysamURL, atomically: true, encoding: .utf8)
+        try """
+        >MHC-A-ref1|source_loci=MHC-A
+        ACGTAC
+        >MHC-A-ref2|source_loci=MHC-A
+        ACGTTC
+        >MHC-E-ref1|source_loci=MHC-E
+        ACGTAC
+        >MHC-E-ref2|source_loci=MHC-E
+        ACGTTC
+        """.write(to: referenceFASTA, atomically: true, encoding: .utf8)
+        try #"{"inputReadCount":39,"samples":[{"sample":"LF2871","readCount":39}]}"#
+            .write(to: sampleManifest, atomically: true, encoding: .utf8)
+
+        _ = try runPython([
+            scriptURL.path,
+            "--input-bam", root.appendingPathComponent("input.bam").path,
+            "--reference-fasta", referenceFASTA.path,
+            "--demux-manifest", sampleManifest.path,
+            "--sample-manifest", sampleManifest.path,
+            "--assignment-mode", "query-prefix",
+            "--output-dir", outputDirectory.path,
+            "--prefix", "ont-cohort",
+            "--max-mismatches", "0",
+            "--min-support", "1",
+        ], environment: ["PYTHONPATH": root.path])
+
+        let genotypesCSV = outputDirectory.appendingPathComponent("ont-cohort.retained_demux_genotypes.csv")
+        let csv = try String(contentsOf: genotypesCSV, encoding: .utf8)
+        XCTAssertTrue(csv.contains("LF2871,MHC-A-ref1|source_loci=MHC-A,13,13"), csv)
+        XCTAssertFalse(csv.contains("MHC-E-ref1"), csv)
+
+        let stats = try jsonObject(at: outputDirectory.appendingPathComponent("ont-cohort.retained_demux_stats.json"))
+        XCTAssertEqual(stats["diagnosticPositionFilter"] as? Bool, false)
+        XCTAssertEqual(stats["requireFullReferenceSpan"] as? Bool, true)
+        XCTAssertEqual(stats["diagnosticPositionStrictLoci"] as? [String], [])
+        XCTAssertEqual(stats["retainedUniqueReads"] as? Int, 13)
+    }
+
     func testReportWorkbookUsesRunBasenameAndFiltersZeroAlleleRows() throws {
         try XCTSkipIf(!pythonCanImportOpenpyxl(), "openpyxl is required for workbook report verification")
         let root = try temporaryDirectory()
@@ -1493,6 +1616,7 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         sample,genotype,passed_alignments,passed_unique_reads,sample_total_reads,sample_unique_retained_reads,sample_unique_retained_percent,overall_input_reads,overall_unique_retained_reads,overall_unique_retained_percent
         \u{FEFF}DW472,02_M1_G_02_07_2mis_156bp,42,42,100,42,42.0,100,42,42.0
         \u{FEFF}DW472,02_M2_G_02_06_156bp,21,21,100,42,42.0,100,42,42.0
+        \u{FEFF}DW472,"MCM_MHC_MiSeq_0068|source_loci=MHC-A1|haplotypes=M1,M2,M3|alleles=Mafa-A1_063:01:01:01,Mafa-A1_063:02:01:01|evidence_classes=primary_expressed",13,13,100,42,42.0,100,42,42.0
         \u{FEFF}DW472,02_M4M7_G_02_04_156bp,11,11,100,42,42.0,100,42,42.0
         \u{FEFF}DW472,04_M1_AG_05_3mis_156bp,18,18,100,42,42.0,100,42,42.0
         \u{FEFF}DW472,05_M1M2M3_A1_063g,16,16,100,42,42.0,100,42,42.0
@@ -1524,6 +1648,8 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         >02_M1_G_02_07_2mis_156bp
         ACGT
         >02_M2_G_02_06_156bp
+        ACGT
+        >MCM_MHC_MiSeq_0068|source_loci=MHC-A1|haplotypes=M1,M2,M3|alleles=Mafa-A1_063:01:01:01,Mafa-A1_063:02:01:01|evidence_classes=primary_expressed
         ACGT
         >02_M4M7_G_02_04_156bp
         ACGT
@@ -1669,6 +1795,10 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(inspection["fullCollapsedDQRowExists"] as? Bool, false)
         XCTAssertEqual(inspection["fullCollapsedDPRowExists"] as? Bool, false)
         XCTAssertEqual(inspection["abbreviatedReadCountHeader"] as? String, "Mapped Read Count")
+        XCTAssertEqual(inspection["metadataCompactLabel"] as? String, "Mafa-A1*063:01:01:01/Mafa-A1*063:02:01:01")
+        XCTAssertEqual(inspection["metadataLabelSection"] as? String, "Mafa-A major alleles")
+        XCTAssertEqual(inspection["metadataLabelHasMiSeqComment"] as? Bool, true)
+        XCTAssertEqual(inspection["metadataLabelHasPrimaryBadge"] as? Bool, true)
         XCTAssertEqual(inspection["customSortFirstSection"] as? String, "MHC homozygous MCM animals")
         XCTAssertEqual(inspection["customSortFirstSectionSampleID"] as? String, "DW473")
         XCTAssertEqual(inspection["customSortHomozygoteSampleID"] as? String, "DW473")
@@ -1912,6 +2042,28 @@ def guide_value(label):
             return None if value is None else str(value)
     return None
 
+def section_for(row):
+    if not row:
+        return None
+    sections = {
+        "Mafa-F alleles",
+        "Mafa-G alleles",
+        "Mafa-AG alleles",
+        "Mafa-A major alleles",
+        "Mafa-A minor alleles",
+        "Mafa-70 alleles",
+        "Mafa-E alleles",
+        "Mafa-B alleles",
+        "Mafa-DRB alleles",
+        "Mafa-DQA/DQB alleles",
+        "Mafa-DPA/DPB alleles",
+    }
+    for candidate in range(row - 1, 0, -1):
+        value = full.cell(candidate, 1).value
+        if value in sections:
+            return value
+    return None
+
 abbr = wb["Abbreviated Haplotypes"]
 abbr_headers = header_map(abbr)
 abbr_row = sample_row(abbr, "DW472")
@@ -1925,6 +2077,7 @@ full_col = sample_col(full, "DW472")
 full_homo_col = sample_col(full, "DW473")
 row_m2_genotype = row_for(full, "02_M2_G_02_06_156bp")
 row_shared_genotype = row_for(full, "02_M4M7_G_02_04_156bp")
+row_metadata_genotype = row_for(full, "Mafa-A1*063:01:01:01/Mafa-A1*063:02:01:01")
 definition = wb["MHC Alleles Per MHC Haplotype"]
 definition_values = [
     cell.value
@@ -1936,6 +2089,7 @@ with open(provenance_path) as handle:
     provenance = json.load(handle)
 
 m2_cell = abbr.cell(abbr_row, abbr_headers["Haplotype 2"]) if abbr_row else None
+metadata_cell = full.cell(row_metadata_genotype, 1) if row_metadata_genotype else None
 payload = {
     "sheetnames": wb.sheetnames,
     "abbreviatedHaplotype1": abbr.cell(abbr_row, abbr_headers["Haplotype 1"]).value if abbr_row else None,
@@ -1990,6 +2144,10 @@ payload = {
     "sharedAlleleNameFontColor": font_color(full.cell(row_shared_genotype, 1)) if row_shared_genotype else None,
     "sharedAlleleNameBold": full.cell(row_shared_genotype, 1).font.bold if row_shared_genotype else None,
     "fullA1FontSize": full.cell(1, 1).font.sz,
+    "metadataCompactLabel": metadata_cell.value if metadata_cell else None,
+    "metadataLabelSection": section_for(row_metadata_genotype),
+    "metadataLabelHasMiSeqComment": bool(metadata_cell and metadata_cell.comment and "MCM_MHC_MiSeq_0068" in metadata_cell.comment.text),
+    "metadataLabelHasPrimaryBadge": bool(metadata_cell and metadata_cell.comment and "primary_expressed" in metadata_cell.comment.text),
     "definitionIncludesM1A": "M1A" in definition_values,
     "definitionIncludesM1G": any("02_M1_G_02_07_2mis_156bp" in str(value) for value in definition_values),
     "m2Fill": fill_rgb(m2_cell) if m2_cell is not None else None,

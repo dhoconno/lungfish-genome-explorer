@@ -39,6 +39,7 @@ public enum GenotypeCohortSubjectBuilder {
         return sampleIds.map { sample in
             let sampleResult = sampleResultsByName[sample]
             let analysis = analysesBySample[sample]
+            let rawCalls = rawCallsBySample[sample] ?? []
             let comments = (notesBySample[sample] ?? []).map(\.body)
                 + (commentsBySample[sample] ?? []).map(\.body)
             let highlightFills = (highlightsBySample[sample] ?? [])
@@ -126,8 +127,8 @@ public enum GenotypeCohortSubjectBuilder {
             return GenotypeCohortSubject(
                 animalId: sample,
                 gsId: sample,
-                qcStatus: sampleResult?.qcStatus ?? .review,
-                totalReads: sampleResult?.sampleTotalReads ?? 0,
+                qcStatus: sampleResult?.qcStatus ?? fallbackQCStatus(from: rawCalls),
+                totalReads: sampleResult?.sampleTotalReads ?? fallbackTotalReads(from: rawCalls),
                 // unmappedPercent is the % of input reads that did not map
                 // to any reference; the bundle's stats JSON exposes it at
                 // the run level only. Predicates that filter on this field
@@ -136,7 +137,7 @@ public enum GenotypeCohortSubjectBuilder {
                 unmappedPercent: 0,
                 comments: comments.joined(separator: " · "),
                 metadata: metadataBySample[sample] ?? [:],
-                rawGenotypes: (rawCallsBySample[sample] ?? []).flatMap { [$0.genotype, $0.locusGroup] },
+                rawGenotypes: rawCalls.flatMap { [$0.genotype, $0.locusGroup] },
                 calls: calls,
                 hasAnyComment: !comments.isEmpty,
                 hasErrorAtAnyLocus: hasErrorAtAnyLocus,
@@ -152,5 +153,23 @@ public enum GenotypeCohortSubjectBuilder {
 
     private static func overrideKey(sample: String, locus: String, slot: HaplotypeSlot) -> String {
         "\(sample)\u{1F}\(locus)\u{1F}\(slot.rawValue)"
+    }
+
+    private static func fallbackQCStatus(from calls: [ONTGenotypeCall]) -> ONTGenotypeQCStatus {
+        guard !calls.isEmpty else { return .review }
+        let alignments = calls.reduce(0) { $0 + max(0, $1.passedAlignments) }
+        let uniqueReads = calls.reduce(0) { $0 + max(0, $1.passedUniqueReads) }
+        guard alignments > 0, uniqueReads > 0 else { return .review }
+        if alignments < 20 || uniqueReads < 1_000 {
+            return .lowSupport
+        }
+        return .ok
+    }
+
+    private static func fallbackTotalReads(from calls: [ONTGenotypeCall]) -> Int {
+        if let total = calls.compactMap(\.sampleTotalReads).max() {
+            return total
+        }
+        return calls.reduce(0) { $0 + max(0, $1.passedUniqueReads) }
     }
 }

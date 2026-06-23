@@ -23,6 +23,9 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("annotations"), help: "Annotation sidecar to write Overrides and Audit Log worksheets; defaults to bundle annotations.json when present")
     var annotations: String?
 
+    @Option(name: .customLong("included-locus"), help: "Haplotype locus included in the displayed call snapshot; repeat for multiple loci")
+    var includedLocus: [String] = []
+
     func run() async throws {
         let bundleURL = URL(fileURLWithPath: bundle, isDirectory: true).standardizedFileURL
         guard ONTGenotypeResultBundle.isBundleURL(bundleURL) else {
@@ -91,6 +94,9 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
         ]
         if let annotationURL {
             arguments += ["--annotations", annotationURL.path]
+        }
+        for locus in includedLocus {
+            arguments += ["--included-locus", locus]
         }
         return arguments
     }

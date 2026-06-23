@@ -272,6 +272,70 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
         XCTAssertTrue(workbookUpdate.statusText.contains("1 manual haplotype change"))
     }
 
+    func testAnnotationSidecarUpdateUsesLoadedResultWithoutReloadingBundle() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeAnnotationSidecarCachedResult-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("barcode05-mhc.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let currentWorkbookURL = bundleURL.appendingPathComponent("artifacts/workbooks/current.xlsx")
+        try FileManager.default.createDirectory(at: currentWorkbookURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data([0x50, 0x4b, 0x03, 0x04]).write(to: currentWorkbookURL)
+
+        let calls = [
+            ONTGenotypeCall(
+                sample: "AnimalA",
+                genotype: "12_M3_B_075_01",
+                passedAlignments: 1_200,
+                passedUniqueReads: 1_200,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                overallInputReads: nil,
+                overallUniqueRetainedReads: nil,
+                overallUniqueRetainedPercent: nil
+            )
+        ]
+        let result = makeResult(bundleURL: bundleURL, calls: calls)
+        let inspector = InspectorViewController()
+        _ = inspector.view
+        inspector.updateGenotypeResultDocument(result)
+
+        try FileManager.default.removeItem(at: bundleURL)
+
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-06-22T00:00:00Z")
+        sidecar.callOverrides = [
+            GenotypeAnnotationSidecar.CallOverride(
+                sample: "AnimalA",
+                locus: "MHC-B",
+                slot: .h1,
+                originalCall: "M3B",
+                overrideCall: "M1B",
+                reasonTag: .analystJudgment,
+                rationale: "Manual review.",
+                author: "curator",
+                timestamp: "2026-06-22T12:00:00Z"
+            )
+        ]
+        sidecar.smartCohorts = [
+            GenotypeCohortSmartFilter(
+                name: "Low-support samples",
+                description: "Loaded result subjects with low-support QC.",
+                scope: "bundle",
+                isStarred: true,
+                predicate: .qcStatus([.lowSupport])
+            )
+        ]
+
+        inspector.updateGenotypeAnnotationSidecar(sidecar)
+
+        let document = try XCTUnwrap(inspector.viewModel.documentSectionViewModel.genotypeResultDocument)
+        XCTAssertEqual(document.smartCohorts.first?.count, 1)
+        XCTAssertEqual(document.qcRows.first(where: { $0.0 == "Low Support" })?.1, "1")
+        let workbookUpdate = try XCTUnwrap(document.currentWorkbookUpdate)
+        XCTAssertEqual(workbookUpdate.manualChangeCount, 1)
+    }
+
     private func makeResult(
         bundleURL: URL,
         calls: [ONTGenotypeCall]

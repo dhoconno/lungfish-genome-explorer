@@ -33,6 +33,12 @@ public class InspectorViewController: NSViewController {
     /// Internal (not private) to allow @testable test access.
     var viewModel = InspectorViewModel()
 
+    /// Cached genotype result for annotation-only inspector refreshes.
+    /// Manual edits can arrive several times in a row; reparsing the full
+    /// `.lungfishgenotype` bundle from disk on every sidecar change makes large
+    /// cohorts progressively sluggish.
+    var loadedGenotypeResult: ONTGenotypeResultBundleData?
+
     /// Public access to the selection section view model for wiring enrichment data.
     public var selectionSectionViewModel: SelectionSectionViewModel {
         viewModel.selectionSectionViewModel
@@ -132,6 +138,13 @@ public class InspectorViewController: NSViewController {
             name: .genotypeResultShowsAncillaryLociChanged,
             object: nil
         )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleGenotypeIncludedLociChanged(_:)),
+            name: .genotypeResultIncludedLociChanged,
+            object: nil
+        )
     }
 
     @objc private func handleGenotypeViewModeChanged(_ notification: Notification) {
@@ -153,6 +166,17 @@ public class InspectorViewController: NSViewController {
         if let state = viewModel.documentSectionViewModel.genotypeResultDocument {
             viewModel.documentSectionViewModel.updateGenotypeResultDocument(
                 state.replacing(showsAncillaryLoci: value)
+            )
+        }
+    }
+
+    @objc private func handleGenotypeIncludedLociChanged(_ notification: Notification) {
+        guard let loci = notification.userInfo?["includedLoci"] as? [String] else { return }
+        let included = Set(loci)
+        viewModel.genotypeResultDisplaySectionViewModel.setIncludedLoci(included)
+        if let state = viewModel.documentSectionViewModel.genotypeResultDocument {
+            viewModel.documentSectionViewModel.updateGenotypeResultDocument(
+                state.replacing(includedHaplotypeLoci: included)
             )
         }
     }

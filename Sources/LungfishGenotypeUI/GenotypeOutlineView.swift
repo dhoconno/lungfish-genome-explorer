@@ -17,7 +17,7 @@ final class GenotypeOutlineView: NSView {
         /// special-case). Zero means no alert glyph renders.
         let noteIssueCount: Int
         /// Per-locus haplotype call text (e.g. "M2A / M3A", "ERR: TMH (...)").
-        /// Used when the analyst expands the row's disclosure triangle.
+        /// Kept as row data for callers that need per-locus call text.
         let perLocusCallText: [(locus: String, h1: String, h2: String, status: GenotypeHaplotypeCallStatus)]
 
         init(
@@ -53,7 +53,6 @@ final class GenotypeOutlineView: NSView {
     }
 
     var onRowSelected: ((String) -> Void)?
-    var onRowDisclosure: ((String, Bool) -> Void)?
     /// Fires when the analyst clicks a single locus cell in the tape.
     /// Passes (animalId, locusName). The controller updates the persistent
     /// Review inspector with `GenotypeCallEvidenceView` for that cell.
@@ -61,10 +60,6 @@ final class GenotypeOutlineView: NSView {
     private(set) var numberOfRows: Int = 0
     private var rows: [Row] = []
     private var reviewSelection = ReviewSelection()
-    /// Per-sample disclosure state. When `true`, the row renders an
-    /// inline detail block beneath the tape showing each locus's
-    /// haplotype call text. Click the triangle to toggle.
-    private var expandedSamples: Set<String> = []
     private let stack = NSStackView()
     private let scrollView = NSScrollView()
     private let documentView = FlippedDocumentView()
@@ -126,14 +121,10 @@ final class GenotypeOutlineView: NSView {
         rebuild()
     }
 
-    /// Fixed-width gutter for the leading "fixed" widgets (disclosure +
-    /// block glyph + animal label). All rows + the header share this so
+    /// Fixed-width gutter for the leading fixed widgets (block glyph +
+    /// animal label). All rows + the header share this so
     /// the locus columns align vertically across the whole table.
-    private static let leadingGutter: CGFloat = 24 + 6 + 16 + 6 + 80
-    /// Fixed-width trailing column for the progressive-disclosure note
-    /// glyph. Matches the per-row note column.
-    private static let trailingGutter: CGFloat = 18
-
+    private static let leadingGutter: CGFloat = 16 + 6 + 80
     private func makeHeaderRow(loci: [String]) -> NSView {
         let container = NSStackView()
         container.translatesAutoresizingMaskIntoConstraints = false
@@ -142,23 +133,19 @@ final class GenotypeOutlineView: NSView {
         container.spacing = 6
         container.edgeInsets = NSEdgeInsets(top: 2, left: 8, bottom: 2, right: 8)
 
-        // Single fixed-width leading container holding disclosure +
-        // block-glyph spacer + "Animal" label. Using one container keeps
-        // the gutter width identical across rows even when the disclosure
-        // glyph changes width.
+        // Single fixed-width leading container holding block-glyph spacer +
+        // "Animal" label. Using one container keeps the gutter width
+        // identical across rows.
         let leading = NSStackView()
         leading.orientation = .horizontal
         leading.spacing = 6
         leading.alignment = .centerY
-        let spacer = NSTextField(labelWithString: " ")
-        spacer.widthAnchor.constraint(equalToConstant: 24).isActive = true
         let blockSpacer = NSTextField(labelWithString: " ")
         blockSpacer.widthAnchor.constraint(equalToConstant: 16).isActive = true
         let animalHeader = NSTextField(labelWithString: "Animal")
         animalHeader.font = NSFont.systemFont(ofSize: 9, weight: .semibold)
         animalHeader.textColor = .secondaryLabelColor
         animalHeader.widthAnchor.constraint(equalToConstant: 80).isActive = true
-        leading.addArrangedSubview(spacer)
         leading.addArrangedSubview(blockSpacer)
         leading.addArrangedSubview(animalHeader)
         leading.widthAnchor.constraint(equalToConstant: Self.leadingGutter).isActive = true
@@ -208,16 +195,8 @@ final class GenotypeOutlineView: NSView {
             lociHeader.addArrangedSubview(column)
         }
 
-        let noteHeader = NSTextField(labelWithString: "!")
-        noteHeader.font = NSFont.systemFont(ofSize: 9, weight: .semibold)
-        noteHeader.textColor = .secondaryLabelColor
-        noteHeader.toolTip = "Notes — hover the alert glyph on a row to see review issues."
-        noteHeader.widthAnchor.constraint(equalToConstant: Self.trailingGutter).isActive = true
-        noteHeader.alignment = .center
-
         container.addArrangedSubview(leading)
         container.addArrangedSubview(lociHeader)
-        container.addArrangedSubview(noteHeader)
         // Let the locus header expand to consume all leftover width so
         // the columns line up edge-to-edge with the tape below.
         lociHeader.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -254,9 +233,8 @@ final class GenotypeOutlineView: NSView {
     }
 
     private func makeRow(_ row: Row) -> NSView {
-        // Outer vertical container so we can put the tape row at the top
-        // and an expandable detail block underneath when the disclosure
-        // triangle is open.
+        // Outer vertical container so selection highlighting and row sizing
+        // stay consistent with other outline rows.
         let outer = NSStackView()
         outer.translatesAutoresizingMaskIntoConstraints = false
         outer.orientation = .vertical
@@ -274,24 +252,12 @@ final class GenotypeOutlineView: NSView {
         container.isReviewSelected = isSelectedSample
 
         // Fixed-width leading gutter so every row's locus columns start at
-        // the same x-coordinate as the header. Disclosure + block glyph +
-        // animal label all live inside one width-anchored NSStackView.
+        // the same x-coordinate as the header. Block glyph + animal label
+        // live inside one width-anchored NSStackView.
         let leading = NSStackView()
         leading.orientation = .horizontal
         leading.spacing = 6
         leading.alignment = .centerY
-        let isExpanded = expandedSamples.contains(row.animalId)
-        let disclosureSymbol = isExpanded ? "\u{25BC}" : "\u{25B6}"
-        let disclosure = NSButton()
-        disclosure.title = disclosureSymbol
-        disclosure.isBordered = false
-        disclosure.bezelStyle = .inline
-        disclosure.font = NSFont.systemFont(ofSize: 10)
-        disclosure.target = self
-        disclosure.action = #selector(handleDisclosureToggle(_:))
-        disclosure.identifier = NSUserInterfaceItemIdentifier(row.animalId)
-        disclosure.contentTintColor = .secondaryLabelColor
-        disclosure.widthAnchor.constraint(equalToConstant: 24).isActive = true
         let blockGlyph = NSTextField(labelWithString: blockGlyphSymbol(row.blockKind))
         blockGlyph.font = NSFont.systemFont(ofSize: 11)
         blockGlyph.textColor = blockGlyphColor(row.blockKind)
@@ -302,7 +268,6 @@ final class GenotypeOutlineView: NSView {
         animalLabel.textColor = .labelColor
         animalLabel.widthAnchor.constraint(equalToConstant: 80).isActive = true
         animalLabel.lineBreakMode = .byTruncatingTail
-        leading.addArrangedSubview(disclosure)
         leading.addArrangedSubview(blockGlyph)
         leading.addArrangedSubview(animalLabel)
         leading.widthAnchor.constraint(equalToConstant: Self.leadingGutter).isActive = true
@@ -323,11 +288,8 @@ final class GenotypeOutlineView: NSView {
             tape.heightAnchor.constraint(equalToConstant: 26),
         ])
 
-        let noteGlyph = makeNoteGlyph(for: row)
-
         container.addArrangedSubview(leading)
         container.addArrangedSubview(tape)
-        container.addArrangedSubview(noteGlyph)
 
         // Row-level click selects the row; cell-level click on the tape
         // opens a per-locus evidence popover so the analyst can inspect
@@ -349,82 +311,7 @@ final class GenotypeOutlineView: NSView {
         // to its intrinsic content.
         container.widthAnchor.constraint(equalTo: outer.widthAnchor).isActive = true
 
-        if isExpanded {
-            outer.addArrangedSubview(makeDisclosedDetail(for: row))
-        }
         return outer
-    }
-
-    /// Inline detail block shown when the disclosure triangle is open.
-    /// Lists each locus's haplotype call text in a compact table so the
-    /// analyst can read the calls without opening the per-cell popover.
-    private func makeDisclosedDetail(for row: Row) -> NSView {
-        let container = NSStackView()
-        container.translatesAutoresizingMaskIntoConstraints = false
-        container.orientation = .vertical
-        container.alignment = .leading
-        container.spacing = 2
-        container.edgeInsets = NSEdgeInsets(top: 4, left: Self.leadingGutter + 14, bottom: 6, right: 8)
-
-        if row.perLocusCallText.isEmpty {
-            let placeholder = NSTextField(labelWithString: "No haplotype calls available for this sample.")
-            placeholder.font = NSFont.systemFont(ofSize: 10)
-            placeholder.textColor = .tertiaryLabelColor
-            container.addArrangedSubview(placeholder)
-        } else {
-            for entry in row.perLocusCallText {
-                container.addArrangedSubview(makeCallRow(entry))
-            }
-        }
-        return container
-    }
-
-    private func makeCallRow(
-        _ entry: (locus: String, h1: String, h2: String, status: GenotypeHaplotypeCallStatus)
-    ) -> NSView {
-        let row = NSStackView()
-        row.orientation = .horizontal
-        row.alignment = .firstBaseline
-        row.spacing = 6
-        let locusLabel = NSTextField(labelWithString: entry.locus)
-        locusLabel.font = NSFont.monospacedSystemFont(ofSize: 10, weight: .semibold)
-        locusLabel.textColor = .secondaryLabelColor
-        locusLabel.widthAnchor.constraint(equalToConstant: 80).isActive = true
-        let callLabel = NSTextField(labelWithString: callText(entry))
-        callLabel.font = NSFont.monospacedSystemFont(ofSize: 10, weight: .regular)
-        callLabel.textColor = entry.status == .called || entry.status == .notAssayed || entry.status == .specialCase
-            ? .labelColor
-            : NSColor.lungfishDanger
-        callLabel.lineBreakMode = .byTruncatingTail
-        row.addArrangedSubview(locusLabel)
-        row.addArrangedSubview(callLabel)
-        return row
-    }
-
-    private func callText(_ entry: (locus: String, h1: String, h2: String, status: GenotypeHaplotypeCallStatus)) -> String {
-        switch entry.status {
-        case .notAssayed:
-            return entry.h1.isEmpty ? "Not assayed" : entry.h1
-        case .called, .specialCase:
-            if entry.h2 == "-" || entry.h2.isEmpty {
-                return "\(entry.h1) (homozygous)"
-            }
-            return "\(entry.h1) / \(entry.h2)"
-        case .noHaplotype, .tooManyHaplotypes, .tooManyGenotypes:
-            // Error h1 and h2 carry the same text; collapse the redundancy.
-            return entry.h1
-        }
-    }
-
-    @objc private func handleDisclosureToggle(_ sender: NSButton) {
-        guard let id = sender.identifier?.rawValue else { return }
-        if expandedSamples.contains(id) {
-            expandedSamples.remove(id)
-        } else {
-            expandedSamples.insert(id)
-        }
-        onRowDisclosure?(id, expandedSamples.contains(id))
-        rebuild()
     }
 
     @objc private func handleTapeClick(_ recognizer: NSClickGestureRecognizer) {
@@ -480,26 +367,6 @@ final class GenotypeOutlineView: NSView {
         onRowSelected?(id)
     }
 
-    private func makeNoteGlyph(for row: Row) -> NSView {
-        // Progressive-disclosure marker for review-worthy notes. Empty rows
-        // render an 18pt placeholder so the column stays aligned with the
-        // header. Non-empty rows show a small filled circle with the issue
-        // count as a tooltip carrying the original commentSummary text.
-        let label = NSTextField(labelWithString: row.noteIssueCount > 0 ? "\u{26A0}\u{FE0E}" : "")
-        label.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
-        label.textColor = row.noteIssueCount > 0 ? NSColor.lungfishDanger : .clear
-        label.alignment = .center
-        label.widthAnchor.constraint(equalToConstant: 18).isActive = true
-        if row.noteIssueCount > 0 {
-            let tooltip = row.commentSummary.isEmpty
-                ? "\(row.noteIssueCount) review note\(row.noteIssueCount == 1 ? "" : "s")"
-                : row.commentSummary
-            label.toolTip = tooltip
-            label.setAccessibilityLabel("\(row.noteIssueCount) review notes: \(tooltip)")
-        }
-        return label
-    }
-
     private func blockGlyphSymbol(_ kind: GenotypeBlockKind) -> String {
         switch kind {
         case .blockCoherent:        return "\u{25AE}"
@@ -532,11 +399,6 @@ final class GenotypeOutlineView: NSView {
 
 #if DEBUG
 extension GenotypeOutlineView {
-    func testingSetExpandedSamples(_ samples: Set<String>) {
-        expandedSamples = samples
-        rebuild()
-    }
-
     var testingVisibleText: String {
         textContent(in: self).joined(separator: "\n")
     }

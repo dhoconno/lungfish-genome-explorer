@@ -80,10 +80,14 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
 
     public init() {}
 
-    public func run(_ request: ONTFluidigmAmpliconMaterializationRequest) async throws
+    public func run(
+        _ request: ONTFluidigmAmpliconMaterializationRequest,
+        progress: (@Sendable (Double, String) -> Void)? = nil
+    ) async throws
         -> ONTFluidigmAmpliconMaterializationResult
     {
         let fm = FileManager.default
+        progress?(0.02, "Preparing ONT Fluidigm sample split.")
         guard fm.fileExists(atPath: request.inputURL.path) else {
             throw ONTFluidigmAmpliconMaterializerError.missingInput(request.inputURL)
         }
@@ -106,6 +110,10 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
         guard !inputFASTQs.isEmpty else {
             throw ONTFluidigmAmpliconMaterializerError.noInputFASTQs(request.inputURL)
         }
+        progress?(
+            0.08,
+            "Found \(inputFASTQs.count) ONT FASTQ chunk\(inputFASTQs.count == 1 ? "" : "s")."
+        )
         guard let barcodeMatcher = BarcodeMatcher(entries: barcodeEntries) else {
             throw ONTFluidigmAmpliconMaterializerError.noBarcodeRows(request.barcodeDefinitionsURL)
         }
@@ -126,9 +134,24 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
             canonicalizeReverseComplements: request.canonicalizeReverseComplements
         )
 
-        for fastqURL in inputFASTQs {
+        for (chunkIndex, fastqURL) in inputFASTQs.enumerated() {
+            let chunkNumber = chunkIndex + 1
+            let chunkStartProgress = 0.10 + (0.70 * Double(chunkIndex) / Double(inputFASTQs.count))
+            let chunkEndProgress = 0.10 + (0.70 * Double(chunkNumber) / Double(inputFASTQs.count))
+            progress?(
+                chunkStartProgress,
+                "Scanning chunk \(chunkNumber)/\(inputFASTQs.count): \(fastqURL.lastPathComponent)"
+            )
+            var chunkReadCount = 0
             for try await record in reader.records(from: fastqURL) {
                 inputReadCount += 1
+                chunkReadCount += 1
+                if chunkReadCount.isMultiple(of: 10_000) {
+                    progress?(
+                        min(chunkEndProgress - 0.001, chunkStartProgress + 0.01),
+                        "Scanning chunk \(chunkNumber)/\(inputFASTQs.count): \(chunkReadCount) reads..."
+                    )
+                }
                 let bases = Self.normalizedDNABases(record.sequence)
                 let primerExclusionRanges = Self.primerExclusionRanges(
                     in: bases,
@@ -152,8 +175,17 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
                 extractedReadCount += 1
                 accumulators[entry.sampleID]?.recordExtracted(sequence: sequence)
             }
+            progress?(
+                chunkEndProgress,
+                "Scanned chunk \(chunkNumber)/\(inputFASTQs.count): \(chunkReadCount) reads."
+            )
         }
 
+        let nonEmptySampleCount = accumulators.values.filter { $0.uniqueSequenceCount > 0 }.count
+        progress?(
+            0.84,
+            "Writing \(nonEmptySampleCount) sample bundle\(nonEmptySampleCount == 1 ? "" : "s")."
+        )
         let sampleOutputs: [SampleOutput] = try barcodeEntries.compactMap { entry -> SampleOutput? in
             guard let accumulator = accumulators[entry.sampleID],
                   accumulator.uniqueSequenceCount > 0 else {
@@ -166,6 +198,7 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
             )
         }
 
+        progress?(0.92, "Writing ONT Fluidigm sample manifest.")
         let manifestURL = request.outputDirectory.appendingPathComponent(Self.manifestFilename)
         let sampleTotals = Dictionary<String, Int>(uniqueKeysWithValues: sampleOutputs.map { output in
             (output.sampleID, output.rawReadCount)
@@ -207,6 +240,7 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
         ]
         let manifestData = try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
         try manifestData.write(to: manifestURL, options: .atomic)
+        progress?(1.0, "ONT Fluidigm sample split complete.")
 
         return ONTFluidigmAmpliconMaterializationResult(
             outputDirectory: request.outputDirectory,
@@ -499,7 +533,8 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
         let lastOffset = bases.count - patternCount
         var ranges: [Range<Int>] = []
 
-        for offset in 0...lastOffset {
+        var offset = 0
+        while offset <= lastOffset {
             var mismatches = 0
             var index = 0
             while index < patternCount {
@@ -514,6 +549,7 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
             if mismatches <= maxMismatches {
                 ranges.append(offset..<(offset + patternCount))
             }
+            offset += 1
         }
         return ranges
     }

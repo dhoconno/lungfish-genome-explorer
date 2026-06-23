@@ -321,6 +321,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
 
         let store = try GenotypeAnnotationStore(bundleURL: dir, author: "test")
         let names = Set(store.sidecar.smartCohorts.map(\.name))
+        XCTAssertTrue(names.contains("Incomplete haplotypes"))
         XCTAssertTrue(names.contains("Needs review"))
         XCTAssertTrue(names.contains("Homozygous"))
         XCTAssertTrue(names.contains("Recombinants"))

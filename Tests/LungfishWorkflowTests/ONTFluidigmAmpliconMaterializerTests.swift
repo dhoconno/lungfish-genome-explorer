@@ -3,6 +3,23 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class ONTFluidigmAmpliconMaterializerTests: XCTestCase {
+    private final class ProgressRecorder: @unchecked Sendable {
+        private let lock = NSLock()
+        private var recordedEvents: [(Double, String)] = []
+
+        func append(_ fraction: Double, _ message: String) {
+            lock.lock()
+            recordedEvents.append((fraction, message))
+            lock.unlock()
+        }
+
+        func events() -> [(Double, String)] {
+            lock.lock()
+            defer { lock.unlock() }
+            return recordedEvents
+        }
+    }
+
     func testMaterializesPerSampleCountedInsertFastqsAfterBarcodeAssignment() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -98,6 +115,55 @@ final class ONTFluidigmAmpliconMaterializerTests: XCTestCase {
         let lf2871Sample = try XCTUnwrap(samples.first { $0["sample"] as? String == "LF2871" })
         XCTAssertEqual(lf2871Sample["baseCount"] as? Int, lf2871Insert.count)
         XCTAssertEqual(lf2871Sample["weightedBaseCount"] as? Int, lf2871Insert.count * 2)
+    }
+
+    func testReportsProgressWhileScanningInputFASTQChunks() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let inputDirectory = root.appendingPathComponent("barcode11", isDirectory: true)
+        try FileManager.default.createDirectory(at: inputDirectory, withIntermediateDirectories: true)
+        let chunk1 = inputDirectory.appendingPathComponent("chunk-1.fastq")
+        let chunk2 = inputDirectory.appendingPathComponent("chunk-2.fastq")
+        let hiddenSidecar = inputDirectory.appendingPathComponent("._chunk-1.fastq")
+        let barcodesCSV = root.appendingPathComponent("ONT09_NB11_samples.csv")
+        let outputDirectory = root.appendingPathComponent("ont-fluidigm-amplicons", isDirectory: true)
+
+        let cs1 = ONTFluidigmAmpliconMaterializer.defaultForwardPrimer
+        let cs2rc = Self.reverseComplement(ONTFluidigmAmpliconMaterializer.defaultReversePrimer)
+        let barcode = "AAAACCCCGG"
+        let insert = "ACGTACGTACGTACGT"
+        try writeFASTQ(records: [("read-1", cs1 + insert + cs2rc + barcode)], to: chunk1)
+        try writeFASTQ(records: [("read-2", cs1 + insert + cs2rc + barcode)], to: chunk2)
+        try writeFASTQ(records: [("hidden-read", cs1 + insert + cs2rc + barcode)], to: hiddenSidecar)
+        try """
+        sample,barcode
+        LF2871,\(barcode)
+        """.write(to: barcodesCSV, atomically: true, encoding: .utf8)
+
+        let progressRecorder = ProgressRecorder()
+        let result = try await ONTFluidigmAmpliconMaterializer().run(
+            ONTFluidigmAmpliconMaterializationRequest(
+                inputURL: inputDirectory,
+                barcodeDefinitionsURL: barcodesCSV,
+                outputDirectory: outputDirectory,
+                primerMismatches: 0,
+                minimumInsertLength: 8,
+                canonicalizeReverseComplements: false,
+                force: true
+            ),
+            progress: { fraction, message in
+                progressRecorder.append(fraction, message)
+            }
+        )
+
+        XCTAssertEqual(result.inputReadCount, 2)
+        let progressEvents = progressRecorder.events()
+        XCTAssertTrue(progressEvents.contains { $0.1.contains("Found 2 ONT FASTQ chunks") })
+        XCTAssertTrue(progressEvents.contains { $0.1.contains("Scanning chunk 1/2") })
+        XCTAssertTrue(progressEvents.contains { $0.1.contains("Scanning chunk 2/2") })
+        XCTAssertTrue(progressEvents.contains { $0.1.contains("Writing 1 sample bundle") })
+        XCTAssertEqual(progressEvents.last?.0, 1.0)
     }
 
     func testExtractsCS1CS2InsertBeforeCountingDuplicateSampleReads() async throws {
@@ -264,5 +330,12 @@ final class ONTFluidigmAmpliconMaterializerTests: XCTestCase {
             .appendingPathComponent("ONTFluidigmAmpliconMaterializerTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    private func writeFASTQ(records: [(String, String)], to url: URL) throws {
+        let text = records.map { identifier, sequence in
+            "@\(identifier)\n\(sequence)\n+\n\(String(repeating: "I", count: sequence.count))\n"
+        }.joined()
+        try text.write(to: url, atomically: true, encoding: .utf8)
     }
 }

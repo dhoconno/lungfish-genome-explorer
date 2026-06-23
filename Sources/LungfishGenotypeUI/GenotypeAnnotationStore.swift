@@ -41,12 +41,19 @@ public final class GenotypeAnnotationStore {
     private func seedBuiltInSmartCohortsIfNeeded() throws {
         let builtIns: [GenotypeCohortSmartFilter] = [
             GenotypeCohortSmartFilter(
+                name: "Incomplete haplotypes",
+                description: "Samples with unresolved, not-assayed, or error haplotype slots.",
+                scope: "bundle",
+                isStarred: true,
+                predicate: .needsHaplotypeReview
+            ),
+            GenotypeCohortSmartFilter(
                 name: "Needs review",
-                description: "Errors, low support, or analyst-flagged samples.",
+                description: "Incomplete haplotypes, low support, or analyst-flagged samples.",
                 scope: "bundle",
                 isStarred: true,
                 predicate: .any([
-                    .hasErrorAtAnyLocus,
+                    .needsHaplotypeReview,
                     .qcStatus([.review, .lowSupport]),
                     .hasAnalystFlag(.needsReview),
                 ])

@@ -287,7 +287,7 @@ extension InspectorViewController {
 
     /// Updates the Document inspector with genotype-result bundle statistics.
     func updateGenotypeResultDocument(_ result: ONTGenotypeResultBundleData) {
-        let qcCounts = result.qcStatusCounts
+        loadedGenotypeResult = result
         let sampleIds = genotypeSampleIds(result)
         let metadataStore = SampleMetadataStore.load(
             from: result.bundleURL,
@@ -331,11 +331,7 @@ extension InspectorViewController {
             sampleMetadataStore: metadataStore,
             windowStateScope: windowStateScope,
             summaryRows: genotypeSummaryRows(result),
-            qcRows: [
-                ("OK", "\(qcCounts[.ok, default: 0])"),
-                ("Low Support", "\(qcCounts[.lowSupport, default: 0])"),
-                ("Review", "\(qcCounts[.review, default: 0])"),
-            ],
+            qcRows: genotypeQCRows(subjects: subjects),
             artifactRows: workbookArtifactRows + [
                 GenotypeResultArtifactRow(label: "Long Summary CSV", fileURL: result.artifacts.longSummaryCSVURL),
                 GenotypeResultArtifactRow(label: "Sample Summary CSV", fileURL: result.artifacts.sampleSummaryCSVURL),
@@ -353,11 +349,21 @@ extension InspectorViewController {
             currentWorkbookUpdate: genotypeCurrentWorkbookUpdateState(result: result, sidecar: sidecar)
         )
         // Mirror the current display-state knobs into the document state so
-        // the Inspector toggles (View Mode radio, "Show observed-only loci"
-        // checkbox) render with the right values when the section appears.
+        // Inspector controls render with the right values when the section appears.
         let currentDisplay = viewModel.genotypeResultDisplaySectionViewModel.displayState
+        let availableLoci = genotypeHaplotypeLoci(result)
+        let defaultIncludedLoci = genotypeDefaultIncludedHaplotypeLoci(
+            availableLoci,
+            result: result
+        )
+        let selectedIncludedLoci = currentDisplay.includedLoci.map {
+            Set($0.filter { availableLoci.contains($0) })
+        } ?? defaultIncludedLoci
         state.summaryViewMode = currentDisplay.summaryViewMode
         state.showsAncillaryLoci = currentDisplay.showsAncillaryLoci
+        state.availableHaplotypeLoci = availableLoci
+        state.defaultIncludedHaplotypeLoci = defaultIncludedLoci
+        state.includedHaplotypeLoci = selectedIncludedLoci
         viewModel.documentSectionViewModel.updateGenotypeResultDocument(state)
         viewModel.genotypeResultDisplaySectionViewModel.update(isAvailable: true, state: currentDisplay)
         updateProvenanceTarget(
@@ -383,6 +389,10 @@ extension InspectorViewController {
                 documentState
                     .replacing(summaryViewMode: state.summaryViewMode)
                     .replacing(showsAncillaryLoci: state.showsAncillaryLoci)
+                    .replacing(
+                        includedHaplotypeLoci: state.includedLoci
+                            ?? documentState.defaultIncludedHaplotypeLoci
+                    )
             )
         }
     }
@@ -459,8 +469,13 @@ extension InspectorViewController {
     func updateGenotypeAnnotationSidecar(_ sidecar: GenotypeAnnotationSidecar) {
         guard let state = viewModel.documentSectionViewModel.genotypeResultDocument else { return }
         var nextState = state.replacing(auditEntries: sidecar.auditLog)
-        if let bundleURL = state.bundleURL,
-           let result = try? ONTGenotypeResultBundle.loadResult(from: bundleURL) {
+        let cachedResult = loadedGenotypeResult.flatMap { result -> ONTGenotypeResultBundleData? in
+            guard result.bundleURL.standardizedFileURL == state.bundleURL?.standardizedFileURL else { return nil }
+            return result
+        }
+        let result = cachedResult ?? state.bundleURL.flatMap { try? ONTGenotypeResultBundle.loadResult(from: $0) }
+        if let result {
+            loadedGenotypeResult = result
             let subjects = GenotypeCohortSubjectBuilder.buildSubjects(
                 result: result,
                 sidecar: sidecar,
@@ -472,6 +487,7 @@ extension InspectorViewController {
                     count: subjects.filter { cohort.predicate.evaluate($0) }.count
                 )
             }
+            nextState.qcRows = genotypeQCRows(subjects: subjects)
             nextState.haplotypeDefinitionRows = genotypeHaplotypeDefinitionRows(result, sidecar: sidecar)
             nextState.currentWorkbookUpdate = genotypeCurrentWorkbookUpdateState(result: result, sidecar: sidecar)
         }
@@ -500,6 +516,19 @@ extension InspectorViewController {
             ("Unassigned Retained", formatInteger(result.stats.unassignedUniqueRetainedReads)),
             ("Retained %", formatPercent(result.stats.retainedUniquePercentOfTotalReads)),
             ("Created", result.manifest.createdAt ?? "Unknown"),
+        ]
+    }
+
+    private func genotypeQCRows(subjects: [GenotypeCohortSubject]) -> [(String, String)] {
+        let qcCounts = Dictionary(grouping: subjects, by: \.qcStatus).mapValues(\.count)
+        let incomplete = subjects.filter { SmartCohortPredicate.needsHaplotypeReview.evaluate($0) }.count
+        let noHaplotypeCalls = subjects.filter(\.calls.isEmpty).count
+        return [
+            ("OK", "\(qcCounts[.ok, default: 0])"),
+            ("Low Support", "\(qcCounts[.lowSupport, default: 0])"),
+            ("Review", "\(qcCounts[.review, default: 0])"),
+            ("Incomplete Haplotypes", "\(incomplete)"),
+            ("No Haplotype Calls", "\(noHaplotypeCalls)"),
         ]
     }
 
@@ -532,6 +561,47 @@ extension InspectorViewController {
             sampleIds.append(sample)
         }
         return sampleIds
+    }
+
+    private func genotypeHaplotypeLoci(_ result: ONTGenotypeResultBundleData) -> [String] {
+        guard let analysis = result.haplotypeAnalysis else { return [] }
+        var seen: Set<String> = []
+        var loci: [String] = []
+        for sample in analysis.samples {
+            for call in sample.calls where seen.insert(call.locus).inserted {
+                loci.append(call.locus)
+            }
+        }
+        return loci
+    }
+
+    private func genotypeDefaultIncludedHaplotypeLoci(
+        _ loci: [String],
+        result: ONTGenotypeResultBundleData
+    ) -> Set<String> {
+        var included = Set(loci)
+        if genotypeResultLooksLikeMCM(result, loci: loci) {
+            included.remove("MHC-E")
+        }
+        return included
+    }
+
+    private func genotypeResultLooksLikeMCM(
+        _ result: ONTGenotypeResultBundleData,
+        loci: [String]
+    ) -> Bool {
+        let analysis = result.haplotypeAnalysis
+        let metadata = [
+            analysis?.definitionSetID,
+            analysis?.definitionSetName,
+            analysis?.assayID,
+            result.manifest.haplotypeDefinitionSetID,
+            result.manifest.haplotypeAssayID,
+        ]
+        if metadata.contains(where: { $0?.localizedCaseInsensitiveContains("mcm") == true }) {
+            return true
+        }
+        return Set(loci).isSuperset(of: ["MHC-A", "MHC-B", "MHC-DR"])
     }
 
     private func genotypeHaplotypeDefinitionsFolderURL(_ result: ONTGenotypeResultBundleData) -> URL {

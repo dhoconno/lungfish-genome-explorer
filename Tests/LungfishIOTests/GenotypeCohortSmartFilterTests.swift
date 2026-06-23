@@ -167,6 +167,7 @@ final class GenotypeCohortSmartFilterTests: XCTestCase {
                 .hasErrorAt(locus: "MHC-DRB"),
                 .isHomozygousAt(locus: "MHC-A"),
                 .hasRegionalRecombinantAt(locus: "MHC-DRB"),
+                .needsHaplotypeReview,
                 .hasHighlightBorder("#FF0000"),
                 .hasHighlightFill(nil),
             ])
@@ -211,5 +212,29 @@ final class GenotypeCohortSmartFilterTests: XCTestCase {
         )
         XCTAssertTrue(predicate.evaluate(homozygous))
         XCTAssertFalse(predicate.evaluate(heterozygous))
+    }
+
+    func testNeedsHaplotypeReviewPredicateMatchesIncompleteOrUnconfidentCalls() {
+        let predicate = SmartCohortPredicate.needsHaplotypeReview
+
+        XCTAssertTrue(predicate.evaluate(subject(
+            animal: "ERR",
+            calls: [(locus: "MHC-B", h1: "ERR: TMH", h2: "ERR: TMH")]
+        )))
+        XCTAssertTrue(predicate.evaluate(subject(
+            animal: "UNKNOWN",
+            calls: [(locus: "MHC-DQ", h1: "?", h2: "?")]
+        )))
+        XCTAssertTrue(predicate.evaluate(subject(
+            animal: "NOT_ASSAYED",
+            calls: [(locus: "MHC-DP", h1: "Not assayed", h2: "Not assayed")]
+        )))
+        XCTAssertFalse(predicate.evaluate(subject(
+            animal: "CLEAN",
+            calls: [
+                (locus: "MHC-A", h1: "M1A", h2: "M1A"),
+                (locus: "MHC-B", h1: "M1B", h2: "-"),
+            ]
+        )))
     }
 }

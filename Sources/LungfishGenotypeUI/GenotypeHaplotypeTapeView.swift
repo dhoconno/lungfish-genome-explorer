@@ -1,10 +1,12 @@
 import AppKit
 import LungfishCore
+import LungfishKit
 
 @MainActor
 final class GenotypeHaplotypeTapeView: NSView {
     enum Cell: Equatable {
         case reference(tokenIndex: Int, label: String)
+        case weakReference(tokenIndex: Int, label: String)
         case manual(tokenIndex: Int, label: String)
         case recombinant(tokenIndexA: Int, tokenIndexB: Int, label: String)
         case error(label: String)
@@ -125,6 +127,9 @@ final class GenotypeHaplotypeTapeView: NSView {
             path.fill()
         case .reference(let i, _), .manual(let i, _):
             tokenNSColor(tokenIndex: i).setFill()
+            path.fill()
+        case .weakReference(let i, _):
+            weakSupportColor(forTokenIndex: i).setFill()
             path.fill()
         case .recombinant(let a, let b, _):
             drawStripedFill(a: a, b: b, in: rect, path: path)
@@ -263,6 +268,21 @@ final class GenotypeHaplotypeTapeView: NSView {
         return color.nsColor
     }
 
+    private func weakSupportColor(forTokenIndex tokenIndex: Int) -> NSColor {
+        let base = tokenNSColor(tokenIndex: tokenIndex)
+        let warning = NSColor.lungfishDanger
+        let isDark: Bool = {
+            if let match = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) {
+                return match == .darkAqua
+            }
+            return false
+        }()
+        return base.blended(
+            withFraction: isDark ? 0.42 : 0.58,
+            of: warning.withAlphaComponent(isDark ? 0.70 : 0.45)
+        ) ?? warning.withAlphaComponent(isDark ? 0.45 : 0.28)
+    }
+
     private func selectionSeparatorColor() -> NSColor {
         if let match = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]),
            match == .darkAqua {
@@ -327,7 +347,7 @@ final class GenotypeHaplotypeTapeView: NSView {
     private func cellLabel(_ cell: Cell) -> String {
         switch cell {
         case .empty: return "not observed"
-        case .reference(_, let l), .manual(_, let l): return l
+        case .reference(_, let l), .weakReference(_, let l), .manual(_, let l): return l
         case .recombinant(_, _, let l): return l
         case .error(let l): return l
         case .notAssayed(let l): return l

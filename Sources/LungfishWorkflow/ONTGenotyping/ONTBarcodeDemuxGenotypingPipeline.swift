@@ -2551,6 +2551,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "mappingPreset": Self.mappingPreset(for: resolvedMode),
             "requireBothEndSoftclips": requireBothEndSoftclips,
             "requireFullReferenceSpan": true,
+            "diagnosticPositionFilter": false,
+            "diagnosticPositionStrictLoci": [],
             "allowIndels": true,
             "maxMismatches": 0,
             "demuxRetainedReadsOnly": resolvedMode == .ontBarcodeDemux,
@@ -2581,6 +2583,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "mappingPreset": Self.mappingPreset(for: resolvedMode),
             "requireBothEndSoftclips": requireBothEndSoftclips,
             "requireFullReferenceSpan": true,
+            "diagnosticPositionFilter": false,
+            "diagnosticPositionStrictLoci": [],
             "allowIndels": true,
             "maxMismatches": 0,
             "demuxRetainedReadsOnly": resolvedMode == .ontBarcodeDemux,
@@ -3359,6 +3363,46 @@ def load_reference_lengths(path):
     return lengths
 
 
+def parse_reference_metadata(name):
+    metadata = {}
+    for part in name.split("|")[1:]:
+        if "=" in part:
+            key, value = part.split("=", 1)
+            metadata[key] = value
+    return metadata
+
+
+def load_reference_records(path):
+    records = {}
+    name = None
+    chunks = []
+    with open_text(path) as handle:
+        for raw_line in handle:
+            line = raw_line.strip()
+            if not line:
+                continue
+            if line.startswith(">"):
+                if name is not None:
+                    sequence = "".join(chunks).upper()
+                    records[name] = {
+                        "sequence": sequence,
+                        "length": len(sequence),
+                        "metadata": parse_reference_metadata(name),
+                    }
+                name = line[1:].split()[0]
+                chunks = []
+            else:
+                chunks.append(line)
+    if name is not None:
+        sequence = "".join(chunks).upper()
+        records[name] = {
+            "sequence": sequence,
+            "length": len(sequence),
+            "metadata": parse_reference_metadata(name),
+        }
+    return records
+
+
 def load_barcodes(path):
     entries = []
     with open(path, newline="") as handle:
@@ -3449,6 +3493,15 @@ def canonical_locus_for_threshold(raw_locus):
     if raw_locus in {"MHC-DPA", "MHC-DPB"}:
         return "MHC-DP"
     return raw_locus
+
+
+def reference_source_locus(reference_name, reference_records):
+    record = reference_records.get(reference_name, {})
+    metadata = record.get("metadata", {})
+    source_loci = metadata.get("source_loci")
+    if source_loci:
+        return source_loci
+    return raw_locus_group_for_genotype(reference_name)
 
 
 def barcode_regex(entries):
@@ -3550,7 +3603,7 @@ def alignment_mismatch_count(read):
         return None
 
 
-def passes_filter(read, reference_lengths, args, counters):
+def passes_strict_filter(read, reference_lengths, args, counters):
     if read.is_unmapped:
         counters["unmapped"] += 1
         return False
@@ -3571,6 +3624,10 @@ def passes_filter(read, reference_lengths, args, counters):
     return True
 
 
+def passes_filter(read, reference_lengths, reference_records, args, counters):
+    return passes_strict_filter(read, reference_lengths, args, counters)
+
+
 def write_csv(path, rows, fieldnames):
     with open(path, "w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
@@ -3587,7 +3644,8 @@ def main():
     min_sample_fraction = fraction_from_percent(args.haplotype_min_sample_percent)
     min_locus_fraction = fraction_from_percent(args.haplotype_min_locus_percent)
     locus_fraction_overrides = parse_locus_fraction_overrides(args.haplotype_min_locus_percent_override)
-    reference_lengths = load_reference_lengths(args.reference_fasta)
+    reference_records = load_reference_records(args.reference_fasta)
+    reference_lengths = {name: record["length"] for name, record in reference_records.items()}
     manifest = load_demux_manifest(args.sample_manifest or args.demux_manifest)
     if args.assignment_mode == "barcode":
         if not args.barcodes:
@@ -3610,7 +3668,7 @@ def main():
     with pysam.AlignmentFile(args.input_bam, "rb") as source:
         for read in source.fetch(until_eof=True):
             total_alignments += 1
-            if passes_filter(read, reference_lengths, args, pass_counters):
+            if passes_filter(read, reference_lengths, reference_records, args, pass_counters):
                 retained_query_names.add(read.query_name)
 
     barcode_cache = {}
@@ -3653,7 +3711,7 @@ def main():
         header["CO"] = comments
         with pysam.AlignmentFile(output_bam, "wb", header=header) as dest:
             for read in source.fetch(until_eof=True):
-                if not passes_filter(read, reference_lengths, args, write_filter_counters):
+                if not passes_filter(read, reference_lengths, reference_records, args, write_filter_counters):
                     continue
                 assignment = barcode_cache.get(read.query_name)
                 if assignment is None:
@@ -3762,6 +3820,8 @@ def main():
         "unassignedUniqueRetainedReads": unassigned_unique_count,
         "requireBothEndSoftclips": args.require_both_end_softclips,
         "requireFullReferenceSpan": True,
+        "diagnosticPositionFilter": False,
+        "diagnosticPositionStrictLoci": [],
         "allowIndels": True,
         "maxMismatches": args.max_mismatches,
         "demuxRetainedReadsOnly": args.assignment_mode == "barcode",
@@ -3782,6 +3842,9 @@ def main():
         "options": vars(args),
         "resolvedDefaults": {
             "maxMismatches": args.max_mismatches,
+            "diagnosticPositionFilter": False,
+            "diagnosticPositionStrictLoci": [],
+            "requireFullReferenceSpan": True,
             "requireBothEndSoftclips": args.require_both_end_softclips,
             "minSupport": args.min_support,
             "haplotypeMinSamplePercent": 0.0,
@@ -3833,6 +3896,7 @@ from datetime import datetime, timezone
 
 import openpyxl
 from openpyxl import Workbook, load_workbook
+from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
@@ -4847,7 +4911,95 @@ def mcm_summary_values(sample, sample_stats, calls_by_sample_locus, loci):
     return values
 
 
+def pipe_metadata(genotype):
+    fields = {}
+    parts = str(genotype or "").strip().split("|")
+    for part in parts[1:]:
+        if "=" not in part:
+            continue
+        key, value = part.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if key:
+            fields[key] = value
+    return fields
+
+
+def compact_genotype_identifier(genotype):
+    text = str(genotype or "").strip()
+    return text.split("|", 1)[0].strip() if "|" in text else text
+
+
+def mafa_display_allele_name(value):
+    text = str(value or "").strip()
+    if text.startswith("Mafa-") and "_" in text:
+        prefix, suffix = text.split("_", 1)
+        return f"{prefix}*{suffix}"
+    return text
+
+
+def compact_genotype_label(genotype):
+    metadata = pipe_metadata(genotype)
+    alleles = [
+        mafa_display_allele_name(item)
+        for item in metadata.get("alleles", "").split(",")
+        if item.strip()
+    ]
+    if alleles:
+        return "/".join(alleles)
+    return compact_genotype_identifier(genotype)
+
+
+def genotype_comment_text(genotype):
+    text = str(genotype or "").strip()
+    if "|" in text:
+        return text
+    return None
+
+
+def source_locus_tokens(genotype):
+    metadata = pipe_metadata(genotype)
+    raw = metadata.get("source_loci") or metadata.get("source_locus") or metadata.get("haplotype_groups") or ""
+    return [
+        item.strip().upper()
+        for item in re.split(r"[,;/]", raw)
+        if item.strip()
+    ]
+
+
+def mcm_allele_section_from_metadata(genotype):
+    tokens = source_locus_tokens(genotype)
+    if not tokens:
+        return None
+    if any(token.endswith("F") or token == "MHC-F" for token in tokens):
+        return "Mafa-F alleles"
+    if any(token.endswith("G") or token == "MHC-G" for token in tokens):
+        return "Mafa-G alleles"
+    if any("AG" in token for token in tokens):
+        return "Mafa-AG alleles"
+    if any(token.endswith("A1") or token == "MHC-A1" for token in tokens):
+        return "Mafa-A major alleles"
+    if any(re.search(r"A[2456]$", token) or token in {"MHC-A2", "MHC-A4", "MHC-A5", "MHC-A6"} for token in tokens):
+        return "Mafa-A minor alleles"
+    if any("70" in token for token in tokens):
+        return "Mafa-70 alleles"
+    if any(token.endswith("E") or token == "MHC-E" for token in tokens):
+        return "Mafa-E alleles"
+    if any(token.endswith("B") or token == "MHC-B" for token in tokens):
+        return "Mafa-B alleles"
+    if any("DR" in token for token in tokens):
+        return "Mafa-DRB alleles"
+    if any("DQA" in token or "DQB" in token or token == "MHC-DQ" for token in tokens):
+        return "Mafa-DQA/DQB alleles"
+    if any("DPA" in token or "DPB" in token or token == "MHC-DP" for token in tokens):
+        return "Mafa-DPA/DPB alleles"
+    return None
+
+
 def mcm_allele_section_label(genotype):
+    metadata_section = mcm_allele_section_from_metadata(genotype)
+    if metadata_section:
+        return metadata_section
     text = str(genotype or "").strip()
     if text.startswith("01_"):
         return "Mafa-F alleles"
@@ -4930,6 +5082,14 @@ def apply_genotype_count_cell_style(cell, genotype, locus_calls, section):
         cell.font = Font(name="Calibri", size=11, color=style.get("font", "000000"), bold=True)
     else:
         cell.font = Font(name="Calibri", size=11, bold=True)
+
+
+def write_genotype_label_cell(ws, row, genotype):
+    cell = ws.cell(row, 1)
+    cell.value = compact_genotype_label(genotype)
+    comment = genotype_comment_text(genotype)
+    if comment:
+        cell.comment = Comment(comment, "Lungfish")
 
 
 def report_percent_value(value):
@@ -5122,7 +5282,7 @@ def write_full_sequencing_results(ws, samples, sample_stats, genotype_counts, or
         set_row_label_style(ws, row_index)
         row_index += 1
         for genotype in section_genotypes:
-            ws.cell(row_index, 1).value = genotype
+            write_genotype_label_cell(ws, row_index, genotype)
             total = 0
             observed = 0
             for offset, sample in enumerate(samples, start=4):
@@ -5142,7 +5302,7 @@ def write_full_sequencing_results(ws, samples, sample_stats, genotype_counts, or
         set_row_label_style(ws, row_index)
         row_index += 1
         for genotype in observed_genotypes_by_section[section]:
-            ws.cell(row_index, 1).value = genotype
+            write_genotype_label_cell(ws, row_index, genotype)
             total = 0
             observed = 0
             for offset, sample in enumerate(samples, start=4):

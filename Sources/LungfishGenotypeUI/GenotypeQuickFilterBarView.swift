@@ -10,7 +10,7 @@ import LungfishIO
 /// sample predicates without duplicating filtering in the Inspector.
 @MainActor
 final class GenotypeQuickFilterBarView: NSView, NSSearchFieldDelegate {
-    private static let preferredHeight: CGFloat = 68
+    private static let preferredHeight: CGFloat = 40
 
     enum Pill: String, CaseIterable {
         case hasErrors
@@ -112,7 +112,7 @@ final class GenotypeQuickFilterBarView: NSView, NSSearchFieldDelegate {
         setContentCompressionResistancePriority(.required, for: .vertical)
 
         searchField.translatesAutoresizingMaskIntoConstraints = false
-        searchField.placeholderString = "Search samples, haplotypes, genotypes, comments, or metadata fields…"
+        searchField.placeholderString = "Search samples or haplotypes…"
         searchField.delegate = self
         searchField.font = NSFont.systemFont(ofSize: 11)
         searchField.sendsSearchStringImmediately = true
@@ -123,11 +123,6 @@ final class GenotypeQuickFilterBarView: NSView, NSSearchFieldDelegate {
         pillStack.spacing = 6
         configureSavedCohortButton()
         pillStack.addArrangedSubview(savedCohortButton)
-        for pill in Pill.allCases {
-            let button = makePillButton(pill)
-            pillButtons[pill] = button
-            pillStack.addArrangedSubview(button)
-        }
         pillStack.translatesAutoresizingMaskIntoConstraints = true
         updatePillDocumentFrame()
         pillScrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -143,9 +138,8 @@ final class GenotypeQuickFilterBarView: NSView, NSSearchFieldDelegate {
         containerStack.orientation = .vertical
         containerStack.alignment = .leading
         containerStack.spacing = 6
-        containerStack.edgeInsets = NSEdgeInsets(top: 8, left: 10, bottom: 8, right: 10)
+        containerStack.edgeInsets = NSEdgeInsets(top: 7, left: 10, bottom: 7, right: 10)
         containerStack.addArrangedSubview(searchField)
-        containerStack.addArrangedSubview(pillScrollView)
 
         addSubview(containerStack)
 
@@ -155,8 +149,6 @@ final class GenotypeQuickFilterBarView: NSView, NSSearchFieldDelegate {
             containerStack.trailingAnchor.constraint(equalTo: trailingAnchor),
             containerStack.bottomAnchor.constraint(equalTo: bottomAnchor),
             searchField.widthAnchor.constraint(greaterThanOrEqualToConstant: 220),
-            pillScrollView.widthAnchor.constraint(equalTo: containerStack.widthAnchor),
-            pillScrollView.heightAnchor.constraint(equalToConstant: 24),
         ])
     }
 
@@ -322,6 +314,19 @@ final class GenotypeQuickFilterBarView: NSView, NSSearchFieldDelegate {
 extension GenotypeQuickFilterBarView {
     var testingSavedCohortChipTitle: String? {
         savedCohortButton.isHidden ? nil : savedCohortButton.title
+    }
+
+    var testingVisibleButtonTitles: [String] {
+        func collect(from view: NSView) -> [String] {
+            let current: [String]
+            if let button = view as? NSButton, !button.isHidden {
+                current = [button.title]
+            } else {
+                current = []
+            }
+            return current + view.subviews.flatMap(collect(from:))
+        }
+        return collect(from: self)
     }
 
     func testingClearSavedCohort() {

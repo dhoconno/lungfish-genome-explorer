@@ -497,17 +497,8 @@ final class AIAssistantServiceTests: XCTestCase {
 
     func testSendMessageWithNoAPIKeyReturnsError() async throws {
         let registry = AIToolRegistry()
-        let service = AIAssistantService(toolRegistry: registry)
+        let service = AIAssistantService(toolRegistry: registry, providerResolver: { [] })
         AppSettings.shared.aiSearchEnabled = true
-
-        let keychain = KeychainSecretStorage.shared
-        let hasOpenAIKey = (try? await keychain.retrieve(forKey: KeychainSecretStorage.openAIAPIKey))?.isEmpty == false
-        let hasAnthropicKey = (try? await keychain.retrieve(forKey: KeychainSecretStorage.anthropicAPIKey))?.isEmpty == false
-        let hasGeminiKey = (try? await keychain.retrieve(forKey: KeychainSecretStorage.geminiAPIKey))?.isEmpty == false
-        let hasConfiguredKey = hasOpenAIKey || hasAnthropicKey || hasGeminiKey
-        if hasConfiguredKey {
-            throw XCTSkip("Environment has configured AI keys; missing-key assertions are not deterministic.")
-        }
 
         let response = await service.sendMessage("Hello")
 
@@ -520,17 +511,19 @@ final class AIAssistantServiceTests: XCTestCase {
 
     func testSendMessagePreventsDoubleProcessing() async {
         let registry = AIToolRegistry()
-        let service = AIAssistantService(toolRegistry: registry)
+        let provider = BlockingAIProvider()
+        let service = AIAssistantService(toolRegistry: registry, providerResolver: { [provider] })
         AppSettings.shared.aiSearchEnabled = true
 
-        // Simulate isProcessing being true by sending concurrent requests
-        // The second should be rejected
         async let first = service.sendMessage("Hello")
-        // The service blocks while processing, so start a second immediately
-        // (This tests the guard, but since we await first above it may
-        // not actually trigger - keep the test for the guard path)
+        await provider.waitUntilRequestStarted()
+
+        let second = await service.sendMessage("Second")
+        XCTAssertEqual(second, "Please wait for the current request to complete.")
+
+        await provider.complete()
         let response = await first
-        XCTAssertNotNil(response)
+        XCTAssertEqual(response, "Done")
     }
 
     // MARK: - Status Callback
@@ -549,6 +542,42 @@ final class AIAssistantServiceTests: XCTestCase {
         XCTAssertNotNil(service.onStatusUpdate)
         service.onStatusUpdate?("Testing...")
         XCTAssertEqual(receivedStatus, "Testing...")
+    }
+}
+
+private actor BlockingAIProvider: AIProvider {
+    nonisolated let name = "Blocking Test Provider"
+    nonisolated let modelId = "test-model"
+
+    private var requestStarted = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var completion: CheckedContinuation<Void, Never>?
+
+    func sendMessage(
+        messages: [AIMessage],
+        systemPrompt: String,
+        tools: [AIToolDefinition]
+    ) async throws -> AIResponse {
+        requestStarted = true
+        startWaiters.forEach { $0.resume() }
+        startWaiters.removeAll()
+
+        await withCheckedContinuation { continuation in
+            completion = continuation
+        }
+        return AIResponse(text: "Done", stopReason: .endTurn)
+    }
+
+    func waitUntilRequestStarted() async {
+        guard !requestStarted else { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+
+    func complete() {
+        completion?.resume()
+        completion = nil
     }
 }
 

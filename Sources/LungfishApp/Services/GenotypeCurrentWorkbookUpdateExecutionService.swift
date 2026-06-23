@@ -23,6 +23,7 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
     func run(
         bundleURL: URL,
         calls: [GenotypeWorkbookHaplotypeCall],
+        includedLoci: [String] = [],
         annotationSidecarURL: URL?,
         routeContext: OperationRouteContext? = nil
     ) async throws -> URL {
@@ -31,6 +32,7 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
         let arguments = cliArguments(
             bundleURL: bundle,
             callsURL: callsURL,
+            includedLoci: includedLoci,
             annotationSidecarURL: annotationSidecarURL
         )
         let cliCommand = ViralReconWorkflowCommandPreview.build(
@@ -47,6 +49,9 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
         )
         operationCenter.log(id: operationID, level: .info, message: cliCommand)
         operationCenter.log(id: operationID, level: .info, message: "Calls snapshot: \(callsURL.path)")
+        if !includedLoci.isEmpty {
+            operationCenter.log(id: operationID, level: .info, message: "Included loci: \(includedLoci.joined(separator: ", "))")
+        }
         if let annotationSidecarURL {
             operationCenter.log(id: operationID, level: .info, message: "Annotations: \(annotationSidecarURL.path)")
         }
@@ -111,6 +116,7 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
     private func cliArguments(
         bundleURL: URL,
         callsURL: URL,
+        includedLoci: [String],
         annotationSidecarURL: URL?
     ) -> [String] {
         var arguments = [
@@ -120,6 +126,9 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
             "--calls-json",
             callsURL.path,
         ]
+        for locus in includedLoci {
+            arguments += ["--included-locus", locus]
+        }
         if let annotationSidecarURL,
            fileManager.fileExists(atPath: annotationSidecarURL.path) {
             arguments += ["--annotations", annotationSidecarURL.standardizedFileURL.path]

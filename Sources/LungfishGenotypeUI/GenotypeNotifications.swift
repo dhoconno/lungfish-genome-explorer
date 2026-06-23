@@ -43,4 +43,9 @@ public extension Notification.Name {
     /// not covered by the active haplotype definition set.
     /// `userInfo["showsAncillaryLoci"]` is a Bool.
     static let genotypeResultShowsAncillaryLociChanged = Notification.Name("com.lungfish.genotypeResultShowsAncillaryLociChanged")
+
+    /// Posted when the analyst changes which deterministic haplotype loci are
+    /// included in the Outline and current.xlsx update snapshot.
+    /// `userInfo["includedLoci"]` is a [String].
+    static let genotypeResultIncludedLociChanged = Notification.Name("com.lungfish.genotypeResultIncludedLociChanged")
 }

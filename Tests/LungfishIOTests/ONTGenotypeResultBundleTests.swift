@@ -129,26 +129,26 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         try Data("{}".utf8).write(to: provenanceURL)
         try """
         sample,genotype,passed_alignments,passed_unique_reads,sample_total_reads,sample_unique_retained_reads,sample_unique_retained_percent,overall_input_reads,overall_unique_retained_reads,overall_unique_retained_percent
-        AnimalA,01_M1_A_01,42,39,100,46,46.0,1000,60,6.0
-        AnimalA,02_M2_B_01,4,4,100,46,46.0,1000,60,6.0
+        AnimalA,01_M1_A_01,800,800,2000,1200,60.0,3000,1260,42.0
+        AnimalA,02_M2_B_01,400,400,2000,1200,60.0,3000,1260,42.0
         AnimalB,13_M3_DRB1_10,12,4,90,4,4.444444,1000,60,6.0
         unassigned,noise_reference,7,7,,7,,1000,60,6.0
         """.write(to: genotypeCSVURL, atomically: true, encoding: .utf8)
         try """
         sample,passed_alignments,passed_unique_reads,sample_total_reads,sample_unique_retained_percent,overall_input_reads,overall_unique_retained_percent
-        AnimalA,46,43,100,46.0,1000,6.0
+        AnimalA,1200,1200,2000,60.0,3000,42.0
         AnimalB,12,4,90,4.444444,1000,6.0
         AnimalC,0,0,80,0.0,1000,6.0
         unassigned,7,7,,,
         """.write(to: sampleCSVURL, atomically: true, encoding: .utf8)
         try """
         {
-          "totalInputReads": 1000,
-          "totalAlignments": 120,
-          "passedAlignments": 65,
-          "retainedUniqueReads": 60,
-          "retainedUniquePercentOfTotalReads": 6.0,
-          "assignedUniqueRetainedReads": 53,
+          "totalInputReads": 3000,
+          "totalAlignments": 1274,
+          "passedAlignments": 1219,
+          "retainedUniqueReads": 1260,
+          "retainedUniquePercentOfTotalReads": 42.0,
+          "assignedUniqueRetainedReads": 1253,
           "unassignedUniqueRetainedReads": 7
         }
         """.write(to: statsJSONURL, atomically: true, encoding: .utf8)
@@ -169,8 +169,8 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
 
         XCTAssertEqual(result.bundleURL, bundleURL.standardizedFileURL)
         XCTAssertEqual(result.artifacts.workbookURL, workbookURL.standardizedFileURL)
-        XCTAssertEqual(result.stats.totalInputReads, 1000)
-        XCTAssertEqual(result.stats.retainedUniqueReads, 60)
+        XCTAssertEqual(result.stats.totalInputReads, 3000)
+        XCTAssertEqual(result.stats.retainedUniqueReads, 1260)
         XCTAssertEqual(result.calls.count, 3, "Unassigned genotype rows should not be treated as sample calls")
         XCTAssertEqual(result.samples.map(\.sample), ["AnimalA", "AnimalB", "AnimalC"])
         XCTAssertEqual(result.samples[0].topCall?.genotype, "01_M1_A_01")
@@ -225,6 +225,33 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
 
         XCTAssertEqual(result.samples.map(\.sample), ["AnimalA", "AnimalB"])
         XCTAssertFalse(result.sampleNames.contains("sample"))
+    }
+
+    func testSampleQCFlagsLowAssignedReadCoverage() {
+        let calls = [
+            ONTGenotypeCall(
+                sample: "LowCoverage",
+                genotype: "05_M1_A1_063",
+                passedAlignments: 750,
+                passedUniqueReads: 750,
+                sampleTotalReads: 50_000,
+                sampleUniqueRetainedReads: 750,
+                sampleUniqueRetainedPercent: 1.5,
+                overallInputReads: nil,
+                overallUniqueRetainedReads: nil,
+                overallUniqueRetainedPercent: nil
+            )
+        ]
+        let sample = ONTGenotypeSampleResult(
+            sample: "LowCoverage",
+            passedAlignments: 750,
+            passedUniqueReads: 750,
+            sampleTotalReads: 50_000,
+            sampleUniqueRetainedPercent: 1.5,
+            calls: calls
+        )
+
+        XCTAssertEqual(sample.qcStatus, .lowSupport)
     }
 
     func testSummarizesSharedCallsByInferredLocus() {

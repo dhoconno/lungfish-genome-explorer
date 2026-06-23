@@ -13,36 +13,13 @@ final class GenotypeQuickFilterBarViewTests: XCTestCase {
         XCTAssertGreaterThan(view.frame.height, 0)
     }
 
-    func testSingleActivePillEmitsPredicateDirectly() {
+    func testFilterBarDoesNotRenderSmartPillChips() {
         let view = GenotypeQuickFilterBarView()
         view.frame = NSRect(x: 0, y: 0, width: 800, height: 80)
-        var emitted: SmartCohortPredicate??
-        view.onFilterChanged = { emitted = $0 }
-        view.setActivePills([.hasErrors])
-        XCTAssertEqual(emitted, .some(.some(.hasErrorAtAnyLocus)))
-    }
-
-    func testTwoActivePillsCombineWithAll() {
-        let view = GenotypeQuickFilterBarView()
-        view.frame = NSRect(x: 0, y: 0, width: 800, height: 80)
-        var emitted: SmartCohortPredicate??
-        view.onFilterChanged = { emitted = $0 }
-        view.setActivePills([.hasErrors, .recombinant])
-        guard case .some(.some(.all(let children))) = emitted else {
-            return XCTFail("Expected .all([...]) predicate; got \(String(describing: emitted))")
-        }
-        let kinds = Set(children.map { String(describing: $0) })
-        XCTAssertEqual(kinds.count, 2)
-    }
-
-    func testClearingAllPillsAndSearchEmitsNil() {
-        let view = GenotypeQuickFilterBarView()
-        view.frame = NSRect(x: 0, y: 0, width: 800, height: 80)
-        var emitted: SmartCohortPredicate??
-        view.onFilterChanged = { emitted = $0 }
-        view.setActivePills([.hasErrors])
-        view.setActivePills([])
-        XCTAssertEqual(emitted, .some(.none))
+        XCTAssertFalse(view.testingVisibleButtonTitles.contains("Has errors"))
+        XCTAssertFalse(view.testingVisibleButtonTitles.contains("Homozygous"))
+        XCTAssertFalse(view.testingVisibleButtonTitles.contains("Recombinant"))
+        XCTAssertFalse(view.testingVisibleButtonTitles.contains("Bw6+"))
     }
 
     func testSearchTextEmitsUnifiedFilterStateWithoutPillPredicate() {
@@ -77,5 +54,18 @@ final class GenotypeQuickFilterBarViewTests: XCTestCase {
         view.testingClearSavedCohort()
         XCTAssertTrue(didClear)
         XCTAssertNil(view.testingSavedCohortChipTitle)
+    }
+
+    func testHaplotypeDefinitionsSidecarSectionIsCollapsible() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeResultDocumentSection.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("@State private var isHaplotypeDefinitionsExpanded"))
+        XCTAssertTrue(source.contains("DisclosureGroup(\"Haplotype Definitions\", isExpanded: $isHaplotypeDefinitionsExpanded)"))
+        XCTAssertFalse(source.contains("DisclosureGroup(\"Haplotype Definitions\", isExpanded: .constant(true))"))
     }
 }

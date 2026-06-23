@@ -100,6 +100,7 @@ public indirect enum SmartCohortPredicate: Codable, Equatable, Sendable {
     case hasAnyComment
     case qcStatus(Set<ONTGenotypeQCStatus>)
     case hasErrorAtAnyLocus
+    case needsHaplotypeReview
     case totalReadsAtLeast(Int)
     case totalReadsAtMost(Int)
     case unmappedPercentAtMost(Double)
@@ -179,6 +180,15 @@ public indirect enum SmartCohortPredicate: Codable, Equatable, Sendable {
             return set.contains(subject.qcStatus)
         case .hasErrorAtAnyLocus:
             return subject.hasErrorAtAnyLocus
+        case .needsHaplotypeReview:
+            return subject.hasErrorAtAnyLocus || subject.calls.contains { call in
+                let name = call.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                return call.isError
+                    || name.isEmpty
+                    || name == "?"
+                    || name.localizedCaseInsensitiveCompare("Not assayed") == .orderedSame
+                    || name.hasPrefix("ERR:")
+            }
         case .totalReadsAtLeast(let n):
             return subject.totalReads >= n
         case .totalReadsAtMost(let n):
@@ -267,6 +277,8 @@ public indirect enum SmartCohortPredicate: Codable, Equatable, Sendable {
             try container.encode(Array(set).map { $0.rawValue }.sorted(), forKey: .set)
         case .hasErrorAtAnyLocus:
             try container.encode("hasErrorAtAnyLocus", forKey: .kind)
+        case .needsHaplotypeReview:
+            try container.encode("needsHaplotypeReview", forKey: .kind)
         case .totalReadsAtLeast(let n):
             try container.encode("totalReadsAtLeast", forKey: .kind)
             try container.encode(n, forKey: .value)
@@ -351,6 +363,8 @@ public indirect enum SmartCohortPredicate: Codable, Equatable, Sendable {
             self = .qcStatus(Set(statuses))
         case "hasErrorAtAnyLocus":
             self = .hasErrorAtAnyLocus
+        case "needsHaplotypeReview":
+            self = .needsHaplotypeReview
         case "totalReadsAtLeast":
             self = .totalReadsAtLeast(try container.decode(Int.self, forKey: .value))
         case "totalReadsAtMost":

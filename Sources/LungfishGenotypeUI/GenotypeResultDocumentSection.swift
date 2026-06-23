@@ -38,6 +38,9 @@ public struct GenotypeResultDocumentState: Equatable {
     public var artifactRows: [GenotypeResultArtifactRow]
     public var summaryViewMode: GenotypeSummaryViewMode = .outline
     public var showsAncillaryLoci: Bool = false
+    public var availableHaplotypeLoci: [String] = []
+    public var includedHaplotypeLoci: Set<String> = []
+    public var defaultIncludedHaplotypeLoci: Set<String> = []
     public var smartCohorts: [GenotypeSmartCohortSection.DisplayedCohort] = []
     public var auditEntries: [GenotypeAnnotationSidecar.AuditEntry] = []
     public var haplotypeDefinitionRows: [(String, String)] = []
@@ -56,6 +59,9 @@ public struct GenotypeResultDocumentState: Equatable {
         artifactRows: [GenotypeResultArtifactRow],
         summaryViewMode: GenotypeSummaryViewMode = .outline,
         showsAncillaryLoci: Bool = false,
+        availableHaplotypeLoci: [String] = [],
+        includedHaplotypeLoci: Set<String> = [],
+        defaultIncludedHaplotypeLoci: Set<String> = [],
         smartCohorts: [GenotypeSmartCohortSection.DisplayedCohort] = [],
         auditEntries: [GenotypeAnnotationSidecar.AuditEntry] = [],
         haplotypeDefinitionRows: [(String, String)] = [],
@@ -73,6 +79,9 @@ public struct GenotypeResultDocumentState: Equatable {
         self.artifactRows = artifactRows
         self.summaryViewMode = summaryViewMode
         self.showsAncillaryLoci = showsAncillaryLoci
+        self.availableHaplotypeLoci = availableHaplotypeLoci
+        self.includedHaplotypeLoci = includedHaplotypeLoci
+        self.defaultIncludedHaplotypeLoci = defaultIncludedHaplotypeLoci
         self.smartCohorts = smartCohorts
         self.auditEntries = auditEntries
         self.haplotypeDefinitionRows = haplotypeDefinitionRows
@@ -95,6 +104,12 @@ public struct GenotypeResultDocumentState: Equatable {
     public func replacing(showsAncillaryLoci: Bool) -> GenotypeResultDocumentState {
         var copy = self
         copy.showsAncillaryLoci = showsAncillaryLoci
+        return copy
+    }
+
+    public func replacing(includedHaplotypeLoci: Set<String>) -> GenotypeResultDocumentState {
+        var copy = self
+        copy.includedHaplotypeLoci = includedHaplotypeLoci
         return copy
     }
 
@@ -128,6 +143,9 @@ public struct GenotypeResultDocumentState: Equatable {
             lhs.artifactRows == rhs.artifactRows &&
             lhs.summaryViewMode == rhs.summaryViewMode &&
             lhs.showsAncillaryLoci == rhs.showsAncillaryLoci &&
+            lhs.availableHaplotypeLoci == rhs.availableHaplotypeLoci &&
+            lhs.includedHaplotypeLoci == rhs.includedHaplotypeLoci &&
+            lhs.defaultIncludedHaplotypeLoci == rhs.defaultIncludedHaplotypeLoci &&
             lhs.smartCohorts == rhs.smartCohorts &&
             lhs.auditEntries == rhs.auditEntries &&
             lhs.haplotypeDefinitionRows.elementsEqual(rhs.haplotypeDefinitionRows, by: { $0.0 == $1.0 && $0.1 == $1.1 }) &&
@@ -140,6 +158,7 @@ public struct GenotypeResultDocumentSection: View {
     let state: GenotypeResultDocumentState
     var onViewModeChange: ((GenotypeSummaryViewMode) -> Void)? = nil
     var onShowsAncillaryLociChange: ((Bool) -> Void)? = nil
+    var onIncludedLociChange: ((Set<String>) -> Void)? = nil
     var onSmartCohortSelected: ((GenotypeCohortSmartFilter) -> Void)? = nil
     var onSmartCohortDeleted: ((GenotypeCohortSmartFilter) -> Void)? = nil
     var onSmartCohortAddRequested: (() -> Void)? = nil
@@ -149,14 +168,16 @@ public struct GenotypeResultDocumentSection: View {
     @State private var isQCExpanded = true
     @State private var isArtifactsExpanded = true
     @State private var isSamplesExpanded = true
-    @State private var isViewModeExpanded = true
+    @State private var isIncludedLociExpanded = true
     @State private var isCurrentWorkbookExpanded = true
     @State private var isAuditTimelineExpanded = false
+    @State private var isHaplotypeDefinitionsExpanded = true
 
     public init(
         state: GenotypeResultDocumentState,
         onViewModeChange: ((GenotypeSummaryViewMode) -> Void)? = nil,
         onShowsAncillaryLociChange: ((Bool) -> Void)? = nil,
+        onIncludedLociChange: ((Set<String>) -> Void)? = nil,
         onSmartCohortSelected: ((GenotypeCohortSmartFilter) -> Void)? = nil,
         onSmartCohortDeleted: ((GenotypeCohortSmartFilter) -> Void)? = nil,
         onSmartCohortAddRequested: (() -> Void)? = nil,
@@ -165,6 +186,7 @@ public struct GenotypeResultDocumentSection: View {
         self.state = state
         self.onViewModeChange = onViewModeChange
         self.onShowsAncillaryLociChange = onShowsAncillaryLociChange
+        self.onIncludedLociChange = onIncludedLociChange
         self.onSmartCohortSelected = onSmartCohortSelected
         self.onSmartCohortDeleted = onSmartCohortDeleted
         self.onSmartCohortAddRequested = onSmartCohortAddRequested
@@ -175,7 +197,7 @@ public struct GenotypeResultDocumentSection: View {
         VStack(alignment: .leading, spacing: 16) {
             header
             Divider()
-            viewModeSection
+            includedLociSection
             Divider()
             smartCohortsSection
             Divider()
@@ -209,34 +231,51 @@ public struct GenotypeResultDocumentSection: View {
         .font(.caption.weight(.semibold))
     }
 
-    private var viewModeSection: some View {
-        DisclosureGroup("View Mode", isExpanded: $isViewModeExpanded) {
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(GenotypeSummaryViewMode.allCases, id: \.self) { mode in
-                    Button(action: {
-                        onViewModeChange?(mode)
-                    }) {
-                        HStack(spacing: 8) {
-                            Image(systemName: state.summaryViewMode == mode ? "largecircle.fill.circle" : "circle")
-                                .foregroundStyle(state.summaryViewMode == mode ? Color.accentColor : .secondary)
-                            Text(mode.displayName)
-                                .font(.caption)
-                                .foregroundStyle(.primary)
-                            Spacer()
-                        }
-                        .contentShape(Rectangle())
+    private var includedLociSection: some View {
+        DisclosureGroup("Included Loci", isExpanded: $isIncludedLociExpanded) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Included loci appear in Outline and are written to current.xlsx when you update the workbook.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 8) {
+                    Button("All") {
+                        onIncludedLociChange?(Set(state.availableHaplotypeLoci))
                     }
-                    .buttonStyle(.plain)
+                    .controlSize(.small)
+                    .disabled(state.availableHaplotypeLoci.isEmpty)
+                    Button("Default") {
+                        onIncludedLociChange?(state.defaultIncludedHaplotypeLoci)
+                    }
+                    .controlSize(.small)
+                    .disabled(state.availableHaplotypeLoci.isEmpty)
                 }
-                Toggle(isOn: Binding(
-                    get: { state.showsAncillaryLoci },
-                    set: { onShowsAncillaryLociChange?($0) }
-                )) {
-                    Text("Show observed-only loci")
+                if state.availableHaplotypeLoci.isEmpty {
+                    Text("No deterministic haplotype loci are available.")
                         .font(.caption)
+                        .foregroundStyle(.tertiary)
+                } else {
+                    VStack(alignment: .leading, spacing: 5) {
+                        ForEach(state.availableHaplotypeLoci, id: \.self) { locus in
+                            Toggle(isOn: Binding(
+                                get: { state.includedHaplotypeLoci.contains(locus) },
+                                set: { isIncluded in
+                                    var next = state.includedHaplotypeLoci
+                                    if isIncluded {
+                                        next.insert(locus)
+                                    } else {
+                                        next.remove(locus)
+                                    }
+                                    onIncludedLociChange?(next)
+                                }
+                            )) {
+                                Text(locus)
+                                    .font(.caption)
+                            }
+                            .toggleStyle(.checkbox)
+                        }
+                    }
                 }
-                .toggleStyle(.checkbox)
-                .help("Include loci the active haplotype definition set does not analyze (e.g. MHC-AG, MHC-70 for MCM).")
             }
             .padding(.top, 4)
         }
@@ -259,7 +298,7 @@ public struct GenotypeResultDocumentSection: View {
     }
 
     private var haplotypeDefinitionsSection: some View {
-        DisclosureGroup("Haplotype Definitions", isExpanded: .constant(true)) {
+        DisclosureGroup("Haplotype Definitions", isExpanded: $isHaplotypeDefinitionsExpanded) {
             VStack(alignment: .leading, spacing: 8) {
                 rowStack(state.haplotypeDefinitionRows)
                 HStack(spacing: 8) {

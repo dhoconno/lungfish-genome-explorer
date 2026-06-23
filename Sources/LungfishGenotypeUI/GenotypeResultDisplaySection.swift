@@ -102,6 +102,11 @@ public final class GenotypeResultDisplaySectionViewModel {
         notifyStateChanged()
     }
 
+    public func setIncludedLoci(_ loci: Set<String>?) {
+        displayState.includedLoci = loci
+        notifyStateChanged()
+    }
+
     public func updateSelection(_ selection: GenotypeResultSelectionState?) {
         isUpdatingFromSelection = true
         defer { isUpdatingFromSelection = false }

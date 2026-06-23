@@ -8,14 +8,14 @@ final class GenotypeCohortSubjectBuilderTests: XCTestCase {
         let sampleResults = samples.map { name, qc -> ONTGenotypeSampleResult in
             // Construct passedAlignments/passedUniqueReads so ONTGenotypeSampleResult.qcStatus
             // derives the requested status:
-            // - .ok requires calls.nonEmpty + passedAlignments >= 20 + passedUniqueReads >= 5
-            // - .lowSupport requires calls.nonEmpty + alignments < 20 OR uniqueReads < 5
+            // - .ok requires calls.nonEmpty + passedAlignments >= 20 + passedUniqueReads >= 1000
+            // - .lowSupport requires calls.nonEmpty + alignments < 20 OR uniqueReads < 1000
             // - .review fires when calls empty or alignments==0 or uniqueReads==0
             let call = ONTGenotypeCall(
                 sample: name,
                 genotype: "01_X_0001",
-                passedAlignments: 100,
-                passedUniqueReads: 50,
+                passedAlignments: 1_500,
+                passedUniqueReads: 1_500,
                 sampleTotalReads: nil,
                 sampleUniqueRetainedReads: nil,
                 sampleUniqueRetainedPercent: nil,
@@ -26,7 +26,7 @@ final class GenotypeCohortSubjectBuilderTests: XCTestCase {
             switch qc {
             case .ok:
                 return ONTGenotypeSampleResult(
-                    sample: name, passedAlignments: 100, passedUniqueReads: 50,
+                    sample: name, passedAlignments: 1_500, passedUniqueReads: 1_500,
                     sampleTotalReads: 50000, sampleUniqueRetainedPercent: nil,
                     calls: [call]
                 )
@@ -71,6 +71,34 @@ final class GenotypeCohortSubjectBuilderTests: XCTestCase {
         )
     }
 
+    private func makeResultWithoutSampleSummaries(calls: [ONTGenotypeCall]) -> ONTGenotypeResultBundleData {
+        let manifest = ONTGenotypeResultBundleManifest(
+            outputName: "out",
+            analysisName: "Test",
+            primaryWorkbookPath: "workbook.xlsx",
+            longSummaryCSVPath: "long.csv",
+            sampleSummaryCSVPath: "sample.csv",
+            statsJSONPath: "stats.json",
+            provenancePath: "prov"
+        )
+        let artifacts = ONTGenotypeResultArtifacts(
+            workbookURL: URL(fileURLWithPath: "/tmp/x.xlsx"),
+            longSummaryCSVURL: URL(fileURLWithPath: "/tmp/x.csv"),
+            sampleSummaryCSVURL: URL(fileURLWithPath: "/tmp/y.csv"),
+            statsJSONURL: URL(fileURLWithPath: "/tmp/s.json"),
+            provenanceURL: URL(fileURLWithPath: "/tmp/p")
+        )
+        return ONTGenotypeResultBundleData(
+            bundleURL: URL(fileURLWithPath: "/tmp/x.lungfishgenotype"),
+            manifest: manifest,
+            artifacts: artifacts,
+            stats: ONTGenotypeRunStats(),
+            calls: calls,
+            samples: [],
+            haplotypeAnalysis: nil
+        )
+    }
+
     func testProducesOneSubjectPerSample() {
         let result = makeResult(samples: [("S1", .ok), ("S2", .lowSupport)])
         let sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "")
@@ -78,6 +106,44 @@ final class GenotypeCohortSubjectBuilderTests: XCTestCase {
         XCTAssertEqual(subjects.count, 2)
         XCTAssertEqual(subjects[0].qcStatus, .ok)
         XCTAssertEqual(subjects[1].qcStatus, .lowSupport)
+    }
+
+    func testDerivesFallbackQCFromRawCallsWhenSampleSummaryIsMissing() {
+        let calls = [
+            ONTGenotypeCall(
+                sample: "S1",
+                genotype: "12_M1_B_046_01_01",
+                passedAlignments: 1_500,
+                passedUniqueReads: 1_500,
+                sampleTotalReads: 2_000,
+                sampleUniqueRetainedReads: 1_500,
+                sampleUniqueRetainedPercent: 75.0,
+                overallInputReads: nil,
+                overallUniqueRetainedReads: nil,
+                overallUniqueRetainedPercent: nil
+            ),
+            ONTGenotypeCall(
+                sample: "S2",
+                genotype: "12_M2_B_019_03",
+                passedAlignments: 10,
+                passedUniqueReads: 4,
+                sampleTotalReads: 2000,
+                sampleUniqueRetainedReads: 10,
+                sampleUniqueRetainedPercent: 0.5,
+                overallInputReads: nil,
+                overallUniqueRetainedReads: nil,
+                overallUniqueRetainedPercent: nil
+            ),
+        ]
+
+        let subjects = GenotypeCohortSubjectBuilder.buildSubjects(
+            result: makeResultWithoutSampleSummaries(calls: calls),
+            sidecar: GenotypeAnnotationSidecar.empty(generatedAt: "")
+        )
+
+        XCTAssertEqual(subjects.map(\.animalId), ["S1", "S2"])
+        XCTAssertEqual(subjects.map(\.qcStatus), [.ok, .lowSupport])
+        XCTAssertEqual(subjects.map(\.totalReads), [2000, 2000])
     }
 
     func testCarriesImportedMetadataIntoSmartCohortSubjects() {

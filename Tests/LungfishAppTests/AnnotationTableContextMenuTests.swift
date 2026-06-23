@@ -788,6 +788,9 @@ final class AnnotationTableContextMenuTests: XCTestCase {
         }
 
         XCTAssertEqual(drawer.debugGetAnnotationQueryExecutionCount(), initialQueryCount + 1)
+        waitForAnnotationUpdate {
+            drawer.displayedAnnotations.map(\.name) == ["gene-a"]
+        }
         XCTAssertEqual(drawer.displayedAnnotations.map(\.name), ["gene-a"])
     }
 

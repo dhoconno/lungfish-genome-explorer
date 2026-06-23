@@ -112,6 +112,9 @@ public struct GenotypeResultDisplayState: Equatable {
     /// focused on the calls actually being haplotyped. For MCM that means
     /// the canonical 7 loci instead of every locus the demux observed.
     public var showsAncillaryLoci: Bool = false
+    /// Loci selected for the deterministic haplotype Outline and current.xlsx
+    /// export. `nil` means use the result-specific default selection.
+    public var includedLoci: Set<String>? = nil
 
     /// Editable row-visibility filter: samples with fewer than this many
     /// `passedUniqueReads` may be hidden from the result rows. `0` (the
@@ -134,6 +137,7 @@ public struct GenotypeResultDisplayState: Equatable {
         cellColorMode: GenotypeResultCellColorMode = .support,
         hideFilteredHighlights: Bool = true,
         showsAncillaryLoci: Bool = false,
+        includedLoci: Set<String>? = nil,
         minimumReads: Int = 0,
         cohortFlagThreshold: Int = 5_000
     ) {
@@ -146,6 +150,7 @@ public struct GenotypeResultDisplayState: Equatable {
         self.cellColorMode = cellColorMode
         self.hideFilteredHighlights = hideFilteredHighlights
         self.showsAncillaryLoci = showsAncillaryLoci
+        self.includedLoci = includedLoci
         self.minimumReads = minimumReads
         self.cohortFlagThreshold = cohortFlagThreshold
     }

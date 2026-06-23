@@ -43,9 +43,14 @@ public final class AIAssistantService {
     private let providerRequestTimeout: TimeInterval = 150
     private let providerValidationTTL: TimeInterval = 300
     private var providerValidationCache: [String: Date] = [:]
+    private let providerResolverOverride: (@MainActor @Sendable () async throws -> [any AIProvider])?
 
-    public init(toolRegistry: AIToolRegistry) {
+    public init(
+        toolRegistry: AIToolRegistry,
+        providerResolver: (@MainActor @Sendable () async throws -> [any AIProvider])? = nil
+    ) {
         self.toolRegistry = toolRegistry
+        self.providerResolverOverride = providerResolver
     }
 
     // MARK: - Conversation Management
@@ -212,6 +217,14 @@ public final class AIAssistantService {
 
     /// Resolves which AI provider to use based on settings and available API keys.
     private func resolveProviders() async throws -> [any AIProvider] {
+        if let providerResolverOverride {
+            let providers = try await providerResolverOverride()
+            guard !providers.isEmpty else {
+                throw AIProviderError.missingAPIKey
+            }
+            return providers
+        }
+
         let settings = AppSettings.shared
         let keychain = KeychainSecretStorage.shared
 

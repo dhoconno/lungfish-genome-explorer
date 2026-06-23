@@ -2408,6 +2408,8 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
 // MARK: - ONT Fluidigm Sample Materialization
 
 struct FastqONTFluidigmSamplesSubcommand: AsyncParsableCommand {
+    private static let progressEmitLock = NSLock()
+
     static let configuration = CommandConfiguration(
         commandName: "ont-fluidigm-samples",
         abstract: "Materialize counted per-sample ONT Fluidigm amplicon FASTQs",
@@ -2472,7 +2474,9 @@ struct FastqONTFluidigmSamplesSubcommand: AsyncParsableCommand {
             canonicalizeReverseComplements: canonicalizeReverseComplements,
             force: force
         )
-        let result = try await ONTFluidigmAmpliconMaterializer().run(request)
+        let result = try await ONTFluidigmAmpliconMaterializer().run(request) { fraction, message in
+            emitProgress(fraction, message)
+        }
 
         var cliArguments = [
             "ont-fluidigm-samples",
@@ -2576,6 +2580,23 @@ struct FastqONTFluidigmSamplesSubcommand: AsyncParsableCommand {
             format: .unknown,
             role: .output
         )
+    }
+
+    private func emitProgress(_ fraction: Double, _ message: String) {
+        let payload: [String: Any] = [
+            "event": "progress",
+            "operation": "ontFluidigmSamples",
+            "progress": max(0, min(1, fraction)),
+            "message": message,
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) else {
+            return
+        }
+        var line = data
+        line.append(Data("\n".utf8))
+        Self.progressEmitLock.lock()
+        FileHandle.standardError.write(line)
+        Self.progressEmitLock.unlock()
     }
 }
 

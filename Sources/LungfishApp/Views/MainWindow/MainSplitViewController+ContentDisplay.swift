@@ -285,7 +285,7 @@ extension MainSplitViewController {
             controller.onAnnotationSidecarChanged = { [weak self] sidecar in
                 self?.inspectorController.updateGenotypeAnnotationSidecar(sidecar)
             }
-            controller.onCurrentWorkbookUpdateRequested = { [weak self, weak controller] bundleURL, calls in
+            controller.onCurrentWorkbookUpdateRequested = { [weak self, weak controller] bundleURL, calls, includedLoci in
                 guard let self else { return }
                 guard self.canWriteProjectOutputs(workflowName: "Update current.xlsx") else { return }
                 let annotationURL = ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: bundleURL)
@@ -299,6 +299,7 @@ extension MainSplitViewController {
                         try await GenotypeCurrentWorkbookUpdateExecutionService().run(
                             bundleURL: bundleURL,
                             calls: calls,
+                            includedLoci: includedLoci,
                             annotationSidecarURL: annotationURL,
                             routeContext: routeContext
                         )

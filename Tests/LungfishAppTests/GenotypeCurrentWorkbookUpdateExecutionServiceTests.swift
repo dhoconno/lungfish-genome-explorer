@@ -36,7 +36,12 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
             processRunner: runner
         )
 
-        try await service.run(bundleURL: bundleURL, calls: calls, annotationSidecarURL: annotationURL)
+        try await service.run(
+            bundleURL: bundleURL,
+            calls: calls,
+            includedLoci: ["MHC-A", "MHC-DP"],
+            annotationSidecarURL: annotationURL
+        )
 
         let invocation = try XCTUnwrap(runner.invocations.first)
         XCTAssertEqual(invocation.workingDirectory, bundleURL.standardizedFileURL)
@@ -49,6 +54,11 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
             from: Data(contentsOf: callsURL)
         )
         XCTAssertEqual(decoded, calls)
+        XCTAssertEqual(
+            invocation.arguments.filter { $0 == "--included-locus" }.count,
+            2
+        )
+        XCTAssertEqual(try values(after: "--included-locus", in: invocation.arguments), ["MHC-A", "MHC-DP"])
         XCTAssertEqual(try value(after: "--annotations", in: invocation.arguments), annotationURL.standardizedFileURL.path)
 
         let item = try XCTUnwrap(operationCenter.items.first)
@@ -57,8 +67,10 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
         XCTAssertEqual(item.state, .completed)
         XCTAssertEqual(item.targetBundleURL, bundleURL.standardizedFileURL)
         XCTAssertTrue(item.cliCommand?.contains("lungfish-cli fastq update-current-workbook") == true)
+        XCTAssertTrue(item.cliCommand?.contains("--included-locus MHC-A --included-locus MHC-DP") == true)
         XCTAssertTrue(item.outputURLs.contains(bundleURL.appendingPathComponent("artifacts/workbooks/current.xlsx").standardizedFileURL))
         XCTAssertTrue(item.logEntries.contains { $0.message == "Updated current.xlsx" })
+        XCTAssertTrue(item.logEntries.contains { $0.message == "Included loci: MHC-A, MHC-DP" })
     }
 
     func testFailureReportsCLIExitStatusAndStderr() async throws {
@@ -109,6 +121,28 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
             )
         }
         return arguments[arguments.index(after: index)]
+    }
+
+    private func values(after flag: String, in arguments: [String]) throws -> [String] {
+        var values: [String] = []
+        var index = arguments.startIndex
+        while index < arguments.endIndex {
+            if arguments[index] == flag {
+                let valueIndex = arguments.index(after: index)
+                guard arguments.indices.contains(valueIndex) else {
+                    throw NSError(
+                        domain: "GenotypeCurrentWorkbookUpdateExecutionServiceTests",
+                        code: 1,
+                        userInfo: [NSLocalizedDescriptionKey: "Missing value after \(flag)"]
+                    )
+                }
+                values.append(arguments[valueIndex])
+                index = arguments.index(after: valueIndex)
+            } else {
+                index = arguments.index(after: index)
+            }
+        }
+        return values
     }
 }
 
