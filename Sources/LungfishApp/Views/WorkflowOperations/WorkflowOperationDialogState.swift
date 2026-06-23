@@ -1138,9 +1138,11 @@ final class WorkflowOperationDialogState {
                     projectURL: projectURL,
                     threads: threads,
                     minSupport: minSupport,
-                    haplotypeDropoutSampleFraction: nil,
-                    haplotypeDropoutLocusFraction: nil,
-                    haplotypeDropoutLocusFractionOverrides: [:],
+                    haplotypeDropoutSampleFraction: Self.fraction(fromPercent: haplotypeDropoutSamplePercent),
+                    haplotypeDropoutLocusFraction: Self.fraction(fromPercent: haplotypeDropoutLocusPercent),
+                    haplotypeDropoutLocusFractionOverrides: Self.fractionOverrides(
+                        fromPercents: haplotypeDropoutLocusOverridePercents
+                    ),
                     haplotypeAssayID: selectedHaplotypeAssayID,
                     haplotypeSpeciesCode: selectedHaplotypeSpeciesCode,
                     haplotypeDefinitionScope: selectedHaplotypeDefinitionScope,
@@ -1237,6 +1239,13 @@ final class WorkflowOperationDialogState {
     private static func fraction(fromPercent percent: Double) -> Double? {
         guard percent.isFinite, percent > 0 else { return nil }
         return min(percent, 100.0) / 100.0
+    }
+
+    private static func fractionOverrides(fromPercents percents: [String: Double]) -> [String: Double] {
+        percents.reduce(into: [:]) { result, item in
+            guard let fraction = Self.fraction(fromPercent: item.value) else { return }
+            result[item.key] = fraction
+        }
     }
 
     private func makeLocalWorkflowRunRequest(
