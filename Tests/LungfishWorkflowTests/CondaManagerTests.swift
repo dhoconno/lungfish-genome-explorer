@@ -200,7 +200,7 @@ final class CondaManagerTests: XCTestCase {
 
         XCTAssertEqual(lock.packID, "lungfish-tools")
         XCTAssertEqual(lock.displayName, "Third-Party Tools")
-        XCTAssertEqual(lock.version, "0.5.0-alpha26")
+        XCTAssertEqual(lock.version, "0.5.0-alpha27")
         XCTAssertEqual(lock.tools.count, 16)
         XCTAssertEqual(lock.managedData.count, 2)
 
