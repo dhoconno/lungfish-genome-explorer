@@ -689,9 +689,9 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             .split(whereSeparator: \.isNewline)
             .map(String.init)
         XCTAssertEqual(minimap2Invocations.count, 3)
-        XCTAssertTrue(minimap2Invocations.allSatisfy { line in
-            line.components(separatedBy: ".sample-prefixed.fastq").count == 2
-        }, "\(minimap2Invocations)")
+        XCTAssertTrue(minimap2Invocations.allSatisfy { $0.hasSuffix(" -") }, "\(minimap2Invocations)")
+        XCTAssertFalse(minimap2Invocations.contains { $0.contains(".sample-prefixed.fastq") }, "\(minimap2Invocations)")
+        XCTAssertTrue(try samplePrefixedFASTQFiles(in: outputDirectory).isEmpty)
 
         let provenance = try jsonObject(at: request.provenanceURL)
         let steps = try XCTUnwrap(provenance["steps"] as? [[String: Any]])
@@ -752,8 +752,9 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(minimap2Invocations.count, 1)
         XCTAssertTrue(minimap2Invocations.allSatisfy { $0.contains("-x map-ont") }, "\(minimap2Invocations)")
         XCTAssertFalse(minimap2Invocations.contains { $0.contains("-x sr") }, "\(minimap2Invocations)")
-        XCTAssertTrue(minimap2Invocations[0].contains("LF2871.sample-prefixed.fastq"), "\(minimap2Invocations)")
-        XCTAssertTrue(minimap2Invocations[0].contains("LF2872.sample-prefixed.fastq"), "\(minimap2Invocations)")
+        XCTAssertTrue(minimap2Invocations[0].hasSuffix(" -"), "\(minimap2Invocations)")
+        XCTAssertFalse(minimap2Invocations[0].contains(".sample-prefixed.fastq"), "\(minimap2Invocations)")
+        XCTAssertTrue(try samplePrefixedFASTQFiles(in: outputDirectory).isEmpty)
 
         let sampleManifestURL = outputDirectory
             .appendingPathComponent(".amplicon-genotyping", isDirectory: true)
@@ -779,6 +780,8 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(options["resolvedReadType"] as? String, "ont")
         XCTAssertEqual(options["mappingPreset"] as? String, "map-ont")
         XCTAssertEqual(options["requireBothEndSoftclips"] as? Bool, true)
+        let sampleBundlePreparation = try XCTUnwrap(options["sampleBundleInputPreparation"] as? [String: Any])
+        XCTAssertEqual(sampleBundlePreparation["mappingInputTransport"] as? String, "stdin-sample-prefixed-fastq")
         XCTAssertEqual(sampleManifest["requiresBothEndSoftclips"] as? Bool, true)
 
         let canonicalEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: outputDirectory))
@@ -2308,6 +2311,19 @@ print(json.dumps(payload))
         return bundleURL
     }
 
+    private func samplePrefixedFASTQFiles(in root: URL) throws -> [URL] {
+        guard let enumerator = FileManager.default.enumerator(
+            at: root,
+            includingPropertiesForKeys: nil
+        ) else {
+            return []
+        }
+        return enumerator.compactMap { item -> URL? in
+            guard let url = item as? URL else { return nil }
+            return url.lastPathComponent.hasSuffix(".sample-prefixed.fastq") ? url : nil
+        }
+    }
+
     /// A minimal assay-scoped definition set used to populate project `.lungfishmhcref`
     /// bundles. Built-in (compiled-in) definitions were removed, so tests that need a
     /// resolvable definition build one of these and write it into a bundle.
@@ -2420,6 +2436,7 @@ print(json.dumps(payload))
             preset=""
             query_count=0
             seen_reference=0
+            uses_stdin=0
             while [ "$#" -gt 0 ]; do
               case "$1" in
                 -x)
@@ -2432,6 +2449,11 @@ print(json.dumps(payload))
                 -a|--MD)
                   shift
                   ;;
+                -)
+                  query_count=$((query_count + 1))
+                  uses_stdin=1
+                  shift
+                  ;;
                 -*)
                   shift
                   ;;
@@ -2440,6 +2462,9 @@ print(json.dumps(payload))
                     seen_reference=1
                   else
                     query_count=$((query_count + 1))
+                    if [ "$1" = "-" ]; then
+                      uses_stdin=1
+                    fi
                   fi
                   shift
                   ;;
@@ -2448,6 +2473,9 @@ print(json.dumps(payload))
             if [ "$preset" = "sr" ] && [ "$query_count" -gt 1 ]; then
               echo "fake minimap2 refuses multiple short-read query files: $query_count" >&2
               exit 42
+            fi
+            if [ "$uses_stdin" -eq 1 ]; then
+              cat >/dev/null
             fi
             printf '@HD\tVN:1.6\n'
             """#,

@@ -90,47 +90,40 @@ public final class ONTFluidigmSampleMaterializer: Sendable {
             throw ONTFluidigmSampleMaterializerError.noInputFASTQs(request.inputURL)
         }
 
-        var writers: [String: SampleWriter] = [:]
+        var accumulators = Dictionary(uniqueKeysWithValues: barcodeEntries.map { entry in
+            (entry.sampleID, SampleAccumulator(entry: entry))
+        })
         var inputReadCount = 0
         var assignedReadCount = 0
         var unassignedReadCount = 0
         let reader = FASTQReader(validateSequence: false)
 
-        do {
-            for fastqURL in inputFASTQs {
-                for try await record in reader.records(from: fastqURL) {
-                    inputReadCount += 1
-                    guard let entry = matcher.assign(sequence: record.sequence) else {
-                        unassignedReadCount += 1
-                        continue
-                    }
-                    assignedReadCount += 1
-                    let writer: SampleWriter
-                    if let existing = writers[entry.sampleID] {
-                        writer = existing
-                    } else {
-                        writer = try SampleWriter(entry: entry, outputDirectory: request.outputDirectory)
-                        writers[entry.sampleID] = writer
-                    }
-                    try writer.write(record)
+        for fastqURL in inputFASTQs {
+            for try await record in reader.records(from: fastqURL) {
+                let weight = CountedFASTQMaterializer.readCountWeight(
+                    identifier: record.identifier,
+                    description: record.description
+                )
+                inputReadCount += weight
+                guard let entry = matcher.assign(sequence: record.sequence) else {
+                    unassignedReadCount += weight
+                    continue
                 }
+                assignedReadCount += weight
+                accumulators[entry.sampleID]?.record(sequence: record.sequence, count: weight)
             }
-            for writer in writers.values {
-                try writer.close()
-            }
-        } catch {
-            for writer in writers.values {
-                try? writer.close()
-            }
-            throw error
         }
 
-        let sampleOutputs = try writers.values
-            .sorted { $0.entry.sampleID.localizedStandardCompare($1.entry.sampleID) == .orderedAscending }
-            .map { writer in
-                try writer.writeBundleManifest(inputURL: request.inputURL)
-                return writer.output()
+        let sampleOutputs = try barcodeEntries.compactMap { entry -> SampleOutput? in
+            guard let accumulator = accumulators[entry.sampleID],
+                  accumulator.readCount > 0 else {
+                return nil
             }
+            return try Self.writeSampleBundle(
+                accumulator: accumulator,
+                outputDirectory: request.outputDirectory
+            )
+        }
         let manifestURL = request.outputDirectory.appendingPathComponent(Self.manifestFilename)
         let sampleTotals = Dictionary<String, Int>(uniqueKeysWithValues: sampleOutputs.map { output in
             (output.sampleID, output.readCount)
@@ -154,7 +147,8 @@ public final class ONTFluidigmSampleMaterializer: Sendable {
             "inputReadCount": inputReadCount,
             "assignedReadCount": assignedReadCount,
             "unassignedReadCount": unassignedReadCount,
-            "payloadCompression": "gzip",
+            "payloadRepresentation": "deduplicated gzip-compressed sample FASTQ",
+            "duplicateCountEncoding": "size=N",
             "sampleTotals": sampleTotals,
             "samples": sampleItems,
         ]
@@ -325,106 +319,164 @@ public final class ONTFluidigmSampleMaterializer: Sendable {
         }
     }
 
-    private final class SampleWriter {
+    private struct SampleAccumulator {
         let entry: BarcodeEntry
-        let bundleURL: URL
-        let rawFASTQURL: URL
-        private let writer: FASTQWriter
-        private let statisticsCollector = FASTQStatisticsCollector()
+        private(set) var sequenceCounts: [String: Int] = [:]
         private(set) var readCount = 0
         private(set) var baseCount = 0
-        private var isClosed = false
-        private var compressedFASTQURL: URL?
 
-        var fastqURL: URL {
-            compressedFASTQURL ?? rawFASTQURL
-        }
-
-        init(entry: BarcodeEntry, outputDirectory: URL) throws {
+        init(entry: BarcodeEntry) {
             self.entry = entry
-            self.bundleURL = outputDirectory.appendingPathComponent("\(entry.sampleID).lungfishfastq", isDirectory: true)
-            try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
-            self.rawFASTQURL = bundleURL.appendingPathComponent("reads.fastq")
-            self.writer = FASTQWriter(url: rawFASTQURL)
-            try writer.open()
         }
 
-        func write(_ record: FASTQRecord) throws {
-            try writer.write(record)
-            statisticsCollector.process(record)
-            readCount += 1
-            baseCount += record.sequence.count
+        mutating func record(sequence: String, count: Int) {
+            guard count > 0 else { return }
+            let normalized = CountedFASTQMaterializer.normalized(sequence, normalization: .uppercase)
+            sequenceCounts[normalized, default: 0] += count
+            readCount += count
+            baseCount += normalized.count * count
         }
+    }
 
-        func close() throws {
-            guard !isClosed else { return }
-            try writer.close()
-            isClosed = true
-        }
+    private static func writeSampleBundle(
+        accumulator: SampleAccumulator,
+        outputDirectory: URL
+    ) throws -> SampleOutput {
+        let bundleURL = outputDirectory.appendingPathComponent(
+            "\(accumulator.entry.sampleID).lungfishfastq",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
 
-        func writeBundleManifest(inputURL: URL) throws {
-            let payloadURL = try finalizePayload()
-            let checksum = try PayloadChecksum.sha256Hex(fileAt: fastqURL)
-            let operation = FASTQDerivativeOperation(
-                kind: .demultiplex,
-                barcodeID: entry.sampleID,
-                sampleName: entry.sampleID,
-                toolUsed: "lungfish",
-                toolVersion: WorkflowRun.currentAppVersion,
-                toolCommand: "lungfish fastq ont-fluidigm-samples"
-            )
-            let manifest = FASTQDerivedBundleManifest(
-                name: entry.sampleID,
-                parentBundleRelativePath: ".",
-                rootBundleRelativePath: ".",
-                rootFASTQFilename: payloadURL.lastPathComponent,
-                payload: .full(fastqFilename: payloadURL.lastPathComponent),
-                lineage: [operation],
-                operation: operation,
-                cachedStatistics: statisticsCollector.finalize(),
-                pairingMode: nil,
-                sequenceFormat: .fastq,
-                provenance: SampleProvenance(
-                    sampleID: entry.sampleID,
-                    libraryPrep: "Fluidigm Access Array",
-                    notes: "Materialized per-sample ONT reads after exact Fluidigm barcode assignment; payload is gzip-compressed."
-                ),
-                payloadChecksums: PayloadChecksum(checksums: [payloadURL.lastPathComponent: checksum]),
-                materializationState: .materialized(checksum: checksum)
-            )
-            try FASTQBundle.saveDerivedManifest(manifest, in: bundleURL)
-        }
+        let countedResult = try CountedFASTQMaterializer().write(
+            counts: accumulator.sequenceCounts,
+            outputURL: bundleURL.appendingPathComponent("deduplicated-sample-reads.fastq.gz"),
+            compress: true,
+            inputRecordCount: accumulator.sequenceCounts.count,
+            totalReadCount: accumulator.readCount
+        )
+        let fastqURL = countedResult.outputURL
+        let checksum = try PayloadChecksum.sha256Hex(fileAt: fastqURL)
+        let operation = FASTQDerivativeOperation(
+            kind: .demultiplex,
+            barcodeID: accumulator.entry.sampleID,
+            sampleName: accumulator.entry.sampleID,
+            toolUsed: "lungfish",
+            toolVersion: WorkflowRun.currentAppVersion,
+            toolCommand: "lungfish fastq ont-fluidigm-samples"
+        )
+        let manifest = FASTQDerivedBundleManifest(
+            name: accumulator.entry.sampleID,
+            parentBundleRelativePath: ".",
+            rootBundleRelativePath: ".",
+            rootFASTQFilename: fastqURL.lastPathComponent,
+            payload: .full(fastqFilename: fastqURL.lastPathComponent),
+            lineage: [operation],
+            operation: operation,
+            cachedStatistics: countedSampleStatistics(for: accumulator.sequenceCounts),
+            pairingMode: nil,
+            sequenceFormat: .fastq,
+            provenance: SampleProvenance(
+                sampleID: accumulator.entry.sampleID,
+                libraryPrep: "Fluidigm Access Array",
+                notes: "Materialized gzip-compressed per-sample read exemplars after exact Fluidigm barcode assignment; duplicate counts encoded as size=N."
+            ),
+            payloadChecksums: PayloadChecksum(checksums: [fastqURL.lastPathComponent: checksum]),
+            materializationState: .materialized(checksum: checksum)
+        )
+        try FASTQBundle.saveDerivedManifest(manifest, in: bundleURL)
 
-        private func finalizePayload() throws -> URL {
-            try close()
-            if let compressedFASTQURL { return compressedFASTQURL }
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
-            process.arguments = ["-f", "-1", rawFASTQURL.path]
-            try process.run()
-            process.waitUntilExit()
-            guard process.terminationReason == .exit,
-                  process.terminationStatus == 0 else {
-                throw ONTFluidigmSampleMaterializerError.compressionFailed(
-                    rawFASTQURL,
-                    process.terminationStatus
-                )
+        return SampleOutput(
+            sampleID: accumulator.entry.sampleID,
+            barcode: accumulator.entry.barcode,
+            bundleURL: bundleURL.standardizedFileURL,
+            fastqURL: fastqURL.standardizedFileURL,
+            readCount: accumulator.readCount,
+            baseCount: accumulator.baseCount
+        )
+    }
+
+    private static func countedSampleStatistics(for sequenceCounts: [String: Int]) -> FASTQDatasetStatistics {
+        var readCount = 0
+        var baseCount: Int64 = 0
+        var gcCount: Int64 = 0
+        var minReadLength = Int.max
+        var maxReadLength = 0
+        var readLengthHistogram: [Int: Int] = [:]
+
+        for (sequence, count) in sequenceCounts where count > 0 {
+            let length = sequence.count
+            readCount += count
+            baseCount += Int64(length * count)
+            minReadLength = min(minReadLength, length)
+            maxReadLength = max(maxReadLength, length)
+            readLengthHistogram[length, default: 0] += count
+            for byte in sequence.utf8 {
+                let upper = byte & 0xDF
+                if upper == UInt8(ascii: "G") || upper == UInt8(ascii: "C") {
+                    gcCount += Int64(count)
+                }
             }
-            let gzURL = rawFASTQURL.appendingPathExtension("gz")
-            compressedFASTQURL = gzURL
-            return gzURL
         }
 
-        func output() -> SampleOutput {
-            SampleOutput(
-                sampleID: entry.sampleID,
-                barcode: entry.barcode,
-                bundleURL: bundleURL.standardizedFileURL,
-                fastqURL: fastqURL.standardizedFileURL,
-                readCount: readCount,
-                baseCount: baseCount
+        guard readCount > 0 else {
+            return .empty
+        }
+
+        let trackedPositions = min(maxReadLength, 1_000)
+        let perPositionQuality = (0..<trackedPositions).map { position in
+            PositionQualitySummary(
+                position: position,
+                mean: 40,
+                median: 40,
+                lowerQuartile: 40,
+                upperQuartile: 40,
+                percentile10: 40,
+                percentile90: 40
             )
         }
+
+        return FASTQDatasetStatistics(
+            readCount: readCount,
+            baseCount: baseCount,
+            meanReadLength: Double(baseCount) / Double(readCount),
+            minReadLength: minReadLength == Int.max ? 0 : minReadLength,
+            maxReadLength: maxReadLength,
+            medianReadLength: medianReadLength(from: readLengthHistogram, readCount: readCount),
+            n50ReadLength: n50ReadLength(from: readLengthHistogram, baseCount: baseCount),
+            meanQuality: 40,
+            q20Percentage: 100,
+            q30Percentage: 100,
+            gcContent: baseCount > 0 ? Double(gcCount) / Double(baseCount) : 0,
+            readLengthHistogram: readLengthHistogram,
+            qualityScoreHistogram: [40: Int(clamping: baseCount)],
+            perPositionQuality: perPositionQuality
+        )
+    }
+
+    private static func medianReadLength(from histogram: [Int: Int], readCount: Int) -> Int {
+        let target = (readCount + 1) / 2
+        var cumulative = 0
+        for length in histogram.keys.sorted() {
+            cumulative += histogram[length] ?? 0
+            if cumulative >= target {
+                return length
+            }
+        }
+        return 0
+    }
+
+    private static func n50ReadLength(from histogram: [Int: Int], baseCount: Int64) -> Int {
+        guard baseCount > 0 else { return 0 }
+        let target = baseCount / 2
+        var cumulative: Int64 = 0
+        for length in histogram.keys.sorted(by: >) {
+            cumulative += Int64(length) * Int64(histogram[length] ?? 0)
+            if cumulative >= target {
+                return length
+            }
+        }
+        return 0
     }
 
     private struct SampleOutput: Sendable {

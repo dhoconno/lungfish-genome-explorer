@@ -52,9 +52,10 @@ final class ONTFluidigmSampleMaterializerTests: XCTestCase {
 
         let lf2871Bundle = outputDirectory.appendingPathComponent("LF2871.lungfishfastq", isDirectory: true)
         let lf2871FASTQ = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: lf2871Bundle))
-        XCTAssertEqual(lf2871FASTQ.lastPathComponent, "reads.fastq.gz")
+        XCTAssertEqual(lf2871FASTQ.lastPathComponent, "deduplicated-sample-reads.fastq.gz")
         let lf2871Records = try await FASTQReader(validateSequence: false).readAll(from: lf2871FASTQ)
-        XCTAssertEqual(lf2871Records.map(\.identifier), ["read-1", "read-2"])
+        XCTAssertEqual(lf2871Records.map(\.identifier), ["u000001;size=2"])
+        XCTAssertEqual(lf2871Records.map(\.sequence), [lf2871Read])
         XCTAssertTrue(lf2871Records.allSatisfy { $0.sequence.contains(lf2871Barcode) })
         XCTAssertTrue(lf2871Records.allSatisfy { $0.sequence.contains(cs1) })
         XCTAssertTrue(lf2871Records.allSatisfy { $0.sequence.contains(cs2rc) })
@@ -68,9 +69,10 @@ final class ONTFluidigmSampleMaterializerTests: XCTestCase {
 
         let lf2872Bundle = outputDirectory.appendingPathComponent("LF2872.lungfishfastq", isDirectory: true)
         let lf2872FASTQ = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: lf2872Bundle))
-        XCTAssertEqual(lf2872FASTQ.lastPathComponent, "reads.fastq.gz")
+        XCTAssertEqual(lf2872FASTQ.lastPathComponent, "deduplicated-sample-reads.fastq.gz")
         let lf2872Records = try await FASTQReader(validateSequence: false).readAll(from: lf2872FASTQ)
-        XCTAssertEqual(lf2872Records.map(\.identifier), ["read-3"])
+        XCTAssertEqual(lf2872Records.map(\.identifier), ["u000001;size=1"])
+        XCTAssertEqual(lf2872Records.map(\.sequence), [lf2872Read])
         let lf2872DerivedManifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: lf2872Bundle))
         XCTAssertEqual(lf2872DerivedManifest.cachedStatistics.readLengthHistogram, [lf2872Read.count: 1])
         XCTAssertEqual(lf2872DerivedManifest.cachedStatistics.minReadLength, lf2872Read.count)
@@ -86,6 +88,12 @@ final class ONTFluidigmSampleMaterializerTests: XCTestCase {
         let sampleTotals = try XCTUnwrap(manifest["sampleTotals"] as? [String: Int])
         XCTAssertEqual(sampleTotals["LF2871"], 2)
         XCTAssertEqual(sampleTotals["LF2872"], 1)
+        XCTAssertEqual(manifest["payloadRepresentation"] as? String, "deduplicated gzip-compressed sample FASTQ")
+        XCTAssertEqual(manifest["duplicateCountEncoding"] as? String, "size=N")
+        XCTAssertEqual(sampleFASTQFiles(in: outputDirectory).map(\.lastPathComponent).sorted(), [
+            "deduplicated-sample-reads.fastq.gz",
+            "deduplicated-sample-reads.fastq.gz",
+        ])
     }
 
     func testBarcodeAssignmentDoesNotCreateMatchesAcrossInvalidBases() async throws {
@@ -124,9 +132,69 @@ final class ONTFluidigmSampleMaterializerTests: XCTestCase {
         XCTAssertTrue(result.outputBundleURLs.isEmpty)
     }
 
+    func testDeduplicatedInputSizeHeaderDrivesSampleReadCountsWithoutExpansion() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let inputFASTQ = root.appendingPathComponent("barcode11.fastq")
+        let barcodesCSV = root.appendingPathComponent("ONT09_NB11_samples.csv")
+        let outputDirectory = root.appendingPathComponent("ont-fluidigm-samples", isDirectory: true)
+
+        let barcode = "AAAACCCCGG"
+        let sequence = "TTTTCCCCAAAAGGGG\(barcode)"
+        try """
+        @unique-1;size=7
+        \(sequence)
+        +
+        \(String(repeating: "I", count: sequence.count))
+        """.write(to: inputFASTQ, atomically: true, encoding: .utf8)
+        try """
+        sample,barcode
+        LF2871,\(barcode)
+        """.write(to: barcodesCSV, atomically: true, encoding: .utf8)
+
+        let result = try await ONTFluidigmSampleMaterializer().run(
+            ONTFluidigmSampleMaterializationRequest(
+                inputURL: inputFASTQ,
+                barcodeDefinitionsURL: barcodesCSV,
+                outputDirectory: outputDirectory,
+                force: true
+            )
+        )
+
+        XCTAssertEqual(result.inputReadCount, 7)
+        XCTAssertEqual(result.assignedReadCount, 7)
+        XCTAssertEqual(result.unassignedReadCount, 0)
+
+        let bundle = try XCTUnwrap(result.outputBundleURLs.first)
+        let fastqURL = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundle))
+        let records = try await FASTQReader(validateSequence: false).readAll(from: fastqURL)
+        XCTAssertEqual(records.map(\.identifier), ["u000001;size=7"])
+        XCTAssertEqual(records.map(\.sequence), [sequence])
+
+        let manifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: bundle))
+        XCTAssertEqual(manifest.cachedStatistics.readCount, 7)
+        XCTAssertEqual(manifest.cachedStatistics.baseCount, Int64(sequence.count * 7))
+    }
+
     private func jsonObject(at url: URL) throws -> [String: Any] {
         let data = try Data(contentsOf: url)
         return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    private func sampleFASTQFiles(in root: URL) -> [URL] {
+        guard let enumerator = FileManager.default.enumerator(
+            at: root,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+        return enumerator.compactMap { item -> URL? in
+            guard let url = item as? URL else { return nil }
+            let name = url.lastPathComponent
+            return name.hasSuffix(".fastq") || name.hasSuffix(".fastq.gz") ? url : nil
+        }
     }
 
     private func temporaryDirectory() throws -> URL {

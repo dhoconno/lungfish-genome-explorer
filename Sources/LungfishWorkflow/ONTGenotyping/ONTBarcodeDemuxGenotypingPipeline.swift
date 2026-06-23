@@ -646,11 +646,12 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         }
 
         progressHandler?(0.25, "Mapping amplicon reads with minimap2.")
-        let mapping = try runMapping(
+        let mapping = try await runMapping(
             request: request,
             resolvedMode: resolvedMode,
             referenceFASTAURL: reference.referenceFASTAURL,
             inputFASTQURLs: mappingInputFASTQURLs,
+            illuminaPreparation: inputPlan.illuminaPreparation,
             minimap2URL: minimap2URL,
             samtoolsURL: samtoolsURL
         )
@@ -863,6 +864,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let mode: AmpliconGenotypingMode
         let sampleManifestURL: URL
         let sampleDefinitionsURL: URL
+        let samples: [IlluminaSampleInput]
         let sourceFASTQURLs: [URL]
         let mappingFASTQURLs: [URL]
         let requiresBothEndSoftclips: Bool
@@ -1110,7 +1112,6 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             isDirectory: true
         )
         try FileManager.default.createDirectory(at: inputsDirectory, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: stagedDirectory, withIntermediateDirectories: true)
 
         let samples = try await Self.resolveIlluminaSampleInputs(
             from: request.inputFASTQURLs,
@@ -1136,7 +1137,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 "sample": sample.sampleID,
                 "inputBundle": sample.sourceURL.path,
                 "fastq": sample.fastqURL.path,
-                "mappingFASTQ": sample.prefixedFASTQURL.path,
+                "mappingInput": "stdin-sample-prefixed-fastq",
+                "mappingInputLabel": sample.prefixedFASTQURL.lastPathComponent,
                 "readCount": sample.readCount,
                 "readCountSource": sample.readCountSource,
                 "retainsFullReadContext": isONTSampleBundles
@@ -1157,8 +1159,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             mode: mode,
             sampleManifestURL: sampleManifestURL,
             sampleDefinitionsURL: sampleDefinitionsURL,
+            samples: samples,
             sourceFASTQURLs: samples.map(\.fastqURL),
-            mappingFASTQURLs: samples.map(\.prefixedFASTQURL),
+            mappingFASTQURLs: samples.map(\.fastqURL),
             requiresBothEndSoftclips: requiresBothEndSoftclips
         )
     }
@@ -1219,11 +1222,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 let prefixedFASTQURL = stagingDirectory
                     .appendingPathComponent("\(stem).sample-prefixed.fastq")
                 // Reads stay tagged by the unique `sampleID`; only the filename derives from `stem`.
-                let readCount = try await writeSamplePrefixedFASTQ(
-                    sourceURL: fastqURL,
-                    destinationURL: prefixedFASTQURL,
-                    sampleID: sampleID
-                )
+                let readCount = try await countWeightedFASTQRecords(in: fastqURL)
                 let effectiveReadCount = Self.importedSampleReadCount(
                     sourceURL: sourceURL,
                     fastqURL: fastqURL
@@ -1371,40 +1370,77 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         try await resolveIlluminaSampleInputs(from: urls, stagingDirectory: stagingDirectory)
     }
 
-    private static func writeSamplePrefixedFASTQ(
-        sourceURL: URL,
-        destinationURL: URL,
-        sampleID: String
-    ) async throws -> Int {
+    private static func countWeightedFASTQRecords(in sourceURL: URL) async throws -> Int {
         let reader = FASTQReader(validateSequence: false)
-        let writer = FASTQWriter(url: destinationURL)
-        try writer.open()
-        defer { try? writer.close() }
-
         var count = 0
         for try await record in reader.records(from: sourceURL) {
-            let prefixed = FASTQRecord(
-                identifier: "\(sampleID)|\(record.identifier)",
-                description: record.description,
-                sequence: record.sequence,
-                quality: record.quality
-            )
-            try writer.write(prefixed)
             count += Self.readCountWeight(fromIdentifier: record.identifier, description: record.description)
         }
         return count
     }
 
+    private static func writeSamplePrefixedFASTQStream(
+        samples: [IlluminaSampleInput],
+        to handle: FileHandle
+    ) async throws -> Int {
+        let reader = FASTQReader(validateSequence: false)
+        var buffer = Data()
+        let flushThreshold = 262_144
+        var count = 0
+
+        func flushIfNeeded(force: Bool = false) throws {
+            guard !buffer.isEmpty, force || buffer.count >= flushThreshold else { return }
+            try handle.write(contentsOf: buffer)
+            buffer.removeAll(keepingCapacity: true)
+        }
+
+        for sample in samples {
+            for try await record in reader.records(from: sample.fastqURL) {
+                let identifier = samplePrefixedIdentifier(for: record, sampleID: sample.sampleID)
+                var text = "@\(identifier)"
+                if let description = record.description {
+                    text += " \(description)"
+                }
+                text += "\n\(record.sequence)\n+\n\(record.quality.toAscii())\n"
+                buffer.append(Data(text.utf8))
+                count += Self.readCountWeight(fromIdentifier: record.identifier, description: record.description)
+                try flushIfNeeded()
+            }
+        }
+        try flushIfNeeded(force: true)
+        return count
+    }
+
+    private static func samplePrefixedIdentifier(for record: FASTQRecord, sampleID: String) -> String {
+        var identifier = "\(sampleID)|\(record.identifier)"
+        if readCountWeight(fromIdentifier: record.identifier, description: nil) == 1,
+           let sizeToken = readCountWeightToken(in: record.description),
+           !identifier.contains(sizeToken) {
+            identifier += ";\(sizeToken)"
+        }
+        return identifier
+    }
+
+    private static func readCountWeightToken(in text: String?) -> String? {
+        guard let text else { return nil }
+        for token in text.split(whereSeparator: { $0 == ";" || $0 == " " || $0 == "\t" || $0 == "|" }) {
+            guard token.hasPrefix("size="),
+                  let value = Int(token.dropFirst("size=".count)),
+                  value > 0 else {
+                continue
+            }
+            return "size=\(value)"
+        }
+        return nil
+    }
+
     private static func readCountWeight(fromIdentifier identifier: String, description: String?) -> Int {
         for text in [identifier, description].compactMap({ $0 }) {
-            for token in text.split(whereSeparator: { $0 == ";" || $0 == " " || $0 == "\t" || $0 == "|" }) {
-                guard token.hasPrefix("size="),
-                      let value = Int(token.dropFirst("size=".count)),
-                      value > 0 else {
-                    continue
-                }
-                return value
+            guard let token = readCountWeightToken(in: text),
+                  let value = Int(token.dropFirst("size=".count)) else {
+                continue
             }
+            return value
         }
         return 1
     }
@@ -1499,8 +1535,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let reader = FASTQReader(validateSequence: false)
         var count = 0
         for url in urls {
-            for try await _ in reader.records(from: url) {
-                count += 1
+            for try await record in reader.records(from: url) {
+                count += Self.readCountWeight(fromIdentifier: record.identifier, description: record.description)
             }
         }
         return count
@@ -1654,22 +1690,23 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         resolvedMode: AmpliconGenotypingMode,
         referenceFASTAURL: URL,
         inputFASTQURLs: [URL],
+        illuminaPreparation: IlluminaPreparation?,
         minimap2URL: URL,
         samtoolsURL: URL
-    ) throws -> MappingStepResult {
-        if resolvedMode == .illuminaPaired, inputFASTQURLs.count > 1 {
-            return try runSampleBundleCohortMapping(
+    ) async throws -> MappingStepResult {
+        if let illuminaPreparation {
+            return try await runSampleBundleMapping(
                 request: request,
                 resolvedMode: resolvedMode,
                 referenceFASTAURL: referenceFASTAURL,
-                inputFASTQURLs: inputFASTQURLs,
+                preparation: illuminaPreparation,
                 minimap2URL: minimap2URL,
                 samtoolsURL: samtoolsURL
             )
         }
 
         let startedAt = Date()
-        let invocation = try runMappingInvocation(
+        let invocation = try await runMappingInvocation(
             request: request,
             resolvedMode: resolvedMode,
             referenceFASTAURL: referenceFASTAURL,
@@ -1703,45 +1740,75 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         )
     }
 
-    private func runSampleBundleCohortMapping(
+    private func runSampleBundleMapping(
         request: ONTBarcodeDemuxGenotypingRunRequest,
         resolvedMode: AmpliconGenotypingMode,
         referenceFASTAURL: URL,
-        inputFASTQURLs: [URL],
+        preparation: IlluminaPreparation,
         minimap2URL: URL,
         samtoolsURL: URL
-    ) throws -> MappingStepResult {
+    ) async throws -> MappingStepResult {
         let startedAt = Date()
-        let mappingDirectory = request.outputDirectory
-            .appendingPathComponent(".amplicon-genotyping", isDirectory: true)
-            .appendingPathComponent("mapping", isDirectory: true)
-        try FileManager.default.createDirectory(at: mappingDirectory, withIntermediateDirectories: true)
-
         var invocations: [MappingInvocationResult] = []
-        for (index, fastqURL) in inputFASTQURLs.enumerated() {
-            let stem = "\(String(format: "%03d", index + 1))-\(Self.safeFilenameStem(fastqURL.deletingPathExtension().lastPathComponent))"
-            let sampleBAMURL = mappingDirectory.appendingPathComponent("\(stem).sorted.bam")
-            let invocation = try runMappingInvocation(
+
+        if resolvedMode == .illuminaPaired, preparation.samples.count > 1 {
+            let mappingDirectory = request.outputDirectory
+                .appendingPathComponent(".amplicon-genotyping", isDirectory: true)
+                .appendingPathComponent("mapping", isDirectory: true)
+            try FileManager.default.createDirectory(at: mappingDirectory, withIntermediateDirectories: true)
+
+            for (index, sample) in preparation.samples.enumerated() {
+                let stem = "\(String(format: "%03d", index + 1))-\(Self.safeFilenameStem(sample.sampleID))"
+                let sampleBAMURL = mappingDirectory.appendingPathComponent("\(stem).sorted.bam")
+                let invocation = try await runMappingInvocation(
+                    request: request,
+                    resolvedMode: resolvedMode,
+                    referenceFASTAURL: referenceFASTAURL,
+                    inputFASTQURLs: [sample.fastqURL],
+                    streamedSampleInputs: [sample],
+                    outputBAMURL: sampleBAMURL,
+                    minimap2URL: minimap2URL,
+                    samtoolsURL: samtoolsURL,
+                    stderrStem: "\(request.outputName).\(stem)",
+                    readGroupID: "\(request.outputName)-\(index + 1)"
+                )
+                invocations.append(invocation)
+            }
+        } else {
+            let invocation = try await runMappingInvocation(
                 request: request,
                 resolvedMode: resolvedMode,
                 referenceFASTAURL: referenceFASTAURL,
-                inputFASTQURLs: [fastqURL],
-                outputBAMURL: sampleBAMURL,
+                inputFASTQURLs: preparation.sourceFASTQURLs,
+                streamedSampleInputs: preparation.samples,
+                outputBAMURL: request.mappingBAMURL,
                 minimap2URL: minimap2URL,
                 samtoolsURL: samtoolsURL,
-                stderrStem: "\(request.outputName).\(stem)",
-                readGroupID: "\(request.outputName)-\(index + 1)"
+                stderrStem: request.outputName,
+                readGroupID: request.outputName
             )
             invocations.append(invocation)
         }
 
-        let mergeStderrURL = request.outputDirectory.appendingPathComponent("\(request.outputName).samtools-merge.stderr.log")
-        let mergeArguments = ["merge", "-f", request.mappingBAMURL.path] + invocations.map(\.outputBAMURL.path)
-        let mergeStderr = try runSamtoolsMerge(
-            samtoolsURL: samtoolsURL,
-            arguments: mergeArguments,
-            stderrURL: mergeStderrURL
-        )
+        let mergeArguments: [String]?
+        let mergeStderr: String
+        let transientBAMURLs: [URL]
+        if resolvedMode == .illuminaPaired, preparation.samples.count > 1 {
+            let mergeStderrURL = request.outputDirectory.appendingPathComponent("\(request.outputName).samtools-merge.stderr.log")
+            let arguments = ["merge", "-f", request.mappingBAMURL.path] + invocations.map(\.outputBAMURL.path)
+            mergeStderr = try runSamtoolsMerge(
+                samtoolsURL: samtoolsURL,
+                arguments: arguments,
+                stderrURL: mergeStderrURL
+            )
+            mergeArguments = arguments
+            transientBAMURLs = invocations.map(\.outputBAMURL)
+        } else {
+            mergeArguments = nil
+            mergeStderr = ""
+            transientBAMURLs = []
+        }
+
         let indexStderrURL = request.outputDirectory.appendingPathComponent("\(request.outputName).samtools-index.stderr.log")
         let indexArguments = ["index", request.mappingBAMURL.path]
         let indexStderr = try runSamtoolsIndex(
@@ -1761,7 +1828,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             samtoolsIndexStderr: indexStderr,
             wallClockSeconds: Date().timeIntervalSince(startedAt),
             invocations: invocations,
-            transientBAMURLs: invocations.map(\.outputBAMURL)
+            transientBAMURLs: transientBAMURLs
         )
     }
 
@@ -1770,24 +1837,26 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         resolvedMode: AmpliconGenotypingMode,
         referenceFASTAURL: URL,
         inputFASTQURLs: [URL],
+        streamedSampleInputs: [IlluminaSampleInput]? = nil,
         outputBAMURL: URL,
         minimap2URL: URL,
         samtoolsURL: URL,
         stderrStem: String,
         readGroupID: String
-    ) throws -> MappingInvocationResult {
+    ) async throws -> MappingInvocationResult {
         let minimap2StderrURL = request.outputDirectory.appendingPathComponent("\(stderrStem).minimap2.stderr.log")
         let sortStderrURL = request.outputDirectory.appendingPathComponent("\(stderrStem).samtools-sort.stderr.log")
         let mappingPreset = Self.mappingPreset(for: resolvedMode)
         let platform = Self.mappingPlatform(for: resolvedMode)
         let readGroup = "@RG\\tID:\(readGroupID)\\tSM:\(readGroupID)\\tLB:\(request.outputName)\\tPL:\(platform)\\tPU:\(readGroupID)"
+        let queryArguments = streamedSampleInputs == nil ? inputFASTQURLs.map(\.path) : ["-"]
         let minimap2Arguments = [
             "-a",
             "-x", mappingPreset,
             "--MD",
             "-t", String(request.threads),
             "-R", readGroup,
-        ] + request.extraArguments + [referenceFASTAURL.path] + inputFASTQURLs.map(\.path)
+        ] + request.extraArguments + [referenceFASTAURL.path] + queryArguments
         let sortArguments = [
             "sort",
             "-@", String(request.sortThreads),
@@ -1797,24 +1866,53 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let startedAt = Date()
 
         try FileManager.default.createDirectory(at: outputBAMURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let pipe = Pipe()
+        let stdoutPipe = Pipe()
+        let stdinPipe = streamedSampleInputs == nil ? nil : Pipe()
         let minimap2 = Process()
         minimap2.executableURL = minimap2URL
         minimap2.arguments = minimap2Arguments
-        minimap2.standardOutput = pipe
+        minimap2.standardOutput = stdoutPipe
+        if let stdinPipe {
+            minimap2.standardInput = stdinPipe
+        }
         minimap2.standardError = try fileHandleForWriting(to: minimap2StderrURL)
 
         let sort = Process()
         sort.executableURL = samtoolsURL
         sort.arguments = sortArguments
-        sort.standardInput = pipe
+        sort.standardInput = stdoutPipe
         sort.standardError = try fileHandleForWriting(to: sortStderrURL)
 
         try sort.run()
-        try minimap2.run()
+        do {
+            try minimap2.run()
+        } catch {
+            stdoutPipe.fileHandleForWriting.closeFile()
+            sort.terminate()
+            sort.waitUntilExit()
+            throw error
+        }
+        stdoutPipe.fileHandleForWriting.closeFile()
+        if let streamedSampleInputs, let stdinPipe {
+            do {
+                _ = try await Self.writeSamplePrefixedFASTQStream(
+                    samples: streamedSampleInputs,
+                    to: stdinPipe.fileHandleForWriting
+                )
+                try stdinPipe.fileHandleForWriting.close()
+            } catch {
+                try? stdinPipe.fileHandleForWriting.close()
+                minimap2.terminate()
+                sort.terminate()
+                minimap2.waitUntilExit()
+                sort.waitUntilExit()
+                try? (minimap2.standardError as? FileHandle)?.close()
+                try? (sort.standardError as? FileHandle)?.close()
+                throw error
+            }
+        }
         minimap2.waitUntilExit()
         try? (minimap2.standardError as? FileHandle)?.close()
-        pipe.fileHandleForWriting.closeFile()
         sort.waitUntilExit()
         try? (sort.standardError as? FileHandle)?.close()
 
@@ -2506,6 +2604,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 "mode": preparation.mode.rawValue,
                 "sourceFASTQs": preparation.sourceFASTQURLs.map(\.path),
                 "mappingFASTQs": preparation.mappingFASTQURLs.map(\.path),
+                "mappingInputTransport": "stdin-sample-prefixed-fastq",
                 "sampleDefinitions": preparation.sampleDefinitionsURL.path,
                 "sampleManifest": preparation.sampleManifestURL.path,
                 "requiresBothEndSoftclips": preparation.requiresBothEndSoftclips,
