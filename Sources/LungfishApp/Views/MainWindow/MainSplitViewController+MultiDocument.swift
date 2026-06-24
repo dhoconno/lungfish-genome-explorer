@@ -433,7 +433,35 @@ extension MainSplitViewController {
 
         mainSplitLogger.info("handleSidebarFileDropped: Processing \(allURLs.count) dropped file(s)")
 
-        let importPlan = makeSidebarImportPlan(for: allURLs)
+        // Get project URL from either the sidebar (new model) or DocumentManager (legacy)
+        let projectURL = sidebarController.currentProjectURL ?? DocumentManager.shared.activeProject?.url
+
+        let zipImportBatch: LGEZipImportBatch
+        do {
+            zipImportBatch = try LGEZipImportResolver().resolve(urls: allURLs, projectURL: projectURL)
+        } catch {
+            let errorMessage = error.localizedDescription
+            for url in allURLs {
+                postSidebarFileDropCompleted(
+                    requestID: requestID,
+                    sourceURL: url,
+                    success: false,
+                    error: errorMessage
+                )
+            }
+            return
+        }
+
+        for failure in zipImportBatch.failures {
+            postSidebarFileDropCompleted(
+                requestID: requestID,
+                sourceURL: failure.sourceURL,
+                success: false,
+                error: failure.message
+            )
+        }
+
+        let importPlan = makeSidebarImportPlan(for: zipImportBatch.sourceURLs)
         let sourceURLs = importPlan.sourceURLs
 
         mainSplitLogger.info(
@@ -442,14 +470,12 @@ extension MainSplitViewController {
 
         guard !sourceURLs.isEmpty else {
             mainSplitLogger.warning("handleSidebarFileDropped: No importable sources found after expansion")
+            zipImportBatch.cleanup()
             return
         }
 
         // Determine destination - use the new filesystem-backed project URL
         let destinationItem = notification.userInfo?["destination"] as? SidebarItem
-
-        // Get project URL from either the sidebar (new model) or DocumentManager (legacy)
-        let projectURL = sidebarController.currentProjectURL ?? DocumentManager.shared.activeProject?.url
 
         // Determine the target directory based on the destination item
         let targetDir: URL = {
@@ -484,7 +510,8 @@ extension MainSplitViewController {
 
         // Non-FASTQ files: copy to project as before
         if !otherURLs.isEmpty {
-            Task { @MainActor [weak self] in
+            Task { @MainActor [weak self, zipImportBatch] in
+                defer { zipImportBatch.cleanup() }
                 guard let self else { return }
                 for url in otherURLs {
                     await self.importNonFASTQFile(
@@ -497,6 +524,8 @@ extension MainSplitViewController {
                     )
                 }
             }
+        } else {
+            zipImportBatch.cleanup()
         }
     }
 }
