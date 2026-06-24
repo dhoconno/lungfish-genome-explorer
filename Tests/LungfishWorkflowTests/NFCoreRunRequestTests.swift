@@ -29,6 +29,7 @@ final class NFCoreRunRequestTests: XCTestCase {
         let manifest = request.manifest(createdAt: Date(timeIntervalSince1970: 0))
         XCTAssertEqual(manifest.workflowName, "viralrecon")
         XCTAssertEqual(manifest.workflowPinnedVersion, workflow.pinnedVersion)
+        XCTAssertEqual(manifest.workflowGithubReleaseVersion, "3.0.1")
         XCTAssertEqual(manifest.params["input"], "/tmp/samples ids.csv")
         XCTAssertEqual(manifest.params["outdir"], "/tmp/results")
         XCTAssertEqual(manifest.params["platform"], "illumina")

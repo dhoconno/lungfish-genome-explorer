@@ -160,8 +160,8 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertEqual(bracken.sourceURL, "https://github.com/jenniferlu717/Bracken")
 
         let esviritu = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "esviritu" }))
-        XCTAssertEqual(esviritu.installPackages, ["bioconda::esviritu=1.2.0"])
-        XCTAssertEqual(esviritu.version, "1.2.0")
+        XCTAssertEqual(esviritu.installPackages, ["bioconda::esviritu=1.3.1"])
+        XCTAssertEqual(esviritu.version, "1.3.1")
         XCTAssertEqual(esviritu.license, "MIT")
         XCTAssertEqual(esviritu.sourceURL, "https://github.com/cmmr/EsViritu")
 

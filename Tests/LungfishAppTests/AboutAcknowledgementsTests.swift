@@ -61,7 +61,7 @@ final class AboutAcknowledgementsTests: XCTestCase {
         XCTAssertEqual(kraken2.sourceURL, "https://github.com/DerrickWood/kraken2")
 
         let esviritu = try XCTUnwrap(metagenomics.entries.first(where: { $0.id == "esviritu" }))
-        XCTAssertEqual(esviritu.detail, "1.2.0")
+        XCTAssertEqual(esviritu.detail, "1.3.1")
         XCTAssertEqual(esviritu.secondaryDetail, "MIT")
         XCTAssertEqual(esviritu.sourceURL, "https://github.com/cmmr/EsViritu")
     }

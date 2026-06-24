@@ -54,6 +54,35 @@ struct ProvenanceRecordingTests {
         #expect(run?.steps[0].outputs.count == 1)
     }
 
+    @Test("Record a GitHub release label in a run step")
+    func testRecordStepGithubReleaseVersion() async {
+        let recorder = ProvenanceRecorder()
+        let runID = await recorder.beginRun(
+            name: "GitHub Workflow",
+            parameters: ["github_release_version": .string("v3.3.6")]
+        )
+
+        await recorder.recordStep(
+            runID: runID,
+            toolName: "TaxTriage",
+            toolVersion: "8fd1fb5bb236e4978f5734e522e6b89e0640a2a9",
+            githubReleaseVersion: "v3.3.6",
+            command: ["nextflow", "run", "jhuapl-bio/taxtriage", "-r", "v3.3.6"],
+            inputs: [],
+            outputs: [],
+            exitCode: 0,
+            wallTime: 1.0
+        )
+        await recorder.completeRun(runID, status: .completed)
+
+        let run = await recorder.getRun(runID)
+        #expect(run?.steps.first?.githubReleaseVersion == "v3.3.6")
+
+        let envelope = run?.canonicalEnvelope()
+        #expect(envelope?.githubReleaseVersion == "v3.3.6")
+        #expect(envelope?.steps.first?.githubReleaseVersion == "v3.3.6")
+    }
+
     @Test("Record a step with peak memory")
     func testRecordStepPeakMemory() async {
         let recorder = ProvenanceRecorder()

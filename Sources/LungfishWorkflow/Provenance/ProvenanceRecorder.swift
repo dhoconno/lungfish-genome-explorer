@@ -91,6 +91,7 @@ public actor ProvenanceRecorder {
     ///   - runID: The run this step belongs to (from `beginRun`)
     ///   - toolName: Name of the tool (e.g., "samtools")
     ///   - toolVersion: Version string
+    ///   - githubReleaseVersion: Human-friendly GitHub release tag, when known
     ///   - containerImage: OCI image reference, if containerized
     ///   - containerDigest: SHA256 digest of the image
     ///   - command: Full argv as executed
@@ -107,6 +108,7 @@ public actor ProvenanceRecorder {
         runID: UUID,
         toolName: String,
         toolVersion: String,
+        githubReleaseVersion: String? = nil,
         containerImage: String? = nil,
         containerDigest: String? = nil,
         command: [String],
@@ -128,6 +130,7 @@ public actor ProvenanceRecorder {
         let step = StepExecution(
             toolName: toolName,
             toolVersion: toolVersion,
+            githubReleaseVersion: githubReleaseVersion,
             containerImage: containerImage,
             containerDigest: containerDigest,
             command: command,

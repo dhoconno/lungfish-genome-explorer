@@ -922,6 +922,8 @@ final class WorkflowCommandRegressionTests: XCTestCase {
         let provenance = try decoder.decode(WorkflowRun.self, from: Data(contentsOf: provenanceURL))
         XCTAssertEqual(provenance.status, .completed)
         XCTAssertEqual(provenance.steps.first?.toolName, "lungfish-cli workflow run")
+        XCTAssertEqual(provenance.steps.first?.githubReleaseVersion, "3.0.0")
+        XCTAssertEqual(provenance.parameters["github_release_version"], .string("3.0.0"))
         XCTAssertEqual(provenance.steps.first?.exitCode, 0)
         XCTAssertTrue(provenance.steps.first?.command.contains("--prepare-only") == true)
         XCTAssertTrue(provenance.steps.first?.inputs.contains { input in

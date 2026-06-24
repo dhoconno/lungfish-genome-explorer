@@ -964,6 +964,87 @@ final class TaxTriagePipelineTests: XCTestCase {
         XCTAssertFalse(args.contains("-r"))
     }
 
+    func testBuildLaunchMetadataUsesDurableWorkflowSnapshotAndReleaseLabel() throws {
+        let pipeline = TaxTriagePipeline()
+        let outputDirectory = try makeTempDirectory(prefix: "taxtriage-launch-metadata")
+        defer { try? FileManager.default.removeItem(at: outputDirectory) }
+
+        let sample = TaxTriageSample(
+            sampleId: "Test",
+            fastq1: URL(fileURLWithPath: "/data/reads.fq.gz"),
+            platform: .illumina
+        )
+        let config = TaxTriageConfig(
+            samples: [sample],
+            outputDirectory: outputDirectory,
+            revision: "8fd1fb5bb236e4978f5734e522e6b89e0640a2a9"
+        )
+        let snapshotURL = outputDirectory
+            .appendingPathComponent("workflow-source", isDirectory: true)
+            .appendingPathComponent("taxtriage", isDirectory: true)
+        let runtimeConfigURL = outputDirectory.appendingPathComponent("lungfish.nextflow.config")
+
+        let args = pipeline.buildNextflowLaunchArguments(
+            config: config,
+            runtimeConfigURL: runtimeConfigURL,
+            pipelineLaunchTarget: snapshotURL.path,
+            pipelineRevision: nil
+        )
+        let metadata = pipeline.buildLaunchMetadata(
+            requestedConfig: config,
+            effectiveConfig: config,
+            nextflowArguments: args,
+            launcherPath: "/usr/bin/nextflow",
+            launcherArguments: args,
+            workingDirectory: outputDirectory,
+            environment: ["NXF_HOME": "/tmp/nxf"],
+            workflowRepository: TaxTriageConfig.pipelineRepository,
+            workflowRevision: config.revision,
+            workflowGithubReleaseVersion: TaxTriageConfig.defaultGithubReleaseVersion,
+            workflowSnapshotURL: snapshotURL
+        )
+
+        XCTAssertTrue(args.contains(snapshotURL.path))
+        XCTAssertFalse(args.contains("-r"))
+        XCTAssertTrue(metadata.contains("workflow_repository: jhuapl-bio/taxtriage"))
+        XCTAssertTrue(metadata.contains("workflow_github_release_version: v3.3.6"))
+        XCTAssertTrue(metadata.contains("workflow_revision: 8fd1fb5bb236e4978f5734e522e6b89e0640a2a9"))
+        XCTAssertTrue(metadata.contains("workflow_snapshot_directory: \(snapshotURL.path)"))
+        XCTAssertTrue(metadata.contains("nextflow_command: nextflow -c \(runtimeConfigURL.path) run \(snapshotURL.path)"))
+    }
+
+    func testBuildLaunchScriptIncludesWorkflowVersionComments() {
+        let pipeline = TaxTriagePipeline()
+        let directory = URL(fileURLWithPath: "/tmp/taxtriage-output")
+        let metadata = """
+        # TaxTriage launch metadata
+        workflow_github_release_version: v3.3.6
+        workflow_revision: 8fd1fb5bb236e4978f5734e522e6b89e0640a2a9
+        workflow_snapshot_directory: /tmp/taxtriage-output/workflow-source/taxtriage
+        launcher_command: /usr/bin/nextflow run /tmp/taxtriage-output/workflow-source/taxtriage
+        """
+
+        let script = pipeline.buildLaunchScript(metadata: metadata, directory: directory)
+
+        XCTAssertTrue(script.contains("# workflow_github_release_version: v3.3.6"))
+        XCTAssertTrue(script.contains("# workflow_revision: 8fd1fb5bb236e4978f5734e522e6b89e0640a2a9"))
+        XCTAssertTrue(script.contains("# workflow_snapshot_directory: /tmp/taxtriage-output/workflow-source/taxtriage"))
+        XCTAssertTrue(script.contains("cd /tmp/taxtriage-output"))
+        XCTAssertTrue(script.contains("/usr/bin/nextflow run /tmp/taxtriage-output/workflow-source/taxtriage"))
+    }
+
+    func testTaxTriageGithubReleaseLabelIsOnlyUsedForKnownReleaseRevisions() {
+        XCTAssertEqual(
+            TaxTriageConfig.githubReleaseVersion(for: TaxTriageConfig.defaultRevision),
+            TaxTriageConfig.defaultGithubReleaseVersion
+        )
+        XCTAssertEqual(
+            TaxTriageConfig.githubReleaseVersion(for: TaxTriageConfig.defaultGithubReleaseVersion),
+            TaxTriageConfig.defaultGithubReleaseVersion
+        )
+        XCTAssertNil(TaxTriageConfig.githubReleaseVersion(for: "8fd1fb5bb236e4978f5734e522e6b89e0640a2aa"))
+    }
+
     func testUsesNextflowCondaOnlyWhenCondaProfileIsSelected() {
         XCTAssertFalse(TaxTriagePipeline.usesNextflowConda(profile: "docker"))
         XCTAssertFalse(TaxTriagePipeline.usesNextflowConda(profile: "podman"))

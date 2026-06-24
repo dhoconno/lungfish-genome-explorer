@@ -703,10 +703,10 @@ public extension PluginPack {
                     id: "esviritu",
                     displayName: "EsViritu",
                     environment: "esviritu",
-                    installPackages: ["bioconda::esviritu=1.2.0"],
+                    installPackages: ["bioconda::esviritu=1.3.1"],
                     executables: ["EsViritu"],
                     smokeTest: .command(arguments: ["--help"]),
-                    version: "1.2.0",
+                    version: "1.3.1",
                     license: "MIT",
                     sourceURL: "https://github.com/cmmr/EsViritu"
                 ),

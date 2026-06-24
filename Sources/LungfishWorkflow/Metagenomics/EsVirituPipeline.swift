@@ -312,6 +312,9 @@ public actor EsVirituPipeline {
     /// The conda environment name where EsViritu is installed.
     public static let esVirituEnvironment = "esviritu"
 
+    /// Human-readable GitHub release tag for the pinned EsViritu package.
+    public static let esVirituGithubReleaseVersion = "v1.3.1"
+
     /// Shared instance for convenience.
     public static let shared = EsVirituPipeline()
 
@@ -426,6 +429,7 @@ public actor EsVirituPipeline {
                 "qualityFilter": .boolean(config.qualityFilter),
                 "threads": .integer(config.threads),
                 "pairedEnd": .boolean(config.isPairedEnd),
+                "github_release_version": .string(Self.esVirituGithubReleaseVersion),
                 "extraArgs": .string(AdvancedCommandLineOptions.join(config.extraArguments)),
             ]
         )
@@ -486,6 +490,7 @@ public actor EsVirituPipeline {
                 runID: runID,
                 toolName: "EsViritu",
                 toolVersion: toolVersion,
+                githubReleaseVersion: Self.esVirituGithubReleaseVersion,
                 command: esVirituCommand,
                 inputs: inputRecords,
                 outputs: failureOutputs,
@@ -541,6 +546,7 @@ public actor EsVirituPipeline {
             runID: runID,
             toolName: "EsViritu",
             toolVersion: toolVersion,
+            githubReleaseVersion: Self.esVirituGithubReleaseVersion,
             command: esVirituCommand,
             inputs: inputRecords,
             outputs: outputRecords,

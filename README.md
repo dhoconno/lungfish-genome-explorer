@@ -217,7 +217,7 @@ Lungfish Genome Explorer stands on the shoulders of the open-source bioinformati
 | hifiasm      | 0.25.0   | MIT            | https://github.com/chhylp123/hifiasm        |
 | Kraken 2     | 2.17.1   | GPL-3.0        | https://github.com/DerrickWood/kraken2      |
 | Bracken      | 1.0.0    | GPL-3.0        | https://github.com/jenniferlu717/Bracken    |
-| EsViritu     | 1.2.0    | MIT            | https://github.com/cmmr/EsViritu            |
+| EsViritu     | 1.3.1    | MIT            | https://github.com/cmmr/EsViritu            |
 | LoFreq       | 2.1.5    | MIT            | https://csb5.github.io/lofreq/              |
 | iVar         | 1.4.4    | GPL-3.0        | https://andersen-lab.github.io/ivar/        |
 | Medaka       | 2.1.1    | MPL-2.0        | https://github.com/nanoporetech/medaka      |

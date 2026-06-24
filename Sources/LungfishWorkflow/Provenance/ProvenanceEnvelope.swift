@@ -57,6 +57,7 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
     public let workflowVersion: String
     public let toolName: String
     public let toolVersion: String
+    public let githubReleaseVersion: String?
     public let tool: ProvenanceToolIdentity
     public let argv: [String]
     public let durableReplayArgv: [String]?
@@ -89,6 +90,7 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         case workflowVersion
         case toolName
         case toolVersion
+        case githubReleaseVersion
         case tool
         case argv
         case durableReplayArgv
@@ -119,6 +121,7 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         workflowVersion: String = WorkflowRun.currentAppVersion,
         toolName: String,
         toolVersion: String = "unknown",
+        githubReleaseVersion: String? = nil,
         tool: ProvenanceToolIdentity? = nil,
         argv: [String] = [],
         durableReplayArgv: [String]? = nil,
@@ -142,6 +145,7 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         self.workflowVersion = ProvenanceVersion.required(workflowVersion, fallback: WorkflowRun.currentAppVersion)
         self.toolName = ProvenanceName.required(toolName)
         self.toolVersion = ProvenanceVersion.required(toolVersion)
+        self.githubReleaseVersion = githubReleaseVersion
         self.tool = ProvenanceToolIdentity(name: self.toolName, version: self.toolVersion, kind: tool?.kind)
         self.argv = argv
         self.durableReplayArgv = durableReplayArgv
@@ -181,6 +185,7 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
             try container.decodeIfPresent(String.self, forKey: .toolVersion),
             fallback: decodedTool?.version ?? "unknown"
         )
+        githubReleaseVersion = try container.decodeIfPresent(String.self, forKey: .githubReleaseVersion)
         if let decodedTool {
             tool = ProvenanceToolIdentity(
                 name: toolName,
@@ -254,6 +259,7 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         try container.encode(workflowVersion, forKey: .workflowVersion)
         try container.encode(toolName, forKey: .toolName)
         try container.encode(toolVersion, forKey: .toolVersion)
+        try container.encodeIfPresent(githubReleaseVersion, forKey: .githubReleaseVersion)
         try container.encode(tool, forKey: .tool)
         try container.encode(argv, forKey: .argv)
         try container.encodeIfPresent(durableReplayArgv, forKey: .durableReplayArgv)
@@ -823,6 +829,7 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
     public let id: UUID
     public let toolName: String
     public let toolVersion: String
+    public let githubReleaseVersion: String?
     public let argv: [String]
     public let durableReplayArgv: [String]?
     public let reproducibleCommand: String
@@ -839,6 +846,7 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         case id
         case toolName
         case toolVersion
+        case githubReleaseVersion
         case argv
         case command
         case durableReplayArgv
@@ -861,6 +869,7 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         id: UUID = UUID(),
         toolName: String,
         toolVersion: String = "unknown",
+        githubReleaseVersion: String? = nil,
         argv: [String] = [],
         durableReplayArgv: [String]? = nil,
         reproducibleCommand: String? = nil,
@@ -876,6 +885,7 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         self.id = id
         self.toolName = ProvenanceName.required(toolName)
         self.toolVersion = ProvenanceVersion.required(toolVersion)
+        self.githubReleaseVersion = githubReleaseVersion
         self.argv = argv
         self.durableReplayArgv = durableReplayArgv
         self.reproducibleCommand = reproducibleCommand ?? argv.map(shellEscape).joined(separator: " ")
@@ -894,6 +904,7 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         toolName = ProvenanceName.required(try container.decodeIfPresent(String.self, forKey: .toolName))
         toolVersion = ProvenanceVersion.required(try container.decodeIfPresent(String.self, forKey: .toolVersion))
+        githubReleaseVersion = try container.decodeIfPresent(String.self, forKey: .githubReleaseVersion)
         argv = try container.decodeIfPresent([String].self, forKey: .argv)
             ?? container.decodeIfPresent([String].self, forKey: .command)
             ?? []
@@ -919,6 +930,7 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         try container.encode(id, forKey: .id)
         try container.encode(toolName, forKey: .toolName)
         try container.encode(toolVersion, forKey: .toolVersion)
+        try container.encodeIfPresent(githubReleaseVersion, forKey: .githubReleaseVersion)
         try container.encode(argv, forKey: .argv)
         try container.encode(argv, forKey: .command)
         try container.encodeIfPresent(durableReplayArgv, forKey: .durableReplayArgv)

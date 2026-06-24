@@ -202,6 +202,9 @@ public struct StepExecution: Codable, Sendable, Identifiable, Equatable {
     /// Tool version string (e.g., "1.21").
     public let toolVersion: String
 
+    /// Human-friendly GitHub release tag for GitHub-hosted workflows/tools, when known.
+    public let githubReleaseVersion: String?
+
     /// Container image reference, if the tool ran in a container.
     public let containerImage: String?
 
@@ -245,6 +248,7 @@ public struct StepExecution: Codable, Sendable, Identifiable, Equatable {
         id: UUID = UUID(),
         toolName: String,
         toolVersion: String,
+        githubReleaseVersion: String? = nil,
         containerImage: String? = nil,
         containerDigest: String? = nil,
         command: [String],
@@ -262,6 +266,7 @@ public struct StepExecution: Codable, Sendable, Identifiable, Equatable {
         self.id = id
         self.toolName = toolName
         self.toolVersion = toolVersion
+        self.githubReleaseVersion = githubReleaseVersion
         self.containerImage = containerImage
         self.containerDigest = containerDigest
         self.command = command
@@ -377,6 +382,7 @@ extension WorkflowRun {
             workflowVersion: ProvenanceVersion.required(appVersion, fallback: WorkflowRun.currentAppVersion),
             toolName: firstStep?.toolName ?? name,
             toolVersion: ProvenanceVersion.required(firstStep?.toolVersion, fallback: appVersion),
+            githubReleaseVersion: firstStep?.githubReleaseVersion ?? parameters["github_release_version"]?.stringValue,
             tool: ProvenanceToolIdentity(
                 name: firstStep?.toolName ?? name,
                 version: ProvenanceVersion.required(firstStep?.toolVersion, fallback: appVersion),
@@ -462,6 +468,7 @@ extension ProvenanceEnvelope {
                     id: UUID(),
                     toolName: toolName,
                     toolVersion: toolVersion,
+                    githubReleaseVersion: githubReleaseVersion,
                     containerImage: runtimeIdentity.containerImage,
                     containerDigest: runtimeIdentity.containerDigest,
                     command: legacyCommand(argv: argv, reproducibleCommand: reproducibleCommand),
@@ -480,6 +487,7 @@ extension ProvenanceEnvelope {
                     id: step.id,
                     toolName: step.toolName,
                     toolVersion: step.toolVersion,
+                    githubReleaseVersion: step.githubReleaseVersion,
                     containerImage: runtimeIdentity.containerImage,
                     containerDigest: runtimeIdentity.containerDigest,
                     command: legacyCommand(argv: step.argv, reproducibleCommand: step.reproducibleCommand),
@@ -592,6 +600,7 @@ extension ProvenanceStep {
             id: stepExecution.id,
             toolName: stepExecution.toolName,
             toolVersion: ProvenanceVersion.required(stepExecution.toolVersion),
+            githubReleaseVersion: stepExecution.githubReleaseVersion,
             argv: stepExecution.command,
             durableReplayArgv: stepExecution.durableReplayArgv,
             reproducibleCommand: (stepExecution.durableReplayArgv ?? stepExecution.command).map(shellEscape).joined(separator: " "),

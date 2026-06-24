@@ -23,6 +23,7 @@ public struct NFCoreRunBundleManifest: Codable, Sendable, Equatable {
     public let workflowDescription: String
     public let version: String
     public let workflowPinnedVersion: String?
+    public let workflowGithubReleaseVersion: String?
     public let appVersion: String?
     public let appBuildVersion: String?
     public let executor: NFCoreExecutor
@@ -48,6 +49,7 @@ public struct NFCoreRunBundleManifest: Codable, Sendable, Equatable {
         params: [String: String],
         outputDirectoryName: String,
         workflowPinnedVersion: String? = nil,
+        workflowGithubReleaseVersion: String? = nil,
         appVersion: String? = nil,
         appBuildVersion: String? = nil,
         resume: Bool = false,
@@ -66,6 +68,7 @@ public struct NFCoreRunBundleManifest: Codable, Sendable, Equatable {
         self.workflowDescription = workflow.description
         self.version = version
         self.workflowPinnedVersion = workflowPinnedVersion ?? workflow.pinnedVersion
+        self.workflowGithubReleaseVersion = workflowGithubReleaseVersion ?? version
         self.appVersion = appVersion ?? Self.hostAppVersion
         self.appBuildVersion = appBuildVersion ?? Self.hostAppBuildVersion
         self.executor = executor
@@ -99,6 +102,7 @@ public struct NFCoreRunBundleManifest: Codable, Sendable, Equatable {
         case workflowDescription
         case version
         case workflowPinnedVersion
+        case workflowGithubReleaseVersion
         case appVersion
         case appBuildVersion
         case executor
@@ -126,6 +130,7 @@ public struct NFCoreRunBundleManifest: Codable, Sendable, Equatable {
         workflowDescription = try container.decode(String.self, forKey: .workflowDescription)
         version = try container.decode(String.self, forKey: .version)
         workflowPinnedVersion = try container.decodeIfPresent(String.self, forKey: .workflowPinnedVersion)
+        workflowGithubReleaseVersion = try container.decodeIfPresent(String.self, forKey: .workflowGithubReleaseVersion)
         appVersion = try container.decodeIfPresent(String.self, forKey: .appVersion)
         appBuildVersion = try container.decodeIfPresent(String.self, forKey: .appBuildVersion)
         executor = try container.decode(NFCoreExecutor.self, forKey: .executor)

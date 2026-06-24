@@ -242,7 +242,25 @@ public struct TaxTriageConfig: Sendable, Codable, Equatable {
     /// The pinned TaxTriage revision validated by Lungfish.
     ///
     /// Using an exact commit prevents silent output-schema drift from upstream `main`.
-    public static let defaultRevision = "c808b451ff3d119906aaa6dbf2ace9e21c8a50fd"
+    public static let defaultRevision = "8fd1fb5bb236e4978f5734e522e6b89e0640a2a9"
+
+    /// Human-readable GitHub release tag for the pinned TaxTriage revision.
+    public static let defaultGithubReleaseVersion = "v3.3.6"
+
+    /// Returns the human-readable GitHub release tag when the selected revision identifies one.
+    public static func githubReleaseVersion(for revision: String) -> String? {
+        let trimmedRevision = revision.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedRevision == defaultRevision {
+            return defaultGithubReleaseVersion
+        }
+        if trimmedRevision == defaultGithubReleaseVersion {
+            return defaultGithubReleaseVersion
+        }
+        if trimmedRevision.hasPrefix("v") {
+            return trimmedRevision
+        }
+        return nil
+    }
 
     /// Builds the command-line arguments for the Nextflow `run` invocation.
     ///

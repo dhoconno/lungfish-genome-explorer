@@ -122,6 +122,7 @@ public actor TaxTriagePipeline {
         let launchTarget: String
         let revision: String?
         let cleanupDirectory: URL?
+        let snapshotDirectory: URL?
     }
 
     /// Shared instance for convenience.
@@ -323,7 +324,10 @@ public actor TaxTriagePipeline {
             nextflowEnvName = "nextflow"
         }
 
-        let pipelineProjectSource = try await preparePipelineProjectSource(forRevision: effectiveConfig.revision)
+        let pipelineProjectSource = try await preparePipelineProjectSource(
+            forRevision: effectiveConfig.revision,
+            durableOutputDirectory: effectiveConfig.outputDirectory
+        )
         defer {
             if let cleanupDirectory = pipelineProjectSource.cleanupDirectory {
                 try? FileManager.default.removeItem(at: cleanupDirectory)
@@ -346,7 +350,11 @@ public actor TaxTriagePipeline {
             launcherPath: micromambaPath.path,
             launcherArguments: micromambaArgs,
             workingDirectory: effectiveConfig.outputDirectory,
-            environment: environment
+            environment: environment,
+            workflowRepository: TaxTriageConfig.pipelineRepository,
+            workflowRevision: effectiveConfig.revision,
+            workflowGithubReleaseVersion: TaxTriageConfig.githubReleaseVersion(for: effectiveConfig.revision),
+            workflowSnapshotURL: pipelineProjectSource.snapshotDirectory
         )
         persistLaunchMetadata(
             launchMetadata,
@@ -617,7 +625,7 @@ public actor TaxTriagePipeline {
     // MARK: - Provenance
 
     private func provenanceParameters(for config: TaxTriageConfig) -> [String: ParameterValue] {
-        [
+        var parameters: [String: ParameterValue] = [
             "workflow": .string("taxtriage"),
             "sample_count": .integer(config.samples.count),
             "platform": .string(config.platform.rawValue),
@@ -634,6 +642,10 @@ public actor TaxTriagePipeline {
             "extraArgs": .string(AdvancedCommandLineOptions.join(config.extraArguments)),
             "output_directory": .file(config.outputDirectory),
         ]
+        if let githubReleaseVersion = TaxTriageConfig.githubReleaseVersion(for: config.revision) {
+            parameters["github_release_version"] = .string(githubReleaseVersion)
+        }
+        return parameters
     }
 
     private func recordTaxTriageProvenanceStep(
@@ -649,6 +661,7 @@ public actor TaxTriagePipeline {
             runID: runID,
             toolName: "TaxTriage",
             toolVersion: config.revision,
+            githubReleaseVersion: TaxTriageConfig.githubReleaseVersion(for: config.revision),
             command: command,
             inputs: inputRecords(for: config),
             outputs: outputRecords(for: outputFiles),
@@ -746,13 +759,17 @@ public actor TaxTriagePipeline {
     /// Nextflow TaxTriage asset checkout is available.
     ///
     /// This avoids `nextflow run ... -r <revision>` failing against a dirty shared cache checkout.
-    func preparePipelineProjectSource(forRevision revision: String) async throws -> PreparedPipelineProjectSource {
+    func preparePipelineProjectSource(
+        forRevision revision: String,
+        durableOutputDirectory: URL? = nil
+    ) async throws -> PreparedPipelineProjectSource {
         let cachedRepositoryURL = cachedTaxTriageRepositoryURL()
         guard FileManager.default.fileExists(atPath: cachedRepositoryURL.appendingPathComponent(".git").path) else {
             return PreparedPipelineProjectSource(
                 launchTarget: TaxTriageConfig.pipelineRepository,
                 revision: revision,
-                cleanupDirectory: nil
+                cleanupDirectory: nil,
+                snapshotDirectory: nil
             )
         }
 
@@ -760,15 +777,31 @@ public actor TaxTriagePipeline {
             return PreparedPipelineProjectSource(
                 launchTarget: TaxTriageConfig.pipelineRepository,
                 revision: revision,
-                cleanupDirectory: nil
+                cleanupDirectory: nil,
+                snapshotDirectory: nil
             )
         }
 
-        let exportDirectory = try ProjectTempDirectory.create(
-            prefix: "taxtriage-project-",
-            contextURL: nil,
-            policy: .systemOnly
-        )
+        let exportDirectory: URL
+        let cleanupDirectory: URL?
+        if let durableOutputDirectory {
+            exportDirectory = durableOutputDirectory
+                .appendingPathComponent("workflow-source", isDirectory: true)
+                .appendingPathComponent("taxtriage", isDirectory: true)
+            try? FileManager.default.removeItem(at: exportDirectory)
+            try FileManager.default.createDirectory(
+                at: exportDirectory,
+                withIntermediateDirectories: true
+            )
+            cleanupDirectory = nil
+        } else {
+            exportDirectory = try ProjectTempDirectory.create(
+                prefix: "taxtriage-project-",
+                contextURL: nil,
+                policy: .systemOnly
+            )
+            cleanupDirectory = exportDirectory
+        }
 
         do {
             try await exportTaxTriageProject(
@@ -780,7 +813,8 @@ public actor TaxTriagePipeline {
             return PreparedPipelineProjectSource(
                 launchTarget: exportDirectory.path,
                 revision: nil,
-                cleanupDirectory: exportDirectory
+                cleanupDirectory: cleanupDirectory,
+                snapshotDirectory: durableOutputDirectory == nil ? nil : exportDirectory
             )
         } catch {
             try? FileManager.default.removeItem(at: exportDirectory)
@@ -1303,19 +1337,25 @@ public actor TaxTriagePipeline {
         }
     }
 
-    private func buildLaunchMetadata(
+    nonisolated func buildLaunchMetadata(
         requestedConfig: TaxTriageConfig,
         effectiveConfig: TaxTriageConfig,
         nextflowArguments: [String],
         launcherPath: String,
         launcherArguments: [String],
         workingDirectory: URL,
-        environment: [String: String]
+        environment: [String: String],
+        workflowRepository: String = TaxTriageConfig.pipelineRepository,
+        workflowRevision: String,
+        workflowGithubReleaseVersion: String?,
+        workflowSnapshotURL: URL? = nil
     ) -> String {
         let timestamp = ISO8601DateFormatter().string(from: Date())
-        let lines = [
+        var lines = [
             "# TaxTriage launch metadata",
             "timestamp: \(timestamp)",
+            "workflow_repository: \(workflowRepository)",
+            "workflow_revision: \(workflowRevision)",
             "requested_profile: \(requestedConfig.profile)",
             "effective_profile: \(effectiveConfig.profile)",
             "requested_output_directory: \(requestedConfig.outputDirectory.path)",
@@ -1327,6 +1367,18 @@ public actor TaxTriagePipeline {
             "NXF_HOME: \(environment["NXF_HOME"] ?? "")",
             "NXF_ANSI_LOG: \(environment["NXF_ANSI_LOG"] ?? "")",
         ]
+        if let workflowGithubReleaseVersion {
+            lines.insert(
+                "workflow_github_release_version: \(workflowGithubReleaseVersion)",
+                at: 4
+            )
+        }
+        if let workflowSnapshotURL {
+            lines.insert(
+                "workflow_snapshot_directory: \(workflowSnapshotURL.path)",
+                at: 5
+            )
+        }
         return lines.joined(separator: "\n") + "\n"
     }
 
@@ -1349,16 +1401,7 @@ public actor TaxTriagePipeline {
                 let txtURL = directory.appendingPathComponent("taxtriage-launch-command.txt")
                 try metadata.write(to: txtURL, atomically: true, encoding: .utf8)
 
-                let launcherCommandLine = metadata
-                    .components(separatedBy: .newlines)
-                    .first(where: { $0.hasPrefix("launcher_command: ") })
-                    .map { String($0.dropFirst("launcher_command: ".count)) } ?? ""
-                let script = """
-                #!/usr/bin/env bash
-                set -euo pipefail
-                cd \(shellEscape(directory.path))
-                \(launcherCommandLine)
-                """
+                let script = buildLaunchScript(metadata: metadata, directory: directory)
                 let shURL = directory.appendingPathComponent("taxtriage-launch-command.sh")
                 try script.write(to: shURL, atomically: true, encoding: .utf8)
                 try? fm.setAttributes(
@@ -1369,6 +1412,29 @@ public actor TaxTriagePipeline {
                 logger.warning("Failed to persist TaxTriage launch metadata in \(directory.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
         }
+    }
+
+    nonisolated func buildLaunchScript(metadata: String, directory: URL) -> String {
+        let lines = metadata.components(separatedBy: .newlines)
+        let launcherCommandLine = lines
+            .first(where: { $0.hasPrefix("launcher_command: ") })
+            .map { String($0.dropFirst("launcher_command: ".count)) } ?? ""
+        let versionComments = lines
+            .filter {
+                $0.hasPrefix("workflow_github_release_version: ")
+                    || $0.hasPrefix("workflow_revision: ")
+                    || $0.hasPrefix("workflow_repository: ")
+                    || $0.hasPrefix("workflow_snapshot_directory: ")
+            }
+            .map { "# \($0)" }
+            .joined(separator: "\n")
+        let commentBlock = versionComments.isEmpty ? "" : "\(versionComments)\n"
+        return """
+        #!/usr/bin/env bash
+        set -euo pipefail
+        \(commentBlock)cd \(shellEscape(directory.path))
+        \(launcherCommandLine)
+        """
     }
 
     private nonisolated func shellCommand(executablePath: String, arguments: [String]) -> String {

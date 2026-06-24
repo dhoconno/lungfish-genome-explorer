@@ -137,6 +137,7 @@ public struct NFCoreRunRequest: Sendable, Codable, Equatable {
             params: effectiveParams,
             outputDirectoryName: outputDirectory.lastPathComponent,
             workflowPinnedVersion: workflow.pinnedVersion,
+            workflowGithubReleaseVersion: version,
             resume: resume,
             workDirectory: workDirectory,
             executionStatus: executionStatus,

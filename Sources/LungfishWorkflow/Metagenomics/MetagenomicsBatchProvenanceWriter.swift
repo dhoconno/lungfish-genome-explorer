@@ -153,6 +153,7 @@ public enum MetagenomicsBatchProvenanceWriter {
         let step = ProvenanceStep(
             toolName: "TaxTriage",
             toolVersion: result.config.revision,
+            githubReleaseVersion: TaxTriageConfig.githubReleaseVersion(for: result.config.revision),
             argv: command,
             inputs: inputs,
             outputs: outputs,
@@ -166,6 +167,7 @@ public enum MetagenomicsBatchProvenanceWriter {
             workflowVersion: WorkflowRun.currentAppVersion,
             toolName: "TaxTriage",
             toolVersion: result.config.revision,
+            githubReleaseVersion: TaxTriageConfig.githubReleaseVersion(for: result.config.revision),
             tool: ProvenanceToolIdentity(
                 name: "TaxTriage",
                 version: result.config.revision,
@@ -237,6 +239,7 @@ public enum MetagenomicsBatchProvenanceWriter {
             workflowVersion: existing.workflowVersion,
             toolName: existing.toolName,
             toolVersion: existing.toolVersion,
+            githubReleaseVersion: existing.githubReleaseVersion,
             tool: existing.tool,
             argv: existing.argv,
             reproducibleCommand: existing.reproducibleCommand,
@@ -472,6 +475,9 @@ public enum MetagenomicsBatchProvenanceWriter {
             "revision": .string(config.revision),
             "extraArgs": .string(AdvancedCommandLineOptions.join(config.extraArguments)),
         ]
+        if let githubReleaseVersion = TaxTriageConfig.githubReleaseVersion(for: config.revision) {
+            explicit["github_release_version"] = .string(githubReleaseVersion)
+        }
         if let databasePath = config.kraken2DatabasePath {
             explicit["kraken2DatabasePath"] = .string(databasePath.path)
         }
@@ -480,6 +486,24 @@ public enum MetagenomicsBatchProvenanceWriter {
         }
         if let sourceBundleURLs = config.sourceBundleURLs {
             explicit["sourceBundleURLs"] = .array(sourceBundleURLs.map { .string($0.path) })
+        }
+
+        var resolvedDefaults: [String: ParameterValue] = [
+            "platform": .string(config.platform.rawValue),
+            "classifiers": .array(config.classifiers.map { .string($0) }),
+            "topHitsCount": .integer(config.topHitsCount),
+            "k2Confidence": .number(config.k2Confidence),
+            "rank": .string(config.rank),
+            "skipAssembly": .boolean(config.skipAssembly),
+            "skipKrona": .boolean(config.skipKrona),
+            "maxMemory": .string(config.maxMemory),
+            "maxCpus": .integer(config.maxCpus),
+            "profile": .string(config.profile),
+            "revision": .string(config.revision),
+            "extraArgs": .string(AdvancedCommandLineOptions.join(config.extraArguments)),
+        ]
+        if let githubReleaseVersion = TaxTriageConfig.githubReleaseVersion(for: config.revision) {
+            resolvedDefaults["github_release_version"] = .string(githubReleaseVersion)
         }
 
         return ProvenanceOptions(
@@ -495,22 +519,10 @@ public enum MetagenomicsBatchProvenanceWriter {
                 "maxMemory": .string("16.GB"),
                 "profile": .string("docker"),
                 "revision": .string(TaxTriageConfig.defaultRevision),
+                "github_release_version": .string(TaxTriageConfig.defaultGithubReleaseVersion),
                 "extraArgs": .string(""),
             ],
-            resolvedDefaults: [
-                "platform": .string(config.platform.rawValue),
-                "classifiers": .array(config.classifiers.map { .string($0) }),
-                "topHitsCount": .integer(config.topHitsCount),
-                "k2Confidence": .number(config.k2Confidence),
-                "rank": .string(config.rank),
-                "skipAssembly": .boolean(config.skipAssembly),
-                "skipKrona": .boolean(config.skipKrona),
-                "maxMemory": .string(config.maxMemory),
-                "maxCpus": .integer(config.maxCpus),
-                "profile": .string(config.profile),
-                "revision": .string(config.revision),
-                "extraArgs": .string(AdvancedCommandLineOptions.join(config.extraArguments)),
-            ]
+            resolvedDefaults: resolvedDefaults
         )
     }
 

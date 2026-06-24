@@ -112,6 +112,9 @@ public actor ClassificationPipeline {
     /// The conda environment name where bracken is installed.
     public static let brackenEnvironment = "bracken"
 
+    /// Human-readable GitHub release tag for the pinned Kraken2 package.
+    public static let kraken2GithubReleaseVersion = "v2.17.1"
+
     /// Shared instance for convenience.
     public static let shared = ClassificationPipeline()
 
@@ -258,6 +261,7 @@ public actor ClassificationPipeline {
                 "threads": .integer(effectiveConfig.threads),
                 "pairedEnd": .boolean(effectiveConfig.isPairedEnd),
                 "memoryMapping": .boolean(effectiveConfig.memoryMapping),
+                "github_release_version": .string(Self.kraken2GithubReleaseVersion),
                 "extraArgs": .string(AdvancedCommandLineOptions.join(effectiveConfig.extraArguments)),
             ]
         )
@@ -312,6 +316,7 @@ public actor ClassificationPipeline {
             runID: runID,
             toolName: "kraken2",
             toolVersion: toolVersion,
+            githubReleaseVersion: Self.kraken2GithubReleaseVersion,
             command: kraken2Command,
             inputs: inputRecords,
             outputs: kraken2Outputs,

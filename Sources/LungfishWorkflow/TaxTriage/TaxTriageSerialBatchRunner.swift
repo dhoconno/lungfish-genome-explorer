@@ -175,7 +175,7 @@ public struct TaxTriageSerialBatchRunner: Sendable {
     }
 
     private func provenanceParameters(for config: TaxTriageConfig) -> [String: ParameterValue] {
-        [
+        var parameters: [String: ParameterValue] = [
             "workflow": .string("taxtriage-serial-batch"),
             "sample_count": .integer(config.samples.count),
             "platform": .string(config.platform.rawValue),
@@ -192,6 +192,10 @@ public struct TaxTriageSerialBatchRunner: Sendable {
             "extraArgs": .string(AdvancedCommandLineOptions.join(config.extraArguments)),
             "output_directory": .file(config.outputDirectory),
         ]
+        if let githubReleaseVersion = TaxTriageConfig.githubReleaseVersion(for: config.revision) {
+            parameters["github_release_version"] = .string(githubReleaseVersion)
+        }
+        return parameters
     }
 
     private func recordSampleProvenance(
@@ -206,6 +210,7 @@ public struct TaxTriageSerialBatchRunner: Sendable {
             runID: runID,
             toolName: "taxtriage",
             toolVersion: result.config.revision,
+            githubReleaseVersion: TaxTriageConfig.githubReleaseVersion(for: result.config.revision),
             command: sampleCommand(for: result.config),
             inputs: inputRecords(for: sample),
             outputs: fileRecords(for: result.allOutputFiles, role: .output),
@@ -230,6 +235,7 @@ public struct TaxTriageSerialBatchRunner: Sendable {
             runID: runID,
             toolName: "taxtriage",
             toolVersion: failedConfig.revision,
+            githubReleaseVersion: TaxTriageConfig.githubReleaseVersion(for: failedConfig.revision),
             command: sampleCommand(for: failedConfig),
             inputs: inputRecords(for: sample),
             outputs: [],

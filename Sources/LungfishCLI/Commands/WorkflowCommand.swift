@@ -743,6 +743,7 @@ struct RunSubcommand: AsyncParsableCommand {
         ]
         var parameters = request.effectiveParams.mapValues { ParameterValue.string($0) }
         parameters["executor"] = .string(request.executor.rawValue)
+        parameters["github_release_version"] = .string(request.version)
         parameters["resume"] = .boolean(request.resume)
         parameters["prepareOnly"] = .boolean(prepareOnly)
         if let workDirectory = request.workDirectory {
@@ -752,6 +753,7 @@ struct RunSubcommand: AsyncParsableCommand {
         let step = StepExecution(
             toolName: "lungfish-cli workflow run",
             toolVersion: LungfishCLI.configuration.version,
+            githubReleaseVersion: request.version,
             command: command,
             inputs: inputs,
             outputs: outputs,
