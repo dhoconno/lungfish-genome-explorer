@@ -170,11 +170,33 @@ extension AppDelegate {
             debugLog("importProjectFilesFromURLs: Starting import pipeline dispatch")
 
             let activityIndicator = splitViewController.activityIndicator
-            let importPlan = splitViewController.makeSidebarImportPlan(for: selectedURLs)
-            let trackedURLs = importPlan.sourceURLs
+            let projectURL = controller?.projectSession.projectURL
+                ?? splitViewController.sidebarController.currentProjectURL
+                ?? self.workingDirectoryURL
+
+            let zipImportBatch: LGEZipImportBatch
+            do {
+                zipImportBatch = try LGEZipImportResolver().resolve(urls: selectedURLs, projectURL: projectURL)
+            } catch {
+                activityIndicator?.hide()
+                let alert = NSAlert()
+                alert.messageText = "Import Failed"
+                alert.informativeText = error.localizedDescription
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "OK")
+                alert.applyLungfishBranding()
+                if let window = controller?.window ?? NSApp.keyWindow {
+                    alert.beginSheetModal(for: window)
+                }
+                return
+            }
+
+            let importPlan = splitViewController.makeSidebarImportPlan(for: zipImportBatch.sourceURLs)
+            let trackedURLs = importPlan.sourceURLs + zipImportBatch.failures.map(\.sourceURL)
 
             guard !trackedURLs.isEmpty else {
                 debugLog("importProjectFilesFromURLs: No importable sources found after expansion")
+                zipImportBatch.cleanup()
                 return
             }
 
@@ -209,6 +231,7 @@ extension AppDelegate {
                             NotificationCenter.default.removeObserver(observerToken)
                             tracker.observerToken = nil
                         }
+                        zipImportBatch.cleanup()
                         activityIndicator?.hide()
                         debugLog(
                             "importProjectFilesFromURLs: Completed request \(requestID). success=\(update.succeeded), failed=\(update.failed)"
@@ -233,16 +256,27 @@ extension AppDelegate {
                 activityIndicator?.updateMessage("Importing \(firstURL.lastPathComponent) (1/\(fileCount))...")
             }
 
-            NotificationCenter.default.post(
-                name: .sidebarFileDropped,
-                object: splitViewController.sidebarController,
-                userInfo: [
-                    "urls": trackedURLs,
-                    "destination": NSNull(),
-                    "requestID": requestID,
-                    NotificationUserInfoKey.windowStateScope: splitViewController.projectSession.windowStateScope
-                ]
-            )
+            for failure in zipImportBatch.failures {
+                splitViewController.postSidebarFileDropCompleted(
+                    requestID: requestID,
+                    sourceURL: failure.sourceURL,
+                    success: false,
+                    error: failure.message
+                )
+            }
+
+            if !importPlan.sourceURLs.isEmpty {
+                NotificationCenter.default.post(
+                    name: .sidebarFileDropped,
+                    object: splitViewController.sidebarController,
+                    userInfo: [
+                        "urls": importPlan.sourceURLs,
+                        "destination": NSNull(),
+                        "requestID": requestID,
+                        NotificationUserInfoKey.windowStateScope: splitViewController.projectSession.windowStateScope
+                    ]
+                )
+            }
 
             debugLog("importProjectFilesFromURLs: Dispatched batch of \(trackedURLs.count) file(s) to sidebar import pipeline")
         }
