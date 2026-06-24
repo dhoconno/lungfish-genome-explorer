@@ -372,6 +372,19 @@ extension BuildDbCommand {
         // MARK: - Post-Build Cleanup
 
         private func performCleanup(resultURL: URL) {
+            var freedBytes: Int64 = 0
+
+            let cleanupRoots = [resultURL] + serialTaxTriageResultDirectories(in: resultURL)
+            for cleanupRoot in cleanupRoots {
+                freedBytes += performCleanupForSingleResult(resultURL: cleanupRoot)
+            }
+
+            if !globalOptions.quiet {
+                print("Cleanup complete. Freed \(formatBytes(freedBytes))")
+            }
+        }
+
+        private func performCleanupForSingleResult(resultURL: URL) -> Int64 {
             let fm = FileManager.default
             var freedBytes: Int64 = 0
 
@@ -405,9 +418,7 @@ extension BuildDbCommand {
                 }
             }
 
-            if !globalOptions.quiet {
-                print("Cleanup complete. Freed \(formatBytes(freedBytes))")
-            }
+            return freedBytes
         }
 
         private func directorySize(_ url: URL) -> Int64? {

@@ -384,6 +384,54 @@ final class BuildDbCommandTests: XCTestCase {
         XCTAssertNil(rows[1].bamPath)
     }
 
+    func testBuildDbTaxTriageCleansSerialSampleIntermediates() async throws {
+        let tmpDir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let home = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let resultDir = tmpDir.appendingPathComponent("taxtriage-batch")
+        let sampleDir = resultDir.appendingPathComponent("Alpha", isDirectory: true)
+        try writeTaxTriageTopReport(
+            at: sampleDir
+                .appendingPathComponent("top", isDirectory: true)
+                .appendingPathComponent("Alpha.top_report.tsv"),
+            taxID: 111,
+            name: "Alpha virus"
+        )
+
+        let fm = FileManager.default
+        for dirname in ["count", "filterkraken", "get", "map", "samtools", "bedtools"] {
+            let dir = sampleDir.appendingPathComponent(dirname, isDirectory: true)
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            fm.createFile(atPath: dir.appendingPathComponent("dummy.txt").path, contents: Data("test".utf8))
+        }
+        let fastpDir = sampleDir.appendingPathComponent("fastp", isDirectory: true)
+        try fm.createDirectory(at: fastpDir, withIntermediateDirectories: true)
+        fm.createFile(atPath: fastpDir.appendingPathComponent("Alpha.fastp.fastq.gz").path, contents: Data("fastq".utf8))
+        fm.createFile(atPath: fastpDir.appendingPathComponent("Alpha.fastp.html").path, contents: Data("report".utf8))
+        fm.createFile(atPath: fastpDir.appendingPathComponent("Alpha.fastp.json").path, contents: Data("report".utf8))
+
+        try await withHomeDirectory(home) {
+            let cmd = try BuildDbCommand.TaxTriageSubcommand.parse([resultDir.path, "-q"])
+            try await cmd.run()
+        }
+
+        XCTAssertFalse(fm.fileExists(atPath: sampleDir.appendingPathComponent("count").path),
+                       "serial sample count/ should be removed by cleanup")
+        XCTAssertFalse(fm.fileExists(atPath: sampleDir.appendingPathComponent("get").path),
+                       "serial sample get/ should be removed by cleanup")
+        XCTAssertFalse(fm.fileExists(atPath: sampleDir.appendingPathComponent("filterkraken").path),
+                       "serial sample filterkraken/ should be removed by cleanup")
+        XCTAssertTrue(fm.fileExists(atPath: fastpDir.appendingPathComponent("Alpha.fastp.html").path),
+                      "serial sample fastp HTML report should be preserved")
+        XCTAssertTrue(fm.fileExists(atPath: fastpDir.appendingPathComponent("Alpha.fastp.json").path),
+                      "serial sample fastp JSON report should be preserved")
+        XCTAssertFalse(fm.fileExists(atPath: fastpDir.appendingPathComponent("Alpha.fastp.fastq.gz").path),
+                       "serial sample fastp FASTQ should be removed by cleanup")
+    }
+
     func testLocateSamtoolsPrefersManagedHome() throws {
         let fixture = try makeManagedSamtoolsHome()
         defer { try? FileManager.default.removeItem(at: fixture.home) }

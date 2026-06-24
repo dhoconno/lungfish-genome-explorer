@@ -199,6 +199,8 @@ public final class MiniBAMViewController: NSViewController {
         menu.addItem(.separator())
         menu.addItem(withTitle: "Copy Read Sequence (FASTQ)", action: #selector(copyReadFASTQ), keyEquivalent: "")
         menu.items.last?.target = self
+        menu.addItem(withTitle: "Copy Read Sequence (FASTA)", action: #selector(copyReadFASTA), keyEquivalent: "")
+        menu.items.last?.target = self
         menu.addItem(withTitle: "Copy Read Name", action: #selector(copyReadName), keyEquivalent: "")
         menu.items.last?.target = self
         pileupView.menu = menu
@@ -635,6 +637,10 @@ public final class MiniBAMViewController: NSViewController {
         displayReadsAndUniqueCount(from: fetchedReads, readNameAllowlist: readNameAllowlist)
     }
 
+    static func testingReadFASTA(_ read: AlignedRead) -> String {
+        readFASTA(read)
+    }
+
     static func testingZoomLevel(
         afterMagnification magnification: CGFloat,
         currentZoom: Double,
@@ -766,11 +772,15 @@ public final class MiniBAMViewController: NSViewController {
     @objc private func copyReadFASTQ() {
         guard let idx = selectedReadIndex ?? pileupView.lastClickedReadIndex,
               idx < reads.count else { return }
-        let read = reads[idx]
-        let qualString = String(read.qualities.map { Character(UnicodeScalar($0 + 33)) })
-        let fastq = "@\(read.name)\n\(read.sequence)\n+\n\(qualString)"
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(fastq, forType: .string)
+        NSPasteboard.general.setString(Self.readFASTQ(reads[idx]), forType: .string)
+    }
+
+    @objc private func copyReadFASTA() {
+        guard let idx = selectedReadIndex ?? pileupView.lastClickedReadIndex,
+              idx < reads.count else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(Self.readFASTA(reads[idx]), forType: .string)
     }
 
     @objc private func copyReadName() {
@@ -778,6 +788,15 @@ public final class MiniBAMViewController: NSViewController {
               idx < reads.count else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(reads[idx].name, forType: .string)
+    }
+
+    private static func readFASTQ(_ read: AlignedRead) -> String {
+        let qualString = String(read.qualities.map { Character(UnicodeScalar($0 + 33)) })
+        return "@\(read.name)\n\(read.sequence)\n+\n\(qualString)"
+    }
+
+    private static func readFASTA(_ read: AlignedRead) -> String {
+        ">\(read.name)\n\(read.sequence)"
     }
 
     /// Clears the current display.

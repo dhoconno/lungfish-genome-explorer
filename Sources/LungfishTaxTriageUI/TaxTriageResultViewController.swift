@@ -389,6 +389,33 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         applyLayoutPreference()
     }
 
+    public override func viewDidAppear() {
+        super.viewDidAppear()
+        validateInitialSplitLayoutAfterWindowAttachment()
+    }
+
+    private func validateInitialSplitLayoutAfterWindowAttachment() {
+        guard view.window != nil else { return }
+
+        view.layoutSubtreeIfNeeded()
+        resetInitialSplitPositionIfNeeded()
+
+        if leftPaneContainer.isHidden {
+            collapseHiddenDetailPaneIfNeeded()
+        } else if !hasValidInitialSplitPosition() {
+            restoreDefaultSplitPosition()
+        } else {
+            applyInitialSplitPositionIfNeeded()
+        }
+
+        splitView.layoutSubtreeIfNeeded()
+        rightPaneContainer.layoutSubtreeIfNeeded()
+        batchFlatTableView.layoutSubtreeIfNeeded()
+
+        needsInitialSplitValidation = !hasValidInitialSplitPosition()
+        scheduleInitialSplitValidationIfNeeded()
+    }
+
     @objc private func handleLayoutSwapRequested(_ notification: Notification) {
         applyLayoutPreference()
     }
