@@ -265,6 +265,20 @@ final class TaxonomyExtractionPipelineTests: XCTestCase {
         return url
     }
 
+    private func gzipCopy(source: URL, destination: URL) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+        process.arguments = ["-c", source.path]
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        XCTAssertEqual(process.terminationStatus, 0)
+        try data.write(to: destination, options: .atomic)
+    }
+
     /// Creates a mock FASTQ file.
     private func makeFASTQ(reads: [String]) throws -> URL {
         let url = tempDir.appendingPathComponent("input.fastq")
@@ -372,6 +386,38 @@ final class TaxonomyExtractionPipelineTests: XCTestCase {
         XCTAssertFalse(content.contains("@read2"), "Should not contain read2 (S. aureus)")
         XCTAssertFalse(content.contains("@read4"), "Should not contain read4 (unclassified)")
         XCTAssertFalse(content.contains("@read5"), "Should not contain read5 (Escherichia)")
+    }
+
+    func testExtractUnclassifiedReadsFromCompressedKrakenOutput() async throws {
+        let tree = makeTestTree()
+        let pipeline = TaxonomyExtractionPipeline()
+
+        let rawClassificationOutput = try makeClassificationOutput(reads: [
+            (readId: "read1", taxId: 562, classified: true),
+            (readId: "read2", taxId: 0, classified: false),
+            (readId: "read3", taxId: 0, classified: false),
+        ])
+        let compressedClassificationOutput = rawClassificationOutput.appendingPathExtension("gz")
+        try gzipCopy(source: rawClassificationOutput, destination: compressedClassificationOutput)
+        try FileManager.default.removeItem(at: rawClassificationOutput)
+
+        let fastqURL = try makeFASTQ(reads: ["read1", "read2", "read3"])
+        let outputURL = tempDir.appendingPathComponent("unclassified-extracted.fastq")
+
+        let config = TaxonomyExtractionConfig(
+            taxIds: [0],
+            includeChildren: false,
+            sourceFile: fastqURL,
+            outputFile: outputURL,
+            classificationOutput: compressedClassificationOutput
+        )
+
+        let result = try await pipeline.extract(config: config, tree: tree).first!
+
+        let content = try readFASTQContent(result)
+        XCTAssertFalse(content.contains("@read1"))
+        XCTAssertTrue(content.contains("@read2"))
+        XCTAssertTrue(content.contains("@read3"))
     }
 
     // MARK: - testExtractWithChildrenIncluded

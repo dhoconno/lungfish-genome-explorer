@@ -1101,6 +1101,26 @@ final class TaxTriagePipelineTests: XCTestCase {
         XCTAssertTrue(script.contains("/usr/bin/nextflow run /tmp/taxtriage-output/workflow-source/taxtriage"))
     }
 
+    func testBuildLaunchScriptPrefersReproducibleGithubCommandWhenSnapshotWasUsed() {
+        let pipeline = TaxTriagePipeline()
+        let directory = URL(fileURLWithPath: "/tmp/taxtriage-output")
+        let metadata = """
+        # TaxTriage launch metadata
+        workflow_repository: jhuapl-bio/taxtriage
+        workflow_github_release_version: v3.3.6
+        workflow_revision: 8fd1fb5bb236e4978f5734e522e6b89e0640a2a9
+        workflow_snapshot_directory: /tmp/taxtriage-output/workflow-source/taxtriage
+        launcher_command: /usr/bin/nextflow run /tmp/taxtriage-output/workflow-source/taxtriage
+        reproducible_launcher_command: /usr/bin/nextflow run jhuapl-bio/taxtriage -r 8fd1fb5bb236e4978f5734e522e6b89e0640a2a9
+        """
+
+        let script = pipeline.buildLaunchScript(metadata: metadata, directory: directory)
+
+        XCTAssertTrue(script.contains("# actual_launcher_command: /usr/bin/nextflow run /tmp/taxtriage-output/workflow-source/taxtriage"))
+        XCTAssertTrue(script.contains("/usr/bin/nextflow run jhuapl-bio/taxtriage -r 8fd1fb5bb236e4978f5734e522e6b89e0640a2a9"))
+        XCTAssertFalse(script.contains("\n/usr/bin/nextflow run /tmp/taxtriage-output/workflow-source/taxtriage\n"))
+    }
+
     func testTaxTriageGithubReleaseLabelIsOnlyUsedForKnownReleaseRevisions() {
         XCTAssertEqual(
             TaxTriageConfig.githubReleaseVersion(for: TaxTriageConfig.defaultRevision),
@@ -1561,6 +1581,51 @@ final class TaxTriagePipelineTests: XCTestCase {
         XCTAssertEqual(result.sourceBundleURLs, sourceBundles)
         XCTAssertTrue(FileManager.default.fileExists(atPath: tmpDir.appendingPathComponent("taxtriage-result.json").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: tmpDir.appendingPathComponent(".lungfish-provenance.json").path))
+    }
+
+    func testSerialBatchRunnerExcludesWorkflowSourceFromAggregateOutputs() async throws {
+        let tmpDir = try makeTempDirectory(prefix: "taxtriage-serial-source-filter")
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let runner = TaxTriageSerialBatchRunner(runPipeline: { sampleConfig, _ in
+            let sample = sampleConfig.samples[0]
+            let reportURL = sampleConfig.outputDirectory
+                .appendingPathComponent("report", isDirectory: true)
+                .appendingPathComponent("\(sample.sampleId).organisms.report.txt")
+            let workflowSourceURL = sampleConfig.outputDirectory
+                .appendingPathComponent("workflow-source/taxtriage/assets/large-reference.tsv")
+            try FileManager.default.createDirectory(
+                at: reportURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try FileManager.default.createDirectory(
+                at: workflowSourceURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try "organism\treads\nExample virus\t7\n".write(to: reportURL, atomically: true, encoding: .utf8)
+            try "large fixture\n".write(to: workflowSourceURL, atomically: true, encoding: .utf8)
+            return TaxTriageResult(
+                config: sampleConfig,
+                runtime: 1.0,
+                exitCode: 0,
+                outputDirectory: sampleConfig.outputDirectory,
+                reportFiles: [reportURL],
+                allOutputFiles: [reportURL, workflowSourceURL]
+            )
+        })
+
+        let config = TaxTriageConfig(
+            samples: [
+                TaxTriageSample(sampleId: "SampleA", fastq1: URL(fileURLWithPath: "/data/a.fastq.gz")),
+                TaxTriageSample(sampleId: "SampleB", fastq1: URL(fileURLWithPath: "/data/b.fastq.gz")),
+            ],
+            outputDirectory: tmpDir
+        )
+
+        let result = try await runner.run(config: config)
+
+        XCTAssertEqual(result.reportFiles.count, 2)
+        XCTAssertFalse(result.allOutputFiles.contains { $0.path.contains("/workflow-source/") })
     }
 
     func testSerialBatchRunnerContinuesAfterSampleFailure() async throws {

@@ -159,6 +159,16 @@ public struct TaxTriageTaxonomyRow: Sendable {
     }
 }
 
+public struct TaxTriageRowsPage: Sendable {
+    public let rows: [TaxTriageTaxonomyRow]
+    public let totalMatchingRows: Int
+
+    public init(rows: [TaxTriageTaxonomyRow], totalMatchingRows: Int) {
+        self.rows = rows
+        self.totalMatchingRows = totalMatchingRows
+    }
+}
+
 // MARK: - Accession Map Entry
 
 /// An entry in the accession_map table linking organisms to their reference accessions.
@@ -637,6 +647,80 @@ public final class TaxTriageDatabase: @unchecked Sendable {
         return collectRows(stmt: stmt)
     }
 
+    /// Returns one stable page of taxonomy rows for the given sample names.
+    ///
+    /// - Parameters:
+    ///   - samples: Sample identifiers to fetch. If empty, returns an empty page.
+    ///   - limit: Maximum number of rows to return. Values below 1 return no rows
+    ///     while still reporting the matching total.
+    ///   - offset: Number of matching rows to skip before collecting the page.
+    ///   - organismSearchText: Optional case-insensitive organism substring filter.
+    /// - Returns: A page of rows and the total number of rows matching the same filters.
+    public func fetchRowsPage(
+        samples: [String],
+        limit: Int,
+        offset: Int,
+        organismSearchText: String? = nil
+    ) throws -> TaxTriageRowsPage {
+        guard let db else {
+            throw TaxTriageDatabaseError.queryFailed("Database not open")
+        }
+        guard !samples.isEmpty else {
+            return TaxTriageRowsPage(rows: [], totalMatchingRows: 0)
+        }
+
+        let trimmedSearch = organismSearchText?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let searchPattern = trimmedSearch.flatMap { text -> String? in
+            text.isEmpty ? nil : "%\(Self.escapedLikePattern(text))%"
+        }
+        let placeholders = samples.map { _ in "?" }.joined(separator: ",")
+        var whereClauses = ["sample IN (\(placeholders))"]
+        if searchPattern != nil {
+            whereClauses.append("LOWER(organism) LIKE LOWER(?) ESCAPE '\\'")
+        }
+        let whereSQL = whereClauses.joined(separator: " AND ")
+
+        let total = try countRows(
+            db: db,
+            whereSQL: whereSQL,
+            samples: samples,
+            searchPattern: searchPattern
+        )
+        let safeLimit = max(0, limit)
+        guard safeLimit > 0 else {
+            return TaxTriageRowsPage(rows: [], totalMatchingRows: total)
+        }
+
+        let sql = """
+        SELECT * FROM taxonomy_rows
+        WHERE \(whereSQL)
+        ORDER BY rowid ASC
+        LIMIT ? OFFSET ?
+        """
+
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw TaxTriageDatabaseError.queryFailed(msg)
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        var bindIndex: Int32 = 1
+        for sample in samples {
+            ttBindText(stmt, bindIndex, sample)
+            bindIndex += 1
+        }
+        if let searchPattern {
+            ttBindText(stmt, bindIndex, searchPattern)
+            bindIndex += 1
+        }
+        sqlite3_bind_int64(stmt, bindIndex, sqlite3_int64(safeLimit))
+        sqlite3_bind_int64(stmt, bindIndex + 1, sqlite3_int64(max(0, offset)))
+
+        return TaxTriageRowsPage(rows: collectRows(stmt: stmt), totalMatchingRows: total)
+    }
+
     /// Returns all distinct samples and their organism counts.
     ///
     /// - Returns: Array of (sample, organismCount) tuples ordered by sample name.
@@ -730,6 +814,51 @@ public final class TaxTriageDatabase: @unchecked Sendable {
     }
 
     // MARK: - Private Helpers
+
+    private func countRows(
+        db: OpaquePointer,
+        whereSQL: String,
+        samples: [String],
+        searchPattern: String?
+    ) throws -> Int {
+        let sql = "SELECT COUNT(*) FROM taxonomy_rows WHERE \(whereSQL)"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw TaxTriageDatabaseError.queryFailed(msg)
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        var bindIndex: Int32 = 1
+        for sample in samples {
+            ttBindText(stmt, bindIndex, sample)
+            bindIndex += 1
+        }
+        if let searchPattern {
+            ttBindText(stmt, bindIndex, searchPattern)
+        }
+
+        guard sqlite3_step(stmt) == SQLITE_ROW else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw TaxTriageDatabaseError.queryFailed(msg)
+        }
+        return Int(sqlite3_column_int64(stmt, 0))
+    }
+
+    private static func escapedLikePattern(_ value: String) -> String {
+        var escaped = ""
+        escaped.reserveCapacity(value.count)
+        for character in value {
+            switch character {
+            case "\\", "%", "_":
+                escaped.append("\\")
+                escaped.append(character)
+            default:
+                escaped.append(character)
+            }
+        }
+        return escaped
+    }
 
     /// Reads an optional TEXT column, returning nil if the column is NULL.
     private func optionalText(_ stmt: OpaquePointer?, _ col: Int32) -> String? {

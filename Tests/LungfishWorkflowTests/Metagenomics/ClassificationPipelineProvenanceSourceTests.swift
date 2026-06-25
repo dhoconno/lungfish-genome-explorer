@@ -11,9 +11,21 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
         let pipeline = ClassificationPipeline(condaManager: fixture.condaManager)
 
         let result = try await pipeline.classify(config: config)
+        let compressedOutputURL = config.outputURL.appendingPathExtension("gz")
+        let indexURL = KrakenIndexDatabase.indexURL(for: compressedOutputURL)
 
         XCTAssertEqual(result.reportURL.standardizedFileURL, config.reportURL.standardizedFileURL)
-        XCTAssertEqual(result.outputURL.standardizedFileURL, config.outputURL.standardizedFileURL)
+        XCTAssertEqual(result.outputURL.standardizedFileURL, compressedOutputURL.standardizedFileURL)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: config.outputURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: compressedOutputURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: indexURL.path))
+
+        let index = try KrakenIndexDatabase(url: indexURL)
+        XCTAssertTrue(index.isClassifiedOnly)
+        XCTAssertTrue(index.canResolve(taxIds: [562]))
+        XCTAssertFalse(index.canResolve(taxIds: [0]))
+        XCTAssertEqual(try index.readIds(forTaxIds: [562]), ["read1"])
+        index.close()
 
         let provenance = try XCTUnwrap(ProvenanceRecorder.load(from: config.outputDirectory))
         XCTAssertEqual(provenance.name, "Metagenomics Classification")
@@ -38,8 +50,14 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
             }
         )
         XCTAssertTrue(
-            krakenStep.outputs.contains {
-                $0.path == config.outputURL.path && $0.format == .text && $0.role == .output
+            provenance.steps.flatMap(\.outputs).contains {
+                $0.path == compressedOutputURL.path && $0.format == .text && $0.role == .output
+                    && $0.sha256 != nil && $0.sizeBytes != nil
+            }
+        )
+        XCTAssertTrue(
+            provenance.steps.flatMap(\.outputs).contains {
+                $0.path == indexURL.path && $0.format == .unknown && $0.role == .index
                     && $0.sha256 != nil && $0.sizeBytes != nil
             }
         )

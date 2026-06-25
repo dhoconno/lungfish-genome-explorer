@@ -159,6 +159,20 @@ public final class KrakenIndexDatabase: @unchecked Sendable {
         db = nil
     }
 
+    /// Whether this index intentionally stores only classified reads.
+    ///
+    /// Classified-only indexes are compact and satisfy normal taxon lookups, but
+    /// they cannot answer taxId 0 queries for unclassified reads.
+    public var isClassifiedOnly: Bool {
+        guard let db else { return false }
+        return Self.readMetadataValue(db, key: "classified_only") == "true"
+    }
+
+    /// Returns whether this index can fully resolve the requested taxonomy IDs.
+    public func canResolve(taxIds: Set<Int>) -> Bool {
+        !(isClassifiedOnly && taxIds.contains(0))
+    }
+
     /// Returns the set of read IDs classified to any of the given taxonomy IDs.
     ///
     /// This query uses the `idx_reads_tax_id` index for efficient lookup.
@@ -266,6 +280,7 @@ public final class KrakenIndexDatabase: @unchecked Sendable {
     public static func build(
         from krakenURL: URL,
         to indexURL: URL,
+        includeUnclassified: Bool = true,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) throws {
         // Step 1: Delete existing index.
@@ -336,6 +351,7 @@ public final class KrakenIndexDatabase: @unchecked Sendable {
         }
         defer { sqlite3_finalize(insertStmt) }
 
+        var sourceRecords = 0
         var totalReads = 0
         var classifiedReads = 0
         var batchCount = 0
@@ -392,6 +408,11 @@ public final class KrakenIndexDatabase: @unchecked Sendable {
                 let readId = String(columns[1])
 
                 guard let taxId = Int64(columns[2]) else { continue }
+                sourceRecords += 1
+                if classified == 1 { classifiedReads += 1 }
+                if classified == 0 && !includeUnclassified {
+                    continue
+                }
 
                 // Handle paired-end read lengths (e.g., "150|150").
                 let lengthStr = columns[3]
@@ -427,7 +448,6 @@ public final class KrakenIndexDatabase: @unchecked Sendable {
                 }
 
                 totalReads += 1
-                if classified == 1 { classifiedReads += 1 }
                 batchCount += 1
 
                 // Commit batch and start new transaction.
@@ -451,13 +471,13 @@ public final class KrakenIndexDatabase: @unchecked Sendable {
         // Commit any remaining rows.
         sqlite3_exec(db, "COMMIT", nil, nil, nil)
 
-        guard totalReads > 0 else {
+        guard sourceRecords > 0 else {
             // Clean up the empty database file.
             // Note: db is closed by defer, so just remove the file afterward.
             throw KrakenIndexDatabaseError.emptySource
         }
 
-        logger.info("Parsed \(totalReads) reads (\(classifiedReads) classified)")
+        logger.info("Indexed \(totalReads) reads from \(sourceRecords) Kraken2 records (\(classifiedReads) classified)")
 
         // Step 7: Populate tax_counts from reads.
         progress?(0.88, "Computing taxonomy counts...")
@@ -478,7 +498,9 @@ public final class KrakenIndexDatabase: @unchecked Sendable {
         insertMetadataRow(db, key: "source_size", value: String(sourceSize))
         insertMetadataRow(db, key: "created_at", value: ISO8601DateFormatter().string(from: Date()))
         insertMetadataRow(db, key: "total_reads", value: String(totalReads))
+        insertMetadataRow(db, key: "source_records", value: String(sourceRecords))
         insertMetadataRow(db, key: "classified_reads", value: String(classifiedReads))
+        insertMetadataRow(db, key: "classified_only", value: includeUnclassified ? "false" : "true")
 
         // Step 10: Checkpoint WAL to collapse to a single file.
         progress?(0.98, "Finalizing...")

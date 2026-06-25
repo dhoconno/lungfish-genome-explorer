@@ -5,6 +5,7 @@
 import XCTest
 @testable import LungfishCLI
 @testable import LungfishIO
+@testable import LungfishWorkflow
 
 final class BuildDbCommandTests: XCTestCase {
 
@@ -710,9 +711,9 @@ final class BuildDbCommandTests: XCTestCase {
         XCTAssertNotNil(meta["created_at"])
     }
 
-    /// Verifies that Kraken2 cleanup preserves per-read output, removes the
-    /// index SQLite sidecar, and keeps the report and result metadata.
-    func testKraken2CleanupPreservesPerReadOutputAndRemovesIndex() async throws {
+    /// Verifies that Kraken2 cleanup compacts per-read output, writes the
+    /// classified-read index sidecar, and keeps the report and result metadata.
+    func testKraken2CleanupCompactsPerReadOutputAndRemovesRawIndex() async throws {
         let tmpDir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
@@ -726,19 +727,41 @@ final class BuildDbCommandTests: XCTestCase {
         let sampleDir = resultDir.appendingPathComponent("SRR35517702")
         let krakenOutput = sampleDir.appendingPathComponent("classification.kraken")
         let krakenIndex = sampleDir.appendingPathComponent("classification.kraken.idx.sqlite")
-        fm.createFile(atPath: krakenOutput.path, contents: Data("kraken output".utf8))
+        fm.createFile(
+            atPath: krakenOutput.path,
+            contents: Data("""
+            C\tread-1\t12345\t150\t12345:150
+            U\tread-2\t0\t150\t0:150
+            C\tread-3\t12345\t150\t12345:150
+            """.utf8)
+        )
         fm.createFile(atPath: krakenIndex.path, contents: Data("kraken index".utf8))
 
         // Run build-db (cleanup enabled by default)
         let cmd = try BuildDbCommand.Kraken2Subcommand.parse([resultDir.path, "-q"])
         try await cmd.run()
 
-        // Verify the per-read output remains available for downstream extraction,
-        // while the generated index sidecar is cleaned up.
-        XCTAssertTrue(fm.fileExists(atPath: krakenOutput.path),
-                      "classification.kraken should be preserved for downstream read extraction")
+        let compressedOutput = krakenOutput.appendingPathExtension("gz")
+        let retainedIndex = KrakenIndexDatabase.indexURL(for: compressedOutput)
+
+        // Verify the per-read output is retained in compact form for downstream
+        // extraction, while the old raw-output index sidecar is cleaned up.
+        XCTAssertFalse(fm.fileExists(atPath: krakenOutput.path),
+                       "classification.kraken should be removed after compact retention succeeds")
+        XCTAssertTrue(fm.fileExists(atPath: compressedOutput.path),
+                      "classification.kraken.gz should be preserved for downstream read extraction")
+        XCTAssertTrue(fm.fileExists(atPath: retainedIndex.path),
+                      "classification.kraken.gz.idx.sqlite should be preserved for indexed extraction")
         XCTAssertFalse(fm.fileExists(atPath: krakenIndex.path),
                        "classification.kraken.idx.sqlite should be removed by cleanup")
+
+        let retainedDatabase = try KrakenIndexDatabase(url: retainedIndex)
+        XCTAssertTrue(retainedDatabase.isClassifiedOnly)
+        XCTAssertTrue(retainedDatabase.canResolve(taxIds: [12345]))
+        XCTAssertFalse(retainedDatabase.canResolve(taxIds: [0]))
+
+        let sidecar = try ClassificationResult.load(from: sampleDir)
+        XCTAssertEqual(sidecar.outputURL.lastPathComponent, "classification.kraken.gz")
 
         // Verify kreport and result JSON are preserved
         XCTAssertTrue(fm.fileExists(atPath: sampleDir.appendingPathComponent("classification.kreport").path),

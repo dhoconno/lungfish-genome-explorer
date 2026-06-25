@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishIO
 
 public enum MetagenomicsBatchProvenanceWriter {
     @discardableResult
@@ -397,7 +398,10 @@ public enum MetagenomicsBatchProvenanceWriter {
         let reportPaths = Set((result.reportFiles + result.kronaFiles).map(\.standardizedFileURL.path))
         let logPaths = Set(([result.logFile, result.traceFile].compactMap(\.self)).map(\.standardizedFileURL.path))
 
-        for url in result.allOutputFiles {
+        for url in TaxTriageOutputArtifactPolicy.filterRetainedOutputFiles(
+            result.allOutputFiles,
+            outputDirectory: result.outputDirectory
+        ) {
             let standardizedPath = url.standardizedFileURL.path
             guard FileManager.default.fileExists(atPath: standardizedPath),
                   !isDirectory(url) else {

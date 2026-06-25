@@ -419,7 +419,16 @@ public actor ClassificationPipeline {
             }
         }
 
-        progress?(0.95, "Saving provenance...")
+        progress?(0.95, "Compacting Kraken2 output...")
+
+        let retainedOutputURL = await compactKrakenOutputIfPossible(
+            rawURL: effectiveConfig.outputURL,
+            provenanceRecorder: provenanceRecorder,
+            runID: runID,
+            dependsOn: kraken2StepID.map { [$0] } ?? []
+        ) ?? effectiveConfig.outputURL
+
+        progress?(0.98, "Saving provenance...")
 
         // Phase 6: Complete provenance (0.95 -- 1.0)
         await provenanceRecorder.completeRun(runID, status: .completed)
@@ -437,23 +446,12 @@ public actor ClassificationPipeline {
             config: effectiveConfig,
             tree: tree,
             reportURL: effectiveConfig.reportURL,
-            outputURL: effectiveConfig.outputURL,
+            outputURL: retainedOutputURL,
             brackenURL: brackenOutputURL,
             runtime: totalRuntime,
             toolVersion: toolVersion,
             provenanceId: runID
         )
-
-        // Build the Kraken index sidecar for fast taxon-specific lookups
-        // (BLAST verification, sequence extraction). Non-fatal if it fails.
-        do {
-            let krakenURL = effectiveConfig.outputURL
-            let indexURL = KrakenIndexDatabase.indexURL(for: krakenURL)
-            try KrakenIndexDatabase.build(from: krakenURL, to: indexURL)
-            logger.info("Built classification index at \(indexURL.lastPathComponent, privacy: .public)")
-        } catch {
-            logger.warning("Failed to build classification index: \(error.localizedDescription, privacy: .public)")
-        }
 
         progress?(1.0, "Classification complete")
 
@@ -461,6 +459,110 @@ public actor ClassificationPipeline {
         logger.info("Pipeline complete: \(totalReads, privacy: .public) reads, \(speciesCount, privacy: .public) species, \(runtimeStr, privacy: .public)s")
 
         return result
+    }
+
+    private func compactKrakenOutputIfPossible(
+        rawURL: URL,
+        provenanceRecorder: ProvenanceRecorder,
+        runID: UUID,
+        dependsOn: [UUID]
+    ) async -> URL? {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: rawURL.path) else { return nil }
+
+        let compressedURL = rawURL.appendingPathExtension("gz")
+        let indexURL = KrakenIndexDatabase.indexURL(for: compressedURL)
+        let indexStartedAt = Date()
+
+        do {
+            try? fm.removeItem(at: indexURL)
+            try KrakenIndexDatabase.build(
+                from: rawURL,
+                to: indexURL,
+                includeUnclassified: false
+            )
+            let indexCompletedAt = Date()
+            _ = await provenanceRecorder.recordStep(
+                runID: runID,
+                toolName: "lungfish-kraken2-index",
+                toolVersion: Self.kraken2GithubReleaseVersion,
+                command: [
+                    "lungfish",
+                    "internal",
+                    "kraken2-index",
+                    "--classified-only",
+                    rawURL.path,
+                    indexURL.path,
+                ],
+                inputs: [
+                    ProvenanceRecorder.fileRecord(url: rawURL, format: .text, role: .input),
+                ],
+                outputs: [
+                    ProvenanceRecorder.fileRecord(url: indexURL, format: .unknown, role: .index),
+                ],
+                exitCode: 0,
+                wallTime: indexCompletedAt.timeIntervalSince(indexStartedAt),
+                dependsOn: dependsOn
+            )
+
+            let gzipStartedAt = Date()
+            try gzipCopy(source: rawURL, destination: compressedURL)
+            let gzipCompletedAt = Date()
+            _ = await provenanceRecorder.recordStep(
+                runID: runID,
+                toolName: "gzip",
+                toolVersion: "system",
+                command: ["/usr/bin/gzip", "-c", rawURL.path],
+                inputs: [
+                    ProvenanceRecorder.fileRecord(url: rawURL, format: .text, role: .input),
+                ],
+                outputs: [
+                    ProvenanceRecorder.fileRecord(url: compressedURL, format: .text, role: .output),
+                ],
+                exitCode: 0,
+                wallTime: gzipCompletedAt.timeIntervalSince(gzipStartedAt),
+                dependsOn: dependsOn
+            )
+
+            try fm.removeItem(at: rawURL)
+            logger.info(
+                "Compacted Kraken2 output to \(compressedURL.lastPathComponent, privacy: .public) and \(indexURL.lastPathComponent, privacy: .public)"
+            )
+            return compressedURL
+        } catch {
+            logger.warning("Failed to compact Kraken2 output; retaining raw output: \(error.localizedDescription, privacy: .public)")
+            try? fm.removeItem(at: compressedURL)
+            try? fm.removeItem(at: indexURL)
+            return nil
+        }
+    }
+
+    private func gzipCopy(source: URL, destination: URL) throws {
+        let fm = FileManager.default
+        try? fm.removeItem(at: destination)
+        fm.createFile(atPath: destination.path, contents: nil)
+        let outputHandle = try FileHandle(forWritingTo: destination)
+        defer { outputHandle.closeFile() }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+        process.arguments = ["-c", source.path]
+        process.standardOutput = outputHandle
+        let stderr = Pipe()
+        process.standardError = stderr
+        try process.run()
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0 else {
+            let stderrText = String(
+                data: stderr.fileHandleForReading.readDataToEndOfFile(),
+                encoding: .utf8
+            ) ?? ""
+            throw ClassificationPipelineError.kraken2Failed(
+                exitCode: process.terminationStatus,
+                stderr: stderrText
+            )
+        }
     }
 
     // MARK: - Memory Mapping Auto-Enable

@@ -1752,6 +1752,28 @@ final class FastqCommandTests: XCTestCase {
 
 final class BlastVerifyCommandTests: XCTestCase {
 
+    func testBlastScanKrakenOutputReadsCompressedOutput() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BlastVerifyCommandTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let rawOutput = tempDir.appendingPathComponent("classification.kraken")
+        try """
+        C\tread-a/1\t562\t150\t562:150
+        U\tread-b\t0\t150\t0:150
+        C\tread-c/2\t562\t150\t562:150
+        C\tread-d\t12345\t150\t12345:150
+        """.write(to: rawOutput, atomically: true, encoding: .utf8)
+
+        let compressedOutput = rawOutput.appendingPathExtension("gz")
+        try gzipForBlastCommandTest(source: rawOutput, destination: compressedOutput)
+
+        let ids = try blastScanKrakenOutput(url: compressedOutput, targetTaxIds: [562])
+
+        XCTAssertEqual(ids, Set(["read-a", "read-c"]))
+    }
+
     /// Verifies that blast verify parses all required arguments.
     func testCLIBlastArgumentParsing() throws {
         let cmd = try BlastCommand.VerifySubcommand.parse([
@@ -1841,5 +1863,34 @@ final class BlastVerifyCommandTests: XCTestCase {
         let subcommands = BlastCommand.configuration.subcommands
         let names = subcommands.map { $0.configuration.commandName }
         XCTAssertTrue(names.contains("verify"), "BlastCommand should have verify subcommand")
+    }
+}
+
+private func gzipForBlastCommandTest(source: URL, destination: URL) throws {
+    let fm = FileManager.default
+    try? fm.removeItem(at: destination)
+    fm.createFile(atPath: destination.path, contents: nil)
+    let outputHandle = try FileHandle(forWritingTo: destination)
+    defer { outputHandle.closeFile() }
+
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+    process.arguments = ["-c", source.path]
+    process.standardOutput = outputHandle
+    let stderr = Pipe()
+    process.standardError = stderr
+    try process.run()
+    process.waitUntilExit()
+
+    guard process.terminationStatus == 0 else {
+        let stderrText = String(
+            data: stderr.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+        throw NSError(
+            domain: "BlastVerifyCommandTests",
+            code: Int(process.terminationStatus),
+            userInfo: [NSLocalizedDescriptionKey: stderrText]
+        )
     }
 }

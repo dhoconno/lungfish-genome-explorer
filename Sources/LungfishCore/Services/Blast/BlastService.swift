@@ -181,28 +181,15 @@ public actor BlastService {
         let classificationExists = FileManager.default.fileExists(atPath: classificationOutputURL.path)
         logger.info("buildVerificationRequest: classification file exists=\(classificationExists, privacy: .public)")
 
-        if classificationExists,
-           let data = try? Data(contentsOf: classificationOutputURL),
-           let text = String(data: data, encoding: .utf8) {
-            var totalClassified = 0
-            for line in text.split(separator: "\n") {
-                let cols = line.split(separator: "\t", maxSplits: 3)
-                guard cols.count >= 3, cols[0] == "C" else { continue }
-                totalClassified += 1
-                if let tid = Int(cols[2].trimmingCharacters(in: .whitespaces)),
-                   targetTaxIds.contains(tid) {
-                    var readId = String(cols[1].trimmingCharacters(in: .whitespaces))
-                    if readId.hasSuffix("/1") || readId.hasSuffix("/2") {
-                        readId = String(readId.dropLast(2))
-                    }
-                    matchingReadIds.insert(readId)
-                }
-            }
-            logger.info("buildVerificationRequest: scanned \(totalClassified, privacy: .public) classified reads, \(matchingReadIds.count, privacy: .public) match target taxIds")
+        if classificationExists {
+            let scanResult = try scanKrakenClassificationOutput(
+                classificationOutputURL,
+                targetTaxIds: targetTaxIds
+            )
+            matchingReadIds = scanResult.matchingReadIds
+            logger.info("buildVerificationRequest: scanned \(scanResult.totalClassified, privacy: .public) classified reads, \(matchingReadIds.count, privacy: .public) match target taxIds")
         } else if !classificationExists {
             logger.error("buildVerificationRequest: classification output file not found at \(classificationOutputURL.path, privacy: .public)")
-        } else {
-            logger.error("buildVerificationRequest: failed to read classification output file")
         }
 
         guard !matchingReadIds.isEmpty else {
@@ -217,6 +204,105 @@ public actor BlastService {
             sourceURL: sourceURL,
             readCount: readCount
         )
+    }
+
+    private func scanKrakenClassificationOutput(
+        _ classificationOutputURL: URL,
+        targetTaxIds: Set<Int>
+    ) throws -> (matchingReadIds: Set<String>, totalClassified: Int) {
+        let isGzip = classificationOutputURL.pathExtension.lowercased() == "gz"
+        let fileHandle: FileHandle
+        let gzipProcess: Process?
+
+        if isGzip {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+            process.arguments = ["-dc", classificationOutputURL.path]
+            let stdout = Pipe()
+            process.standardOutput = stdout
+            process.standardError = FileHandle.nullDevice
+            try process.run()
+            fileHandle = stdout.fileHandleForReading
+            gzipProcess = process
+        } else {
+            guard let handle = FileHandle(forReadingAtPath: classificationOutputURL.path) else {
+                throw BlastServiceError.noSequences
+            }
+            fileHandle = handle
+            gzipProcess = nil
+        }
+
+        var matchingReadIds = Set<String>()
+        var totalClassified = 0
+        var residual = Data()
+        let bufferSize = 1_048_576
+
+        while true {
+            let chunk = fileHandle.readData(ofLength: bufferSize)
+            if chunk.isEmpty { break }
+
+            var data = residual + chunk
+            residual = Data()
+
+            if let lastNewline = data.lastIndex(of: UInt8(ascii: "\n")) {
+                if lastNewline < data.endIndex - 1 {
+                    residual = data[(lastNewline + 1)...]
+                    data = data[...lastNewline]
+                }
+            } else {
+                residual = data
+                continue
+            }
+
+            if let text = String(data: data, encoding: .utf8) {
+                collectKrakenBlastReadIds(
+                    from: text,
+                    targetTaxIds: targetTaxIds,
+                    matchingReadIds: &matchingReadIds,
+                    totalClassified: &totalClassified
+                )
+            }
+        }
+
+        if !residual.isEmpty, let text = String(data: residual, encoding: .utf8) {
+            collectKrakenBlastReadIds(
+                from: text,
+                targetTaxIds: targetTaxIds,
+                matchingReadIds: &matchingReadIds,
+                totalClassified: &totalClassified
+            )
+        }
+
+        fileHandle.closeFile()
+        if let gzipProcess {
+            gzipProcess.waitUntilExit()
+            guard gzipProcess.terminationStatus == 0 else {
+                throw BlastServiceError.noSequences
+            }
+        }
+
+        return (matchingReadIds, totalClassified)
+    }
+
+    private func collectKrakenBlastReadIds(
+        from text: String,
+        targetTaxIds: Set<Int>,
+        matchingReadIds: inout Set<String>,
+        totalClassified: inout Int
+    ) {
+        for line in text.split(separator: "\n") {
+            let cols = line.split(separator: "\t", maxSplits: 3)
+            guard cols.count >= 3, cols[0] == "C" else { continue }
+            totalClassified += 1
+            if let tid = Int(cols[2].trimmingCharacters(in: .whitespaces)),
+               targetTaxIds.contains(tid) {
+                var readId = String(cols[1].trimmingCharacters(in: .whitespaces))
+                if readId.hasSuffix("/1") || readId.hasSuffix("/2") {
+                    readId = String(readId.dropLast(2))
+                }
+                matchingReadIds.insert(readId)
+            }
+        }
     }
 
     /// Shared implementation: extracts sequences from FASTQ, subsamples, and builds the request.

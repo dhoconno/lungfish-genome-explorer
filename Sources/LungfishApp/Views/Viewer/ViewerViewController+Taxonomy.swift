@@ -201,9 +201,9 @@ extension ViewerViewController {
                     let request: BlastVerificationRequest
 
                     let indexURL = KrakenIndexDatabase.indexURL(for: classificationOutput)
-                    if KrakenIndexDatabase.isValid(at: indexURL, for: classificationOutput) {
+                    if let db = try? KrakenIndexDatabase(url: indexURL),
+                       db.canResolve(taxIds: targetTaxIds) {
                         // Fast path: use indexed lookup
-                        let db = try KrakenIndexDatabase(url: indexURL)
                         let matchingReadIds = try db.readIds(forTaxIds: targetTaxIds)
                         db.close()
                         taxonomyLogger.info("BLAST: indexed lookup found \(matchingReadIds.count, privacy: .public) reads for \(targetTaxIds.count, privacy: .public) taxIds")
@@ -405,8 +405,8 @@ extension ViewerViewController {
                     let request: BlastVerificationRequest
 
                     let indexURL = KrakenIndexDatabase.indexURL(for: classificationOutput)
-                    if KrakenIndexDatabase.isValid(at: indexURL, for: classificationOutput) {
-                        let db = try KrakenIndexDatabase(url: indexURL)
+                    if let db = try? KrakenIndexDatabase(url: indexURL),
+                       db.canResolve(taxIds: targetTaxIds) {
                         let matchingReadIds = try db.readIds(forTaxIds: targetTaxIds)
                         db.close()
                         request = try await blastService.buildVerificationRequestFromReadIds(

@@ -340,15 +340,24 @@ public actor TaxTriagePipeline {
             pipelineLaunchTarget: pipelineProjectSource.launchTarget,
             pipelineRevision: pipelineProjectSource.revision
         )
+        let reproducibleArguments = buildNextflowLaunchArguments(
+            config: effectiveConfig,
+            runtimeConfigURL: runtimeConfigURL,
+            pipelineLaunchTarget: TaxTriageConfig.pipelineRepository,
+            pipelineRevision: effectiveConfig.revision
+        )
         let micromambaArgs = ["run", "-n", nextflowEnvName, "nextflow"] + arguments
+        let reproducibleMicromambaArgs = ["run", "-n", nextflowEnvName, "nextflow"] + reproducibleArguments
         let launchCommand = shellCommand(executablePath: micromambaPath.path, arguments: micromambaArgs)
         logger.info("TaxTriage launch command: \(launchCommand, privacy: .public)")
         let launchMetadata = buildLaunchMetadata(
             requestedConfig: profileAdjustedConfig,
             effectiveConfig: effectiveConfig,
             nextflowArguments: arguments,
+            reproducibleNextflowArguments: reproducibleArguments,
             launcherPath: micromambaPath.path,
             launcherArguments: micromambaArgs,
+            reproducibleLauncherArguments: reproducibleMicromambaArgs,
             workingDirectory: effectiveConfig.outputDirectory,
             environment: environment,
             workflowRepository: TaxTriageConfig.pipelineRepository,
@@ -1076,7 +1085,10 @@ public actor TaxTriagePipeline {
 
         // Discover all files recursively
         let baseRunner = BaseWorkflowRunner(category: "TaxTriageCollector")
-        let allFiles = baseRunner.discoverOutputFiles(in: outputDir, extensions: nil)
+        let allFiles = TaxTriageOutputArtifactPolicy.filterRetainedOutputFiles(
+            baseRunner.discoverOutputFiles(in: outputDir, extensions: nil),
+            outputDirectory: outputDir
+        )
 
         // Categorize by extension and path patterns
         var reportFiles: [URL] = []
@@ -1141,7 +1153,7 @@ public actor TaxTriagePipeline {
     /// FASTA/taxonomy dump staging directory.
     private func pruneOutputArtifacts(in outputDirectory: URL) {
         let fm = FileManager.default
-        let removableDirs = ["work", "download"]
+        let removableDirs = TaxTriageOutputArtifactPolicy.prunableDirectoryNames
 
         for dirName in removableDirs {
             let dirURL = outputDirectory.appendingPathComponent(dirName, isDirectory: true)
@@ -1377,8 +1389,10 @@ public actor TaxTriagePipeline {
         requestedConfig: TaxTriageConfig,
         effectiveConfig: TaxTriageConfig,
         nextflowArguments: [String],
+        reproducibleNextflowArguments: [String]? = nil,
         launcherPath: String,
         launcherArguments: [String],
+        reproducibleLauncherArguments: [String]? = nil,
         workingDirectory: URL,
         environment: [String: String],
         workflowRepository: String = TaxTriageConfig.pipelineRepository,
@@ -1392,29 +1406,33 @@ public actor TaxTriagePipeline {
             "timestamp: \(timestamp)",
             "workflow_repository: \(workflowRepository)",
             "workflow_revision: \(workflowRevision)",
+        ]
+        if let workflowGithubReleaseVersion {
+            lines.append("workflow_github_release_version: \(workflowGithubReleaseVersion)")
+        }
+        if let workflowSnapshotURL {
+            lines.append("workflow_snapshot_directory: \(workflowSnapshotURL.path)")
+        }
+        lines.append(contentsOf: [
             "requested_profile: \(requestedConfig.profile)",
             "effective_profile: \(effectiveConfig.profile)",
             "requested_output_directory: \(requestedConfig.outputDirectory.path)",
             "effective_output_directory: \(effectiveConfig.outputDirectory.path)",
             "working_directory: \(workingDirectory.path)",
             "nextflow_command: \(shellCommand(executablePath: "nextflow", arguments: nextflowArguments))",
-            "launcher_command: \(shellCommand(executablePath: launcherPath, arguments: launcherArguments))",
+        ])
+        if let reproducibleNextflowArguments {
+            lines.append("reproducible_nextflow_command: \(shellCommand(executablePath: "nextflow", arguments: reproducibleNextflowArguments))")
+        }
+        lines.append("launcher_command: \(shellCommand(executablePath: launcherPath, arguments: launcherArguments))")
+        if let reproducibleLauncherArguments {
+            lines.append("reproducible_launcher_command: \(shellCommand(executablePath: launcherPath, arguments: reproducibleLauncherArguments))")
+        }
+        lines.append(contentsOf: [
             "PATH: \(environment["PATH"] ?? "")",
             "NXF_HOME: \(environment["NXF_HOME"] ?? "")",
             "NXF_ANSI_LOG: \(environment["NXF_ANSI_LOG"] ?? "")",
-        ]
-        if let workflowGithubReleaseVersion {
-            lines.insert(
-                "workflow_github_release_version: \(workflowGithubReleaseVersion)",
-                at: 4
-            )
-        }
-        if let workflowSnapshotURL {
-            lines.insert(
-                "workflow_snapshot_directory: \(workflowSnapshotURL.path)",
-                at: 5
-            )
-        }
+        ])
         return lines.joined(separator: "\n") + "\n"
     }
 
@@ -1455,21 +1473,36 @@ public actor TaxTriagePipeline {
         let launcherCommandLine = lines
             .first(where: { $0.hasPrefix("launcher_command: ") })
             .map { String($0.dropFirst("launcher_command: ".count)) } ?? ""
+        let reproducibleLauncherCommandLine = lines
+            .first(where: { $0.hasPrefix("reproducible_launcher_command: ") })
+            .map { String($0.dropFirst("reproducible_launcher_command: ".count)) }
+        let commandLine = reproducibleLauncherCommandLine ?? launcherCommandLine
         let versionComments = lines
             .filter {
                 $0.hasPrefix("workflow_github_release_version: ")
                     || $0.hasPrefix("workflow_revision: ")
                     || $0.hasPrefix("workflow_repository: ")
                     || $0.hasPrefix("workflow_snapshot_directory: ")
+                    || $0.hasPrefix("reproducible_nextflow_command: ")
             }
             .map { "# \($0)" }
             .joined(separator: "\n")
-        let commentBlock = versionComments.isEmpty ? "" : "\(versionComments)\n"
+        let actualCommandComment: String
+        if reproducibleLauncherCommandLine != nil,
+           !launcherCommandLine.isEmpty,
+           launcherCommandLine != reproducibleLauncherCommandLine {
+            actualCommandComment = "# actual_launcher_command: \(launcherCommandLine)\n"
+        } else {
+            actualCommandComment = ""
+        }
+        let commentBlock = versionComments.isEmpty && actualCommandComment.isEmpty
+            ? ""
+            : "\(versionComments)\n\(actualCommandComment)"
         return """
         #!/usr/bin/env bash
         set -euo pipefail
         \(commentBlock)cd \(shellEscape(directory.path))
-        \(launcherCommandLine)
+        \(commandLine)
         """
     }
 
