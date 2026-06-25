@@ -56,6 +56,10 @@ final class TaxTriagePipelineProvenanceSourceTests: XCTestCase {
             $0.path.hasSuffix("taxtriage-result.json") && $0.role == .output
                 && $0.sha256 != nil && $0.sizeBytes != nil
         })
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: outputURL.appendingPathComponent("download").path),
+            "TaxTriage should prune downloaded taxonomy/reference intermediates after collecting durable outputs."
+        )
     }
 }
 
@@ -153,7 +157,11 @@ private struct FakeTaxTriageRuntimeFixture {
       exit 64
     fi
     mkdir -p "$outdir/top"
+    mkdir -p "$outdir/download"
     printf 'sample\\torganism\\nS1\\tExample virus\\n' > "$outdir/top/S1.top_report.tsv"
+    printf 'large taxonomy names dump\\n' > "$outdir/download/names.dmp"
+    printf 'large taxonomy nodes dump\\n' > "$outdir/download/nodes.dmp"
+    printf '>ref\\nACGT\\n' > "$outdir/download/S1.dwnld.references.fasta"
     if [ -n "$trace" ]; then
       mkdir -p "$(dirname "$trace")"
       printf 'task_id\\tprocess\\tstatus\\n1\\tTAXTRIAGE\\tCOMPLETED\\n' > "$trace"

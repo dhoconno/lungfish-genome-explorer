@@ -149,6 +149,74 @@ final class TaxTriagePipelineTests: XCTestCase {
         return (repoURL, revision)
     }
 
+    private func createDirtyCachedTaxTriageRepositoryMissingRemoteRevision(
+        in home: URL
+    ) throws -> (repoURL: URL, revision: String) {
+        let originURL = home.appendingPathComponent("taxtriage-origin", isDirectory: true)
+        try FileManager.default.createDirectory(at: originURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: originURL.appendingPathComponent("workflows", isDirectory: true), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: originURL.appendingPathComponent("bin", isDirectory: true), withIntermediateDirectories: true)
+
+        try """
+        workflow TAXTRIAGE {
+            INITIAL()
+        }
+        """.write(
+            to: originURL.appendingPathComponent("workflows/taxtriage.nf"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        def get_url(utl, id):
+            bb = os.path.basename(utl)
+            return utl+"/"+bb+"_genomic.fna.gz"
+        """.write(
+            to: originURL.appendingPathComponent("bin/download_fastas.py"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        try runCommand("/usr/bin/git", ["init", "--initial-branch=main"], workingDirectory: originURL)
+        try runCommand("/usr/bin/git", ["config", "user.email", "codex@example.com"], workingDirectory: originURL)
+        try runCommand("/usr/bin/git", ["config", "user.name", "Codex"], workingDirectory: originURL)
+        try runCommand("/usr/bin/git", ["add", "."], workingDirectory: originURL)
+        try runCommand("/usr/bin/git", ["commit", "-m", "Initial"], workingDirectory: originURL)
+
+        let repoURL = home
+            .appendingPathComponent(".nextflow", isDirectory: true)
+            .appendingPathComponent("assets", isDirectory: true)
+            .appendingPathComponent("jhuapl-bio", isDirectory: true)
+            .appendingPathComponent("taxtriage", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try runCommand("/usr/bin/git", ["clone", originURL.path, repoURL.path])
+
+        try """
+        workflow TAXTRIAGE {
+            REQUESTED_REMOTE_REVISION()
+        }
+        """.write(
+            to: originURL.appendingPathComponent("workflows/taxtriage.nf"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try runCommand("/usr/bin/git", ["add", "."], workingDirectory: originURL)
+        try runCommand("/usr/bin/git", ["commit", "-m", "Requested revision"], workingDirectory: originURL)
+        let requestedRevision = try runCommand("/usr/bin/git", ["rev-parse", "HEAD"], workingDirectory: originURL)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        try """
+        workflow TAXTRIAGE {
+            DIRTY_LOCAL_CACHE()
+        }
+        """.write(
+            to: repoURL.appendingPathComponent("workflows/taxtriage.nf"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        return (repoURL, requestedRevision)
+    }
+
     func testParseIgnoredFailuresFromNextflowLog() {
         let log = """
         [aa/111111] Submitted process > NFCORE_TAXTRIAGE:TAXTRIAGE:ALIGNMENT:MINIMAP2_ALIGN (SRR35517992.SRR35517992.dwnld.references)
@@ -1167,6 +1235,38 @@ final class TaxTriagePipelineTests: XCTestCase {
         XCTAssertTrue(exportedDownloadScript.contains("return line.rstrip()"))
         XCTAssertTrue(exportedDownloadScript.contains("bb = os.path.basename(utl.rstrip('/'))"))
         XCTAssertTrue(exportedDownloadScript.contains("return utl.rstrip('/')+\"/\"+bb+\"_genomic.fna.gz\""))
+    }
+
+    func testPreparePipelineProjectSourceFetchesMissingRevisionFromDirtyCacheOrigin() async throws {
+        let home = try makeTempDirectory(prefix: "taxtriage-home")
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let (repoURL, revision) = try createDirtyCachedTaxTriageRepositoryMissingRemoteRevision(in: home)
+
+        let pipeline = TaxTriagePipeline(homeDirectoryProvider: { home })
+        let prepared = try await pipeline.preparePipelineProjectSource(forRevision: revision)
+        defer {
+            if let cleanupDirectory = prepared.cleanupDirectory {
+                try? FileManager.default.removeItem(at: cleanupDirectory)
+            }
+        }
+
+        XCTAssertNotEqual(prepared.launchTarget, TaxTriageConfig.pipelineRepository)
+        XCTAssertNil(prepared.revision)
+
+        let exportedProject = URL(fileURLWithPath: prepared.launchTarget)
+        let exportedWorkflow = try String(
+            contentsOf: exportedProject.appendingPathComponent("workflows/taxtriage.nf"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(exportedWorkflow.contains("REQUESTED_REMOTE_REVISION()"))
+        XCTAssertFalse(exportedWorkflow.contains("DIRTY_LOCAL_CACHE()"))
+
+        let cachedWorkflow = try String(
+            contentsOf: repoURL.appendingPathComponent("workflows/taxtriage.nf"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(cachedWorkflow.contains("DIRTY_LOCAL_CACHE()"))
     }
 
     func testPatchedTaxTriageDownloadScriptContentIgnoresUnrelatedRstripUsage() {

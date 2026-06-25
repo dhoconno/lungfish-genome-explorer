@@ -773,7 +773,7 @@ public actor TaxTriagePipeline {
             )
         }
 
-        guard await cachedRepositoryContainsRevision(cachedRepositoryURL, revision: revision) else {
+        guard await cachedRepositoryCanProvideRevision(cachedRepositoryURL, revision: revision) else {
             return PreparedPipelineProjectSource(
                 launchTarget: TaxTriageConfig.pipelineRepository,
                 revision: revision,
@@ -825,6 +825,14 @@ public actor TaxTriagePipeline {
         }
     }
 
+    private func cachedRepositoryCanProvideRevision(_ repositoryURL: URL, revision: String) async -> Bool {
+        if await cachedRepositoryContainsRevision(repositoryURL, revision: revision) {
+            return true
+        }
+        await fetchCachedRepository(repositoryURL, requestedRevision: revision)
+        return await cachedRepositoryContainsRevision(repositoryURL, revision: revision)
+    }
+
     private func cachedRepositoryContainsRevision(_ repositoryURL: URL, revision: String) async -> Bool {
         let gitURL = URL(fileURLWithPath: "/usr/bin/git")
         do {
@@ -837,6 +845,33 @@ public actor TaxTriagePipeline {
         } catch {
             logger.warning("Failed to inspect cached TaxTriage revision \(revision, privacy: .public): \(error.localizedDescription)")
             return false
+        }
+    }
+
+    private func fetchCachedRepository(_ repositoryURL: URL, requestedRevision: String) async {
+        let gitURL = URL(fileURLWithPath: "/usr/bin/git")
+        do {
+            let result = try await processManager.runAndWait(
+                executable: gitURL,
+                arguments: ["-C", repositoryURL.path, "fetch", "--tags", "--prune", "origin"],
+                workingDirectory: repositoryURL
+            )
+            if result.exitCode == 0 {
+                logger.info("Fetched TaxTriage cached repository before staging revision \(requestedRevision, privacy: .public)")
+                return
+            }
+
+            let fallback = try await processManager.runAndWait(
+                executable: gitURL,
+                arguments: ["-C", repositoryURL.path, "fetch", "origin", requestedRevision],
+                workingDirectory: repositoryURL
+            )
+            if fallback.exitCode != 0 {
+                let stderr = fallback.stderr.isEmpty ? result.stderr : fallback.stderr
+                logger.warning("Failed to fetch TaxTriage cached revision \(requestedRevision, privacy: .public): \(stderr, privacy: .public)")
+            }
+        } catch {
+            logger.warning("Failed to fetch TaxTriage cached repository: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -1102,10 +1137,11 @@ public actor TaxTriagePipeline {
     /// reproducibility or in-app exploration.
     ///
     /// The viewer uses persisted reports/metrics/BAM outputs and sidecars,
-    /// not Nextflow's `work/` cache tree.
+    /// not Nextflow's `work/` cache tree or TaxTriage's downloaded reference
+    /// FASTA/taxonomy dump staging directory.
     private func pruneOutputArtifacts(in outputDirectory: URL) {
         let fm = FileManager.default
-        let removableDirs = ["work"]
+        let removableDirs = ["work", "download"]
 
         for dirName in removableDirs {
             let dirURL = outputDirectory.appendingPathComponent(dirName, isDirectory: true)
