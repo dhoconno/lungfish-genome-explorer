@@ -1538,6 +1538,45 @@ final class BlastBuildRequestTests: XCTestCase {
         XCTAssertEqual(request.sequences.count, 20, "Should subsample to 20 reads")
     }
 
+    func testBuildVerificationRequestScansCompressedKrakenOutput() async throws {
+        let rawClassURL = tempDir.appendingPathComponent("output.kraken")
+        try "C\tread_001\t562\t150\t562:150\n"
+            .write(to: rawClassURL, atomically: true, encoding: .utf8)
+
+        let gzClassURL = rawClassURL.appendingPathExtension("gz")
+        let gzipProc = Process()
+        gzipProc.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+        gzipProc.arguments = ["-c", rawClassURL.path]
+        let outPipe = Pipe()
+        gzipProc.standardOutput = outPipe
+        try gzipProc.run()
+        let compressed = outPipe.fileHandleForReading.readDataToEndOfFile()
+        gzipProc.waitUntilExit()
+        try compressed.write(to: gzClassURL)
+        try FileManager.default.removeItem(at: rawClassURL)
+
+        let sourceURL = tempDir.appendingPathComponent("reads.fastq")
+        try """
+            @read_001
+            ATGCATGCATGC
+            +
+            IIIIIIIIIIII
+
+            """.write(to: sourceURL, atomically: true, encoding: .utf8)
+
+        let request = try await service.buildVerificationRequest(
+            taxonName: "E. coli",
+            taxId: 562,
+            targetTaxIds: [562],
+            classificationOutputURL: gzClassURL,
+            sourceURL: sourceURL,
+            readCount: 20
+        )
+
+        XCTAssertEqual(request.sequences.count, 1)
+        XCTAssertEqual(request.sequences.first?.id, "read_001")
+    }
+
     func testPairedEndSuffixStripping() async throws {
         // Kraken2 output uses /1 suffix, FASTQ uses /1 suffix — both should be stripped
         let classURL = tempDir.appendingPathComponent("output.kraken")

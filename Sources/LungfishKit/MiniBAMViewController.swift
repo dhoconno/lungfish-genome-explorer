@@ -99,6 +99,8 @@ public final class MiniBAMViewController: NSViewController {
     private var reads: [AlignedRead] = []
     private var depthPoints: [DepthPoint] = []
     private var referenceSequence: String?
+    private var displayedReadSetIsSketch = false
+    private var estimatedTotalReadCount: Int?
     public private(set) var uniqueReadCount: Int = 0
 
     // MARK: - Subviews
@@ -142,6 +144,9 @@ public final class MiniBAMViewController: NSViewController {
 
     /// Maximum number of BAM+contig entries held in memory.
     private static let maxCachedContigs = 20
+
+    /// First-pass read sketch size for large TaxTriage/EsViritu contig selections.
+    private static let initialReadSketchTarget = 2_500
 
     /// Ordered insertion keys so we can evict the oldest entry on overflow.
     private var cacheInsertionOrder: [String] = []
@@ -481,6 +486,12 @@ public final class MiniBAMViewController: NSViewController {
         }
 
         let total = reads.count
+        if displayedReadSetIsSketch {
+            let estimatedTotal = estimatedTotalReadCount.map(miniBAMFormatCount) ?? "many"
+            statusLabel.stringValue = "\(miniBAMFormatCount(total)) of \(estimatedTotal) reads · sketch · \(zoomText) · loading full alignments"
+            return
+        }
+
         statusLabel.stringValue = "\(miniBAMFormatCount(total)) reads · \(zoomText) · ⌘+/⌘- to zoom"
         onReadStatsUpdated?(total, uniqueReadCount)
     }
@@ -559,6 +570,8 @@ public final class MiniBAMViewController: NSViewController {
         if readNameAllowlist == nil, let cached = contigCache[key] {
             reads = cached.reads
             uniqueReadCount = cached.uniqueReadCount
+            displayedReadSetIsSketch = false
+            estimatedTotalReadCount = nil
             updatePileup()
             scrollToTop()
             updateZoomStatus()
@@ -582,6 +595,58 @@ public final class MiniBAMViewController: NSViewController {
             guard let self else { return }
             let requestedContig = contig
             do {
+                if maxReads == .max, readNameAllowlist == nil {
+                    let sketch = try await provider.fetchReadSketch(
+                        chromosome: contig,
+                        start: 0,
+                        end: contigLength,
+                        excludeFlags: 0x904,
+                        targetReads: Self.initialReadSketchTarget
+                    )
+                    guard !Task.isCancelled else { return }
+                    guard self.loadGeneration == generation else { return }
+                    guard self.contigName == requestedContig else { return }
+
+                    if sketch.isSubsampled {
+                        let display = Self.displayReadsAndUniqueCount(
+                            from: sketch.reads,
+                            readNameAllowlist: nil
+                        )
+                        self.reads = display.reads
+                        self.uniqueReadCount = display.uniqueReadCount
+                        self.displayedReadSetIsSketch = true
+                        self.estimatedTotalReadCount = sketch.estimatedTotalReads
+                        self.updatePileup()
+                        self.scrollToTop()
+                        self.updateZoomStatus()
+                    } else {
+                        let display = Self.displayReadsAndUniqueCount(
+                            from: sketch.reads,
+                            readNameAllowlist: nil
+                        )
+                        self.reads = display.reads
+                        self.uniqueReadCount = display.uniqueReadCount
+                        self.displayedReadSetIsSketch = false
+                        self.estimatedTotalReadCount = nil
+                        self.updatePileup()
+                        self.scrollToTop()
+                        self.updateZoomStatus()
+                        self.scheduleDeferredReferenceInferenceIfNeeded(
+                            reads: display.reads,
+                            requestedContig: requestedContig,
+                            generation: generation
+                        )
+
+                        let result = CachedContigResult(
+                            reads: display.reads,
+                            uniqueReadCount: display.uniqueReadCount
+                        )
+                        self.cacheResult(result, key: key)
+                        logger.info("Loaded \(display.reads.count) reads for \(contig, privacy: .public)")
+                        return
+                    }
+                }
+
                 let fetchedReads = try await provider.fetchReads(
                     chromosome: contig,
                     start: 0,
@@ -599,6 +664,8 @@ public final class MiniBAMViewController: NSViewController {
 
                 self.reads = display.reads
                 self.uniqueReadCount = display.uniqueReadCount
+                self.displayedReadSetIsSketch = false
+                self.estimatedTotalReadCount = nil
                 self.updatePileup()
 
                 // Keep the coverage/reference tracks pinned at the top of the viewport.
@@ -809,6 +876,8 @@ public final class MiniBAMViewController: NSViewController {
         reads = []
         depthPoints = []
         uniqueReadCount = 0
+        displayedReadSetIsSketch = false
+        estimatedTotalReadCount = nil
         referenceSequence = nil
         pileupView.clear()
         statusLabel.stringValue = emptyStatusText
@@ -1002,24 +1071,69 @@ final class MiniPileupView: NSView {
         packInvocationCount += 1
         packedRows = []
         let sorted = reads.indices.sorted { reads[$0].position < reads[$1].position }
+        var rowAvailabilityHeap: [(end: Int, row: Int)] = []
+
+        func hasPriority(_ lhs: (end: Int, row: Int), _ rhs: (end: Int, row: Int)) -> Bool {
+            if lhs.end == rhs.end {
+                return lhs.row < rhs.row
+            }
+            return lhs.end < rhs.end
+        }
+
+        func pushAvailableRow(_ value: (end: Int, row: Int)) {
+            rowAvailabilityHeap.append(value)
+            var child = rowAvailabilityHeap.count - 1
+            while child > 0 {
+                let parent = (child - 1) / 2
+                guard hasPriority(rowAvailabilityHeap[child], rowAvailabilityHeap[parent]) else { break }
+                rowAvailabilityHeap.swapAt(child, parent)
+                child = parent
+            }
+        }
+
+        func popAvailableRow() -> (end: Int, row: Int)? {
+            guard !rowAvailabilityHeap.isEmpty else { return nil }
+            if rowAvailabilityHeap.count == 1 {
+                return rowAvailabilityHeap.removeLast()
+            }
+
+            let result = rowAvailabilityHeap[0]
+            rowAvailabilityHeap[0] = rowAvailabilityHeap.removeLast()
+
+            var parent = 0
+            while true {
+                let left = parent * 2 + 1
+                let right = left + 1
+                var candidate = parent
+
+                if left < rowAvailabilityHeap.count,
+                   hasPriority(rowAvailabilityHeap[left], rowAvailabilityHeap[candidate]) {
+                    candidate = left
+                }
+                if right < rowAvailabilityHeap.count,
+                   hasPriority(rowAvailabilityHeap[right], rowAvailabilityHeap[candidate]) {
+                    candidate = right
+                }
+                guard candidate != parent else { break }
+                rowAvailabilityHeap.swapAt(parent, candidate)
+                parent = candidate
+            }
+
+            return result
+        }
 
         for idx in sorted {
             let read = reads[idx]
 
-            // Find first row where this read fits
-            var placed = false
-            for row in 0..<packedRows.count {
-                if let lastIdx = packedRows[row].last {
-                    let lastEnd = reads[lastIdx].alignmentEnd
-                    if read.position > lastEnd + 2 {  // 2bp gap
-                        packedRows[row].append(idx)
-                        placed = true
-                        break
-                    }
-                }
-            }
-            if !placed {
+            if let earliest = rowAvailabilityHeap.first,
+               read.position > earliest.end + 2,
+               let row = popAvailableRow() {
+                packedRows[row.row].append(idx)
+                pushAvailableRow((end: read.alignmentEnd, row: row.row))
+            } else {
+                let row = packedRows.count
                 packedRows.append([idx])
+                pushAvailableRow((end: read.alignmentEnd, row: row))
             }
         }
     }

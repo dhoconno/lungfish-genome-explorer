@@ -146,6 +146,8 @@ public enum MetagenomicsImportService {
     ///
     /// The imported folder always contains:
     /// - `classification.kreport`
+    /// - `classification.kraken.gz` and `classification.kraken.gz.idx.sqlite`
+    ///   when a per-read output file is supplied
     /// - `classification.kraken` (empty placeholder when no output file is supplied)
     /// - `classification-result.json`
     public static func importKraken2(
@@ -187,9 +189,11 @@ public enum MetagenomicsImportService {
         try copyFile(kreportURL, to: canonicalReportURL)
 
         let canonicalOutputURL = resultDirectory.appendingPathComponent("classification.kraken")
+        let retainedOutputURL: URL
         progress?(0.45, "Copying read classifications...")
         if let outputFileURL {
             try copyFile(outputFileURL, to: canonicalOutputURL)
+            retainedOutputURL = compactKrakenOutput(canonicalOutputURL)
         } else {
             if !fm.createFile(atPath: canonicalOutputURL.path, contents: nil) {
                 throw MetagenomicsImportError.copyFailed(
@@ -198,6 +202,7 @@ public enum MetagenomicsImportService {
                     reason: "Could not create placeholder output file"
                 )
             }
+            retainedOutputURL = canonicalOutputURL
         }
 
         progress?(0.65, "Parsing kreport...")
@@ -221,7 +226,7 @@ public enum MetagenomicsImportService {
             config: config,
             tree: tree,
             reportURL: canonicalReportURL,
-            outputURL: canonicalOutputURL,
+            outputURL: retainedOutputURL,
             brackenURL: nil,
             runtime: 0,
             toolVersion: "imported",
@@ -243,6 +248,19 @@ public enum MetagenomicsImportService {
             totalReads: tree.totalReads,
             speciesCount: tree.speciesCount
         )
+    }
+
+    private static func compactKrakenOutput(_ rawURL: URL) -> URL {
+        do {
+            return try KrakenOutputCompactor.compact(
+                rawURL: rawURL,
+                includeUnclassifiedInIndex: false,
+                removeRawOnSuccess: true
+            )
+        } catch {
+            logger.warning("Failed to compact imported Kraken2 output; retaining raw output: \(error.localizedDescription, privacy: .public)")
+            return rawURL
+        }
     }
 
     /// Imports EsViritu files into a canonical result directory and writes `esviritu-result.json`.

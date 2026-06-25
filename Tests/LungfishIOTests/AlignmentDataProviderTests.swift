@@ -136,6 +136,37 @@ final class AlignmentDataProviderTests: XCTestCase {
         XCTAssertTrue(reads.isEmpty)
     }
 
+    func testReadSketchSubsampleFractionOnlySamplesWhenOverTarget() {
+        XCTAssertNil(AlignmentDataProvider.readSketchSubsampleFraction(totalReads: 2_500, targetReads: 2_500))
+        XCTAssertNil(AlignmentDataProvider.readSketchSubsampleFraction(totalReads: 100, targetReads: 0))
+
+        let fraction = AlignmentDataProvider.readSketchSubsampleFraction(totalReads: 10_000, targetReads: 2_500)
+        XCTAssertEqual(fraction ?? 0, 0.25, accuracy: 0.000_001)
+
+        let tinyFraction = AlignmentDataProvider.readSketchSubsampleFraction(totalReads: 10_000_000_000, targetReads: 1)
+        XCTAssertEqual(tinyFraction ?? 0, 0.000_001, accuracy: 0.000_000_1)
+    }
+
+    func testFetchReadSketchValidatesRegionBeforeTargetLimit() async {
+        let provider = AlignmentDataProvider(
+            alignmentPath: "/nonexistent.bam",
+            indexPath: "/nonexistent.bam.bai"
+        )
+
+        do {
+            _ = try await provider.fetchReadSketch(chromosome: "", start: 0, end: 100, targetReads: 0)
+            XCTFail("Expected invalid region error")
+        } catch let error as AlignmentFetchError {
+            if case .invalidRegion = error {
+                // Expected
+            } else {
+                XCTFail("Expected .invalidRegion but got \(error)")
+            }
+        } catch {
+            XCTFail("Expected AlignmentFetchError but got \(type(of: error))")
+        }
+    }
+
     // MARK: - AlignmentFetchError
 
     func testAlignmentFetchErrorSamtoolsNotFoundDescription() {

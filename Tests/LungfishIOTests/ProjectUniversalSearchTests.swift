@@ -177,6 +177,20 @@ final class ProjectUniversalSearchTests: XCTestCase {
         )
     }
 
+    func testTaxTriageWorkflowSourcePathsAreNotSearchable() throws {
+        try makeTaxTriageResultDirectory()
+
+        let index = try ProjectUniversalSearchIndex(projectURL: projectURL)
+        _ = try index.rebuild()
+
+        let matches = try index.search(rawQuery: "workflow-source large-reference", limit: 20)
+
+        XCTAssertFalse(
+            matches.contains(where: { $0.kind == "taxtriage_result" || $0.kind == "taxtriage_organism" }),
+            "TaxTriage workflow snapshots are execution staging details, not searchable result content"
+        )
+    }
+
     func testSearchEscapesLikeWildcardsInTextAndAttributeFilters() throws {
         _ = try makeFASTQBundle(
             name: "Alpha%Literal",
@@ -374,11 +388,19 @@ final class ProjectUniversalSearchTests: XCTestCase {
     private func makeTaxTriageResultDirectory() throws {
         let directory = projectURL.appendingPathComponent("taxtriage-20250328-120000", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let workflowSourceDirectory = directory
+            .appendingPathComponent("workflow-source/taxtriage/assets", isDirectory: true)
+        try FileManager.default.createDirectory(at: workflowSourceDirectory, withIntermediateDirectories: true)
+        let workflowSourceURL = workflowSourceDirectory.appendingPathComponent("large-reference.tsv")
+        try "large reference fixture\n".write(to: workflowSourceURL, atomically: true, encoding: .utf8)
 
         let sidecar: [String: Any] = [
             "runtime": 7.4,
             "exitCode": 0,
             "savedAt": "2026-03-28T12:00:00Z",
+            "allOutputFiles": [
+                workflowSourceURL.path,
+            ],
         ]
         let sidecarData = try JSONSerialization.data(withJSONObject: sidecar, options: [.sortedKeys])
         try sidecarData.write(to: directory.appendingPathComponent("taxtriage-result.json"))

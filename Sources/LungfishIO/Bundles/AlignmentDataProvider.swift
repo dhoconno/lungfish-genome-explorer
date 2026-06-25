@@ -50,6 +50,21 @@ public enum AlignmentConsensusMode: String, Sendable, CaseIterable {
     case simple
 }
 
+/// A bounded, representative read set for fast first-pass alignment rendering.
+public struct AlignmentReadSketch: Sendable {
+    public let reads: [AlignedRead]
+    public let estimatedTotalReads: Int
+    public let targetReads: Int
+    public let isSubsampled: Bool
+
+    public init(reads: [AlignedRead], estimatedTotalReads: Int, targetReads: Int, isSubsampled: Bool) {
+        self.reads = reads
+        self.estimatedTotalReads = estimatedTotalReads
+        self.targetReads = targetReads
+        self.isSubsampled = isSubsampled
+    }
+}
+
 // MARK: - AlignmentDataProvider
 
 /// Provides read alignment data by shelling out to samtools for region queries.
@@ -129,36 +144,22 @@ public final class AlignmentDataProvider: @unchecked Sendable {
         excludeFlags: UInt16 = 0x904,
         minMapQ: Int = 0,
         maxReads: Int = 100_000,
-        readGroups: Set<String> = []
+        readGroups: Set<String> = [],
+        subsampleFraction: Double? = nil,
+        subsampleSeed: Int = 19
     ) async throws -> [AlignedRead] {
         guard !chromosome.isEmpty, start >= 0, end > start else {
             throw AlignmentFetchError.invalidRegion("\(chromosome):\(start)-\(end)")
         }
         guard maxReads > 0 else { return [] }
 
-        // Build samtools view command
-        var arguments = ["view"]
-        arguments += ["-F", String(excludeFlags)]
-        if minMapQ > 0 {
-            arguments += ["-q", String(minMapQ)]
-        }
-
-        // Read group filter: -r includes reads from specific read groups
-        for rg in readGroups.sorted() {
-            arguments += ["-r", rg]
-        }
-
-        // CRAM needs reference
-        if format == .cram, let refPath = referenceFastaPath {
-            arguments += ["--reference", refPath]
-        }
-
-        // Cap output at source to avoid reading excessive data from deep-coverage regions.
-        // samtools -c/--subsample is not a read limit; use head-based limit via maxReads in parser.
-        // However, we still want to limit what samtools emits. Use -s for subsampling isn't right either.
-        // The real limit is applied at parse time, but we avoid piping 100MB+ for deep coverage.
-
-        // Region string (samtools uses 1-based coordinates)
+        var arguments = viewArguments(
+            excludeFlags: excludeFlags,
+            minMapQ: minMapQ,
+            readGroups: readGroups,
+            subsampleFraction: subsampleFraction,
+            subsampleSeed: subsampleSeed
+        )
         let regionStr = "\(chromosome):\(start + 1)-\(end)"
         arguments += [alignmentPath, regionStr]
 
@@ -174,6 +175,152 @@ public final class AlignmentDataProvider: @unchecked Sendable {
         let reads = SAMParser.parse(result.stdout, maxReads: maxReads)
         alignmentLogger.debug("Fetched \(reads.count) reads for \(chromosome):\(start)-\(end)")
         return reads
+    }
+
+    /// Counts aligned reads for a genomic region using `samtools view -c`.
+    public func countReads(
+        chromosome: String,
+        start: Int,
+        end: Int,
+        excludeFlags: UInt16 = 0x904,
+        minMapQ: Int = 0,
+        readGroups: Set<String> = []
+    ) async throws -> Int {
+        guard !chromosome.isEmpty, start >= 0, end > start else {
+            throw AlignmentFetchError.invalidRegion("\(chromosome):\(start)-\(end)")
+        }
+
+        var arguments = viewArguments(
+            excludeFlags: excludeFlags,
+            minMapQ: minMapQ,
+            readGroups: readGroups,
+            countOnly: true
+        )
+        let regionStr = "\(chromosome):\(start + 1)-\(end)"
+        arguments += [alignmentPath, regionStr]
+
+        alignmentLogger.debug("Counting reads: samtools \(arguments.joined(separator: " "))")
+        let result = try await runSamtools(arguments: arguments, timeout: 30)
+        guard result.exitCode == 0 else {
+            let errorMsg = result.stderr.isEmpty ? "exit code \(result.exitCode)" : result.stderr
+            throw AlignmentFetchError.samtoolsFailed(errorMsg)
+        }
+
+        return Int(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+    }
+
+    /// Fetches a bounded deterministic read sketch for fast overview rendering.
+    ///
+    /// When the region has more reads than `targetReads`, this uses `samtools view`
+    /// subsampling so the first-pass read set is distributed across the contig
+    /// instead of taking only the first alignments in coordinate order.
+    public func fetchReadSketch(
+        chromosome: String,
+        start: Int,
+        end: Int,
+        excludeFlags: UInt16 = 0x904,
+        minMapQ: Int = 0,
+        targetReads: Int = 2_500,
+        readGroups: Set<String> = [],
+        subsampleSeed: Int = 19
+    ) async throws -> AlignmentReadSketch {
+        guard !chromosome.isEmpty, start >= 0, end > start else {
+            throw AlignmentFetchError.invalidRegion("\(chromosome):\(start)-\(end)")
+        }
+        guard targetReads > 0 else {
+            return AlignmentReadSketch(reads: [], estimatedTotalReads: 0, targetReads: targetReads, isSubsampled: false)
+        }
+
+        let totalReads = try await countReads(
+            chromosome: chromosome,
+            start: start,
+            end: end,
+            excludeFlags: excludeFlags,
+            minMapQ: minMapQ,
+            readGroups: readGroups
+        )
+
+        guard let fraction = Self.readSketchSubsampleFraction(totalReads: totalReads, targetReads: targetReads) else {
+            let reads = try await fetchReads(
+                chromosome: chromosome,
+                start: start,
+                end: end,
+                excludeFlags: excludeFlags,
+                minMapQ: minMapQ,
+                maxReads: max(totalReads, targetReads),
+                readGroups: readGroups
+            )
+            return AlignmentReadSketch(
+                reads: reads,
+                estimatedTotalReads: totalReads,
+                targetReads: targetReads,
+                isSubsampled: false
+            )
+        }
+
+        let parseLimit = targetReads > Int.max / 2 ? Int.max : targetReads * 2
+        let reads = try await fetchReads(
+            chromosome: chromosome,
+            start: start,
+            end: end,
+            excludeFlags: excludeFlags,
+            minMapQ: minMapQ,
+            maxReads: parseLimit,
+            readGroups: readGroups,
+            subsampleFraction: fraction,
+            subsampleSeed: subsampleSeed
+        )
+        return AlignmentReadSketch(
+            reads: reads,
+            estimatedTotalReads: totalReads,
+            targetReads: targetReads,
+            isSubsampled: true
+        )
+    }
+
+    static func readSketchSubsampleFraction(totalReads: Int, targetReads: Int) -> Double? {
+        guard totalReads > targetReads, targetReads > 0 else { return nil }
+        return max(0.000_001, min(1.0, Double(targetReads) / Double(totalReads)))
+    }
+
+    private func viewArguments(
+        excludeFlags: UInt16,
+        minMapQ: Int,
+        readGroups: Set<String>,
+        countOnly: Bool = false,
+        subsampleFraction: Double? = nil,
+        subsampleSeed: Int = 19
+    ) -> [String] {
+        var arguments = ["view"]
+        if countOnly {
+            arguments.append("-c")
+        }
+        arguments += ["-F", String(excludeFlags)]
+        if minMapQ > 0 {
+            arguments += ["-q", String(minMapQ)]
+        }
+
+        for rg in readGroups.sorted() {
+            arguments += ["-r", rg]
+        }
+
+        if let subsampleFraction, subsampleFraction > 0, subsampleFraction < 1 {
+            arguments += [
+                "--subsample",
+                Self.samtoolsFractionString(subsampleFraction),
+                "--subsample-seed",
+                String(subsampleSeed),
+            ]
+        }
+
+        if format == .cram, let refPath = referenceFastaPath {
+            arguments += ["--reference", refPath]
+        }
+        return arguments
+    }
+
+    private static func samtoolsFractionString(_ fraction: Double) -> String {
+        String(format: "%.8f", locale: Locale(identifier: "en_US_POSIX"), fraction)
     }
 
     /// Fetches the SAM header from the alignment file.

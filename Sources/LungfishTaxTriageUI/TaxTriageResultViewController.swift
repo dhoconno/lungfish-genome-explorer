@@ -12,6 +12,92 @@ import LungfishKit
 
 private let logger = Logger(subsystem: "com.lungfish.app", category: "TaxTriageResultVC")
 
+private struct TaxTriageDatabasePageSnapshot: Sendable {
+    let rows: [TaxTriageMetric]
+    let uniqueReadsByKey: [String: Int]
+    let totalReadsByKey: [String: Int]
+    let bamFilesBySample: [String: URL]
+    let organismToAccessionsBySample: [String: [String: [String]]]
+    let taxIDToAccessionsBySample: [String: [Int: [String]]]
+    let accessionLengths: [String: Int]
+    let totalMatchingRows: Int
+}
+
+private enum TaxTriageDatabasePageLoadResult: Sendable {
+    case success(TaxTriageDatabasePageSnapshot)
+    case failure(String)
+}
+
+private func makeTaxTriageDatabasePageSnapshot(
+    rows dbRows: [TaxTriageTaxonomyRow],
+    resultURL: URL?,
+    totalMatchingRows: Int
+) -> TaxTriageDatabasePageSnapshot {
+    var metrics: [TaxTriageMetric] = []
+    var uniqueReadsLookup: [String: Int] = [:]
+    var totalReadsLookup: [String: Int] = [:]
+    var bamsBySample: [String: URL] = [:]
+    var organismAccessionsBySample: [String: [String: [String]]] = [:]
+    var taxIDAccessionsBySample: [String: [Int: [String]]] = [:]
+    var accessionLengths: [String: Int] = [:]
+
+    metrics.reserveCapacity(dbRows.count)
+
+    for row in dbRows {
+        let metric = TaxTriageMetric(
+            sample: row.sample,
+            taxId: row.taxId,
+            organism: row.organism,
+            reads: row.readsAligned,
+            abundance: row.pctReads,
+            coverageBreadth: row.coverageBreadth,
+            coverageDepth: row.meanDepth,
+            tassScore: row.tassScore,
+            confidence: row.confidence
+        )
+        metrics.append(metric)
+
+        let key = "\(row.sample)\t\(row.organism)"
+        if let uniqueReads = row.uniqueReads {
+            uniqueReadsLookup[key] = ClassifierUniqueReads.normalizedOrFloor(
+                stored: uniqueReads,
+                readCount: row.readsAligned
+            )
+        }
+        totalReadsLookup[key] = row.readsAligned
+
+        if let bamPath = row.bamPath, !bamPath.isEmpty {
+            if bamPath.hasPrefix("/") {
+                bamsBySample[row.sample] = URL(fileURLWithPath: bamPath)
+            } else if let resultURL {
+                bamsBySample[row.sample] = resultURL.appendingPathComponent(bamPath)
+            }
+        }
+
+        if let accession = row.primaryAccession, !accession.isEmpty {
+            let normalized = OrganismNameNormalizer.normalizedKey(row.organism)
+            organismAccessionsBySample[row.sample, default: [:]][normalized, default: []].append(accession)
+            if let taxID = row.taxId {
+                taxIDAccessionsBySample[row.sample, default: [:]][taxID, default: []].append(accession)
+            }
+            if let length = row.accessionLength, length > 0 {
+                accessionLengths[accession] = length
+            }
+        }
+    }
+
+    return TaxTriageDatabasePageSnapshot(
+        rows: metrics,
+        uniqueReadsByKey: uniqueReadsLookup,
+        totalReadsByKey: totalReadsLookup,
+        bamFilesBySample: bamsBySample,
+        organismToAccessionsBySample: organismAccessionsBySample,
+        taxIDToAccessionsBySample: taxIDAccessionsBySample,
+        accessionLengths: accessionLengths,
+        totalMatchingRows: totalMatchingRows
+    )
+}
+
 // MARK: - TaxTriageResultViewController
 
 /// A full-screen clinical triage result browser for TaxTriage pipeline output.
@@ -126,6 +212,19 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     /// Background task computing deduplicated read counts per organism row.
     private var deduplicatedReadCountTask: Task<Void, Never>?
+
+    /// Background task paging SQLite-backed TaxTriage rows into the viewport.
+    private var databaseRowLoadTask: Task<Void, Never>?
+
+    /// Monotonic token used to ignore stale database page loads after filter changes.
+    private var databaseRowLoadGeneration = UUID()
+
+    /// Page size for SQLite-backed TaxTriage viewport loading.
+    private let databaseRowsPageSize = 500
+
+    /// Selects the first SQLite-backed row once rows arrive so the detail pane
+    /// is populated on initial TaxTriage load.
+    private var shouldSelectTopDatabaseRowAfterLoad = false
 
     /// Currently selected row state for action-bar/detail updates.
     private var selectedOrganismName: String?
@@ -394,6 +493,12 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         validateInitialSplitLayoutAfterWindowAttachment()
     }
 
+    deinit {
+        databaseRowLoadTask?.cancel()
+        deduplicatedReadCountTask?.cancel()
+        NotificationCenter.default.removeObserver(self)
+    }
+
     private func validateInitialSplitLayoutAfterWindowAttachment() {
         guard view.window != nil else { return }
 
@@ -420,6 +525,19 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         applyLayoutPreference()
     }
 
+    private static func currentTaxTriagePanelLayout(
+        defaults: UserDefaults = .standard
+    ) -> MetagenomicsPanelLayout {
+        let hasExplicitLayout = defaults.object(forKey: MetagenomicsPanelLayout.defaultsKey) != nil
+        let hasLegacyLayout = defaults.object(forKey: MetagenomicsPanelLayout.legacyTableOnLeftKey) != nil
+        guard hasExplicitLayout || hasLegacyLayout else { return .stacked }
+        return MetagenomicsPanelLayout.current(defaults: defaults)
+    }
+
+    private func currentPanelLayout() -> MetagenomicsPanelLayout {
+        Self.currentTaxTriagePanelLayout()
+    }
+
     private func defaultLeadingFraction(for layout: MetagenomicsPanelLayout) -> CGFloat {
         switch layout {
         case .detailLeading:
@@ -443,7 +561,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     private func resetInitialSplitPositionIfNeeded() {
         guard didSetInitialSplitPosition, !leftPaneContainer.isHidden, splitView.arrangedSubviews.count == 2 else { return }
 
-        let layout = MetagenomicsPanelLayout.current()
+        let layout = currentPanelLayout()
         let minimumExtents = minimumExtents(for: layout)
         let totalExtent = splitContainerExtent()
         let minimumRequiredExtent = minimumExtents.leading + minimumExtents.trailing + splitView.dividerThickness
@@ -520,7 +638,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     private func restoreDefaultSplitPosition(for layout: MetagenomicsPanelLayout? = nil) {
         guard splitView.arrangedSubviews.count > 1 else { return }
 
-        let layout = layout ?? MetagenomicsPanelLayout.current()
+        let layout = layout ?? currentPanelLayout()
         let totalExtent = splitContainerExtent()
         guard totalExtent > 0 else {
             didSetInitialSplitPosition = false
@@ -572,7 +690,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         let totalExtent = splitView.isVertical ? splitView.bounds.width : splitView.bounds.height
         guard totalExtent > 0 else { return }
 
-        let layout = MetagenomicsPanelLayout.current()
+        let layout = currentPanelLayout()
         let minimumExtents = minimumExtents(for: layout)
         let minimumRequiredExtent = minimumExtents.leading + minimumExtents.trailing + splitView.dividerThickness
         guard totalExtent >= minimumRequiredExtent else { return }
@@ -685,7 +803,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     /// Swaps the split view pane order based on the persisted layout preference.
     private func applyLayoutPreference() {
-        let layout = MetagenomicsPanelLayout.current()
+        let layout = currentPanelLayout()
         guard splitView.arrangedSubviews.count == 2 else { return }
 
         let desiredIsVertical = layout != .stacked
@@ -1247,7 +1365,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         splitView.translatesAutoresizingMaskIntoConstraints = false
         splitView.setAccessibilityIdentifier("taxtriage-result-split-view")
         splitView.setAccessibilityLabel("TaxTriage Result Split View")
-        splitView.isVertical = MetagenomicsPanelLayout.current() != .stacked
+        splitView.isVertical = currentPanelLayout() != .stacked
         splitView.dividerStyle = .thin
         splitView.delegate = self
         leftPaneContainer.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -1282,7 +1400,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             self.organismTableView.selectRow(byOrganism: organism)
         }
 
-        if MetagenomicsPanelLayout.current() == .detailLeading {
+        if currentPanelLayout() == .detailLeading {
             splitView.addArrangedSubview(leftPaneContainer)
             splitView.addArrangedSubview(rightPaneContainer)
         } else {
@@ -1312,7 +1430,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Parses preferred confidence/organism reports in deterministic order.
     private func parsePreferredConfidenceMetrics(from result: TaxTriageResult) -> [TaxTriageMetric] {
         let files = result.allOutputFiles
-            .filter { !$0.path.contains("/work/") }
+            .filter { TaxTriageOutputArtifactPolicy.isRetainedOutputFile($0, outputDirectory: result.config.outputDirectory) }
             .sorted { $0.path < $1.path }
 
         let preferred = files.filter {
@@ -1431,7 +1549,10 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     /// Rebuilds merged + sample-scoped accession lookup maps from TaxTriage output files.
     private func rebuildAccessionLookups(from allOutputFiles: [URL], sampleIds: [String]) {
-        let filtered = allOutputFiles.filter { !$0.path.contains("/work/") }
+        let filtered = TaxTriageOutputArtifactPolicy.filterRetainedOutputFiles(
+            allOutputFiles,
+            outputDirectory: taxTriageConfig?.outputDirectory
+        )
         let gcfFiles = filtered.filter { $0.lastPathComponent.contains("gcfmapping.tsv") }
         let taxIDFiles = filtered.filter { $0.lastPathComponent.contains("merged.taxid.tsv") }
         rebuildAccessionLookups(gcfFiles: gcfFiles, taxIDFiles: taxIDFiles, sampleIds: sampleIds)
@@ -2476,8 +2597,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         samplePickerState = ClassifierSamplePickerState(allSamples: Set(sampleIds))
         samplePickerState.selectedSamples = Set(sampleIds)
 
-        // Load ALL rows from the DB (filtering by selection happens in applyBatchGroupFilter).
-        reloadFromDatabase()
+        resetDatabaseLoadedRows()
 
         // Wire batch flat table callbacks (same pattern as configureFromDatabase).
         batchFlatTableView.metadataColumns.isMultiSampleMode = true
@@ -2558,91 +2678,172 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         sampleFilterTopSpacingConstraint?.constant = 4
         sampleFilterBottomSpacingConstraint?.constant = 4
 
-        summaryBar.updateBatch(sampleCount: sampleEntries.count, totalOrganisms: allBatchGroupRows.count)
+        summaryBar.updateBatch(
+            sampleCount: sampleEntries.count,
+            totalOrganisms: sampleList.reduce(0) { $0 + $1.organismCount }
+        )
 
         applyBatchGroupFilter()
 
-        logger.info("configureFromDatabase: loaded \(self.allBatchGroupRows.count) rows across \(self.sampleIds.count) samples from SQLite")
+        logger.info("configureFromDatabase: scheduled paged loading across \(self.sampleIds.count) samples from SQLite")
     }
 
-    /// Loads all rows from the SQLite database into `allBatchGroupRows`.
-    ///
-    /// Fetches every sample's rows (selection filtering is done by `applyBatchGroupFilter`).
-    /// Also populates `uniqueReadsByKey` and `bamFilesBySample` from DB columns.
-    private func reloadFromDatabase() {
-        guard let db = taxTriageDatabase else { return }
+    private func resetDatabaseLoadedRows() {
+        databaseRowLoadTask?.cancel()
+        databaseRowLoadGeneration = UUID()
+        shouldSelectTopDatabaseRowAfterLoad = true
+        allBatchGroupRows = []
+        batchFlatTableView.uniqueReadsByKey = [:]
+        batchFlatTableView.totalReadsByKey = [:]
+        batchFlatTableView.configure(rows: [])
+        bamFilesBySample = [:]
+        organismToAccessionsBySample = [:]
+        taxIDToAccessionsBySample = [:]
+        mergedOrganismToAccessions = [:]
+        mergedTaxIDToAccessions = [:]
+        organismToAccessions = [:]
+        taxIDToAccessions = [:]
+        accessionLengths = [:]
+    }
 
-        let dbRows = (try? db.fetchRows(samples: sampleIds)) ?? []
+    private func reloadDatabaseRowsForCurrentFilter() {
+        guard let db = taxTriageDatabase, let state = samplePickerState else { return }
 
-        var metrics: [TaxTriageMetric] = []
-        var uniqueReadsLookup: [String: Int] = [:]
-        var totalReadsLookup: [String: Int] = [:]
+        databaseRowLoadTask?.cancel()
+        let generation = UUID()
+        databaseRowLoadGeneration = generation
 
-        for row in dbRows {
-            let metric = TaxTriageMetric(
-                sample: row.sample,
-                taxId: row.taxId,
-                organism: row.organism,
-                reads: row.readsAligned,
-                abundance: row.pctReads,
-                coverageBreadth: row.coverageBreadth,
-                coverageDepth: row.meanDepth,
-                tassScore: row.tassScore,
-                confidence: row.confidence
-            )
-            metrics.append(metric)
+        let selectedSamples = sampleIds.filter { state.selectedSamples.contains($0) }
+        let searchText = organismSearchText
+        let resultURL = batchGroupURL
+        let pageSize = databaseRowsPageSize
+        shouldSelectTopDatabaseRowAfterLoad = true
 
-            // Pre-populate BAM-derived read counts from the database (no background
-            // BAM computation needed). reads_aligned and unique_reads are both
-            // computed from the BAM at import time by updateUniqueReadsInDB.
-            let key = "\(row.sample)\t\(row.organism)"
-            if let uniqueReads = row.uniqueReads {
-                uniqueReadsLookup[key] = ClassifierUniqueReads.normalizedOrFloor(
-                    stored: uniqueReads,
-                    readCount: row.readsAligned
-                )
-            }
-            totalReadsLookup[key] = row.readsAligned
+        allBatchGroupRows = []
+        batchFlatTableView.uniqueReadsByKey = [:]
+        batchFlatTableView.totalReadsByKey = [:]
+        batchFlatTableView.configure(rows: [])
+        bamFilesBySample = [:]
+        organismToAccessionsBySample = [:]
+        taxIDToAccessionsBySample = [:]
+        mergedOrganismToAccessions = [:]
+        mergedTaxIDToAccessions = [:]
+        organismToAccessions = [:]
+        taxIDToAccessions = [:]
+        accessionLengths = [:]
+        summaryBar.updateBatch(sampleCount: sampleEntries.count, totalOrganisms: 0)
 
-            // Resolve BAM paths from DB columns (relative to result directory).
-            if let bamPath = row.bamPath, !bamPath.isEmpty {
-                if bamPath.hasPrefix("/") {
-                    bamFilesBySample[row.sample] = URL(fileURLWithPath: bamPath)
-                } else if let base = self.batchGroupURL {
-                    bamFilesBySample[row.sample] = base.appendingPathComponent(bamPath)
+        guard !selectedSamples.isEmpty else { return }
+
+        databaseRowLoadTask = Task { [weak self, db, selectedSamples, searchText, resultURL, pageSize, generation] in
+            var offset = 0
+            while !Task.isCancelled {
+                let pageOffset = offset
+                let loadResult = await Task.detached(priority: .userInitiated) {
+                    () -> TaxTriageDatabasePageLoadResult in
+                    do {
+                        let page = try db.fetchRowsPage(
+                            samples: selectedSamples,
+                            limit: pageSize,
+                            offset: pageOffset,
+                            organismSearchText: searchText
+                        )
+                        let snapshot = makeTaxTriageDatabasePageSnapshot(
+                            rows: page.rows,
+                            resultURL: resultURL,
+                            totalMatchingRows: page.totalMatchingRows
+                        )
+                        return .success(snapshot)
+                    } catch {
+                        return .failure(error.localizedDescription)
+                    }
+                }.value
+
+                guard let self, !Task.isCancelled, self.databaseRowLoadGeneration == generation else { return }
+
+                switch loadResult {
+                case .success(let snapshot):
+                    self.mergeDatabasePageSnapshot(snapshot)
+                    self.batchFlatTableView.configure(rows: self.allBatchGroupRows)
+                    self.selectTopDatabaseRowAfterInitialPageIfNeeded()
+                    self.summaryBar.updateBatch(
+                        sampleCount: self.sampleEntries.count,
+                        totalOrganisms: snapshot.totalMatchingRows
+                    )
+
+                    guard !snapshot.rows.isEmpty else { return }
+                    offset += snapshot.rows.count
+                    if self.allBatchGroupRows.count >= snapshot.totalMatchingRows {
+                        logger.info("Loaded \(self.allBatchGroupRows.count) TaxTriage rows from SQLite pages")
+                        return
+                    }
+
+                case .failure(let message):
+                    logger.error("Failed to load TaxTriage rows from SQLite: \(message, privacy: .public)")
+                    return
                 }
-            }
-
-            // Seed accession lookups from DB data so accessions(for:) works.
-            if let acc = row.primaryAccession, !acc.isEmpty {
-                let normalized = normalizedOrganismName(row.organism)
-
-                var perSample = organismToAccessionsBySample[row.sample] ?? [:]
-                perSample[normalized, default: []].append(acc)
-                organismToAccessionsBySample[row.sample] = perSample
-
-                if let taxId = row.taxId {
-                    var taxMap = taxIDToAccessionsBySample[row.sample] ?? [:]
-                    taxMap[taxId, default: []].append(acc)
-                    taxIDToAccessionsBySample[row.sample] = taxMap
-                }
-            }
-
-            // Seed accession lengths from DB (if available).
-            if let acc = row.primaryAccession, let len = row.accessionLength, len > 0 {
-                accessionLengths[acc] = len
             }
         }
+    }
 
-        batchFlatTableView.uniqueReadsByKey = uniqueReadsLookup
-        batchFlatTableView.totalReadsByKey = totalReadsLookup
-        allBatchGroupRows = metrics
+    private func mergeDatabasePageSnapshot(_ snapshot: TaxTriageDatabasePageSnapshot) {
+        allBatchGroupRows.append(contentsOf: snapshot.rows)
+        batchFlatTableView.uniqueReadsByKey.merge(snapshot.uniqueReadsByKey) { _, new in new }
+        batchFlatTableView.totalReadsByKey.merge(snapshot.totalReadsByKey) { _, new in new }
+        bamFilesBySample.merge(snapshot.bamFilesBySample) { _, new in new }
+        accessionLengths.merge(snapshot.accessionLengths) { _, new in new }
+
+        mergeOrganismAccessions(snapshot.organismToAccessionsBySample)
+        mergeTaxIDAccessions(snapshot.taxIDToAccessionsBySample)
+        organismToAccessions = mergedOrganismToAccessions
+        taxIDToAccessions = mergedTaxIDToAccessions
+    }
+
+    private func selectTopDatabaseRowAfterInitialPageIfNeeded() {
+        guard shouldSelectTopDatabaseRowAfterLoad else { return }
+        guard !batchFlatTableView.displayedRows.isEmpty else { return }
+        shouldSelectTopDatabaseRowAfterLoad = false
+        batchFlatTableView.selectDisplayedRowForContextMenuIfNeeded(0)
+    }
+
+    private func mergeOrganismAccessions(_ incoming: [String: [String: [String]]]) {
+        for (sample, organismMap) in incoming {
+            var sampleMap = organismToAccessionsBySample[sample] ?? [:]
+            for (organism, accessions) in organismMap {
+                sampleMap[organism, default: []].append(contentsOf: accessions)
+                sampleMap[organism] = uniqueAccessionsPreservingOrder(sampleMap[organism] ?? [])
+                mergedOrganismToAccessions[organism, default: []].append(contentsOf: accessions)
+                mergedOrganismToAccessions[organism] = uniqueAccessionsPreservingOrder(
+                    mergedOrganismToAccessions[organism] ?? []
+                )
+            }
+            organismToAccessionsBySample[sample] = sampleMap
+        }
+    }
+
+    private func mergeTaxIDAccessions(_ incoming: [String: [Int: [String]]]) {
+        for (sample, taxMap) in incoming {
+            var sampleMap = taxIDToAccessionsBySample[sample] ?? [:]
+            for (taxID, accessions) in taxMap {
+                sampleMap[taxID, default: []].append(contentsOf: accessions)
+                sampleMap[taxID] = uniqueAccessionsPreservingOrder(sampleMap[taxID] ?? [])
+                mergedTaxIDToAccessions[taxID, default: []].append(contentsOf: accessions)
+                mergedTaxIDToAccessions[taxID] = uniqueAccessionsPreservingOrder(
+                    mergedTaxIDToAccessions[taxID] ?? []
+                )
+            }
+            taxIDToAccessionsBySample[sample] = sampleMap
+        }
     }
 
     /// Filters `allBatchGroupRows` by the samples selected in `samplePickerState`
     /// and by the organism search text, then reloads `batchFlatTableView`.
     public func applyBatchGroupFilter() {
         guard isBatchGroupMode, let state = samplePickerState else { return }
+        if taxTriageDatabase != nil {
+            reloadDatabaseRowsForCurrentFilter()
+            return
+        }
         let selected = state.selectedSamples
         var filtered: [TaxTriageMetric]
         if selected.isEmpty {
@@ -3251,7 +3452,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             let proposedLeadingExtent = self.splitView.requestedDividerPosition(at: 0) ?? currentDividerPosition()
             targetLeadingExtent = clampedCurrentDividerPosition(for: proposedLeadingExtent ?? 0)
         } else {
-            let layout = MetagenomicsPanelLayout.current()
+            let layout = currentPanelLayout()
             let minimumExtents = minimumExtents(for: layout)
             targetLeadingExtent = MetagenomicsPaneSizing.clampedDividerPosition(
                 proposed: round(totalExtent * defaultLeadingFraction(for: layout)),

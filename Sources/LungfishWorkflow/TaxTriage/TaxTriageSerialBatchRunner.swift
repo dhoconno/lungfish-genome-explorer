@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishIO
 
 public enum TaxTriageSerialBatchError: Error, LocalizedError, Sendable {
     case allSamplesFailed([TaxTriageSampleFailure])
@@ -116,7 +117,12 @@ public struct TaxTriageSerialBatchRunner: Sendable {
         }
 
         let resultURL = root.appendingPathComponent("taxtriage-result.json")
-        let allOutputFiles = (sampleResults.flatMap(\.allOutputFiles) + [resultURL])
+        let allOutputFiles = (
+            TaxTriageOutputArtifactPolicy.filterRetainedOutputFiles(
+                sampleResults.flatMap(\.allOutputFiles),
+                outputDirectory: root
+            ) + [resultURL]
+        )
             .uniquedByPath()
             .sorted { $0.path < $1.path }
         let aggregate = TaxTriageResult(
@@ -213,7 +219,13 @@ public struct TaxTriageSerialBatchRunner: Sendable {
             githubReleaseVersion: TaxTriageConfig.githubReleaseVersion(for: result.config.revision),
             command: sampleCommand(for: result.config),
             inputs: inputRecords(for: sample),
-            outputs: fileRecords(for: result.allOutputFiles, role: .output),
+            outputs: fileRecords(
+                for: TaxTriageOutputArtifactPolicy.filterRetainedOutputFiles(
+                    result.allOutputFiles,
+                    outputDirectory: result.outputDirectory
+                ),
+                role: .output
+            ),
             exitCode: exitCode,
             wallTime: wallTime,
             stderr: stderr

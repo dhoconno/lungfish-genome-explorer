@@ -390,14 +390,12 @@ private func blastCollectDescendantTaxIds(_ rootIds: Set<Int>, tree: TaxonTree) 
 ///   - targetTaxIds: The set of taxonomy IDs to match.
 /// - Returns: A set of matching read IDs.
 /// - Throws: If the file cannot be read.
-private func blastScanKrakenOutput(
+func blastScanKrakenOutput(
     url: URL,
     targetTaxIds: Set<Int>
 ) throws -> Set<String> {
-    guard let fileHandle = FileHandle(forReadingAtPath: url.path) else {
-        throw CLIError.inputFileNotFound(path: url.path)
-    }
-    defer { fileHandle.closeFile() }
+    let stream = try blastOpenKrakenOutputStream(url: url)
+    let fileHandle = stream.fileHandle
 
     var matchingReadIds = Set<String>()
     var residual = Data()
@@ -457,7 +455,51 @@ private func blastScanKrakenOutput(
         }
     }
 
+    try stream.finish()
     return matchingReadIds
+}
+
+private struct BlastKrakenOutputStream {
+    let fileHandle: FileHandle
+    let process: Process?
+    let stderr: Pipe?
+
+    func finish() throws {
+        fileHandle.closeFile()
+        guard let process else { return }
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            let stderrText = stderr.map {
+                String(data: $0.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            } ?? ""
+            throw CLIError.conversionFailed(
+                reason: "Failed to decompress Kraken output: \(stderrText)"
+            )
+        }
+    }
+}
+
+private func blastOpenKrakenOutputStream(url: URL) throws -> BlastKrakenOutputStream {
+    if url.pathExtension.lowercased() == "gz" {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+        process.arguments = ["-dc", url.path]
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+        try process.run()
+        return BlastKrakenOutputStream(
+            fileHandle: stdout.fileHandleForReading,
+            process: process,
+            stderr: stderr
+        )
+    }
+
+    guard let fileHandle = FileHandle(forReadingAtPath: url.path) else {
+        throw CLIError.inputFileNotFound(path: url.path)
+    }
+    return BlastKrakenOutputStream(fileHandle: fileHandle, process: nil, stderr: nil)
 }
 
 /// Extracts sequences from a FASTQ file for reads matching the given IDs.

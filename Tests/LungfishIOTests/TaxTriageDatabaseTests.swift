@@ -46,6 +46,38 @@ final class TaxTriageDatabaseTests: XCTestCase {
         XCTAssertEqual(all.count, 3)
     }
 
+    func testFetchRowsPageUsesLimitOffsetAndSearchWithoutLoadingEverything() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let dbURL = dir.appendingPathComponent("test.sqlite")
+
+        let rows = (0..<8).map { index in
+            makeTestRow(
+                sample: index < 5 ? "s1" : "s2",
+                organism: index == 6 ? "Target virus" : "Virus \(index)",
+                tassScore: Double(index) / 10.0,
+                readsAligned: 100 + index
+            )
+        }
+        let db = try TaxTriageDatabase.create(at: dbURL, rows: rows, metadata: [:])
+
+        let page = try db.fetchRowsPage(samples: ["s1", "s2"], limit: 3, offset: 2)
+
+        XCTAssertEqual(page.totalMatchingRows, 8)
+        XCTAssertEqual(page.rows.count, 3)
+        XCTAssertEqual(page.rows.map(\.organism), ["Virus 2", "Virus 3", "Virus 4"])
+
+        let filtered = try db.fetchRowsPage(
+            samples: ["s1", "s2"],
+            limit: 10,
+            offset: 0,
+            organismSearchText: "target"
+        )
+
+        XCTAssertEqual(filtered.totalMatchingRows, 1)
+        XCTAssertEqual(filtered.rows.map(\.organism), ["Target virus"])
+    }
+
     func testFetchSamples() throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }

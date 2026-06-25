@@ -5,6 +5,7 @@
 import ArgumentParser
 import Foundation
 import LungfishIO
+import LungfishWorkflow
 import SQLite3
 
 /// Build SQLite databases from classifier pipeline output.
@@ -1457,9 +1458,9 @@ extension BuildDbCommand {
     /// via `KreportParser`, flattens the taxonomy tree into classification rows,
     /// and writes a `kraken2.sqlite` database in the result directory.
     ///
-    /// Optionally removes `classification.kraken` and
-    /// `classification.kraken.idx.sqlite` intermediate files after a successful
-    /// build.
+    /// Optionally compacts `classification.kraken` to `classification.kraken.gz`
+    /// plus a classified-read SQLite index, and removes obsolete raw-output
+    /// index sidecars after a successful build.
     struct Kraken2Subcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "kraken2",
@@ -1623,37 +1624,64 @@ extension BuildDbCommand {
 
         // MARK: - Post-Build Cleanup
 
-        /// Removes Kraken2 intermediate files while preserving kreport, database,
-        /// and the per-read classification output.
+        /// Compacts Kraken2 intermediate files while preserving kreport,
+        /// database, and the per-read classification output in retained form.
         ///
-        /// Removes per-sample: `classification.kraken.idx.sqlite`.
-        /// Keeps: `classification.kraken` (needed by TaxonomyExtractionPipeline),
-        ///        `classification.kreport`, `classification-result.json`, `kraken2.sqlite`.
+        /// Removes per-sample: `classification.kraken` after compaction succeeds,
+        /// `classification.kraken.idx.sqlite`.
+        /// Keeps: `classification.kraken.gz`,
+        /// `classification.kraken.gz.idx.sqlite`, `classification.kreport`,
+        /// `classification-result.json`, `kraken2.sqlite`.
         private func performCleanup(resultURL: URL) {
             let fm = FileManager.default
             var freedBytes: Int64 = 0
 
-            guard let sampleDirs = try? fm.contentsOfDirectory(
+            guard let contents = try? fm.contentsOfDirectory(
                 at: resultURL,
                 includingPropertiesForKeys: [.isDirectoryKey]
             ) else { return }
 
-            for dir in sampleDirs {
-                let isDir = (try? dir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-                guard isDir else { continue }
+            var cleanupDirs = [resultURL]
+            cleanupDirs.append(contentsOf: contents
+                .filter { url in
+                    ((try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false)
+                        && !url.lastPathComponent.hasPrefix(".")
+                }
+                .sorted { $0.lastPathComponent < $1.lastPathComponent })
+
+            for dir in cleanupDirs {
                 let name = dir.lastPathComponent
                 guard !name.hasPrefix(".") else { continue }
 
-                // Keep classification.kraken — the per-read output is needed by
-                // TaxonomyExtractionPipeline.extract for read extraction. Previously
-                // this was deleted to save disk space, but that broke the unified
-                // classifier extraction feature (the resolver wraps the pipeline,
-                // which reads this file to build the read-ID-to-taxon mapping).
+                // Retain the per-read output as gzip for audit/replay, plus a
+                // classified-only SQLite index for fast taxon extraction.
+                let krakenOutput = dir.appendingPathComponent("classification.kraken")
+                if fm.fileExists(atPath: krakenOutput.path) {
+                    let originalSize = fileSize(krakenOutput) ?? 0
+                    do {
+                        let compressedOutput = try KrakenOutputCompactor.compact(
+                            rawURL: krakenOutput,
+                            includeUnclassifiedInIndex: false,
+                            removeRawOnSuccess: true
+                        )
+                        updateClassificationResultSidecar(in: dir, outputURL: compressedOutput)
+                        let compressedSize = fileSize(compressedOutput) ?? 0
+                        freedBytes += max(0, originalSize - compressedSize)
+                    } catch {
+                        if !globalOptions.quiet {
+                            fputs(
+                                "Warning: could not compact \(krakenOutput.path): \(error.localizedDescription)\n",
+                                stderr
+                            )
+                        }
+                    }
+                }
 
-                // Remove Kraken2 index SQLite file (intermediate build artifact)
+                // Remove old raw-output index SQLite files. New retained indexes
+                // are named after the compressed output and must be kept.
                 let krakenIndex = dir.appendingPathComponent("classification.kraken.idx.sqlite")
                 if let size = fileSize(krakenIndex) {
-                    try? fm.removeItem(at: krakenIndex)
+                    KrakenOutputCompactor.removeSQLiteDatabase(at: krakenIndex)
                     freedBytes += size
                 }
             }
@@ -1667,6 +1695,32 @@ extension BuildDbCommand {
             guard FileManager.default.fileExists(atPath: url.path) else { return nil }
             let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
             return Int64(size)
+        }
+
+        private func updateClassificationResultSidecar(in directory: URL, outputURL: URL) {
+            guard ClassificationResult.exists(in: directory) else { return }
+
+            do {
+                let current = try ClassificationResult.load(from: directory)
+                let updated = ClassificationResult(
+                    config: current.config,
+                    tree: current.tree,
+                    reportURL: current.reportURL,
+                    outputURL: outputURL,
+                    brackenURL: current.brackenURL,
+                    runtime: current.runtime,
+                    toolVersion: current.toolVersion,
+                    provenanceId: current.provenanceId
+                )
+                try updated.save(to: directory)
+            } catch {
+                if !globalOptions.quiet {
+                    fputs(
+                        "Warning: could not update \(directory.appendingPathComponent("classification-result.json").path): \(error.localizedDescription)\n",
+                        stderr
+                    )
+                }
+            }
         }
 
         private func formatBytes(_ bytes: Int64) -> String {

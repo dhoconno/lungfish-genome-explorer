@@ -43,6 +43,49 @@ struct MetagenomicsImportServiceTests {
     }
 
     @Test
+    func kraken2ImportCompactsSuppliedReadClassifications() throws {
+        let workspace = makeTemporaryDirectory(prefix: "metagenomics-import-kraken2-compact-")
+        defer { try? FileManager.default.removeItem(at: workspace) }
+
+        let sourceKreport = workspace.appendingPathComponent("input.kreport")
+        try """
+        0.00\t1\t1\tU\t0\tunclassified
+        100.00\t3\t0\tR\t1\troot
+        66.67\t2\t2\tS\t12345\t  Example species
+        """.write(to: sourceKreport, atomically: true, encoding: .utf8)
+
+        let sourceOutput = workspace.appendingPathComponent("classification.kraken")
+        try """
+        C\tread-1\t12345\t150\t12345:150
+        U\tread-2\t0\t150\t0:150
+        C\tread-3\t12345\t150\t12345:150
+        """.write(to: sourceOutput, atomically: true, encoding: .utf8)
+
+        let outputDirectory = workspace.appendingPathComponent("imports", isDirectory: true)
+        let result = try MetagenomicsImportService.importKraken2(
+            kreportURL: sourceKreport,
+            outputDirectory: outputDirectory,
+            outputFileURL: sourceOutput
+        )
+
+        let rawOutput = result.resultDirectory.appendingPathComponent("classification.kraken")
+        let compressedOutput = rawOutput.appendingPathExtension("gz")
+        let indexURL = KrakenIndexDatabase.indexURL(for: compressedOutput)
+
+        #expect(!FileManager.default.fileExists(atPath: rawOutput.path))
+        #expect(FileManager.default.fileExists(atPath: compressedOutput.path))
+        #expect(FileManager.default.fileExists(atPath: indexURL.path))
+
+        let loaded = try ClassificationResult.load(from: result.resultDirectory)
+        #expect(loaded.outputURL.lastPathComponent == "classification.kraken.gz")
+
+        let index = try KrakenIndexDatabase(url: indexURL)
+        #expect(index.isClassifiedOnly)
+        #expect(index.canResolve(taxIds: [12345]))
+        #expect(!index.canResolve(taxIds: [0]))
+    }
+
+    @Test
     func esVirituImportCreatesSidecar() throws {
         let workspace = makeTemporaryDirectory(prefix: "metagenomics-import-esviritu-")
         defer { try? FileManager.default.removeItem(at: workspace) }

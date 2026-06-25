@@ -332,10 +332,45 @@ public actor TaxonomyExtractionPipeline {
         keepReadPairs: Bool = true,
         progress: (@Sendable (Double, String) -> Void)?
     ) throws -> Set<String> {
-        guard let fileHandle = FileHandle(forReadingAtPath: classificationURL.path) else {
+        let indexURL = KrakenIndexDatabase.indexURL(for: classificationURL)
+        if FileManager.default.fileExists(atPath: indexURL.path),
+           let index = try? KrakenIndexDatabase(url: indexURL) {
+            defer { index.close() }
+            if index.canResolve(taxIds: targetTaxIds) {
+                let readIds = try index.readIds(forTaxIds: targetTaxIds)
+                progress?(0.30, "Loaded \(readIds.count) read IDs from Kraken2 index")
+                return normalizeReadIds(readIds, keepReadPairs: keepReadPairs)
+            }
+        }
+
+        guard FileManager.default.fileExists(atPath: classificationURL.path) else {
             throw TaxonomyExtractionError.classificationOutputNotFound(classificationURL)
         }
-        defer { fileHandle.closeFile() }
+
+        let isGzipped = ["gz", "gzip"].contains(classificationURL.pathExtension.lowercased())
+        let fileHandle: FileHandle
+        let gzipProcess: Process?
+        if isGzipped {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+            process.arguments = ["-dc", classificationURL.path]
+            let stdout = Pipe()
+            process.standardOutput = stdout
+            process.standardError = FileHandle.nullDevice
+            do {
+                try process.run()
+            } catch {
+                throw TaxonomyExtractionError.classificationOutputNotFound(classificationURL)
+            }
+            fileHandle = stdout.fileHandleForReading
+            gzipProcess = process
+        } else {
+            guard let handle = FileHandle(forReadingAtPath: classificationURL.path) else {
+                throw TaxonomyExtractionError.classificationOutputNotFound(classificationURL)
+            }
+            fileHandle = handle
+            gzipProcess = nil
+        }
 
         // Get file size for progress estimation
         let fileSize = (try? FileManager.default.attributesOfItem(
@@ -370,29 +405,12 @@ public actor TaxonomyExtractionPipeline {
 
             // Process lines
             if let text = String(data: data, encoding: .utf8) {
-                for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
-                    // Kraken2 output format: C/U \t readId \t taxId \t length \t kmerHits
-                    let columns = line.split(separator: "\t", maxSplits: 3, omittingEmptySubsequences: false)
-                    guard columns.count >= 3 else { continue }
-
-                    // Column 0: C or U
-                    let status = columns[0].trimmingCharacters(in: .whitespaces)
-                    guard status == "C" else { continue }
-
-                    // Column 2: taxonomy ID
-                    let taxIdStr = columns[2].trimmingCharacters(in: .whitespaces)
-                    guard let taxId = Int(taxIdStr), targetTaxIds.contains(taxId) else { continue }
-
-                    // Column 1: read ID
-                    var readId = String(columns[1].trimmingCharacters(in: .whitespaces))
-                    if keepReadPairs {
-                        // Strip /1 or /2 paired-end suffix so both mates match
-                        if readId.hasSuffix("/1") || readId.hasSuffix("/2") {
-                            readId = String(readId.dropLast(2))
-                        }
-                    }
-                    matchingReadIds.insert(readId)
-                }
+                collectMatchingReadIds(
+                    from: text,
+                    targetTaxIds: targetTaxIds,
+                    keepReadPairs: keepReadPairs,
+                    into: &matchingReadIds
+                )
             }
 
             // Report progress
@@ -404,24 +422,59 @@ public actor TaxonomyExtractionPipeline {
 
         // Process remaining residual
         if !residual.isEmpty, let text = String(data: residual, encoding: .utf8) {
-            for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
-                let columns = line.split(separator: "\t", maxSplits: 3, omittingEmptySubsequences: false)
-                guard columns.count >= 3 else { continue }
-                let status = columns[0].trimmingCharacters(in: .whitespaces)
-                guard status == "C" else { continue }
-                let taxIdStr = columns[2].trimmingCharacters(in: .whitespaces)
-                guard let taxId = Int(taxIdStr), targetTaxIds.contains(taxId) else { continue }
-                var readId = String(columns[1].trimmingCharacters(in: .whitespaces))
-                if keepReadPairs {
-                    if readId.hasSuffix("/1") || readId.hasSuffix("/2") {
-                        readId = String(readId.dropLast(2))
-                    }
-                }
-                matchingReadIds.insert(readId)
+            collectMatchingReadIds(
+                from: text,
+                targetTaxIds: targetTaxIds,
+                keepReadPairs: keepReadPairs,
+                into: &matchingReadIds
+            )
+        }
+
+        fileHandle.closeFile()
+        if let gzipProcess {
+            gzipProcess.waitUntilExit()
+            guard gzipProcess.terminationStatus == 0 else {
+                throw TaxonomyExtractionError.classificationOutputNotFound(classificationURL)
             }
         }
 
         return matchingReadIds
+    }
+
+    private func normalizeReadIds(_ readIds: Set<String>, keepReadPairs: Bool) -> Set<String> {
+        guard keepReadPairs else { return readIds }
+        return Set(readIds.map { readId in
+            if readId.hasSuffix("/1") || readId.hasSuffix("/2") {
+                return String(readId.dropLast(2))
+            }
+            return readId
+        })
+    }
+
+    private func collectMatchingReadIds(
+        from text: String,
+        targetTaxIds: Set<Int>,
+        keepReadPairs: Bool,
+        into matchingReadIds: inout Set<String>
+    ) {
+        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+            // Kraken2 output format: C/U \t readId \t taxId \t length \t kmerHits
+            let columns = line.split(separator: "\t", maxSplits: 3, omittingEmptySubsequences: false)
+            guard columns.count >= 3 else { continue }
+
+            let status = columns[0].trimmingCharacters(in: .whitespaces)
+            guard status == "C" || status == "U" else { continue }
+
+            let taxIdStr = columns[2].trimmingCharacters(in: .whitespaces)
+            guard let taxId = Int(taxIdStr), targetTaxIds.contains(taxId) else { continue }
+            guard status == "C" || taxId == 0 else { continue }
+
+            var readId = String(columns[1].trimmingCharacters(in: .whitespaces))
+            if keepReadPairs, readId.hasSuffix("/1") || readId.hasSuffix("/2") {
+                readId = String(readId.dropLast(2))
+            }
+            matchingReadIds.insert(readId)
+        }
     }
 
     // MARK: - FASTQ Filtering

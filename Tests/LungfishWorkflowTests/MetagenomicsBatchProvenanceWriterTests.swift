@@ -153,13 +153,18 @@ final class MetagenomicsBatchProvenanceWriterTests: XCTestCase {
 
         let fastqURL = resultDirectory.appendingPathComponent("SampleD.fastq")
         let reportDirectory = resultDirectory.appendingPathComponent("report", isDirectory: true)
+        let workflowSourceDirectory = resultDirectory
+            .appendingPathComponent("workflow-source/taxtriage/assets", isDirectory: true)
         try FileManager.default.createDirectory(at: reportDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workflowSourceDirectory, withIntermediateDirectories: true)
         let reportURL = reportDirectory.appendingPathComponent("SampleD.organisms.report.txt")
+        let workflowSourceURL = workflowSourceDirectory.appendingPathComponent("large-reference.tsv")
         let traceURL = resultDirectory.appendingPathComponent("trace.txt")
         let logURL = resultDirectory.appendingPathComponent("nextflow.log")
         let sqliteURL = resultDirectory.appendingPathComponent("taxtriage.sqlite")
         try "@r\nACGT\n+\nIIII\n".write(to: fastqURL, atomically: true, encoding: .utf8)
         try "organism\treads\nExample virus\t7\n".write(to: reportURL, atomically: true, encoding: .utf8)
+        try "large reference fixture\n".write(to: workflowSourceURL, atomically: true, encoding: .utf8)
         try "task_id\tstatus\n1\tCOMPLETED\n".write(to: traceURL, atomically: true, encoding: .utf8)
         try "TaxTriage complete\n".write(to: logURL, atomically: true, encoding: .utf8)
         try Data("sqlite fixture".utf8).write(to: sqliteURL)
@@ -180,7 +185,7 @@ final class MetagenomicsBatchProvenanceWriterTests: XCTestCase {
             reportFiles: [reportURL],
             logFile: logURL,
             traceFile: traceURL,
-            allOutputFiles: [reportURL, logURL, traceURL]
+            allOutputFiles: [reportURL, logURL, traceURL, workflowSourceURL]
         )
         try result.save()
 
@@ -205,6 +210,8 @@ final class MetagenomicsBatchProvenanceWriterTests: XCTestCase {
         XCTAssertEqual(envelope.options.resolvedDefaults["maxCpus"], .integer(config.maxCpus))
         XCTAssertEqual(envelope.runtimeIdentity.condaEnvironment, "nextflow")
         XCTAssertTrue(envelope.outputs.allSatisfy { $0.checksumSHA256 != nil && $0.fileSize != nil })
+        XCTAssertFalse(envelope.outputs.contains { $0.path.contains("/workflow-source/") })
+        XCTAssertFalse(envelope.files.contains { $0.path.contains("/workflow-source/") })
     }
 
     func testTaxTriageFailedBackfillCapturesUsefulLogStderr() throws {

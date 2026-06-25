@@ -600,6 +600,10 @@ struct ClassifyCommand: AsyncParsableCommand {
             (result.reportURL, .text, .report),
             (result.outputURL, .text, .output),
         ]
+        let krakenIndexURL = KrakenIndexDatabase.indexURL(for: result.outputURL)
+        if FileManager.default.fileExists(atPath: krakenIndexURL.path) {
+            outputs.append((krakenIndexURL, .unknown, .index))
+        }
         if let brackenURL = result.brackenURL {
             outputs.append((brackenURL, .text, .output))
         }

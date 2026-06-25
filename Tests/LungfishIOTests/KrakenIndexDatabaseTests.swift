@@ -156,6 +156,49 @@ final class KrakenIndexDatabaseTests: XCTestCase {
         XCTAssertTrue(unclassified.contains("read_007"))
     }
 
+    func testClassifiedOnlyIndexSkipsUnclassifiedReadsAndAdvertisesCoverage() throws {
+        try KrakenIndexDatabase.build(from: krakenURL, to: indexURL, includeUnclassified: false)
+        let db = try KrakenIndexDatabase(url: indexURL)
+        defer { db.close() }
+
+        XCTAssertTrue(db.isClassifiedOnly)
+        XCTAssertTrue(db.canResolve(taxIds: [9606, 562]))
+        XCTAssertFalse(db.canResolve(taxIds: [0]))
+
+        let humanReads = try db.readIds(forTaxIds: [9606])
+        XCTAssertEqual(humanReads.count, 3)
+
+        let unclassified = try db.readIds(forTaxIds: [0])
+        XCTAssertTrue(unclassified.isEmpty)
+
+        let counts = db.allTaxCounts()
+        XCTAssertNil(counts[0])
+        XCTAssertEqual(counts.values.reduce(0, +), 8)
+    }
+
+    func testClassifiedOnlyIndexCanRepresentAllUnclassifiedSource() throws {
+        let unclassifiedOnlyURL = tempDir.appendingPathComponent("unclassified-only.kraken")
+        try """
+        U\tread_001\t0\t150\t0:150
+        U\tread_002\t0\t150\t0:150
+        """.write(to: unclassifiedOnlyURL, atomically: true, encoding: .utf8)
+
+        let unclassifiedOnlyIndexURL = KrakenIndexDatabase.indexURL(for: unclassifiedOnlyURL)
+        try KrakenIndexDatabase.build(
+            from: unclassifiedOnlyURL,
+            to: unclassifiedOnlyIndexURL,
+            includeUnclassified: false
+        )
+
+        let db = try KrakenIndexDatabase(url: unclassifiedOnlyIndexURL)
+        defer { db.close() }
+
+        XCTAssertTrue(db.isClassifiedOnly)
+        XCTAssertTrue(db.allTaxCounts().isEmpty)
+        XCTAssertTrue(try db.readIds(forTaxIds: [562]).isEmpty)
+        XCTAssertFalse(db.canResolve(taxIds: [0]))
+    }
+
     func testReadIdsForNonexistentTaxId() throws {
         try KrakenIndexDatabase.build(from: krakenURL, to: indexURL)
         let db = try KrakenIndexDatabase(url: indexURL)

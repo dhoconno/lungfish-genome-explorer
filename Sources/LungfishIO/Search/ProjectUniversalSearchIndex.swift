@@ -1116,11 +1116,18 @@ public final class ProjectUniversalSearchIndex {
 
         if let flattened = flattenJSONFile(at: sidecarURL) {
             for (key, value) in flattened {
+                guard !TaxTriageOutputArtifactPolicy.containsPrunedIntermediatePath(in: key),
+                      !TaxTriageOutputArtifactPolicy.containsPrunedIntermediatePath(in: value) else {
+                    continue
+                }
                 attributes[key] = value
             }
         }
 
-        let allOutputFiles = collectOutputFiles(in: resultDirectory).filter { !$0.path.contains("/work/") }
+        let allOutputFiles = TaxTriageOutputArtifactPolicy.filterRetainedOutputFiles(
+            collectOutputFiles(in: resultDirectory),
+            outputDirectory: resultDirectory
+        )
         let metricFiles = allOutputFiles.filter {
             let filename = $0.lastPathComponent.lowercased()
             let ext = $0.pathExtension.lowercased()
