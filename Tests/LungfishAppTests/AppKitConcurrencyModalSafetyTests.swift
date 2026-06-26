@@ -169,11 +169,84 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
         )
     }
 
+    func testMiniBAMAlignmentLoadingDoesNotInheritMainActor() throws {
+        let root = repositoryRoot()
+        let path = "Sources/LungfishKit/MiniBAMViewController.swift"
+        let source = try String(contentsOf: root.appendingPathComponent(path), encoding: .utf8)
+
+        XCTAssertTrue(
+            source.contains("loadTask = Task.detached"),
+            "MiniBAM alignment fetching and SAM parsing must run in a detached task so TaxTriage row selection cannot block AppKit event handling."
+        )
+        XCTAssertFalse(
+            source.contains("loadTask = Task {"),
+            "MiniBAM alignment loading must not use actor-inheriting Task { ... } from the @MainActor view controller."
+        )
+    }
+
+    func testTaxTriageSelectionDoesNotSynchronouslyParseBAMReferences() throws {
+        let root = repositoryRoot()
+        let path = "Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift"
+        let source = try String(contentsOf: root.appendingPathComponent(path), encoding: .utf8)
+        let selectionBlocks = [
+            sourceSlice(
+                in: source,
+                from: "batchFlatTableView.onRowSelected = { [weak self] row in",
+                to: "batchFlatTableView.onMultipleRowsSelected = { [weak self] rows in"
+            ),
+            sourceSlice(
+                in: source,
+                from: "// Wire batch flat table callbacks (same pattern as configureFromDatabase).",
+                to: "batchFlatTableView.onMultipleRowsSelected = { [weak self] rows in",
+                occurrence: 2
+            ),
+            sourceSlice(
+                in: source,
+                from: "organismTableView.onRowSelected = { [weak self] row in",
+                to: "organismTableView.onBlastRequested = { [weak self] row, readCount in"
+            ),
+        ]
+        XCTAssertEqual(selectionBlocks.count, 3)
+
+        for block in selectionBlocks {
+            XCTAssertFalse(
+                block.contains("parseBamReferenceLengths("),
+                "TaxTriage row selection must not synchronously launch samtools reference parsing on the main actor."
+            )
+            XCTAssertTrue(
+                block.contains("displayTaxTriageMiniBAM("),
+                "TaxTriage row selection should route MiniBAM display through the async-safe helper."
+            )
+        }
+    }
+
     private func repositoryRoot() -> URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
+    }
+
+    private func sourceSlice(
+        in source: String,
+        from startMarker: String,
+        to endMarker: String,
+        occurrence: Int = 1
+    ) -> String {
+        var searchStart = source.startIndex
+        var startRange: Range<String.Index>?
+        for _ in 0..<occurrence {
+            guard let range = source.range(of: startMarker, range: searchStart..<source.endIndex) else {
+                return ""
+            }
+            startRange = range
+            searchStart = range.upperBound
+        }
+        guard let startRange,
+              let endRange = source.range(of: endMarker, range: startRange.upperBound..<source.endIndex) else {
+            return ""
+        }
+        return String(source[startRange.lowerBound..<endRange.lowerBound])
     }
 
     private func swiftSourceFiles(under root: URL) throws -> [URL] {

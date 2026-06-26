@@ -23,6 +23,12 @@ private struct TaxTriageDatabasePageSnapshot: Sendable {
     let totalMatchingRows: Int
 }
 
+private struct TaxTriageBAMReferenceSnapshot: Sendable {
+    let accessionLengths: [String: Int]
+    let accessionMappedReadCounts: [String: Int]
+    let parsedMappedReads: Bool
+}
+
 private enum TaxTriageDatabasePageLoadResult: Sendable {
     case success(TaxTriageDatabasePageSnapshot)
     case failure(String)
@@ -216,8 +222,14 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Background task paging SQLite-backed TaxTriage rows into the viewport.
     private var databaseRowLoadTask: Task<Void, Never>?
 
+    /// Background task resolving missing BAM reference lengths for the current selection.
+    private var bamReferenceLengthLoadTask: Task<Void, Never>?
+
     /// Monotonic token used to ignore stale database page loads after filter changes.
     private var databaseRowLoadGeneration = UUID()
+
+    /// Monotonic token used to ignore stale BAM reference loads after selection changes.
+    private var bamReferenceLengthLoadGeneration = UUID()
 
     /// Page size for SQLite-backed TaxTriage viewport loading.
     private let databaseRowsPageSize = 500
@@ -2356,7 +2368,23 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             logger.warning("Cannot parse BAM references: samtools not found")
             return
         }
+        let snapshot = Self.parseBamReferenceLengthsSnapshot(
+            bamPath: bamURL.path,
+            indexPath: indexURL?.path,
+            samtoolsPath: samtoolsPath
+        )
+        mergeBAMReferenceSnapshot(snapshot)
+    }
+
+    private nonisolated static func parseBamReferenceLengthsSnapshot(
+        bamPath: String,
+        indexPath: String?,
+        samtoolsPath: String
+    ) -> TaxTriageBAMReferenceSnapshot {
         let samtoolsURL = URL(fileURLWithPath: samtoolsPath)
+        var accessionLengths: [String: Int] = [:]
+        var accessionMappedReadCounts: [String: Int] = [:]
+        var parsedMappedReads = false
 
         func runSamtools(_ arguments: [String]) -> (status: Int32, stdout: String, stderr: String)? {
             let proc = Process()
@@ -2383,7 +2411,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         }
 
         // 1) Sequence lengths from header (does not require an index).
-        if let header = runSamtools(["view", "-H", bamURL.path]), header.status == 0 {
+        if let header = runSamtools(["view", "-H", bamPath]), header.status == 0 {
             for line in header.stdout.components(separatedBy: .newlines) where line.hasPrefix("@SQ") {
                 let fields = line.components(separatedBy: "\t")
                 var name: String?
@@ -2404,12 +2432,11 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         // 2) idxstats for mapped read counts (prefer explicit index path when available).
         let fm = FileManager.default
         var idxstatsAttempts: [[String]] = []
-        if let indexURL, fm.fileExists(atPath: indexURL.path) {
-            idxstatsAttempts.append(["idxstats", "-X", bamURL.path, indexURL.path])
+        if let indexPath, fm.fileExists(atPath: indexPath) {
+            idxstatsAttempts.append(["idxstats", "-X", bamPath, indexPath])
         }
-        idxstatsAttempts.append(["idxstats", bamURL.path])
+        idxstatsAttempts.append(["idxstats", bamPath])
 
-        var parsedMappedReads = false
         for args in idxstatsAttempts {
             guard let result = runSamtools(args) else { continue }
             guard result.status == 0 else {
@@ -2435,12 +2462,98 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             break
         }
 
+        return TaxTriageBAMReferenceSnapshot(
+            accessionLengths: accessionLengths,
+            accessionMappedReadCounts: accessionMappedReadCounts,
+            parsedMappedReads: parsedMappedReads
+        )
+    }
+
+    private func mergeBAMReferenceSnapshot(_ snapshot: TaxTriageBAMReferenceSnapshot) {
+        accessionLengths.merge(snapshot.accessionLengths) { _, new in new }
+        accessionMappedReadCounts.merge(snapshot.accessionMappedReadCounts) { _, new in new }
+
         let refCount = accessionLengths.count
-        if parsedMappedReads {
+        if snapshot.parsedMappedReads {
             logger.info("Parsed BAM references: \(refCount) contigs, mapped-read stats for \(self.accessionMappedReadCounts.count) contigs")
         } else {
             logger.info("Parsed BAM references: \(refCount) contigs (mapped-read stats unavailable)")
         }
+    }
+
+    private func displayTaxTriageMiniBAM(
+        bamURL: URL,
+        indexURL: URL?,
+        accessions: [String]
+    ) {
+        bamReferenceLengthLoadTask?.cancel()
+        bamReferenceLengthLoadGeneration = UUID()
+        let generation = bamReferenceLengthLoadGeneration
+
+        guard !accessions.isEmpty else {
+            miniBAMController?.clear()
+            return
+        }
+
+        if displayTaxTriageMiniBAMIfLengthKnown(
+            bamURL: bamURL,
+            indexURL: indexURL,
+            accessions: accessions
+        ) {
+            return
+        }
+
+        guard let samtoolsPath = ManagedToolLocator.managedToolExecutablePath(.samtools) else {
+            miniBAMController?.clear()
+            logger.warning("Cannot resolve BAM reference lengths for selected TaxTriage row: samtools not found")
+            return
+        }
+
+        let bamPath = bamURL.path
+        let indexPath = indexURL?.path
+        bamReferenceLengthLoadTask = Task.detached(priority: .userInitiated) { [weak self, accessions] in
+            let snapshot = Self.parseBamReferenceLengthsSnapshot(
+                bamPath: bamPath,
+                indexPath: indexPath,
+                samtoolsPath: samtoolsPath
+            )
+            guard !Task.isCancelled else { return }
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    guard self.bamReferenceLengthLoadGeneration == generation else { return }
+                    self.mergeBAMReferenceSnapshot(snapshot)
+                    if !self.displayTaxTriageMiniBAMIfLengthKnown(
+                        bamURL: bamURL,
+                        indexURL: indexURL,
+                        accessions: accessions
+                    ) {
+                        self.miniBAMController?.clear()
+                    }
+                }
+            }
+        }
+    }
+
+    @discardableResult
+    private func displayTaxTriageMiniBAMIfLengthKnown(
+        bamURL: URL,
+        indexURL: URL?,
+        accessions: [String]
+    ) -> Bool {
+        guard let resolvedAccession = accessions.first(where: { accessionLengths[$0] != nil }),
+              let contigLength = accessionLengths[resolvedAccession] else {
+            return false
+        }
+
+        miniBAMController?.displayContig(
+            bamURL: bamURL,
+            contig: resolvedAccession,
+            contigLength: contigLength,
+            indexURL: indexURL
+        )
+        miniBAMController?.view.isHidden = false
+        return true
     }
 
     // MARK: - Setup: BLAST Drawer
@@ -2623,21 +2736,11 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             }
             let bamIndexURL = resolveBamIndex(for: bamURL, allOutputFiles: [])
             if let accessions = self.accessions(for: row), !accessions.isEmpty {
-                if accessions.contains(where: { self.accessionLengths[$0] == nil }) {
-                    self.parseBamReferenceLengths(bamURL: bamURL, indexURL: bamIndexURL)
-                }
-                if let resolvedAccession = accessions.first(where: { self.accessionLengths[$0] != nil }),
-                   let contigLength = self.accessionLengths[resolvedAccession] {
-                    self.miniBAMController?.displayContig(
-                        bamURL: bamURL,
-                        contig: resolvedAccession,
-                        contigLength: contigLength,
-                        indexURL: bamIndexURL
-                    )
-                    self.miniBAMController?.view.isHidden = false
-                } else {
-                    self.miniBAMController?.clear()
-                }
+                self.displayTaxTriageMiniBAM(
+                    bamURL: bamURL,
+                    indexURL: bamIndexURL,
+                    accessions: accessions
+                )
             } else {
                 self.miniBAMController?.clear()
             }
@@ -2921,21 +3024,11 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             let bamIndexURL = resolveBamIndex(for: bamURL, allOutputFiles: self.taxTriageResult?.allOutputFiles ?? [])
 
             if let accessions = self.accessions(for: row), !accessions.isEmpty {
-                if accessions.contains(where: { self.accessionLengths[$0] == nil }) {
-                    self.parseBamReferenceLengths(bamURL: bamURL, indexURL: bamIndexURL)
-                }
-                if let resolvedAccession = accessions.first(where: { self.accessionLengths[$0] != nil }),
-                   let contigLength = self.accessionLengths[resolvedAccession] {
-                    self.miniBAMController?.displayContig(
-                        bamURL: bamURL,
-                        contig: resolvedAccession,
-                        contigLength: contigLength,
-                        indexURL: bamIndexURL
-                    )
-                    self.miniBAMController?.view.isHidden = false
-                } else {
-                    self.miniBAMController?.clear()
-                }
+                self.displayTaxTriageMiniBAM(
+                    bamURL: bamURL,
+                    indexURL: bamIndexURL,
+                    accessions: accessions
+                )
             } else {
                 self.miniBAMController?.clear()
             }
@@ -3092,25 +3185,11 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 let organismName = row.organism
                 if let accessions = self.accessions(for: row),
                    !accessions.isEmpty {
-                    if accessions.contains(where: { self.accessionLengths[$0] == nil }) {
-                        self.parseBamReferenceLengths(bamURL: bamURL, indexURL: self.bamIndexURL)
-                    }
-                    if let resolvedAccession = accessions.first(where: { self.accessionLengths[$0] != nil }),
-                       let contigLength = self.accessionLengths[resolvedAccession] {
-                        let referenceSequence = self.referenceSequence(for: resolvedAccession)
-                        self.miniBAMController?.displayContig(
-                            bamURL: bamURL,
-                            contig: resolvedAccession,
-                            contigLength: contigLength,
-                            indexURL: self.bamIndexURL,
-                            referenceSequence: referenceSequence
-                        )
-                        // Show the BAM viewer in the left pane
-                        self.miniBAMController?.view.isHidden = false
-                    } else {
-                        self.miniBAMController?.clear()
-                        logger.debug("No reference length found for any mapped accession in \(organismName, privacy: .public)")
-                    }
+                    self.displayTaxTriageMiniBAM(
+                        bamURL: bamURL,
+                        indexURL: self.bamIndexURL,
+                        accessions: accessions
+                    )
                 } else {
                     self.miniBAMController?.clear()
                     logger.debug("No accession mapping for organism: \(organismName, privacy: .public)")

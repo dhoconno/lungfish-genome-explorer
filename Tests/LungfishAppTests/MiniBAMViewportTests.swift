@@ -56,6 +56,16 @@ final class MiniBAMViewportTests: XCTestCase {
         XCTAssertEqual(pileupView.testInferredReferenceBaseCount, inferred.count)
     }
 
+    func testMiniPileupReferenceTrackSkipsPerBaseDrawingAtZoomToFitScale() {
+        XCTAssertFalse(
+            MiniPileupView.testingShouldDrawPerBaseReferenceTrack(basePixelWidth: 0.001),
+            "Zoom-to-fit views for megabase references must not iterate and draw every reference base."
+        )
+        XCTAssertTrue(
+            MiniPileupView.testingShouldDrawPerBaseReferenceTrack(basePixelWidth: 1.0)
+        )
+    }
+
     func testMiniBAMPinchZoomLevelMapsDirectionAndClampsToViewportBounds() {
         XCTAssertGreaterThan(
             MiniBAMViewController.testingZoomLevel(
