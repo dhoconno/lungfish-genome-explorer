@@ -101,6 +101,7 @@ public final class MiniBAMViewController: NSViewController {
     private var referenceSequence: String?
     private var displayedReadSetIsSketch = false
     private var estimatedTotalReadCount: Int?
+    private var fullReadSetLoadPending = false
     public private(set) var uniqueReadCount: Int = 0
 
     // MARK: - Subviews
@@ -146,7 +147,14 @@ public final class MiniBAMViewController: NSViewController {
     private static let maxCachedContigs = 20
 
     /// First-pass read sketch size for large TaxTriage/EsViritu contig selections.
-    private static let initialReadSketchTarget = 2_500
+    private nonisolated static let initialReadSketchTarget = 2_500
+
+    /// Upper bound for automatically replacing the first-pass sketch with all reads.
+    ///
+    /// Larger contigs stay in sketch mode unless a caller explicitly requests a
+    /// bounded `maxReads`; rendering tens of thousands of reads synchronously on
+    /// the main actor makes unrelated AppKit interactions feel frozen.
+    private nonisolated static let automaticFullReadLoadLimit = 10_000
 
     /// Ordered insertion keys so we can evict the oldest entry on overflow.
     private var cacheInsertionOrder: [String] = []
@@ -488,7 +496,8 @@ public final class MiniBAMViewController: NSViewController {
         let total = reads.count
         if displayedReadSetIsSketch {
             let estimatedTotal = estimatedTotalReadCount.map(miniBAMFormatCount) ?? "many"
-            statusLabel.stringValue = "\(miniBAMFormatCount(total)) of \(estimatedTotal) reads · sketch · \(zoomText) · loading full alignments"
+            let suffix = fullReadSetLoadPending ? " · loading full alignments" : " · sampled overview"
+            statusLabel.stringValue = "\(miniBAMFormatCount(total)) of \(estimatedTotal) reads · sketch · \(zoomText)\(suffix)"
             return
         }
 
@@ -496,7 +505,7 @@ public final class MiniBAMViewController: NSViewController {
         onReadStatsUpdated?(total, uniqueReadCount)
     }
 
-    private static func displayReadsAndUniqueCount(
+    private nonisolated static func displayReadsAndUniqueCount(
         from fetchedReads: [AlignedRead],
         readNameAllowlist: Set<String>?
     ) -> DisplayReadStats {
@@ -572,6 +581,7 @@ public final class MiniBAMViewController: NSViewController {
             uniqueReadCount = cached.uniqueReadCount
             displayedReadSetIsSketch = false
             estimatedTotalReadCount = nil
+            fullReadSetLoadPending = false
             updatePileup()
             scrollToTop()
             updateZoomStatus()
@@ -591,9 +601,22 @@ public final class MiniBAMViewController: NSViewController {
 
         // Fetch all primary/supplement-compatible reads for this contig. Keep
         // duplicate-flagged reads visible and deduplicate only for unique stats.
-        loadTask = Task { [weak self] in
-            guard let self else { return }
+        let sketchTarget = Self.initialReadSketchTarget
+
+        // Fetch and parse SAM off the main actor. `Task {}` created here would
+        // inherit this @MainActor controller and stall AppKit while samtools
+        // output is parsed or a large full-read display is prepared.
+        loadTask = Task.detached(priority: .userInitiated) { [weak self, provider, readNameAllowlist] in
             let requestedContig = contig
+            func applyOnMain(_ update: @escaping @MainActor (MiniBAMViewController) -> Void) {
+                DispatchQueue.main.async { [weak self] in
+                    MainActor.assumeIsolated {
+                        guard let self else { return }
+                        update(self)
+                    }
+                }
+            }
+
             do {
                 if maxReads == .max, readNameAllowlist == nil {
                     let sketch = try await provider.fetchReadSketch(
@@ -601,47 +624,71 @@ public final class MiniBAMViewController: NSViewController {
                         start: 0,
                         end: contigLength,
                         excludeFlags: 0x904,
-                        targetReads: Self.initialReadSketchTarget
+                        targetReads: sketchTarget
                     )
                     guard !Task.isCancelled else { return }
-                    guard self.loadGeneration == generation else { return }
-                    guard self.contigName == requestedContig else { return }
 
                     if sketch.isSubsampled {
+                        let shouldLoadFullReadSet = Self.shouldAutoLoadFullReadSet(
+                            estimatedTotalReads: sketch.estimatedTotalReads,
+                            targetReads: sketchTarget
+                        )
                         let display = Self.displayReadsAndUniqueCount(
                             from: sketch.reads,
                             readNameAllowlist: nil
                         )
-                        self.reads = display.reads
-                        self.uniqueReadCount = display.uniqueReadCount
-                        self.displayedReadSetIsSketch = true
-                        self.estimatedTotalReadCount = sketch.estimatedTotalReads
-                        self.updatePileup()
-                        self.scrollToTop()
-                        self.updateZoomStatus()
+                        guard !Task.isCancelled else { return }
+                        applyOnMain { controller in
+                            guard controller.loadGeneration == generation else { return }
+                            guard controller.contigName == requestedContig else { return }
+                            controller.reads = display.reads
+                            controller.uniqueReadCount = display.uniqueReadCount
+                            controller.displayedReadSetIsSketch = true
+                            controller.estimatedTotalReadCount = sketch.estimatedTotalReads
+                            controller.fullReadSetLoadPending = shouldLoadFullReadSet
+                            controller.updatePileup()
+                            controller.scrollToTop()
+                            controller.updateZoomStatus()
+                            controller.scheduleDeferredReferenceInferenceIfNeeded(
+                                reads: display.reads,
+                                requestedContig: requestedContig,
+                                generation: generation
+                            )
+                        }
+
+                        guard shouldLoadFullReadSet else {
+                            logger.info("Using sketch-only MiniBAM display: \(display.reads.count) of \(sketch.estimatedTotalReads) reads for \(contig, privacy: .public)")
+                            return
+                        }
                     } else {
                         let display = Self.displayReadsAndUniqueCount(
                             from: sketch.reads,
                             readNameAllowlist: nil
                         )
-                        self.reads = display.reads
-                        self.uniqueReadCount = display.uniqueReadCount
-                        self.displayedReadSetIsSketch = false
-                        self.estimatedTotalReadCount = nil
-                        self.updatePileup()
-                        self.scrollToTop()
-                        self.updateZoomStatus()
-                        self.scheduleDeferredReferenceInferenceIfNeeded(
-                            reads: display.reads,
-                            requestedContig: requestedContig,
-                            generation: generation
-                        )
+                        guard !Task.isCancelled else { return }
+                        applyOnMain { controller in
+                            guard controller.loadGeneration == generation else { return }
+                            guard controller.contigName == requestedContig else { return }
+                            controller.reads = display.reads
+                            controller.uniqueReadCount = display.uniqueReadCount
+                            controller.displayedReadSetIsSketch = false
+                            controller.estimatedTotalReadCount = nil
+                            controller.fullReadSetLoadPending = false
+                            controller.updatePileup()
+                            controller.scrollToTop()
+                            controller.updateZoomStatus()
+                            controller.scheduleDeferredReferenceInferenceIfNeeded(
+                                reads: display.reads,
+                                requestedContig: requestedContig,
+                                generation: generation
+                            )
 
-                        let result = CachedContigResult(
-                            reads: display.reads,
-                            uniqueReadCount: display.uniqueReadCount
-                        )
-                        self.cacheResult(result, key: key)
+                            let result = CachedContigResult(
+                                reads: display.reads,
+                                uniqueReadCount: display.uniqueReadCount
+                            )
+                            controller.cacheResult(result, key: key)
+                        }
                         logger.info("Loaded \(display.reads.count) reads for \(contig, privacy: .public)")
                         return
                     }
@@ -655,41 +702,50 @@ public final class MiniBAMViewController: NSViewController {
                     maxReads: maxReads
                 )
                 guard !Task.isCancelled else { return }
-                guard self.contigName == requestedContig else { return }
 
                 let display = Self.displayReadsAndUniqueCount(
                     from: fetchedReads,
                     readNameAllowlist: readNameAllowlist
                 )
 
-                self.reads = display.reads
-                self.uniqueReadCount = display.uniqueReadCount
-                self.displayedReadSetIsSketch = false
-                self.estimatedTotalReadCount = nil
-                self.updatePileup()
+                applyOnMain { controller in
+                    guard controller.loadGeneration == generation else { return }
+                    guard controller.contigName == requestedContig else { return }
+                    controller.reads = display.reads
+                    controller.uniqueReadCount = display.uniqueReadCount
+                    controller.displayedReadSetIsSketch = false
+                    controller.estimatedTotalReadCount = nil
+                    controller.fullReadSetLoadPending = false
+                    controller.updatePileup()
 
-                // Keep the coverage/reference tracks pinned at the top of the viewport.
-                self.scrollToTop()
-                self.updateZoomStatus()
-                self.scheduleDeferredReferenceInferenceIfNeeded(
-                    reads: display.reads,
-                    requestedContig: requestedContig,
-                    generation: generation
-                )
-
-                // Store in cache for instant re-display on repeated selections.
-                if readNameAllowlist == nil {
-                    let result = CachedContigResult(
+                    // Keep the coverage/reference tracks pinned at the top of the viewport.
+                    controller.scrollToTop()
+                    controller.updateZoomStatus()
+                    controller.scheduleDeferredReferenceInferenceIfNeeded(
                         reads: display.reads,
-                        uniqueReadCount: display.uniqueReadCount
+                        requestedContig: requestedContig,
+                        generation: generation
                     )
-                    self.cacheResult(result, key: key)
+
+                    // Store in cache for instant re-display on repeated selections.
+                    if readNameAllowlist == nil {
+                        let result = CachedContigResult(
+                            reads: display.reads,
+                            uniqueReadCount: display.uniqueReadCount
+                        )
+                        controller.cacheResult(result, key: key)
+                    }
                 }
 
                 logger.info("Loaded \(display.reads.count) reads for \(contig, privacy: .public)")
             } catch {
                 guard !Task.isCancelled else { return }
-                self.statusLabel.stringValue = "Failed to load reads: \(error.localizedDescription)"
+                let message = error.localizedDescription
+                applyOnMain { controller in
+                    guard controller.loadGeneration == generation else { return }
+                    guard controller.contigName == requestedContig else { return }
+                    controller.statusLabel.stringValue = "Failed to load reads: \(message)"
+                }
                 logger.error("Failed to fetch reads for \(contig, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
         }
@@ -718,6 +774,23 @@ public final class MiniBAMViewController: NSViewController {
             currentZoom: currentZoom,
             contigLength: contigLength
         )
+    }
+
+    static func testingShouldAutoLoadFullReadSet(
+        estimatedTotalReads: Int,
+        targetReads: Int
+    ) -> Bool {
+        shouldAutoLoadFullReadSet(
+            estimatedTotalReads: estimatedTotalReads,
+            targetReads: targetReads
+        )
+    }
+
+    private nonisolated static func shouldAutoLoadFullReadSet(
+        estimatedTotalReads: Int,
+        targetReads: Int
+    ) -> Bool {
+        estimatedTotalReads <= max(targetReads, automaticFullReadLoadLimit)
     }
 
     // MARK: - Keyboard Shortcuts
@@ -878,6 +951,7 @@ public final class MiniBAMViewController: NSViewController {
         uniqueReadCount = 0
         displayedReadSetIsSketch = false
         estimatedTotalReadCount = nil
+        fullReadSetLoadPending = false
         referenceSequence = nil
         pileupView.clear()
         statusLabel.stringValue = emptyStatusText
@@ -1227,6 +1301,7 @@ final class MiniPileupView: NSView {
         guard contigLength > 0 else { return }
         let basePxWidth = CGFloat(1.0 / bpPerPixel)
         guard basePxWidth > 0 else { return }
+        guard Self.shouldDrawPerBaseReferenceTrack(basePixelWidth: basePxWidth) else { return }
 
         let startRef = max(0, Int(floor(Double(dirtyRect.minX - leftMargin) * bpPerPixel)))
         let endRef = min(contigLength - 1, Int(ceil(Double(dirtyRect.maxX - leftMargin) * bpPerPixel)))
@@ -1263,6 +1338,10 @@ final class MiniPileupView: NSView {
                 NSBezierPath(rect: rect).fill()
             }
         }
+    }
+
+    private nonisolated static func shouldDrawPerBaseReferenceTrack(basePixelWidth: CGFloat) -> Bool {
+        basePixelWidth >= 1
     }
 
     // MARK: - Read Pileup
@@ -1785,4 +1864,7 @@ final class MiniPileupView: NSView {
 
     var testPackInvocationCount: Int { packInvocationCount }
     var testInferredReferenceBaseCount: Int { inferredReferenceBases.count }
+    nonisolated static func testingShouldDrawPerBaseReferenceTrack(basePixelWidth: CGFloat) -> Bool {
+        shouldDrawPerBaseReferenceTrack(basePixelWidth: basePixelWidth)
+    }
 }

@@ -36,4 +36,23 @@ final class MiniBAMReadCopyTests: XCTestCase {
 
         XCTAssertEqual(MiniBAMViewController.testingReadFASTA(read), ">read-1\nACGT")
     }
+
+    func testLargeReadSketchesDoNotAutoLoadFullReadSet() {
+        XCTAssertFalse(
+            MiniBAMViewController.testingShouldAutoLoadFullReadSet(
+                estimatedTotalReads: 49_123,
+                targetReads: 2_500
+            ),
+            "A Pseudomonas-scale TaxTriage row should stay in sketch mode instead of replacing the viewport with tens of thousands of reads on the main actor."
+        )
+    }
+
+    func testSmallReadSketchesCanAutoLoadFullReadSet() {
+        XCTAssertTrue(
+            MiniBAMViewController.testingShouldAutoLoadFullReadSet(
+                estimatedTotalReads: 4_000,
+                targetReads: 2_500
+            )
+        )
+    }
 }
