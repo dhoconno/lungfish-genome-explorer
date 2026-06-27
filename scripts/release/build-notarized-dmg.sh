@@ -317,8 +317,9 @@ generate_sparkle_appcast() {
     local dmg_name="Lungfish-${VERSION}-arm64.dmg"
     local appcast_dmg="${SPARKLE_APPCAST_DIR}/${dmg_name}"
     local notes_source
-    local notes_dest="${SPARKLE_APPCAST_DIR}/Lungfish-${VERSION}-arm64.dmg.md"
+    local notes_dest="${SPARKLE_APPCAST_DIR}/Lungfish-${VERSION}-arm64.md"
     local download_url_prefix="$SPARKLE_DOWNLOAD_URL_PREFIX"
+    local release_notes_url_prefix
 
     notes_source="$(sparkle_release_notes_source)"
     if [ -z "$download_url_prefix" ]; then
@@ -328,6 +329,10 @@ generate_sparkle_appcast() {
         */) ;;
         *) download_url_prefix="${download_url_prefix}/" ;;
     esac
+    release_notes_url_prefix="$download_url_prefix"
+    if [ -n "$SPARKLE_PUBLISH_RELEASE" ]; then
+        release_notes_url_prefix="https://github.com/dhoconno/lungfish-genome-explorer/releases/download/${SPARKLE_PUBLISH_RELEASE}/"
+    fi
 
     mkdir -p "$SPARKLE_APPCAST_DIR"
     /bin/cp -p "$DMG_PATH" "$appcast_dmg"
@@ -339,6 +344,7 @@ generate_sparkle_appcast() {
     SPARKLE_APPCAST_PATH="${SPARKLE_APPCAST_DIR}/appcast-alpha.xml"
     local appcast_args=(
         --download-url-prefix "$download_url_prefix"
+        --release-notes-url-prefix "$release_notes_url_prefix"
         -o "$SPARKLE_APPCAST_PATH"
     )
     if [ -n "$SPARKLE_ED_KEY_FILE" ]; then

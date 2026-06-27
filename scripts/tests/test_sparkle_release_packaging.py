@@ -45,10 +45,12 @@ class SparkleReleasePackagingTests(unittest.TestCase):
         self.assertIn('-o "$SPARKLE_APPCAST_PATH"', self.release_script)
         self.assertIn('--ed-key-file "$SPARKLE_ED_KEY_FILE"', self.release_script)
         self.assertIn("--download-url-prefix", self.release_script)
+        self.assertIn("--release-notes-url-prefix", self.release_script)
+        self.assertIn("release_notes_url_prefix=", self.release_script)
         self.assertIn('download_url_prefix="${download_url_prefix}/"', self.release_script)
         self.assertIn("gh release upload", self.release_script)
         self.assertIn('gh release upload "$GITHUB_RELEASE_TAG" "$DMG_PATH" --clobber', self.release_script)
-        self.assertIn("Lungfish-${VERSION}-arm64.dmg.md", self.release_script)
+        self.assertIn("Lungfish-${VERSION}-arm64.md", self.release_script)
 
     def test_release_script_stamps_sparkle_keys_before_codesigning(self):
         self.assertIn("configure_sparkle_info_plist", self.release_script)
