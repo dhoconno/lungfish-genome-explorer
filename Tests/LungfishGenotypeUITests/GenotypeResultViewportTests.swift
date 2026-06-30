@@ -3479,6 +3479,44 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(style.isBold)
     }
 
+    func testMatrixAnnotationStyleRequestAppliesToMultipleSelectedCells() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeMatrixApplyMultiStyle-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let first = "01_Mafa_A1_001_01"
+        let second = "02_Mafa_A1_002_01"
+        let calls = [
+            makeCall(sample: "AnimalA", genotype: first, reads: 42),
+            makeCall(sample: "AnimalA", genotype: second, reads: 21),
+        ]
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(bundleURL: bundleURL, samples: [], calls: calls))
+        controller.testingSelectMatrixRows(genotypes: [first, second], sample: "AnimalA")
+
+        XCTAssertEqual(Set(controller.testingCurrentSelectionMatrixTargets), Set([
+            .cell(locus: "MHC-A", genotype: first, sample: "AnimalA"),
+            .cell(locus: "MHC-A", genotype: second, sample: "AnimalA"),
+        ]))
+
+        controller.applyMatrixStyle(GenotypeMatrixStyleRequest(
+            targets: controller.testingCurrentSelectionMatrixTargets,
+            field: .fillColor(AnnotationColor(red: 0.95, green: 0.75, blue: 0.2, alpha: 1.0))
+        ))
+
+        let sidecarURL = bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        let sidecar = try GenotypeAnnotationSidecar.decode(Data(contentsOf: sidecarURL))
+        XCTAssertEqual(sidecar.matrixStyles.count, 2)
+        XCTAssertEqual(Set(sidecar.matrixStyles.map(\.target)), Set([
+            .cell(locus: "MHC-A", genotype: first, sample: "AnimalA"),
+            .cell(locus: "MHC-A", genotype: second, sample: "AnimalA"),
+        ]))
+        XCTAssertEqual(try XCTUnwrap(controller.testingRenderedMatrixStyle(genotype: first, sample: "AnimalA")).fillColor?.hexString, "#F2BF33")
+        XCTAssertEqual(try XCTUnwrap(controller.testingRenderedMatrixStyle(genotype: second, sample: "AnimalA")).fillColor?.hexString, "#F2BF33")
+    }
+
     func testMatrixCommentsPersistAndAppearInSelectionDetails() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeMatrixComment-\(UUID().uuidString)", isDirectory: true)

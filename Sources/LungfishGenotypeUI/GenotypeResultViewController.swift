@@ -114,6 +114,7 @@ public final class GenotypeResultViewController: NSViewController {
     private var nextHaplotypeSampleActionTag = 1
     private var currentWorkbookNeedsRefresh = false
     private var currentWorkbookUpdateStatus: String?
+    private var currentWorkbookAnnotationAutoUpdateTask: Task<Void, Never>?
     private var aiHaplotypingStatus: String?
     private var outlineRowsBySample: [String: GenotypeOutlineView.Row] = [:]
     private var outlineRowOrder: [String] = []
@@ -634,6 +635,7 @@ public final class GenotypeResultViewController: NSViewController {
             comparisonMatrix.applyAnnotationSidecar(store.sidecar)
             refreshCurrentSelectionDetails()
             onAnnotationSidecarChanged?(store.sidecar)
+            scheduleCurrentWorkbookUpdateForMatrixAnnotation()
         } catch {
             presentSheetAlert(error: error)
         }
@@ -649,6 +651,7 @@ public final class GenotypeResultViewController: NSViewController {
             comparisonMatrix.applyAnnotationSidecar(store.sidecar)
             refreshCurrentSelectionDetails()
             onAnnotationSidecarChanged?(store.sidecar)
+            scheduleCurrentWorkbookUpdateForMatrixAnnotation()
         } catch {
             presentSheetAlert(error: error)
         }
@@ -892,8 +895,8 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func wireCallbacks() {
-        comparisonMatrix.onSharedCallSelected = { [weak self] sharedCall, sample in
-            self?.showSharedCall(sharedCall, sample: sample)
+        comparisonMatrix.onSharedCallSelected = { [weak self] sharedCall, sample, matrixTargets in
+            self?.showSharedCall(sharedCall, sample: sample, matrixTargets: matrixTargets)
         }
         comparisonMatrix.onSelectionCleared = { [weak self] in
             self?.showEmptySelection()
@@ -1868,7 +1871,11 @@ public final class GenotypeResultViewController: NSViewController {
         return stack
     }
 
-    private func showSharedCall(_ sharedCall: ONTGenotypeSharedCall, sample: String? = nil) {
+    private func showSharedCall(
+        _ sharedCall: ONTGenotypeSharedCall,
+        sample: String? = nil,
+        matrixTargets: [GenotypeAnnotationSidecar.MatrixTarget]? = nil
+    ) {
         currentSharedCall = sharedCall
         currentSelectedSample = sample
         removeArrangedSubviews(from: detailStack)
@@ -1931,7 +1938,7 @@ public final class GenotypeResultViewController: NSViewController {
             }
         }
 
-        publishSelectionState(selectionState(for: sharedCall, sample: sample))
+        publishSelectionState(selectionState(for: sharedCall, sample: sample, matrixTargets: matrixTargets))
     }
 
     private func showEmptySelection() {
@@ -2265,43 +2272,80 @@ public final class GenotypeResultViewController: NSViewController {
         stack.alignment = .leading
         stack.spacing = 6
 
-        let manualChangeCount = currentWorkbookManualChangeCount
+        let changeCount = currentWorkbookRelevantChangeCount
+        let changeLabel = currentWorkbookRelevantChangeLabel
         let isReadOnly = annotationStore?.isReadOnly ?? false
         let statusText: String
         if let currentWorkbookUpdateStatus {
             statusText = currentWorkbookUpdateStatus
-        } else if manualChangeCount == 0 {
+        } else if changeCount == 0 {
             statusText = "current.xlsx is up to date."
         } else if isReadOnly {
             statusText = "Bundle is read-only. Save a writable copy to update current.xlsx."
         } else if currentWorkbookNeedsRefresh {
-            statusText = "current.xlsx does not include \(manualChangeCount) manual haplotype change\(manualChangeCount == 1 ? "" : "s")."
+            statusText = "current.xlsx does not include \(changeCount) \(changeLabel)."
         } else {
-            statusText = "current.xlsx can be refreshed from \(manualChangeCount) manual haplotype change\(manualChangeCount == 1 ? "" : "s")."
+            statusText = "current.xlsx can be refreshed from \(changeCount) \(changeLabel)."
         }
 
         stack.addArrangedSubview(caption(statusText))
-        stack.addArrangedSubview(caption("Regenerates the bundle workbook from displayed haplotype calls and records a workbook revision."))
+        stack.addArrangedSubview(caption("Regenerates the bundle workbook from displayed haplotype calls and matrix annotations, then records a workbook revision."))
 
         let button = NSButton(title: "Update current.xlsx", target: self, action: #selector(updateCurrentWorkbookFromOverrides))
         button.bezelStyle = .rounded
         button.controlSize = .small
-        button.isEnabled = manualChangeCount > 0 && !isReadOnly
-        button.toolTip = "Apply Review viewport haplotype overrides to artifacts/workbooks/current.xlsx."
+        button.isEnabled = changeCount > 0 && !isReadOnly
+        button.toolTip = "Apply Review viewport haplotype overrides and matrix annotations to artifacts/workbooks/current.xlsx."
         stack.addArrangedSubview(button)
         return stack
     }
 
-    private var currentWorkbookManualChangeCount: Int {
+    private var currentWorkbookRelevantChangeCount: Int {
         guard let sidecar = annotationStore?.sidecar else { return 0 }
-        return sidecar.callOverrides.count + sidecar.manualHaplotypeAssignments.count
+        return sidecar.callOverrides.count
+            + sidecar.manualHaplotypeAssignments.count
+            + sidecar.matrixStyles.count
+            + sidecar.matrixComments.count
+    }
+
+    private var currentWorkbookHasMatrixAnnotations: Bool {
+        guard let sidecar = annotationStore?.sidecar else { return false }
+        return !sidecar.matrixStyles.isEmpty || !sidecar.matrixComments.isEmpty
+    }
+
+    private var currentWorkbookRelevantChangeLabel: String {
+        let count = currentWorkbookRelevantChangeCount
+        if currentWorkbookHasMatrixAnnotations {
+            return count == 1 ? "workbook annotation change" : "workbook annotation changes"
+        }
+        return count == 1 ? "manual haplotype change" : "manual haplotype changes"
+    }
+
+    private func scheduleCurrentWorkbookUpdateForMatrixAnnotation() {
+        guard currentWorkbookHasMatrixAnnotations,
+              !(annotationStore?.isReadOnly ?? true) else { return }
+        currentWorkbookNeedsRefresh = true
+        currentWorkbookUpdateStatus = "Queued current.xlsx annotation update."
+        rebuildArtifactLens()
+        currentWorkbookAnnotationAutoUpdateTask?.cancel()
+        currentWorkbookAnnotationAutoUpdateTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: 1_200_000_000)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            self?.updateCurrentWorkbookFromOverrides()
+        }
     }
 
     @objc private func updateCurrentWorkbookFromOverrides() {
         guard let result else { return }
+        currentWorkbookAnnotationAutoUpdateTask?.cancel()
+        currentWorkbookAnnotationAutoUpdateTask = nil
         let calls = currentWorkbookEffectiveHaplotypeCalls()
         let includedLoci = currentWorkbookIncludedLoci()
-        guard !calls.isEmpty else {
+        guard !calls.isEmpty || currentWorkbookHasMatrixAnnotations else {
             currentWorkbookUpdateStatus = "No displayed haplotype calls are available for current.xlsx."
             rebuildArtifactLens()
             return
@@ -2709,7 +2753,7 @@ public final class GenotypeResultViewController: NSViewController {
             guard !bulk.isEmpty else { return }
             try store.addManualHaplotypeAssignments(bulk)
             currentWorkbookNeedsRefresh = true
-            currentWorkbookUpdateStatus = "current.xlsx does not include manual haplotype changes."
+            currentWorkbookUpdateStatus = "current.xlsx does not include workbook changes."
             onAnnotationSidecarChanged?(store.sidecar)
         } catch {
             if let window = view.window ?? NSApp.keyWindow {
@@ -2730,7 +2774,7 @@ public final class GenotypeResultViewController: NSViewController {
                 other.label == assignment.label
             }
             currentWorkbookNeedsRefresh = true
-            currentWorkbookUpdateStatus = "current.xlsx does not include manual haplotype changes."
+            currentWorkbookUpdateStatus = "current.xlsx does not include workbook changes."
             onAnnotationSidecarChanged?(store.sidecar)
         } catch {
             if let window = view.window ?? NSApp.keyWindow {
@@ -3662,7 +3706,7 @@ public final class GenotypeResultViewController: NSViewController {
                 )
             }
             currentWorkbookNeedsRefresh = true
-            currentWorkbookUpdateStatus = "current.xlsx does not include manual haplotype changes."
+            currentWorkbookUpdateStatus = "current.xlsx does not include workbook changes."
             refreshAfterHaplotypeOverride()
         } catch {
             presentSheetAlert(error: error)
@@ -3883,7 +3927,7 @@ public final class GenotypeResultViewController: NSViewController {
             return
         }
         currentWorkbookNeedsRefresh = true
-        currentWorkbookUpdateStatus = "current.xlsx does not include manual haplotype changes."
+        currentWorkbookUpdateStatus = "current.xlsx does not include workbook changes."
         refreshAfterHaplotypeOverride()
         // Re-present the sheet with fresh state so the analyst can keep working.
         dismissSampleDetailSheet()
@@ -3900,7 +3944,7 @@ public final class GenotypeResultViewController: NSViewController {
             return
         }
         currentWorkbookNeedsRefresh = true
-        currentWorkbookUpdateStatus = "current.xlsx does not include manual haplotype changes."
+        currentWorkbookUpdateStatus = "current.xlsx does not include workbook changes."
         refreshAfterHaplotypeOverride()
         dismissSampleDetailSheet()
         presentSampleDetailSheet(forAnimal: animalId)
@@ -5132,6 +5176,11 @@ extension GenotypeResultViewController {
     func testingSelectMatrixCell(genotype: String, sample: String) {
         ensureComparisonMatrixConfigured()
         comparisonMatrix.testingSelectCell(genotype: genotype, sample: sample)
+    }
+
+    func testingSelectMatrixRows(genotypes: [String], sample: String?) {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.testingSelectRows(genotypes: genotypes, sample: sample)
     }
 
     var testingCurrentSelectionMatrixTargets: [GenotypeAnnotationSidecar.MatrixTarget] {

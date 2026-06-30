@@ -146,6 +146,8 @@ struct GenotypeApplyAnnotationsSubcommand: AsyncParsableCommand {
         parameters["\(prefix)SampleStatusFlags"] = .integer(counts.sampleStatusFlags)
         parameters["\(prefix)CallStatusFlags"] = .integer(counts.callStatusFlags)
         parameters["\(prefix)SmartCohorts"] = .integer(counts.smartCohorts)
+        parameters["\(prefix)MatrixStyles"] = .integer(counts.matrixStyles)
+        parameters["\(prefix)MatrixComments"] = .integer(counts.matrixComments)
         parameters["\(prefix)ManualHaplotypeAssignments"] = .integer(counts.manualHaplotypeAssignments)
         parameters["\(prefix)AuditLog"] = .integer(counts.auditLog)
     }
@@ -198,6 +200,17 @@ struct GenotypeApplyAnnotationsSubcommand: AsyncParsableCommand {
                         key: { $0.name + "|" + $0.scope },
                         appended: &appended.smartCohorts,
                         skipped: &skipped.smartCohorts)
+        Self.mergeMatrixStyles(
+            into: &merged.matrixStyles,
+            from: patch.matrixStyles,
+            changed: &appended.matrixStyles,
+            skipped: &skipped.matrixStyles
+        )
+        Self.mergeArray(into: &merged.matrixComments,
+                        from: patch.matrixComments,
+                        key: matrixCommentKey,
+                        appended: &appended.matrixComments,
+                        skipped: &skipped.matrixComments)
         Self.mergeArray(into: &merged.manualHaplotypeAssignments,
                         from: patch.manualHaplotypeAssignments,
                         key: manualHaplotypeKey,
@@ -230,6 +243,27 @@ struct GenotypeApplyAnnotationsSubcommand: AsyncParsableCommand {
                 appended += 1
             } else {
                 skipped += 1
+            }
+        }
+    }
+
+    private static func mergeMatrixStyles(
+        into destination: inout [GenotypeAnnotationSidecar.MatrixStyleAnnotation],
+        from source: [GenotypeAnnotationSidecar.MatrixStyleAnnotation],
+        changed: inout Int,
+        skipped: inout Int
+    ) {
+        for entry in source {
+            if let existingIndex = destination.firstIndex(where: { $0.target == entry.target }) {
+                if destination[existingIndex] == entry {
+                    skipped += 1
+                } else {
+                    destination[existingIndex] = entry
+                    changed += 1
+                }
+            } else {
+                destination.append(entry)
+                changed += 1
             }
         }
     }
@@ -274,6 +308,26 @@ struct GenotypeApplyAnnotationsSubcommand: AsyncParsableCommand {
         [entry.sample, entry.locus, entry.slot.rawValue, entry.label].joined(separator: "|")
     }
 
+    static func matrixCommentKey(_ entry: GenotypeAnnotationSidecar.MatrixComment) -> String {
+        [
+            matrixTargetKey(entry.target),
+            entry.body,
+            entry.author,
+            entry.timestamp,
+        ].joined(separator: "|")
+    }
+
+    static func matrixTargetKey(_ target: GenotypeAnnotationSidecar.MatrixTarget) -> String {
+        switch target {
+        case let .row(locus, genotype):
+            return ["row", locus, genotype].joined(separator: "|")
+        case let .column(sample):
+            return ["column", sample].joined(separator: "|")
+        case let .cell(locus, genotype, sample):
+            return ["cell", locus, genotype, sample].joined(separator: "|")
+        }
+    }
+
     static func auditEntryKey(_ entry: GenotypeAnnotationSidecar.AuditEntry) -> String {
         [
             entry.action,
@@ -296,6 +350,8 @@ struct GenotypeApplyAnnotationsSubcommand: AsyncParsableCommand {
         var sampleStatusFlags: Int = 0
         var callStatusFlags: Int = 0
         var smartCohorts: Int = 0
+        var matrixStyles: Int = 0
+        var matrixComments: Int = 0
         var manualHaplotypeAssignments: Int = 0
         var auditLog: Int = 0
     }

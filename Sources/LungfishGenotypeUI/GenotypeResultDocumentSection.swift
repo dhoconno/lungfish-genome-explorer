@@ -397,8 +397,8 @@ public struct GenotypeResultDocumentSection: View {
                     }
                     .controlSize(.small)
                     .disabled(!update.isEnabled)
-                    .help("Apply Review viewport haplotype edits and audit timeline to artifacts/workbooks/current.xlsx.")
-                    Text("Writes displayed haplotype calls, Overrides, and Audit Log worksheets.")
+                    .help("Apply Review viewport haplotype edits, matrix annotations, and audit timeline to artifacts/workbooks/current.xlsx.")
+                    Text("Writes displayed haplotype calls, matrix annotations, Overrides, and Audit Log worksheets.")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                         .fixedSize(horizontal: false, vertical: true)

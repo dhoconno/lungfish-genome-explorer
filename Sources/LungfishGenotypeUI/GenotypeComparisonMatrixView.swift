@@ -35,7 +35,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         }
     }
 
-    var onSharedCallSelected: ((ONTGenotypeSharedCall, String?) -> Void)?
+    var onSharedCallSelected: ((ONTGenotypeSharedCall, String?, [GenotypeAnnotationSidecar.MatrixTarget]) -> Void)?
     var onSelectionCleared: (() -> Void)?
     var onDisplaySummaryChanged: ((Int, Int, Int) -> Void)?
 
@@ -276,7 +276,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         selectedMatrixTargets = [matrixTarget(row: visibleRows[0], sample: nil)]
         tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
         tableView.scrollRowToVisible(0)
-        onSharedCallSelected?(visibleRows[0], nil)
+        onSharedCallSelected?(visibleRows[0], nil, selectedMatrixTargets)
     }
 
     private func buildView() {
@@ -314,7 +314,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         tableView.usesAlternatingRowBackgroundColors = true
         tableView.allowsColumnReordering = true
         tableView.allowsColumnResizing = true
-        tableView.allowsMultipleSelection = false
+        tableView.allowsMultipleSelection = true
         tableView.columnAutoresizingStyle = .noColumnAutoresizing
         tableView.rowHeight = 22
         tableView.style = .plain
@@ -550,7 +550,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                 tableView.selectRowIndexes(IndexSet(integer: newIndex), byExtendingSelection: false)
                 tableView.scrollRowToVisible(newIndex)
             } else {
-                onSharedCallSelected?(visibleRows[newIndex], selectedSampleName)
+                onSharedCallSelected?(visibleRows[newIndex], selectedSampleName, selectedMatrixTargets)
             }
         } else if tableView.selectedRowIndexes.contains(where: { $0 >= visibleRows.count }) {
             tableView.deselectAll(nil)
@@ -679,13 +679,18 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
-        let selectedRow = tableView.selectedRow
-        guard selectedRow >= 0, selectedRow < visibleRows.count else {
+        let selectedRows = tableView.selectedRowIndexes.filter { $0 >= 0 && $0 < visibleRows.count }
+        guard !selectedRows.isEmpty else {
             onSelectionCleared?()
             return
         }
         let preferredSample = pendingClickedSampleName ?? selectedSampleName
         pendingClickedSampleName = nil
+        if selectedRows.count > 1 {
+            selectVisibleRows(selectedRows, sample: preferredSample)
+            return
+        }
+        let selectedRow = selectedRows[selectedRows.startIndex]
         selectVisibleRow(selectedRow, sample: preferredSample)
     }
 
@@ -814,6 +819,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     private func completeSelectionFromMouseUp(row: Int, column: Int) {
+        guard tableView.selectedRowIndexes.count <= 1 else { return }
         guard row >= 0, row < visibleRows.count, tableView.selectedRow == row else { return }
         let sample = sampleName(forColumnAt: column)
         selectVisibleRow(row, sample: sample)
@@ -837,7 +843,22 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             newGenotype: row.genotype,
             newLocus: row.locus
         )
-        onSharedCallSelected?(row, sample)
+        onSharedCallSelected?(row, sample, selectedMatrixTargets)
+    }
+
+    private func selectVisibleRows(_ rowIndexes: [Int], sample: String?) {
+        let validIndexes = rowIndexes.filter { $0 >= 0 && $0 < visibleRows.count }
+        guard let firstIndex = validIndexes.first else {
+            onSelectionCleared?()
+            return
+        }
+        let firstRow = visibleRows[firstIndex]
+        selectedSampleName = sample
+        selectedGenotype = firstRow.genotype
+        selectedRowLocus = firstRow.locus
+        selectedMatrixTargets = validIndexes.map { matrixTarget(row: visibleRows[$0], sample: sample) }
+        tableView.reloadData()
+        onSharedCallSelected?(firstRow, sample, selectedMatrixTargets)
     }
 
     private func reloadRowsForSelectionChange(
@@ -1169,6 +1190,16 @@ extension GenotypeComparisonMatrixView {
         tableView.selectRowIndexes(IndexSet(integer: rowIndex), byExtendingSelection: false)
         tableView.scrollRowToVisible(rowIndex)
         selectVisibleRow(rowIndex, sample: sample)
+    }
+
+    func testingSelectRows(genotypes: [String], sample: String?) {
+        var indexes = IndexSet()
+        for genotype in genotypes {
+            if let rowIndex = visibleRows.firstIndex(where: { $0.genotype == genotype }) {
+                indexes.insert(rowIndex)
+            }
+        }
+        selectVisibleRows(Array(indexes), sample: sample)
     }
 
     func testingCellValue(genotype: String, sample: String) -> String? {

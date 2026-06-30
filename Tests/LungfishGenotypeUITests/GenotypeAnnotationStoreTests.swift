@@ -373,10 +373,11 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         XCTAssertEqual(envelope.workflowName, "Genotype annotation sidecar edit")
         XCTAssertEqual(envelope.toolName, "Lungfish Genome Explorer")
         XCTAssertEqual(envelope.argv, [
-            "lungfish-cli",
-            "edit-genotype-annotations",
+            "lungfish",
+            "genotype",
+            "apply-annotations",
             "--bundle", dir.path,
-            "--action", "saveSmartCohort",
+            "--patch", annotationURL.path,
         ])
         XCTAssertEqual(envelope.options.explicit["bundle"]?.fileValue?.path, dir.path)
         XCTAssertEqual(envelope.options.explicit["annotationSidecar"]?.fileValue?.path, annotationURL.path)
