@@ -5,8 +5,14 @@ import LungfishIO
 @MainActor
 final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTableViewDelegate {
     private struct CellKey: Hashable {
+        let locus: String
         let genotype: String
         let sample: String
+    }
+
+    private struct RowKey: Hashable {
+        let locus: String
+        let genotype: String
     }
 
     private struct SupportBucketKey: Hashable {
@@ -43,10 +49,12 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private var allRows: [ONTGenotypeSharedCall] = []
     private var visibleRows: [ONTGenotypeSharedCall] = []
     private var sampleNames: [String] = []
+    private var visibleSampleNames: [String] = []
     private var sampleColumnLookup: [NSUserInterfaceItemIdentifier: String] = [:]
     private var selectedGenotype: String?
     private var selectedSampleName: String?
     private var selectedRowLocus: String?
+    private var selectedMatrixTargets: [GenotypeAnnotationSidecar.MatrixTarget] = []
     private var selectedFilterLocus: String?
     private var pendingClickedSampleName: String?
     private var filterText = ""
@@ -61,7 +69,10 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private var hiddenCellCount = 0
     private var supportFractionByCell: [CellKey: Double] = [:]
     private var cellStyles: [CellKey: GenotypeResultHighlightStyle] = [:]
-    private var rowStyles: [String: GenotypeResultHighlightStyle] = [:]
+    private var rowStyles: [RowKey: GenotypeResultHighlightStyle] = [:]
+    private var sidecarCellStyles: [CellKey: GenotypeAnnotationSidecar.MatrixStyle] = [:]
+    private var sidecarRowStyles: [RowKey: GenotypeAnnotationSidecar.MatrixStyle] = [:]
+    private var sidecarColumnStyles: [String: GenotypeAnnotationSidecar.MatrixStyle] = [:]
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -73,7 +84,11 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         buildView()
     }
 
-    func configure(result: ONTGenotypeResultBundleData, metadataStore: SampleMetadataStore? = nil) {
+    func configure(
+        result: ONTGenotypeResultBundleData,
+        metadataStore: SampleMetadataStore? = nil,
+        sidecar: GenotypeAnnotationSidecar? = nil
+    ) {
         self.result = result
         self.metadataStore = metadataStore
         sampleNames = result.sampleNames
@@ -84,6 +99,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         selectedFilterLocus = nil
         selectedGenotype = nil
         selectedSampleName = nil
+        selectedMatrixTargets = []
+        applyAnnotationSidecar(sidecar, reload: false)
         rebuildRowsFromResult()
         rebuildColumns()
         applyDefaultSortDescriptor()
@@ -93,7 +110,27 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     func applyDisplayState(_ state: GenotypeResultDisplayState) {
         displayState = state
         rebuildRowsFromResult()
+        rebuildColumns()
         applyFilterAndSort()
+    }
+
+    func applyAnnotationSidecar(_ sidecar: GenotypeAnnotationSidecar?, reload: Bool = true) {
+        sidecarCellStyles = [:]
+        sidecarRowStyles = [:]
+        sidecarColumnStyles = [:]
+        for annotation in sidecar?.matrixStyles ?? [] {
+            switch annotation.target {
+            case let .row(locus, genotype):
+                sidecarRowStyles[RowKey(locus: locus, genotype: genotype)] = annotation.style
+            case let .column(sample):
+                sidecarColumnStyles[sample] = annotation.style
+            case let .cell(locus, genotype, sample):
+                sidecarCellStyles[CellKey(locus: locus, genotype: genotype, sample: sample)] = annotation.style
+            }
+        }
+        if reload {
+            tableView.reloadData()
+        }
     }
 
     func applyMetadataStore(_ store: SampleMetadataStore?, reload: Bool = true) {
@@ -113,6 +150,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         self.allowedSampleIDs = allowedSampleIDs
         filterField.stringValue = text
         filterText = text
+        rebuildColumns()
         applyFilterAndSort()
     }
 
@@ -123,6 +161,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     /// the sample filter, the locus popup, and any programmatic row text.
     func applyCohortFilter(_ allowedSampleIDs: Set<String>?) {
         self.allowedSampleIDs = allowedSampleIDs
+        rebuildColumns()
         applyFilterAndSort()
     }
 
@@ -130,35 +169,35 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         switch request.scope {
         case .selectedCell:
             guard let sample = request.target.sample else { return }
-            let key = CellKey(genotype: request.target.genotype, sample: sample)
+            let key = CellKey(locus: request.target.locus, genotype: request.target.genotype, sample: sample)
             mutateStyle(&cellStyles, key: key, channel: request.channel, color: request.color)
         case .selectedRow:
-            mutateStyle(&rowStyles, key: request.target.genotype, channel: request.channel, color: request.color)
+            mutateStyle(
+                &rowStyles,
+                key: RowKey(locus: request.target.locus, genotype: request.target.genotype),
+                channel: request.channel,
+                color: request.color
+            )
         case .clear:
             if let sample = request.target.sample {
                 cellStyles.removeValue(
-                    forKey: CellKey(genotype: request.target.genotype, sample: sample)
+                    forKey: CellKey(locus: request.target.locus, genotype: request.target.genotype, sample: sample)
                 )
             }
-            rowStyles.removeValue(forKey: request.target.genotype)
+            rowStyles.removeValue(forKey: RowKey(locus: request.target.locus, genotype: request.target.genotype))
         }
         tableView.reloadData()
     }
 
     func highlightStyle(for target: GenotypeResultHighlightTarget) -> GenotypeResultHighlightStyle {
         if let sample = target.sample {
-            return cellStyles[CellKey(genotype: target.genotype, sample: sample)] ?? .default
+            return cellStyles[CellKey(locus: target.locus, genotype: target.genotype, sample: sample)] ?? .default
         }
-        return rowStyles[target.genotype] ?? .default
+        return rowStyles[RowKey(locus: target.locus, genotype: target.genotype)] ?? .default
     }
 
     func exportSnapshot(bundleURL: URL, analysisName: String, lens: String) -> GenotypeViewportExportSnapshot {
-        let exportSampleNames: [String]
-        if let allowedSampleIDs {
-            exportSampleNames = sampleNames.filter { allowedSampleIDs.contains($0) }
-        } else {
-            exportSampleNames = sampleNames
-        }
+        let exportSampleNames = activeSampleNames()
         let exportSampleSet = Set(exportSampleNames)
         let filters: [String: String] = [
             "searchText": filterText,
@@ -166,6 +205,11 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             "hideLowSupport": String(displayState.hideLowSupport),
             "minimumSupportPercent": String(format: "%.1f", displayState.minimumSupportPercent),
             "supportDenominator": displayState.supportDenominator.displayName,
+            "matrixMinimumReads": "\(displayState.matrixMinimumReads)",
+            "matrixMinimumPercent": String(format: "%.1f", displayState.matrixMinimumPercent),
+            "matrixPercentDenominator": displayState.matrixPercentDenominator.displayName,
+            "matrixRowFilterText": displayState.matrixRowFilterText,
+            "matrixSampleFilterText": displayState.matrixSampleFilterText,
             "cellColorMode": displayState.cellColorMode.displayName,
             "hideFilteredHighlights": String(displayState.hideFilteredHighlights),
         ]
@@ -175,7 +219,11 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                 return (support.sample, support.passedUniqueReads)
             })
             let styles = Dictionary(uniqueKeysWithValues: exportSampleNames.compactMap { sample -> (String, GenotypeResultHighlightStyle)? in
-                let style = cellStyles[CellKey(genotype: row.genotype, sample: sample)] ?? .default
+                let rendered = renderedStyle(for: sample, row: row)
+                let style = GenotypeResultHighlightStyle(
+                    fillColor: rendered.fillColor,
+                    borderColor: rendered.borderColor
+                )
                 return style.isDefault ? nil : (sample, style)
             })
             return GenotypeViewportExportRow(
@@ -184,7 +232,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                 sampleCount: reads.count,
                 totalUniqueReads: reads.values.reduce(0, +),
                 sampleReads: reads,
-                rowStyle: rowStyles[row.genotype] ?? .default,
+                rowStyle: rowStyles[RowKey(locus: row.locus, genotype: row.genotype)] ?? .default,
                 cellStyles: styles
             )
         }
@@ -206,6 +254,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         selectedSampleName = nil
         selectedGenotype = visibleRows[0].genotype
         selectedRowLocus = visibleRows[0].locus
+        selectedMatrixTargets = [matrixTarget(row: visibleRows[0], sample: nil)]
         tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
         tableView.scrollRowToVisible(0)
         onSharedCallSelected?(visibleRows[0], nil)
@@ -303,16 +352,29 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             tableView.removeTableColumn(column)
         }
         sampleColumnLookup.removeAll()
+        visibleSampleNames = activeSampleNames()
 
         addColumn(identifier: ColumnID.genotype, title: "Genotype", width: 280, minWidth: 160, ascending: true)
         addColumn(identifier: ColumnID.locus, title: "Locus", width: 92, minWidth: 78, ascending: true)
         addColumn(identifier: ColumnID.samples, title: "Samples", width: 70, minWidth: 58, ascending: false)
         addColumn(identifier: ColumnID.uniqueReads, title: "Unique", width: 78, minWidth: 62, ascending: false)
 
-        for (index, sample) in sampleNames.enumerated() {
+        for (index, sample) in visibleSampleNames.enumerated() {
             let identifier = ColumnID.sample(index)
             sampleColumnLookup[identifier] = sample
             addColumn(identifier: identifier, title: sample, width: 62, minWidth: 50, ascending: false)
+        }
+    }
+
+    private func activeSampleNames() -> [String] {
+        let sampleFilter = displayState.matrixSampleFilterText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return sampleNames.filter { sample in
+            if let allowedSampleIDs, !allowedSampleIDs.contains(sample) {
+                return false
+            }
+            guard !sampleFilter.isEmpty else { return true }
+            return sample.localizedCaseInsensitiveContains(sampleFilter)
+                || metadataMatches(sample: sample, filter: sampleFilter)
         }
     }
 
@@ -359,11 +421,21 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
 
         let unfilteredSummaries = result.locusSummaries
         totalRowCount = unfilteredSummaries.flatMap(\.sharedCalls).count
+        let activePercent = max(displayState.activeMinimumSupportPercent, displayState.matrixMinimumPercent)
+        let denominator = displayState.matrixMinimumPercent > 0
+            ? displayState.matrixPercentDenominator
+            : displayState.supportDenominator
         let filteredSummaries = result.locusSummaries(
-            minimumSupportPercent: displayState.activeMinimumSupportPercent,
-            denominator: displayState.supportDenominator
+            minimumSupportPercent: activePercent,
+            denominator: denominator
         )
-        allRows = filteredSummaries.flatMap(\.sharedCalls)
+        let minimumReads = max(0, displayState.matrixMinimumReads)
+        allRows = filteredSummaries.flatMap(\.sharedCalls).compactMap { row in
+            guard minimumReads > 0 else { return row }
+            let support = row.sampleSupport.filter { $0.passedUniqueReads >= minimumReads }
+            guard !support.isEmpty else { return nil }
+            return ONTGenotypeSharedCall(locus: row.locus, genotype: row.genotype, sampleSupport: support)
+        }
         let visibleCellCount = allRows.reduce(0) { $0 + $1.sampleCount }
         hiddenCellCount = max(0, result.calls.count - visibleCellCount)
         supportFractionByCell = makeSupportFractionLookup(for: result)
@@ -372,19 +444,16 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
 
     private func applyFilterAndSort() {
         let normalizedFilter = filterText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let allowedSampleIDs = self.allowedSampleIDs
+        let matrixRowFilter = displayState.matrixRowFilterText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let activeSamples = Set(activeSampleNames())
         visibleRows = allRows.filter { row in
             if let selectedFilterLocus, row.locus != selectedFilterLocus {
                 return false
             }
-            if let allowedSampleIDs {
-                // A row stays if any of its supporting samples are in the
-                // active cohort + quick-filter intersection. Rows whose
-                // supporters all fall outside the allow-list are hidden so the
-                // matrix mirrors what Outline renders.
-                guard row.sampleSupport.contains(where: { allowedSampleIDs.contains($0.sample) }) else {
-                    return false
-                }
+            // A row stays only when at least one threshold-surviving cell is
+            // in the current sample-column set.
+            guard row.sampleSupport.contains(where: { activeSamples.contains($0.sample) }) else {
+                return false
             }
             // Editable minimum-reads row filter. When active (`> 0`), a row is
             // hidden unless at least one supporting sample clears the threshold,
@@ -395,22 +464,13 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                !row.sampleSupport.contains(where: { $0.passedUniqueReads >= minimumReads }) {
                 return false
             }
-            guard !normalizedFilter.isEmpty else { return true }
-            if row.locus.localizedCaseInsensitiveContains(normalizedFilter) { return true }
-            if row.genotype.localizedCaseInsensitiveContains(normalizedFilter) { return true }
-            if row.sampleSupport.contains(where: { support in
-                guard allowedSampleIDs?.contains(support.sample) ?? true else { return false }
-                return support.sample.localizedCaseInsensitiveContains(normalizedFilter)
-            }) {
-                return true
+            if !matrixRowFilter.isEmpty, !rowMatches(row, filter: matrixRowFilter, activeSamples: activeSamples) {
+                return false
             }
-            if row.sampleSupport.contains(where: { support in
-                guard allowedSampleIDs?.contains(support.sample) ?? true else { return false }
-                return metadataMatches(sample: support.sample, filter: normalizedFilter)
-            }) {
-                return true
+            if !normalizedFilter.isEmpty {
+                return rowMatches(row, filter: normalizedFilter, activeSamples: activeSamples)
             }
-            return false
+            return true
         }
 
         if let descriptor = tableView.sortDescriptors.first, let key = descriptor.key {
@@ -442,6 +502,20 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         onDisplaySummaryChanged?(visibleRows.count, totalRowCount, hiddenCellCount)
     }
 
+    private func rowMatches(
+        _ row: ONTGenotypeSharedCall,
+        filter: String,
+        activeSamples: Set<String>
+    ) -> Bool {
+        if row.locus.localizedCaseInsensitiveContains(filter) { return true }
+        if row.genotype.localizedCaseInsensitiveContains(filter) { return true }
+        return row.sampleSupport.contains { support in
+            guard activeSamples.contains(support.sample) else { return false }
+            return support.sample.localizedCaseInsensitiveContains(filter)
+                || metadataMatches(sample: support.sample, filter: filter)
+        }
+    }
+
     private func makeSupportFractionLookup(for result: ONTGenotypeResultBundleData) -> [CellKey: Double] {
         switch displayState.supportDenominator {
         case .viewedLocus:
@@ -463,7 +537,9 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                       denominator > 0 else {
                     continue
                 }
-                fractions[CellKey(genotype: context.call.genotype, sample: context.call.sample)] =
+                fractions[
+                    CellKey(locus: context.locus, genotype: context.call.genotype, sample: context.call.sample)
+                ] =
                     Double(context.call.passedUniqueReads) / Double(denominator)
             }
             return fractions
@@ -478,7 +554,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                       denominator > 0 else {
                     continue
                 }
-                fractions[CellKey(genotype: call.genotype, sample: call.sample)] =
+                fractions[CellKey(locus: call.locusGroup, genotype: call.genotype, sample: call.sample)] =
                     Double(call.passedUniqueReads) / Double(denominator)
             }
             return fractions
@@ -553,7 +629,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         }
         let preferredSample = pendingClickedSampleName ?? selectedSampleName
         pendingClickedSampleName = nil
-        selectVisibleRow(selectedRow, sample: supportedSample(preferredSample, in: visibleRows[selectedRow]))
+        selectVisibleRow(selectedRow, sample: preferredSample)
     }
 
     private func makeCellView(identifier: NSUserInterfaceItemIdentifier) -> NSTableCellView {
@@ -652,7 +728,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private func completeSelectionFromMouseUp(row: Int, column: Int) {
         guard row >= 0, row < visibleRows.count, tableView.selectedRow == row else { return }
         let sample = sampleName(forColumnAt: column)
-        selectVisibleRow(row, sample: supportedSample(sample, in: visibleRows[row]))
+        selectVisibleRow(row, sample: sample)
     }
 
     private func selectVisibleRow(_ rowIndex: Int, sample: String?) {
@@ -666,6 +742,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         selectedSampleName = sample
         selectedGenotype = row.genotype
         selectedRowLocus = row.locus
+        selectedMatrixTargets = [matrixTarget(row: row, sample: sample)]
         reloadRowsForSelectionChange(
             previousGenotype: previousGenotype,
             previousLocus: previousLocus,
@@ -697,9 +774,14 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         )
     }
 
-    private func supportedSample(_ sample: String?, in row: ONTGenotypeSharedCall) -> String? {
-        guard let sample, row.support(for: sample) != nil else { return nil }
-        return sample
+    private func matrixTarget(
+        row: ONTGenotypeSharedCall,
+        sample: String?
+    ) -> GenotypeAnnotationSidecar.MatrixTarget {
+        if let sample {
+            return .cell(locus: row.locus, genotype: row.genotype, sample: sample)
+        }
+        return .row(locus: row.locus, genotype: row.genotype)
     }
 
     private func sampleName(forColumnAt columnIndex: Int) -> String? {
@@ -727,12 +809,14 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         identifier: NSUserInterfaceItemIdentifier,
         row: ONTGenotypeSharedCall
     ) {
+        let renderedStyle = renderedStyle(for: identifier, row: row)
         let backgroundColor = backgroundColor(for: identifier, row: row)
         let borderColor = borderColor(for: identifier, row: row)
         let selected = isSelectedCell(identifier: identifier, row: row)
 
-        cell.textField?.textColor = .labelColor
-        guard backgroundColor != nil || borderColor != nil || selected else {
+        cell.textField?.textColor = renderedStyle.textColor.map(Self.color(from:)) ?? .labelColor
+        cell.textField?.font = font(for: renderedStyle)
+        guard backgroundColor != nil || borderColor != nil || selected || renderedStyle.textColor != nil || renderedStyle.isBold || renderedStyle.isItalic else {
             if cell.wantsLayer {
                 cell.layer?.backgroundColor = nil
                 cell.layer?.borderWidth = 0
@@ -758,6 +842,14 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         }
     }
 
+    private func font(for style: GenotypeMatrixRenderedStyle) -> NSFont {
+        let base = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: style.isBold ? .semibold : .regular)
+        guard style.isItalic else {
+            return base
+        }
+        return NSFontManager.shared.convert(base, toHaveTrait: .italicFontMask)
+    }
+
     private func backgroundColor(
         for identifier: NSUserInterfaceItemIdentifier,
         row: ONTGenotypeSharedCall
@@ -767,19 +859,16 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         }
 
         if displayState.cellColorMode != .none,
-           let sample = sampleColumnLookup[identifier],
-           let color = cellStyles[CellKey(genotype: row.genotype, sample: sample)]?.fillColor {
-            return Self.color(from: color).withAlphaComponent(0.24)
-        }
-
-        if displayState.cellColorMode != .none,
-           let color = rowStyles[row.genotype]?.fillColor {
-            return Self.color(from: color).withAlphaComponent(0.13)
+           let color = renderedStyle(for: identifier, row: row).fillColor {
+            let alpha = sampleColumnLookup[identifier] == nil ? 0.13 : 0.24
+            return Self.color(from: color).withAlphaComponent(alpha)
         }
 
         guard displayState.cellColorMode == .support,
               let sample = sampleColumnLookup[identifier],
-              let fraction = supportFractionByCell[CellKey(genotype: row.genotype, sample: sample)] else {
+              let fraction = supportFractionByCell[
+                CellKey(locus: row.locus, genotype: row.genotype, sample: sample)
+              ] else {
             return nil
         }
 
@@ -796,14 +885,62 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         }
 
         guard displayState.cellColorMode != .none else { return nil }
-        if let sample = sampleColumnLookup[identifier],
-           let color = cellStyles[CellKey(genotype: row.genotype, sample: sample)]?.borderColor {
-            return Self.color(from: color).withAlphaComponent(0.95)
-        }
-        if let color = rowStyles[row.genotype]?.borderColor {
-            return Self.color(from: color).withAlphaComponent(0.80)
+        if let color = renderedStyle(for: identifier, row: row).borderColor {
+            let alpha = sampleColumnLookup[identifier] == nil ? 0.80 : 0.95
+            return Self.color(from: color).withAlphaComponent(alpha)
         }
         return nil
+    }
+
+    private func renderedStyle(
+        for identifier: NSUserInterfaceItemIdentifier,
+        row: ONTGenotypeSharedCall
+    ) -> GenotypeMatrixRenderedStyle {
+        renderedStyle(for: sampleColumnLookup[identifier], row: row)
+    }
+
+    private func renderedStyle(
+        for sample: String?,
+        row: ONTGenotypeSharedCall
+    ) -> GenotypeMatrixRenderedStyle {
+        var rendered = GenotypeMatrixRenderedStyle.default
+        let rowKey = RowKey(locus: row.locus, genotype: row.genotype)
+        merge(sidecarRowStyles[rowKey], into: &rendered)
+        if let sample {
+            merge(sidecarColumnStyles[sample], into: &rendered)
+            merge(
+                sidecarCellStyles[CellKey(locus: row.locus, genotype: row.genotype, sample: sample)],
+                into: &rendered
+            )
+        }
+        if let rowHighlight = rowStyles[rowKey] {
+            rendered.fillColor = rowHighlight.fillColor ?? rendered.fillColor
+            rendered.borderColor = rowHighlight.borderColor ?? rendered.borderColor
+        }
+        if let sample,
+           let cellHighlight = cellStyles[CellKey(locus: row.locus, genotype: row.genotype, sample: sample)] {
+            rendered.fillColor = cellHighlight.fillColor ?? rendered.fillColor
+            rendered.borderColor = cellHighlight.borderColor ?? rendered.borderColor
+        }
+        return rendered
+    }
+
+    private func merge(
+        _ style: GenotypeAnnotationSidecar.MatrixStyle?,
+        into rendered: inout GenotypeMatrixRenderedStyle
+    ) {
+        guard let style else { return }
+        if let fillColor = style.fillColor.flatMap(AnnotationColor.init(hex:)) {
+            rendered.fillColor = fillColor
+        }
+        if let textColor = style.textColor.flatMap(AnnotationColor.init(hex:)) {
+            rendered.textColor = textColor
+        }
+        if let borderColor = style.borderColor.flatMap(AnnotationColor.init(hex:)) {
+            rendered.borderColor = borderColor
+        }
+        rendered.isBold = rendered.isBold || style.isBold
+        rendered.isItalic = rendered.isItalic || style.isItalic
     }
 
     private func hidesFilteredCellAppearance(
@@ -817,7 +954,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
               row.support(for: sample) == nil else {
             return false
         }
-        return supportFractionByCell[CellKey(genotype: row.genotype, sample: sample)] != nil
+        return supportFractionByCell[CellKey(locus: row.locus, genotype: row.genotype, sample: sample)] != nil
     }
 
     private func isSelectedCell(
@@ -871,6 +1008,10 @@ extension GenotypeComparisonMatrixView {
         locusPopup.itemArray.map(\.title)
     }
 
+    var testingSelectedMatrixTargets: [GenotypeAnnotationSidecar.MatrixTarget] {
+        selectedMatrixTargets
+    }
+
     func testingSelectFirstSampleCell(sample: String) {
         guard let rowIndex = visibleRows.firstIndex(where: { $0.support(for: sample) != nil }) else {
             onSelectionCleared?()
@@ -895,6 +1036,58 @@ extension GenotypeComparisonMatrixView {
             return nil
         }
         return backgroundColor(for: identifier, row: row)
+    }
+
+    func testingSelectCell(genotype: String, sample: String) {
+        guard let rowIndex = visibleRows.firstIndex(where: { $0.genotype == genotype }),
+              visibleSampleNames.contains(sample) else {
+            onSelectionCleared?()
+            return
+        }
+        tableView.selectRowIndexes(IndexSet(integer: rowIndex), byExtendingSelection: false)
+        tableView.scrollRowToVisible(rowIndex)
+        selectVisibleRow(rowIndex, sample: sample)
+    }
+
+    func testingCellValue(genotype: String, sample: String) -> String? {
+        guard let row = visibleRows.first(where: { $0.genotype == genotype }),
+              let identifier = sampleColumnLookup.first(where: { $0.value == sample })?.key else {
+            return nil
+        }
+        return cellValue(for: identifier, row: row).text
+    }
+
+    func testingRenderedStyle(genotype: String, sample: String) -> GenotypeMatrixRenderedStyle? {
+        guard let row = visibleRows.first(where: { $0.genotype == genotype }),
+              visibleSampleNames.contains(sample) else {
+            return nil
+        }
+        return renderedStyle(for: sample, row: row)
+    }
+
+    func testingSelectSupportedCellsInSelectedRow(minimumReads: Int) -> [GenotypeAnnotationSidecar.MatrixTarget] {
+        guard let selectedGenotype,
+              let selectedRowLocus,
+              let row = visibleRows.first(where: {
+                  $0.genotype == selectedGenotype && $0.locus == selectedRowLocus
+              }) else {
+            selectedMatrixTargets = []
+            return []
+        }
+        let threshold = max(0, minimumReads)
+        let activeSamples = Set(visibleSampleNames)
+        let targets = row.sampleSupport
+            .filter { activeSamples.contains($0.sample) && $0.passedUniqueReads >= threshold }
+            .map {
+                GenotypeAnnotationSidecar.MatrixTarget.cell(
+                    locus: row.locus,
+                    genotype: row.genotype,
+                    sample: $0.sample
+                )
+            }
+        selectedSampleName = nil
+        selectedMatrixTargets = targets
+        return targets
     }
 
     func testingRenderVisibleCells(rowLimit: Int) {

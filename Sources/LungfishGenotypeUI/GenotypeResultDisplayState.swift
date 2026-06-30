@@ -122,6 +122,11 @@ public struct GenotypeResultDisplayState: Equatable {
     /// default) disables the filter. This is a SEPARATE concern from the
     /// cohort flag below and must never alias it.
     public var minimumReads: Int = 0
+    public var matrixMinimumReads: Int = 0
+    public var matrixMinimumPercent: Double = 0
+    public var matrixPercentDenominator: ONTGenotypeSupportDenominator = .viewedLocus
+    public var matrixRowFilterText: String = ""
+    public var matrixSampleFilterText: String = ""
 
     /// The historical "calls below this are unreliable" cohort flag (default
     /// `5_000`). It LABELS samples in the Cohort Summary panel; it does not
@@ -140,6 +145,11 @@ public struct GenotypeResultDisplayState: Equatable {
         showsAncillaryLoci: Bool = false,
         includedLoci: Set<String>? = nil,
         minimumReads: Int = 0,
+        matrixMinimumReads: Int = 0,
+        matrixMinimumPercent: Double = 0,
+        matrixPercentDenominator: ONTGenotypeSupportDenominator = .viewedLocus,
+        matrixRowFilterText: String = "",
+        matrixSampleFilterText: String = "",
         cohortFlagThreshold: Int = 5_000
     ) {
         self.viewportLens = viewportLens
@@ -153,6 +163,11 @@ public struct GenotypeResultDisplayState: Equatable {
         self.showsAncillaryLoci = showsAncillaryLoci
         self.includedLoci = includedLoci
         self.minimumReads = minimumReads
+        self.matrixMinimumReads = max(0, matrixMinimumReads)
+        self.matrixMinimumPercent = max(0, min(100, matrixMinimumPercent))
+        self.matrixPercentDenominator = matrixPercentDenominator
+        self.matrixRowFilterText = matrixRowFilterText
+        self.matrixSampleFilterText = matrixSampleFilterText
         self.cohortFlagThreshold = cohortFlagThreshold
     }
 
@@ -182,6 +197,20 @@ public struct GenotypeResultDisplayState: Equatable {
             .filter { $0.reads < cohortFlagThreshold }
             .map(\.sample)
             .sorted()
+    }
+}
+
+struct GenotypeMatrixRenderedStyle: Equatable {
+    var fillColor: AnnotationColor?
+    var textColor: AnnotationColor?
+    var borderColor: AnnotationColor?
+    var isBold: Bool = false
+    var isItalic: Bool = false
+
+    static let `default` = GenotypeMatrixRenderedStyle()
+
+    var isDefault: Bool {
+        fillColor == nil && textColor == nil && borderColor == nil && !isBold && !isItalic
     }
 }
 

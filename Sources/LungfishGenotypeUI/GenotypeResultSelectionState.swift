@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import LungfishCore
+import LungfishIO
 
 public struct GenotypeResultSelectionState: Equatable {
     public let title: String
@@ -11,6 +12,7 @@ public struct GenotypeResultSelectionState: Equatable {
     public let highlightTarget: GenotypeResultHighlightTarget?
     public let highlightColor: AnnotationColor?
     public let highlightStyle: GenotypeResultHighlightStyle
+    public let matrixTargets: [GenotypeAnnotationSidecar.MatrixTarget]
     /// Animal/sample id when the selection represents a sample row (vs a
     /// shared allele label). The "Edit calls…" button dispatches to this
     /// id so the Sample Detail sheet opens for the right sample. nil
@@ -24,6 +26,7 @@ public struct GenotypeResultSelectionState: Equatable {
         highlightTarget: GenotypeResultHighlightTarget? = nil,
         highlightColor: AnnotationColor? = nil,
         highlightStyle: GenotypeResultHighlightStyle = .default,
+        matrixTargets: [GenotypeAnnotationSidecar.MatrixTarget] = [],
         animalId: String? = nil
     ) {
         self.title = title
@@ -35,6 +38,7 @@ public struct GenotypeResultSelectionState: Equatable {
             : highlightStyle
         self.highlightColor = resolvedStyle.fillColor
         self.highlightStyle = resolvedStyle
+        self.matrixTargets = matrixTargets
         self.animalId = animalId
     }
 
@@ -48,6 +52,7 @@ public struct GenotypeResultSelectionState: Equatable {
             lhs.highlightTarget == rhs.highlightTarget &&
             lhs.highlightColor == rhs.highlightColor &&
             lhs.highlightStyle == rhs.highlightStyle &&
+            lhs.matrixTargets == rhs.matrixTargets &&
             lhs.animalId == rhs.animalId
     }
 }

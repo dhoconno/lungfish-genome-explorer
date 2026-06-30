@@ -329,7 +329,11 @@ public final class GenotypeResultViewController: NSViewController {
     private func ensureComparisonMatrixConfigured() {
         guard !comparisonMatrixConfigured, let result else { return }
         comparisonMatrixConfigured = true
-        comparisonMatrix.configure(result: result, metadataStore: sampleMetadataStore)
+        comparisonMatrix.configure(
+            result: result,
+            metadataStore: sampleMetadataStore,
+            sidecar: annotationStore?.sidecar
+        )
         comparisonMatrix.applyDisplayState(displayState)
         applyComparisonMatrixCohortFilter()
     }
@@ -1846,11 +1850,12 @@ public final class GenotypeResultViewController: NSViewController {
             ("Alignments", integer(sharedCall.totalAlignments)),
             ("Support Metric", supportMetricLabel),
         ]
-        if let sample,
-           let support = sharedCall.support(for: sample) {
+        if let sample {
             rows.append(("Selected Sample", sample))
-            rows.append(("Selected Unique", integer(support.passedUniqueReads)))
-            rows.append(("Selected Support", supportFractionLabel(genotype: sharedCall.genotype, sample: sample)))
+            if let support = sharedCall.support(for: sample) {
+                rows.append(("Selected Unique", integer(support.passedUniqueReads)))
+                rows.append(("Selected Support", supportFractionLabel(genotype: sharedCall.genotype, sample: sample)))
+            }
         }
         if let topSupport = sharedCall.topSupport {
             rows.append(("Top Sample", "\(topSupport.sample) - \(integer(topSupport.passedUniqueReads)) unique"))
@@ -1869,7 +1874,16 @@ public final class GenotypeResultViewController: NSViewController {
             subtitle: "\(sharedCall.locus) - \(sharedCall.sampleCount) samples",
             detailRows: rows,
             highlightTarget: target,
-            highlightStyle: style
+            highlightStyle: style,
+            matrixTargets: [
+                sample.map {
+                    GenotypeAnnotationSidecar.MatrixTarget.cell(
+                        locus: sharedCall.locus,
+                        genotype: sharedCall.genotype,
+                        sample: $0
+                    )
+                } ?? .row(locus: sharedCall.locus, genotype: sharedCall.genotype),
+            ]
         )
     }
 
@@ -4969,6 +4983,34 @@ extension GenotypeResultViewController {
     func testingBackgroundColor(genotype: String, sample: String) -> NSColor? {
         ensureComparisonMatrixConfigured()
         return comparisonMatrix.testingBackgroundColor(genotype: genotype, sample: sample)
+    }
+
+    func testingSelectMatrixCell(genotype: String, sample: String) {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.testingSelectCell(genotype: genotype, sample: sample)
+    }
+
+    var testingCurrentSelectionMatrixTargets: [GenotypeAnnotationSidecar.MatrixTarget] {
+        currentSelectionState?.matrixTargets ?? []
+    }
+
+    var testingCurrentSelectionDetailRows: [(String, String)] {
+        currentSelectionState?.detailRows ?? []
+    }
+
+    func testingRenderedMatrixStyle(genotype: String, sample: String) -> GenotypeMatrixRenderedStyle? {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingRenderedStyle(genotype: genotype, sample: sample)
+    }
+
+    func testingCellValue(genotype: String, sample: String) -> String? {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingCellValue(genotype: genotype, sample: sample)
+    }
+
+    func testingSelectSupportedCellsInSelectedRow(minimumReads: Int) -> [GenotypeAnnotationSidecar.MatrixTarget] {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingSelectSupportedCellsInSelectedRow(minimumReads: minimumReads)
     }
 
     var testingDetailContentTopInset: CGFloat {
