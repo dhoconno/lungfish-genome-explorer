@@ -259,7 +259,7 @@ public final class GenotypeAnnotationStore {
             author: author,
             timestamp: timestamp
         ))
-        try persist(action: "setMatrixStyle")
+        try persist(action: "setMatrixStyle", editContext: matrixStyleEditContext(target: target, style: style))
     }
 
     func addMatrixComment(target: GenotypeAnnotationSidecar.MatrixTarget, body: String) throws {
@@ -283,7 +283,7 @@ public final class GenotypeAnnotationStore {
             author: author,
             timestamp: timestamp
         ))
-        try persist(action: "addMatrixComment")
+        try persist(action: "addMatrixComment", editContext: matrixCommentEditContext(target: target, body: body))
     }
 
     func addSampleNote(sample: String, body: String) throws {
@@ -506,7 +506,12 @@ public final class GenotypeAnnotationStore {
         ))
     }
 
-    private func persist(action: String) throws {
+    private struct ProvenanceEditContext {
+        var argv: [String]
+        var explicitOptions: [String: ParameterValue]
+    }
+
+    private func persist(action: String, editContext: ProvenanceEditContext? = nil) throws {
         guard !isReadOnly else { return }
         let startedAt = Date()
         let annotationURL = ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: bundleURL)
@@ -518,6 +523,7 @@ public final class GenotypeAnnotationStore {
             action: action,
             annotationURL: annotationURL,
             priorInput: input,
+            editContext: editContext,
             startedAt: startedAt,
             endedAt: Date()
         )
@@ -527,6 +533,7 @@ public final class GenotypeAnnotationStore {
         action: String,
         annotationURL: URL,
         priorInput: ProvenanceFileDescriptor?,
+        editContext: ProvenanceEditContext?,
         startedAt: Date,
         endedAt: Date
     ) throws {
@@ -536,7 +543,15 @@ public final class GenotypeAnnotationStore {
             "edit-genotype-annotations",
             "--bundle", bundleURL.path,
             "--action", action,
+        ] + (editContext?.argv ?? [])
+        var explicitOptions: [String: ParameterValue] = [
+            "bundle": .file(bundleURL),
+            "annotationSidecar": .file(annotationURL),
+            "action": .string(action),
         ]
+        if let editContext {
+            explicitOptions.merge(editContext.explicitOptions) { _, payload in payload }
+        }
         let inputs = [priorInput].compactMap { $0 }
         let wallTime = max(0, endedAt.timeIntervalSince(startedAt))
         let step = ProvenanceStep(
@@ -563,11 +578,7 @@ public final class GenotypeAnnotationStore {
             ),
             argv: argv,
             options: ProvenanceOptions(
-                explicit: [
-                    "bundle": .file(bundleURL),
-                    "annotationSidecar": .file(annotationURL),
-                    "action": .string(action),
-                ],
+                explicit: explicitOptions,
                 defaults: [
                     "format": .string("json"),
                     "sidecarFilename": .string(GenotypeAnnotationSidecar.filename),
@@ -594,5 +605,68 @@ public final class GenotypeAnnotationStore {
             envelope,
             toSidecar: ProvenanceRecorder.fileSidecarURL(for: annotationURL)
         )
+    }
+
+    private func matrixStyleEditContext(
+        target: GenotypeAnnotationSidecar.MatrixTarget,
+        style: GenotypeAnnotationSidecar.MatrixStyle?
+    ) -> ProvenanceEditContext {
+        var context = matrixTargetEditContext(target)
+        let style = style?.isEmpty == true ? nil : style
+        if let style {
+            context.argv += [
+                "--style-fill-color", style.fillColor ?? "",
+                "--style-text-color", style.textColor ?? "",
+                "--style-border-color", style.borderColor ?? "",
+                "--style-bold", String(style.isBold),
+                "--style-italic", String(style.isItalic),
+            ]
+            context.explicitOptions["styleFillColor"] = style.fillColor.map(ParameterValue.string) ?? .null
+            context.explicitOptions["styleTextColor"] = style.textColor.map(ParameterValue.string) ?? .null
+            context.explicitOptions["styleBorderColor"] = style.borderColor.map(ParameterValue.string) ?? .null
+            context.explicitOptions["styleBold"] = .boolean(style.isBold)
+            context.explicitOptions["styleItalic"] = .boolean(style.isItalic)
+        } else {
+            context.argv += ["--clear-style", "true"]
+            context.explicitOptions["clearStyle"] = .boolean(true)
+        }
+        return context
+    }
+
+    private func matrixCommentEditContext(
+        target: GenotypeAnnotationSidecar.MatrixTarget,
+        body: String
+    ) -> ProvenanceEditContext {
+        var context = matrixTargetEditContext(target)
+        context.argv += ["--comment-body", body]
+        context.explicitOptions["commentBody"] = .string(body)
+        return context
+    }
+
+    private func matrixTargetEditContext(
+        _ target: GenotypeAnnotationSidecar.MatrixTarget
+    ) -> ProvenanceEditContext {
+        var argv: [String] = []
+        var options: [String: ParameterValue] = [:]
+        func append(_ option: String, _ key: String, _ value: String?) {
+            guard let value else { return }
+            argv += [option, value]
+            options[key] = .string(value)
+        }
+        switch target {
+        case let .row(locus, genotype):
+            append("--target-kind", "targetKind", "row")
+            append("--target-locus", "targetLocus", locus)
+            append("--target-genotype", "targetGenotype", genotype)
+        case let .column(sample):
+            append("--target-kind", "targetKind", "column")
+            append("--target-sample", "targetSample", sample)
+        case let .cell(locus, genotype, sample):
+            append("--target-kind", "targetKind", "cell")
+            append("--target-locus", "targetLocus", locus)
+            append("--target-genotype", "targetGenotype", genotype)
+            append("--target-sample", "targetSample", sample)
+        }
+        return ProvenanceEditContext(argv: argv, explicitOptions: options)
     }
 }
