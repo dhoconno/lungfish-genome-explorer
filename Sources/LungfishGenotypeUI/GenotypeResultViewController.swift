@@ -407,6 +407,9 @@ public final class GenotypeResultViewController: NSViewController {
         comparisonMatrixConfigured = false
         currentWorkbookNeedsRefresh = false
         currentWorkbookUpdateStatus = nil
+        if result.haplotypeAnalysis == nil && !result.calls.isEmpty {
+            displayState.summaryViewMode = .matrix
+        }
         let knownSampleIDs = Set(
             result.samples.map(\.sample)
                 + result.calls.map(\.sample)
@@ -1579,12 +1582,18 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func applySummaryViewModeVisibility() {
-        outlineView.isHidden = false
-        haplotypeMatrixView.isHidden = true
-        comparisonMatrix.isHidden = true
+        let isMatrixMode = displayState.summaryViewMode == .matrix
+        let usesDefinitionMatrix = isMatrixMode && summaryMatrixUsesHaplotypeDefinitions()
+        outlineView.isHidden = isMatrixMode
+        haplotypeMatrixView.isHidden = !usesDefinitionMatrix
+        comparisonMatrix.isHidden = !(isMatrixMode && !usesDefinitionMatrix)
         cohortSummaryPanel.isHidden = false
         detailScrollView.isHidden = true
         detailContainer.isHidden = false
+
+        if isMatrixMode && !usesDefinitionMatrix {
+            ensureComparisonMatrixConfigured()
+        }
     }
 
     private func tapeCell(for haplotypeName: String, status: GenotypeHaplotypeCallStatus) -> GenotypeHaplotypeTapeView.Cell {
@@ -4835,6 +4844,14 @@ extension GenotypeResultViewController {
 
     var testingVisibleLensIdentifier: String {
         selectedLens.identifier
+    }
+
+    var testingSummaryViewMode: GenotypeSummaryViewMode {
+        displayState.summaryViewMode
+    }
+
+    var testingComparisonMatrixIsHidden: Bool {
+        comparisonMatrix.isHidden
     }
 
     var testingAnchorLensText: String {
