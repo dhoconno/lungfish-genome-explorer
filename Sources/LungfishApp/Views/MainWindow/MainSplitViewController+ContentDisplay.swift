@@ -262,7 +262,7 @@ extension MainSplitViewController {
             inspectorController.updateGenotypeResultDocument(result)
             if Self.shouldPreviewPrimaryWorkbook(for: result) {
                 mainSplitLogger.info(
-                    "displayGenotypeResultBundle: Previewing genotype workbook for '\(url.lastPathComponent, privacy: .public)' because no haplotyping analysis is present"
+                    "displayGenotypeResultBundle: Previewing genotype workbook for '\(url.lastPathComponent, privacy: .public)' because no haplotype analysis is present"
                 )
                 inspectorController.updateGenotypeResultSelection(nil)
                 viewerController.displayQuickLookPreview(url: result.artifacts.workbookURL)
@@ -369,7 +369,6 @@ extension MainSplitViewController {
 
     static func shouldPreviewPrimaryWorkbook(for result: ONTGenotypeResultBundleData) -> Bool {
         result.haplotypeAnalysis == nil
-            && result.calls.isEmpty
             && FileManager.default.fileExists(atPath: result.artifacts.workbookURL.path)
     }
 

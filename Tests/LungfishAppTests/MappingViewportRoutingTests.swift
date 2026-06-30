@@ -218,9 +218,9 @@ final class MappingViewportRoutingTests: XCTestCase {
         )
     }
 
-    func testGenotypeResultWithoutHaplotypingButWithCallsDisplaysNativeViewportForAIHaplotyping() throws {
+    func testGenotypeResultWithoutHaplotypingButWithCallsPreviewsCurrentWorkbook() throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeNoHapNative-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("GenotypeNoHapCallsPreview-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let bundleURL = try makeGenotypeResultBundle(
             root: root,
@@ -228,13 +228,41 @@ final class MappingViewportRoutingTests: XCTestCase {
             haplotypeAnalysisPath: nil,
             includeGenotypeCalls: true
         )
+        let currentWorkbookURL = bundleURL.appendingPathComponent("artifacts/workbooks/current.xlsx")
+        try FileManager.default.createDirectory(
+            at: currentWorkbookURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("editable".utf8).write(to: currentWorkbookURL)
+        var manifest = try ONTGenotypeResultBundle.loadManifest(from: bundleURL)
+        manifest = ONTGenotypeResultBundleManifest(
+            outputName: manifest.outputName,
+            analysisName: manifest.analysisName,
+            primaryWorkbookPath: manifest.primaryWorkbookPath,
+            currentWorkbookPath: "artifacts/workbooks/current.xlsx",
+            workbookRevisions: manifest.workbookRevisions,
+            longSummaryCSVPath: manifest.longSummaryCSVPath,
+            sampleSummaryCSVPath: manifest.sampleSummaryCSVPath,
+            statsJSONPath: manifest.statsJSONPath,
+            provenancePath: manifest.provenancePath,
+            haplotypeAnalysisPath: manifest.haplotypeAnalysisPath,
+            haplotypeDefinitionSetID: manifest.haplotypeDefinitionSetID,
+            haplotypeAssayID: manifest.haplotypeAssayID,
+            presetID: manifest.presetID,
+            presetVersion: manifest.presetVersion,
+            createdAt: manifest.createdAt
+        )
+        try ONTGenotypeResultBundle.writeManifest(manifest, to: bundleURL)
         let controller = MainSplitViewController()
         _ = controller.view
 
         controller.testingDisplayGenotypeResultBundle(bundleURL)
 
-        XCTAssertNotNil(controller.viewerController.genotypeResultViewController)
-        XCTAssertNil(controller.viewerController.testQuickLookURL)
+        XCTAssertEqual(
+            controller.viewerController.testQuickLookURL?.standardizedFileURL,
+            currentWorkbookURL.standardizedFileURL
+        )
+        XCTAssertNil(controller.viewerController.genotypeResultViewController)
     }
 
     func testAIHaplotypingGUIUsesReplayableCLICommandPreviewAndSanitizedFailureDetail() throws {
