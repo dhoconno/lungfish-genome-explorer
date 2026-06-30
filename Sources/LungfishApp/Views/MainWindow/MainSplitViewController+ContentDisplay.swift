@@ -350,6 +350,7 @@ extension MainSplitViewController {
             inspectorController.selectionSectionViewModel.onGenotypeHighlightRequested = { [weak controller] request in
                 controller?.applyHighlight(request)
             }
+            controller.notifyDisplayStateIfAvailable()
             controller.notifySelectionStateIfAvailable()
         } catch {
             mainSplitLogger.warning(

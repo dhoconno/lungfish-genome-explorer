@@ -262,6 +262,14 @@ final class MappingViewportRoutingTests: XCTestCase {
         let resultController = try XCTUnwrap(controller.viewerController.genotypeResultViewController)
         XCTAssertEqual(resultController.testingSummaryViewMode, .matrix)
         XCTAssertFalse(resultController.testingComparisonMatrixIsHidden)
+        XCTAssertEqual(
+            controller.inspectorController.viewModel.genotypeResultDisplaySectionViewModel.displayState.summaryViewMode,
+            .matrix
+        )
+        XCTAssertEqual(
+            controller.inspectorController.viewModel.documentSectionViewModel.genotypeResultDocument?.summaryViewMode,
+            .matrix
+        )
     }
 
     func testAIHaplotypingGUIUsesReplayableCLICommandPreviewAndSanitizedFailureDetail() throws {

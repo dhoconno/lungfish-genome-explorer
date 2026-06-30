@@ -2116,6 +2116,89 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertFalse(controller.testingHaplotypeMatrixText.contains("OldB"))
     }
 
+    func testGenotypeOnlyResultUsesRawMatrixEvenWithResolvedDefinition() throws {
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeOnlyRawMatrixDefinition-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let bundleURL = projectRoot
+            .appendingPathComponent("Analyses", isDirectory: true)
+            .appendingPathComponent("ONT genotyping results", isDirectory: true)
+            .appendingPathComponent("test.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let definitionID = "custom.test.raw-matrix-definition"
+        try HaplotypeDefinitionStore(projectRoot: projectRoot).save(makeCustomHaplotypeDefinitionSet(
+            id: definitionID,
+            haplotypeName: "NewB",
+            diagnosticAllele: "12_M9_B_001_01"
+        ))
+        let calls = [makeCall(sample: "DW472", genotype: "12_M9_B_001_01", reads: 150)]
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [
+                ONTGenotypeSampleResult(
+                    sample: "DW472",
+                    passedAlignments: 150,
+                    passedUniqueReads: 150,
+                    sampleTotalReads: nil,
+                    sampleUniqueRetainedPercent: nil,
+                    calls: calls
+                )
+            ],
+            calls: calls,
+            haplotypeDefinitionSetID: definitionID
+        ))
+
+        XCTAssertEqual(controller.testingSummaryViewMode, .matrix)
+        XCTAssertFalse(controller.testingComparisonMatrixIsHidden)
+        let definitionMatrix = try XCTUnwrap(
+            controller.view.firstDescendant(ofType: GenotypeHaplotypeDefinitionMatrixView.self)
+        )
+        XCTAssertTrue(definitionMatrix.isHidden)
+    }
+
+    func testAIHaplotypingCompletionResetsGenotypeOnlyMatrixDefaultToOutline() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let calls = [makeCall(sample: "DW472", genotype: "12_M9_B_001_01", reads: 150)]
+        controller.configure(result: makeResult(samples: [], calls: calls))
+        XCTAssertEqual(controller.testingSummaryViewMode, .matrix)
+
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "ai-provisional:test",
+            definitionSetName: "AI provisional",
+            speciesName: "Test macaque",
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "DW472",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-B",
+                            sourceLocus: "Mafa-B",
+                            haplotype1: "M9B",
+                            haplotype2: "-",
+                            status: .called,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 1,
+                            observedGenotypes: ["12_M9_B_001_01"]
+                        )
+                    ]
+                )
+            ]
+        )
+
+        controller.applyAIHaplotypingCompleted(result: makeResult(
+            samples: [],
+            calls: calls,
+            haplotypeAnalysis: analysis
+        ))
+
+        XCTAssertEqual(controller.testingSummaryViewMode, .outline)
+    }
+
     func testUsingCustomHaplotypeDefinitionPersistsActiveDefinitionAndRefreshesCalls() throws {
         let projectRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeUseDefinition-\(UUID().uuidString)", isDirectory: true)

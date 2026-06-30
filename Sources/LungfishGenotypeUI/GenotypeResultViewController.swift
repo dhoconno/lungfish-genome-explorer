@@ -335,8 +335,12 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func summaryMatrixUsesHaplotypeDefinitions() -> Bool {
-        (result.map { definitionSetForResult($0) != nil } ?? false)
+        (result.map { $0.haplotypeAnalysis != nil && definitionSetForResult($0) != nil } ?? false)
             && !displayState.showsAncillaryLoci
+    }
+
+    private func defaultSummaryViewMode(for result: ONTGenotypeResultBundleData) -> GenotypeSummaryViewMode {
+        result.haplotypeAnalysis == nil && !result.calls.isEmpty ? .matrix : .outline
     }
 
     /// Per-call keyboard shortcuts used by the Review lens:
@@ -407,9 +411,7 @@ public final class GenotypeResultViewController: NSViewController {
         comparisonMatrixConfigured = false
         currentWorkbookNeedsRefresh = false
         currentWorkbookUpdateStatus = nil
-        if result.haplotypeAnalysis == nil && !result.calls.isEmpty {
-            displayState.summaryViewMode = .matrix
-        }
+        displayState.summaryViewMode = defaultSummaryViewMode(for: result)
         let knownSampleIDs = Set(
             result.samples.map(\.sample)
                 + result.calls.map(\.sample)
@@ -564,6 +566,10 @@ public final class GenotypeResultViewController: NSViewController {
 
     public func notifySelectionStateIfAvailable() {
         onSelectionStateChanged?(currentSelectionState)
+    }
+
+    public func notifyDisplayStateIfAvailable() {
+        onDisplayStateChanged?(displayState)
     }
 
     public func applyDisplayState(_ state: GenotypeResultDisplayState) {
@@ -2066,6 +2072,7 @@ public final class GenotypeResultViewController: NSViewController {
         result = updatedResult
         liveHaplotypeAnalysis = nil
         comparisonMatrixConfigured = false
+        displayState.summaryViewMode = defaultSummaryViewMode(for: updatedResult)
         rebuildResultIndexes(for: updatedResult)
         annotationStore = try? GenotypeAnnotationStore(
             bundleURL: updatedResult.bundleURL,
@@ -2079,6 +2086,10 @@ public final class GenotypeResultViewController: NSViewController {
         rebuildHaplotypeMatrix()
         rebuildCohortSummary()
         rebuildArtifactLens()
+        if selectedLens == .summary {
+            applySummaryViewModeVisibility()
+        }
+        onDisplayStateChanged?(displayState)
         if let sidecar = annotationStore?.sidecar {
             onAnnotationSidecarChanged?(sidecar)
         }
