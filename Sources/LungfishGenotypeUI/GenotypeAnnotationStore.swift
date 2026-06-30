@@ -231,6 +231,61 @@ public final class GenotypeAnnotationStore {
         try persist(action: "addCellComment")
     }
 
+    func setMatrixStyle(
+        target: GenotypeAnnotationSidecar.MatrixTarget,
+        style: GenotypeAnnotationSidecar.MatrixStyle?
+    ) throws {
+        let timestamp = now()
+        let previous = sidecar.matrixStyles.first { $0.target == target }?.style
+        sidecar.matrixStyles.removeAll { $0.target == target }
+        if let style, !style.isEmpty {
+            sidecar.matrixStyles.append(.init(
+                target: target,
+                style: style,
+                author: author,
+                timestamp: timestamp
+            ))
+        }
+        sidecar.append(audit: .init(
+            action: "setMatrixStyle",
+            sample: target.auditSample,
+            locus: target.locus,
+            slot: nil,
+            before: matrixStyleSummary(previous),
+            after: matrixStyleSummary(style),
+            color: style?.fillColor ?? style?.textColor ?? style?.borderColor,
+            reason: "matrix-style",
+            rationale: target.auditDescription,
+            author: author,
+            timestamp: timestamp
+        ))
+        try persist(action: "setMatrixStyle")
+    }
+
+    func addMatrixComment(target: GenotypeAnnotationSidecar.MatrixTarget, body: String) throws {
+        let timestamp = now()
+        sidecar.matrixComments.append(.init(
+            target: target,
+            body: body,
+            author: author,
+            timestamp: timestamp
+        ))
+        sidecar.append(audit: .init(
+            action: "addMatrixComment",
+            sample: target.auditSample,
+            locus: target.locus,
+            slot: nil,
+            before: nil,
+            after: body,
+            color: nil,
+            reason: "matrix-comment",
+            rationale: target.auditDescription,
+            author: author,
+            timestamp: timestamp
+        ))
+        try persist(action: "addMatrixComment")
+    }
+
     func addSampleNote(sample: String, body: String) throws {
         let timestamp = now()
         sidecar.sampleNotes.append(.init(
@@ -375,6 +430,27 @@ public final class GenotypeAnnotationStore {
         value.map { "\($0)" } ?? "nil"
     }
 
+    private func matrixStyleSummary(_ style: GenotypeAnnotationSidecar.MatrixStyle?) -> String? {
+        guard let style else { return nil }
+        var parts: [String] = []
+        if let fill = style.fillColor {
+            parts.append("fill=\(fill)")
+        }
+        if let text = style.textColor {
+            parts.append("text=\(text)")
+        }
+        if let border = style.borderColor {
+            parts.append("border=\(border)")
+        }
+        if style.isBold {
+            parts.append("bold")
+        }
+        if style.isItalic {
+            parts.append("italic")
+        }
+        return parts.isEmpty ? "none" : parts.joined(separator: "; ")
+    }
+
     /// Bulk-add manual haplotype assignments in a single persist call.
     /// Use this instead of looping `addManualHaplotypeAssignment` when adding
     /// many at once (e.g. one assignment per sample sharing a manual haplotype).
@@ -500,6 +576,8 @@ public final class GenotypeAnnotationStore {
                     "author": .string(author),
                     "auditEntryCount": .integer(sidecar.auditLog.count),
                     "callOverrideCount": .integer(sidecar.callOverrides.count),
+                    "matrixStyleCount": .integer(sidecar.matrixStyles.count),
+                    "matrixCommentCount": .integer(sidecar.matrixComments.count),
                     "manualHaplotypeAssignmentCount": .integer(sidecar.manualHaplotypeAssignments.count),
                     "smartCohortCount": .integer(sidecar.smartCohorts.count),
                 ]

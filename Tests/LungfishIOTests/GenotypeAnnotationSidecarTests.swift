@@ -61,6 +61,55 @@ final class GenotypeAnnotationSidecarTests: XCTestCase {
         XCTAssertTrue(decoded.manualHaplotypeAssignments.isEmpty)
     }
 
+    func testMatrixStyleRoundTripsForRowColumnAndCellTargets() throws {
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-06-30T00:00:00Z")
+        sidecar.matrixStyles = [
+            .init(
+                target: .row(locus: "MHC-B", genotype: "Mamu-I*01"),
+                style: .init(fillColor: "#FFF2CC", textColor: "#C00000", borderColor: nil, isBold: true, isItalic: false),
+                author: "dho",
+                timestamp: "2026-06-30T12:00:00Z"
+            ),
+            .init(
+                target: .column(sample: "AR3628"),
+                style: .init(fillColor: nil, textColor: "#0070C0", borderColor: "#666666", isBold: false, isItalic: true),
+                author: "dho",
+                timestamp: "2026-06-30T12:01:00Z"
+            ),
+            .init(
+                target: .cell(locus: "MHC-B", genotype: "Mamu-I*01", sample: "AR3628"),
+                style: .init(fillColor: "#D9EAD3", textColor: nil, borderColor: nil, isBold: true, isItalic: true),
+                author: "dho",
+                timestamp: "2026-06-30T12:02:00Z"
+            ),
+        ]
+
+        let decoded = try GenotypeAnnotationSidecar.decode(sidecar.encoded())
+
+        XCTAssertEqual(decoded.matrixStyles, sidecar.matrixStyles)
+        XCTAssertEqual(decoded.matrixStyles.map(\.target), [
+            .row(locus: "MHC-B", genotype: "Mamu-I*01"),
+            .column(sample: "AR3628"),
+            .cell(locus: "MHC-B", genotype: "Mamu-I*01", sample: "AR3628"),
+        ])
+    }
+
+    func testMatrixCommentPersistsForEmptyCellTarget() throws {
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-06-30T00:00:00Z")
+        sidecar.matrixComments = [
+            .init(
+                target: .cell(locus: "MHC-B", genotype: "Mamu-I*expected", sample: "AR3628"),
+                body: "Expected allele absent from this sample.",
+                author: "dho",
+                timestamp: "2026-06-30T12:03:00Z"
+            ),
+        ]
+
+        let decoded = try GenotypeAnnotationSidecar.decode(sidecar.encoded())
+
+        XCTAssertEqual(decoded.matrixComments, sidecar.matrixComments)
+    }
+
     func testLegacySidecarDecodesWithEmptyAIHaplotypeReviewFields() throws {
         let json = """
         {
@@ -91,6 +140,8 @@ final class GenotypeAnnotationSidecarTests: XCTestCase {
 
         XCTAssertTrue(decoded.aiHaplotypeReviews.isEmpty)
         XCTAssertNil(decoded.activeAIHaplotypeReviewID)
+        XCTAssertTrue(decoded.matrixStyles.isEmpty)
+        XCTAssertTrue(decoded.matrixComments.isEmpty)
     }
 
     func testOverrideReasonTagsUseReviewInspectorVocabulary() {

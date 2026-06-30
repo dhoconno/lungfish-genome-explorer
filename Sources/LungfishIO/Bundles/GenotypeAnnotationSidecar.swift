@@ -14,6 +14,8 @@ public struct GenotypeAnnotationSidecar: Codable, Equatable, Sendable {
     public var rowHighlights: [RowHighlight]
     public var sampleNotes: [SampleNote]
     public var cellComments: [CellComment]
+    public var matrixStyles: [MatrixStyleAnnotation]
+    public var matrixComments: [MatrixComment]
     public var sampleStatusFlags: [SampleStatusFlag]
     public var callStatusFlags: [CallStatusFlag]
     public var smartCohorts: [GenotypeCohortSmartFilter]
@@ -26,6 +28,7 @@ public struct GenotypeAnnotationSidecar: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, generatedAt, lastEditedAt, lastEditor
         case callOverrides, cellHighlights, rowHighlights, sampleNotes, cellComments
+        case matrixStyles, matrixComments
         case sampleStatusFlags, callStatusFlags, smartCohorts, manualHaplotypeAssignments
         case aiHaplotypeReviews, activeAIHaplotypeReviewID, settings, auditLog
     }
@@ -35,6 +38,8 @@ public struct GenotypeAnnotationSidecar: Codable, Equatable, Sendable {
                 callOverrides: [CallOverride], cellHighlights: [CellHighlight],
                 rowHighlights: [RowHighlight], sampleNotes: [SampleNote],
                 cellComments: [CellComment],
+                matrixStyles: [MatrixStyleAnnotation] = [],
+                matrixComments: [MatrixComment] = [],
                 sampleStatusFlags: [SampleStatusFlag], callStatusFlags: [CallStatusFlag],
                 smartCohorts: [GenotypeCohortSmartFilter],
                 manualHaplotypeAssignments: [ManualHaplotypeAssignment],
@@ -50,6 +55,8 @@ public struct GenotypeAnnotationSidecar: Codable, Equatable, Sendable {
         self.rowHighlights = rowHighlights
         self.sampleNotes = sampleNotes
         self.cellComments = cellComments
+        self.matrixStyles = matrixStyles
+        self.matrixComments = matrixComments
         self.sampleStatusFlags = sampleStatusFlags
         self.callStatusFlags = callStatusFlags
         self.smartCohorts = smartCohorts
@@ -58,6 +65,40 @@ public struct GenotypeAnnotationSidecar: Codable, Equatable, Sendable {
         self.activeAIHaplotypeReviewID = activeAIHaplotypeReviewID
         self.settings = settings
         self.auditLog = auditLog
+    }
+
+    public init(schemaVersion: Int, generatedAt: String,
+                lastEditedAt: String?, lastEditor: String?,
+                callOverrides: [CallOverride], cellHighlights: [CellHighlight],
+                rowHighlights: [RowHighlight], sampleNotes: [SampleNote],
+                cellComments: [CellComment],
+                sampleStatusFlags: [SampleStatusFlag], callStatusFlags: [CallStatusFlag],
+                smartCohorts: [GenotypeCohortSmartFilter],
+                manualHaplotypeAssignments: [ManualHaplotypeAssignment],
+                aiHaplotypeReviews: [AIHaplotypeReviewEntry] = [],
+                activeAIHaplotypeReviewID: String? = nil,
+                settings: Settings, auditLog: [AuditEntry]) {
+        self.init(
+            schemaVersion: schemaVersion,
+            generatedAt: generatedAt,
+            lastEditedAt: lastEditedAt,
+            lastEditor: lastEditor,
+            callOverrides: callOverrides,
+            cellHighlights: cellHighlights,
+            rowHighlights: rowHighlights,
+            sampleNotes: sampleNotes,
+            cellComments: cellComments,
+            matrixStyles: [],
+            matrixComments: [],
+            sampleStatusFlags: sampleStatusFlags,
+            callStatusFlags: callStatusFlags,
+            smartCohorts: smartCohorts,
+            manualHaplotypeAssignments: manualHaplotypeAssignments,
+            aiHaplotypeReviews: aiHaplotypeReviews,
+            activeAIHaplotypeReviewID: activeAIHaplotypeReviewID,
+            settings: settings,
+            auditLog: auditLog
+        )
     }
 
     public init(from decoder: Decoder) throws {
@@ -71,6 +112,8 @@ public struct GenotypeAnnotationSidecar: Codable, Equatable, Sendable {
         self.rowHighlights = try container.decodeIfPresent([RowHighlight].self, forKey: .rowHighlights) ?? []
         self.sampleNotes = try container.decodeIfPresent([SampleNote].self, forKey: .sampleNotes) ?? []
         self.cellComments = try container.decodeIfPresent([CellComment].self, forKey: .cellComments) ?? []
+        self.matrixStyles = try container.decodeIfPresent([MatrixStyleAnnotation].self, forKey: .matrixStyles) ?? []
+        self.matrixComments = try container.decodeIfPresent([MatrixComment].self, forKey: .matrixComments) ?? []
         self.sampleStatusFlags = try container.decodeIfPresent([SampleStatusFlag].self, forKey: .sampleStatusFlags) ?? []
         self.callStatusFlags = try container.decodeIfPresent([CallStatusFlag].self, forKey: .callStatusFlags) ?? []
         self.smartCohorts = try container.decodeIfPresent([GenotypeCohortSmartFilter].self, forKey: .smartCohorts) ?? []
@@ -96,6 +139,7 @@ public struct GenotypeAnnotationSidecar: Codable, Equatable, Sendable {
             lastEditedAt: nil, lastEditor: nil,
             callOverrides: [], cellHighlights: [], rowHighlights: [],
             sampleNotes: [], cellComments: [],
+            matrixStyles: [], matrixComments: [],
             sampleStatusFlags: [], callStatusFlags: [],
             smartCohorts: [], manualHaplotypeAssignments: [],
             aiHaplotypeReviews: [], activeAIHaplotypeReviewID: nil,
@@ -259,6 +303,156 @@ public extension GenotypeAnnotationSidecar {
             self.sample = sample
             self.locus = locus
             self.slot = slot
+            self.body = body
+            self.author = author
+            self.timestamp = timestamp
+        }
+    }
+
+    enum MatrixTarget: Codable, Equatable, Hashable, Sendable {
+        case row(locus: String, genotype: String)
+        case column(sample: String)
+        case cell(locus: String, genotype: String, sample: String)
+
+        private enum CodingKeys: String, CodingKey {
+            case kind, locus, genotype, sample
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            let kind = try container.decode(String.self, forKey: .kind)
+            switch kind {
+            case "row":
+                self = .row(
+                    locus: try container.decode(String.self, forKey: .locus),
+                    genotype: try container.decode(String.self, forKey: .genotype)
+                )
+            case "column":
+                self = .column(sample: try container.decode(String.self, forKey: .sample))
+            case "cell":
+                self = .cell(
+                    locus: try container.decode(String.self, forKey: .locus),
+                    genotype: try container.decode(String.self, forKey: .genotype),
+                    sample: try container.decode(String.self, forKey: .sample)
+                )
+            default:
+                throw DecodingError.dataCorruptedError(
+                    forKey: .kind,
+                    in: container,
+                    debugDescription: "Unknown genotype matrix target kind '\(kind)'"
+                )
+            }
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            switch self {
+            case let .row(locus, genotype):
+                try container.encode("row", forKey: .kind)
+                try container.encode(locus, forKey: .locus)
+                try container.encode(genotype, forKey: .genotype)
+            case let .column(sample):
+                try container.encode("column", forKey: .kind)
+                try container.encode(sample, forKey: .sample)
+            case let .cell(locus, genotype, sample):
+                try container.encode("cell", forKey: .kind)
+                try container.encode(locus, forKey: .locus)
+                try container.encode(genotype, forKey: .genotype)
+                try container.encode(sample, forKey: .sample)
+            }
+        }
+
+        public var sample: String? {
+            switch self {
+            case .row:
+                return nil
+            case let .column(sample), let .cell(_, _, sample):
+                return sample
+            }
+        }
+
+        public var locus: String? {
+            switch self {
+            case let .row(locus, _), let .cell(locus, _, _):
+                return locus
+            case .column:
+                return nil
+            }
+        }
+
+        public var genotype: String? {
+            switch self {
+            case let .row(_, genotype), let .cell(_, genotype, _):
+                return genotype
+            case .column:
+                return nil
+            }
+        }
+
+        public var auditSample: String {
+            sample ?? "matrix"
+        }
+
+        public var auditDescription: String {
+            switch self {
+            case let .row(locus, genotype):
+                return "row \(locus) \(genotype)"
+            case let .column(sample):
+                return "column \(sample)"
+            case let .cell(locus, genotype, sample):
+                return "cell \(sample) \(locus) \(genotype)"
+            }
+        }
+    }
+
+    struct MatrixStyle: Codable, Equatable, Sendable {
+        public var fillColor: String?
+        public var textColor: String?
+        public var borderColor: String?
+        public var isBold: Bool
+        public var isItalic: Bool
+
+        public init(
+            fillColor: String? = nil,
+            textColor: String? = nil,
+            borderColor: String? = nil,
+            isBold: Bool = false,
+            isItalic: Bool = false
+        ) {
+            self.fillColor = fillColor
+            self.textColor = textColor
+            self.borderColor = borderColor
+            self.isBold = isBold
+            self.isItalic = isItalic
+        }
+
+        public var isEmpty: Bool {
+            fillColor == nil && textColor == nil && borderColor == nil && !isBold && !isItalic
+        }
+    }
+
+    struct MatrixStyleAnnotation: Codable, Equatable, Sendable {
+        public let target: MatrixTarget
+        public let style: MatrixStyle
+        public let author: String
+        public let timestamp: String
+
+        public init(target: MatrixTarget, style: MatrixStyle, author: String, timestamp: String) {
+            self.target = target
+            self.style = style
+            self.author = author
+            self.timestamp = timestamp
+        }
+    }
+
+    struct MatrixComment: Codable, Equatable, Sendable {
+        public let target: MatrixTarget
+        public let body: String
+        public let author: String
+        public let timestamp: String
+
+        public init(target: MatrixTarget, body: String, author: String, timestamp: String) {
+            self.target = target
             self.body = body
             self.author = author
             self.timestamp = timestamp
