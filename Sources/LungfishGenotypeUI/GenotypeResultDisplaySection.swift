@@ -24,12 +24,14 @@ public final class GenotypeResultDisplaySectionViewModel {
     public var matrixIsItalic = false
     public var matrixCommentText = ""
     public var supportedCellMinimumReads = 1
+    public var visibleSupportedCellMinimumReads = 1
 
     public var onDisplayStateChanged: ((GenotypeResultDisplayState) -> Void)?
     public var onGenotypeHighlightRequested: ((GenotypeResultHighlightRequest) -> Void)?
     public var onMatrixStyleRequested: ((GenotypeMatrixStyleRequest) -> Void)?
     public var onMatrixCommentRequested: ((GenotypeMatrixCommentRequest) -> Void)?
     public var onSupportedCellSelectionRequested: ((Int) -> Void)?
+    public var onVisibleSupportedCellSelectionRequested: ((Int) -> Void)?
 
     @ObservationIgnored
     private var isUpdatingFromSelection = false
@@ -239,6 +241,10 @@ public final class GenotypeResultDisplaySectionViewModel {
     func selectSupportedCellsInCurrentRow() {
         guard canSelectSupportedCellsInCurrentRow else { return }
         onSupportedCellSelectionRequested?(max(0, supportedCellMinimumReads))
+    }
+
+    func selectVisibleSupportedCells() {
+        onVisibleSupportedCellSelectionRequested?(max(0, visibleSupportedCellMinimumReads))
     }
 
     var activeGenotypeHighlightNSColor: NSColor {

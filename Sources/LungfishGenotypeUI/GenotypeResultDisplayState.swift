@@ -200,6 +200,29 @@ public struct GenotypeResultDisplayState: Equatable {
     }
 }
 
+extension GenotypeResultDisplayState {
+    func requiresMatrixRowRebuild(comparedTo previous: GenotypeResultDisplayState) -> Bool {
+        hideLowSupport != previous.hideLowSupport
+            || minimumSupportPercent != previous.minimumSupportPercent
+            || supportDenominator != previous.supportDenominator
+            || matrixMinimumReads != previous.matrixMinimumReads
+            || matrixMinimumPercent != previous.matrixMinimumPercent
+            || matrixPercentDenominator != previous.matrixPercentDenominator
+    }
+
+    func requiresMatrixFilterPass(comparedTo previous: GenotypeResultDisplayState) -> Bool {
+        requiresMatrixRowRebuild(comparedTo: previous)
+            || minimumReads != previous.minimumReads
+            || matrixRowFilterText != previous.matrixRowFilterText
+            || matrixSampleFilterText != previous.matrixSampleFilterText
+    }
+
+    func requiresMatrixRedraw(comparedTo previous: GenotypeResultDisplayState) -> Bool {
+        cellColorMode != previous.cellColorMode
+            || hideFilteredHighlights != previous.hideFilteredHighlights
+    }
+}
+
 struct GenotypeMatrixRenderedStyle: Equatable {
     var fillColor: AnnotationColor?
     var textColor: AnnotationColor?

@@ -640,7 +640,7 @@ public final class GenotypeResultViewController: NSViewController {
                 return (target: target, style: next)
             }
             try store.setMatrixStyles(edits)
-            comparisonMatrix.applyAnnotationSidecar(store.sidecar)
+            comparisonMatrix.applyAnnotationSidecar(store.sidecar, reloading: targets)
             refreshCurrentSelectionDetails()
             onAnnotationSidecarChanged?(store.sidecar)
             scheduleCurrentWorkbookUpdateForMatrixAnnotation()
@@ -656,7 +656,7 @@ public final class GenotypeResultViewController: NSViewController {
         guard !body.isEmpty, !targets.isEmpty else { return }
         do {
             try store.addMatrixComments(targets.map { (target: $0, body: body) })
-            comparisonMatrix.applyAnnotationSidecar(store.sidecar)
+            comparisonMatrix.applyAnnotationSidecar(store.sidecar, reloading: targets)
             refreshCurrentSelectionDetails()
             onAnnotationSidecarChanged?(store.sidecar)
             scheduleCurrentWorkbookUpdateForMatrixAnnotation()
@@ -671,6 +671,11 @@ public final class GenotypeResultViewController: NSViewController {
         let targets = comparisonMatrix.selectSupportedCellsInSelectedRow(minimumReads: minimumReads)
         guard let currentSharedCall else { return }
         publishSelectionState(selectionState(for: currentSharedCall, sample: nil, matrixTargets: targets))
+    }
+
+    public func selectVisibleSupportedMatrixCells(minimumReads: Int) {
+        ensureComparisonMatrixConfigured()
+        _ = comparisonMatrix.selectVisibleSupportedCells(minimumReads: minimumReads)
     }
 
     private func applyHighlightWithoutUndo(_ request: GenotypeResultHighlightRequest) {
@@ -2013,17 +2018,32 @@ public final class GenotypeResultViewController: NSViewController {
         if targets.count == 1, let target = targets.first {
             switch target {
             case let .row(locus, genotype):
-                return [("Locus", locus), ("Genotype", genotype)]
+                return [("Selection Type", "Row"), ("Locus", locus), ("Genotype", genotype)]
             case let .column(sample):
-                return [("Sample", sample)]
+                return [("Selection Type", "Column"), ("Sample", sample)]
             case let .cell(locus, genotype, sample):
-                return [("Sample", sample), ("Locus", locus), ("Genotype", genotype)]
+                return [("Selection Type", "Cell"), ("Sample", sample), ("Locus", locus), ("Genotype", genotype)]
             }
         }
         return [
+            ("Selection Type", matrixTargetTypeLabel(for: targets)),
             ("Targets", "\(targets.count)"),
             ("Selection", targets.map(matrixTargetSummary).joined(separator: ", ")),
         ]
+    }
+
+    private func matrixTargetTypeLabel(for targets: [GenotypeAnnotationSidecar.MatrixTarget]) -> String {
+        let types = Set(targets.map { target in
+            switch target {
+            case .row: return "Row"
+            case .column: return "Column"
+            case .cell: return "Cell"
+            }
+        })
+        if types.count == 1, let type = types.first {
+            return targets.count == 1 ? type : type + "s"
+        }
+        return "Mixed"
     }
 
     private func matrixTargetSummary(_ target: GenotypeAnnotationSidecar.MatrixTarget) -> String {
@@ -2072,6 +2092,7 @@ public final class GenotypeResultViewController: NSViewController {
                 )
             } ?? .row(locus: sharedCall.locus, genotype: sharedCall.genotype),
         ]
+        rows.insert(("Selection Type", matrixTargetTypeLabel(for: matrixTargets)), at: 0)
         rows += matrixCommentDetailRows(for: sharedCall, sample: sample, matrixTargets: matrixTargets)
         let target = GenotypeResultHighlightTarget(
             genotype: sharedCall.genotype,
@@ -5329,6 +5350,26 @@ extension GenotypeResultViewController {
     func testingSelectSupportedCellsInSelectedRow(minimumReads: Int) -> [GenotypeAnnotationSidecar.MatrixTarget] {
         selectSupportedMatrixCellsInCurrentRow(minimumReads: minimumReads)
         return currentSelectionState?.matrixTargets ?? []
+    }
+
+    func testingSelectVisibleSupportedMatrixCells(minimumReads: Int) -> [GenotypeAnnotationSidecar.MatrixTarget] {
+        selectVisibleSupportedMatrixCells(minimumReads: minimumReads)
+        return currentSelectionState?.matrixTargets ?? []
+    }
+
+    func testingResetMatrixReloadCounters() {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.testingResetReloadCounters()
+    }
+
+    var testingMatrixFullReloadCount: Int {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingFullReloadCount
+    }
+
+    var testingMatrixPartialReloadCount: Int {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingPartialReloadCount
     }
 
     var testingDetailContentTopInset: CGFloat {

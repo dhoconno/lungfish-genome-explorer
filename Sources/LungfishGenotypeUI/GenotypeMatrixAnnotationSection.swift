@@ -21,6 +21,7 @@ public struct GenotypeMatrixAnnotationSection: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            selectionHelpers
         }
     }
 
@@ -115,6 +116,30 @@ public struct GenotypeMatrixAnnotationSection: View {
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var selectionHelpers: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Divider()
+            Text("Selection Helpers")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Stepper(
+                    "Visible cells: \(viewModel.visibleSupportedCellMinimumReads)",
+                    value: $viewModel.visibleSupportedCellMinimumReads,
+                    in: 0...100_000
+                )
+                .controlSize(.small)
+                Button {
+                    viewModel.selectVisibleSupportedCells()
+                } label: {
+                    Label("Select", systemImage: "scope")
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+            }
         }
     }
 

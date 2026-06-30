@@ -112,7 +112,7 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
             .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeResultDisplaySection.swift")
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
         let start = try XCTUnwrap(source.range(of: "private var thresholdGuidance"))
-        let end = try XCTUnwrap(source[start.lowerBound...].range(of: "private var colorControls"))
+        let end = try XCTUnwrap(source[start.lowerBound...].range(of: "private var matrixFilterControls"))
         let thresholdSource = String(source[start.lowerBound..<end.lowerBound])
 
         XCTAssertTrue(thresholdSource.contains("Haplotype thresholds"))
@@ -235,6 +235,17 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         XCTAssertTrue(viewModel.canSelectSupportedCellsInCurrentRow)
         viewModel.selectSupportedCellsInCurrentRow()
         XCTAssertEqual(helperInvocations, [1])
+    }
+
+    func testMatrixVisibleSupportedCellHelperEmitsThresholdWithoutExistingSelection() {
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+        var helperInvocations: [Int] = []
+        viewModel.onVisibleSupportedCellSelectionRequested = { helperInvocations.append($0) }
+
+        viewModel.visibleSupportedCellMinimumReads = 5
+        viewModel.selectVisibleSupportedCells()
+
+        XCTAssertEqual(helperInvocations, [5])
     }
 
     func testSelectionViewModelEmitsGenotypeHighlightRequests() {
