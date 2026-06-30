@@ -411,23 +411,30 @@ public extension GenotypeAnnotationSidecar {
         public var borderColor: String?
         public var isBold: Bool
         public var isItalic: Bool
+        public var boldOverride: Bool?
+        public var italicOverride: Bool?
 
         public init(
             fillColor: String? = nil,
             textColor: String? = nil,
             borderColor: String? = nil,
             isBold: Bool = false,
-            isItalic: Bool = false
+            isItalic: Bool = false,
+            boldOverride: Bool? = nil,
+            italicOverride: Bool? = nil
         ) {
             self.fillColor = fillColor
             self.textColor = textColor
             self.borderColor = borderColor
             self.isBold = isBold
             self.isItalic = isItalic
+            self.boldOverride = boldOverride
+            self.italicOverride = italicOverride
         }
 
         public var isEmpty: Bool {
             fillColor == nil && textColor == nil && borderColor == nil && !isBold && !isItalic
+                && boldOverride == nil && italicOverride == nil
         }
     }
 

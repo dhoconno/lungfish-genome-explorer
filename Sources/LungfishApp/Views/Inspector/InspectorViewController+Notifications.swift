@@ -123,6 +123,9 @@ extension InspectorViewController {
         onTwelveSResultDisplayStateChanged = nil
         onGenotypeSampleMetadataImported = nil
         viewModel.genotypeResultDisplaySectionViewModel.onGenotypeHighlightRequested = nil
+        viewModel.genotypeResultDisplaySectionViewModel.onMatrixStyleRequested = nil
+        viewModel.genotypeResultDisplaySectionViewModel.onMatrixCommentRequested = nil
+        viewModel.genotypeResultDisplaySectionViewModel.onSupportedCellSelectionRequested = nil
         viewModel.selectionSectionViewModel.onGenotypeHighlightRequested = nil
 
         // Clear FASTQ metadata section

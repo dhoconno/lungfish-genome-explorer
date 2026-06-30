@@ -213,19 +213,51 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL))
         XCTAssertEqual(envelope.options.explicit["action"], .string("addMatrixComment"))
-        XCTAssertTrue(envelope.argv.contains("--target-kind"))
-        XCTAssertTrue(envelope.argv.contains("cell"))
-        XCTAssertTrue(envelope.argv.contains("--target-genotype"))
-        XCTAssertTrue(envelope.argv.contains("Mamu-I*expected"))
-        XCTAssertTrue(envelope.argv.contains("--comment-body"))
-        XCTAssertTrue(envelope.argv.contains("Expected genotype missing from reads."))
-        XCTAssertEqual(envelope.options.explicit["targetKind"], .string("cell"))
-        XCTAssertEqual(envelope.options.explicit["targetLocus"], .string("MHC-B"))
-        XCTAssertEqual(envelope.options.explicit["targetGenotype"], .string("Mamu-I*expected"))
-        XCTAssertEqual(envelope.options.explicit["targetSample"], .string("AR3628"))
-        XCTAssertEqual(envelope.options.explicit["commentBody"], .string("Expected genotype missing from reads."))
+        XCTAssertEqual(Array(envelope.argv.prefix(3)), ["lungfish", "genotype", "apply-annotations"])
+        XCTAssertTrue(envelope.argv.contains("--bundle"))
+        XCTAssertTrue(envelope.argv.contains("--patch"))
+        XCTAssertEqual(envelope.options.explicit["targetCount"], .integer(1))
+        XCTAssertEqual(envelope.options.explicit["targets"], .array([
+            .dictionary([
+                "kind": .string("cell"),
+                "locus": .string("MHC-B"),
+                "genotype": .string("Mamu-I*expected"),
+                "sample": .string("AR3628"),
+            ]),
+        ]))
+        XCTAssertEqual(envelope.options.explicit["commentBodies"], .array([
+            .string("Expected genotype missing from reads."),
+        ]))
         XCTAssertEqual(envelope.options.resolvedDefaults["matrixStyleCount"], .integer(1))
         XCTAssertEqual(envelope.options.resolvedDefaults["matrixCommentCount"], .integer(1))
+    }
+
+    func testMatrixBatchAnnotationProvenanceCapturesAllTargets() throws {
+        let dir = try makeBundleURL()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let store = try GenotypeAnnotationStore(bundleURL: dir, author: "test")
+        try store.addMatrixComments([
+            (
+                target: .cell(locus: "MHC-A", genotype: "01_Mafa_A1_001_01", sample: "AR3628"),
+                body: "Expected in this animal."
+            ),
+            (
+                target: .cell(locus: "MHC-A", genotype: "01_Mafa_A1_001_01", sample: "AR3629"),
+                body: "Expected in this animal."
+            ),
+        ])
+
+        let annotationURL = dir.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL))
+        XCTAssertEqual(envelope.options.explicit["action"], .string("addMatrixComments"))
+        XCTAssertEqual(envelope.options.explicit["targetCount"], .integer(2))
+        XCTAssertEqual(envelope.options.explicit["commentBodies"], .array([
+            .string("Expected in this animal."),
+            .string("Expected in this animal."),
+        ]))
+        XCTAssertEqual(envelope.options.resolvedDefaults["matrixCommentCount"], .integer(2))
     }
 
     func testConfirmCallWritesAuditWithoutOverride() throws {

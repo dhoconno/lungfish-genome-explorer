@@ -214,6 +214,41 @@ struct GenotypeMatrixRenderedStyle: Equatable {
     }
 }
 
+public enum GenotypeMatrixStyleField: Equatable {
+    case fillColor(AnnotationColor?)
+    case textColor(AnnotationColor?)
+    case borderColor(AnnotationColor?)
+    case isBold(Bool)
+    case isItalic(Bool)
+    case clear
+}
+
+public struct GenotypeMatrixStyleRequest: Equatable {
+    public let targets: [GenotypeAnnotationSidecar.MatrixTarget]
+    public let field: GenotypeMatrixStyleField
+
+    public init(
+        targets: [GenotypeAnnotationSidecar.MatrixTarget],
+        field: GenotypeMatrixStyleField
+    ) {
+        self.targets = targets
+        self.field = field
+    }
+}
+
+public struct GenotypeMatrixCommentRequest: Equatable {
+    public let targets: [GenotypeAnnotationSidecar.MatrixTarget]
+    public let body: String
+
+    public init(
+        targets: [GenotypeAnnotationSidecar.MatrixTarget],
+        body: String
+    ) {
+        self.targets = targets
+        self.body = body
+    }
+}
+
 public struct GenotypeResultHighlightTarget: Equatable, Hashable {
     public let genotype: String
     public let locus: String

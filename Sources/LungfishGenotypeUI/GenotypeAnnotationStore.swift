@@ -235,55 +235,77 @@ public final class GenotypeAnnotationStore {
         target: GenotypeAnnotationSidecar.MatrixTarget,
         style: GenotypeAnnotationSidecar.MatrixStyle?
     ) throws {
+        try setMatrixStyles([(target: target, style: style)])
+    }
+
+    func setMatrixStyles(
+        _ edits: [(target: GenotypeAnnotationSidecar.MatrixTarget, style: GenotypeAnnotationSidecar.MatrixStyle?)]
+    ) throws {
+        guard !edits.isEmpty else { return }
         let timestamp = now()
-        let previous = sidecar.matrixStyles.first { $0.target == target }?.style
-        sidecar.matrixStyles.removeAll { $0.target == target }
-        if let style, !style.isEmpty {
-            sidecar.matrixStyles.append(.init(
-                target: target,
-                style: style,
+        for edit in edits {
+            let target = edit.target
+            let style = edit.style
+            let previous = sidecar.matrixStyles.first { $0.target == target }?.style
+            sidecar.matrixStyles.removeAll { $0.target == target }
+            if let style, !style.isEmpty {
+                sidecar.matrixStyles.append(.init(
+                    target: target,
+                    style: style,
+                    author: author,
+                    timestamp: timestamp
+                ))
+            }
+            sidecar.append(audit: .init(
+                action: "setMatrixStyle",
+                sample: target.auditSample,
+                locus: target.locus,
+                slot: nil,
+                before: matrixStyleSummary(previous),
+                after: matrixStyleSummary(style),
+                color: style?.fillColor ?? style?.textColor ?? style?.borderColor,
+                reason: "matrix-style",
+                rationale: target.auditDescription,
                 author: author,
                 timestamp: timestamp
             ))
         }
-        sidecar.append(audit: .init(
-            action: "setMatrixStyle",
-            sample: target.auditSample,
-            locus: target.locus,
-            slot: nil,
-            before: matrixStyleSummary(previous),
-            after: matrixStyleSummary(style),
-            color: style?.fillColor ?? style?.textColor ?? style?.borderColor,
-            reason: "matrix-style",
-            rationale: target.auditDescription,
-            author: author,
-            timestamp: timestamp
-        ))
-        try persist(action: "setMatrixStyle", editContext: matrixStyleEditContext(target: target, style: style))
+        try persist(action: edits.count == 1 ? "setMatrixStyle" : "setMatrixStyles", editContext: matrixStyleEditContext(edits: edits))
     }
 
     func addMatrixComment(target: GenotypeAnnotationSidecar.MatrixTarget, body: String) throws {
+        try addMatrixComments([(target: target, body: body)])
+    }
+
+    func addMatrixComments(
+        _ edits: [(target: GenotypeAnnotationSidecar.MatrixTarget, body: String)]
+    ) throws {
+        guard !edits.isEmpty else { return }
         let timestamp = now()
-        sidecar.matrixComments.append(.init(
-            target: target,
-            body: body,
-            author: author,
-            timestamp: timestamp
-        ))
-        sidecar.append(audit: .init(
-            action: "addMatrixComment",
-            sample: target.auditSample,
-            locus: target.locus,
-            slot: nil,
-            before: nil,
-            after: body,
-            color: nil,
-            reason: "matrix-comment",
-            rationale: target.auditDescription,
-            author: author,
-            timestamp: timestamp
-        ))
-        try persist(action: "addMatrixComment", editContext: matrixCommentEditContext(target: target, body: body))
+        for edit in edits {
+            let target = edit.target
+            let body = edit.body
+            sidecar.matrixComments.append(.init(
+                target: target,
+                body: body,
+                author: author,
+                timestamp: timestamp
+            ))
+            sidecar.append(audit: .init(
+                action: "addMatrixComment",
+                sample: target.auditSample,
+                locus: target.locus,
+                slot: nil,
+                before: nil,
+                after: body,
+                color: nil,
+                reason: "matrix-comment",
+                rationale: target.auditDescription,
+                author: author,
+                timestamp: timestamp
+            ))
+        }
+        try persist(action: edits.count == 1 ? "addMatrixComment" : "addMatrixComments", editContext: matrixCommentEditContext(edits: edits))
     }
 
     func addSampleNote(sample: String, body: String) throws {
@@ -539,14 +561,16 @@ public final class GenotypeAnnotationStore {
     ) throws {
         let output = try ProvenanceFileDescriptor.file(url: annotationURL, format: .json, role: .output)
         let argv = [
-            "lungfish-cli",
-            "edit-genotype-annotations",
+            "lungfish",
+            "genotype",
+            "apply-annotations",
             "--bundle", bundleURL.path,
-            "--action", action,
-        ] + (editContext?.argv ?? [])
+            "--patch", annotationURL.path,
+        ]
         var explicitOptions: [String: ParameterValue] = [
             "bundle": .file(bundleURL),
             "annotationSidecar": .file(annotationURL),
+            "patch": .file(annotationURL),
             "action": .string(action),
         ]
         if let editContext {
@@ -608,65 +632,64 @@ public final class GenotypeAnnotationStore {
     }
 
     private func matrixStyleEditContext(
-        target: GenotypeAnnotationSidecar.MatrixTarget,
-        style: GenotypeAnnotationSidecar.MatrixStyle?
+        edits: [(target: GenotypeAnnotationSidecar.MatrixTarget, style: GenotypeAnnotationSidecar.MatrixStyle?)]
     ) -> ProvenanceEditContext {
-        var context = matrixTargetEditContext(target)
-        let style = style?.isEmpty == true ? nil : style
-        if let style {
-            context.argv += [
-                "--style-fill-color", style.fillColor ?? "",
-                "--style-text-color", style.textColor ?? "",
-                "--style-border-color", style.borderColor ?? "",
-                "--style-bold", String(style.isBold),
-                "--style-italic", String(style.isItalic),
+        ProvenanceEditContext(
+            argv: [],
+            explicitOptions: [
+                "targetCount": .integer(edits.count),
+                "targets": .array(edits.map { matrixTargetParameterValue($0.target) }),
+                "styles": .array(edits.map { matrixStyleParameterValue($0.style) }),
             ]
-            context.explicitOptions["styleFillColor"] = style.fillColor.map(ParameterValue.string) ?? .null
-            context.explicitOptions["styleTextColor"] = style.textColor.map(ParameterValue.string) ?? .null
-            context.explicitOptions["styleBorderColor"] = style.borderColor.map(ParameterValue.string) ?? .null
-            context.explicitOptions["styleBold"] = .boolean(style.isBold)
-            context.explicitOptions["styleItalic"] = .boolean(style.isItalic)
-        } else {
-            context.argv += ["--clear-style", "true"]
-            context.explicitOptions["clearStyle"] = .boolean(true)
-        }
-        return context
+        )
     }
 
     private func matrixCommentEditContext(
-        target: GenotypeAnnotationSidecar.MatrixTarget,
-        body: String
+        edits: [(target: GenotypeAnnotationSidecar.MatrixTarget, body: String)]
     ) -> ProvenanceEditContext {
-        var context = matrixTargetEditContext(target)
-        context.argv += ["--comment-body", body]
-        context.explicitOptions["commentBody"] = .string(body)
-        return context
+        ProvenanceEditContext(
+            argv: [],
+            explicitOptions: [
+                "targetCount": .integer(edits.count),
+                "targets": .array(edits.map { matrixTargetParameterValue($0.target) }),
+                "commentBodies": .array(edits.map { .string($0.body) }),
+            ]
+        )
     }
 
-    private func matrixTargetEditContext(
-        _ target: GenotypeAnnotationSidecar.MatrixTarget
-    ) -> ProvenanceEditContext {
-        var argv: [String] = []
-        var options: [String: ParameterValue] = [:]
-        func append(_ option: String, _ key: String, _ value: String?) {
-            guard let value else { return }
-            argv += [option, value]
-            options[key] = .string(value)
-        }
+    private func matrixTargetParameterValue(_ target: GenotypeAnnotationSidecar.MatrixTarget) -> ParameterValue {
         switch target {
         case let .row(locus, genotype):
-            append("--target-kind", "targetKind", "row")
-            append("--target-locus", "targetLocus", locus)
-            append("--target-genotype", "targetGenotype", genotype)
+            return .dictionary([
+                "kind": .string("row"),
+                "locus": .string(locus),
+                "genotype": .string(genotype),
+            ])
         case let .column(sample):
-            append("--target-kind", "targetKind", "column")
-            append("--target-sample", "targetSample", sample)
+            return .dictionary([
+                "kind": .string("column"),
+                "sample": .string(sample),
+            ])
         case let .cell(locus, genotype, sample):
-            append("--target-kind", "targetKind", "cell")
-            append("--target-locus", "targetLocus", locus)
-            append("--target-genotype", "targetGenotype", genotype)
-            append("--target-sample", "targetSample", sample)
+            return .dictionary([
+                "kind": .string("cell"),
+                "locus": .string(locus),
+                "genotype": .string(genotype),
+                "sample": .string(sample),
+            ])
         }
-        return ProvenanceEditContext(argv: argv, explicitOptions: options)
+    }
+
+    private func matrixStyleParameterValue(_ style: GenotypeAnnotationSidecar.MatrixStyle?) -> ParameterValue {
+        guard let style, !style.isEmpty else { return .null }
+        return .dictionary([
+            "fillColor": style.fillColor.map(ParameterValue.string) ?? .null,
+            "textColor": style.textColor.map(ParameterValue.string) ?? .null,
+            "borderColor": style.borderColor.map(ParameterValue.string) ?? .null,
+            "isBold": .boolean(style.isBold),
+            "isItalic": .boolean(style.isItalic),
+            "boldOverride": style.boldOverride.map(ParameterValue.boolean) ?? .null,
+            "italicOverride": style.italicOverride.map(ParameterValue.boolean) ?? .null,
+        ])
     }
 }

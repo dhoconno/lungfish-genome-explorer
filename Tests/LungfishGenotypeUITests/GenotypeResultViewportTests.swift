@@ -3296,6 +3296,47 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(style.isItalic)
     }
 
+    func testMatrixCellStyleCanClearInheritedBold() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeMatrixStyleOverride-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let genotype = "01_Mafa_A1_001_01"
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-06-30T00:00:00Z")
+        sidecar.matrixStyles = [
+            .init(
+                target: .row(locus: "MHC-A", genotype: genotype),
+                style: .init(fillColor: nil, textColor: nil, borderColor: nil, isBold: true, isItalic: false),
+                author: "test",
+                timestamp: "2026-06-30T12:00:00Z"
+            ),
+            .init(
+                target: .cell(locus: "MHC-A", genotype: genotype, sample: "AnimalA"),
+                style: .init(
+                    fillColor: "#D9EAD3",
+                    textColor: nil,
+                    borderColor: nil,
+                    isBold: false,
+                    isItalic: false,
+                    boldOverride: false
+                ),
+                author: "test",
+                timestamp: "2026-06-30T12:01:00Z"
+            ),
+        ]
+        try sidecar.encoded().write(to: bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename))
+        let call = makeCall(sample: "AnimalA", genotype: genotype, reads: 42)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+
+        controller.configure(result: makeResult(bundleURL: bundleURL, samples: [], calls: [call]))
+
+        let style = try XCTUnwrap(controller.testingRenderedMatrixStyle(genotype: genotype, sample: "AnimalA"))
+        XCTAssertEqual(style.fillColor?.hexString, "#D9EAD3")
+        XCTAssertFalse(style.isBold)
+    }
+
     func testPerCellReadThresholdHidesCellsAndKeepsRowsWithVisibleCells() {
         let controller = GenotypeResultViewController()
         _ = controller.view
@@ -3404,6 +3445,81 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(targets, [
             .cell(locus: "MHC-A", genotype: genotype, sample: "AnimalA"),
         ])
+    }
+
+    func testMatrixAnnotationStyleRequestPersistsAndRenders() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeMatrixApplyStyle-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let genotype = "01_Mafa_A1_001_01"
+        let call = makeCall(sample: "AnimalA", genotype: genotype, reads: 42)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(bundleURL: bundleURL, samples: [], calls: [call]))
+        controller.testingSelectMatrixCell(genotype: genotype, sample: "AnimalA")
+
+        controller.applyMatrixStyle(GenotypeMatrixStyleRequest(
+            targets: controller.testingCurrentSelectionMatrixTargets,
+            field: .fillColor(AnnotationColor(red: 0.2, green: 0.6, blue: 0.3, alpha: 1.0))
+        ))
+        controller.applyMatrixStyle(GenotypeMatrixStyleRequest(
+            targets: controller.testingCurrentSelectionMatrixTargets,
+            field: .isBold(true)
+        ))
+
+        let sidecarURL = bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        let sidecar = try GenotypeAnnotationSidecar.decode(Data(contentsOf: sidecarURL))
+        XCTAssertEqual(sidecar.matrixStyles.count, 1)
+        XCTAssertEqual(sidecar.matrixStyles.first?.style.fillColor, "#33994C")
+        XCTAssertEqual(sidecar.matrixStyles.first?.style.isBold, true)
+        let style = try XCTUnwrap(controller.testingRenderedMatrixStyle(genotype: genotype, sample: "AnimalA"))
+        XCTAssertEqual(style.fillColor?.hexString, "#33994C")
+        XCTAssertTrue(style.isBold)
+    }
+
+    func testMatrixCommentsPersistAndAppearInSelectionDetails() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeMatrixComment-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let genotype = "01_Mafa_A1_001_01"
+        let call = makeCall(sample: "AnimalA", genotype: genotype, reads: 42)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(bundleURL: bundleURL, samples: [
+            ONTGenotypeSampleResult(
+                sample: "AnimalA",
+                passedAlignments: 42,
+                passedUniqueReads: 42,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: [call]
+            ),
+            ONTGenotypeSampleResult(
+                sample: "AnimalB",
+                passedAlignments: 0,
+                passedUniqueReads: 0,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: []
+            ),
+        ], calls: [call]))
+        controller.testingSelectMatrixCell(genotype: genotype, sample: "AnimalB")
+
+        controller.addMatrixComment(GenotypeMatrixCommentRequest(
+            targets: controller.testingCurrentSelectionMatrixTargets,
+            body: "Expected but missing."
+        ))
+
+        let sidecarURL = bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        let sidecar = try GenotypeAnnotationSidecar.decode(Data(contentsOf: sidecarURL))
+        XCTAssertEqual(sidecar.matrixComments.map(\.body), ["Expected but missing."])
+        XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains {
+            $0.0 == "Cell Comment" && $0.1 == "Expected but missing."
+        })
     }
 
     func testSharedGenotypeDetailContentIsAnchoredAtTopOfDetailPane() {

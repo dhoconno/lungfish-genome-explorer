@@ -17,9 +17,19 @@ public final class GenotypeResultDisplaySectionViewModel {
     public var genotypeBorderColor: Color = .blue
     public var genotypeHighlightScope: GenotypeResultHighlightScope = .selectedCell
     public var genotypeHighlightChannel: GenotypeResultHighlightChannel = .fill
+    public var matrixFillColor: Color = Color(nsColor: NSColor.systemYellow)
+    public var matrixTextColor: Color = Color(nsColor: NSColor.labelColor)
+    public var matrixBorderColor: Color = Color(nsColor: NSColor.systemOrange)
+    public var matrixIsBold = false
+    public var matrixIsItalic = false
+    public var matrixCommentText = ""
+    public var supportedCellMinimumReads = 1
 
     public var onDisplayStateChanged: ((GenotypeResultDisplayState) -> Void)?
     public var onGenotypeHighlightRequested: ((GenotypeResultHighlightRequest) -> Void)?
+    public var onMatrixStyleRequested: ((GenotypeMatrixStyleRequest) -> Void)?
+    public var onMatrixCommentRequested: ((GenotypeMatrixCommentRequest) -> Void)?
+    public var onSupportedCellSelectionRequested: ((Int) -> Void)?
 
     @ObservationIgnored
     private var isUpdatingFromSelection = false
@@ -79,6 +89,31 @@ public final class GenotypeResultDisplaySectionViewModel {
 
     func setMinimumReads(_ value: Int) {
         displayState.minimumReads = max(0, value)
+        notifyStateChanged()
+    }
+
+    func setMatrixMinimumReads(_ value: Int) {
+        displayState.matrixMinimumReads = max(0, value)
+        notifyStateChanged()
+    }
+
+    func setMatrixMinimumPercent(_ value: Double) {
+        displayState.matrixMinimumPercent = max(0, min(100, value))
+        notifyStateChanged()
+    }
+
+    func setMatrixPercentDenominator(_ denominator: ONTGenotypeSupportDenominator) {
+        displayState.matrixPercentDenominator = denominator
+        notifyStateChanged()
+    }
+
+    func setMatrixRowFilterText(_ value: String) {
+        displayState.matrixRowFilterText = value
+        notifyStateChanged()
+    }
+
+    func setMatrixSampleFilterText(_ value: String) {
+        displayState.matrixSampleFilterText = value
         notifyStateChanged()
     }
 
@@ -146,6 +181,54 @@ public final class GenotypeResultDisplaySectionViewModel {
         clearGenotypeHighlight(.border)
     }
 
+    var selectedMatrixTargets: [GenotypeAnnotationSidecar.MatrixTarget] {
+        genotypeResultSelection?.matrixTargets ?? []
+    }
+
+    var hasMatrixSelection: Bool {
+        !selectedMatrixTargets.isEmpty
+    }
+
+    func setMatrixFillColor(_ color: NSColor) {
+        matrixFillColor = Self.swiftUIColor(from: Self.annotationColor(from: color) ?? AnnotationColor(red: 1, green: 0.8, blue: 0, alpha: 1))
+        applyMatrixStyle(.fillColor(Self.annotationColor(from: color)))
+    }
+
+    func setMatrixTextColor(_ color: NSColor) {
+        matrixTextColor = Self.swiftUIColor(from: Self.annotationColor(from: color) ?? AnnotationColor(red: 0, green: 0, blue: 0, alpha: 1))
+        applyMatrixStyle(.textColor(Self.annotationColor(from: color)))
+    }
+
+    func setMatrixBorderColor(_ color: NSColor) {
+        matrixBorderColor = Self.swiftUIColor(from: Self.annotationColor(from: color) ?? AnnotationColor(red: 1, green: 0.5, blue: 0, alpha: 1))
+        applyMatrixStyle(.borderColor(Self.annotationColor(from: color)))
+    }
+
+    func setMatrixBold(_ enabled: Bool) {
+        matrixIsBold = enabled
+        applyMatrixStyle(.isBold(enabled))
+    }
+
+    func setMatrixItalic(_ enabled: Bool) {
+        matrixIsItalic = enabled
+        applyMatrixStyle(.isItalic(enabled))
+    }
+
+    func clearMatrixStyle() {
+        applyMatrixStyle(.clear)
+    }
+
+    func addMatrixComment() {
+        let body = matrixCommentText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty, hasMatrixSelection else { return }
+        onMatrixCommentRequested?(GenotypeMatrixCommentRequest(targets: selectedMatrixTargets, body: body))
+        matrixCommentText = ""
+    }
+
+    func selectSupportedCellsInCurrentRow() {
+        onSupportedCellSelectionRequested?(max(0, supportedCellMinimumReads))
+    }
+
     var activeGenotypeHighlightNSColor: NSColor {
         switch genotypeHighlightChannel {
         case .fill:
@@ -170,6 +253,11 @@ public final class GenotypeResultDisplaySectionViewModel {
         )
     }
 
+    private func applyMatrixStyle(_ field: GenotypeMatrixStyleField) {
+        guard hasMatrixSelection else { return }
+        onMatrixStyleRequested?(GenotypeMatrixStyleRequest(targets: selectedMatrixTargets, field: field))
+    }
+
     private func notifyStateChanged() {
         onDisplayStateChanged?(displayState)
     }
@@ -183,7 +271,7 @@ public final class GenotypeResultDisplaySectionViewModel {
         )
     }
 
-    private static func nsColor(from color: Color) -> NSColor {
+    static func nsColor(from color: Color) -> NSColor {
         if let cgColor = color.cgColor {
             return NSColor(cgColor: cgColor) ?? .systemBlue
         }
@@ -219,9 +307,11 @@ public struct GenotypeResultDisplaySection: View {
                     viewControls
                     layoutControls
                     thresholdGuidance
+                    matrixFilterControls
                     colorControls
+                    matrixAnnotationControls
                     highlightControls
-                    Text("Viewport colors are display aids. They do not change genotype calls or write analyst annotations to the bundle.")
+                    Text("Matrix annotation edits are saved to the bundle sidecar. Visual filters do not change genotype calls.")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -293,6 +383,55 @@ public struct GenotypeResultDisplaySection: View {
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var matrixFilterControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Matrix Filters")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            TextField("Rows: locus, genotype, or sample", text: Binding(
+                get: { viewModel.displayState.matrixRowFilterText },
+                set: { viewModel.setMatrixRowFilterText($0) }
+            ))
+            .textFieldStyle(.roundedBorder)
+            .controlSize(.small)
+            TextField("Samples", text: Binding(
+                get: { viewModel.displayState.matrixSampleFilterText },
+                set: { viewModel.setMatrixSampleFilterText($0) }
+            ))
+            .textFieldStyle(.roundedBorder)
+            .controlSize(.small)
+            Stepper(
+                "Min reads: \(viewModel.displayState.matrixMinimumReads)",
+                value: Binding(
+                    get: { viewModel.displayState.matrixMinimumReads },
+                    set: { viewModel.setMatrixMinimumReads($0) }
+                ),
+                in: 0...100_000
+            )
+            .controlSize(.small)
+            Stepper(
+                "Min percent: \(viewModel.displayState.matrixMinimumPercent, specifier: "%.1f")%",
+                value: Binding(
+                    get: { viewModel.displayState.matrixMinimumPercent },
+                    set: { viewModel.setMatrixMinimumPercent($0) }
+                ),
+                in: 0...100,
+                step: 0.5
+            )
+            .controlSize(.small)
+            Picker("Percent Basis", selection: Binding(
+                get: { viewModel.displayState.matrixPercentDenominator },
+                set: { viewModel.setMatrixPercentDenominator($0) }
+            )) {
+                ForEach(ONTGenotypeSupportDenominator.allCases, id: \.self) { denominator in
+                    Text(denominator.displayName).tag(denominator)
+                }
+            }
+            .pickerStyle(.segmented)
+            .controlSize(.small)
         }
     }
 
@@ -383,6 +522,97 @@ public struct GenotypeResultDisplaySection: View {
                 }
                 .buttonStyle(.borderless)
                 .controlSize(.small)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var matrixAnnotationControls: some View {
+        if viewModel.hasMatrixSelection {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Matrix Annotations")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                valueRow(label: "Targets", value: "\(viewModel.selectedMatrixTargets.count)")
+                    .font(.caption)
+
+                HStack(spacing: 10) {
+                    ContinuousColorWell(
+                        color: GenotypeResultDisplaySectionViewModel.nsColor(from: viewModel.matrixFillColor),
+                        onChange: { viewModel.setMatrixFillColor($0) }
+                    )
+                    .frame(width: 34, height: 22)
+                    Text("Fill")
+                        .font(.caption)
+                    ContinuousColorWell(
+                        color: GenotypeResultDisplaySectionViewModel.nsColor(from: viewModel.matrixTextColor),
+                        onChange: { viewModel.setMatrixTextColor($0) }
+                    )
+                    .frame(width: 34, height: 22)
+                    Text("Text")
+                        .font(.caption)
+                }
+
+                HStack(spacing: 10) {
+                    ContinuousColorWell(
+                        color: GenotypeResultDisplaySectionViewModel.nsColor(from: viewModel.matrixBorderColor),
+                        onChange: { viewModel.setMatrixBorderColor($0) }
+                    )
+                    .frame(width: 34, height: 22)
+                    Text("Border")
+                        .font(.caption)
+                    Toggle("B", isOn: Binding(
+                        get: { viewModel.matrixIsBold },
+                        set: { viewModel.setMatrixBold($0) }
+                    ))
+                    .toggleStyle(.button)
+                    .controlSize(.small)
+                    Toggle("I", isOn: Binding(
+                        get: { viewModel.matrixIsItalic },
+                        set: { viewModel.setMatrixItalic($0) }
+                    ))
+                    .toggleStyle(.button)
+                    .controlSize(.small)
+                }
+
+                Button {
+                    viewModel.clearMatrixStyle()
+                } label: {
+                    Label("Clear Style", systemImage: "eraser")
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+
+                TextField("Comment", text: $viewModel.matrixCommentText, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .lineLimit(2...4)
+                    .controlSize(.small)
+
+                Button {
+                    viewModel.addMatrixComment()
+                } label: {
+                    Label("Add Comment", systemImage: "text.bubble")
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+                .disabled(viewModel.matrixCommentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                HStack(spacing: 8) {
+                    Stepper(
+                        "Supported cells: \(viewModel.supportedCellMinimumReads)",
+                        value: $viewModel.supportedCellMinimumReads,
+                        in: 0...100_000
+                    )
+                    .controlSize(.small)
+                    Button {
+                        viewModel.selectSupportedCellsInCurrentRow()
+                    } label: {
+                        Label("Select", systemImage: "scope")
+                    }
+                    .buttonStyle(.borderless)
+                    .controlSize(.small)
+                }
             }
         }
     }
