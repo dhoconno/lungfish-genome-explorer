@@ -72,7 +72,7 @@ public struct InspectorView: View {
     @ViewBuilder
     private var tabContent: some View {
         switch viewModel.selectedTab {
-        case .bundle, .selectedItem, .view, .analysis, .fastqMetadata, .resultSummary, .twelveSDetail, .provenance:
+        case .bundle, .selectedItem, .annotations, .view, .analysis, .fastqMetadata, .resultSummary, .twelveSDetail, .provenance:
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     tabScrollContent
@@ -125,6 +125,9 @@ public struct InspectorView: View {
                 ReadSelectionSection(viewModel: viewModel.readStyleSectionViewModel)
             }
 
+        case .annotations:
+            GenotypeMatrixAnnotationSection(viewModel: viewModel.genotypeResultDisplaySectionViewModel)
+
         case .view:
             InspectorReadStyleSection(viewModel: viewModel)
 
@@ -175,6 +178,7 @@ extension InspectorTab {
         switch self {
         case .bundle: return "shippingbox"
         case .selectedItem: return "scope"
+        case .annotations: return "text.bubble"
         case .view: return "eye"
         case .analysis: return "arrow.triangle.branch"
         case .ai: return "sparkles"
@@ -190,6 +194,7 @@ extension InspectorTab {
         switch self {
         case .bundle: return "Bundle"
         case .selectedItem: return "Selected Item"
+        case .annotations: return "Annotations"
         case .view: return "View"
         case .analysis: return "Analysis"
         case .ai: return "Assistant"

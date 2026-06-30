@@ -607,7 +607,11 @@ public final class GenotypeResultViewController: NSViewController {
         }
         applyLayoutPreference()
         if let currentSharedCall {
-            showSharedCall(currentSharedCall, sample: currentSelectedSample)
+            showSharedCall(
+                currentSharedCall,
+                sample: currentSelectedSample,
+                matrixTargets: currentSelectionState?.matrixTargets
+            )
         }
     }
 
@@ -617,7 +621,11 @@ public final class GenotypeResultViewController: NSViewController {
         comparisonMatrix.applyHighlight(request)
         registerUndo(for: request, previousColor: previousColor)
         if let currentSharedCall {
-            showSharedCall(currentSharedCall, sample: currentSelectedSample)
+            showSharedCall(
+                currentSharedCall,
+                sample: currentSelectedSample,
+                matrixTargets: currentSelectionState?.matrixTargets
+            )
         }
     }
 
@@ -659,6 +667,7 @@ public final class GenotypeResultViewController: NSViewController {
 
     public func selectSupportedMatrixCellsInCurrentRow(minimumReads: Int) {
         ensureComparisonMatrixConfigured()
+        guard currentSharedCall != nil else { return }
         let targets = comparisonMatrix.selectSupportedCellsInSelectedRow(minimumReads: minimumReads)
         guard let currentSharedCall else { return }
         publishSelectionState(selectionState(for: currentSharedCall, sample: nil, matrixTargets: targets))
@@ -668,7 +677,11 @@ public final class GenotypeResultViewController: NSViewController {
         ensureComparisonMatrixConfigured()
         comparisonMatrix.applyHighlight(request)
         if let currentSharedCall {
-            showSharedCall(currentSharedCall, sample: currentSelectedSample)
+            showSharedCall(
+                currentSharedCall,
+                sample: currentSelectedSample,
+                matrixTargets: currentSelectionState?.matrixTargets
+            )
         }
     }
 
@@ -725,9 +738,15 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func refreshCurrentSelectionDetails() {
         if let currentSharedCall {
-            showSharedCall(currentSharedCall, sample: currentSelectedSample)
+            showSharedCall(
+                currentSharedCall,
+                sample: currentSelectedSample,
+                matrixTargets: currentSelectionState?.matrixTargets
+            )
+        } else if let targets = currentSelectionState?.matrixTargets, !targets.isEmpty {
+            showMatrixTargetSelection(targets)
         } else {
-            publishSelectionState(currentSelectionState)
+            publishSelectionState(nil)
         }
     }
 
@@ -897,6 +916,9 @@ public final class GenotypeResultViewController: NSViewController {
     private func wireCallbacks() {
         comparisonMatrix.onSharedCallSelected = { [weak self] sharedCall, sample, matrixTargets in
             self?.showSharedCall(sharedCall, sample: sample, matrixTargets: matrixTargets)
+        }
+        comparisonMatrix.onMatrixTargetsSelected = { [weak self] targets in
+            self?.showMatrixTargetSelection(targets)
         }
         comparisonMatrix.onSelectionCleared = { [weak self] in
             self?.showEmptySelection()
@@ -1949,6 +1971,72 @@ public final class GenotypeResultViewController: NSViewController {
         publishSelectionState(nil)
     }
 
+    private func showMatrixTargetSelection(_ targets: [GenotypeAnnotationSidecar.MatrixTarget]) {
+        currentSharedCall = nil
+        currentSelectedSample = nil
+        let uniqueTargets = uniqueMatrixTargets(targets)
+        removeArrangedSubviews(from: detailStack)
+        detailStack.addArrangedSubview(sectionTitle("Matrix Annotation Targets"))
+        detailStack.addArrangedSubview(detailRows(matrixTargetDetailRows(for: uniqueTargets)))
+        publishSelectionState(matrixTargetSelectionState(for: uniqueTargets))
+    }
+
+    private func matrixTargetSelectionState(
+        for targets: [GenotypeAnnotationSidecar.MatrixTarget]
+    ) -> GenotypeResultSelectionState {
+        let title = targets.count == 1
+            ? matrixTargetTitle(targets[0])
+            : "\(targets.count) Matrix Targets"
+        return GenotypeResultSelectionState(
+            title: title,
+            subtitle: "Matrix annotations",
+            detailRows: matrixTargetDetailRows(for: targets) + matrixCommentDetailRows(for: targets),
+            highlightTarget: nil,
+            matrixTargets: targets
+        )
+    }
+
+    private func matrixTargetTitle(_ target: GenotypeAnnotationSidecar.MatrixTarget) -> String {
+        switch target {
+        case let .row(locus, genotype):
+            return "\(locus) \(genotype)"
+        case let .column(sample):
+            return sample
+        case let .cell(locus, genotype, sample):
+            return "\(sample) \(locus) \(genotype)"
+        }
+    }
+
+    private func matrixTargetDetailRows(
+        for targets: [GenotypeAnnotationSidecar.MatrixTarget]
+    ) -> [(String, String)] {
+        if targets.count == 1, let target = targets.first {
+            switch target {
+            case let .row(locus, genotype):
+                return [("Locus", locus), ("Genotype", genotype)]
+            case let .column(sample):
+                return [("Sample", sample)]
+            case let .cell(locus, genotype, sample):
+                return [("Sample", sample), ("Locus", locus), ("Genotype", genotype)]
+            }
+        }
+        return [
+            ("Targets", "\(targets.count)"),
+            ("Selection", targets.map(matrixTargetSummary).joined(separator: ", ")),
+        ]
+    }
+
+    private func matrixTargetSummary(_ target: GenotypeAnnotationSidecar.MatrixTarget) -> String {
+        switch target {
+        case let .row(locus, genotype):
+            return "\(locus) \(genotype)"
+        case let .column(sample):
+            return sample
+        case let .cell(locus, genotype, sample):
+            return "\(sample) \(locus) \(genotype)"
+        }
+    }
+
     private func selectionState(
         for sharedCall: ONTGenotypeSharedCall,
         sample: String?,
@@ -2021,6 +2109,16 @@ public final class GenotypeResultViewController: NSViewController {
                 targets.append(columnTarget)
             }
         }
+        return sidecar.matrixComments.compactMap { comment in
+            guard targets.contains(comment.target) else { return nil }
+            return (matrixCommentLabel(for: comment.target), comment.body)
+        }
+    }
+
+    private func matrixCommentDetailRows(
+        for targets: [GenotypeAnnotationSidecar.MatrixTarget]
+    ) -> [(String, String)] {
+        guard let sidecar = annotationStore?.sidecar else { return [] }
         return sidecar.matrixComments.compactMap { comment in
             guard targets.contains(comment.target) else { return nil }
             return (matrixCommentLabel(for: comment.target), comment.body)
@@ -4215,7 +4313,8 @@ public final class GenotypeResultViewController: NSViewController {
     ) -> GenotypeViewportExportSnapshot {
         guard let store = annotationStore else { return base }
         let sidecar = store.sidecar
-        guard !sidecar.callOverrides.isEmpty || !sidecar.auditLog.isEmpty else { return base }
+        let hasMatrixAnnotations = !sidecar.matrixStyles.isEmpty || !sidecar.matrixComments.isEmpty
+        guard !sidecar.callOverrides.isEmpty || !sidecar.auditLog.isEmpty || hasMatrixAnnotations else { return base }
         let overrides = sidecar.callOverrides.map { o in
             GenotypeAnnotationOverrideEntry(
                 sample: o.sample, locus: o.locus, slot: o.slot.rawValue,
@@ -4236,6 +4335,12 @@ public final class GenotypeResultViewController: NSViewController {
                 timestamp: e.timestamp
             )
         }
+        let annotationSidecarURL = ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: base.bundleURL)
+        var provenanceInputURLs = base.provenanceInputURLs
+        if FileManager.default.fileExists(atPath: annotationSidecarURL.path),
+           !provenanceInputURLs.contains(annotationSidecarURL) {
+            provenanceInputURLs.append(annotationSidecarURL)
+        }
         return GenotypeViewportExportSnapshot(
             bundleURL: base.bundleURL,
             analysisName: base.analysisName,
@@ -4243,7 +4348,10 @@ public final class GenotypeResultViewController: NSViewController {
             filters: base.filters,
             sampleNames: base.sampleNames,
             rows: base.rows,
-            provenanceInputURLs: base.provenanceInputURLs,
+            provenanceInputURLs: provenanceInputURLs,
+            annotationSidecarURL: FileManager.default.fileExists(atPath: annotationSidecarURL.path)
+                ? annotationSidecarURL
+                : nil,
             sidecar: GenotypeAnnotationSidecarSnapshot(
                 overrides: overrides,
                 auditEntries: auditEntries
@@ -4264,6 +4372,7 @@ public final class GenotypeResultViewController: NSViewController {
             sampleNames: base.sampleNames,
             rows: base.rows,
             provenanceInputURLs: base.provenanceInputURLs,
+            annotationSidecarURL: base.annotationSidecarURL,
             sidecar: base.sidecar
         )
     }
@@ -4302,6 +4411,7 @@ public final class GenotypeResultViewController: NSViewController {
             sampleNames: base.sampleNames,
             rows: base.rows,
             provenanceInputURLs: provenanceInputURLs,
+            annotationSidecarURL: base.annotationSidecarURL,
             sidecar: base.sidecar
         )
     }
@@ -5183,6 +5293,16 @@ extension GenotypeResultViewController {
         comparisonMatrix.testingSelectRows(genotypes: genotypes, sample: sample)
     }
 
+    func testingSelectMatrixColumn(sample: String) {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.testingSelectColumn(sample: sample)
+    }
+
+    func testingSelectMatrixColumns(samples: [String]) {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.testingSelectColumns(samples: samples)
+    }
+
     var testingCurrentSelectionMatrixTargets: [GenotypeAnnotationSidecar.MatrixTarget] {
         currentSelectionState?.matrixTargets ?? []
     }
@@ -5196,14 +5316,19 @@ extension GenotypeResultViewController {
         return comparisonMatrix.testingRenderedStyle(genotype: genotype, sample: sample)
     }
 
+    func testingIsSelectedMatrixCell(genotype: String, sample: String) -> Bool {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingIsSelectedCell(genotype: genotype, sample: sample)
+    }
+
     func testingCellValue(genotype: String, sample: String) -> String? {
         ensureComparisonMatrixConfigured()
         return comparisonMatrix.testingCellValue(genotype: genotype, sample: sample)
     }
 
     func testingSelectSupportedCellsInSelectedRow(minimumReads: Int) -> [GenotypeAnnotationSidecar.MatrixTarget] {
-        ensureComparisonMatrixConfigured()
-        return comparisonMatrix.testingSelectSupportedCellsInSelectedRow(minimumReads: minimumReads)
+        selectSupportedMatrixCellsInCurrentRow(minimumReads: minimumReads)
+        return currentSelectionState?.matrixTargets ?? []
     }
 
     var testingDetailContentTopInset: CGFloat {

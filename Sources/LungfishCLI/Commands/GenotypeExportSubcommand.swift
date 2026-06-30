@@ -71,6 +71,12 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
     )
     var viewProjection: String?
 
+    @Option(
+        name: .customLong("annotations"),
+        help: "Annotation sidecar to include in annotation-bearing exports; defaults to bundle annotations.json when present."
+    )
+    var annotations: String?
+
     @Flag(name: .customLong("force"), help: "Overwrite an existing output file.")
     var force: Bool = false
 
@@ -100,8 +106,8 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
             throw ValidationError("Output file already exists: \(outputURL.path). Use --force to overwrite.")
         }
 
-        let sidecar = try ONTGenotypeResultBundleData
-            .loadAnnotationSidecarIfPresent(forBundleAt: bundleURL)
+        let annotationURL = resolvedAnnotationURL(bundleURL: bundleURL)
+        let sidecar = try loadSidecar(bundleURL: bundleURL, annotationURL: annotationURL)
         let loadedResult = try? ONTGenotypeResultBundle.loadResult(from: bundleURL)
 
         let writer = GenotypeXlsxWorkbookWriter()
@@ -117,7 +123,7 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
             resolvedColumns = filtered.sampleColumns
             switch format {
             case .xlsx:
-                try writer.writeViewProjection(filtered, to: outputURL)
+                try writer.writeViewProjection(filtered, to: outputURL, annotations: sidecar)
             case .csv:
                 try GenotypeXlsxWorkbookWriter
                     .renderDelimited(filtered, separator: ",")
@@ -149,7 +155,13 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
                         author: e.author, timestamp: e.timestamp
                     )
                 }
-                try writer.writeMatrix(to: outputURL, matrix: matrix, overrides: overrides, audit: audit)
+                try writer.writeMatrix(
+                    to: outputURL,
+                    matrix: matrix,
+                    overrides: overrides,
+                    audit: audit,
+                    annotations: sidecar
+                )
             case .csv:
                 try GenotypeXlsxWorkbookWriter
                     .renderDelimited(matrix, separator: ",")
@@ -197,6 +209,28 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
         return try JSONDecoder().decode(GenotypeViewProjection.self, from: data)
     }
 
+    private func resolvedAnnotationURL(bundleURL: URL) -> URL? {
+        if let annotations {
+            return URL(fileURLWithPath: annotations).standardizedFileURL
+        }
+        let sidecarURL = ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: bundleURL)
+        guard FileManager.default.fileExists(atPath: sidecarURL.path) else { return nil }
+        return sidecarURL.standardizedFileURL
+    }
+
+    private func loadSidecar(
+        bundleURL: URL,
+        annotationURL: URL?
+    ) throws -> GenotypeAnnotationSidecar {
+        guard let annotationURL else {
+            return try ONTGenotypeResultBundleData.loadAnnotationSidecarIfPresent(forBundleAt: bundleURL)
+        }
+        guard FileManager.default.fileExists(atPath: annotationURL.path) else {
+            throw ValidationError("--annotations does not exist: \(annotationURL.path)")
+        }
+        return try GenotypeAnnotationSidecar.decode(Data(contentsOf: annotationURL))
+    }
+
     /// Intersect the projection's columns with any `--sample` filters,
     /// preserving the projection's display order. An empty `--sample` set
     /// leaves the projection unchanged.
@@ -214,6 +248,7 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
             }
             return GenotypeViewProjectionRow(
                 label: row.label,
+                locus: row.locus,
                 cells: cells,
                 cellColorsHex: colors,
                 rowColorHex: row.rowColorHex
@@ -259,6 +294,11 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
             command += ["--view-projection", projectionURL.path]
             optionPaths["viewProjection"] = projectionURL
             additionalInputURLs.append(projectionURL)
+        }
+        if let annotationURL = resolvedAnnotationURL(bundleURL: bundleURL) {
+            command += ["--annotations", annotationURL.path]
+            optionPaths["annotations"] = annotationURL
+            additionalInputURLs.append(annotationURL)
         }
         if let activeDefinitionURL = loadedResult.flatMap({
             GenotypeActiveHaplotypeAnalysisResolver.activeDefinitionFileURL(

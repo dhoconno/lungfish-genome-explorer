@@ -50,6 +50,10 @@ public struct GenotypeViewProjectionRow: Codable, Sendable, Equatable {
     /// Row header label as rendered (e.g. `"MHC-A H1"`).
     public let label: String
 
+    /// Optional locus identity for row-level/cell-level matrix annotations.
+    /// Older projection JSON omits this and remains decodable.
+    public let locus: String?
+
     /// Cell values aligned positionally to the projection's `sampleColumns`.
     /// An empty / absent cell is the empty string (or `"-"`).
     public let cells: [String]
@@ -66,11 +70,13 @@ public struct GenotypeViewProjectionRow: Codable, Sendable, Equatable {
 
     public init(
         label: String,
+        locus: String? = nil,
         cells: [String],
         cellColorsHex: [String?]? = nil,
         rowColorHex: String? = nil
     ) {
         self.label = label
+        self.locus = locus
         self.cells = cells
         self.cellColorsHex = cellColorsHex
         self.rowColorHex = rowColorHex

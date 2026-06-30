@@ -3,6 +3,7 @@ import XCTest
 @testable import LungfishGenotypeUI
 import AppKit
 import LungfishCore
+import LungfishIO
 import SwiftUI
 
 @MainActor
@@ -207,6 +208,33 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         XCTAssertEqual(receivedRequests.first?.scope, .selectedCell)
         XCTAssertEqual(receivedRequests.first?.color, AnnotationColor(red: 0.2, green: 0.5, blue: 0.7, alpha: 1.0))
         XCTAssertEqual(receivedRequests.last?.color, AnnotationColor(red: 0.9, green: 0.3, blue: 0.1, alpha: 1.0))
+    }
+
+    func testMatrixSupportedCellHelperRequiresRowOrCellSelection() {
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+        var helperInvocations: [Int] = []
+        viewModel.onSupportedCellSelectionRequested = { helperInvocations.append($0) }
+
+        viewModel.updateSelection(GenotypeResultSelectionState(
+            title: "AnimalA",
+            subtitle: "Matrix annotations",
+            detailRows: [],
+            matrixTargets: [.column(sample: "AnimalA")]
+        ))
+        XCTAssertTrue(viewModel.hasMatrixSelection)
+        XCTAssertFalse(viewModel.canSelectSupportedCellsInCurrentRow)
+        viewModel.selectSupportedCellsInCurrentRow()
+        XCTAssertTrue(helperInvocations.isEmpty)
+
+        viewModel.updateSelection(GenotypeResultSelectionState(
+            title: "01_Mafa_A1_001_01",
+            subtitle: "MHC-A",
+            detailRows: [],
+            matrixTargets: [.row(locus: "MHC-A", genotype: "01_Mafa_A1_001_01")]
+        ))
+        XCTAssertTrue(viewModel.canSelectSupportedCellsInCurrentRow)
+        viewModel.selectSupportedCellsInCurrentRow()
+        XCTAssertEqual(helperInvocations, [1])
     }
 
     func testSelectionViewModelEmitsGenotypeHighlightRequests() {

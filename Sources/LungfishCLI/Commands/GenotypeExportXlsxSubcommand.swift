@@ -38,6 +38,7 @@ struct GenotypeExportXlsxSubcommand: AsyncParsableCommand {
     func run() async throws {
         let startedAt = Date()
         let bundleURL = URL(fileURLWithPath: bundle)
+        let sidecarURL = ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: bundleURL)
         let sidecar = try ONTGenotypeResultBundleData
             .loadAnnotationSidecarIfPresent(forBundleAt: bundleURL)
 
@@ -75,8 +76,26 @@ struct GenotypeExportXlsxSubcommand: AsyncParsableCommand {
             to: outputURL,
             matrix: matrix,
             overrides: overrides,
-            audit: audit
+            audit: audit,
+            annotations: sidecar
         )
+        let annotationInputURLs = FileManager.default.fileExists(atPath: sidecarURL.path)
+            ? [sidecarURL.standardizedFileURL]
+            : []
+        var optionPaths: [String: URL] = [
+            "bundle": bundleURL,
+            "output": outputURL,
+        ]
+        if let annotationInputURL = annotationInputURLs.first {
+            optionPaths["annotations"] = annotationInputURL
+        }
+        let haplotypeDefinitionInputURLs = loadedResult.flatMap {
+            GenotypeActiveHaplotypeAnalysisResolver.activeDefinitionFileURL(
+                for: $0,
+                bundleURL: bundleURL,
+                sidecar: sidecar
+            )
+        }.map { [$0] } ?? []
         try await GenotypeExportProvenanceSupport.record(
             workflowName: "genotype.export.xlsx",
             toolName: "lungfish genotype export-xlsx",
@@ -88,17 +107,8 @@ struct GenotypeExportXlsxSubcommand: AsyncParsableCommand {
             bundleURL: bundleURL,
             outputURLs: [outputURL],
             outputDirectory: outputURL.deletingLastPathComponent(),
-            optionPaths: [
-                "bundle": bundleURL,
-                "output": outputURL,
-            ],
-            additionalInputURLs: loadedResult.flatMap {
-                GenotypeActiveHaplotypeAnalysisResolver.activeDefinitionFileURL(
-                    for: $0,
-                    bundleURL: bundleURL,
-                    sidecar: sidecar
-                )
-            }.map { [$0] } ?? [],
+            optionPaths: optionPaths,
+            additionalInputURLs: annotationInputURLs + haplotypeDefinitionInputURLs,
             startedAt: startedAt
         )
 
