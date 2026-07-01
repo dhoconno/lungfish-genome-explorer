@@ -3,6 +3,22 @@ import SwiftUI
 import LungfishCore
 import LungfishIO
 
+public enum GenotypeMatrixPaletteTarget: String, CaseIterable, Identifiable {
+    case fill
+    case text
+    case border
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .fill: return "Fill"
+        case .text: return "Text"
+        case .border: return "Border"
+        }
+    }
+}
+
 @Observable
 @MainActor
 public final class GenotypeResultDisplaySectionViewModel {
@@ -23,15 +39,14 @@ public final class GenotypeResultDisplaySectionViewModel {
     public var matrixIsBold = false
     public var matrixIsItalic = false
     public var matrixCommentText = ""
+    public var matrixPaletteTarget: GenotypeMatrixPaletteTarget = .fill
     public var supportedCellMinimumReads = 1
-    public var visibleSupportedCellMinimumReads = 1
 
     public var onDisplayStateChanged: ((GenotypeResultDisplayState) -> Void)?
     public var onGenotypeHighlightRequested: ((GenotypeResultHighlightRequest) -> Void)?
     public var onMatrixStyleRequested: ((GenotypeMatrixStyleRequest) -> Void)?
     public var onMatrixCommentRequested: ((GenotypeMatrixCommentRequest) -> Void)?
     public var onSupportedCellSelectionRequested: ((Int) -> Void)?
-    public var onVisibleSupportedCellSelectionRequested: ((Int) -> Void)?
 
     @ObservationIgnored
     private var isUpdatingFromSelection = false
@@ -217,6 +232,21 @@ public final class GenotypeResultDisplaySectionViewModel {
         applyMatrixStyle(.borderColor(Self.annotationColor(from: color)))
     }
 
+    public var matrixQuickPaletteColors: [AnnotationColor] {
+        HaplotypeColorToken.canonicalPalette.map(\.fillColor)
+    }
+
+    public func applyMatrixPaletteColor(_ color: AnnotationColor) {
+        switch matrixPaletteTarget {
+        case .fill:
+            setMatrixFillColor(Self.nsColor(from: color))
+        case .text:
+            setMatrixTextColor(Self.nsColor(from: color))
+        case .border:
+            setMatrixBorderColor(Self.nsColor(from: color))
+        }
+    }
+
     func setMatrixBold(_ enabled: Bool) {
         matrixIsBold = enabled
         applyMatrixStyle(.isBold(enabled))
@@ -241,10 +271,6 @@ public final class GenotypeResultDisplaySectionViewModel {
     func selectSupportedCellsInCurrentRow() {
         guard canSelectSupportedCellsInCurrentRow else { return }
         onSupportedCellSelectionRequested?(max(0, supportedCellMinimumReads))
-    }
-
-    func selectVisibleSupportedCells() {
-        onVisibleSupportedCellSelectionRequested?(max(0, visibleSupportedCellMinimumReads))
     }
 
     var activeGenotypeHighlightNSColor: NSColor {
@@ -294,6 +320,15 @@ public final class GenotypeResultDisplaySectionViewModel {
             return NSColor(cgColor: cgColor) ?? .systemBlue
         }
         return NSColor(color)
+    }
+
+    static func nsColor(from annotationColor: AnnotationColor) -> NSColor {
+        NSColor(
+            srgbRed: annotationColor.red,
+            green: annotationColor.green,
+            blue: annotationColor.blue,
+            alpha: annotationColor.alpha
+        )
     }
 
     private static func annotationColor(from color: NSColor) -> AnnotationColor? {

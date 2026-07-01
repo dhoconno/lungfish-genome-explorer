@@ -237,15 +237,45 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         XCTAssertEqual(helperInvocations, [1])
     }
 
-    func testMatrixVisibleSupportedCellHelperEmitsThresholdWithoutExistingSelection() {
+    func testMatrixQuickPaletteContainsSixtyFourDistinctColors() {
         let viewModel = GenotypeResultDisplaySectionViewModel()
-        var helperInvocations: [Int] = []
-        viewModel.onVisibleSupportedCellSelectionRequested = { helperInvocations.append($0) }
+        let palette = viewModel.matrixQuickPaletteColors
 
-        viewModel.visibleSupportedCellMinimumReads = 5
-        viewModel.selectVisibleSupportedCells()
+        XCTAssertEqual(palette.count, 64)
+        XCTAssertEqual(Set(palette.map(\.hexString)).count, 64)
+        XCTAssertEqual(palette.first?.hexString, HaplotypeColorToken.canonicalPalette.first?.fillColor.hexString)
+    }
 
-        XCTAssertEqual(helperInvocations, [5])
+    func testMatrixQuickPaletteAppliesToSelectedStyleTarget() {
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+        let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A",
+            genotype: "01_Mafa_A1_001_01",
+            sample: "AnimalA"
+        )
+        viewModel.updateSelection(GenotypeResultSelectionState(
+            title: "01_Mafa_A1_001_01",
+            subtitle: "MHC-A",
+            detailRows: [],
+            matrixTargets: [target]
+        ))
+        var requests: [GenotypeMatrixStyleRequest] = []
+        viewModel.onMatrixStyleRequested = { requests.append($0) }
+        let color = AnnotationColor(red: 0.2, green: 0.5, blue: 0.7, alpha: 1.0)
+
+        viewModel.matrixPaletteTarget = .fill
+        viewModel.applyMatrixPaletteColor(color)
+        viewModel.matrixPaletteTarget = .text
+        viewModel.applyMatrixPaletteColor(color)
+        viewModel.matrixPaletteTarget = .border
+        viewModel.applyMatrixPaletteColor(color)
+
+        XCTAssertEqual(requests.map(\.targets), [[target], [target], [target]])
+        XCTAssertEqual(requests.map(\.field), [
+            .fillColor(color),
+            .textColor(color),
+            .borderColor(color),
+        ])
     }
 
     func testSelectionViewModelEmitsGenotypeHighlightRequests() {

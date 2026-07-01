@@ -1,4 +1,5 @@
 import AppKit
+import LungfishCore
 import SwiftUI
 
 public struct GenotypeMatrixAnnotationSection: View {
@@ -21,7 +22,6 @@ public struct GenotypeMatrixAnnotationSection: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            selectionHelpers
         }
     }
 
@@ -72,6 +72,8 @@ public struct GenotypeMatrixAnnotationSection: View {
                 .controlSize(.small)
             }
 
+            paletteControls
+
             Button {
                 viewModel.clearMatrixStyle()
             } label: {
@@ -119,26 +121,36 @@ public struct GenotypeMatrixAnnotationSection: View {
         }
     }
 
-    private var selectionHelpers: some View {
+    private var paletteControls: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Divider()
-            Text("Selection Helpers")
+            Text("Quick Colors")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            HStack(spacing: 8) {
-                Stepper(
-                    "Visible cells: \(viewModel.visibleSupportedCellMinimumReads)",
-                    value: $viewModel.visibleSupportedCellMinimumReads,
-                    in: 0...100_000
-                )
-                .controlSize(.small)
-                Button {
-                    viewModel.selectVisibleSupportedCells()
-                } label: {
-                    Label("Select", systemImage: "scope")
+            Picker("Palette Target", selection: $viewModel.matrixPaletteTarget) {
+                ForEach(GenotypeMatrixPaletteTarget.allCases) { target in
+                    Text(target.displayName).tag(target)
                 }
-                .buttonStyle(.borderless)
-                .controlSize(.small)
+            }
+            .labelsHidden()
+            .pickerStyle(.segmented)
+            .controlSize(.small)
+
+            LazyVGrid(columns: Array(repeating: GridItem(.fixed(18), spacing: 4), count: 8), spacing: 4) {
+                ForEach(Array(viewModel.matrixQuickPaletteColors.enumerated()), id: \.offset) { index, color in
+                    Button {
+                        viewModel.applyMatrixPaletteColor(color)
+                    } label: {
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(swiftUIColor(from: color))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 3)
+                                    .stroke(Color(nsColor: NSColor.separatorColor), lineWidth: 0.5)
+                            )
+                            .frame(width: 18, height: 18)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Color \(index + 1) \(color.hexString)")
+                }
             }
         }
     }
@@ -150,8 +162,12 @@ public struct GenotypeMatrixAnnotationSection: View {
                 .frame(width: 72, alignment: .trailing)
             Text(value)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
+            .textSelection(.enabled)
         }
+    }
+
+    private func swiftUIColor(from color: AnnotationColor) -> Color {
+        Color(red: color.red, green: color.green, blue: color.blue, opacity: color.alpha)
     }
 }
 

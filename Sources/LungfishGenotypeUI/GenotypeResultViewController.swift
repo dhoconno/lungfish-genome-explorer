@@ -309,10 +309,26 @@ public final class GenotypeResultViewController: NSViewController {
             comparisonMatrix.applyFilters(allowedSampleIDs: nil, text: "")
             return
         }
-        let allowed = filteredSampleNames(result: result, sidecar: annotationStore?.sidecar)
+        let baseAllowed = filteredSampleNames(
+            result: result,
+            sidecar: annotationStore?.sidecar,
+            includingQuickSearch: false
+        )
+        let quickSearch = quickFilterSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let quickSearchIsMatrixRowFilter = !quickSearch.isEmpty
+            && matrixSearchMatchesGenotypeRow(
+                result: result,
+                search: quickSearch,
+                allowedSamples: baseAllowed
+            )
+        let allowed = quickSearchIsMatrixRowFilter
+            ? baseAllowed
+            : filteredSampleNames(result: result, sidecar: annotationStore?.sidecar)
         comparisonMatrix.applyFilters(
             allowedSampleIDs: allowed,
-            text: matrixRowFilterText(result: result, allowedSamples: allowed)
+            text: quickSearchIsMatrixRowFilter
+                ? quickSearch
+                : matrixRowFilterText(result: result, allowedSamples: allowed)
         )
     }
 
@@ -671,11 +687,6 @@ public final class GenotypeResultViewController: NSViewController {
         let targets = comparisonMatrix.selectSupportedCellsInSelectedRow(minimumReads: minimumReads)
         guard let currentSharedCall else { return }
         publishSelectionState(selectionState(for: currentSharedCall, sample: nil, matrixTargets: targets))
-    }
-
-    public func selectVisibleSupportedMatrixCells(minimumReads: Int) {
-        ensureComparisonMatrixConfigured()
-        _ = comparisonMatrix.selectVisibleSupportedCells(minimumReads: minimumReads)
     }
 
     private func applyHighlightWithoutUndo(_ request: GenotypeResultHighlightRequest) {
@@ -3294,6 +3305,27 @@ public final class GenotypeResultViewController: NSViewController {
         return hasMatrixMatch ? search : ""
     }
 
+    private func matrixSearchMatchesGenotypeRow(
+        result: ONTGenotypeResultBundleData,
+        search: String,
+        allowedSamples: Set<String>?
+    ) -> Bool {
+        let normalizedSearch = normalizedSearchToken(search)
+        let summaries = result.locusSummaries(
+            minimumSupportPercent: displayState.activeMinimumSupportPercent,
+            denominator: displayState.supportDenominator
+        )
+        return summaries.lazy.flatMap(\.sharedCalls).contains { row in
+            if let allowedSamples,
+               !row.sampleSupport.contains(where: { allowedSamples.contains($0.sample) }) {
+                return false
+            }
+            return row.locus.localizedCaseInsensitiveContains(search)
+                || row.genotype.localizedCaseInsensitiveContains(search)
+                || (!normalizedSearch.isEmpty && normalizedSearchToken(row.genotype).contains(normalizedSearch))
+        }
+    }
+
     private func allFilterableSampleNames(result: ONTGenotypeResultBundleData) -> [String] {
         if !allFilterableSampleNamesCache.isEmpty {
             return allFilterableSampleNamesCache
@@ -5278,6 +5310,16 @@ extension GenotypeResultViewController {
         return comparisonMatrix.testingVisibleGenotypes
     }
 
+    var testingVisibleMatrixSamples: [String] {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingVisibleSampleNames
+    }
+
+    var testingVisibleMatrixSampleColumnTitles: [String] {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingVisibleSampleColumnTitles
+    }
+
     func testingSelectFirstSampleCell(sample: String) {
         ensureComparisonMatrixConfigured()
         comparisonMatrix.testingSelectFirstSampleCell(sample: sample)
@@ -5324,6 +5366,31 @@ extension GenotypeResultViewController {
         comparisonMatrix.testingSelectColumns(samples: samples)
     }
 
+    func testingClickMatrixCell(
+        genotype: String,
+        sample: String,
+        modifiers: NSEvent.ModifierFlags = []
+    ) {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.testingClickCell(genotype: genotype, sample: sample, modifiers: modifiers)
+    }
+
+    func testingClickMatrixRowChiclet(
+        genotype: String,
+        modifiers: NSEvent.ModifierFlags = []
+    ) {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.testingClickRowChiclet(genotype: genotype, modifiers: modifiers)
+    }
+
+    func testingClickMatrixColumnChiclet(
+        sample: String,
+        modifiers: NSEvent.ModifierFlags = []
+    ) {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.testingClickColumnChiclet(sample: sample, modifiers: modifiers)
+    }
+
     var testingCurrentSelectionMatrixTargets: [GenotypeAnnotationSidecar.MatrixTarget] {
         currentSelectionState?.matrixTargets ?? []
     }
@@ -5349,11 +5416,6 @@ extension GenotypeResultViewController {
 
     func testingSelectSupportedCellsInSelectedRow(minimumReads: Int) -> [GenotypeAnnotationSidecar.MatrixTarget] {
         selectSupportedMatrixCellsInCurrentRow(minimumReads: minimumReads)
-        return currentSelectionState?.matrixTargets ?? []
-    }
-
-    func testingSelectVisibleSupportedMatrixCells(minimumReads: Int) -> [GenotypeAnnotationSidecar.MatrixTarget] {
-        selectVisibleSupportedMatrixCells(minimumReads: minimumReads)
         return currentSelectionState?.matrixTargets ?? []
     }
 

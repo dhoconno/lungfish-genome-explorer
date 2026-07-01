@@ -26,6 +26,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     private enum ColumnID {
+        static let rowSelector = NSUserInterfaceItemIdentifier("rowSelector")
         static let genotype = NSUserInterfaceItemIdentifier("genotype")
         static let locus = NSUserInterfaceItemIdentifier("locus")
         static let samples = NSUserInterfaceItemIdentifier("samples")
@@ -59,11 +60,11 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private var selectedMatrixTargets: [GenotypeAnnotationSidecar.MatrixTarget] = []
     private var selectedColumnSamples: [String] = []
     private var columnSelectionAnchorSample: String?
+    private var directSelectionAnchor: GenotypeAnnotationSidecar.MatrixTarget?
     private var suppressSelectionClearedCallback = false
     private var pendingColumnSelectionTargets: [GenotypeAnnotationSidecar.MatrixTarget]?
     private var pendingColumnSelectionCleared = false
     private var selectedFilterLocus: String?
-    private var pendingClickedSampleName: String?
     private var filterText = ""
     /// Set of sample IDs allowed by the active Smart Cohort + Quick Filter.
     /// `nil` means no cohort restriction is active and every sample is allowed.
@@ -112,6 +113,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         selectedMatrixTargets = []
         selectedColumnSamples = []
         columnSelectionAnchorSample = nil
+        directSelectionAnchor = nil
         pendingColumnSelectionTargets = nil
         pendingColumnSelectionCleared = false
         applyAnnotationSidecar(sidecar, reload: false)
@@ -191,8 +193,13 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     func setFilterText(_ text: String) {
+        let previousSamples = activeSampleNames()
         filterField.stringValue = text
         filterText = text
+        if activeSampleNames() != previousSamples {
+            rebuildColumns()
+            applyDefaultSortDescriptor()
+        }
         applyFilterAndSort()
     }
 
@@ -358,15 +365,19 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         tableView.selectionHighlightStyle = .none
         tableView.delegate = self
         tableView.dataSource = self
-        tableView.onCellMouseDown = { [weak self] row, column in
-            self?.prepareSelectionFromMouseDown(row: row, column: column)
-        }
-        tableView.onCellMouseUp = { [weak self] row, column in
-            self?.completeSelectionFromMouseUp(row: row, column: column)
+        tableView.onCellClick = { [weak self] row, column, modifiers in
+            self?.handleCellClick(row: row, column: column, modifiers: modifiers) ?? false
         }
         let headerView = GenotypeMatrixHeaderView()
-        headerView.onHeaderClick = { [weak self] column, point, modifiers in
-            self?.handleHeaderClick(column: column, point: point, modifiers: modifiers) ?? false
+        headerView.isColumnSelectable = { [weak self] column in
+            self?.sampleName(forColumnAt: column) != nil
+        }
+        headerView.isColumnSelected = { [weak self] column in
+            guard let self, let sample = self.sampleName(forColumnAt: column) else { return false }
+            return self.selectedColumnSamples.contains(sample)
+        }
+        headerView.onColumnChicletClick = { [weak self] column, modifiers in
+            self?.handleHeaderChicletClick(column: column, modifiers: modifiers) ?? false
         }
         tableView.headerView = headerView
         tableView.setAccessibilityIdentifier("genotype-comparison-table")
@@ -417,6 +428,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         visibleSampleNames = activeSampleNames()
         pruneSelectedColumnsForVisibleSamples()
 
+        addRowSelectorColumn()
         addColumn(identifier: ColumnID.genotype, title: "Genotype", width: 280, minWidth: 160, ascending: true)
         addColumn(identifier: ColumnID.locus, title: "Locus", width: 92, minWidth: 78, ascending: true)
         addColumn(identifier: ColumnID.samples, title: "Samples", width: 70, minWidth: 58, ascending: false)
@@ -425,20 +437,44 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         for (index, sample) in visibleSampleNames.enumerated() {
             let identifier = ColumnID.sample(index)
             sampleColumnLookup[identifier] = sample
-            addColumn(identifier: identifier, title: sample, width: 62, minWidth: 50, ascending: false)
+            addColumn(identifier: identifier, title: "   \(sample)", width: 68, minWidth: 58, ascending: false)
         }
     }
 
     private func activeSampleNames() -> [String] {
         let sampleFilter = displayState.matrixSampleFilterText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let freeTextSampleFilter = implicitSampleFilterText()
         return sampleNames.filter { sample in
             if let allowedSampleIDs, !allowedSampleIDs.contains(sample) {
                 return false
             }
-            guard !sampleFilter.isEmpty else { return true }
-            return sample.localizedCaseInsensitiveContains(sampleFilter)
-                || metadataMatches(sample: sample, filter: sampleFilter)
+            if !sampleFilter.isEmpty, !sampleMatches(sample, filter: sampleFilter) {
+                return false
+            }
+            if let freeTextSampleFilter, !sampleMatches(sample, filter: freeTextSampleFilter) {
+                return false
+            }
+            return true
         }
+    }
+
+    private func implicitSampleFilterText() -> String? {
+        let search = filterText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !search.isEmpty else { return nil }
+        guard !freeTextMatchesAnyGenotypeRow(search) else { return nil }
+        return sampleNames.contains { sampleMatches($0, filter: search) } ? search : nil
+    }
+
+    private func freeTextMatchesAnyGenotypeRow(_ search: String) -> Bool {
+        allRows.contains { row in
+            row.locus.localizedCaseInsensitiveContains(search)
+                || row.genotype.localizedCaseInsensitiveContains(search)
+        }
+    }
+
+    private func sampleMatches(_ sample: String, filter: String) -> Bool {
+        sample.localizedCaseInsensitiveContains(filter)
+            || metadataMatches(sample: sample, filter: filter)
     }
 
     private func applyDefaultSortDescriptor() {
@@ -458,14 +494,24 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         column.title = title
         column.width = width
         column.minWidth = minWidth
-        column.headerToolTip = title
+        column.headerToolTip = title.trimmingCharacters(in: .whitespacesAndNewlines)
         column.sortDescriptorPrototype = NSSortDescriptor(key: identifier.rawValue, ascending: ascending)
         tableView.addTableColumn(column)
     }
 
+    private func addRowSelectorColumn() {
+        let column = NSTableColumn(identifier: ColumnID.rowSelector)
+        column.title = ""
+        column.width = 24
+        column.minWidth = 24
+        column.maxWidth = 24
+        column.resizingMask = []
+        column.headerToolTip = "Select row"
+        tableView.addTableColumn(column)
+    }
+
     @objc private func filterChanged(_ sender: NSSearchField) {
-        filterText = sender.stringValue
-        applyFilterAndSort()
+        setFilterText(sender.stringValue)
     }
 
     @objc private func locusChanged(_ sender: NSPopUpButton) {
@@ -559,6 +605,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private func applyFilterAndSort() {
         let normalizedFilter = filterText.trimmingCharacters(in: .whitespacesAndNewlines)
         let matrixRowFilter = displayState.matrixRowFilterText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedFilterMatchesRowIdentity = !normalizedFilter.isEmpty
+            && freeTextMatchesAnyGenotypeRow(normalizedFilter)
         let activeSamples = Set(activeSampleNames())
         visibleRows = allRows.filter { row in
             if let selectedFilterLocus, row.locus != selectedFilterLocus {
@@ -582,6 +630,9 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                 return false
             }
             if !normalizedFilter.isEmpty {
+                if normalizedFilterMatchesRowIdentity {
+                    return rowMatchesIdentity(row, filter: normalizedFilter)
+                }
                 return rowMatches(row, filter: normalizedFilter, activeSamples: activeSamples)
             }
             return true
@@ -651,13 +702,17 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         filter: String,
         activeSamples: Set<String>
     ) -> Bool {
-        if row.locus.localizedCaseInsensitiveContains(filter) { return true }
-        if row.genotype.localizedCaseInsensitiveContains(filter) { return true }
+        if rowMatchesIdentity(row, filter: filter) { return true }
         return row.sampleSupport.contains { support in
             guard activeSamples.contains(support.sample) else { return false }
             return support.sample.localizedCaseInsensitiveContains(filter)
                 || metadataMatches(sample: support.sample, filter: filter)
         }
+    }
+
+    private func rowMatchesIdentity(_ row: ONTGenotypeSharedCall, filter: String) -> Bool {
+        row.locus.localizedCaseInsensitiveContains(filter)
+            || row.genotype.localizedCaseInsensitiveContains(filter)
     }
 
     private func makeSupportFractionLookup(for result: ONTGenotypeResultBundleData) -> [CellKey: Double] {
@@ -758,6 +813,13 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         guard let tableColumn, row < visibleRows.count else { return nil }
         let sharedCall = visibleRows[row]
         let identifier = tableColumn.identifier
+        if identifier == ColumnID.rowSelector {
+            let cell = tableView.makeView(withIdentifier: identifier, owner: self) as? GenotypeMatrixRowSelectorCellView
+                ?? makeRowSelectorCellView(identifier: identifier)
+            cell.configure(isSelected: isSelectedCell(identifier: identifier, row: sharedCall))
+            cell.toolTip = "Select \(sharedCall.genotype)"
+            return cell
+        }
         let cell = tableView.makeView(withIdentifier: identifier, owner: self) as? NSTableCellView
             ?? makeCellView(identifier: identifier)
         let value = cellValue(for: identifier, row: sharedCall)
@@ -775,8 +837,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             onSelectionCleared?()
             return
         }
-        let preferredSample = pendingClickedSampleName ?? selectedSampleName
-        pendingClickedSampleName = nil
+        let preferredSample = selectedSampleName
         if selectedRows.count > 1 {
             selectVisibleRows(selectedRows, sample: preferredSample)
             return
@@ -804,11 +865,19 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         return cell
     }
 
+    private func makeRowSelectorCellView(identifier: NSUserInterfaceItemIdentifier) -> GenotypeMatrixRowSelectorCellView {
+        let cell = GenotypeMatrixRowSelectorCellView()
+        cell.identifier = identifier
+        return cell
+    }
+
     private func cellValue(
         for identifier: NSUserInterfaceItemIdentifier,
         row: ONTGenotypeSharedCall
     ) -> (text: String, alignment: NSTextAlignment, toolTip: String?) {
         switch identifier {
+        case ColumnID.rowSelector:
+            return ("", .center, "Select row")
         case ColumnID.genotype:
             return (row.genotype, .left, rowTooltip(row: row, fallback: row.genotype))
         case ColumnID.locus:
@@ -905,35 +974,63 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         value.formatted(.number)
     }
 
-    private func prepareSelectionFromMouseDown(row: Int, column: Int) {
+    private func handleCellClick(row: Int, column: Int, modifiers: NSEvent.ModifierFlags) -> Bool {
         guard row >= 0, row < visibleRows.count else {
-            pendingClickedSampleName = nil
-            return
+            return false
         }
-        pendingClickedSampleName = sampleName(forColumnAt: column)
+        guard column >= 0, column < tableView.tableColumns.count else { return false }
+        let identifier = tableView.tableColumns[column].identifier
+        if identifier == ColumnID.rowSelector {
+            selectRowFromDirectClick(row, modifiers: modifiers)
+            return true
+        }
+        if let sample = sampleName(forColumnAt: column) {
+            selectCellFromDirectClick(row, sample: sample, modifiers: modifiers)
+            return true
+        }
+        return false
     }
 
-    private func completeSelectionFromMouseUp(row: Int, column: Int) {
-        guard tableView.selectedRowIndexes.count <= 1 else { return }
-        guard row >= 0, row < visibleRows.count, tableView.selectedRow == row else { return }
-        let sample = sampleName(forColumnAt: column)
+    private func selectRowFromDirectClick(_ row: Int, modifiers: NSEvent.ModifierFlags) {
+        let target = matrixTarget(row: visibleRows[row], sample: nil)
+        if modifiers.contains(.shift) {
+            publishMatrixTargetSelection(rowRangeTargets(to: row), anchor: target)
+            return
+        }
+        if modifiers.contains(.command) {
+            publishMatrixTargetSelection(toggle(target, in: selectedMatrixTargets), anchor: target)
+            return
+        }
+        suppressSelectionClearedCallback = true
+        tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        suppressSelectionClearedCallback = false
+        directSelectionAnchor = target
+        selectVisibleRow(row, sample: nil)
+    }
+
+    private func selectCellFromDirectClick(_ row: Int, sample: String, modifiers: NSEvent.ModifierFlags) {
+        let target = matrixTarget(row: visibleRows[row], sample: sample)
+        if modifiers.contains(.shift) {
+            publishMatrixTargetSelection(cellRangeTargets(toRow: row, sample: sample), anchor: target)
+            return
+        }
+        if modifiers.contains(.command) {
+            publishMatrixTargetSelection(toggle(target, in: selectedMatrixTargets), anchor: target)
+            return
+        }
+        suppressSelectionClearedCallback = true
+        tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        suppressSelectionClearedCallback = false
+        directSelectionAnchor = target
         selectVisibleRow(row, sample: sample)
     }
 
-    private func handleHeaderClick(column: Int, point: NSPoint, modifiers: NSEvent.ModifierFlags) -> Bool {
-        guard !isNearHeaderColumnEdge(column: column, point: point),
-              let sample = sampleName(forColumnAt: column) else {
+    private func handleHeaderChicletClick(column: Int, modifiers: NSEvent.ModifierFlags) -> Bool {
+        guard let sample = sampleName(forColumnAt: column) else {
             return false
         }
         selectSampleColumn(clicked: sample, modifiers: modifiers)
         return true
-    }
-
-    private func isNearHeaderColumnEdge(column: Int, point: NSPoint) -> Bool {
-        guard column >= 0, column < tableView.tableColumns.count else { return false }
-        let rect = tableView.headerView?.headerRect(ofColumn: column) ?? .zero
-        let resizeSlop: CGFloat = 5
-        return point.x <= rect.minX + resizeSlop || point.x >= rect.maxX - resizeSlop
     }
 
     private func selectSampleColumn(clicked sample: String, modifiers: NSEvent.ModifierFlags) {
@@ -973,12 +1070,14 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         selectedRowLocus = nil
         selectedSampleName = nil
         columnSelectionAnchorSample = nil
+        directSelectionAnchor = nil
         pendingColumnSelectionTargets = nil
         pendingColumnSelectionCleared = false
         suppressSelectionClearedCallback = true
         tableView.deselectAll(nil)
         suppressSelectionClearedCallback = false
         reloadSelectionTransition(from: previousTargets, to: [])
+        tableView.headerView?.needsDisplay = true
         onSelectionCleared?()
     }
 
@@ -993,6 +1092,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         selectedGenotype = nil
         selectedRowLocus = nil
         selectedSampleName = nil
+        directSelectionAnchor = .column(sample: selectedColumnSamples.last ?? visible[0])
         selectedMatrixTargets = selectedColumnSamples.map { .column(sample: $0) }
         pendingColumnSelectionTargets = nil
         pendingColumnSelectionCleared = false
@@ -1000,6 +1100,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         tableView.deselectAll(nil)
         suppressSelectionClearedCallback = false
         reloadSelectionTransition(from: previousTargets, to: selectedMatrixTargets)
+        tableView.headerView?.needsDisplay = true
         onMatrixTargetsSelected?(selectedMatrixTargets)
     }
 
@@ -1025,7 +1126,9 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         selectedGenotype = row.genotype
         selectedRowLocus = row.locus
         selectedMatrixTargets = [matrixTarget(row: row, sample: sample)]
+        directSelectionAnchor = selectedMatrixTargets.first
         reloadSelectionTransition(from: previousTargets, to: selectedMatrixTargets)
+        tableView.headerView?.needsDisplay = true
         onSharedCallSelected?(row, sample, selectedMatrixTargets)
     }
 
@@ -1043,8 +1146,140 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         selectedGenotype = firstRow.genotype
         selectedRowLocus = firstRow.locus
         selectedMatrixTargets = validIndexes.map { matrixTarget(row: visibleRows[$0], sample: sample) }
+        directSelectionAnchor = selectedMatrixTargets.last
         reloadSelectionTransition(from: previousTargets, to: selectedMatrixTargets)
+        tableView.headerView?.needsDisplay = true
         onSharedCallSelected?(firstRow, sample, selectedMatrixTargets)
+    }
+
+    private func publishMatrixTargetSelection(
+        _ targets: [GenotypeAnnotationSidecar.MatrixTarget],
+        anchor: GenotypeAnnotationSidecar.MatrixTarget?
+    ) {
+        let uniqueTargets = uniqueMatrixTargets(targets)
+        guard !uniqueTargets.isEmpty else {
+            clearSelectionAfterColumnToggle()
+            return
+        }
+        let previousTargets = selectedMatrixTargets
+        selectedMatrixTargets = uniqueTargets
+        selectedColumnSamples = uniqueTargets.compactMap { target in
+            guard case let .column(sample) = target else { return nil }
+            return sample
+        }
+        if selectedColumnSamples.count != uniqueTargets.count {
+            selectedColumnSamples = []
+        }
+        columnSelectionAnchorSample = selectedColumnSamples.last
+        directSelectionAnchor = anchor ?? uniqueTargets.last
+        let firstRowTarget = firstRowOrCellTarget(in: uniqueTargets)
+        selectedRowLocus = firstRowTarget?.locus
+        selectedGenotype = firstRowTarget?.genotype
+        selectedSampleName = firstRowTarget?.sample
+        pendingColumnSelectionTargets = nil
+        pendingColumnSelectionCleared = false
+        let selectedRowIndexes = rowIndexes(for: uniqueTargets)
+        suppressSelectionClearedCallback = true
+        tableView.deselectAll(nil)
+        if !selectedRowIndexes.isEmpty {
+            tableView.selectRowIndexes(selectedRowIndexes, byExtendingSelection: false)
+        }
+        suppressSelectionClearedCallback = false
+        reloadSelectionTransition(from: previousTargets, to: uniqueTargets)
+        tableView.headerView?.needsDisplay = true
+        onMatrixTargetsSelected?(uniqueTargets)
+    }
+
+    private func rowRangeTargets(to row: Int) -> [GenotypeAnnotationSidecar.MatrixTarget] {
+        guard let anchorIndex = visibleRowIndex(for: directSelectionAnchor) else {
+            return [matrixTarget(row: visibleRows[row], sample: nil)]
+        }
+        let range = min(anchorIndex, row)...max(anchorIndex, row)
+        return range.map { matrixTarget(row: visibleRows[$0], sample: nil) }
+    }
+
+    private func cellRangeTargets(toRow row: Int, sample: String) -> [GenotypeAnnotationSidecar.MatrixTarget] {
+        guard let anchor = directSelectionAnchor,
+              let anchorRow = visibleRowIndex(for: anchor),
+              let anchorSample = sampleName(for: anchor),
+              let anchorSampleIndex = visibleSampleNamesInColumnOrder().firstIndex(of: anchorSample),
+              let sampleIndex = visibleSampleNamesInColumnOrder().firstIndex(of: sample) else {
+            return [matrixTarget(row: visibleRows[row], sample: sample)]
+        }
+        let rowRange = min(anchorRow, row)...max(anchorRow, row)
+        let sampleRange = min(anchorSampleIndex, sampleIndex)...max(anchorSampleIndex, sampleIndex)
+        let orderedSamples = visibleSampleNamesInColumnOrder()
+        return rowRange.flatMap { rowIndex in
+            sampleRange.map { sampleIndex in
+                matrixTarget(row: visibleRows[rowIndex], sample: orderedSamples[sampleIndex])
+            }
+        }
+    }
+
+    private func toggle(
+        _ target: GenotypeAnnotationSidecar.MatrixTarget,
+        in targets: [GenotypeAnnotationSidecar.MatrixTarget]
+    ) -> [GenotypeAnnotationSidecar.MatrixTarget] {
+        var next = targets
+        if let index = next.firstIndex(of: target) {
+            next.remove(at: index)
+        } else {
+            next.append(target)
+        }
+        return next
+    }
+
+    private func uniqueMatrixTargets(
+        _ targets: [GenotypeAnnotationSidecar.MatrixTarget]
+    ) -> [GenotypeAnnotationSidecar.MatrixTarget] {
+        var seen = Set<GenotypeAnnotationSidecar.MatrixTarget>()
+        return targets.filter { seen.insert($0).inserted }
+    }
+
+    private func rowIndexes(for targets: [GenotypeAnnotationSidecar.MatrixTarget]) -> IndexSet {
+        var indexes = IndexSet()
+        for target in targets {
+            if let rowIndex = visibleRowIndex(for: target) {
+                indexes.insert(rowIndex)
+            }
+        }
+        return indexes
+    }
+
+    private func visibleRowIndex(for target: GenotypeAnnotationSidecar.MatrixTarget?) -> Int? {
+        guard let target else { return nil }
+        switch target {
+        case let .row(locus, genotype), let .cell(locus, genotype, _):
+            return visibleRowIndex(locus: locus, genotype: genotype)
+        case .column:
+            return nil
+        }
+    }
+
+    private func sampleName(for target: GenotypeAnnotationSidecar.MatrixTarget?) -> String? {
+        guard let target else { return nil }
+        switch target {
+        case let .cell(_, _, sample), let .column(sample):
+            return sample
+        case .row:
+            return nil
+        }
+    }
+
+    private func firstRowOrCellTarget(
+        in targets: [GenotypeAnnotationSidecar.MatrixTarget]
+    ) -> (locus: String, genotype: String, sample: String?)? {
+        for target in targets {
+            switch target {
+            case let .row(locus, genotype):
+                return (locus, genotype, nil)
+            case let .cell(locus, genotype, sample):
+                return (locus, genotype, sample)
+            case .column:
+                continue
+            }
+        }
+        return nil
     }
 
     private func reloadSelectionTransition(
@@ -1123,7 +1358,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         let threshold = max(0, minimumReads)
         let activeSamples = Set(visibleSampleNames)
         let targets = row.sampleSupport
-            .filter { activeSamples.contains($0.sample) && $0.passedUniqueReads >= threshold }
+            .filter { activeSamples.contains($0.sample) && $0.passedUniqueReads > threshold }
             .map {
                 GenotypeAnnotationSidecar.MatrixTarget.cell(
                     locus: row.locus,
@@ -1137,37 +1372,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         columnSelectionAnchorSample = nil
         selectedMatrixTargets = targets
         reloadSelectionTransition(from: previousTargets, to: targets)
-        return targets
-    }
-
-    func selectVisibleSupportedCells(minimumReads: Int) -> [GenotypeAnnotationSidecar.MatrixTarget] {
-        let threshold = max(0, minimumReads)
-        let activeSamples = Set(visibleSampleNames)
-        let targets = visibleRows.flatMap { row in
-            row.sampleSupport.compactMap { support -> GenotypeAnnotationSidecar.MatrixTarget? in
-                guard activeSamples.contains(support.sample),
-                      support.passedUniqueReads >= threshold else {
-                    return nil
-                }
-                return .cell(locus: row.locus, genotype: row.genotype, sample: support.sample)
-            }
-        }
-        let previousTargets = selectedMatrixTargets
-        selectedSampleName = nil
-        selectedGenotype = nil
-        selectedRowLocus = nil
-        selectedColumnSamples = []
-        columnSelectionAnchorSample = nil
-        selectedMatrixTargets = targets
-        suppressSelectionClearedCallback = true
-        tableView.deselectAll(nil)
-        suppressSelectionClearedCallback = false
-        reloadSelectionTransition(from: previousTargets, to: targets)
-        if targets.isEmpty {
-            onSelectionCleared?()
-        } else {
-            onMatrixTargetsSelected?(targets)
-        }
+        tableView.headerView?.needsDisplay = true
         return targets
     }
 
@@ -1383,8 +1588,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
 }
 
 private final class GenotypeMatrixTableView: NSTableView {
-    var onCellMouseDown: ((Int, Int) -> Void)?
-    var onCellMouseUp: ((Int, Int) -> Void)?
+    var onCellClick: ((Int, Int, NSEvent.ModifierFlags) -> Bool)?
 
 #if DEBUG
     private(set) var testingFullReloadCount = 0
@@ -1414,22 +1618,98 @@ private final class GenotypeMatrixTableView: NSTableView {
         let point = convert(event.locationInWindow, from: nil)
         let row = self.row(at: point)
         let column = self.column(at: point)
-        onCellMouseDown?(row, column)
+        if onCellClick?(row, column, event.modifierFlags) == true {
+            return
+        }
         super.mouseDown(with: event)
-        onCellMouseUp?(row, column)
+    }
+}
+
+private final class GenotypeMatrixRowSelectorCellView: NSTableCellView {
+    private let chiclet = NSView()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        buildView()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        buildView()
+    }
+
+    func configure(isSelected: Bool) {
+        chiclet.layer?.backgroundColor = isSelected
+            ? NSColor.controlAccentColor.withAlphaComponent(0.24).cgColor
+            : NSColor.clear.cgColor
+        chiclet.layer?.borderColor = isSelected
+            ? NSColor.controlAccentColor.cgColor
+            : NSColor.tertiaryLabelColor.cgColor
+        chiclet.layer?.borderWidth = isSelected ? 1.5 : 1
+    }
+
+    private func buildView() {
+        wantsLayer = true
+        chiclet.translatesAutoresizingMaskIntoConstraints = false
+        chiclet.wantsLayer = true
+        chiclet.layer?.cornerRadius = 5
+        chiclet.layer?.masksToBounds = true
+        addSubview(chiclet)
+        NSLayoutConstraint.activate([
+            chiclet.widthAnchor.constraint(equalToConstant: 12),
+            chiclet.heightAnchor.constraint(equalToConstant: 12),
+            chiclet.centerXAnchor.constraint(equalTo: centerXAnchor),
+            chiclet.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
     }
 }
 
 private final class GenotypeMatrixHeaderView: NSTableHeaderView {
-    var onHeaderClick: ((Int, NSPoint, NSEvent.ModifierFlags) -> Bool)?
+    var isColumnSelectable: ((Int) -> Bool)?
+    var isColumnSelected: ((Int) -> Bool)?
+    var onColumnChicletClick: ((Int, NSEvent.ModifierFlags) -> Bool)?
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard let tableView else { return }
+        for column in 0..<tableView.numberOfColumns where isColumnSelectable?(column) == true {
+            drawChiclet(in: chicletRect(forColumn: column), selected: isColumnSelected?(column) == true)
+        }
+    }
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let column = self.column(at: point)
-        if column >= 0, onHeaderClick?(column, point, event.modifierFlags) == true {
+        if column >= 0,
+           isColumnSelectable?(column) == true,
+           chicletRect(forColumn: column).contains(point),
+           onColumnChicletClick?(column, event.modifierFlags) == true {
             return
         }
         super.mouseDown(with: event)
+    }
+
+    private func chicletRect(forColumn column: Int) -> NSRect {
+        let rect = headerRect(ofColumn: column)
+        let size: CGFloat = 11
+        return NSRect(
+            x: rect.minX + 5,
+            y: rect.midY - size / 2,
+            width: size,
+            height: size
+        )
+    }
+
+    private func drawChiclet(in rect: NSRect, selected: Bool) {
+        let path = NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4)
+        let fillColor = selected
+            ? NSColor.controlAccentColor.withAlphaComponent(0.24)
+            : NSColor.windowBackgroundColor.withAlphaComponent(0.70)
+        fillColor.setFill()
+        path.fill()
+        (selected ? NSColor.controlAccentColor : NSColor.tertiaryLabelColor).setStroke()
+        path.lineWidth = selected ? 1.5 : 1
+        path.stroke()
     }
 }
 
@@ -1437,6 +1717,12 @@ private final class GenotypeMatrixHeaderView: NSTableHeaderView {
 extension GenotypeComparisonMatrixView {
     var testingVisibleRows: [ONTGenotypeSharedCall] { visibleRows }
     var testingVisibleGenotypes: [String] { visibleRows.map(\.genotype) }
+    var testingVisibleSampleNames: [String] { visibleSampleNames }
+    var testingVisibleSampleColumnTitles: [String] {
+        tableView.tableColumns.compactMap { column in
+            sampleColumnLookup[column.identifier] == nil ? nil : column.title
+        }
+    }
     var testingHighlightedCellCount: Int {
         cellStyles.values.filter { $0.fillColor != nil }.count
     }
@@ -1506,6 +1792,42 @@ extension GenotypeComparisonMatrixView {
         publishColumnSelection(samples)
     }
 
+    func testingClickCell(
+        genotype: String,
+        sample: String,
+        modifiers: NSEvent.ModifierFlags = []
+    ) {
+        guard let rowIndex = visibleRows.firstIndex(where: { $0.genotype == genotype }),
+              let columnIndex = tableView.tableColumns.firstIndex(where: { sampleColumnLookup[$0.identifier] == sample }) else {
+            onSelectionCleared?()
+            return
+        }
+        _ = handleCellClick(row: rowIndex, column: columnIndex, modifiers: modifiers)
+    }
+
+    func testingClickRowChiclet(
+        genotype: String,
+        modifiers: NSEvent.ModifierFlags = []
+    ) {
+        guard let rowIndex = visibleRows.firstIndex(where: { $0.genotype == genotype }),
+              let columnIndex = tableView.tableColumns.firstIndex(where: { $0.identifier == ColumnID.rowSelector }) else {
+            onSelectionCleared?()
+            return
+        }
+        _ = handleCellClick(row: rowIndex, column: columnIndex, modifiers: modifiers)
+    }
+
+    func testingClickColumnChiclet(
+        sample: String,
+        modifiers: NSEvent.ModifierFlags = []
+    ) {
+        guard let columnIndex = tableView.tableColumns.firstIndex(where: { sampleColumnLookup[$0.identifier] == sample }) else {
+            onSelectionCleared?()
+            return
+        }
+        _ = handleHeaderChicletClick(column: columnIndex, modifiers: modifiers)
+    }
+
     func testingCellValue(genotype: String, sample: String) -> String? {
         guard let row = visibleRows.first(where: { $0.genotype == genotype }),
               let identifier = sampleColumnLookup.first(where: { $0.value == sample })?.key else {
@@ -1532,10 +1854,6 @@ extension GenotypeComparisonMatrixView {
 
     func testingSelectSupportedCellsInSelectedRow(minimumReads: Int) -> [GenotypeAnnotationSidecar.MatrixTarget] {
         selectSupportedCellsInSelectedRow(minimumReads: minimumReads)
-    }
-
-    func testingSelectVisibleSupportedCells(minimumReads: Int) -> [GenotypeAnnotationSidecar.MatrixTarget] {
-        selectVisibleSupportedCells(minimumReads: minimumReads)
     }
 
     func testingResetReloadCounters() {
