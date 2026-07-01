@@ -27,6 +27,7 @@ public final class GenotypeResultDisplaySectionViewModel {
     public var visibleRowCount = 0
     public var totalRowCount = 0
     public var hiddenCellCount = 0
+    public var hasHaplotypingResult = false
     public var isExpanded = true
     public var genotypeResultSelection: GenotypeResultSelectionState?
     public var genotypeHighlightColor: Color = .blue
@@ -53,9 +54,14 @@ public final class GenotypeResultDisplaySectionViewModel {
 
     public init() {}
 
-    public func update(isAvailable: Bool, state: GenotypeResultDisplayState = GenotypeResultDisplayState()) {
+    public func update(
+        isAvailable: Bool,
+        state: GenotypeResultDisplayState = GenotypeResultDisplayState(),
+        hasHaplotypingResult: Bool = false
+    ) {
         self.isAvailable = isAvailable
         self.displayState = state
+        self.hasHaplotypingResult = hasHaplotypingResult
         updateSelection(nil)
     }
 
@@ -75,6 +81,7 @@ public final class GenotypeResultDisplaySectionViewModel {
         visibleRowCount = 0
         totalRowCount = 0
         hiddenCellCount = 0
+        hasHaplotypingResult = false
         updateSelection(nil)
     }
 
@@ -92,6 +99,10 @@ public final class GenotypeResultDisplaySectionViewModel {
         displayState.viewportLens = .summary
         displayState.summaryViewMode = mode
         notifyStateChanged()
+    }
+
+    func toggleHaplotypeGenotypeSummaryView() {
+        setSummaryViewMode(displayState.summaryViewMode == .matrix ? .outline : .matrix)
     }
 
     func setHideLowSupport(_ enabled: Bool) {
@@ -364,6 +375,9 @@ public struct GenotypeResultDisplaySection: View {
             DisclosureGroup(isExpanded: $viewModel.isExpanded) {
                 VStack(alignment: .leading, spacing: 10) {
                     summary
+                    if viewModel.hasHaplotypingResult {
+                        haplotypeGenotypeToggle
+                    }
                     Divider()
                     viewControls
                     layoutControls
@@ -382,6 +396,23 @@ public struct GenotypeResultDisplaySection: View {
                     .font(.headline)
             }
         }
+    }
+
+    private var haplotypeGenotypeToggle: some View {
+        Button {
+            viewModel.toggleHaplotypeGenotypeSummaryView()
+        } label: {
+            Label(
+                viewModel.displayState.summaryViewMode == .matrix
+                    ? "Show haplotyping view"
+                    : "Show genotype matrix",
+                systemImage: viewModel.displayState.summaryViewMode == .matrix
+                    ? "list.bullet.rectangle"
+                    : "tablecells"
+            )
+        }
+        .buttonStyle(.borderless)
+        .controlSize(.small)
     }
 
     private var summary: some View {

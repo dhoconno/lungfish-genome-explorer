@@ -147,6 +147,20 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         XCTAssertEqual(viewModel.displayState.summaryViewMode, .matrix)
     }
 
+    func testHaplotypeGenotypeToggleSwitchesSummaryViewModes() {
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+        viewModel.update(isAvailable: true, hasHaplotypingResult: true)
+        var states: [GenotypeResultDisplayState] = []
+        viewModel.onDisplayStateChanged = { states.append($0) }
+
+        viewModel.toggleHaplotypeGenotypeSummaryView()
+        viewModel.toggleHaplotypeGenotypeSummaryView()
+
+        XCTAssertTrue(viewModel.hasHaplotypingResult)
+        XCTAssertEqual(states.map(\.summaryViewMode), [.matrix, .outline])
+        XCTAssertEqual(states.map(\.viewportLens), [.summary, .summary])
+    }
+
     func testGenotypeViewSectionOwnsHighlightColorControls() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

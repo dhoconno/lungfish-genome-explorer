@@ -2237,6 +2237,58 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(controller.testingSummaryViewMode, .outline)
     }
 
+    func testHaplotypedBundleRemembersGenotypeMatrixSummaryPreference() throws {
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeSummaryPreference-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let bundleURL = projectRoot
+            .appendingPathComponent("Analyses", isDirectory: true)
+            .appendingPathComponent("ONT genotyping results", isDirectory: true)
+            .appendingPathComponent("test.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let calls = [makeCall(sample: "DW472", genotype: "12_M9_B_001_01", reads: 150)]
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "mcm-test",
+            definitionSetName: "MCM test",
+            speciesName: "Test macaque",
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "DW472",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-B",
+                            sourceLocus: "Mafa-B",
+                            haplotype1: "M9B",
+                            haplotype2: "-",
+                            status: .called,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 1,
+                            observedGenotypes: ["12_M9_B_001_01"]
+                        )
+                    ]
+                )
+            ]
+        )
+        let result = makeResult(bundleURL: bundleURL, samples: [], calls: calls, haplotypeAnalysis: analysis)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: result)
+        XCTAssertEqual(controller.testingSummaryViewMode, .outline)
+
+        controller.testingApplyDisplayState(GenotypeResultDisplayState(summaryViewMode: .matrix))
+        let sidecar = try GenotypeAnnotationSidecar.decode(Data(
+            contentsOf: bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        ))
+        XCTAssertEqual(sidecar.settings.preferredSummaryViewMode, GenotypeSummaryViewMode.matrix.rawValue)
+
+        let restored = GenotypeResultViewController()
+        _ = restored.view
+        restored.configure(result: result)
+
+        XCTAssertEqual(restored.testingSummaryViewMode, .matrix)
+    }
+
     func testUsingCustomHaplotypeDefinitionPersistsActiveDefinitionAndRefreshesCalls() throws {
         let projectRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeUseDefinition-\(UUID().uuidString)", isDirectory: true)

@@ -364,6 +364,14 @@ public final class GenotypeResultViewController: NSViewController {
         result.haplotypeAnalysis == nil && !result.calls.isEmpty ? .matrix : .outline
     }
 
+    private func initialSummaryViewMode(for result: ONTGenotypeResultBundleData) -> GenotypeSummaryViewMode {
+        if let rawValue = annotationStore?.sidecar.settings.preferredSummaryViewMode,
+           let mode = GenotypeSummaryViewMode(rawValue: rawValue) {
+            return mode
+        }
+        return defaultSummaryViewMode(for: result)
+    }
+
     /// Per-call keyboard shortcuts used by the Review lens:
     /// - `⌘R`: mark the currently selected sample's status as `reviewed`
     /// - `⌘K`: mark as `confirmed`
@@ -432,7 +440,6 @@ public final class GenotypeResultViewController: NSViewController {
         comparisonMatrixConfigured = false
         currentWorkbookNeedsRefresh = false
         currentWorkbookUpdateStatus = nil
-        displayState.summaryViewMode = defaultSummaryViewMode(for: result)
         let knownSampleIDs = Set(
             result.samples.map(\.sample)
                 + result.calls.map(\.sample)
@@ -453,6 +460,7 @@ public final class GenotypeResultViewController: NSViewController {
             bundleURL: result.bundleURL,
             author: NSUserName()
         )
+        displayState.summaryViewMode = initialSummaryViewMode(for: result)
         if shouldEagerlyRecomputeHaplotypeAnalysis(for: result) {
             recomputeLiveHaplotypeAnalysis(evaluator: runHaplotypeDropoutEvaluator())
         } else {
@@ -598,6 +606,10 @@ public final class GenotypeResultViewController: NSViewController {
         let previousAncillary = displayState.showsAncillaryLoci
         let previousIncludedLoci = displayState.includedLoci
         displayState = state
+        persistSummaryViewPreferenceIfNeeded(
+            previousViewMode: previousViewMode,
+            nextViewMode: state.summaryViewMode
+        )
         if selectedLens != state.viewportLens {
             showLens(state.viewportLens)
         } else {
@@ -628,6 +640,23 @@ public final class GenotypeResultViewController: NSViewController {
                 sample: currentSelectedSample,
                 matrixTargets: currentSelectionState?.matrixTargets
             )
+        }
+    }
+
+    private func persistSummaryViewPreferenceIfNeeded(
+        previousViewMode: GenotypeSummaryViewMode,
+        nextViewMode: GenotypeSummaryViewMode
+    ) {
+        guard previousViewMode != nextViewMode,
+              let store = annotationStore,
+              !store.isReadOnly else { return }
+        do {
+            try store.updateSettings { settings in
+                settings.preferredSummaryViewMode = nextViewMode.rawValue
+            }
+            onAnnotationSidecarChanged?(store.sidecar)
+        } catch {
+            presentSheetAlert(error: error)
         }
     }
 
@@ -2367,12 +2396,12 @@ public final class GenotypeResultViewController: NSViewController {
         result = updatedResult
         liveHaplotypeAnalysis = nil
         comparisonMatrixConfigured = false
-        displayState.summaryViewMode = defaultSummaryViewMode(for: updatedResult)
         rebuildResultIndexes(for: updatedResult)
         annotationStore = try? GenotypeAnnotationStore(
             bundleURL: updatedResult.bundleURL,
             author: NSUserName()
         )
+        displayState.summaryViewMode = initialSummaryViewMode(for: updatedResult)
         rebuildActiveHaplotypeAnalysisIndexes()
         aiHaplotypingStatus = "AI haplotype revision created. Calls require manual review."
         rebuildSummary()

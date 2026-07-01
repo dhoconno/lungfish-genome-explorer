@@ -436,6 +436,7 @@ public final class GenotypeAnnotationStore {
             "locusFractionOverrides=\(overrides)",
             "activeHaplotypeDefinitionSetID=\(optional(settings.activeHaplotypeDefinitionSetID))",
             "activeHaplotypeAssayID=\(optional(settings.activeHaplotypeAssayID))",
+            "preferredSummaryViewMode=\(optional(settings.preferredSummaryViewMode))",
         ].joined(separator: "; ")
     }
 

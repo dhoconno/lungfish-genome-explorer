@@ -615,6 +615,9 @@ public extension GenotypeAnnotationSidecar {
         /// Assay scope for `activeHaplotypeDefinitionSetID`. nil preserves
         /// legacy sidecars and falls back to unique definition IDs.
         public var activeHaplotypeAssayID: String?
+        /// Optional per-bundle preference for the Summary viewport mode.
+        /// nil means use the result-specific default.
+        public var preferredSummaryViewMode: String?
 
         public static let `default` = Settings(
             viewMode: "outline",
@@ -626,7 +629,8 @@ public extension GenotypeAnnotationSidecar {
             dropoutLocusFraction: 0.01,
             locusFractionOverrides: nil,
             activeHaplotypeDefinitionSetID: nil,
-            activeHaplotypeAssayID: nil
+            activeHaplotypeAssayID: nil,
+            preferredSummaryViewMode: nil
         )
 
         public init(viewMode: String, panelLayout: String, cardDensity: String,
@@ -634,7 +638,8 @@ public extension GenotypeAnnotationSidecar {
                     dropoutSampleFraction: Double?, dropoutLocusFraction: Double?,
                     locusFractionOverrides: [String: Double]? = nil,
                     activeHaplotypeDefinitionSetID: String? = nil,
-                    activeHaplotypeAssayID: String? = nil) {
+                    activeHaplotypeAssayID: String? = nil,
+                    preferredSummaryViewMode: String? = nil) {
             self.viewMode = viewMode
             self.panelLayout = panelLayout
             self.cardDensity = cardDensity
@@ -645,6 +650,7 @@ public extension GenotypeAnnotationSidecar {
             self.locusFractionOverrides = locusFractionOverrides
             self.activeHaplotypeDefinitionSetID = activeHaplotypeDefinitionSetID
             self.activeHaplotypeAssayID = activeHaplotypeAssayID
+            self.preferredSummaryViewMode = preferredSummaryViewMode
         }
     }
 

@@ -365,7 +365,11 @@ extension InspectorViewController {
         state.defaultIncludedHaplotypeLoci = defaultIncludedLoci
         state.includedHaplotypeLoci = selectedIncludedLoci
         viewModel.documentSectionViewModel.updateGenotypeResultDocument(state)
-        viewModel.genotypeResultDisplaySectionViewModel.update(isAvailable: true, state: currentDisplay)
+        viewModel.genotypeResultDisplaySectionViewModel.update(
+            isAvailable: true,
+            state: currentDisplay,
+            hasHaplotypingResult: result.haplotypeAnalysis != nil
+        )
         updateProvenanceTarget(
             url: result.bundleURL,
             sidebarType: .genotypeResultBundle,
