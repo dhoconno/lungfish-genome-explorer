@@ -1,10 +1,11 @@
 import XCTest
 @testable import LungfishApp
 @testable import LungfishGenotypeUI
+import LungfishCore
 import LungfishIO
 
 final class GenotypeHaplotypeDefinitionEditorTests: XCTestCase {
-    func testDraftingPreservesSetMetadataAndMinimumMatchesWhenRenamingHaplotype() {
+    func testDraftingPreservesSetMetadataAndHaplotypeDetailsWhenRenamingHaplotype() {
         let set = makeDefinitionSet()
 
         let updated = GenotypeHaplotypeDefinitionDrafting.renamingHaplotype(
@@ -21,6 +22,21 @@ final class GenotypeHaplotypeDefinitionEditorTests: XCTestCase {
         XCTAssertEqual(haplotype.name, "M1A edited")
         XCTAssertEqual(haplotype.minimumMatches, 2)
         XCTAssertEqual(haplotype.colorTokenIndex, 3)
+        XCTAssertEqual(haplotype.colorOverride, AnnotationColor(hex: "#12AB34"))
+        XCTAssertEqual(haplotype.primaryAlleles, ["A1"])
+        XCTAssertEqual(haplotype.evidenceWeights, ["A1": 2])
+    }
+
+    func testDraftingCanApplyAndClearHaplotypeColorOverride() {
+        let haplotype = makeDefinitionSet().locusDefinitions[0].haplotypes[0]
+        let override = AnnotationColor(hex: "#F4CE23")
+
+        let updated = GenotypeHaplotypeDefinitionDrafting.withColorOverride(haplotype, color: override)
+        let cleared = GenotypeHaplotypeDefinitionDrafting.withColorOverride(updated, color: nil)
+
+        XCTAssertEqual(updated.colorOverride, override)
+        XCTAssertNil(cleared.colorOverride)
+        XCTAssertEqual(cleared.colorTokenIndex, haplotype.colorTokenIndex)
     }
 
     func testDraftingValidationBlocksEmptyAndDuplicateDefinitions() {
@@ -74,7 +90,10 @@ final class GenotypeHaplotypeDefinitionEditorTests: XCTestCase {
                         GenotypeHaplotypeDefinition(
                             name: "M1A",
                             diagnosticAlleles: ["A1", "A2", "A3"],
+                            primaryAlleles: ["A1"],
+                            evidenceWeights: ["A1": 2],
                             colorTokenIndex: 3,
+                            colorOverride: AnnotationColor(hex: "#12AB34"),
                             minimumMatches: 2
                         )
                     ]

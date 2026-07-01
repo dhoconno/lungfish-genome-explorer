@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import AppKit
 import SwiftUI
 import LungfishCore
 import LungfishIO
@@ -310,7 +311,10 @@ public struct GenotypeHaplotypeDefinitionEditor: View {
                             GenotypeHaplotypeDefinition(
                                 name: newValue,
                                 diagnosticAlleles: current.diagnosticAlleles,
+                                primaryAlleles: current.primaryAlleles,
+                                evidenceWeights: current.evidenceWeights,
                                 colorTokenIndex: current.colorTokenIndex,
+                                colorOverride: current.colorOverride,
                                 minimumMatches: current.minimumMatches
                             )
                         }
@@ -347,6 +351,7 @@ public struct GenotypeHaplotypeDefinitionEditor: View {
                 .foregroundStyle(Color(nsColor: .lungfishDanger))
                 .disabled(isReadOnly)
             }
+            haplotypeColorControls(hIndex: hIndex, haplotype: haplotype)
             // Diagnostic alleles as removable chips.
             FlowLayout(spacing: 4) {
                 ForEach(haplotype.diagnosticAlleles, id: \.self) { allele in
@@ -387,6 +392,101 @@ public struct GenotypeHaplotypeDefinitionEditor: View {
             RoundedRectangle(cornerRadius: 6)
                 .fill(Color.secondary.opacity(0.05))
         )
+    }
+
+    private func haplotypeColorControls(hIndex: Int, haplotype: GenotypeHaplotypeDefinition) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(swiftUIColor(haplotype.effectiveFillColor))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 3)
+                            .stroke(Color.secondary.opacity(0.35), lineWidth: 1)
+                    )
+                    .frame(width: 22, height: 18)
+                    .accessibilityLabel("Current haplotype color")
+                ColorPicker(
+                    "Custom color",
+                    selection: Binding(
+                        get: { swiftUIColor(haplotype.effectiveFillColor) },
+                        set: { selectedColor in
+                            setHaplotypeColor(
+                                locusIndex: selectedLocusIndex,
+                                hIndex: hIndex,
+                                color: annotationColor(from: selectedColor)
+                            )
+                        }
+                    ),
+                    supportsOpacity: false
+                )
+                .controlSize(.small)
+                .disabled(isReadOnly)
+                if haplotype.colorOverride != nil {
+                    Button("Use default") {
+                        setHaplotypeColor(locusIndex: selectedLocusIndex, hIndex: hIndex, color: nil)
+                    }
+                    .controlSize(.small)
+                    .disabled(isReadOnly)
+                }
+                Spacer()
+                Text("Token \(haplotype.colorTokenIndex)")
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+            }
+            paletteSection(
+                title: "mcm",
+                colors: HaplotypeColorToken.canonicalBudde2010Tokens.map(\.fillColor),
+                hIndex: hIndex,
+                selectedColor: haplotype.effectiveFillColor
+            )
+            paletteSection(
+                title: "generic",
+                colors: HaplotypeColorToken.genericOptimizedAnnotationPalette,
+                hIndex: hIndex,
+                selectedColor: haplotype.effectiveFillColor
+            )
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func paletteSection(
+        title: String,
+        colors: [AnnotationColor],
+        hIndex: Int,
+        selectedColor: AnnotationColor
+    ) -> some View {
+        HStack(alignment: .center, spacing: 6) {
+            Text(title)
+                .font(.caption2.monospaced())
+                .foregroundStyle(.secondary)
+                .frame(width: 42, alignment: .leading)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 3) {
+                    ForEach(Array(colors.enumerated()), id: \.offset) { index, color in
+                        Button {
+                            setHaplotypeColor(locusIndex: selectedLocusIndex, hIndex: hIndex, color: color)
+                        } label: {
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(swiftUIColor(color))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 2)
+                                        .stroke(
+                                            color == selectedColor
+                                                ? Color.primary
+                                                : Color.secondary.opacity(0.3),
+                                            lineWidth: color == selectedColor ? 2 : 1
+                                        )
+                                )
+                                .frame(width: 14, height: 14)
+                        }
+                        .buttonStyle(.plain)
+                        .help("\(title) \(index + 1): \(color.hexString)")
+                        .disabled(isReadOnly)
+                    }
+                }
+                .padding(.vertical, 1)
+            }
+        }
     }
 
     // MARK: - Footer
@@ -504,6 +604,12 @@ public struct GenotypeHaplotypeDefinitionEditor: View {
         }
     }
 
+    private func setHaplotypeColor(locusIndex: Int, hIndex: Int, color: AnnotationColor?) {
+        updateHaplotype(locusIndex: locusIndex, hIndex: hIndex) { current in
+            GenotypeHaplotypeDefinitionDrafting.withColorOverride(current, color: color)
+        }
+    }
+
     private func updateLocus(
         at index: Int,
         _ transform: (GenotypeHaplotypeLocusDefinition) -> GenotypeHaplotypeLocusDefinition
@@ -541,6 +647,21 @@ public struct GenotypeHaplotypeDefinitionEditor: View {
             schemaVersion: set.schemaVersion,
             lastModified: set.lastModified,
             changeNote: set.changeNote
+        )
+    }
+
+    private func swiftUIColor(_ color: AnnotationColor) -> Color {
+        Color(red: color.red, green: color.green, blue: color.blue, opacity: color.alpha)
+    }
+
+    private func annotationColor(from color: Color) -> AnnotationColor {
+        let nsColor = NSColor(color)
+        let srgb = nsColor.usingColorSpace(.sRGB) ?? nsColor
+        return AnnotationColor(
+            red: Double(srgb.redComponent),
+            green: Double(srgb.greenComponent),
+            blue: Double(srgb.blueComponent),
+            alpha: 1
         )
     }
 }
@@ -586,7 +707,10 @@ enum GenotypeHaplotypeDefinitionDrafting {
             GenotypeHaplotypeDefinition(
                 name: name,
                 diagnosticAlleles: $0.diagnosticAlleles,
+                primaryAlleles: $0.primaryAlleles,
+                evidenceWeights: $0.evidenceWeights,
                 colorTokenIndex: $0.colorTokenIndex,
+                colorOverride: $0.colorOverride,
                 minimumMatches: $0.minimumMatches
             )
         }
@@ -599,8 +723,26 @@ enum GenotypeHaplotypeDefinitionDrafting {
         GenotypeHaplotypeDefinition(
             name: haplotype.name,
             diagnosticAlleles: alleles,
+            primaryAlleles: haplotype.primaryAlleles,
+            evidenceWeights: haplotype.evidenceWeights,
             colorTokenIndex: haplotype.colorTokenIndex,
+            colorOverride: haplotype.colorOverride,
             minimumMatches: clampedMinimumMatches(haplotype.minimumMatches, alleleCount: alleles.count)
+        )
+    }
+
+    static func withColorOverride(
+        _ haplotype: GenotypeHaplotypeDefinition,
+        color: AnnotationColor?
+    ) -> GenotypeHaplotypeDefinition {
+        GenotypeHaplotypeDefinition(
+            name: haplotype.name,
+            diagnosticAlleles: haplotype.diagnosticAlleles,
+            primaryAlleles: haplotype.primaryAlleles,
+            evidenceWeights: haplotype.evidenceWeights,
+            colorTokenIndex: haplotype.colorTokenIndex,
+            colorOverride: color,
+            minimumMatches: haplotype.minimumMatches
         )
     }
 
@@ -613,7 +755,10 @@ enum GenotypeHaplotypeDefinitionDrafting {
         return GenotypeHaplotypeDefinition(
             name: haplotype.name,
             diagnosticAlleles: haplotype.diagnosticAlleles,
+            primaryAlleles: haplotype.primaryAlleles,
+            evidenceWeights: haplotype.evidenceWeights,
             colorTokenIndex: haplotype.colorTokenIndex,
+            colorOverride: haplotype.colorOverride,
             minimumMatches: stored
         )
     }

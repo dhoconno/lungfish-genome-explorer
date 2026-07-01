@@ -3158,6 +3158,7 @@ public final class GenotypeResultViewController: NSViewController {
                         locus: locusCall.locus,
                         callName: callName,
                         haplotypeName: haplotype.name,
+                        haplotypeColor: haplotype.effectiveFillColor,
                         observedCount: observedCount,
                         diagnosticCount: haplotype.diagnosticAlleles.count,
                         minimumMatches: haplotype.effectiveMinimumMatches,
