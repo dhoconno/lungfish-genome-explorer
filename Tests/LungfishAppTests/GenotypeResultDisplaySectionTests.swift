@@ -237,13 +237,17 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         XCTAssertEqual(helperInvocations, [1])
     }
 
-    func testMatrixQuickPaletteContainsSixtyFourDistinctColors() {
+    func testMatrixQuickPalettesExposeMCMAndGenericColors() {
         let viewModel = GenotypeResultDisplaySectionViewModel()
-        let palette = viewModel.matrixQuickPaletteColors
+        let mcm = viewModel.matrixMCMQuickPaletteColors
+        let generic = viewModel.matrixGenericQuickPaletteColors
 
-        XCTAssertEqual(palette.count, 64)
-        XCTAssertEqual(Set(palette.map(\.hexString)).count, 64)
-        XCTAssertEqual(palette.first?.hexString, HaplotypeColorToken.canonicalPalette.first?.fillColor.hexString)
+        XCTAssertEqual(mcm.count, 8)
+        XCTAssertEqual(generic.count, 64)
+        XCTAssertEqual(Set(mcm.map(\.hexString)).count, 8)
+        XCTAssertEqual(Set(generic.map(\.hexString)).count, 64)
+        XCTAssertEqual(mcm.first?.hexString, HaplotypeColorToken.canonicalBudde2010Tokens.first?.fillColor.hexString)
+        XCTAssertEqual(generic.first?.hexString, "#AD274D")
     }
 
     func testMatrixQuickPaletteAppliesToSelectedStyleTarget() {

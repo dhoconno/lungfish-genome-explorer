@@ -135,8 +135,24 @@ public struct GenotypeMatrixAnnotationSection: View {
             .pickerStyle(.segmented)
             .controlSize(.small)
 
+            paletteGrid(
+                title: "mcm",
+                colors: viewModel.matrixMCMQuickPaletteColors
+            )
+            paletteGrid(
+                title: "generic",
+                colors: viewModel.matrixGenericQuickPaletteColors
+            )
+        }
+    }
+
+    private func paletteGrid(title: String, colors: [AnnotationColor]) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
             LazyVGrid(columns: Array(repeating: GridItem(.fixed(18), spacing: 4), count: 8), spacing: 4) {
-                ForEach(Array(viewModel.matrixQuickPaletteColors.enumerated()), id: \.offset) { index, color in
+                ForEach(Array(colors.enumerated()), id: \.offset) { index, color in
                     Button {
                         viewModel.applyMatrixPaletteColor(color)
                     } label: {
@@ -149,7 +165,7 @@ public struct GenotypeMatrixAnnotationSection: View {
                             .frame(width: 18, height: 18)
                     }
                     .buttonStyle(.plain)
-                    .help("Color \(index + 1) \(color.hexString)")
+                    .help("\(title) color \(index + 1) \(color.hexString)")
                 }
             }
         }

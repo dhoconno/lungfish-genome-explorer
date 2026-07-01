@@ -233,7 +233,15 @@ public final class GenotypeResultDisplaySectionViewModel {
     }
 
     public var matrixQuickPaletteColors: [AnnotationColor] {
-        HaplotypeColorToken.canonicalPalette.map(\.fillColor)
+        matrixGenericQuickPaletteColors
+    }
+
+    public var matrixMCMQuickPaletteColors: [AnnotationColor] {
+        HaplotypeColorToken.canonicalBudde2010Tokens.map(\.fillColor)
+    }
+
+    public var matrixGenericQuickPaletteColors: [AnnotationColor] {
+        HaplotypeColorToken.genericOptimizedAnnotationPalette
     }
 
     public func applyMatrixPaletteColor(_ color: AnnotationColor) {
