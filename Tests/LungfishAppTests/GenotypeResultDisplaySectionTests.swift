@@ -224,10 +224,12 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         XCTAssertEqual(receivedRequests.last?.color, AnnotationColor(red: 0.9, green: 0.3, blue: 0.1, alpha: 1.0))
     }
 
-    func testMatrixSupportedCellHelperRequiresRowOrCellSelection() {
+    func testMatrixSupportedReadThresholdAppliesToRowsAndColumns() {
         let viewModel = GenotypeResultDisplaySectionViewModel()
-        var helperInvocations: [Int] = []
-        viewModel.onSupportedCellSelectionRequested = { helperInvocations.append($0) }
+        var previewValues: [Int] = []
+        var requests: [GenotypeMatrixStyleRequest] = []
+        viewModel.onSupportSelectionPreviewChanged = { previewValues.append($0) }
+        viewModel.onMatrixStyleRequested = { requests.append($0) }
 
         viewModel.updateSelection(GenotypeResultSelectionState(
             title: "AnimalA",
@@ -236,9 +238,12 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
             matrixTargets: [.column(sample: "AnimalA")]
         ))
         XCTAssertTrue(viewModel.hasMatrixSelection)
-        XCTAssertFalse(viewModel.canSelectSupportedCellsInCurrentRow)
-        viewModel.selectSupportedCellsInCurrentRow()
-        XCTAssertTrue(helperInvocations.isEmpty)
+        XCTAssertTrue(viewModel.canUseSupportedCellThreshold)
+        viewModel.setSupportedCellMinimumReads(5)
+        viewModel.setMatrixFillColor(NSColor.systemPink)
+        XCTAssertEqual(previewValues, [5])
+        XCTAssertEqual(requests.last?.targets, [.column(sample: "AnimalA")])
+        XCTAssertEqual(requests.last?.minimumReads, 5)
 
         viewModel.updateSelection(GenotypeResultSelectionState(
             title: "01_Mafa_A1_001_01",
@@ -246,9 +251,19 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
             detailRows: [],
             matrixTargets: [.row(locus: "MHC-A", genotype: "01_Mafa_A1_001_01")]
         ))
-        XCTAssertTrue(viewModel.canSelectSupportedCellsInCurrentRow)
-        viewModel.selectSupportedCellsInCurrentRow()
-        XCTAssertEqual(helperInvocations, [1])
+        XCTAssertTrue(viewModel.canUseSupportedCellThreshold)
+        viewModel.setMatrixFillColor(NSColor.systemBlue)
+        XCTAssertEqual(requests.last?.minimumReads, 5)
+
+        viewModel.updateSelection(GenotypeResultSelectionState(
+            title: "AnimalA MHC-A 01_Mafa_A1_001_01",
+            subtitle: "Matrix annotations",
+            detailRows: [],
+            matrixTargets: [.cell(locus: "MHC-A", genotype: "01_Mafa_A1_001_01", sample: "AnimalA")]
+        ))
+        XCTAssertFalse(viewModel.canUseSupportedCellThreshold)
+        viewModel.setMatrixFillColor(NSColor.systemGreen)
+        XCTAssertNil(requests.last?.minimumReads)
     }
 
     func testMatrixQuickPalettesExposeMCMAndGenericColors() {
@@ -294,6 +309,7 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
             .textColor(color),
             .borderColor(color),
         ])
+        XCTAssertEqual(requests.map(\.minimumReads), [nil, nil, nil])
     }
 
     func testSelectionViewModelEmitsGenotypeHighlightRequests() {

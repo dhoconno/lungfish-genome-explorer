@@ -353,8 +353,8 @@ extension MainSplitViewController {
             inspectorController.genotypeResultDisplaySectionViewModel.onMatrixCommentRequested = { [weak controller] request in
                 controller?.addMatrixComment(request)
             }
-            inspectorController.genotypeResultDisplaySectionViewModel.onSupportedCellSelectionRequested = { [weak controller] minimumReads in
-                controller?.selectSupportedMatrixCellsInCurrentRow(minimumReads: minimumReads)
+            inspectorController.genotypeResultDisplaySectionViewModel.onSupportSelectionPreviewChanged = { [weak controller] minimumReads in
+                controller?.setMatrixSupportSelectionPreviewMinimumReads(minimumReads)
             }
             inspectorController.selectionSectionViewModel.onGenotypeHighlightRequested = { [weak controller] request in
                 controller?.applyHighlight(request)

@@ -676,7 +676,10 @@ public final class GenotypeResultViewController: NSViewController {
 
     public func applyMatrixStyle(_ request: GenotypeMatrixStyleRequest) {
         guard let store = annotationStore else { return }
-        let targets = uniqueMatrixTargets(request.targets)
+        let requestedTargets = uniqueMatrixTargets(request.targets)
+        let targets = request.minimumReads.map {
+            comparisonMatrix.supportedCellTargets(from: requestedTargets, minimumReads: $0)
+        } ?? requestedTargets
         guard !targets.isEmpty else { return }
         do {
             let edits = targets.map { target in
@@ -686,7 +689,12 @@ public final class GenotypeResultViewController: NSViewController {
             }
             try store.setMatrixStyles(edits)
             comparisonMatrix.applyAnnotationSidecar(store.sidecar, reloading: targets)
-            refreshCurrentSelectionDetails()
+            if targets != requestedTargets {
+                comparisonMatrix.replaceMatrixTargetSelection(targets)
+                showMatrixTargetSelection(targets)
+            } else {
+                refreshCurrentSelectionDetails()
+            }
             onAnnotationSidecarChanged?(store.sidecar)
             scheduleCurrentWorkbookUpdateForMatrixAnnotation()
         } catch {
@@ -720,6 +728,11 @@ public final class GenotypeResultViewController: NSViewController {
         } else {
             publishSelectionState(matrixTargetSelectionState(for: targets))
         }
+    }
+
+    public func setMatrixSupportSelectionPreviewMinimumReads(_ minimumReads: Int) {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.setSupportSelectionPreviewMinimumReads(minimumReads)
     }
 
     private func applyHighlightWithoutUndo(_ request: GenotypeResultHighlightRequest) {
@@ -5441,6 +5454,15 @@ extension GenotypeResultViewController {
     func testingIsSelectedMatrixCell(genotype: String, sample: String) -> Bool {
         ensureComparisonMatrixConfigured()
         return comparisonMatrix.testingIsSelectedCell(genotype: genotype, sample: sample)
+    }
+
+    func testingDimsForSupportSelectionPreview(genotype: String, sample: String) -> Bool {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingDimsForSupportSelectionPreview(genotype: genotype, sample: sample)
+    }
+
+    func testingSetMatrixSupportSelectionPreviewMinimumReads(_ minimumReads: Int) {
+        setMatrixSupportSelectionPreviewMinimumReads(minimumReads)
     }
 
     func testingCellValue(genotype: String, sample: String) -> String? {

@@ -47,7 +47,7 @@ public final class GenotypeResultDisplaySectionViewModel {
     public var onGenotypeHighlightRequested: ((GenotypeResultHighlightRequest) -> Void)?
     public var onMatrixStyleRequested: ((GenotypeMatrixStyleRequest) -> Void)?
     public var onMatrixCommentRequested: ((GenotypeMatrixCommentRequest) -> Void)?
-    public var onSupportedCellSelectionRequested: ((Int) -> Void)?
+    public var onSupportSelectionPreviewChanged: ((Int) -> Void)?
 
     @ObservationIgnored
     private var isUpdatingFromSelection = false
@@ -217,12 +217,12 @@ public final class GenotypeResultDisplaySectionViewModel {
         !selectedMatrixTargets.isEmpty
     }
 
-    var canSelectSupportedCellsInCurrentRow: Bool {
+    var canUseSupportedCellThreshold: Bool {
         selectedMatrixTargets.contains { target in
             switch target {
-            case .row, .cell:
+            case .row, .column:
                 return true
-            case .column:
+            case .cell:
                 return false
             }
         }
@@ -287,9 +287,9 @@ public final class GenotypeResultDisplaySectionViewModel {
         matrixCommentText = ""
     }
 
-    func selectSupportedCellsInCurrentRow() {
-        guard canSelectSupportedCellsInCurrentRow else { return }
-        onSupportedCellSelectionRequested?(max(0, supportedCellMinimumReads))
+    func setSupportedCellMinimumReads(_ minimumReads: Int) {
+        supportedCellMinimumReads = max(0, minimumReads)
+        onSupportSelectionPreviewChanged?(supportedCellMinimumReads)
     }
 
     var activeGenotypeHighlightNSColor: NSColor {
@@ -318,7 +318,13 @@ public final class GenotypeResultDisplaySectionViewModel {
 
     private func applyMatrixStyle(_ field: GenotypeMatrixStyleField) {
         guard hasMatrixSelection else { return }
-        onMatrixStyleRequested?(GenotypeMatrixStyleRequest(targets: selectedMatrixTargets, field: field))
+        onMatrixStyleRequested?(
+            GenotypeMatrixStyleRequest(
+                targets: selectedMatrixTargets,
+                field: field,
+                minimumReads: canUseSupportedCellThreshold ? max(0, supportedCellMinimumReads) : nil
+            )
+        )
     }
 
     private func notifyStateChanged() {

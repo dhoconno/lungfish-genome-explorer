@@ -66,6 +66,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private var pendingColumnSelectionCleared = false
     private var selectedFilterLocus: String?
     private var filterText = ""
+    private var supportSelectionPreviewMinimumReads = 1
     /// Set of sample IDs allowed by the active Smart Cohort + Quick Filter.
     /// `nil` means no cohort restriction is active and every sample is allowed.
     /// When non-`nil`, rows are kept only if at least one supporting sample is
@@ -461,6 +462,9 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private func implicitSampleFilterText() -> String? {
         let search = filterText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !search.isEmpty else { return nil }
+        if sampleNames.contains(where: { $0.localizedCaseInsensitiveContains(search) }) {
+            return search
+        }
         guard !freeTextMatchesAnyGenotypeRow(search) else { return nil }
         return sampleNames.contains { sampleMatches($0, filter: search) } ? search : nil
     }
@@ -1358,7 +1362,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         let threshold = max(0, minimumReads)
         let activeSamples = Set(visibleSampleNames)
         let targets = row.sampleSupport
-            .filter { activeSamples.contains($0.sample) && $0.passedUniqueReads > threshold }
+            .filter { activeSamples.contains($0.sample) && $0.passedUniqueReads >= threshold }
             .map {
                 GenotypeAnnotationSidecar.MatrixTarget.cell(
                     locus: row.locus,
@@ -1374,6 +1378,78 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         reloadSelectionTransition(from: previousTargets, to: targets)
         tableView.headerView?.needsDisplay = true
         return targets
+    }
+
+    func setSupportSelectionPreviewMinimumReads(_ minimumReads: Int) {
+        let next = max(0, minimumReads)
+        guard supportSelectionPreviewMinimumReads != next else { return }
+        supportSelectionPreviewMinimumReads = next
+        reloadMatrixTargets(selectedMatrixTargets)
+    }
+
+    func supportedCellTargets(
+        from targets: [GenotypeAnnotationSidecar.MatrixTarget],
+        minimumReads: Int
+    ) -> [GenotypeAnnotationSidecar.MatrixTarget] {
+        let threshold = max(0, minimumReads)
+        let visibleSamples = Set(visibleSampleNames)
+        let expandedTargets = targets.flatMap { target -> [GenotypeAnnotationSidecar.MatrixTarget] in
+            switch target {
+            case let .row(locus, genotype):
+                guard let row = visibleRows.first(where: { $0.locus == locus && $0.genotype == genotype }) else {
+                    return []
+                }
+                return row.sampleSupport
+                    .filter { visibleSamples.contains($0.sample) && $0.passedUniqueReads >= threshold }
+                    .map { .cell(locus: locus, genotype: genotype, sample: $0.sample) }
+            case let .column(sample):
+                guard visibleSamples.contains(sample) else { return [] }
+                return visibleRows.compactMap { row in
+                    guard let support = row.support(for: sample),
+                          support.passedUniqueReads >= threshold else {
+                        return nil
+                    }
+                    return .cell(locus: row.locus, genotype: row.genotype, sample: sample)
+                }
+            case .cell:
+                return [target]
+            }
+        }
+        return uniqueMatrixTargets(expandedTargets)
+    }
+
+    func replaceMatrixTargetSelection(_ targets: [GenotypeAnnotationSidecar.MatrixTarget]) {
+        let uniqueTargets = uniqueMatrixTargets(targets)
+        let previousTargets = selectedMatrixTargets
+        selectedMatrixTargets = uniqueTargets
+        selectedColumnSamples = uniqueTargets.compactMap { target in
+            if case let .column(sample) = target { return sample }
+            return nil
+        }
+        columnSelectionAnchorSample = selectedColumnSamples.last
+        directSelectionAnchor = uniqueTargets.last
+        if let firstTarget = uniqueTargets.first {
+            switch firstTarget {
+            case let .row(locus, genotype):
+                selectedRowLocus = locus
+                selectedGenotype = genotype
+                selectedSampleName = nil
+            case let .cell(locus, genotype, sample):
+                selectedRowLocus = locus
+                selectedGenotype = genotype
+                selectedSampleName = sample
+            case .column:
+                selectedRowLocus = nil
+                selectedGenotype = nil
+                selectedSampleName = nil
+            }
+        } else {
+            selectedRowLocus = nil
+            selectedGenotype = nil
+            selectedSampleName = nil
+        }
+        reloadSelectionTransition(from: previousTargets, to: uniqueTargets)
+        tableView.headerView?.needsDisplay = true
     }
 
     private func sampleName(forColumnAt columnIndex: Int) -> String? {
@@ -1405,8 +1481,12 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         let backgroundColor = backgroundColor(for: identifier, row: row, renderedStyle: renderedStyle)
         let borderColor = borderColor(for: identifier, row: row, renderedStyle: renderedStyle)
         let selected = isSelectedCell(identifier: identifier, row: row)
+        let dimmedByPreview = dimsForSupportSelectionPreview(identifier: identifier, row: row)
 
-        cell.textField?.textColor = renderedStyle.textColor.map(Self.color(from:)) ?? .labelColor
+        cell.alphaValue = dimmedByPreview ? 0.45 : 1.0
+        cell.textField?.textColor = dimmedByPreview
+            ? .tertiaryLabelColor
+            : (renderedStyle.textColor.map(Self.color(from:)) ?? .labelColor)
         cell.textField?.font = font(for: renderedStyle)
         guard backgroundColor != nil || borderColor != nil || selected || renderedStyle.textColor != nil || renderedStyle.isBold || renderedStyle.isItalic else {
             if cell.wantsLayer {
@@ -1432,6 +1512,28 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             cell.layer?.borderColor = NSColor.keyboardFocusIndicatorColor.cgColor
             cell.layer?.borderWidth = 2
         }
+    }
+
+    private func dimsForSupportSelectionPreview(
+        identifier: NSUserInterfaceItemIdentifier,
+        row: ONTGenotypeSharedCall
+    ) -> Bool {
+        guard let sample = sampleColumnLookup[identifier],
+              selectedMatrixTargets.contains(where: { target in
+                  switch target {
+                  case let .row(locus, genotype):
+                      return row.locus == locus && row.genotype == genotype
+                  case let .column(selectedSample):
+                      return sample == selectedSample
+                  case .cell:
+                      return false
+                  }
+              }) else {
+            return false
+        }
+        let threshold = max(0, supportSelectionPreviewMinimumReads)
+        guard let support = row.support(for: sample) else { return true }
+        return support.passedUniqueReads < threshold
     }
 
     private func font(for style: GenotypeMatrixRenderedStyle) -> NSFont {
@@ -1878,6 +1980,18 @@ extension GenotypeComparisonMatrixView {
             return false
         }
         return isSelectedCell(identifier: identifier, row: row)
+    }
+
+    func testingDimsForSupportSelectionPreview(genotype: String, sample: String) -> Bool {
+        guard let row = visibleRows.first(where: { $0.genotype == genotype }),
+              let identifier = sampleColumnLookup.first(where: { $0.value == sample })?.key else {
+            return false
+        }
+        return dimsForSupportSelectionPreview(identifier: identifier, row: row)
+    }
+
+    func testingSetSupportSelectionPreviewMinimumReads(_ minimumReads: Int) {
+        setSupportSelectionPreviewMinimumReads(minimumReads)
     }
 
     func testingSelectSupportedCellsInSelectedRow(minimumReads: Int) -> [GenotypeAnnotationSidecar.MatrixTarget] {

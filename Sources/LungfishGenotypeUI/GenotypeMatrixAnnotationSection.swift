@@ -96,22 +96,17 @@ public struct GenotypeMatrixAnnotationSection: View {
             .controlSize(.small)
             .disabled(viewModel.matrixCommentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
-            if viewModel.canSelectSupportedCellsInCurrentRow {
-                HStack(spacing: 8) {
-                    Stepper(
-                        "Supported cells: \(viewModel.supportedCellMinimumReads)",
-                        value: $viewModel.supportedCellMinimumReads,
-                        in: 0...100_000
-                    )
-                    .controlSize(.small)
-                    Button {
-                        viewModel.selectSupportedCellsInCurrentRow()
-                    } label: {
-                        Label("Select", systemImage: "scope")
-                    }
-                    .buttonStyle(.borderless)
-                    .controlSize(.small)
-                }
+            if viewModel.canUseSupportedCellThreshold {
+                Stepper(
+                    "Highlight cells with at least \(viewModel.supportedCellMinimumReads) reads",
+                    value: Binding(
+                        get: { viewModel.supportedCellMinimumReads },
+                        set: { viewModel.setSupportedCellMinimumReads($0) }
+                    ),
+                    in: 0...100_000
+                )
+                .controlSize(.small)
+                .fixedSize(horizontal: false, vertical: true)
             }
 
             Text("Edits are saved to annotations.json and synced to current.xlsx.")

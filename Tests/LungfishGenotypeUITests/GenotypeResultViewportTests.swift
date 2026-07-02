@@ -3903,6 +3903,38 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(controller.testingVisibleMatrixSamples, ["AnimalA", "AnimalB"])
     }
 
+    func testMatrixFreeTextSearchFiltersSampleColumnsWhenSampleNameAlsoAppearsInGenotype() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let genotype = "01_Mamu_A1_AR3628_marker"
+        let callA = makeCall(sample: "AR3628", genotype: genotype, reads: 6)
+        let callB = makeCall(sample: "AR3629", genotype: genotype, reads: 8)
+        controller.configure(result: makeResult(samples: [
+            ONTGenotypeSampleResult(
+                sample: "AR3628",
+                passedAlignments: 6,
+                passedUniqueReads: 6,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: [callA]
+            ),
+            ONTGenotypeSampleResult(
+                sample: "AR3629",
+                passedAlignments: 8,
+                passedUniqueReads: 8,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: [callB]
+            ),
+        ], calls: [callA, callB]))
+
+        controller.testingSetComparisonFilter("AR3628")
+
+        XCTAssertEqual(controller.testingVisibleGenotypes, [genotype])
+        XCTAssertEqual(controller.testingVisibleMatrixSamples, ["AR3628"])
+        XCTAssertEqual(controller.testingVisibleMatrixSampleColumnTitles, ["   AR3628"])
+    }
+
     func testMatrixFreeTextSearchDoesNotTreatLocusMatchAsImplicitSampleFilter() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeMatrixAmbiguousSearch-\(UUID().uuidString)", isDirectory: true)
@@ -3942,6 +3974,143 @@ final class GenotypeResultViewportTests: XCTestCase {
 
         XCTAssertEqual(controller.testingVisibleGenotypes, ["04_Mafa_B_001_01"])
         XCTAssertEqual(controller.testingVisibleMatrixSamples, ["AnimalA", "AnimalB"])
+    }
+
+    func testMatrixRowSelectionFillAppliesOnlyCellsAtOrAboveReadThreshold() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeMatrixRowThresholdStyle-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let genotype = "01_Mafa_A1_SHARED"
+        let exact = makeCall(sample: "AnimalA", genotype: genotype, reads: 5)
+        let weak = makeCall(sample: "AnimalB", genotype: genotype, reads: 4)
+        let strong = makeCall(sample: "AnimalC", genotype: genotype, reads: 8)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(bundleURL: bundleURL, samples: [
+            ONTGenotypeSampleResult(
+                sample: "AnimalA",
+                passedAlignments: 5,
+                passedUniqueReads: 5,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: [exact]
+            ),
+            ONTGenotypeSampleResult(
+                sample: "AnimalB",
+                passedAlignments: 4,
+                passedUniqueReads: 4,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: [weak]
+            ),
+            ONTGenotypeSampleResult(
+                sample: "AnimalC",
+                passedAlignments: 8,
+                passedUniqueReads: 8,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: [strong]
+            ),
+        ], calls: [exact, weak, strong]))
+
+        controller.testingClickMatrixRowChiclet(genotype: genotype)
+        controller.applyMatrixStyle(GenotypeMatrixStyleRequest(
+            targets: controller.testingCurrentSelectionMatrixTargets,
+            field: .fillColor(AnnotationColor(hex: "#FF0000")),
+            minimumReads: 5
+        ))
+
+        XCTAssertEqual(try XCTUnwrap(controller.testingRenderedMatrixStyle(genotype: genotype, sample: "AnimalA")).fillColor?.hexString, "#FF0000")
+        XCTAssertNil(try XCTUnwrap(controller.testingRenderedMatrixStyle(genotype: genotype, sample: "AnimalB")).fillColor)
+        XCTAssertEqual(try XCTUnwrap(controller.testingRenderedMatrixStyle(genotype: genotype, sample: "AnimalC")).fillColor?.hexString, "#FF0000")
+        XCTAssertEqual(Set(controller.testingCurrentSelectionMatrixTargets), Set([
+            .cell(locus: "MHC-A", genotype: genotype, sample: "AnimalA"),
+            .cell(locus: "MHC-A", genotype: genotype, sample: "AnimalC"),
+        ]))
+    }
+
+    func testMatrixColumnSelectionFillAppliesOnlyCellsAtOrAboveReadThreshold() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeMatrixColumnThresholdStyle-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let first = "01_Mafa_A1_SHARED"
+        let second = "02_Mafa_A1_SECOND"
+        let firstA = makeCall(sample: "AnimalA", genotype: first, reads: 6)
+        let firstB = makeCall(sample: "AnimalB", genotype: first, reads: 1)
+        let secondA = makeCall(sample: "AnimalA", genotype: second, reads: 2)
+        let secondB = makeCall(sample: "AnimalB", genotype: second, reads: 10)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(bundleURL: bundleURL, samples: [
+            ONTGenotypeSampleResult(
+                sample: "AnimalA",
+                passedAlignments: 8,
+                passedUniqueReads: 8,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: [firstA, secondA]
+            ),
+            ONTGenotypeSampleResult(
+                sample: "AnimalB",
+                passedAlignments: 11,
+                passedUniqueReads: 11,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: [firstB, secondB]
+            ),
+        ], calls: [firstA, firstB, secondA, secondB]))
+
+        controller.testingSelectMatrixColumns(samples: ["AnimalA", "AnimalB"])
+        controller.applyMatrixStyle(GenotypeMatrixStyleRequest(
+            targets: controller.testingCurrentSelectionMatrixTargets,
+            field: .fillColor(AnnotationColor(hex: "#00AAFF")),
+            minimumReads: 5
+        ))
+
+        XCTAssertEqual(try XCTUnwrap(controller.testingRenderedMatrixStyle(genotype: first, sample: "AnimalA")).fillColor?.hexString, "#00AAFF")
+        XCTAssertNil(try XCTUnwrap(controller.testingRenderedMatrixStyle(genotype: first, sample: "AnimalB")).fillColor)
+        XCTAssertNil(try XCTUnwrap(controller.testingRenderedMatrixStyle(genotype: second, sample: "AnimalA")).fillColor)
+        XCTAssertEqual(try XCTUnwrap(controller.testingRenderedMatrixStyle(genotype: second, sample: "AnimalB")).fillColor?.hexString, "#00AAFF")
+    }
+
+    func testMatrixSupportThresholdPreviewDimsBelowThresholdCellsForRowAndColumnSelections() {
+        let genotype = "01_Mafa_A1_SHARED"
+        let strong = makeCall(sample: "AnimalA", genotype: genotype, reads: 6)
+        let weak = makeCall(sample: "AnimalB", genotype: genotype, reads: 2)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(samples: [
+            ONTGenotypeSampleResult(
+                sample: "AnimalA",
+                passedAlignments: 6,
+                passedUniqueReads: 6,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: [strong]
+            ),
+            ONTGenotypeSampleResult(
+                sample: "AnimalB",
+                passedAlignments: 2,
+                passedUniqueReads: 2,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: [weak]
+            ),
+        ], calls: [strong, weak]))
+
+        controller.testingClickMatrixRowChiclet(genotype: genotype)
+        controller.testingSetMatrixSupportSelectionPreviewMinimumReads(5)
+
+        XCTAssertFalse(controller.testingDimsForSupportSelectionPreview(genotype: genotype, sample: "AnimalA"))
+        XCTAssertTrue(controller.testingDimsForSupportSelectionPreview(genotype: genotype, sample: "AnimalB"))
+
+        controller.testingSelectMatrixColumn(sample: "AnimalB")
+        XCTAssertTrue(controller.testingDimsForSupportSelectionPreview(genotype: genotype, sample: "AnimalB"))
+        XCTAssertFalse(controller.testingDimsForSupportSelectionPreview(genotype: genotype, sample: "AnimalA"))
     }
 
     func testMatrixAnnotationStyleRedrawsOnlyAffectedSelection() throws {

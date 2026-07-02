@@ -320,10 +320,6 @@ final class SequenceMenuOperationTests: XCTestCase {
     }
 
     func testFindORFsPreflightsBundleOperationLockBeforeRunning() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
         let appDelegateSource = combinedAppDelegateSource()
 
         XCTAssertTrue(appDelegateSource.contains("OperationCenter.shared.canStartOperation(on: context.bundleURL)"))
@@ -530,10 +526,6 @@ final class SequenceMenuOperationTests: XCTestCase {
     }
 
     func testSequenceAnnotationRefreshDoesNotReplaceActiveSequenceViewerWithBrowseMode() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
         let appDelegateSource = combinedAppDelegateSource()
 
         let activeMatchRange = try XCTUnwrap(appDelegateSource.range(of: "let activeSequenceViewer = targetViewerController.activeSequenceViewerController"))
@@ -549,10 +541,6 @@ final class SequenceMenuOperationTests: XCTestCase {
     }
 
     func testAnnotationImportUsesSharedTrackIdentityPresenter() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
         let mainSplitSource = combinedMainSplitViewControllerSource()
         let appDelegateSource = combinedAppDelegateSource()
 
