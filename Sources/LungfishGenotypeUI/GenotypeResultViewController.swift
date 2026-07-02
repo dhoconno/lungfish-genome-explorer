@@ -2598,10 +2598,7 @@ public final class GenotypeResultViewController: NSViewController {
                 )
             )
             if let updated = try? ONTGenotypeResultBundle.loadResult(from: result.bundleURL, manifest: updatedManifest) {
-                self.result = updated
-                comparisonMatrixConfigured = false
-                rebuildResultIndexes(for: updated)
-                rebuildActiveHaplotypeAnalysisIndexes()
+                applyCurrentWorkbookUpdatedResult(updated)
             }
             currentWorkbookNeedsRefresh = false
             currentWorkbookUpdateStatus = "Updated current.xlsx. Previous workbook saved in revisions."
@@ -2617,10 +2614,7 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     public func applyCurrentWorkbookUpdateCompleted(result updatedResult: ONTGenotypeResultBundleData) {
-        result = updatedResult
-        comparisonMatrixConfigured = false
-        rebuildResultIndexes(for: updatedResult)
-        rebuildActiveHaplotypeAnalysisIndexes()
+        applyCurrentWorkbookUpdatedResult(updatedResult)
         currentWorkbookNeedsRefresh = false
         currentWorkbookUpdateStatus = "Updated current.xlsx. Previous workbook saved in revisions."
         rebuildArtifactLens()
@@ -2632,6 +2626,16 @@ public final class GenotypeResultViewController: NSViewController {
     public func applyCurrentWorkbookUpdateFailed(_ error: Error) {
         currentWorkbookUpdateStatus = "current.xlsx update failed — see Operations Panel."
         rebuildArtifactLens()
+    }
+
+    private func applyCurrentWorkbookUpdatedResult(_ updatedResult: ONTGenotypeResultBundleData) {
+        let matrixWasConfigured = comparisonMatrixConfigured
+        result = updatedResult
+        rebuildResultIndexes(for: updatedResult)
+        rebuildActiveHaplotypeAnalysisIndexes()
+        guard matrixWasConfigured else { return }
+        comparisonMatrix.applyAnnotationSidecar(annotationStore?.sidecar, reload: false)
+        applyComparisonMatrixCohortFilter()
     }
 
     private func currentWorkbookEffectiveHaplotypeCalls() -> [GenotypeWorkbookHaplotypeCall] {

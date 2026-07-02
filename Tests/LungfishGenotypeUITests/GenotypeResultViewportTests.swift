@@ -4285,6 +4285,52 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertGreaterThan(controller.testingMatrixPartialReloadCount, 0)
     }
 
+    func testMatrixAnnotationWorkbookRefreshPreservesViewportState() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeMatrixWorkbookRefreshState-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let genotype = "01_Mafa_A1_SHARED"
+        let callA = makeCall(sample: "AnimalA", genotype: genotype, reads: 12)
+        let callB = makeCall(sample: "AnimalB", genotype: genotype, reads: 9)
+        let result = makeResult(bundleURL: bundleURL, samples: [
+            ONTGenotypeSampleResult(
+                sample: "AnimalA",
+                passedAlignments: 12,
+                passedUniqueReads: 12,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: [callA]
+            ),
+            ONTGenotypeSampleResult(
+                sample: "AnimalB",
+                passedAlignments: 9,
+                passedUniqueReads: 9,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: [callB]
+            ),
+        ], calls: [callA, callB])
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: result)
+        controller.testingSetQuickFilterSearchText("AnimalA")
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        controller.applyMatrixStyle(GenotypeMatrixStyleRequest(
+            targets: controller.testingCurrentSelectionMatrixTargets,
+            field: .fillColor(AnnotationColor(hex: "#00AAFF"))
+        ))
+
+        controller.applyCurrentWorkbookUpdateCompleted(result: result)
+        controller.testingSetMatrixSupportSelectionPreviewMinimumReads(5)
+
+        XCTAssertEqual(controller.testingVisibleMatrixSamples, ["AnimalA"])
+        XCTAssertEqual(controller.testingVisibleMatrixSampleColumnTitles, ["   AnimalA"])
+        XCTAssertTrue(controller.testingIsSelectedMatrixCell(genotype: genotype, sample: "AnimalA"))
+        XCTAssertEqual(controller.testingRenderedMatrixStyle(genotype: genotype, sample: "AnimalA")?.fillColor?.hexString, "#00AAFF")
+    }
+
     func testMatrixColumnSelectionPublishesColumnTarget() throws {
         let controller = GenotypeResultViewController()
         _ = controller.view
