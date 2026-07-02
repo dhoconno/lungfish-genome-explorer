@@ -1411,7 +1411,13 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                     }
                     return .cell(locus: row.locus, genotype: row.genotype, sample: sample)
                 }
-            case .cell:
+            case let .cell(locus, genotype, sample):
+                guard visibleSamples.contains(sample),
+                      let row = visibleRows.first(where: { $0.locus == locus && $0.genotype == genotype }),
+                      let support = row.support(for: sample),
+                      support.passedUniqueReads >= threshold else {
+                    return []
+                }
                 return [target]
             }
         }
@@ -1480,15 +1486,13 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         let renderedStyle = renderedStyle(for: identifier, row: row)
         let backgroundColor = backgroundColor(for: identifier, row: row, renderedStyle: renderedStyle)
         let borderColor = borderColor(for: identifier, row: row, renderedStyle: renderedStyle)
-        let selected = isSelectedCell(identifier: identifier, row: row)
-        let dimmedByPreview = dimsForSupportSelectionPreview(identifier: identifier, row: row)
+        let selected = drawsMatrixCellSelectionFocus(identifier: identifier, row: row)
+        let showsPreviewBorder = showsSupportSelectionPreviewBorder(identifier: identifier, row: row)
 
-        cell.alphaValue = dimmedByPreview ? 0.45 : 1.0
-        cell.textField?.textColor = dimmedByPreview
-            ? .tertiaryLabelColor
-            : (renderedStyle.textColor.map(Self.color(from:)) ?? .labelColor)
+        cell.alphaValue = 1.0
+        cell.textField?.textColor = renderedStyle.textColor.map(Self.color(from:)) ?? .labelColor
         cell.textField?.font = font(for: renderedStyle)
-        guard backgroundColor != nil || borderColor != nil || selected || renderedStyle.textColor != nil || renderedStyle.isBold || renderedStyle.isItalic else {
+        guard backgroundColor != nil || borderColor != nil || selected || showsPreviewBorder || renderedStyle.textColor != nil || renderedStyle.isBold || renderedStyle.isItalic else {
             if cell.wantsLayer {
                 cell.layer?.backgroundColor = nil
                 cell.layer?.borderWidth = 0
@@ -1508,13 +1512,35 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             cell.layer?.borderColor = borderColor.cgColor
             cell.layer?.borderWidth = 1.5
         }
+        if showsPreviewBorder {
+            cell.layer?.borderColor = NSColor.systemOrange.cgColor
+            cell.layer?.borderWidth = 2
+        }
         if selected {
             cell.layer?.borderColor = NSColor.keyboardFocusIndicatorColor.cgColor
             cell.layer?.borderWidth = 2
         }
     }
 
-    private func dimsForSupportSelectionPreview(
+    private func drawsMatrixCellSelectionFocus(
+        identifier: NSUserInterfaceItemIdentifier,
+        row: ONTGenotypeSharedCall
+    ) -> Bool {
+        guard let sample = sampleColumnLookup[identifier],
+              !selectedMatrixTargets.isEmpty else {
+            return false
+        }
+        return selectedMatrixTargets.contains { target in
+            switch target {
+            case let .cell(locus, genotype, selectedSample):
+                return row.locus == locus && row.genotype == genotype && sample == selectedSample
+            case .row, .column:
+                return false
+            }
+        }
+    }
+
+    private func showsSupportSelectionPreviewBorder(
         identifier: NSUserInterfaceItemIdentifier,
         row: ONTGenotypeSharedCall
     ) -> Bool {
@@ -1532,8 +1558,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             return false
         }
         let threshold = max(0, supportSelectionPreviewMinimumReads)
-        guard let support = row.support(for: sample) else { return true }
-        return support.passedUniqueReads < threshold
+        guard let support = row.support(for: sample) else { return false }
+        return support.passedUniqueReads >= threshold
     }
 
     private func font(for style: GenotypeMatrixRenderedStyle) -> NSFont {
@@ -1982,12 +2008,20 @@ extension GenotypeComparisonMatrixView {
         return isSelectedCell(identifier: identifier, row: row)
     }
 
-    func testingDimsForSupportSelectionPreview(genotype: String, sample: String) -> Bool {
+    func testingShowsSupportSelectionPreviewBorder(genotype: String, sample: String) -> Bool {
         guard let row = visibleRows.first(where: { $0.genotype == genotype }),
               let identifier = sampleColumnLookup.first(where: { $0.value == sample })?.key else {
             return false
         }
-        return dimsForSupportSelectionPreview(identifier: identifier, row: row)
+        return showsSupportSelectionPreviewBorder(identifier: identifier, row: row)
+    }
+
+    func testingDrawsMatrixCellSelectionFocus(genotype: String, sample: String) -> Bool {
+        guard let row = visibleRows.first(where: { $0.genotype == genotype }),
+              let identifier = sampleColumnLookup.first(where: { $0.value == sample })?.key else {
+            return false
+        }
+        return drawsMatrixCellSelectionFocus(identifier: identifier, row: row)
     }
 
     func testingSetSupportSelectionPreviewMinimumReads(_ minimumReads: Int) {

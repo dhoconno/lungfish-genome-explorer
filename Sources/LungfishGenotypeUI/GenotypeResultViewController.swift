@@ -315,7 +315,12 @@ public final class GenotypeResultViewController: NSViewController {
             includingQuickSearch: false
         )
         let quickSearch = quickFilterSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let quickSearchMatchesSample = !quickSearch.isEmpty
+            && allFilterableSampleNames(result: result).contains {
+                sampleColumnSearchMatches(sampleId: $0, searchText: quickSearch)
+            }
         let quickSearchIsMatrixRowFilter = !quickSearch.isEmpty
+            && !quickSearchMatchesSample
             && matrixSearchMatchesGenotypeRow(
                 result: result,
                 search: quickSearch,
@@ -333,7 +338,9 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func refreshVisibleFilterDependentViews(rebuildCohortSummary shouldRebuildCohortSummary: Bool = false) {
-        if selectedLens == .summary || selectedLens == .review {
+        if selectedLens == .summary, !comparisonMatrix.isHidden {
+            applyComparisonMatrixCohortFilter()
+        } else if selectedLens == .summary || selectedLens == .review {
             rebuildOutline()
         } else if !comparisonMatrix.isHidden {
             applyComparisonMatrixCohortFilter()
@@ -677,21 +684,42 @@ public final class GenotypeResultViewController: NSViewController {
     public func applyMatrixStyle(_ request: GenotypeMatrixStyleRequest) {
         guard let store = annotationStore else { return }
         let requestedTargets = uniqueMatrixTargets(request.targets)
+        let broadTargets = request.minimumReads == nil
+            ? []
+            : requestedTargets.filter {
+                switch $0 {
+                case .row, .column:
+                    return true
+                case .cell:
+                    return false
+                }
+            }
         let targets = request.minimumReads.map {
             comparisonMatrix.supportedCellTargets(from: requestedTargets, minimumReads: $0)
         } ?? requestedTargets
-        guard !targets.isEmpty else { return }
+        let reloadTargets = uniqueMatrixTargets(broadTargets + targets)
+        guard !reloadTargets.isEmpty else { return }
         do {
-            let edits = targets.map { target in
+            let broadEdits = broadTargets.map { target in
+                let current = matrixStyle(for: target, in: store.sidecar)
+                let next = matrixStyle(current, removing: request.field)
+                return (target: target, style: next)
+            }
+            let cellEdits = targets.map { target in
                 let current = matrixStyle(for: target, in: store.sidecar)
                 let next = matrixStyle(current, applying: request.field)
                 return (target: target, style: next)
             }
+            let edits = broadEdits + cellEdits
             try store.setMatrixStyles(edits)
-            comparisonMatrix.applyAnnotationSidecar(store.sidecar, reloading: targets)
+            comparisonMatrix.applyAnnotationSidecar(store.sidecar, reloading: reloadTargets)
             if targets != requestedTargets {
                 comparisonMatrix.replaceMatrixTargetSelection(targets)
-                showMatrixTargetSelection(targets)
+                if targets.isEmpty {
+                    publishSelectionState(nil)
+                } else {
+                    showMatrixTargetSelection(targets)
+                }
             } else {
                 refreshCurrentSelectionDetails()
             }
@@ -792,6 +820,30 @@ public final class GenotypeResultViewController: NSViewController {
         case .isItalic(let enabled):
             style.isItalic = enabled
             style.italicOverride = enabled
+        case .clear:
+            return nil
+        }
+        return style.isEmpty ? nil : style
+    }
+
+    private func matrixStyle(
+        _ style: GenotypeAnnotationSidecar.MatrixStyle,
+        removing field: GenotypeMatrixStyleField
+    ) -> GenotypeAnnotationSidecar.MatrixStyle? {
+        var style = style
+        switch field {
+        case .fillColor:
+            style.fillColor = nil
+        case .textColor:
+            style.textColor = nil
+        case .borderColor:
+            style.borderColor = nil
+        case .isBold:
+            style.isBold = false
+            style.boldOverride = nil
+        case .isItalic:
+            style.isItalic = false
+            style.italicOverride = nil
         case .clear:
             return nil
         }
@@ -3401,6 +3453,16 @@ public final class GenotypeResultViewController: NSViewController {
         return false
     }
 
+    private func sampleColumnSearchMatches(sampleId: String, searchText: String) -> Bool {
+        let search = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !search.isEmpty else { return true }
+        if sampleId.localizedCaseInsensitiveContains(search) { return true }
+        if metadataMatches(sampleId: sampleId, searchText: search) { return true }
+        if annotationTextMatches(sampleId: sampleId, searchText: search) { return true }
+        if haplotypeCallMatches(sampleId: sampleId, searchText: search) { return true }
+        return false
+    }
+
     private func metadataMatches(sampleId: String, searchText: String) -> Bool {
         guard let record = sampleMetadataStore?.records[sampleId] else { return false }
         if let query = metadataFieldQuery(from: searchText) {
@@ -5456,9 +5518,14 @@ extension GenotypeResultViewController {
         return comparisonMatrix.testingIsSelectedCell(genotype: genotype, sample: sample)
     }
 
-    func testingDimsForSupportSelectionPreview(genotype: String, sample: String) -> Bool {
+    func testingShowsSupportSelectionPreviewBorder(genotype: String, sample: String) -> Bool {
         ensureComparisonMatrixConfigured()
-        return comparisonMatrix.testingDimsForSupportSelectionPreview(genotype: genotype, sample: sample)
+        return comparisonMatrix.testingShowsSupportSelectionPreviewBorder(genotype: genotype, sample: sample)
+    }
+
+    func testingDrawsMatrixCellSelectionFocus(genotype: String, sample: String) -> Bool {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingDrawsMatrixCellSelectionFocus(genotype: genotype, sample: sample)
     }
 
     func testingSetMatrixSupportSelectionPreviewMinimumReads(_ minimumReads: Int) {
