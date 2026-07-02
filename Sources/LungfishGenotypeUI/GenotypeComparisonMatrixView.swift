@@ -1453,8 +1453,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
 
         if displayState.cellColorMode != .none,
            let color = renderedStyle.fillColor {
-            let alpha = sampleColumnLookup[identifier] == nil ? 0.13 : 0.24
-            return Self.color(from: color).withAlphaComponent(alpha)
+            return Self.color(from: color)
         }
 
         guard displayState.cellColorMode == .support,
@@ -1516,6 +1515,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             rendered.fillColor = cellHighlight.fillColor ?? rendered.fillColor
             rendered.borderColor = cellHighlight.borderColor ?? rendered.borderColor
         }
+        applyAutomaticTextContrast(to: &rendered)
         return rendered
     }
 
@@ -1543,6 +1543,34 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         } else if style.isItalic {
             rendered.isItalic = true
         }
+    }
+
+    private func applyAutomaticTextContrast(to rendered: inout GenotypeMatrixRenderedStyle) {
+        guard rendered.textColor == nil, let fillColor = rendered.fillColor else { return }
+        let black = AnnotationColor(red: 0, green: 0, blue: 0)
+        let white = AnnotationColor(red: 1, green: 1, blue: 1)
+        let fillLuminance = relativeLuminance(fillColor)
+        let blackContrast = contrastRatio(fillLuminance, relativeLuminance(black))
+        let whiteContrast = contrastRatio(fillLuminance, relativeLuminance(white))
+        if blackContrast < 4.5, whiteContrast > blackContrast {
+            rendered.textColor = white
+        }
+    }
+
+    private func relativeLuminance(_ color: AnnotationColor) -> Double {
+        func channel(_ value: Double) -> Double {
+            let value = max(0, min(1, value))
+            return value <= 0.03928 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * channel(color.red)
+            + 0.7152 * channel(color.green)
+            + 0.0722 * channel(color.blue)
+    }
+
+    private func contrastRatio(_ lhs: Double, _ rhs: Double) -> Double {
+        let lighter = max(lhs, rhs)
+        let darker = min(lhs, rhs)
+        return (lighter + 0.05) / (darker + 0.05)
     }
 
     private func hidesFilteredCellAppearance(

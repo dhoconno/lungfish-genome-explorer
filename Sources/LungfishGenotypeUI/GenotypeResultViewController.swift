@@ -712,10 +712,14 @@ public final class GenotypeResultViewController: NSViewController {
 
     public func selectSupportedMatrixCellsInCurrentRow(minimumReads: Int) {
         ensureComparisonMatrixConfigured()
-        guard currentSharedCall != nil else { return }
         let targets = comparisonMatrix.selectSupportedCellsInSelectedRow(minimumReads: minimumReads)
-        guard let currentSharedCall else { return }
-        publishSelectionState(selectionState(for: currentSharedCall, sample: nil, matrixTargets: targets))
+        if targets.isEmpty {
+            publishSelectionState(nil)
+        } else if let currentSharedCall {
+            publishSelectionState(selectionState(for: currentSharedCall, sample: nil, matrixTargets: targets))
+        } else {
+            publishSelectionState(matrixTargetSelectionState(for: targets))
+        }
     }
 
     private func applyHighlightWithoutUndo(_ request: GenotypeResultHighlightRequest) {
