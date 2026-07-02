@@ -684,6 +684,23 @@ public final class GenotypeResultViewController: NSViewController {
     public func applyMatrixStyle(_ request: GenotypeMatrixStyleRequest) {
         guard let store = annotationStore else { return }
         let requestedTargets = uniqueMatrixTargets(request.targets)
+        if case .clear = request.field {
+            let targets = matrixStyleTargetsToClear(for: requestedTargets, in: store.sidecar)
+            let reloadTargets = uniqueMatrixTargets(requestedTargets + targets)
+            guard !reloadTargets.isEmpty else { return }
+            do {
+                if !targets.isEmpty {
+                    try store.setMatrixStyles(targets.map { (target: $0, style: nil) })
+                }
+                comparisonMatrix.applyAnnotationSidecar(store.sidecar, reloading: reloadTargets)
+                refreshCurrentSelectionDetails()
+                onAnnotationSidecarChanged?(store.sidecar)
+                scheduleCurrentWorkbookUpdateForMatrixAnnotation()
+            } catch {
+                presentSheetAlert(error: error)
+            }
+            return
+        }
         let broadTargets = request.minimumReads == nil
             ? []
             : requestedTargets.filter {
@@ -799,6 +816,44 @@ public final class GenotypeResultViewController: NSViewController {
             unique.append(target)
         }
         return unique
+    }
+
+    private func matrixStyleTargetsToClear(
+        for selectedTargets: [GenotypeAnnotationSidecar.MatrixTarget],
+        in sidecar: GenotypeAnnotationSidecar
+    ) -> [GenotypeAnnotationSidecar.MatrixTarget] {
+        let selectedTargets = uniqueMatrixTargets(selectedTargets)
+        guard !selectedTargets.isEmpty else { return [] }
+        return uniqueMatrixTargets(sidecar.matrixStyles.compactMap { annotation in
+            selectedTargets.contains { selectionClearsMatrixStyleTarget(annotation.target, selectedBy: $0) }
+                ? annotation.target
+                : nil
+        })
+    }
+
+    private func selectionClearsMatrixStyleTarget(
+        _ styleTarget: GenotypeAnnotationSidecar.MatrixTarget,
+        selectedBy selectedTarget: GenotypeAnnotationSidecar.MatrixTarget
+    ) -> Bool {
+        switch selectedTarget {
+        case let .row(selectedLocus, selectedGenotype):
+            switch styleTarget {
+            case let .row(locus, genotype), let .cell(locus, genotype, _):
+                return locus == selectedLocus && genotype == selectedGenotype
+            case .column:
+                return false
+            }
+        case let .column(selectedSample):
+            switch styleTarget {
+            case let .column(sample), let .cell(_, _, sample):
+                return sample == selectedSample
+            case .row:
+                return false
+            }
+        case let .cell(selectedLocus, selectedGenotype, selectedSample):
+            guard case let .cell(locus, genotype, sample) = styleTarget else { return false }
+            return locus == selectedLocus && genotype == selectedGenotype && sample == selectedSample
+        }
     }
 
     private func matrixStyle(
@@ -5527,6 +5582,11 @@ extension GenotypeResultViewController {
     ) {
         ensureComparisonMatrixConfigured()
         comparisonMatrix.testingClickColumnChiclet(sample: sample, modifiers: modifiers)
+    }
+
+    func testingClickMatrixSelectAllChiclet() {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.testingClickSelectAllChiclet()
     }
 
     var testingCurrentSelectionMatrixTargets: [GenotypeAnnotationSidecar.MatrixTarget] {

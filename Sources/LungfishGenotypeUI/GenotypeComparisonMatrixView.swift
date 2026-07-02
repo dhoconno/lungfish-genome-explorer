@@ -393,6 +393,19 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         }
 
         let pinnedHeaderView = GenotypeMatrixHeaderView()
+        pinnedHeaderView.isColumnSelectable = { [weak self] column in
+            self?.pinnedColumnIdentifier(at: column) == ColumnID.rowSelector
+        }
+        pinnedHeaderView.isColumnSelected = { [weak self] column in
+            guard let self,
+                  self.pinnedColumnIdentifier(at: column) == ColumnID.rowSelector else {
+                return false
+            }
+            return self.isAllVisibleRowsAndColumnsSelected()
+        }
+        pinnedHeaderView.onColumnChicletClick = { [weak self] column, modifiers in
+            self?.handlePinnedHeaderChicletClick(column: column, modifiers: modifiers) ?? false
+        }
         pinnedHeaderView.readTitleForColumn = { [weak self] column in
             self?.readTitle(forColumnAt: column, in: self?.pinnedTableView)
         }
@@ -407,7 +420,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         }
         headerView.isColumnSelected = { [weak self] column in
             guard let self, let sample = self.sampleName(forColumnAt: column) else { return false }
-            return self.selectedColumnSamples.contains(sample)
+            return self.selectedColumnSamples.contains(sample) || self.selectedMatrixTargets.contains(.column(sample: sample))
         }
         headerView.onColumnChicletClick = { [weak self] column, modifiers in
             self?.handleHeaderChicletClick(column: column, modifiers: modifiers) ?? false
@@ -1184,6 +1197,43 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         }
         selectSampleColumn(clicked: sample, modifiers: modifiers)
         return true
+    }
+
+    private func handlePinnedHeaderChicletClick(column: Int, modifiers: NSEvent.ModifierFlags) -> Bool {
+        guard pinnedColumnIdentifier(at: column) == ColumnID.rowSelector else {
+            return false
+        }
+        if isAllVisibleRowsAndColumnsSelected() {
+            clearSelectionAfterColumnToggle()
+        } else {
+            selectAllVisibleRowsAndColumns()
+        }
+        return true
+    }
+
+    private func pinnedColumnIdentifier(at column: Int) -> NSUserInterfaceItemIdentifier? {
+        guard column >= 0, column < pinnedTableView.tableColumns.count else { return nil }
+        return pinnedTableView.tableColumns[column].identifier
+    }
+
+    private func selectAllVisibleRowsAndColumns() {
+        let rowTargets = visibleRows.map { matrixTarget(row: $0, sample: nil) }
+        let columnTargets = visibleSampleNames.map { GenotypeAnnotationSidecar.MatrixTarget.column(sample: $0) }
+        let targets = rowTargets + columnTargets
+        guard !targets.isEmpty else {
+            clearSelectionAfterColumnToggle()
+            return
+        }
+        publishMatrixTargetSelection(targets, anchor: targets.last)
+    }
+
+    private func isAllVisibleRowsAndColumnsSelected() -> Bool {
+        let requiredTargets = Set(
+            visibleRows.map { matrixTarget(row: $0, sample: nil) }
+                + visibleSampleNames.map { GenotypeAnnotationSidecar.MatrixTarget.column(sample: $0) }
+        )
+        guard !requiredTargets.isEmpty else { return false }
+        return requiredTargets.isSubset(of: Set(selectedMatrixTargets))
     }
 
     private func selectSampleColumn(clicked sample: String, modifiers: NSEvent.ModifierFlags) {
@@ -2275,6 +2325,14 @@ extension GenotypeComparisonMatrixView {
             return
         }
         _ = handleHeaderChicletClick(column: columnIndex, modifiers: modifiers)
+    }
+
+    func testingClickSelectAllChiclet() {
+        guard let columnIndex = pinnedTableView.tableColumns.firstIndex(where: { $0.identifier == ColumnID.rowSelector }) else {
+            onSelectionCleared?()
+            return
+        }
+        _ = handlePinnedHeaderChicletClick(column: columnIndex, modifiers: [])
     }
 
     func testingCellValue(genotype: String, sample: String) -> String? {

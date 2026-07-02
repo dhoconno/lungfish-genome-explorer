@@ -4114,6 +4114,124 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(controller.testingVisibleMatrixSampleReadTitles, ["12", "9"])
     }
 
+    func testMatrixUpperLeftChicletSelectsAllVisibleRowsAndColumns() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let first = "01_Mafa_A1_SHARED"
+        let second = "02_Mafa_B_SHARED"
+        let firstCall = makeCall(sample: "AnimalA", genotype: first, reads: 12)
+        let secondCall = makeCall(sample: "AnimalB", genotype: second, reads: 9)
+        controller.configure(result: makeResult(samples: [
+            ONTGenotypeSampleResult(
+                sample: "AnimalA",
+                passedAlignments: 12,
+                passedUniqueReads: 12,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: [firstCall]
+            ),
+            ONTGenotypeSampleResult(
+                sample: "AnimalB",
+                passedAlignments: 9,
+                passedUniqueReads: 9,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: [secondCall]
+            ),
+        ], calls: [firstCall, secondCall]))
+
+        controller.testingClickMatrixSelectAllChiclet()
+
+        XCTAssertEqual(Set(controller.testingCurrentSelectionMatrixTargets), Set([
+            .row(locus: "MHC-A", genotype: first),
+            .row(locus: "MHC-B", genotype: second),
+            .column(sample: "AnimalA"),
+            .column(sample: "AnimalB"),
+        ]))
+    }
+
+    func testClearMatrixStyleWithAllRowsAndColumnsClearsIntersectingCellStyles() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeMatrixClearAllStyles-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let first = "01_Mafa_A1_SHARED"
+        let second = "02_Mafa_B_SHARED"
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-06-30T00:00:00Z")
+        sidecar.matrixStyles = [
+            .init(
+                target: .row(locus: "MHC-A", genotype: first),
+                style: .init(fillColor: "#FFF2CC", textColor: nil, borderColor: nil, isBold: true, isItalic: false),
+                author: "test",
+                timestamp: "2026-06-30T12:00:00Z"
+            ),
+            .init(
+                target: .column(sample: "AnimalB"),
+                style: .init(fillColor: "#D9EAD3", textColor: nil, borderColor: nil, isBold: false, isItalic: false),
+                author: "test",
+                timestamp: "2026-06-30T12:01:00Z"
+            ),
+            .init(
+                target: .cell(locus: "MHC-A", genotype: first, sample: "AnimalA"),
+                style: .init(fillColor: "#FF0000", textColor: nil, borderColor: nil, isBold: false, isItalic: false),
+                author: "test",
+                timestamp: "2026-06-30T12:02:00Z"
+            ),
+            .init(
+                target: .cell(locus: "MHC-B", genotype: second, sample: "AnimalB"),
+                style: .init(fillColor: "#B9AF1E", textColor: nil, borderColor: nil, isBold: false, isItalic: false),
+                author: "test",
+                timestamp: "2026-06-30T12:03:00Z"
+            ),
+        ]
+        sidecar.matrixComments = [
+            .init(
+                target: .cell(locus: "MHC-A", genotype: first, sample: "AnimalA"),
+                body: "Keep this comment.",
+                author: "test",
+                timestamp: "2026-06-30T12:04:00Z"
+            ),
+        ]
+        try sidecar.encoded().write(to: bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename))
+        let firstCall = makeCall(sample: "AnimalA", genotype: first, reads: 12)
+        let secondCall = makeCall(sample: "AnimalB", genotype: second, reads: 9)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(bundleURL: bundleURL, samples: [
+            ONTGenotypeSampleResult(
+                sample: "AnimalA",
+                passedAlignments: 12,
+                passedUniqueReads: 12,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: [firstCall]
+            ),
+            ONTGenotypeSampleResult(
+                sample: "AnimalB",
+                passedAlignments: 9,
+                passedUniqueReads: 9,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: [secondCall]
+            ),
+        ], calls: [firstCall, secondCall]))
+
+        controller.testingClickMatrixSelectAllChiclet()
+        controller.applyMatrixStyle(GenotypeMatrixStyleRequest(
+            targets: controller.testingCurrentSelectionMatrixTargets,
+            field: .clear
+        ))
+
+        let savedSidecar = try GenotypeAnnotationSidecar.decode(
+            Data(contentsOf: bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename))
+        )
+        XCTAssertEqual(savedSidecar.matrixStyles, [])
+        XCTAssertEqual(savedSidecar.matrixComments.count, 1)
+        XCTAssertNil(try XCTUnwrap(controller.testingRenderedMatrixStyle(genotype: first, sample: "AnimalA")).fillColor)
+        XCTAssertNil(try XCTUnwrap(controller.testingRenderedMatrixStyle(genotype: second, sample: "AnimalB")).fillColor)
+    }
+
     func testMatrixRowSelectionFillAppliesOnlyCellsAtOrAboveReadThreshold() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeMatrixRowThresholdStyle-\(UUID().uuidString)", isDirectory: true)
