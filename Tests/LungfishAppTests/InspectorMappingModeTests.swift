@@ -38,6 +38,20 @@ final class InspectorMappingModeTests: XCTestCase {
         )
     }
 
+    func testGenotypeModeExposesDedicatedAnnotationsInspectorTab() {
+        let viewModel = InspectorViewModel()
+        viewModel.contentMode = .genotype
+
+        XCTAssertEqual(
+            viewModel.availableTabs,
+            [.bundle, .selectedItem, .annotations, .view, .provenance]
+        )
+        XCTAssertEqual(
+            viewModel.availableTabs.map(\.displayLabel),
+            ["Bundle", "Selected Item", "Annotations", "View", "Provenance"]
+        )
+    }
+
     func testMappingAlignmentSectionBindsEmbeddedBundleForWorkflowState() throws {
         let vc = InspectorViewController()
         _ = vc.view

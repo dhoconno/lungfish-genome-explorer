@@ -132,6 +132,9 @@ struct GenotypeViewportExportService {
            !definitionID.isEmpty {
             arguments += ["--active-haplotype-definition", definitionID]
         }
+        if let annotationSidecarURL = snapshot.annotationSidecarURL {
+            arguments += ["--annotations", annotationSidecarURL.path]
+        }
         arguments.append("--force")
 
         do {
@@ -142,7 +145,11 @@ struct GenotypeViewportExportService {
             guard fileManager.fileExists(atPath: provenanceURL.path) else {
                 throw GenotypeViewportExportError.missingProvenance(provenanceURL.path)
             }
-            try verifyProvenance(provenanceURL: provenanceURL, outputURL: standardizedOutputURL)
+            try verifyProvenance(
+                provenanceURL: provenanceURL,
+                outputURL: standardizedOutputURL,
+                expectedInputURLs: snapshot.annotationSidecarURL.map { [$0] } ?? []
+            )
             return GenotypeViewportExportResult(
                 outputURL: standardizedOutputURL,
                 provenanceURL: provenanceURL
@@ -154,7 +161,11 @@ struct GenotypeViewportExportService {
         }
     }
 
-    private func verifyProvenance(provenanceURL: URL, outputURL: URL) throws {
+    private func verifyProvenance(
+        provenanceURL: URL,
+        outputURL: URL,
+        expectedInputURLs: [URL] = []
+    ) throws {
         guard let envelope = try ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL),
               envelope.toolName == "lungfish-cli",
               envelope.workflowName == "lungfish genotype export",
@@ -169,6 +180,18 @@ struct GenotypeViewportExportService {
         )
         guard outputPaths.contains(outputPath) else {
             throw GenotypeViewportExportError.invalidProvenance(provenanceURL.path)
+        }
+        guard expectedInputURLs.isEmpty else {
+            let inputPaths = Set(
+                (envelope.files + envelope.steps.flatMap(\.inputs))
+                    .map { URL(fileURLWithPath: $0.path).standardizedFileURL.path }
+            )
+            for expectedInputURL in expectedInputURLs {
+                guard inputPaths.contains(expectedInputURL.standardizedFileURL.path) else {
+                    throw GenotypeViewportExportError.invalidProvenance(provenanceURL.path)
+                }
+            }
+            return
         }
     }
 
@@ -231,6 +254,7 @@ enum GenotypeViewProjectionSerializer {
             }
             return GenotypeViewProjectionRow(
                 label: row.genotype,
+                locus: row.locus,
                 cells: cells,
                 cellColorsHex: hasAnyCellColor ? cellColors : nil,
                 rowColorHex: normalizedHex(row.rowStyle.fillColor)

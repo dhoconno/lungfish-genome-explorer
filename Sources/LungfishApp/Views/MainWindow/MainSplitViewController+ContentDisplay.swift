@@ -262,7 +262,7 @@ extension MainSplitViewController {
             inspectorController.updateGenotypeResultDocument(result)
             if Self.shouldPreviewPrimaryWorkbook(for: result) {
                 mainSplitLogger.info(
-                    "displayGenotypeResultBundle: Previewing genotype workbook for '\(url.lastPathComponent, privacy: .public)' because no haplotype analysis is present"
+                    "displayGenotypeResultBundle: Previewing genotype workbook for '\(url.lastPathComponent, privacy: .public)' because no native genotype calls are present"
                 )
                 inspectorController.updateGenotypeResultSelection(nil)
                 viewerController.displayQuickLookPreview(url: result.artifacts.workbookURL)
@@ -347,9 +347,28 @@ extension MainSplitViewController {
             inspectorController.genotypeResultDisplaySectionViewModel.onGenotypeHighlightRequested = { [weak controller] request in
                 controller?.applyHighlight(request)
             }
+            inspectorController.genotypeResultDisplaySectionViewModel.onMatrixStyleRequested = { [weak controller] request in
+                controller?.applyMatrixStyle(request)
+            }
+            inspectorController.genotypeResultDisplaySectionViewModel.onMatrixCommentRequested = { [weak controller] request in
+                controller?.addMatrixComment(request)
+            }
+            inspectorController.genotypeResultDisplaySectionViewModel.onSupportSelectionPreviewChanged = { [weak controller] minimumReads in
+                controller?.setMatrixSupportSelectionPreviewMinimumReads(minimumReads)
+            }
+            inspectorController.genotypeResultDisplaySectionViewModel.onShowOnlySelectedMatrixRowsRequested = { [weak controller] in
+                controller?.showOnlySelectedMatrixRows()
+            }
+            inspectorController.genotypeResultDisplaySectionViewModel.onShowOnlySelectedMatrixColumnsRequested = { [weak controller] in
+                controller?.showOnlySelectedMatrixColumns()
+            }
+            inspectorController.genotypeResultDisplaySectionViewModel.onClearMatrixSelectionFilterRequested = { [weak controller] in
+                controller?.clearMatrixSelectionFilter()
+            }
             inspectorController.selectionSectionViewModel.onGenotypeHighlightRequested = { [weak controller] request in
                 controller?.applyHighlight(request)
             }
+            controller.notifyDisplayStateIfAvailable()
             controller.notifySelectionStateIfAvailable()
         } catch {
             mainSplitLogger.warning(
@@ -369,6 +388,7 @@ extension MainSplitViewController {
 
     static func shouldPreviewPrimaryWorkbook(for result: ONTGenotypeResultBundleData) -> Bool {
         result.haplotypeAnalysis == nil
+            && result.calls.isEmpty
             && FileManager.default.fileExists(atPath: result.artifacts.workbookURL.path)
     }
 

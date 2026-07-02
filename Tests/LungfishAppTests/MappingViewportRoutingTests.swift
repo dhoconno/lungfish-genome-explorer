@@ -218,7 +218,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         )
     }
 
-    func testGenotypeResultWithoutHaplotypingButWithCallsPreviewsCurrentWorkbook() throws {
+    func testGenotypeResultWithoutHaplotypeAnalysisDisplaysNativeRawMatrix() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeNoHapCallsPreview-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -258,11 +258,18 @@ final class MappingViewportRoutingTests: XCTestCase {
 
         controller.testingDisplayGenotypeResultBundle(bundleURL)
 
+        XCTAssertNil(controller.viewerController.testQuickLookURL)
+        let resultController = try XCTUnwrap(controller.viewerController.genotypeResultViewController)
+        XCTAssertEqual(resultController.testingSummaryViewMode, .matrix)
+        XCTAssertFalse(resultController.testingComparisonMatrixIsHidden)
         XCTAssertEqual(
-            controller.viewerController.testQuickLookURL?.standardizedFileURL,
-            currentWorkbookURL.standardizedFileURL
+            controller.inspectorController.viewModel.genotypeResultDisplaySectionViewModel.displayState.summaryViewMode,
+            .matrix
         )
-        XCTAssertNil(controller.viewerController.genotypeResultViewController)
+        XCTAssertEqual(
+            controller.inspectorController.viewModel.documentSectionViewModel.genotypeResultDocument?.summaryViewMode,
+            .matrix
+        )
     }
 
     func testAIHaplotypingGUIUsesReplayableCLICommandPreviewAndSanitizedFailureDetail() throws {

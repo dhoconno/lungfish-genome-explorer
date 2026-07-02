@@ -114,6 +114,7 @@ public final class GenotypeResultViewController: NSViewController {
     private var nextHaplotypeSampleActionTag = 1
     private var currentWorkbookNeedsRefresh = false
     private var currentWorkbookUpdateStatus: String?
+    private var currentWorkbookAnnotationAutoUpdateTask: Task<Void, Never>?
     private var aiHaplotypingStatus: String?
     private var outlineRowsBySample: [String: GenotypeOutlineView.Row] = [:]
     private var outlineRowOrder: [String] = []
@@ -308,15 +309,38 @@ public final class GenotypeResultViewController: NSViewController {
             comparisonMatrix.applyFilters(allowedSampleIDs: nil, text: "")
             return
         }
-        let allowed = filteredSampleNames(result: result, sidecar: annotationStore?.sidecar)
+        let baseAllowed = filteredSampleNames(
+            result: result,
+            sidecar: annotationStore?.sidecar,
+            includingQuickSearch: false
+        )
+        let quickSearch = quickFilterSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let quickSearchMatchesSample = !quickSearch.isEmpty
+            && allFilterableSampleNames(result: result).contains {
+                sampleColumnSearchMatches(sampleId: $0, searchText: quickSearch)
+            }
+        let quickSearchIsMatrixRowFilter = !quickSearch.isEmpty
+            && !quickSearchMatchesSample
+            && matrixSearchMatchesGenotypeRow(
+                result: result,
+                search: quickSearch,
+                allowedSamples: baseAllowed
+            )
+        let allowed = quickSearchIsMatrixRowFilter
+            ? baseAllowed
+            : filteredSampleNames(result: result, sidecar: annotationStore?.sidecar)
         comparisonMatrix.applyFilters(
             allowedSampleIDs: allowed,
-            text: matrixRowFilterText(result: result, allowedSamples: allowed)
+            text: quickSearchIsMatrixRowFilter
+                ? quickSearch
+                : matrixRowFilterText(result: result, allowedSamples: allowed)
         )
     }
 
     private func refreshVisibleFilterDependentViews(rebuildCohortSummary shouldRebuildCohortSummary: Bool = false) {
-        if selectedLens == .summary || selectedLens == .review {
+        if selectedLens == .summary, !comparisonMatrix.isHidden {
+            applyComparisonMatrixCohortFilter()
+        } else if selectedLens == .summary || selectedLens == .review {
             rebuildOutline()
         } else if !comparisonMatrix.isHidden {
             applyComparisonMatrixCohortFilter()
@@ -329,14 +353,30 @@ public final class GenotypeResultViewController: NSViewController {
     private func ensureComparisonMatrixConfigured() {
         guard !comparisonMatrixConfigured, let result else { return }
         comparisonMatrixConfigured = true
-        comparisonMatrix.configure(result: result, metadataStore: sampleMetadataStore)
+        comparisonMatrix.configure(
+            result: result,
+            metadataStore: sampleMetadataStore,
+            sidecar: annotationStore?.sidecar
+        )
         comparisonMatrix.applyDisplayState(displayState)
         applyComparisonMatrixCohortFilter()
     }
 
     private func summaryMatrixUsesHaplotypeDefinitions() -> Bool {
-        (result.map { definitionSetForResult($0) != nil } ?? false)
+        (result.map { $0.haplotypeAnalysis != nil && definitionSetForResult($0) != nil } ?? false)
             && !displayState.showsAncillaryLoci
+    }
+
+    private func defaultSummaryViewMode(for result: ONTGenotypeResultBundleData) -> GenotypeSummaryViewMode {
+        result.haplotypeAnalysis == nil && !result.calls.isEmpty ? .matrix : .outline
+    }
+
+    private func initialSummaryViewMode(for result: ONTGenotypeResultBundleData) -> GenotypeSummaryViewMode {
+        if let rawValue = annotationStore?.sidecar.settings.preferredSummaryViewMode,
+           let mode = GenotypeSummaryViewMode(rawValue: rawValue) {
+            return mode
+        }
+        return defaultSummaryViewMode(for: result)
     }
 
     /// Per-call keyboard shortcuts used by the Review lens:
@@ -427,6 +467,7 @@ public final class GenotypeResultViewController: NSViewController {
             bundleURL: result.bundleURL,
             author: NSUserName()
         )
+        displayState.summaryViewMode = initialSummaryViewMode(for: result)
         if shouldEagerlyRecomputeHaplotypeAnalysis(for: result) {
             recomputeLiveHaplotypeAnalysis(evaluator: runHaplotypeDropoutEvaluator())
         } else {
@@ -563,11 +604,19 @@ public final class GenotypeResultViewController: NSViewController {
         onSelectionStateChanged?(currentSelectionState)
     }
 
+    public func notifyDisplayStateIfAvailable() {
+        onDisplayStateChanged?(displayState)
+    }
+
     public func applyDisplayState(_ state: GenotypeResultDisplayState) {
         let previousViewMode = displayState.summaryViewMode
         let previousAncillary = displayState.showsAncillaryLoci
         let previousIncludedLoci = displayState.includedLoci
         displayState = state
+        persistSummaryViewPreferenceIfNeeded(
+            previousViewMode: previousViewMode,
+            nextViewMode: state.summaryViewMode
+        )
         if selectedLens != state.viewportLens {
             showLens(state.viewportLens)
         } else {
@@ -593,7 +642,28 @@ public final class GenotypeResultViewController: NSViewController {
         }
         applyLayoutPreference()
         if let currentSharedCall {
-            showSharedCall(currentSharedCall, sample: currentSelectedSample)
+            showSharedCall(
+                currentSharedCall,
+                sample: currentSelectedSample,
+                matrixTargets: currentSelectionState?.matrixTargets
+            )
+        }
+    }
+
+    private func persistSummaryViewPreferenceIfNeeded(
+        previousViewMode: GenotypeSummaryViewMode,
+        nextViewMode: GenotypeSummaryViewMode
+    ) {
+        guard previousViewMode != nextViewMode,
+              let store = annotationStore,
+              !store.isReadOnly else { return }
+        do {
+            try store.updateSettings { settings in
+                settings.preferredSummaryViewMode = nextViewMode.rawValue
+            }
+            onAnnotationSidecarChanged?(store.sidecar)
+        } catch {
+            presentSheetAlert(error: error)
         }
     }
 
@@ -603,15 +673,264 @@ public final class GenotypeResultViewController: NSViewController {
         comparisonMatrix.applyHighlight(request)
         registerUndo(for: request, previousColor: previousColor)
         if let currentSharedCall {
-            showSharedCall(currentSharedCall, sample: currentSelectedSample)
+            showSharedCall(
+                currentSharedCall,
+                sample: currentSelectedSample,
+                matrixTargets: currentSelectionState?.matrixTargets
+            )
         }
+    }
+
+    public func applyMatrixStyle(_ request: GenotypeMatrixStyleRequest) {
+        guard let store = annotationStore else { return }
+        let requestedTargets = uniqueMatrixTargets(request.targets)
+        if case .clear = request.field {
+            let targets = matrixStyleTargetsToClear(for: requestedTargets, in: store.sidecar)
+            let reloadTargets = uniqueMatrixTargets(requestedTargets + targets)
+            guard !reloadTargets.isEmpty else { return }
+            do {
+                if !targets.isEmpty {
+                    try store.setMatrixStyles(targets.map { (target: $0, style: nil) })
+                }
+                comparisonMatrix.applyAnnotationSidecar(store.sidecar, reloading: reloadTargets)
+                refreshCurrentSelectionDetails()
+                onAnnotationSidecarChanged?(store.sidecar)
+                scheduleCurrentWorkbookUpdateForMatrixAnnotation()
+            } catch {
+                presentSheetAlert(error: error)
+            }
+            return
+        }
+        let broadTargets = request.minimumReads == nil
+            ? []
+            : requestedTargets.filter {
+                switch $0 {
+                case .row, .column:
+                    return true
+                case .cell:
+                    return false
+                }
+            }
+        let targets = request.minimumReads.map {
+            comparisonMatrix.supportedCellTargets(from: requestedTargets, minimumReads: $0)
+        } ?? requestedTargets
+        let reloadTargets = uniqueMatrixTargets(broadTargets + targets)
+        guard !reloadTargets.isEmpty else { return }
+        do {
+            let broadEdits = broadTargets.map { target in
+                let current = matrixStyle(for: target, in: store.sidecar)
+                let next = matrixStyle(current, removing: request.field)
+                return (target: target, style: next)
+            }
+            let cellEdits = targets.map { target in
+                let current = matrixStyle(for: target, in: store.sidecar)
+                let next = matrixStyle(current, applying: request.field)
+                return (target: target, style: next)
+            }
+            let edits = broadEdits + cellEdits
+            try store.setMatrixStyles(edits)
+            comparisonMatrix.applyAnnotationSidecar(store.sidecar, reloading: reloadTargets)
+            if targets != requestedTargets {
+                comparisonMatrix.replaceMatrixTargetSelection(targets)
+                if targets.isEmpty {
+                    publishSelectionState(nil)
+                } else {
+                    showMatrixTargetSelection(targets)
+                }
+            } else {
+                refreshCurrentSelectionDetails()
+            }
+            onAnnotationSidecarChanged?(store.sidecar)
+            scheduleCurrentWorkbookUpdateForMatrixAnnotation()
+        } catch {
+            presentSheetAlert(error: error)
+        }
+    }
+
+    public func addMatrixComment(_ request: GenotypeMatrixCommentRequest) {
+        guard let store = annotationStore else { return }
+        let body = request.body.trimmingCharacters(in: .whitespacesAndNewlines)
+        let targets = uniqueMatrixTargets(request.targets)
+        guard !body.isEmpty, !targets.isEmpty else { return }
+        do {
+            try store.addMatrixComments(targets.map { (target: $0, body: body) })
+            comparisonMatrix.applyAnnotationSidecar(store.sidecar, reloading: targets)
+            refreshCurrentSelectionDetails()
+            onAnnotationSidecarChanged?(store.sidecar)
+            scheduleCurrentWorkbookUpdateForMatrixAnnotation()
+        } catch {
+            presentSheetAlert(error: error)
+        }
+    }
+
+    public func selectSupportedMatrixCellsInCurrentRow(minimumReads: Int) {
+        ensureComparisonMatrixConfigured()
+        let targets = comparisonMatrix.selectSupportedCellsInSelectedRow(minimumReads: minimumReads)
+        if targets.isEmpty {
+            publishSelectionState(nil)
+        } else if let currentSharedCall {
+            publishSelectionState(selectionState(for: currentSharedCall, sample: nil, matrixTargets: targets))
+        } else {
+            publishSelectionState(matrixTargetSelectionState(for: targets))
+        }
+    }
+
+    public func setMatrixSupportSelectionPreviewMinimumReads(_ minimumReads: Int) {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.setSupportSelectionPreviewMinimumReads(minimumReads)
+    }
+
+    public func showOnlySelectedMatrixRows() {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.showOnlySelectedRows()
+    }
+
+    public func showOnlySelectedMatrixColumns() {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.showOnlySelectedColumns()
+    }
+
+    public func clearMatrixSelectionFilter() {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.clearSelectionFilter()
     }
 
     private func applyHighlightWithoutUndo(_ request: GenotypeResultHighlightRequest) {
         ensureComparisonMatrixConfigured()
         comparisonMatrix.applyHighlight(request)
         if let currentSharedCall {
-            showSharedCall(currentSharedCall, sample: currentSelectedSample)
+            showSharedCall(
+                currentSharedCall,
+                sample: currentSelectedSample,
+                matrixTargets: currentSelectionState?.matrixTargets
+            )
+        }
+    }
+
+    private func uniqueMatrixTargets(
+        _ targets: [GenotypeAnnotationSidecar.MatrixTarget]
+    ) -> [GenotypeAnnotationSidecar.MatrixTarget] {
+        var unique: [GenotypeAnnotationSidecar.MatrixTarget] = []
+        unique.reserveCapacity(targets.count)
+        for target in targets where !unique.contains(target) {
+            unique.append(target)
+        }
+        return unique
+    }
+
+    private func matrixStyleTargetsToClear(
+        for selectedTargets: [GenotypeAnnotationSidecar.MatrixTarget],
+        in sidecar: GenotypeAnnotationSidecar
+    ) -> [GenotypeAnnotationSidecar.MatrixTarget] {
+        let selectedTargets = uniqueMatrixTargets(selectedTargets)
+        guard !selectedTargets.isEmpty else { return [] }
+        return uniqueMatrixTargets(sidecar.matrixStyles.compactMap { annotation in
+            selectedTargets.contains { selectionClearsMatrixStyleTarget(annotation.target, selectedBy: $0) }
+                ? annotation.target
+                : nil
+        })
+    }
+
+    private func selectionClearsMatrixStyleTarget(
+        _ styleTarget: GenotypeAnnotationSidecar.MatrixTarget,
+        selectedBy selectedTarget: GenotypeAnnotationSidecar.MatrixTarget
+    ) -> Bool {
+        switch selectedTarget {
+        case let .row(selectedLocus, selectedGenotype):
+            switch styleTarget {
+            case let .row(locus, genotype), let .cell(locus, genotype, _):
+                return locus == selectedLocus && genotype == selectedGenotype
+            case .column:
+                return false
+            }
+        case let .column(selectedSample):
+            switch styleTarget {
+            case let .column(sample), let .cell(_, _, sample):
+                return sample == selectedSample
+            case .row:
+                return false
+            }
+        case let .cell(selectedLocus, selectedGenotype, selectedSample):
+            guard case let .cell(locus, genotype, sample) = styleTarget else { return false }
+            return locus == selectedLocus && genotype == selectedGenotype && sample == selectedSample
+        }
+    }
+
+    private func matrixStyle(
+        for target: GenotypeAnnotationSidecar.MatrixTarget,
+        in sidecar: GenotypeAnnotationSidecar
+    ) -> GenotypeAnnotationSidecar.MatrixStyle {
+        sidecar.matrixStyles.first { $0.target == target }?.style
+            ?? GenotypeAnnotationSidecar.MatrixStyle(
+                fillColor: nil,
+                textColor: nil,
+                borderColor: nil,
+                isBold: false,
+                isItalic: false,
+                boldOverride: nil,
+                italicOverride: nil
+            )
+    }
+
+    private func matrixStyle(
+        _ style: GenotypeAnnotationSidecar.MatrixStyle,
+        applying field: GenotypeMatrixStyleField
+    ) -> GenotypeAnnotationSidecar.MatrixStyle? {
+        var style = style
+        switch field {
+        case .fillColor(let color):
+            style.fillColor = color?.hexString
+        case .textColor(let color):
+            style.textColor = color?.hexString
+        case .borderColor(let color):
+            style.borderColor = color?.hexString
+        case .isBold(let enabled):
+            style.isBold = enabled
+            style.boldOverride = enabled
+        case .isItalic(let enabled):
+            style.isItalic = enabled
+            style.italicOverride = enabled
+        case .clear:
+            return nil
+        }
+        return style.isEmpty ? nil : style
+    }
+
+    private func matrixStyle(
+        _ style: GenotypeAnnotationSidecar.MatrixStyle,
+        removing field: GenotypeMatrixStyleField
+    ) -> GenotypeAnnotationSidecar.MatrixStyle? {
+        var style = style
+        switch field {
+        case .fillColor:
+            style.fillColor = nil
+        case .textColor:
+            style.textColor = nil
+        case .borderColor:
+            style.borderColor = nil
+        case .isBold:
+            style.isBold = false
+            style.boldOverride = nil
+        case .isItalic:
+            style.isItalic = false
+            style.italicOverride = nil
+        case .clear:
+            return nil
+        }
+        return style.isEmpty ? nil : style
+    }
+
+    private func refreshCurrentSelectionDetails() {
+        if let currentSharedCall {
+            showSharedCall(
+                currentSharedCall,
+                sample: currentSelectedSample,
+                matrixTargets: currentSelectionState?.matrixTargets
+            )
+        } else if let targets = currentSelectionState?.matrixTargets, !targets.isEmpty {
+            showMatrixTargetSelection(targets)
+        } else {
+            publishSelectionState(nil)
         }
     }
 
@@ -779,8 +1098,11 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func wireCallbacks() {
-        comparisonMatrix.onSharedCallSelected = { [weak self] sharedCall, sample in
-            self?.showSharedCall(sharedCall, sample: sample)
+        comparisonMatrix.onSharedCallSelected = { [weak self] sharedCall, sample, matrixTargets in
+            self?.showSharedCall(sharedCall, sample: sample, matrixTargets: matrixTargets)
+        }
+        comparisonMatrix.onMatrixTargetsSelected = { [weak self] targets in
+            self?.showMatrixTargetSelection(targets)
         }
         comparisonMatrix.onSelectionCleared = { [weak self] in
             self?.showEmptySelection()
@@ -1579,12 +1901,19 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func applySummaryViewModeVisibility() {
-        outlineView.isHidden = false
+        let isMatrixMode = displayState.summaryViewMode == .matrix
+        let usesDefinitionMatrix = isMatrixMode && summaryMatrixUsesHaplotypeDefinitions()
+        let showsRawMatrix = isMatrixMode && !usesDefinitionMatrix && !displayState.showsAncillaryLoci
+        outlineView.isHidden = showsRawMatrix
         haplotypeMatrixView.isHidden = true
-        comparisonMatrix.isHidden = true
+        comparisonMatrix.isHidden = !showsRawMatrix
         cohortSummaryPanel.isHidden = false
         detailScrollView.isHidden = true
         detailContainer.isHidden = false
+
+        if showsRawMatrix {
+            ensureComparisonMatrixConfigured()
+        }
     }
 
     private func tapeCell(for haplotypeName: String, status: GenotypeHaplotypeCallStatus) -> GenotypeHaplotypeTapeView.Cell {
@@ -1748,7 +2077,11 @@ public final class GenotypeResultViewController: NSViewController {
         return stack
     }
 
-    private func showSharedCall(_ sharedCall: ONTGenotypeSharedCall, sample: String? = nil) {
+    private func showSharedCall(
+        _ sharedCall: ONTGenotypeSharedCall,
+        sample: String? = nil,
+        matrixTargets: [GenotypeAnnotationSidecar.MatrixTarget]? = nil
+    ) {
         currentSharedCall = sharedCall
         currentSelectedSample = sample
         removeArrangedSubviews(from: detailStack)
@@ -1811,7 +2144,7 @@ public final class GenotypeResultViewController: NSViewController {
             }
         }
 
-        publishSelectionState(selectionState(for: sharedCall, sample: sample))
+        publishSelectionState(selectionState(for: sharedCall, sample: sample, matrixTargets: matrixTargets))
     }
 
     private func showEmptySelection() {
@@ -1822,7 +2155,92 @@ public final class GenotypeResultViewController: NSViewController {
         publishSelectionState(nil)
     }
 
-    private func selectionState(for sharedCall: ONTGenotypeSharedCall, sample: String?) -> GenotypeResultSelectionState {
+    private func showMatrixTargetSelection(_ targets: [GenotypeAnnotationSidecar.MatrixTarget]) {
+        currentSharedCall = nil
+        currentSelectedSample = nil
+        let uniqueTargets = uniqueMatrixTargets(targets)
+        removeArrangedSubviews(from: detailStack)
+        detailStack.addArrangedSubview(sectionTitle("Matrix Annotation Targets"))
+        detailStack.addArrangedSubview(detailRows(matrixTargetDetailRows(for: uniqueTargets)))
+        publishSelectionState(matrixTargetSelectionState(for: uniqueTargets))
+    }
+
+    private func matrixTargetSelectionState(
+        for targets: [GenotypeAnnotationSidecar.MatrixTarget]
+    ) -> GenotypeResultSelectionState {
+        let title = targets.count == 1
+            ? matrixTargetTitle(targets[0])
+            : "\(targets.count) Matrix Targets"
+        return GenotypeResultSelectionState(
+            title: title,
+            subtitle: "Matrix annotations",
+            detailRows: matrixTargetDetailRows(for: targets) + matrixCommentDetailRows(for: targets),
+            highlightTarget: nil,
+            matrixTargets: targets
+        )
+    }
+
+    private func matrixTargetTitle(_ target: GenotypeAnnotationSidecar.MatrixTarget) -> String {
+        switch target {
+        case let .row(locus, genotype):
+            return "\(locus) \(genotype)"
+        case let .column(sample):
+            return sample
+        case let .cell(locus, genotype, sample):
+            return "\(sample) \(locus) \(genotype)"
+        }
+    }
+
+    private func matrixTargetDetailRows(
+        for targets: [GenotypeAnnotationSidecar.MatrixTarget]
+    ) -> [(String, String)] {
+        if targets.count == 1, let target = targets.first {
+            switch target {
+            case let .row(locus, genotype):
+                return [("Selection Type", "Row"), ("Locus", locus), ("Genotype", genotype)]
+            case let .column(sample):
+                return [("Selection Type", "Column"), ("Sample", sample)]
+            case let .cell(locus, genotype, sample):
+                return [("Selection Type", "Cell"), ("Sample", sample), ("Locus", locus), ("Genotype", genotype)]
+            }
+        }
+        return [
+            ("Selection Type", matrixTargetTypeLabel(for: targets)),
+            ("Targets", "\(targets.count)"),
+            ("Selection", targets.map(matrixTargetSummary).joined(separator: ", ")),
+        ]
+    }
+
+    private func matrixTargetTypeLabel(for targets: [GenotypeAnnotationSidecar.MatrixTarget]) -> String {
+        let types = Set(targets.map { target in
+            switch target {
+            case .row: return "Row"
+            case .column: return "Column"
+            case .cell: return "Cell"
+            }
+        })
+        if types.count == 1, let type = types.first {
+            return targets.count == 1 ? type : type + "s"
+        }
+        return "Mixed"
+    }
+
+    private func matrixTargetSummary(_ target: GenotypeAnnotationSidecar.MatrixTarget) -> String {
+        switch target {
+        case let .row(locus, genotype):
+            return "\(locus) \(genotype)"
+        case let .column(sample):
+            return sample
+        case let .cell(locus, genotype, sample):
+            return "\(sample) \(locus) \(genotype)"
+        }
+    }
+
+    private func selectionState(
+        for sharedCall: ONTGenotypeSharedCall,
+        sample: String?,
+        matrixTargets providedMatrixTargets: [GenotypeAnnotationSidecar.MatrixTarget]? = nil
+    ) -> GenotypeResultSelectionState {
         var rows: [(String, String)] = [
             ("Meaning", sharedCallMeaning(for: sharedCall)),
             ("Locus", sharedCall.locus),
@@ -1831,11 +2249,12 @@ public final class GenotypeResultViewController: NSViewController {
             ("Alignments", integer(sharedCall.totalAlignments)),
             ("Support Metric", supportMetricLabel),
         ]
-        if let sample,
-           let support = sharedCall.support(for: sample) {
+        if let sample {
             rows.append(("Selected Sample", sample))
-            rows.append(("Selected Unique", integer(support.passedUniqueReads)))
-            rows.append(("Selected Support", supportFractionLabel(genotype: sharedCall.genotype, sample: sample)))
+            if let support = sharedCall.support(for: sample) {
+                rows.append(("Selected Unique", integer(support.passedUniqueReads)))
+                rows.append(("Selected Support", supportFractionLabel(genotype: sharedCall.genotype, sample: sample)))
+            }
         }
         if let topSupport = sharedCall.topSupport {
             rows.append(("Top Sample", "\(topSupport.sample) - \(integer(topSupport.passedUniqueReads)) unique"))
@@ -1843,6 +2262,17 @@ public final class GenotypeResultViewController: NSViewController {
         if let aliases = sharedCall.aliasDisplay {
             rows.append(("Aliases", aliases))
         }
+        let matrixTargets = providedMatrixTargets ?? [
+            sample.map {
+                GenotypeAnnotationSidecar.MatrixTarget.cell(
+                    locus: sharedCall.locus,
+                    genotype: sharedCall.genotype,
+                    sample: $0
+                )
+            } ?? .row(locus: sharedCall.locus, genotype: sharedCall.genotype),
+        ]
+        rows.insert(("Selection Type", matrixTargetTypeLabel(for: matrixTargets)), at: 0)
+        rows += matrixCommentDetailRows(for: sharedCall, sample: sample, matrixTargets: matrixTargets)
         let target = GenotypeResultHighlightTarget(
             genotype: sharedCall.genotype,
             locus: sharedCall.locus,
@@ -1854,8 +2284,56 @@ public final class GenotypeResultViewController: NSViewController {
             subtitle: "\(sharedCall.locus) - \(sharedCall.sampleCount) samples",
             detailRows: rows,
             highlightTarget: target,
-            highlightStyle: style
+            highlightStyle: style,
+            matrixTargets: matrixTargets
         )
+    }
+
+    private func matrixCommentDetailRows(
+        for sharedCall: ONTGenotypeSharedCall,
+        sample: String?,
+        matrixTargets: [GenotypeAnnotationSidecar.MatrixTarget]
+    ) -> [(String, String)] {
+        guard let sidecar = annotationStore?.sidecar else { return [] }
+        var targets = matrixTargets
+        let rowTarget = GenotypeAnnotationSidecar.MatrixTarget.row(
+            locus: sharedCall.locus,
+            genotype: sharedCall.genotype
+        )
+        if !targets.contains(rowTarget) {
+            targets.append(rowTarget)
+        }
+        if let sample {
+            let columnTarget = GenotypeAnnotationSidecar.MatrixTarget.column(sample: sample)
+            if !targets.contains(columnTarget) {
+                targets.append(columnTarget)
+            }
+        }
+        return sidecar.matrixComments.compactMap { comment in
+            guard targets.contains(comment.target) else { return nil }
+            return (matrixCommentLabel(for: comment.target), comment.body)
+        }
+    }
+
+    private func matrixCommentDetailRows(
+        for targets: [GenotypeAnnotationSidecar.MatrixTarget]
+    ) -> [(String, String)] {
+        guard let sidecar = annotationStore?.sidecar else { return [] }
+        return sidecar.matrixComments.compactMap { comment in
+            guard targets.contains(comment.target) else { return nil }
+            return (matrixCommentLabel(for: comment.target), comment.body)
+        }
+    }
+
+    private func matrixCommentLabel(for target: GenotypeAnnotationSidecar.MatrixTarget) -> String {
+        switch target {
+        case .row:
+            return "Row Comment"
+        case .column:
+            return "Column Comment"
+        case .cell:
+            return "Cell Comment"
+        }
     }
 
     private func publishSelectionState(_ state: GenotypeResultSelectionState?) {
@@ -2062,6 +2540,7 @@ public final class GenotypeResultViewController: NSViewController {
             bundleURL: updatedResult.bundleURL,
             author: NSUserName()
         )
+        displayState.summaryViewMode = initialSummaryViewMode(for: updatedResult)
         rebuildActiveHaplotypeAnalysisIndexes()
         aiHaplotypingStatus = "AI haplotype revision created. Calls require manual review."
         rebuildSummary()
@@ -2070,6 +2549,10 @@ public final class GenotypeResultViewController: NSViewController {
         rebuildHaplotypeMatrix()
         rebuildCohortSummary()
         rebuildArtifactLens()
+        if selectedLens == .summary {
+            applySummaryViewModeVisibility()
+        }
+        onDisplayStateChanged?(displayState)
         if let sidecar = annotationStore?.sidecar {
             onAnnotationSidecarChanged?(sidecar)
         }
@@ -2087,43 +2570,80 @@ public final class GenotypeResultViewController: NSViewController {
         stack.alignment = .leading
         stack.spacing = 6
 
-        let manualChangeCount = currentWorkbookManualChangeCount
+        let changeCount = currentWorkbookRelevantChangeCount
+        let changeLabel = currentWorkbookRelevantChangeLabel
         let isReadOnly = annotationStore?.isReadOnly ?? false
         let statusText: String
         if let currentWorkbookUpdateStatus {
             statusText = currentWorkbookUpdateStatus
-        } else if manualChangeCount == 0 {
+        } else if changeCount == 0 {
             statusText = "current.xlsx is up to date."
         } else if isReadOnly {
             statusText = "Bundle is read-only. Save a writable copy to update current.xlsx."
         } else if currentWorkbookNeedsRefresh {
-            statusText = "current.xlsx does not include \(manualChangeCount) manual haplotype change\(manualChangeCount == 1 ? "" : "s")."
+            statusText = "current.xlsx does not include \(changeCount) \(changeLabel)."
         } else {
-            statusText = "current.xlsx can be refreshed from \(manualChangeCount) manual haplotype change\(manualChangeCount == 1 ? "" : "s")."
+            statusText = "current.xlsx can be refreshed from \(changeCount) \(changeLabel)."
         }
 
         stack.addArrangedSubview(caption(statusText))
-        stack.addArrangedSubview(caption("Regenerates the bundle workbook from displayed haplotype calls and records a workbook revision."))
+        stack.addArrangedSubview(caption("Regenerates the bundle workbook from displayed haplotype calls and matrix annotations, then records a workbook revision."))
 
         let button = NSButton(title: "Update current.xlsx", target: self, action: #selector(updateCurrentWorkbookFromOverrides))
         button.bezelStyle = .rounded
         button.controlSize = .small
-        button.isEnabled = manualChangeCount > 0 && !isReadOnly
-        button.toolTip = "Apply Review viewport haplotype overrides to artifacts/workbooks/current.xlsx."
+        button.isEnabled = changeCount > 0 && !isReadOnly
+        button.toolTip = "Apply Review viewport haplotype overrides and matrix annotations to artifacts/workbooks/current.xlsx."
         stack.addArrangedSubview(button)
         return stack
     }
 
-    private var currentWorkbookManualChangeCount: Int {
+    private var currentWorkbookRelevantChangeCount: Int {
         guard let sidecar = annotationStore?.sidecar else { return 0 }
-        return sidecar.callOverrides.count + sidecar.manualHaplotypeAssignments.count
+        return sidecar.callOverrides.count
+            + sidecar.manualHaplotypeAssignments.count
+            + sidecar.matrixStyles.count
+            + sidecar.matrixComments.count
+    }
+
+    private var currentWorkbookHasMatrixAnnotations: Bool {
+        guard let sidecar = annotationStore?.sidecar else { return false }
+        return !sidecar.matrixStyles.isEmpty || !sidecar.matrixComments.isEmpty
+    }
+
+    private var currentWorkbookRelevantChangeLabel: String {
+        let count = currentWorkbookRelevantChangeCount
+        if currentWorkbookHasMatrixAnnotations {
+            return count == 1 ? "workbook annotation change" : "workbook annotation changes"
+        }
+        return count == 1 ? "manual haplotype change" : "manual haplotype changes"
+    }
+
+    private func scheduleCurrentWorkbookUpdateForMatrixAnnotation() {
+        guard currentWorkbookHasMatrixAnnotations,
+              !(annotationStore?.isReadOnly ?? true) else { return }
+        currentWorkbookNeedsRefresh = true
+        currentWorkbookUpdateStatus = "Queued current.xlsx annotation update."
+        rebuildArtifactLens()
+        currentWorkbookAnnotationAutoUpdateTask?.cancel()
+        currentWorkbookAnnotationAutoUpdateTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: 1_200_000_000)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            self?.updateCurrentWorkbookFromOverrides()
+        }
     }
 
     @objc private func updateCurrentWorkbookFromOverrides() {
         guard let result else { return }
+        currentWorkbookAnnotationAutoUpdateTask?.cancel()
+        currentWorkbookAnnotationAutoUpdateTask = nil
         let calls = currentWorkbookEffectiveHaplotypeCalls()
         let includedLoci = currentWorkbookIncludedLoci()
-        guard !calls.isEmpty else {
+        guard !calls.isEmpty || currentWorkbookHasMatrixAnnotations else {
             currentWorkbookUpdateStatus = "No displayed haplotype calls are available for current.xlsx."
             rebuildArtifactLens()
             return
@@ -2148,10 +2668,7 @@ public final class GenotypeResultViewController: NSViewController {
                 )
             )
             if let updated = try? ONTGenotypeResultBundle.loadResult(from: result.bundleURL, manifest: updatedManifest) {
-                self.result = updated
-                comparisonMatrixConfigured = false
-                rebuildResultIndexes(for: updated)
-                rebuildActiveHaplotypeAnalysisIndexes()
+                applyCurrentWorkbookUpdatedResult(updated)
             }
             currentWorkbookNeedsRefresh = false
             currentWorkbookUpdateStatus = "Updated current.xlsx. Previous workbook saved in revisions."
@@ -2167,10 +2684,7 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     public func applyCurrentWorkbookUpdateCompleted(result updatedResult: ONTGenotypeResultBundleData) {
-        result = updatedResult
-        comparisonMatrixConfigured = false
-        rebuildResultIndexes(for: updatedResult)
-        rebuildActiveHaplotypeAnalysisIndexes()
+        applyCurrentWorkbookUpdatedResult(updatedResult)
         currentWorkbookNeedsRefresh = false
         currentWorkbookUpdateStatus = "Updated current.xlsx. Previous workbook saved in revisions."
         rebuildArtifactLens()
@@ -2182,6 +2696,16 @@ public final class GenotypeResultViewController: NSViewController {
     public func applyCurrentWorkbookUpdateFailed(_ error: Error) {
         currentWorkbookUpdateStatus = "current.xlsx update failed — see Operations Panel."
         rebuildArtifactLens()
+    }
+
+    private func applyCurrentWorkbookUpdatedResult(_ updatedResult: ONTGenotypeResultBundleData) {
+        let matrixWasConfigured = comparisonMatrixConfigured
+        result = updatedResult
+        rebuildResultIndexes(for: updatedResult)
+        rebuildActiveHaplotypeAnalysisIndexes()
+        guard matrixWasConfigured else { return }
+        comparisonMatrix.applyAnnotationSidecar(annotationStore?.sidecar, reload: false)
+        applyComparisonMatrixCohortFilter()
     }
 
     private func currentWorkbookEffectiveHaplotypeCalls() -> [GenotypeWorkbookHaplotypeCall] {
@@ -2531,7 +3055,7 @@ public final class GenotypeResultViewController: NSViewController {
             guard !bulk.isEmpty else { return }
             try store.addManualHaplotypeAssignments(bulk)
             currentWorkbookNeedsRefresh = true
-            currentWorkbookUpdateStatus = "current.xlsx does not include manual haplotype changes."
+            currentWorkbookUpdateStatus = "current.xlsx does not include workbook changes."
             onAnnotationSidecarChanged?(store.sidecar)
         } catch {
             if let window = view.window ?? NSApp.keyWindow {
@@ -2552,7 +3076,7 @@ public final class GenotypeResultViewController: NSViewController {
                 other.label == assignment.label
             }
             currentWorkbookNeedsRefresh = true
-            currentWorkbookUpdateStatus = "current.xlsx does not include manual haplotype changes."
+            currentWorkbookUpdateStatus = "current.xlsx does not include workbook changes."
             onAnnotationSidecarChanged?(store.sidecar)
         } catch {
             if let window = view.window ?? NSApp.keyWindow {
@@ -2777,6 +3301,7 @@ public final class GenotypeResultViewController: NSViewController {
                         locus: locusCall.locus,
                         callName: callName,
                         haplotypeName: haplotype.name,
+                        haplotypeColor: haplotype.effectiveFillColor,
                         observedCount: observedCount,
                         diagnosticCount: haplotype.diagnosticAlleles.count,
                         minimumMatches: haplotype.effectiveMinimumMatches,
@@ -2953,6 +3478,27 @@ public final class GenotypeResultViewController: NSViewController {
         return hasMatrixMatch ? search : ""
     }
 
+    private func matrixSearchMatchesGenotypeRow(
+        result: ONTGenotypeResultBundleData,
+        search: String,
+        allowedSamples: Set<String>?
+    ) -> Bool {
+        let normalizedSearch = normalizedSearchToken(search)
+        let summaries = result.locusSummaries(
+            minimumSupportPercent: displayState.activeMinimumSupportPercent,
+            denominator: displayState.supportDenominator
+        )
+        return summaries.lazy.flatMap(\.sharedCalls).contains { row in
+            if let allowedSamples,
+               !row.sampleSupport.contains(where: { allowedSamples.contains($0.sample) }) {
+                return false
+            }
+            return row.locus.localizedCaseInsensitiveContains(search)
+                || row.genotype.localizedCaseInsensitiveContains(search)
+                || (!normalizedSearch.isEmpty && normalizedSearchToken(row.genotype).contains(normalizedSearch))
+        }
+    }
+
     private func allFilterableSampleNames(result: ONTGenotypeResultBundleData) -> [String] {
         if !allFilterableSampleNamesCache.isEmpty {
             return allFilterableSampleNamesCache
@@ -2978,6 +3524,16 @@ public final class GenotypeResultViewController: NSViewController {
         if annotationTextMatches(sampleId: sampleId, searchText: search) { return true }
         if haplotypeCallMatches(sampleId: sampleId, searchText: search) { return true }
         if genotypeCallMatches(sampleId: sampleId, searchText: search) { return true }
+        return false
+    }
+
+    private func sampleColumnSearchMatches(sampleId: String, searchText: String) -> Bool {
+        let search = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !search.isEmpty else { return true }
+        if sampleId.localizedCaseInsensitiveContains(search) { return true }
+        if metadataMatches(sampleId: sampleId, searchText: search) { return true }
+        if annotationTextMatches(sampleId: sampleId, searchText: search) { return true }
+        if haplotypeCallMatches(sampleId: sampleId, searchText: search) { return true }
         return false
     }
 
@@ -3484,7 +4040,7 @@ public final class GenotypeResultViewController: NSViewController {
                 )
             }
             currentWorkbookNeedsRefresh = true
-            currentWorkbookUpdateStatus = "current.xlsx does not include manual haplotype changes."
+            currentWorkbookUpdateStatus = "current.xlsx does not include workbook changes."
             refreshAfterHaplotypeOverride()
         } catch {
             presentSheetAlert(error: error)
@@ -3705,7 +4261,7 @@ public final class GenotypeResultViewController: NSViewController {
             return
         }
         currentWorkbookNeedsRefresh = true
-        currentWorkbookUpdateStatus = "current.xlsx does not include manual haplotype changes."
+        currentWorkbookUpdateStatus = "current.xlsx does not include workbook changes."
         refreshAfterHaplotypeOverride()
         // Re-present the sheet with fresh state so the analyst can keep working.
         dismissSampleDetailSheet()
@@ -3722,7 +4278,7 @@ public final class GenotypeResultViewController: NSViewController {
             return
         }
         currentWorkbookNeedsRefresh = true
-        currentWorkbookUpdateStatus = "current.xlsx does not include manual haplotype changes."
+        currentWorkbookUpdateStatus = "current.xlsx does not include workbook changes."
         refreshAfterHaplotypeOverride()
         dismissSampleDetailSheet()
         presentSampleDetailSheet(forAnimal: animalId)
@@ -3993,7 +4549,8 @@ public final class GenotypeResultViewController: NSViewController {
     ) -> GenotypeViewportExportSnapshot {
         guard let store = annotationStore else { return base }
         let sidecar = store.sidecar
-        guard !sidecar.callOverrides.isEmpty || !sidecar.auditLog.isEmpty else { return base }
+        let hasMatrixAnnotations = !sidecar.matrixStyles.isEmpty || !sidecar.matrixComments.isEmpty
+        guard !sidecar.callOverrides.isEmpty || !sidecar.auditLog.isEmpty || hasMatrixAnnotations else { return base }
         let overrides = sidecar.callOverrides.map { o in
             GenotypeAnnotationOverrideEntry(
                 sample: o.sample, locus: o.locus, slot: o.slot.rawValue,
@@ -4014,6 +4571,12 @@ public final class GenotypeResultViewController: NSViewController {
                 timestamp: e.timestamp
             )
         }
+        let annotationSidecarURL = ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: base.bundleURL)
+        var provenanceInputURLs = base.provenanceInputURLs
+        if FileManager.default.fileExists(atPath: annotationSidecarURL.path),
+           !provenanceInputURLs.contains(annotationSidecarURL) {
+            provenanceInputURLs.append(annotationSidecarURL)
+        }
         return GenotypeViewportExportSnapshot(
             bundleURL: base.bundleURL,
             analysisName: base.analysisName,
@@ -4021,7 +4584,10 @@ public final class GenotypeResultViewController: NSViewController {
             filters: base.filters,
             sampleNames: base.sampleNames,
             rows: base.rows,
-            provenanceInputURLs: base.provenanceInputURLs,
+            provenanceInputURLs: provenanceInputURLs,
+            annotationSidecarURL: FileManager.default.fileExists(atPath: annotationSidecarURL.path)
+                ? annotationSidecarURL
+                : nil,
             sidecar: GenotypeAnnotationSidecarSnapshot(
                 overrides: overrides,
                 auditEntries: auditEntries
@@ -4042,6 +4608,7 @@ public final class GenotypeResultViewController: NSViewController {
             sampleNames: base.sampleNames,
             rows: base.rows,
             provenanceInputURLs: base.provenanceInputURLs,
+            annotationSidecarURL: base.annotationSidecarURL,
             sidecar: base.sidecar
         )
     }
@@ -4080,6 +4647,7 @@ public final class GenotypeResultViewController: NSViewController {
             sampleNames: base.sampleNames,
             rows: base.rows,
             provenanceInputURLs: provenanceInputURLs,
+            annotationSidecarURL: base.annotationSidecarURL,
             sidecar: base.sidecar
         )
     }
@@ -4837,6 +5405,14 @@ extension GenotypeResultViewController {
         selectedLens.identifier
     }
 
+    var testingSummaryViewMode: GenotypeSummaryViewMode {
+        displayState.summaryViewMode
+    }
+
+    var testingComparisonMatrixIsHidden: Bool {
+        comparisonMatrix.isHidden
+    }
+
     var testingAnchorLensText: String {
         if anchorStack.arrangedSubviews.isEmpty {
             rebuildAnchorLens()
@@ -4917,6 +5493,26 @@ extension GenotypeResultViewController {
         return comparisonMatrix.testingVisibleGenotypes
     }
 
+    var testingVisibleMatrixSamples: [String] {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingVisibleSampleNames
+    }
+
+    var testingVisibleMatrixSampleColumnTitles: [String] {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingVisibleSampleColumnTitles
+    }
+
+    var testingPinnedMatrixColumnTitles: [String] {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingPinnedColumnTitles
+    }
+
+    var testingVisibleMatrixSampleReadTitles: [String] {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingVisibleSampleReadTitles
+    }
+
     func testingSelectFirstSampleCell(sample: String) {
         ensureComparisonMatrixConfigured()
         comparisonMatrix.testingSelectFirstSampleCell(sample: sample)
@@ -4941,6 +5537,125 @@ extension GenotypeResultViewController {
     func testingBackgroundColor(genotype: String, sample: String) -> NSColor? {
         ensureComparisonMatrixConfigured()
         return comparisonMatrix.testingBackgroundColor(genotype: genotype, sample: sample)
+    }
+
+    func testingSelectMatrixCell(genotype: String, sample: String) {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.testingSelectCell(genotype: genotype, sample: sample)
+    }
+
+    func testingSelectMatrixRows(genotypes: [String], sample: String?) {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.testingSelectRows(genotypes: genotypes, sample: sample)
+    }
+
+    func testingSelectMatrixColumn(sample: String) {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.testingSelectColumn(sample: sample)
+    }
+
+    func testingSelectMatrixColumns(samples: [String]) {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.testingSelectColumns(samples: samples)
+    }
+
+    func testingClickMatrixCell(
+        genotype: String,
+        sample: String,
+        modifiers: NSEvent.ModifierFlags = []
+    ) {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.testingClickCell(genotype: genotype, sample: sample, modifiers: modifiers)
+    }
+
+    func testingClickMatrixRowChiclet(
+        genotype: String,
+        modifiers: NSEvent.ModifierFlags = []
+    ) {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.testingClickRowChiclet(genotype: genotype, modifiers: modifiers)
+    }
+
+    func testingClickMatrixColumnChiclet(
+        sample: String,
+        modifiers: NSEvent.ModifierFlags = []
+    ) {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.testingClickColumnChiclet(sample: sample, modifiers: modifiers)
+    }
+
+    func testingClickMatrixSelectAllChiclet() {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.testingClickSelectAllChiclet()
+    }
+
+    var testingCurrentSelectionMatrixTargets: [GenotypeAnnotationSidecar.MatrixTarget] {
+        currentSelectionState?.matrixTargets ?? []
+    }
+
+    var testingCurrentSelectionDetailRows: [(String, String)] {
+        currentSelectionState?.detailRows ?? []
+    }
+
+    func testingRenderedMatrixStyle(genotype: String, sample: String) -> GenotypeMatrixRenderedStyle? {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingRenderedStyle(genotype: genotype, sample: sample)
+    }
+
+    func testingIsSelectedMatrixCell(genotype: String, sample: String) -> Bool {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingIsSelectedCell(genotype: genotype, sample: sample)
+    }
+
+    func testingShowsSupportSelectionPreviewBorder(genotype: String, sample: String) -> Bool {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingShowsSupportSelectionPreviewBorder(genotype: genotype, sample: sample)
+    }
+
+    func testingDrawsMatrixCellSelectionFocus(genotype: String, sample: String) -> Bool {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingDrawsMatrixCellSelectionFocus(genotype: genotype, sample: sample)
+    }
+
+    func testingSetMatrixSupportSelectionPreviewMinimumReads(_ minimumReads: Int) {
+        setMatrixSupportSelectionPreviewMinimumReads(minimumReads)
+    }
+
+    func testingShowOnlySelectedMatrixRows() {
+        showOnlySelectedMatrixRows()
+    }
+
+    func testingShowOnlySelectedMatrixColumns() {
+        showOnlySelectedMatrixColumns()
+    }
+
+    func testingClearMatrixSelectionFilter() {
+        clearMatrixSelectionFilter()
+    }
+
+    func testingCellValue(genotype: String, sample: String) -> String? {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingCellValue(genotype: genotype, sample: sample)
+    }
+
+    func testingSelectSupportedCellsInSelectedRow(minimumReads: Int) -> [GenotypeAnnotationSidecar.MatrixTarget] {
+        selectSupportedMatrixCellsInCurrentRow(minimumReads: minimumReads)
+        return currentSelectionState?.matrixTargets ?? []
+    }
+
+    func testingResetMatrixReloadCounters() {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.testingResetReloadCounters()
+    }
+
+    var testingMatrixFullReloadCount: Int {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingFullReloadCount
+    }
+
+    var testingMatrixPartialReloadCount: Int {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingPartialReloadCount
     }
 
     var testingDetailContentTopInset: CGFloat {
@@ -4997,7 +5712,8 @@ extension GenotypeResultViewController {
     }
 
     var testingHaplotypeMatrixText: String {
-        haplotypeMatrixView.testingText
+        rebuildHaplotypeMatrix()
+        return haplotypeMatrixView.testingText
     }
 
     func testingIsClearWholeMHCHomozygote(

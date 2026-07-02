@@ -122,6 +122,11 @@ public struct GenotypeResultDisplayState: Equatable {
     /// default) disables the filter. This is a SEPARATE concern from the
     /// cohort flag below and must never alias it.
     public var minimumReads: Int = 0
+    public var matrixMinimumReads: Int = 0
+    public var matrixMinimumPercent: Double = 0
+    public var matrixPercentDenominator: ONTGenotypeSupportDenominator = .viewedLocus
+    public var matrixRowFilterText: String = ""
+    public var matrixSampleFilterText: String = ""
 
     /// The historical "calls below this are unreliable" cohort flag (default
     /// `5_000`). It LABELS samples in the Cohort Summary panel; it does not
@@ -140,6 +145,11 @@ public struct GenotypeResultDisplayState: Equatable {
         showsAncillaryLoci: Bool = false,
         includedLoci: Set<String>? = nil,
         minimumReads: Int = 0,
+        matrixMinimumReads: Int = 0,
+        matrixMinimumPercent: Double = 0,
+        matrixPercentDenominator: ONTGenotypeSupportDenominator = .viewedLocus,
+        matrixRowFilterText: String = "",
+        matrixSampleFilterText: String = "",
         cohortFlagThreshold: Int = 5_000
     ) {
         self.viewportLens = viewportLens
@@ -153,6 +163,11 @@ public struct GenotypeResultDisplayState: Equatable {
         self.showsAncillaryLoci = showsAncillaryLoci
         self.includedLoci = includedLoci
         self.minimumReads = minimumReads
+        self.matrixMinimumReads = max(0, matrixMinimumReads)
+        self.matrixMinimumPercent = max(0, min(100, matrixMinimumPercent))
+        self.matrixPercentDenominator = matrixPercentDenominator
+        self.matrixRowFilterText = matrixRowFilterText
+        self.matrixSampleFilterText = matrixSampleFilterText
         self.cohortFlagThreshold = cohortFlagThreshold
     }
 
@@ -182,6 +197,81 @@ public struct GenotypeResultDisplayState: Equatable {
             .filter { $0.reads < cohortFlagThreshold }
             .map(\.sample)
             .sorted()
+    }
+}
+
+extension GenotypeResultDisplayState {
+    func requiresMatrixRowRebuild(comparedTo previous: GenotypeResultDisplayState) -> Bool {
+        hideLowSupport != previous.hideLowSupport
+            || minimumSupportPercent != previous.minimumSupportPercent
+            || supportDenominator != previous.supportDenominator
+            || matrixMinimumReads != previous.matrixMinimumReads
+            || matrixMinimumPercent != previous.matrixMinimumPercent
+            || matrixPercentDenominator != previous.matrixPercentDenominator
+    }
+
+    func requiresMatrixFilterPass(comparedTo previous: GenotypeResultDisplayState) -> Bool {
+        requiresMatrixRowRebuild(comparedTo: previous)
+            || minimumReads != previous.minimumReads
+            || matrixRowFilterText != previous.matrixRowFilterText
+            || matrixSampleFilterText != previous.matrixSampleFilterText
+    }
+
+    func requiresMatrixRedraw(comparedTo previous: GenotypeResultDisplayState) -> Bool {
+        cellColorMode != previous.cellColorMode
+            || hideFilteredHighlights != previous.hideFilteredHighlights
+    }
+}
+
+struct GenotypeMatrixRenderedStyle: Equatable {
+    var fillColor: AnnotationColor?
+    var textColor: AnnotationColor?
+    var borderColor: AnnotationColor?
+    var isBold: Bool = false
+    var isItalic: Bool = false
+
+    static let `default` = GenotypeMatrixRenderedStyle()
+
+    var isDefault: Bool {
+        fillColor == nil && textColor == nil && borderColor == nil && !isBold && !isItalic
+    }
+}
+
+public enum GenotypeMatrixStyleField: Equatable {
+    case fillColor(AnnotationColor?)
+    case textColor(AnnotationColor?)
+    case borderColor(AnnotationColor?)
+    case isBold(Bool)
+    case isItalic(Bool)
+    case clear
+}
+
+public struct GenotypeMatrixStyleRequest: Equatable {
+    public let targets: [GenotypeAnnotationSidecar.MatrixTarget]
+    public let field: GenotypeMatrixStyleField
+    public let minimumReads: Int?
+
+    public init(
+        targets: [GenotypeAnnotationSidecar.MatrixTarget],
+        field: GenotypeMatrixStyleField,
+        minimumReads: Int? = nil
+    ) {
+        self.targets = targets
+        self.field = field
+        self.minimumReads = minimumReads
+    }
+}
+
+public struct GenotypeMatrixCommentRequest: Equatable {
+    public let targets: [GenotypeAnnotationSidecar.MatrixTarget]
+    public let body: String
+
+    public init(
+        targets: [GenotypeAnnotationSidecar.MatrixTarget],
+        body: String
+    ) {
+        self.targets = targets
+        self.body = body
     }
 }
 

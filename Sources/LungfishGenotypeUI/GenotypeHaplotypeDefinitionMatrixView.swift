@@ -32,11 +32,36 @@ final class GenotypeHaplotypeDefinitionMatrixView: NSView {
         let locus: String
         let callName: String
         let haplotypeName: String
+        let haplotypeColor: AnnotationColor?
         let observedCount: Int
         let diagnosticCount: Int
         let minimumMatches: Int
         let status: Status
         let alleles: [DiagnosticAllele]
+
+        init(
+            sample: String,
+            locus: String,
+            callName: String,
+            haplotypeName: String,
+            haplotypeColor: AnnotationColor? = nil,
+            observedCount: Int,
+            diagnosticCount: Int,
+            minimumMatches: Int,
+            status: Status,
+            alleles: [DiagnosticAllele]
+        ) {
+            self.sample = sample
+            self.locus = locus
+            self.callName = callName
+            self.haplotypeName = haplotypeName
+            self.haplotypeColor = haplotypeColor
+            self.observedCount = observedCount
+            self.diagnosticCount = diagnosticCount
+            self.minimumMatches = minimumMatches
+            self.status = status
+            self.alleles = alleles
+        }
 
         var ruleText: String {
             "\(observedCount)/\(minimumMatches)/\(diagnosticCount)"
@@ -296,7 +321,7 @@ final class GenotypeHaplotypeDefinitionMatrixView: NSView {
             return statusColor(row.status)
         }
         if column == Column.haplotype {
-            return color(from: HaplotypeColorToken.assigned(forName: row.haplotypeName).fillColor)
+            return color(from: row.haplotypeColor ?? HaplotypeColorToken.assigned(forName: row.haplotypeName).fillColor)
         }
         return .labelColor
     }

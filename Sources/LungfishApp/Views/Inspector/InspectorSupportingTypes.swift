@@ -69,6 +69,8 @@ enum InspectorTab: String, CaseIterable {
     case bundle = "document"
     /// Selected object details.
     case selectedItem = "selection"
+    /// Persistent genotype matrix annotations.
+    case annotations
     /// Reversible view and layout settings.
     case view
     /// Durable output-creating workflows.

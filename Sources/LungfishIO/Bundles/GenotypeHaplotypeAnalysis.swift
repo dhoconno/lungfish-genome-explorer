@@ -149,6 +149,7 @@ public struct GenotypeHaplotypeDefinition: Codable, Equatable, Sendable {
     public let primaryAlleles: [String]?
     public let evidenceWeights: [String: Double]?
     public let colorTokenIndex: Int
+    public let colorOverride: AnnotationColor?
     /// Minimum number of `diagnosticAlleles` that must be observed for
     /// this haplotype to match. `nil` means "all" (the strict notebook
     /// rule). Use a smaller integer when supplying multi-family
@@ -164,6 +165,7 @@ public struct GenotypeHaplotypeDefinition: Codable, Equatable, Sendable {
         primaryAlleles: [String]? = nil,
         evidenceWeights: [String: Double]? = nil,
         colorTokenIndex: Int? = nil,
+        colorOverride: AnnotationColor? = nil,
         minimumMatches: Int? = nil
     ) {
         self.name = name
@@ -171,16 +173,41 @@ public struct GenotypeHaplotypeDefinition: Codable, Equatable, Sendable {
         self.primaryAlleles = primaryAlleles
         self.evidenceWeights = evidenceWeights
         self.colorTokenIndex = colorTokenIndex ?? HaplotypeColorToken.assigned(forName: name).canonicalIndex
+        self.colorOverride = colorOverride
         self.minimumMatches = minimumMatches
     }
 
-    public init(name: String, diagnosticAlleles: [String], colorTokenIndex: Int? = nil, minimumMatches: Int? = nil) {
+    public init(
+        name: String,
+        diagnosticAlleles: [String],
+        colorTokenIndex: Int? = nil,
+        minimumMatches: Int? = nil
+    ) {
         self.init(
             name: name,
             diagnosticAlleles: diagnosticAlleles,
             primaryAlleles: nil,
             evidenceWeights: nil,
             colorTokenIndex: colorTokenIndex,
+            colorOverride: nil,
+            minimumMatches: minimumMatches
+        )
+    }
+
+    public init(
+        name: String,
+        diagnosticAlleles: [String],
+        colorTokenIndex: Int? = nil,
+        colorOverride: AnnotationColor?,
+        minimumMatches: Int? = nil
+    ) {
+        self.init(
+            name: name,
+            diagnosticAlleles: diagnosticAlleles,
+            primaryAlleles: nil,
+            evidenceWeights: nil,
+            colorTokenIndex: colorTokenIndex,
+            colorOverride: colorOverride,
             minimumMatches: minimumMatches
         )
     }
@@ -199,8 +226,18 @@ public struct GenotypeHaplotypeDefinition: Codable, Equatable, Sendable {
         return primaryAlleles
     }
 
+    public var effectiveFillColor: AnnotationColor {
+        if let colorOverride {
+            return colorOverride
+        }
+        guard HaplotypeColorToken.canonicalPalette.indices.contains(colorTokenIndex) else {
+            return HaplotypeColorToken.assigned(forName: name).fillColor
+        }
+        return HaplotypeColorToken.canonicalPalette[colorTokenIndex].fillColor
+    }
+
     private enum CodingKeys: String, CodingKey {
-        case name, diagnosticAlleles, primaryAlleles, evidenceWeights, colorTokenIndex, minimumMatches
+        case name, diagnosticAlleles, primaryAlleles, evidenceWeights, colorTokenIndex, colorOverride, minimumMatches
     }
 
     public init(from decoder: Decoder) throws {
@@ -214,6 +251,7 @@ public struct GenotypeHaplotypeDefinition: Codable, Equatable, Sendable {
         self.primaryAlleles = try container.decodeIfPresent([String].self, forKey: .primaryAlleles)
         self.evidenceWeights = try container.decodeIfPresent([String: Double].self, forKey: .evidenceWeights)
         self.colorTokenIndex = colorTokenIndex
+        self.colorOverride = try container.decodeIfPresent(AnnotationColor.self, forKey: .colorOverride)
         self.minimumMatches = try container.decodeIfPresent(Int.self, forKey: .minimumMatches)
     }
 }

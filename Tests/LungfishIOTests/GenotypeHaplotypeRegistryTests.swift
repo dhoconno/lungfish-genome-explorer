@@ -1,4 +1,5 @@
 import XCTest
+import LungfishCore
 @testable import LungfishIO
 
 final class GenotypeHaplotypeRegistryTests: XCTestCase {
@@ -51,6 +52,35 @@ final class GenotypeHaplotypeRegistryTests: XCTestCase {
         XCTAssertEqual(decoded.changeNote, "inline fixture")
         XCTAssertEqual(decoded.locusDefinitions.count, 1)
         XCTAssertEqual(decoded.locusDefinitions.first?.haplotypes.map(\.name), ["H1", "H2"])
+    }
+
+    func testHaplotypeColorOverrideEncodesAndDecodesLosslessly() throws {
+        let override = AnnotationColor(red: 0.2, green: 0.4, blue: 0.8)
+        let original = GenotypeHaplotypeDefinition(
+            name: "H1",
+            diagnosticAlleles: ["A1_001"],
+            colorTokenIndex: 2,
+            colorOverride: override,
+            minimumMatches: 1
+        )
+
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(GenotypeHaplotypeDefinition.self, from: data)
+
+        XCTAssertEqual(decoded, original)
+        XCTAssertEqual(decoded.colorOverride, override)
+        XCTAssertEqual(decoded.effectiveFillColor, override)
+    }
+
+    func testHaplotypeWithoutColorOverrideUsesCanonicalTokenColor() {
+        let haplotype = GenotypeHaplotypeDefinition(
+            name: "M2A",
+            diagnosticAlleles: ["A1_001"],
+            colorTokenIndex: 2
+        )
+
+        XCTAssertNil(haplotype.colorOverride)
+        XCTAssertEqual(haplotype.effectiveFillColor, HaplotypeColorToken.canonicalPalette[2].fillColor)
     }
 
     func testEffectiveMinimumMatchesDefaultsToDiagnosticAlleleCount() {

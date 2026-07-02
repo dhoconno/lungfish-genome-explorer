@@ -186,6 +186,80 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         XCTAssertEqual(store.sidecar.cellComments.count, 1)
     }
 
+    func testMatrixAnnotationWritesAuditEntryAndProvenance() throws {
+        let dir = try makeBundleURL()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let store = try GenotypeAnnotationStore(bundleURL: dir, author: "test")
+        let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-B",
+            genotype: "Mamu-I*expected",
+            sample: "AR3628"
+        )
+
+        try store.setMatrixStyle(
+            target: target,
+            style: .init(fillColor: "#FFF2CC", textColor: "#C00000", borderColor: "#666666", isBold: true, isItalic: true)
+        )
+        try store.addMatrixComment(target: target, body: "Expected genotype missing from reads.")
+
+        XCTAssertEqual(store.sidecar.matrixStyles.count, 1)
+        XCTAssertEqual(store.sidecar.matrixComments.count, 1)
+        XCTAssertEqual(store.sidecar.auditLog.suffix(2).map(\.action), ["setMatrixStyle", "addMatrixComment"])
+        XCTAssertEqual(store.sidecar.auditLog.last?.sample, "AR3628")
+        XCTAssertEqual(store.sidecar.auditLog.last?.locus, "MHC-B")
+
+        let annotationURL = dir.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL))
+        XCTAssertEqual(envelope.options.explicit["action"], .string("addMatrixComment"))
+        XCTAssertEqual(Array(envelope.argv.prefix(3)), ["lungfish", "genotype", "apply-annotations"])
+        XCTAssertTrue(envelope.argv.contains("--bundle"))
+        XCTAssertTrue(envelope.argv.contains("--patch"))
+        XCTAssertEqual(envelope.options.explicit["targetCount"], .integer(1))
+        XCTAssertEqual(envelope.options.explicit["targets"], .array([
+            .dictionary([
+                "kind": .string("cell"),
+                "locus": .string("MHC-B"),
+                "genotype": .string("Mamu-I*expected"),
+                "sample": .string("AR3628"),
+            ]),
+        ]))
+        XCTAssertEqual(envelope.options.explicit["commentBodies"], .array([
+            .string("Expected genotype missing from reads."),
+        ]))
+        XCTAssertEqual(envelope.options.resolvedDefaults["matrixStyleCount"], .integer(1))
+        XCTAssertEqual(envelope.options.resolvedDefaults["matrixCommentCount"], .integer(1))
+    }
+
+    func testMatrixBatchAnnotationProvenanceCapturesAllTargets() throws {
+        let dir = try makeBundleURL()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let store = try GenotypeAnnotationStore(bundleURL: dir, author: "test")
+        try store.addMatrixComments([
+            (
+                target: .cell(locus: "MHC-A", genotype: "01_Mafa_A1_001_01", sample: "AR3628"),
+                body: "Expected in this animal."
+            ),
+            (
+                target: .cell(locus: "MHC-A", genotype: "01_Mafa_A1_001_01", sample: "AR3629"),
+                body: "Expected in this animal."
+            ),
+        ])
+
+        let annotationURL = dir.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL))
+        XCTAssertEqual(envelope.options.explicit["action"], .string("addMatrixComments"))
+        XCTAssertEqual(envelope.options.explicit["targetCount"], .integer(2))
+        XCTAssertEqual(envelope.options.explicit["commentBodies"], .array([
+            .string("Expected in this animal."),
+            .string("Expected in this animal."),
+        ]))
+        XCTAssertEqual(envelope.options.resolvedDefaults["matrixCommentCount"], .integer(2))
+    }
+
     func testConfirmCallWritesAuditWithoutOverride() throws {
         let dir = try makeBundleURL()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -299,10 +373,11 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         XCTAssertEqual(envelope.workflowName, "Genotype annotation sidecar edit")
         XCTAssertEqual(envelope.toolName, "Lungfish Genome Explorer")
         XCTAssertEqual(envelope.argv, [
-            "lungfish-cli",
-            "edit-genotype-annotations",
+            "lungfish",
+            "genotype",
+            "apply-annotations",
             "--bundle", dir.path,
-            "--action", "saveSmartCohort",
+            "--patch", annotationURL.path,
         ])
         XCTAssertEqual(envelope.options.explicit["bundle"]?.fileValue?.path, dir.path)
         XCTAssertEqual(envelope.options.explicit["annotationSidecar"]?.fileValue?.path, annotationURL.path)

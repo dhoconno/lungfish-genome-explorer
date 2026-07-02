@@ -149,6 +149,28 @@ public extension HaplotypeColorToken {
     /// New callers should prefer `canonicalPalette`.
     static let extendedRhesusPalette: [HaplotypeColorToken] =
         Array(canonicalPalette.dropFirst())
+
+    /// Generic annotation colors optimized for broad visual separation without
+    /// reserving the canonical MCM/Budde hues. These are intended for freeform
+    /// genotype annotation, not semantic haplotype assignment.
+    static let genericOptimizedAnnotationPalette: [AnnotationColor] = [
+        "#AD274D", "#B84412", "#F4CE23", "#BBDDA9",
+        "#12F0DE", "#3346C0", "#724AAB", "#D06AFA",
+        "#C24976", "#C36953", "#B9AF1E", "#B2E71E",
+        "#42868E", "#472DFD", "#8A63FE", "#811E5F",
+        "#FF4FB2", "#93640C", "#298509", "#095C34",
+        "#01A2C5", "#0063EB", "#968DFD", "#A41591",
+        "#FF8FB4", "#DD881B", "#37AF08", "#019F68",
+        "#02BCED", "#5D74C7", "#B0ADFB", "#80536C",
+        "#FEBCCF", "#FC9F30", "#879B64", "#73F094",
+        "#2A669F", "#858FBE", "#6F049F", "#DD33A5",
+        "#E2093C", "#FFC48A", "#81CE70", "#037465",
+        "#3792FD", "#4D427F", "#98659B", "#FE1BF6",
+        "#FE626C", "#68570B", "#46DB05", "#0FB89A",
+        "#A8D8FB", "#4D09C6", "#B50FE7", "#CC81BC",
+        "#892408", "#CFB384", "#03FB48", "#83C6BD",
+        "#0A0FE2", "#770BE8", "#B657CC", "#FF7EF6",
+    ].compactMap(AnnotationColor.init(hex:))
 }
 
 // MARK: - Extended palette generation

@@ -74,6 +74,7 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
         XCTAssertEqual(projection.rows.count, 1)
         let projectedRow = try XCTUnwrap(projection.rows.first)
         XCTAssertEqual(projectedRow.label, "01_M1_A_01")
+        XCTAssertEqual(projectedRow.locus, "MHC-A")
         XCTAssertEqual(projectedRow.cells.count, projection.sampleColumns.count)
         XCTAssertEqual(projectedRow.cells, ["42", ""])
         let cellColors = try XCTUnwrap(projectedRow.cellColorsHex)
@@ -158,6 +159,94 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
                     cellStyles: [:]
                 )
             ]
+        )
+
+        XCTAssertThrowsError(
+            try GenotypeViewportExportService(runner: runner).export(
+                snapshot: snapshot,
+                format: .excel,
+                to: outputURL
+            )
+        )
+    }
+
+    func testExportPassesAnnotationSidecarAndRequiresItInProvenance() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sourceBundle = try makeBundle(in: root, named: "test.lungfishgenotype")
+        let sidecarURL = sourceBundle.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        try GenotypeAnnotationSidecar.empty(generatedAt: "2026-06-30T00:00:00Z").encoded().write(to: sidecarURL)
+        let outputURL = root.appendingPathComponent("export.xlsx")
+
+        let runner = StubGenotypeExportCLIRunner(
+            writesOutput: true,
+            writesProvenance: true,
+            recordsAnnotationInput: true
+        )
+        let snapshot = GenotypeViewportExportSnapshot(
+            bundleURL: sourceBundle,
+            analysisName: "test",
+            lens: "summary.matrix",
+            filters: [:],
+            sampleNames: ["AnimalA"],
+            rows: [
+                GenotypeViewportExportRow(
+                    genotype: "01_M1_A_01",
+                    locus: "MHC-A",
+                    sampleCount: 1,
+                    totalUniqueReads: 42,
+                    sampleReads: ["AnimalA": 42],
+                    rowStyle: GenotypeResultHighlightStyle(),
+                    cellStyles: [:]
+                )
+            ],
+            annotationSidecarURL: sidecarURL
+        )
+
+        let result = try GenotypeViewportExportService(runner: runner).export(
+            snapshot: snapshot,
+            format: .excel,
+            to: outputURL
+        )
+
+        let arguments = try XCTUnwrap(runner.invocations.first)
+        XCTAssertEqual(try value(after: "--annotations", in: arguments), sidecarURL.path)
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: result.provenanceURL))
+        let inputPaths = Set((envelope.files + envelope.steps.flatMap(\.inputs)).map(\.path))
+        XCTAssertTrue(inputPaths.contains(sidecarURL.path))
+    }
+
+    func testExportRejectsAnnotationSidecarProvenanceWhenSidecarInputIsMissing() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sourceBundle = try makeBundle(in: root, named: "test.lungfishgenotype")
+        let sidecarURL = sourceBundle.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        try GenotypeAnnotationSidecar.empty(generatedAt: "2026-06-30T00:00:00Z").encoded().write(to: sidecarURL)
+        let outputURL = root.appendingPathComponent("export.xlsx")
+
+        let runner = StubGenotypeExportCLIRunner(
+            writesOutput: true,
+            writesProvenance: true,
+            recordsAnnotationInput: false
+        )
+        let snapshot = GenotypeViewportExportSnapshot(
+            bundleURL: sourceBundle,
+            analysisName: "test",
+            lens: "summary.matrix",
+            filters: [:],
+            sampleNames: ["AnimalA"],
+            rows: [
+                GenotypeViewportExportRow(
+                    genotype: "01_M1_A_01",
+                    locus: "MHC-A",
+                    sampleCount: 1,
+                    totalUniqueReads: 42,
+                    sampleReads: ["AnimalA": 42],
+                    rowStyle: GenotypeResultHighlightStyle(),
+                    cellStyles: [:]
+                )
+            ],
+            annotationSidecarURL: sidecarURL
         )
 
         XCTAssertThrowsError(
@@ -266,8 +355,10 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
         )
         // Visible columns survive into the rendered workbook.
         let delimited = GenotypeXlsxWorkbookWriter.renderDelimited(projection, separator: ",")
+        XCTAssertTrue(delimited.contains("Locus,Row,AnimalA,AnimalB"))
         XCTAssertTrue(delimited.contains("AnimalA"))
         XCTAssertTrue(delimited.contains("AnimalB"))
+        XCTAssertTrue(delimited.contains("MHC-A,01_M1_A_01"))
         XCTAssertTrue(delimited.contains("01_M1_A_01"))
         // At least one viewport color is applied (AARRGGBB: #99CCFF -> FF99CCFF).
         let styleXML = try unzipEntry("xl/styles.xml", from: workbookURL)
@@ -327,11 +418,18 @@ private final class StubGenotypeExportCLIRunner: GenotypeViewportExportRunning {
     let writesOutput: Bool
     let writesProvenance: Bool
     let toolName: String
+    let recordsAnnotationInput: Bool
 
-    init(writesOutput: Bool, writesProvenance: Bool, toolName: String = "lungfish-cli") {
+    init(
+        writesOutput: Bool,
+        writesProvenance: Bool,
+        toolName: String = "lungfish-cli",
+        recordsAnnotationInput: Bool = false
+    ) {
         self.writesOutput = writesOutput
         self.writesProvenance = writesProvenance
         self.toolName = toolName
+        self.recordsAnnotationInput = recordsAnnotationInput
     }
 
     func run(arguments: [String]) throws -> LungfishCLIRunner.Output {
@@ -347,7 +445,7 @@ private final class StubGenotypeExportCLIRunner: GenotypeViewportExportRunning {
         }
         if writesProvenance {
             let argv = ["lungfish-cli"] + arguments
-            let envelope = try ProvenanceRunBuilder(
+            var builder = try ProvenanceRunBuilder(
                 workflowName: "lungfish genotype export",
                 workflowVersion: "test",
                 toolName: toolName,
@@ -358,7 +456,11 @@ private final class StubGenotypeExportCLIRunner: GenotypeViewportExportRunning {
             .reproducibleCommand(argv.joined(separator: " "))
             .output(outputURL, format: .unknown, role: .output)
             .runtime(ProvenanceRuntimeIdentity(user: "test"))
-            .complete(exitStatus: 0, startedAt: Date(), endedAt: Date())
+            if recordsAnnotationInput,
+               let annotationsPath = try? value(after: "--annotations", in: arguments) {
+                builder = try builder.input(URL(fileURLWithPath: annotationsPath), format: .json, role: .input)
+            }
+            let envelope = try builder.complete(exitStatus: 0, startedAt: Date(), endedAt: Date())
             try ProvenanceWriter(signingProvider: nil).write(
                 envelope,
                 toSidecar: ProvenanceRecorder.fileSidecarURL(for: outputURL)

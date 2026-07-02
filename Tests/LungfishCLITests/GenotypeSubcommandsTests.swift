@@ -685,6 +685,53 @@ final class GenotypeSubcommandsTests: XCTestCase {
         XCTAssertEqual(result.skippedDuplicateCounts.callOverrides, 1)
     }
 
+    func testMergeIncludesMatrixStylesAndComments() throws {
+        let now = "2026-06-30T10:00:00Z"
+        let later = "2026-06-30T10:05:00Z"
+        let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-B",
+            genotype: "Mamu-I*expected",
+            sample: "AR3628"
+        )
+        var existing = GenotypeAnnotationSidecar.empty(generatedAt: now)
+        existing.matrixStyles = [
+            .init(
+                target: target,
+                style: .init(fillColor: "#FFF2CC"),
+                author: "alice",
+                timestamp: now
+            )
+        ]
+        existing.matrixComments = [
+            .init(target: target, body: "Expected genotype.", author: "alice", timestamp: now)
+        ]
+
+        var patch = GenotypeAnnotationSidecar.empty(generatedAt: later)
+        patch.matrixStyles = [
+            .init(
+                target: target,
+                style: .init(fillColor: "#D9EAD3", textColor: "#C00000", isBold: true),
+                author: "alice",
+                timestamp: later
+            )
+        ]
+        patch.matrixComments = [
+            .init(target: target, body: "Expected genotype.", author: "alice", timestamp: now),
+            .init(target: .row(locus: "MHC-B", genotype: "Mamu-I*expected"), body: "Review row.", author: "bob", timestamp: later),
+        ]
+
+        let result = GenotypeApplyAnnotationsSubcommand.merge(existing: existing, patch: patch)
+
+        XCTAssertEqual(result.sidecar.matrixStyles.count, 1)
+        XCTAssertEqual(result.sidecar.matrixStyles.first?.style.fillColor, "#D9EAD3")
+        XCTAssertEqual(result.sidecar.matrixStyles.first?.style.textColor, "#C00000")
+        XCTAssertEqual(result.sidecar.matrixComments.count, 2)
+        XCTAssertEqual(result.appendedCounts.matrixStyles, 1)
+        XCTAssertEqual(result.skippedDuplicateCounts.matrixStyles, 0)
+        XCTAssertEqual(result.appendedCounts.matrixComments, 1)
+        XCTAssertEqual(result.skippedDuplicateCounts.matrixComments, 1)
+    }
+
     // MARK: - export-pivot-xlsx
 
     func testExportPivotXlsxParsesBundleAndOutput() throws {

@@ -12,11 +12,13 @@ import LungfishIO
 /// The workbook is intentionally lightweight (no embedded charts or
 /// volatile formulas). Sheets vary by entry point:
 ///
-///   * ``writeMatrix(to:matrix:overrides:audit:)`` writes the four-sheet
-///     auditor workbook (`Matrix`, `Legend`, `Overrides`, `Audit Log`).
-///   * ``writeViewProjection(_:to:)`` writes a single `View` sheet that
+///   * ``writeMatrix(to:matrix:overrides:audit:annotations:)`` writes the
+///     auditor workbook (`Matrix`, `Legend`, `Overrides`, `Audit Log`), plus
+///     a `Matrix Annotations` sheet when native matrix annotations are present.
+///   * ``writeViewProjection(_:to:annotations:)`` writes a `View` sheet that
 ///     reproduces the GUI viewport's visible sample columns, rows, and
-///     per-cell / per-row colors.
+///     per-cell / per-row colors, plus a Matrix Annotations sheet when
+///     native matrix annotations are present.
 struct GenotypeXlsxWorkbookWriter: Sendable {
     init() {}
 
@@ -184,6 +186,24 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
         }
     }
 
+    struct MatrixAnnotationRow {
+        let recordType: String
+        let targetKind: String
+        let sample: String
+        let locus: String
+        let genotype: String
+        let fillColor: String
+        let textColor: String
+        let borderColor: String
+        let isBold: String
+        let boldOverride: String
+        let isItalic: String
+        let italicOverride: String
+        let comment: String
+        let author: String
+        let timestamp: String
+    }
+
     // MARK: - Projection helpers
 
     /// The sample columns the projection resolves to, in display order.
@@ -201,7 +221,8 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
         to outputURL: URL,
         matrix: Matrix,
         overrides: [OverrideRow],
-        audit: [AuditRow]
+        audit: [AuditRow],
+        annotations sidecar: GenotypeAnnotationSidecar? = nil
     ) throws {
         let buildDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("lungfish-genotype-xlsx-\(UUID().uuidString)", isDirectory: true)
@@ -213,15 +234,28 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
         try fm.createDirectory(at: buildDir.appendingPathComponent("xl/_rels"), withIntermediateDirectories: true)
         try fm.createDirectory(at: buildDir.appendingPathComponent("xl/worksheets"), withIntermediateDirectories: true)
 
-        try Self.matrixContentTypesXML.write(to: buildDir.appendingPathComponent("[Content_Types].xml"), atomically: true, encoding: .utf8)
+        let annotationRows = matrixAnnotationRows(from: sidecar)
+        let hasAnnotations = !annotationRows.isEmpty
+
+        try Self.matrixContentTypesXML(includeAnnotations: hasAnnotations)
+            .write(to: buildDir.appendingPathComponent("[Content_Types].xml"), atomically: true, encoding: .utf8)
         try Self.rootRelsXML.write(to: buildDir.appendingPathComponent("_rels/.rels"), atomically: true, encoding: .utf8)
-        try Self.matrixWorkbookXML.write(to: buildDir.appendingPathComponent("xl/workbook.xml"), atomically: true, encoding: .utf8)
-        try Self.matrixWorkbookRelsXML.write(to: buildDir.appendingPathComponent("xl/_rels/workbook.xml.rels"), atomically: true, encoding: .utf8)
+        try Self.matrixWorkbookXML(includeAnnotations: hasAnnotations)
+            .write(to: buildDir.appendingPathComponent("xl/workbook.xml"), atomically: true, encoding: .utf8)
+        try Self.matrixWorkbookRelsXML(includeAnnotations: hasAnnotations)
+            .write(to: buildDir.appendingPathComponent("xl/_rels/workbook.xml.rels"), atomically: true, encoding: .utf8)
         try Self.stylesXML.write(to: buildDir.appendingPathComponent("xl/styles.xml"), atomically: true, encoding: .utf8)
         try makeMatrixSheet(matrix).write(to: buildDir.appendingPathComponent("xl/worksheets/sheet1.xml"), atomically: true, encoding: .utf8)
         try makeLegendSheet().write(to: buildDir.appendingPathComponent("xl/worksheets/sheet2.xml"), atomically: true, encoding: .utf8)
         try makeOverridesSheet(overrides).write(to: buildDir.appendingPathComponent("xl/worksheets/sheet3.xml"), atomically: true, encoding: .utf8)
         try makeAuditSheet(audit).write(to: buildDir.appendingPathComponent("xl/worksheets/sheet4.xml"), atomically: true, encoding: .utf8)
+        if hasAnnotations {
+            try makeMatrixAnnotationsSheet(annotationRows).write(
+                to: buildDir.appendingPathComponent("xl/worksheets/sheet5.xml"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
 
         try zipBuildDir(buildDir, to: outputURL)
     }
@@ -235,7 +269,8 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
     /// that the canonical palette would not reproduce.
     func writeViewProjection(
         _ projection: GenotypeViewProjection,
-        to outputURL: URL
+        to outputURL: URL,
+        annotations sidecar: GenotypeAnnotationSidecar? = nil
     ) throws {
         let buildDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("lungfish-genotype-view-xlsx-\(UUID().uuidString)", isDirectory: true)
@@ -252,31 +287,44 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
         // present in the projection (plus the canonical body/header styles).
         let palette = ProjectionPalette(projection: projection)
 
-        try Self.projectionContentTypesXML.write(to: buildDir.appendingPathComponent("[Content_Types].xml"), atomically: true, encoding: .utf8)
+        let annotationRows = matrixAnnotationRows(from: sidecar)
+        let hasAnnotations = !annotationRows.isEmpty
+
+        try Self.projectionContentTypesXML(includeAnnotations: hasAnnotations)
+            .write(to: buildDir.appendingPathComponent("[Content_Types].xml"), atomically: true, encoding: .utf8)
         try Self.rootRelsXML.write(to: buildDir.appendingPathComponent("_rels/.rels"), atomically: true, encoding: .utf8)
-        try Self.projectionWorkbookXML.write(to: buildDir.appendingPathComponent("xl/workbook.xml"), atomically: true, encoding: .utf8)
-        try Self.projectionWorkbookRelsXML.write(to: buildDir.appendingPathComponent("xl/_rels/workbook.xml.rels"), atomically: true, encoding: .utf8)
+        try Self.projectionWorkbookXML(includeAnnotations: hasAnnotations)
+            .write(to: buildDir.appendingPathComponent("xl/workbook.xml"), atomically: true, encoding: .utf8)
+        try Self.projectionWorkbookRelsXML(includeAnnotations: hasAnnotations)
+            .write(to: buildDir.appendingPathComponent("xl/_rels/workbook.xml.rels"), atomically: true, encoding: .utf8)
         try palette.stylesXML.write(to: buildDir.appendingPathComponent("xl/styles.xml"), atomically: true, encoding: .utf8)
         try makeProjectionSheet(projection, palette: palette).write(
             to: buildDir.appendingPathComponent("xl/worksheets/sheet1.xml"),
             atomically: true,
             encoding: .utf8
         )
+        if hasAnnotations {
+            try makeMatrixAnnotationsSheet(annotationRows).write(
+                to: buildDir.appendingPathComponent("xl/worksheets/sheet2.xml"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
 
         try zipBuildDir(buildDir, to: outputURL)
     }
 
     /// Renders the projection's rows into delimited text (CSV/TSV). The
-    /// header row is `Row` + the visible sample columns; each body row is
-    /// the row label followed by its cell values.
+    /// header row is `Locus`, `Row` + the visible sample columns; each body
+    /// row carries stable locus identity before the visible cell values.
     static func renderDelimited(
         _ projection: GenotypeViewProjection,
         separator: String
     ) -> String {
         var lines: [String] = []
-        lines.append(delimitedRow(["Row"] + projection.sampleColumns, separator: separator))
+        lines.append(delimitedRow(["Locus", "Row"] + projection.sampleColumns, separator: separator))
         for row in projection.rows {
-            lines.append(delimitedRow([row.label] + row.cells, separator: separator))
+            lines.append(delimitedRow([row.locus ?? "", row.label] + row.cells, separator: separator))
         }
         return lines.joined(separator: "\n") + "\n"
     }
@@ -420,20 +468,122 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
         return sheet
     }
 
+    private func makeMatrixAnnotationsSheet(_ rows: [MatrixAnnotationRow]) -> String {
+        var sheet = sheetHeader()
+        sheet += rowXML(index: 1, cells: [
+            .header("Record Type"),
+            .header("Target Kind"),
+            .header("Sample"),
+            .header("Locus"),
+            .header("Genotype"),
+            .header("Fill Color"),
+            .header("Text Color"),
+            .header("Border Color"),
+            .header("Is Bold"),
+            .header("Bold Override"),
+            .header("Is Italic"),
+            .header("Italic Override"),
+            .header("Comment"),
+            .header("Author"),
+            .header("Timestamp"),
+        ])
+        for (i, row) in rows.enumerated() {
+            sheet += rowXML(index: i + 2, cells: [
+                .body(row.recordType),
+                .body(row.targetKind),
+                .body(row.sample),
+                .body(row.locus),
+                .body(row.genotype),
+                .body(row.fillColor),
+                .body(row.textColor),
+                .body(row.borderColor),
+                .body(row.isBold),
+                .body(row.boldOverride),
+                .body(row.isItalic),
+                .body(row.italicOverride),
+                .body(row.comment),
+                .body(row.author),
+                .body(row.timestamp),
+            ])
+        }
+        sheet += sheetFooter()
+        return sheet
+    }
+
+    private func matrixAnnotationRows(from sidecar: GenotypeAnnotationSidecar?) -> [MatrixAnnotationRow] {
+        guard let sidecar else { return [] }
+        var rows: [MatrixAnnotationRow] = []
+        rows.reserveCapacity(sidecar.matrixStyles.count + sidecar.matrixComments.count)
+        for style in sidecar.matrixStyles {
+            let target = matrixTargetFields(style.target)
+            rows.append(MatrixAnnotationRow(
+                recordType: "style",
+                targetKind: target.kind,
+                sample: target.sample,
+                locus: target.locus,
+                genotype: target.genotype,
+                fillColor: style.style.fillColor ?? "",
+                textColor: style.style.textColor ?? "",
+                borderColor: style.style.borderColor ?? "",
+                isBold: style.style.isBold ? "true" : "false",
+                boldOverride: style.style.boldOverride.map { $0 ? "true" : "false" } ?? "",
+                isItalic: style.style.isItalic ? "true" : "false",
+                italicOverride: style.style.italicOverride.map { $0 ? "true" : "false" } ?? "",
+                comment: "",
+                author: style.author,
+                timestamp: style.timestamp
+            ))
+        }
+        for comment in sidecar.matrixComments {
+            let target = matrixTargetFields(comment.target)
+            rows.append(MatrixAnnotationRow(
+                recordType: "comment",
+                targetKind: target.kind,
+                sample: target.sample,
+                locus: target.locus,
+                genotype: target.genotype,
+                fillColor: "",
+                textColor: "",
+                borderColor: "",
+                isBold: "",
+                boldOverride: "",
+                isItalic: "",
+                italicOverride: "",
+                comment: comment.body,
+                author: comment.author,
+                timestamp: comment.timestamp
+            ))
+        }
+        return rows
+    }
+
+    private func matrixTargetFields(
+        _ target: GenotypeAnnotationSidecar.MatrixTarget
+    ) -> (kind: String, sample: String, locus: String, genotype: String) {
+        switch target {
+        case let .row(locus, genotype):
+            return ("row", "", locus, genotype)
+        case let .column(sample):
+            return ("column", sample, "", "")
+        case let .cell(locus, genotype, sample):
+            return ("cell", sample, locus, genotype)
+        }
+    }
+
     private func makeProjectionSheet(
         _ projection: GenotypeViewProjection,
         palette: ProjectionPalette
     ) -> String {
         var sheet = sheetHeader()
-        // Header: corner cell + one column per visible sample.
-        var header: [StyledCell] = [.header("Row")]
+        // Header: stable row identity columns + one column per visible sample.
+        var header: [StyledCell] = [.header("Locus"), .header("Row")]
         for sample in projection.sampleColumns {
             header.append(.header(sample))
         }
         sheet += rowXML(index: 1, cells: header)
 
         for (offset, row) in projection.rows.enumerated() {
-            var cells: [StyledCell] = [projectionLabelCell(row, palette: palette)]
+            var cells: [StyledCell] = [.body(row.locus ?? ""), projectionLabelCell(row, palette: palette)]
             for (column, _) in projection.sampleColumns.enumerated() {
                 let value = column < row.cells.count ? row.cells[column] : ""
                 let hex = projectionCellHex(row, column: column)
@@ -574,30 +724,40 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
 
     // MARK: - Static workbook scaffolding
 
-    private static let matrixContentTypesXML = """
-    <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-    <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
-      <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
-      <Default Extension="xml" ContentType="application/xml"/>
-      <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
-      <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
-      <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
-      <Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
-      <Override PartName="/xl/worksheets/sheet3.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
-      <Override PartName="/xl/worksheets/sheet4.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
-    </Types>
-    """
+    private static func matrixContentTypesXML(includeAnnotations: Bool) -> String {
+        let annotationOverride = includeAnnotations
+            ? #"  <Override PartName="/xl/worksheets/sheet5.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>"# + "\n"
+            : ""
+        return """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+          <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+          <Default Extension="xml" ContentType="application/xml"/>
+          <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+          <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+          <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+          <Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+          <Override PartName="/xl/worksheets/sheet3.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+          <Override PartName="/xl/worksheets/sheet4.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+        \(annotationOverride)</Types>
+        """
+    }
 
-    private static let projectionContentTypesXML = """
-    <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-    <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
-      <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
-      <Default Extension="xml" ContentType="application/xml"/>
-      <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
-      <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
-      <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
-    </Types>
-    """
+    private static func projectionContentTypesXML(includeAnnotations: Bool) -> String {
+        let annotationOverride = includeAnnotations
+            ? #"  <Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>"# + "\n"
+            : ""
+        return """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+          <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+          <Default Extension="xml" ContentType="application/xml"/>
+          <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+          <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+          <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+        \(annotationOverride)</Types>
+        """
+    }
 
     private static let rootRelsXML = """
     <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -606,45 +766,65 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
     </Relationships>
     """
 
-    private static let matrixWorkbookXML = """
-    <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-    <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-      <sheets>
-        <sheet name="Matrix" sheetId="1" r:id="rId1"/>
-        <sheet name="Legend" sheetId="2" r:id="rId2"/>
-        <sheet name="Overrides" sheetId="3" r:id="rId3"/>
-        <sheet name="Audit Log" sheetId="4" r:id="rId4"/>
-      </sheets>
-    </workbook>
-    """
+    private static func matrixWorkbookXML(includeAnnotations: Bool) -> String {
+        let annotationSheet = includeAnnotations
+            ? #"    <sheet name="Matrix Annotations" sheetId="5" r:id="rId6"/>"# + "\n"
+            : ""
+        return """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+          <sheets>
+            <sheet name="Matrix" sheetId="1" r:id="rId1"/>
+            <sheet name="Legend" sheetId="2" r:id="rId2"/>
+            <sheet name="Overrides" sheetId="3" r:id="rId3"/>
+            <sheet name="Audit Log" sheetId="4" r:id="rId4"/>
+        \(annotationSheet)  </sheets>
+        </workbook>
+        """
+    }
 
-    private static let projectionWorkbookXML = """
-    <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-    <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-      <sheets>
-        <sheet name="View" sheetId="1" r:id="rId1"/>
-      </sheets>
-    </workbook>
-    """
+    private static func projectionWorkbookXML(includeAnnotations: Bool) -> String {
+        let annotationSheet = includeAnnotations
+            ? #"    <sheet name="Matrix Annotations" sheetId="2" r:id="rId2"/>"# + "\n"
+            : ""
+        return """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+          <sheets>
+            <sheet name="View" sheetId="1" r:id="rId1"/>
+        \(annotationSheet)  </sheets>
+        </workbook>
+        """
+    }
 
-    private static let matrixWorkbookRelsXML = """
-    <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-    <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-      <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
-      <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>
-      <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet3.xml"/>
-      <Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet4.xml"/>
-      <Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
-    </Relationships>
-    """
+    private static func matrixWorkbookRelsXML(includeAnnotations: Bool) -> String {
+        let annotationRelationship = includeAnnotations
+            ? #"  <Relationship Id="rId6" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet5.xml"/>"# + "\n"
+            : ""
+        return """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+          <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+          <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>
+          <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet3.xml"/>
+          <Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet4.xml"/>
+          <Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+        \(annotationRelationship)</Relationships>
+        """
+    }
 
-    private static let projectionWorkbookRelsXML = """
-    <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-    <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-      <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
-      <Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
-    </Relationships>
-    """
+    private static func projectionWorkbookRelsXML(includeAnnotations: Bool) -> String {
+        let annotationRelationship = includeAnnotations
+            ? #"  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>"# + "\n"
+            : ""
+        return """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+          <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+        \(annotationRelationship)  <Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+        </Relationships>
+        """
+    }
 
     /// Hex for the lungfishDanger NSColor (light-mode value) used to
     /// signal "ERR" cells. Mirrors `NSColor.lungfishDanger` defined in

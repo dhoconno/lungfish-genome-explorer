@@ -99,6 +99,61 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
         XCTAssertTrue(provenance.contains("apply-haplotype-overrides"))
     }
 
+    func testApplyHaplotypeOverridesWritesMatrixAnnotationsToCurrentWorkbook() throws {
+        try XCTSkipIf(!pythonCanImportOpenpyxl(), "openpyxl is required for current workbook matrix annotation verification")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "matrix")
+        let annotationURL = fixture.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-06-30T00:00:00Z")
+        let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-B",
+            genotype: "Mamu-I*expected",
+            sample: "AR3628"
+        )
+        sidecar.matrixStyles = [
+            .init(
+                target: target,
+                style: .init(
+                    fillColor: "#FFF2CC",
+                    textColor: "#C00000",
+                    borderColor: "#666666",
+                    isBold: true,
+                    isItalic: true
+                ),
+                author: "curator",
+                timestamp: "2026-06-30T12:00:00Z"
+            )
+        ]
+        sidecar.matrixComments = [
+            .init(
+                target: target,
+                body: "Expected genotype missing from reads.",
+                author: "curator",
+                timestamp: "2026-06-30T12:00:00Z"
+            )
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+
+        _ = try GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 6_000) },
+            userProvider: { "tester" }
+        ).applyHaplotypeOverrides([], annotationSidecarURL: annotationURL, into: fixture.bundleURL)
+
+        let inspection = try inspectGenericMatrixWorkbook(try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL))
+        XCTAssertEqual(inspection["hasMatrixAnnotationsSheet"], "true")
+        XCTAssertEqual(inspection["matrixAnnotationStyleRow"], "style|cell|MHC-B|Mamu-I*expected|AR3628|#FFF2CC|#C00000|#666666|true|true|curator|2026-06-30T12:00:00Z|")
+        XCTAssertEqual(inspection["matrixAnnotationCommentRow"], "comment|cell|MHC-B|Mamu-I*expected|AR3628||||||curator|2026-06-30T12:00:00Z|Expected genotype missing from reads.")
+        XCTAssertEqual(inspection["cellFillSuffix"], "FFF2CC")
+        XCTAssertEqual(inspection["cellTextColorSuffix"], "C00000")
+        XCTAssertEqual(inspection["cellBorderSuffix"], "666666")
+        XCTAssertEqual(inspection["cellBold"], "true")
+        XCTAssertEqual(inspection["cellItalic"], "true")
+        XCTAssertTrue(inspection["cellComment"]?.contains("Expected genotype missing from reads.") == true)
+        XCTAssertEqual(inspection["guideMatrixStyles"], "1")
+        XCTAssertEqual(inspection["guideMatrixComments"], "1")
+    }
+
     func testImportRevisedWorkbookKeepsPrimaryAndSnapshotsPreviousCurrent() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -432,6 +487,69 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
         return (bundleURL, manifest)
     }
 
+    private func makeGenericMatrixWorkbookBundle(
+        in root: URL,
+        outputName: String
+    ) throws -> (bundleURL: URL, manifest: ONTGenotypeResultBundleManifest) {
+        let bundleURL = root.appendingPathComponent("\(outputName).lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let primaryWorkbookURL = bundleURL.appendingPathComponent("\(outputName).xlsx")
+        let currentURL = bundleURL
+            .appendingPathComponent("artifacts/workbooks", isDirectory: true)
+            .appendingPathComponent("current.xlsx")
+        try FileManager.default.createDirectory(at: currentURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try makeMinimalGenericMatrixWorkbook(at: primaryWorkbookURL)
+        try FileManager.default.copyItem(at: primaryWorkbookURL, to: currentURL)
+        let artifacts = try writeMinimalNativeArtifacts(in: bundleURL, outputName: outputName)
+        let currentRevision = ONTGenotypeWorkbookRevision(
+            id: "initial-current-copy",
+            role: .initialCurrentCopy,
+            path: "artifacts/workbooks/current.xlsx",
+            label: "Initial editable workbook",
+            sourceFilename: primaryWorkbookURL.lastPathComponent,
+            createdAt: "2026-06-30T00:00:00Z",
+            user: "tester",
+            predecessorPath: primaryWorkbookURL.lastPathComponent,
+            sha256: try ProvenanceFileHasher.sha256(of: currentURL),
+            sizeBytes: Int64(try ProvenanceFileHasher.fileSize(of: currentURL)),
+            provenancePath: nil
+        )
+        let manifest = ONTGenotypeResultBundleManifest(
+            outputName: outputName,
+            analysisName: outputName,
+            primaryWorkbookPath: primaryWorkbookURL.lastPathComponent,
+            currentWorkbookPath: "artifacts/workbooks/current.xlsx",
+            workbookRevisions: [currentRevision],
+            longSummaryCSVPath: artifacts.genotypeCSV.lastPathComponent,
+            sampleSummaryCSVPath: artifacts.sampleCSV.lastPathComponent,
+            statsJSONPath: artifacts.statsJSON.lastPathComponent,
+            provenancePath: artifacts.provenance.lastPathComponent
+        )
+        try ONTGenotypeResultBundle.writeManifest(manifest, to: bundleURL)
+        return (bundleURL, manifest)
+    }
+
+    private func makeMinimalGenericMatrixWorkbook(at url: URL) throws {
+        let code = #"""
+import sys
+from openpyxl import Workbook
+
+path = sys.argv[1]
+wb = Workbook()
+ws = wb.active
+ws.title = "matrix"
+ws.append(["Animal ID", None, None, "AR3628"])
+ws.append(["GS ID", "Total", "Average", "AR3628"])
+ws.append(["Filtered exact-match read count", None, None, 12])
+ws.append([])
+ws.append(["Comments", "Subtotal", "# Obs.", None])
+ws.append(["Genotype", "Total", "# Obs.", "AR3628"])
+ws.append(["Mamu-I*expected", 5, 1, 5])
+wb.save(path)
+"""#
+        _ = try runPython(["-c", code, url.path])
+    }
+
     private func makeMinimalMCMWorkbook(at url: URL) throws {
         let code = #"""
 import sys
@@ -561,6 +679,63 @@ payload = {
     "guideAuditEntries": text(guide_value("Workbook update audit entries")),
     "firstOverrideRow": row_values("Overrides", 2, 9),
     "firstAuditRow": row_values("Audit Log", 2, 10),
+}
+print(json.dumps(payload))
+"""#
+        let output = try runPython(["-c", code, url.path])
+        let data = Data(output.utf8)
+        let object = try JSONSerialization.jsonObject(with: data)
+        return try XCTUnwrap(object as? [String: String])
+    }
+
+    private func inspectGenericMatrixWorkbook(_ url: URL) throws -> [String: String] {
+        let code = #"""
+import json
+import sys
+from openpyxl import load_workbook
+
+wb = load_workbook(sys.argv[1], data_only=False)
+ws = wb["matrix"]
+cell = ws["D7"]
+
+def text(value):
+    return "" if value is None else str(value)
+
+def color_suffix(color):
+    value = getattr(color, "rgb", None)
+    if not value:
+        return ""
+    return str(value)[-6:]
+
+def row_values(sheet, row_index, col_count):
+    if sheet not in wb.sheetnames or wb[sheet].max_row < row_index:
+        return ""
+    ws = wb[sheet]
+    return "|".join(text(ws.cell(row_index, col).value) for col in range(1, col_count + 1))
+
+def row_for(ws, label):
+    for row in range(1, ws.max_row + 1):
+        if ws.cell(row, 1).value == label:
+            return row
+    return None
+
+def guide_value(label):
+    guide = wb["Interpretation Guide"]
+    row = row_for(guide, label)
+    return "" if row is None else text(guide.cell(row, 2).value)
+
+payload = {
+    "hasMatrixAnnotationsSheet": str("Matrix Annotations" in wb.sheetnames).lower(),
+    "matrixAnnotationStyleRow": row_values("Matrix Annotations", 2, 13),
+    "matrixAnnotationCommentRow": row_values("Matrix Annotations", 3, 13),
+    "cellFillSuffix": color_suffix(cell.fill.fgColor),
+    "cellTextColorSuffix": color_suffix(cell.font.color),
+    "cellBorderSuffix": color_suffix(cell.border.left.color),
+    "cellBold": str(bool(cell.font.bold)).lower(),
+    "cellItalic": str(bool(cell.font.italic)).lower(),
+    "cellComment": "" if cell.comment is None else cell.comment.text,
+    "guideMatrixStyles": guide_value("Workbook update matrix styles"),
+    "guideMatrixComments": guide_value("Workbook update matrix comments"),
 }
 print(json.dumps(payload))
 """#

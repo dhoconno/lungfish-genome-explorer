@@ -231,6 +231,83 @@ public final class GenotypeAnnotationStore {
         try persist(action: "addCellComment")
     }
 
+    func setMatrixStyle(
+        target: GenotypeAnnotationSidecar.MatrixTarget,
+        style: GenotypeAnnotationSidecar.MatrixStyle?
+    ) throws {
+        try setMatrixStyles([(target: target, style: style)])
+    }
+
+    func setMatrixStyles(
+        _ edits: [(target: GenotypeAnnotationSidecar.MatrixTarget, style: GenotypeAnnotationSidecar.MatrixStyle?)]
+    ) throws {
+        guard !edits.isEmpty else { return }
+        let timestamp = now()
+        for edit in edits {
+            let target = edit.target
+            let style = edit.style
+            let previous = sidecar.matrixStyles.first { $0.target == target }?.style
+            sidecar.matrixStyles.removeAll { $0.target == target }
+            if let style, !style.isEmpty {
+                sidecar.matrixStyles.append(.init(
+                    target: target,
+                    style: style,
+                    author: author,
+                    timestamp: timestamp
+                ))
+            }
+            sidecar.append(audit: .init(
+                action: "setMatrixStyle",
+                sample: target.auditSample,
+                locus: target.locus,
+                slot: nil,
+                before: matrixStyleSummary(previous),
+                after: matrixStyleSummary(style),
+                color: style?.fillColor ?? style?.textColor ?? style?.borderColor,
+                reason: "matrix-style",
+                rationale: target.auditDescription,
+                author: author,
+                timestamp: timestamp
+            ))
+        }
+        try persist(action: edits.count == 1 ? "setMatrixStyle" : "setMatrixStyles", editContext: matrixStyleEditContext(edits: edits))
+    }
+
+    func addMatrixComment(target: GenotypeAnnotationSidecar.MatrixTarget, body: String) throws {
+        try addMatrixComments([(target: target, body: body)])
+    }
+
+    func addMatrixComments(
+        _ edits: [(target: GenotypeAnnotationSidecar.MatrixTarget, body: String)]
+    ) throws {
+        guard !edits.isEmpty else { return }
+        let timestamp = now()
+        for edit in edits {
+            let target = edit.target
+            let body = edit.body
+            sidecar.matrixComments.append(.init(
+                target: target,
+                body: body,
+                author: author,
+                timestamp: timestamp
+            ))
+            sidecar.append(audit: .init(
+                action: "addMatrixComment",
+                sample: target.auditSample,
+                locus: target.locus,
+                slot: nil,
+                before: nil,
+                after: body,
+                color: nil,
+                reason: "matrix-comment",
+                rationale: target.auditDescription,
+                author: author,
+                timestamp: timestamp
+            ))
+        }
+        try persist(action: edits.count == 1 ? "addMatrixComment" : "addMatrixComments", editContext: matrixCommentEditContext(edits: edits))
+    }
+
     func addSampleNote(sample: String, body: String) throws {
         let timestamp = now()
         sidecar.sampleNotes.append(.init(
@@ -359,6 +436,7 @@ public final class GenotypeAnnotationStore {
             "locusFractionOverrides=\(overrides)",
             "activeHaplotypeDefinitionSetID=\(optional(settings.activeHaplotypeDefinitionSetID))",
             "activeHaplotypeAssayID=\(optional(settings.activeHaplotypeAssayID))",
+            "preferredSummaryViewMode=\(optional(settings.preferredSummaryViewMode))",
         ].joined(separator: "; ")
     }
 
@@ -373,6 +451,27 @@ public final class GenotypeAnnotationStore {
 
     private func optional<T>(_ value: T?) -> String {
         value.map { "\($0)" } ?? "nil"
+    }
+
+    private func matrixStyleSummary(_ style: GenotypeAnnotationSidecar.MatrixStyle?) -> String? {
+        guard let style else { return nil }
+        var parts: [String] = []
+        if let fill = style.fillColor {
+            parts.append("fill=\(fill)")
+        }
+        if let text = style.textColor {
+            parts.append("text=\(text)")
+        }
+        if let border = style.borderColor {
+            parts.append("border=\(border)")
+        }
+        if style.isBold {
+            parts.append("bold")
+        }
+        if style.isItalic {
+            parts.append("italic")
+        }
+        return parts.isEmpty ? "none" : parts.joined(separator: "; ")
     }
 
     /// Bulk-add manual haplotype assignments in a single persist call.
@@ -430,7 +529,12 @@ public final class GenotypeAnnotationStore {
         ))
     }
 
-    private func persist(action: String) throws {
+    private struct ProvenanceEditContext {
+        var argv: [String]
+        var explicitOptions: [String: ParameterValue]
+    }
+
+    private func persist(action: String, editContext: ProvenanceEditContext? = nil) throws {
         guard !isReadOnly else { return }
         let startedAt = Date()
         let annotationURL = ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: bundleURL)
@@ -442,6 +546,7 @@ public final class GenotypeAnnotationStore {
             action: action,
             annotationURL: annotationURL,
             priorInput: input,
+            editContext: editContext,
             startedAt: startedAt,
             endedAt: Date()
         )
@@ -451,16 +556,27 @@ public final class GenotypeAnnotationStore {
         action: String,
         annotationURL: URL,
         priorInput: ProvenanceFileDescriptor?,
+        editContext: ProvenanceEditContext?,
         startedAt: Date,
         endedAt: Date
     ) throws {
         let output = try ProvenanceFileDescriptor.file(url: annotationURL, format: .json, role: .output)
         let argv = [
-            "lungfish-cli",
-            "edit-genotype-annotations",
+            "lungfish",
+            "genotype",
+            "apply-annotations",
             "--bundle", bundleURL.path,
-            "--action", action,
+            "--patch", annotationURL.path,
         ]
+        var explicitOptions: [String: ParameterValue] = [
+            "bundle": .file(bundleURL),
+            "annotationSidecar": .file(annotationURL),
+            "patch": .file(annotationURL),
+            "action": .string(action),
+        ]
+        if let editContext {
+            explicitOptions.merge(editContext.explicitOptions) { _, payload in payload }
+        }
         let inputs = [priorInput].compactMap { $0 }
         let wallTime = max(0, endedAt.timeIntervalSince(startedAt))
         let step = ProvenanceStep(
@@ -487,11 +603,7 @@ public final class GenotypeAnnotationStore {
             ),
             argv: argv,
             options: ProvenanceOptions(
-                explicit: [
-                    "bundle": .file(bundleURL),
-                    "annotationSidecar": .file(annotationURL),
-                    "action": .string(action),
-                ],
+                explicit: explicitOptions,
                 defaults: [
                     "format": .string("json"),
                     "sidecarFilename": .string(GenotypeAnnotationSidecar.filename),
@@ -500,6 +612,8 @@ public final class GenotypeAnnotationStore {
                     "author": .string(author),
                     "auditEntryCount": .integer(sidecar.auditLog.count),
                     "callOverrideCount": .integer(sidecar.callOverrides.count),
+                    "matrixStyleCount": .integer(sidecar.matrixStyles.count),
+                    "matrixCommentCount": .integer(sidecar.matrixComments.count),
                     "manualHaplotypeAssignmentCount": .integer(sidecar.manualHaplotypeAssignments.count),
                     "smartCohortCount": .integer(sidecar.smartCohorts.count),
                 ]
@@ -516,5 +630,67 @@ public final class GenotypeAnnotationStore {
             envelope,
             toSidecar: ProvenanceRecorder.fileSidecarURL(for: annotationURL)
         )
+    }
+
+    private func matrixStyleEditContext(
+        edits: [(target: GenotypeAnnotationSidecar.MatrixTarget, style: GenotypeAnnotationSidecar.MatrixStyle?)]
+    ) -> ProvenanceEditContext {
+        ProvenanceEditContext(
+            argv: [],
+            explicitOptions: [
+                "targetCount": .integer(edits.count),
+                "targets": .array(edits.map { matrixTargetParameterValue($0.target) }),
+                "styles": .array(edits.map { matrixStyleParameterValue($0.style) }),
+            ]
+        )
+    }
+
+    private func matrixCommentEditContext(
+        edits: [(target: GenotypeAnnotationSidecar.MatrixTarget, body: String)]
+    ) -> ProvenanceEditContext {
+        ProvenanceEditContext(
+            argv: [],
+            explicitOptions: [
+                "targetCount": .integer(edits.count),
+                "targets": .array(edits.map { matrixTargetParameterValue($0.target) }),
+                "commentBodies": .array(edits.map { .string($0.body) }),
+            ]
+        )
+    }
+
+    private func matrixTargetParameterValue(_ target: GenotypeAnnotationSidecar.MatrixTarget) -> ParameterValue {
+        switch target {
+        case let .row(locus, genotype):
+            return .dictionary([
+                "kind": .string("row"),
+                "locus": .string(locus),
+                "genotype": .string(genotype),
+            ])
+        case let .column(sample):
+            return .dictionary([
+                "kind": .string("column"),
+                "sample": .string(sample),
+            ])
+        case let .cell(locus, genotype, sample):
+            return .dictionary([
+                "kind": .string("cell"),
+                "locus": .string(locus),
+                "genotype": .string(genotype),
+                "sample": .string(sample),
+            ])
+        }
+    }
+
+    private func matrixStyleParameterValue(_ style: GenotypeAnnotationSidecar.MatrixStyle?) -> ParameterValue {
+        guard let style, !style.isEmpty else { return .null }
+        return .dictionary([
+            "fillColor": style.fillColor.map(ParameterValue.string) ?? .null,
+            "textColor": style.textColor.map(ParameterValue.string) ?? .null,
+            "borderColor": style.borderColor.map(ParameterValue.string) ?? .null,
+            "isBold": .boolean(style.isBold),
+            "isItalic": .boolean(style.isItalic),
+            "boldOverride": style.boldOverride.map(ParameterValue.boolean) ?? .null,
+            "italicOverride": style.italicOverride.map(ParameterValue.boolean) ?? .null,
+        ])
     }
 }

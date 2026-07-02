@@ -20,6 +20,7 @@ struct GenotypeViewportExportSnapshot: Equatable {
     let sampleNames: [String]
     let rows: [GenotypeViewportExportRow]
     let provenanceInputURLs: [URL]
+    let annotationSidecarURL: URL?
     /// Optional annotation sidecar to surface in additional worksheets.
     /// When non-nil, the export adds an Overrides sheet and an Audit Log
     /// sheet so consumers reading the workbook see what the analyst has
@@ -34,6 +35,7 @@ struct GenotypeViewportExportSnapshot: Equatable {
         sampleNames: [String],
         rows: [GenotypeViewportExportRow],
         provenanceInputURLs: [URL] = [],
+        annotationSidecarURL: URL? = nil,
         sidecar: GenotypeAnnotationSidecarSnapshot? = nil
     ) {
         self.bundleURL = bundleURL
@@ -43,6 +45,7 @@ struct GenotypeViewportExportSnapshot: Equatable {
         self.sampleNames = sampleNames
         self.rows = rows
         self.provenanceInputURLs = provenanceInputURLs
+        self.annotationSidecarURL = annotationSidecarURL
         self.sidecar = sidecar
     }
 }

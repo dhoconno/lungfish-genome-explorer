@@ -3,6 +3,7 @@ import XCTest
 @testable import LungfishGenotypeUI
 import AppKit
 import LungfishCore
+import LungfishIO
 import SwiftUI
 
 @MainActor
@@ -111,7 +112,7 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
             .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeResultDisplaySection.swift")
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
         let start = try XCTUnwrap(source.range(of: "private var thresholdGuidance"))
-        let end = try XCTUnwrap(source[start.lowerBound...].range(of: "private var colorControls"))
+        let end = try XCTUnwrap(source[start.lowerBound...].range(of: "private var matrixFilterControls"))
         let thresholdSource = String(source[start.lowerBound..<end.lowerBound])
 
         XCTAssertTrue(thresholdSource.contains("Haplotype thresholds"))
@@ -144,6 +145,20 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
 
         XCTAssertEqual(viewModel.displayState.viewportLens, .summary)
         XCTAssertEqual(viewModel.displayState.summaryViewMode, .matrix)
+    }
+
+    func testHaplotypeGenotypeToggleSwitchesSummaryViewModes() {
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+        viewModel.update(isAvailable: true, hasHaplotypingResult: true)
+        var states: [GenotypeResultDisplayState] = []
+        viewModel.onDisplayStateChanged = { states.append($0) }
+
+        viewModel.toggleHaplotypeGenotypeSummaryView()
+        viewModel.toggleHaplotypeGenotypeSummaryView()
+
+        XCTAssertTrue(viewModel.hasHaplotypingResult)
+        XCTAssertEqual(states.map(\.summaryViewMode), [.matrix, .outline])
+        XCTAssertEqual(states.map(\.viewportLens), [.summary, .summary])
     }
 
     func testGenotypeViewSectionOwnsHighlightColorControls() throws {
@@ -207,6 +222,94 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         XCTAssertEqual(receivedRequests.first?.scope, .selectedCell)
         XCTAssertEqual(receivedRequests.first?.color, AnnotationColor(red: 0.2, green: 0.5, blue: 0.7, alpha: 1.0))
         XCTAssertEqual(receivedRequests.last?.color, AnnotationColor(red: 0.9, green: 0.3, blue: 0.1, alpha: 1.0))
+    }
+
+    func testMatrixSupportedReadThresholdAppliesToRowsAndColumns() {
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+        var previewValues: [Int] = []
+        var requests: [GenotypeMatrixStyleRequest] = []
+        viewModel.onSupportSelectionPreviewChanged = { previewValues.append($0) }
+        viewModel.onMatrixStyleRequested = { requests.append($0) }
+
+        viewModel.updateSelection(GenotypeResultSelectionState(
+            title: "AnimalA",
+            subtitle: "Matrix annotations",
+            detailRows: [],
+            matrixTargets: [.column(sample: "AnimalA")]
+        ))
+        XCTAssertTrue(viewModel.hasMatrixSelection)
+        XCTAssertTrue(viewModel.canUseSupportedCellThreshold)
+        viewModel.setSupportedCellMinimumReads(5)
+        viewModel.setMatrixFillColor(NSColor.systemPink)
+        XCTAssertEqual(previewValues, [5])
+        XCTAssertEqual(requests.last?.targets, [.column(sample: "AnimalA")])
+        XCTAssertEqual(requests.last?.minimumReads, 5)
+
+        viewModel.updateSelection(GenotypeResultSelectionState(
+            title: "01_Mafa_A1_001_01",
+            subtitle: "MHC-A",
+            detailRows: [],
+            matrixTargets: [.row(locus: "MHC-A", genotype: "01_Mafa_A1_001_01")]
+        ))
+        XCTAssertTrue(viewModel.canUseSupportedCellThreshold)
+        viewModel.setMatrixFillColor(NSColor.systemBlue)
+        XCTAssertEqual(requests.last?.minimumReads, 5)
+
+        viewModel.updateSelection(GenotypeResultSelectionState(
+            title: "AnimalA MHC-A 01_Mafa_A1_001_01",
+            subtitle: "Matrix annotations",
+            detailRows: [],
+            matrixTargets: [.cell(locus: "MHC-A", genotype: "01_Mafa_A1_001_01", sample: "AnimalA")]
+        ))
+        XCTAssertFalse(viewModel.canUseSupportedCellThreshold)
+        viewModel.setMatrixFillColor(NSColor.systemGreen)
+        XCTAssertNil(requests.last?.minimumReads)
+    }
+
+    func testMatrixQuickPalettesExposeMCMAndGenericColors() {
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+        let mcm = viewModel.matrixMCMQuickPaletteColors
+        let generic = viewModel.matrixGenericQuickPaletteColors
+
+        XCTAssertEqual(mcm.count, 8)
+        XCTAssertEqual(generic.count, 64)
+        XCTAssertEqual(Set(mcm.map(\.hexString)).count, 8)
+        XCTAssertEqual(Set(generic.map(\.hexString)).count, 64)
+        XCTAssertEqual(mcm.first?.hexString, HaplotypeColorToken.canonicalBudde2010Tokens.first?.fillColor.hexString)
+        XCTAssertEqual(generic.first?.hexString, "#AD274D")
+    }
+
+    func testMatrixQuickPaletteAppliesToSelectedStyleTarget() {
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+        let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A",
+            genotype: "01_Mafa_A1_001_01",
+            sample: "AnimalA"
+        )
+        viewModel.updateSelection(GenotypeResultSelectionState(
+            title: "01_Mafa_A1_001_01",
+            subtitle: "MHC-A",
+            detailRows: [],
+            matrixTargets: [target]
+        ))
+        var requests: [GenotypeMatrixStyleRequest] = []
+        viewModel.onMatrixStyleRequested = { requests.append($0) }
+        let color = AnnotationColor(red: 0.2, green: 0.5, blue: 0.7, alpha: 1.0)
+
+        viewModel.matrixPaletteTarget = .fill
+        viewModel.applyMatrixPaletteColor(color)
+        viewModel.matrixPaletteTarget = .text
+        viewModel.applyMatrixPaletteColor(color)
+        viewModel.matrixPaletteTarget = .border
+        viewModel.applyMatrixPaletteColor(color)
+
+        XCTAssertEqual(requests.map(\.targets), [[target], [target], [target]])
+        XCTAssertEqual(requests.map(\.field), [
+            .fillColor(color),
+            .textColor(color),
+            .borderColor(color),
+        ])
+        XCTAssertEqual(requests.map(\.minimumReads), [nil, nil, nil])
     }
 
     func testSelectionViewModelEmitsGenotypeHighlightRequests() {

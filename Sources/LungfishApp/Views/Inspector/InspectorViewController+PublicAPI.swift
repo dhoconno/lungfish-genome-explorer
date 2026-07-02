@@ -365,7 +365,11 @@ extension InspectorViewController {
         state.defaultIncludedHaplotypeLoci = defaultIncludedLoci
         state.includedHaplotypeLoci = selectedIncludedLoci
         viewModel.documentSectionViewModel.updateGenotypeResultDocument(state)
-        viewModel.genotypeResultDisplaySectionViewModel.update(isAvailable: true, state: currentDisplay)
+        viewModel.genotypeResultDisplaySectionViewModel.update(
+            isAvailable: true,
+            state: currentDisplay,
+            hasHaplotypingResult: result.haplotypeAnalysis != nil
+        )
         updateProvenanceTarget(
             url: result.bundleURL,
             sidebarType: .genotypeResultBundle,
@@ -536,21 +540,30 @@ extension InspectorViewController {
         result: ONTGenotypeResultBundleData,
         sidecar: GenotypeAnnotationSidecar
     ) -> GenotypeResultCurrentWorkbookUpdateState {
-        let manualChangeCount = sidecar.callOverrides.count + sidecar.manualHaplotypeAssignments.count
-        let changeLabel = manualChangeCount == 1 ? "manual haplotype change" : "manual haplotype changes"
+        let workbookChangeCount = sidecar.callOverrides.count
+            + sidecar.manualHaplotypeAssignments.count
+            + sidecar.matrixStyles.count
+            + sidecar.matrixComments.count
+        let hasMatrixAnnotations = !sidecar.matrixStyles.isEmpty || !sidecar.matrixComments.isEmpty
+        let changeLabel: String
+        if hasMatrixAnnotations {
+            changeLabel = workbookChangeCount == 1 ? "workbook annotation change" : "workbook annotation changes"
+        } else {
+            changeLabel = workbookChangeCount == 1 ? "manual haplotype change" : "manual haplotype changes"
+        }
         let isWritable = FileManager.default.isWritableFile(atPath: result.bundleURL.path)
         let statusText: String
-        if manualChangeCount == 0 {
-            statusText = "current.xlsx has no manual haplotype edits to apply."
+        if workbookChangeCount == 0 {
+            statusText = "current.xlsx has no workbook annotation edits to apply."
         } else if !isWritable {
             statusText = "current.xlsx cannot be updated because this bundle is read-only."
         } else {
-            statusText = "current.xlsx can be refreshed from \(manualChangeCount) \(changeLabel)."
+            statusText = "current.xlsx can be refreshed from \(workbookChangeCount) \(changeLabel)."
         }
         return GenotypeResultCurrentWorkbookUpdateState(
-            manualChangeCount: manualChangeCount,
+            manualChangeCount: workbookChangeCount,
             statusText: statusText,
-            isEnabled: manualChangeCount > 0 && isWritable
+            isEnabled: workbookChangeCount > 0 && isWritable
         )
     }
 
