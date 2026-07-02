@@ -356,6 +356,15 @@ extension MainSplitViewController {
             inspectorController.genotypeResultDisplaySectionViewModel.onSupportSelectionPreviewChanged = { [weak controller] minimumReads in
                 controller?.setMatrixSupportSelectionPreviewMinimumReads(minimumReads)
             }
+            inspectorController.genotypeResultDisplaySectionViewModel.onShowOnlySelectedMatrixRowsRequested = { [weak controller] in
+                controller?.showOnlySelectedMatrixRows()
+            }
+            inspectorController.genotypeResultDisplaySectionViewModel.onShowOnlySelectedMatrixColumnsRequested = { [weak controller] in
+                controller?.showOnlySelectedMatrixColumns()
+            }
+            inspectorController.genotypeResultDisplaySectionViewModel.onClearMatrixSelectionFilterRequested = { [weak controller] in
+                controller?.clearMatrixSelectionFilter()
+            }
             inspectorController.selectionSectionViewModel.onGenotypeHighlightRequested = { [weak controller] request in
                 controller?.applyHighlight(request)
             }

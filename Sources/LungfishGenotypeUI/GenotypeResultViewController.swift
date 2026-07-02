@@ -763,6 +763,21 @@ public final class GenotypeResultViewController: NSViewController {
         comparisonMatrix.setSupportSelectionPreviewMinimumReads(minimumReads)
     }
 
+    public func showOnlySelectedMatrixRows() {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.showOnlySelectedRows()
+    }
+
+    public func showOnlySelectedMatrixColumns() {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.showOnlySelectedColumns()
+    }
+
+    public func clearMatrixSelectionFilter() {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.clearSelectionFilter()
+    }
+
     private func applyHighlightWithoutUndo(_ request: GenotypeResultHighlightRequest) {
         ensureComparisonMatrixConfigured()
         comparisonMatrix.applyHighlight(request)
@@ -5433,6 +5448,16 @@ extension GenotypeResultViewController {
         return comparisonMatrix.testingVisibleSampleColumnTitles
     }
 
+    var testingPinnedMatrixColumnTitles: [String] {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingPinnedColumnTitles
+    }
+
+    var testingVisibleMatrixSampleReadTitles: [String] {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingVisibleSampleReadTitles
+    }
+
     func testingSelectFirstSampleCell(sample: String) {
         ensureComparisonMatrixConfigured()
         comparisonMatrix.testingSelectFirstSampleCell(sample: sample)
@@ -5534,6 +5559,18 @@ extension GenotypeResultViewController {
 
     func testingSetMatrixSupportSelectionPreviewMinimumReads(_ minimumReads: Int) {
         setMatrixSupportSelectionPreviewMinimumReads(minimumReads)
+    }
+
+    func testingShowOnlySelectedMatrixRows() {
+        showOnlySelectedMatrixRows()
+    }
+
+    func testingShowOnlySelectedMatrixColumns() {
+        showOnlySelectedMatrixColumns()
+    }
+
+    func testingClearMatrixSelectionFilter() {
+        clearMatrixSelectionFilter()
     }
 
     func testingCellValue(genotype: String, sample: String) -> String? {

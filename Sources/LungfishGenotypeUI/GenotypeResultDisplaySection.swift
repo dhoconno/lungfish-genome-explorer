@@ -48,6 +48,9 @@ public final class GenotypeResultDisplaySectionViewModel {
     public var onMatrixStyleRequested: ((GenotypeMatrixStyleRequest) -> Void)?
     public var onMatrixCommentRequested: ((GenotypeMatrixCommentRequest) -> Void)?
     public var onSupportSelectionPreviewChanged: ((Int) -> Void)?
+    public var onShowOnlySelectedMatrixRowsRequested: (() -> Void)?
+    public var onShowOnlySelectedMatrixColumnsRequested: (() -> Void)?
+    public var onClearMatrixSelectionFilterRequested: (() -> Void)?
 
     @ObservationIgnored
     private var isUpdatingFromSelection = false
@@ -143,6 +146,18 @@ public final class GenotypeResultDisplaySectionViewModel {
     func setMatrixSampleFilterText(_ value: String) {
         displayState.matrixSampleFilterText = value
         notifyStateChanged()
+    }
+
+    func showOnlySelectedMatrixRows() {
+        onShowOnlySelectedMatrixRowsRequested?()
+    }
+
+    func showOnlySelectedMatrixColumns() {
+        onShowOnlySelectedMatrixColumnsRequested?()
+    }
+
+    func clearMatrixSelectionFilter() {
+        onClearMatrixSelectionFilterRequested?()
     }
 
     func setSupportDenominator(_ denominator: ONTGenotypeSupportDenominator) {
@@ -499,6 +514,29 @@ public struct GenotypeResultDisplaySection: View {
                 set: { viewModel.setMatrixSampleFilterText($0) }
             ))
             .textFieldStyle(.roundedBorder)
+            .controlSize(.small)
+            HStack(spacing: 8) {
+                Button {
+                    viewModel.showOnlySelectedMatrixRows()
+                } label: {
+                    Label("Rows", systemImage: "line.3.horizontal.decrease.circle")
+                }
+                .disabled(!viewModel.hasMatrixSelection)
+
+                Button {
+                    viewModel.showOnlySelectedMatrixColumns()
+                } label: {
+                    Label("Columns", systemImage: "rectangle.split.3x1")
+                }
+                .disabled(!viewModel.hasMatrixSelection)
+
+                Button {
+                    viewModel.clearMatrixSelectionFilter()
+                } label: {
+                    Label("Clear", systemImage: "xmark.circle")
+                }
+            }
+            .buttonStyle(.borderless)
             .controlSize(.small)
             Stepper(
                 "Min reads: \(viewModel.displayState.matrixMinimumReads)",

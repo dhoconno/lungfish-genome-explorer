@@ -3896,7 +3896,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         controller.testingSetComparisonFilter("AnimalA")
         XCTAssertEqual(controller.testingVisibleGenotypes, [first])
         XCTAssertEqual(controller.testingVisibleMatrixSamples, ["AnimalA"])
-        XCTAssertEqual(controller.testingVisibleMatrixSampleColumnTitles, ["   AnimalA"])
+        XCTAssertEqual(controller.testingVisibleMatrixSampleColumnTitles, ["AnimalA"])
 
         controller.testingSetComparisonFilter("")
         XCTAssertEqual(Set(controller.testingVisibleGenotypes), Set([first, second]))
@@ -3932,7 +3932,7 @@ final class GenotypeResultViewportTests: XCTestCase {
 
         XCTAssertEqual(controller.testingVisibleGenotypes, [genotype])
         XCTAssertEqual(controller.testingVisibleMatrixSamples, ["AR3628"])
-        XCTAssertEqual(controller.testingVisibleMatrixSampleColumnTitles, ["   AR3628"])
+        XCTAssertEqual(controller.testingVisibleMatrixSampleColumnTitles, ["AR3628"])
     }
 
     func testUnifiedQuickFilterPrioritizesSampleColumnMatchOverGenotypeTextMatch() {
@@ -3964,7 +3964,7 @@ final class GenotypeResultViewportTests: XCTestCase {
 
         XCTAssertEqual(controller.testingVisibleGenotypes, [genotype])
         XCTAssertEqual(controller.testingVisibleMatrixSamples, ["AR3628"])
-        XCTAssertEqual(controller.testingVisibleMatrixSampleColumnTitles, ["   AR3628"])
+        XCTAssertEqual(controller.testingVisibleMatrixSampleColumnTitles, ["AR3628"])
     }
 
     func testMatrixFreeTextSearchDoesNotTreatLocusMatchAsImplicitSampleFilter() throws {
@@ -4006,6 +4006,112 @@ final class GenotypeResultViewportTests: XCTestCase {
 
         XCTAssertEqual(controller.testingVisibleGenotypes, ["04_Mafa_B_001_01"])
         XCTAssertEqual(controller.testingVisibleMatrixSamples, ["AnimalA", "AnimalB"])
+    }
+
+    func testMatrixSelectionFiltersRowsUntilCleared() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let first = "01_Mafa_A1_SHARED"
+        let second = "02_Mafa_B_SHARED"
+        let firstCall = makeCall(sample: "AnimalA", genotype: first, reads: 12)
+        let secondCall = makeCall(sample: "AnimalB", genotype: second, reads: 9)
+        controller.configure(result: makeResult(samples: [
+            ONTGenotypeSampleResult(
+                sample: "AnimalA",
+                passedAlignments: 12,
+                passedUniqueReads: 12,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: [firstCall]
+            ),
+            ONTGenotypeSampleResult(
+                sample: "AnimalB",
+                passedAlignments: 9,
+                passedUniqueReads: 9,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: [secondCall]
+            ),
+        ], calls: [firstCall, secondCall]))
+
+        controller.testingClickMatrixRowChiclet(genotype: second)
+        controller.testingShowOnlySelectedMatrixRows()
+
+        XCTAssertEqual(controller.testingVisibleGenotypes, [second])
+        XCTAssertEqual(controller.testingVisibleMatrixSamples, ["AnimalA", "AnimalB"])
+
+        controller.testingClearMatrixSelectionFilter()
+
+        XCTAssertEqual(Set(controller.testingVisibleGenotypes), Set([first, second]))
+        XCTAssertEqual(controller.testingVisibleMatrixSamples, ["AnimalA", "AnimalB"])
+    }
+
+    func testMatrixSelectionFiltersColumnsUntilCleared() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let genotype = "01_Mafa_A1_SHARED"
+        let callA = makeCall(sample: "AnimalA", genotype: genotype, reads: 12)
+        let callB = makeCall(sample: "AnimalB", genotype: genotype, reads: 9)
+        controller.configure(result: makeResult(samples: [
+            ONTGenotypeSampleResult(
+                sample: "AnimalA",
+                passedAlignments: 12,
+                passedUniqueReads: 12,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: [callA]
+            ),
+            ONTGenotypeSampleResult(
+                sample: "AnimalB",
+                passedAlignments: 9,
+                passedUniqueReads: 9,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: [callB]
+            ),
+        ], calls: [callA, callB]))
+
+        controller.testingSelectMatrixColumn(sample: "AnimalB")
+        controller.testingShowOnlySelectedMatrixColumns()
+
+        XCTAssertEqual(controller.testingVisibleMatrixSamples, ["AnimalB"])
+        XCTAssertEqual(controller.testingVisibleMatrixSampleColumnTitles, ["AnimalB"])
+        XCTAssertEqual(controller.testingVisibleMatrixSampleReadTitles, ["9"])
+
+        controller.testingClearMatrixSelectionFilter()
+
+        XCTAssertEqual(controller.testingVisibleMatrixSamples, ["AnimalA", "AnimalB"])
+        XCTAssertEqual(controller.testingVisibleMatrixSampleReadTitles, ["12", "9"])
+    }
+
+    func testMatrixKeepsIdentityColumnsSeparateFromScrollableSamples() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let genotype = "01_Mafa_A1_SHARED"
+        let callA = makeCall(sample: "AnimalA", genotype: genotype, reads: 12)
+        let callB = makeCall(sample: "AnimalB", genotype: genotype, reads: 9)
+        controller.configure(result: makeResult(samples: [
+            ONTGenotypeSampleResult(
+                sample: "AnimalA",
+                passedAlignments: 12,
+                passedUniqueReads: 12,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: [callA]
+            ),
+            ONTGenotypeSampleResult(
+                sample: "AnimalB",
+                passedAlignments: 9,
+                passedUniqueReads: 9,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: [callB]
+            ),
+        ], calls: [callA, callB]))
+
+        XCTAssertEqual(controller.testingPinnedMatrixColumnTitles, ["", "Genotype", "Locus", "Samples", "Unique"])
+        XCTAssertEqual(controller.testingVisibleMatrixSampleColumnTitles, ["AnimalA", "AnimalB"])
+        XCTAssertEqual(controller.testingVisibleMatrixSampleReadTitles, ["12", "9"])
     }
 
     func testMatrixRowSelectionFillAppliesOnlyCellsAtOrAboveReadThreshold() throws {
@@ -4326,7 +4432,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         controller.testingSetMatrixSupportSelectionPreviewMinimumReads(5)
 
         XCTAssertEqual(controller.testingVisibleMatrixSamples, ["AnimalA"])
-        XCTAssertEqual(controller.testingVisibleMatrixSampleColumnTitles, ["   AnimalA"])
+        XCTAssertEqual(controller.testingVisibleMatrixSampleColumnTitles, ["AnimalA"])
         XCTAssertTrue(controller.testingIsSelectedMatrixCell(genotype: genotype, sample: "AnimalA"))
         XCTAssertEqual(controller.testingRenderedMatrixStyle(genotype: genotype, sample: "AnimalA")?.fillColor?.hexString, "#00AAFF")
     }
