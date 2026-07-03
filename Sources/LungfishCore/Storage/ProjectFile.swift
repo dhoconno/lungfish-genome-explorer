@@ -462,5 +462,3 @@ public enum ProjectFileError: Error, LocalizedError, Sendable {
         }
     }
 }
-
-// Note: Version.computeHash is already defined in Version.swift

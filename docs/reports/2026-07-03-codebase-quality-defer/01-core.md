@@ -243,3 +243,67 @@ entry names the file, the reason it was deferred, and a concrete suggestion.
 - AnnotationConverter `ConversionOptions.mergeOverlapping` is a public option
   never consulted — silent no-op contract (CLARITY-04). Document-or-implement
   decision. Defer.
+
+## Storage cluster (ProjectFile/ProjectLock/Keychain/ManagedStorage*)
+
+- **F12/F13 access-control demotions — REJECTED after verification (do NOT do).**
+  The audit suggested demoting `ManagedStorageConfigStore`, `ManagedStorageLocation`,
+  `ProjectLockManager`, `ProjectLockRecord`, `ProjectLockStatus`,
+  `ManagedStorageBootstrapConfig` from `public` to `internal`. A clean cross-module
+  grep shows they ARE consumed outside LungfishCore (e.g. ManagedStorageConfigStore
+  in 12 non-Core files across App/IO/Workflow/CLI; ManagedStorageLocation in 4;
+  ProjectLockManager in App+CLI). Demoting would break downstream builds. Correctly
+  keep them `public`. (Recorded so this is not re-attempted.)
+- **F3 — ProjectFile.saveMetadata writes metadata.json without `.atomic` (medium).**
+  Sibling files use `.atomic`; a crash mid-write can truncate metadata.json.
+  Durability/failure-path change — defer. Suggestion: `write(to:options:[.atomic])`.
+- **F5/F6 — ProjectLock corrupt-lock throw + acquisition TOCTOU race (medium).**
+  `writeLock` overwrites unconditionally (no O_EXCL), so two processes racing to
+  acquire can both win. Real fix changes lock semantics; needs concurrency tests.
+  Defer to a lock-robustness pass.
+- **F9/F10 — KeychainSecretStorage query consistency + non-UTF8 retrieve returns
+  nil (low/medium).** Do NOT change keychain security semantics. Defer.
+- **F11 — ManagedStorageConfigStore mutable `@MainActor static var shared` on an
+  `@unchecked Sendable` class (medium).** Read-modify sequences across threads are
+  unsynchronized (individual writes are `.atomic`). `var`->`let` is only safe if no
+  reassignment exists; grep found no `shared =` reassignment, but leaving as-is is
+  safest without a concurrency-model decision. Defer.
+- **F1 — stray orphan comment at ProjectFile.swift end — SAFE, will apply.**
+
+## Wave-3 cluster notes (Models-rest, Editing/Extraction/Capabilities/Genotype)
+
+### Applied (safe, behavior-preserving): Sequence F7 (collapse redundant
+reverse-complement quality double-wrap), SequenceAppearance F14 (doc 50->20pt),
+AlignedRead F5 (doc param-order), ProjectFile F1 (delete orphan comment).
+
+### Deferred / leave-alone:
+- **VariantColorTheme.init(name:) is BROKEN (medium).** `public init(name:)` does
+  `self = .modern` and never assigns `self.name = name`, so it silently returns
+  the Modern theme regardless of the name argument, contradicting its own comment.
+  Zero callers found. Deferred: it's a `public` init — decide delete vs fix
+  (`self.name = name`). Genuine latent bug for the downstream LLM.
+- Sequence 2-bit packing, AlignedRead CIGAR walk (`forEachAlignedBase`/`insertions`
+  with the I-P-I merge), SequenceExtractor coordinate/flank/RC/CDS math, EditableSequence
+  /EditOperation undo-redo invariants — all correctness-sensitive, LEAVE ALONE.
+- Three near-identical color value types (`HexColor`/`AnnotationColor`/`ThemeColor`)
+  are NOT consolidated: they're embedded in distinct Codable schemas (r/g/b vs
+  red/green/blue keys); merging breaks on-disk decode. Intentional duplication.
+- `BundleAttachmentStore` / `ClassifierSamplePickerState` are `@Observable
+  @unchecked Sendable` mutable classes doing sync FileManager I/O with no
+  `@MainActor` (F10). Adding `@MainActor` is the right fix but ripples to App call
+  sites — defer to a concurrency-model pass with a build.
+- `GenomicDocument`'s `nonisolated var capabilities { .none }` stub (F3) makes
+  protocol-routed capability checks silently return empty. Load-bearing (lets the
+  type conform without MainActor); fixing means not conforming directly or making
+  the protocol `@MainActor`. Defer with a compile.
+- `AIProviderHelpers`: 10 generically-named free functions at module scope (F9)
+  — namespacing under a caseless enum is a wide cross-file rename. Defer.
+- `SRAAccessionParser.parseCSV` splits only on newlines while `parseAccessionList`
+  also splits on comma/space/tab (F12) — a comma-separated CSV row is dropped.
+  Behavioral question (is one-accession-per-line intended?); confirm via test. Defer.
+- TempFileManager scans `/` on launch (TCC-fragile, best-effort) and may double-scan
+  /tmp vs /private/tmp (F1/F2); RuntimeResourceLocator repeats a `0..<12` hop cap
+  (F11) — trivial, deferred.
+- Genotype color palettes (HaplotypeColorToken) are scientifically load-bearing
+  ("must never be reordered or recolored") — LEAVE ALONE except a harmless dead
+  local alias (F14, deferred as not worth the reviewer alarm).
