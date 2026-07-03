@@ -1,5 +1,6 @@
 import Foundation
 import LungfishIO
+import LungfishKit
 import SwiftUI
 
 struct MHCReferenceBundleViewportModel: Equatable {
@@ -23,6 +24,25 @@ struct MHCReferenceBundleViewportModel: Equatable {
         let manifest = try MHCAmpliconReferenceBundle.loadManifest(from: standardizedBundleURL)
         let fastaURL = standardizedBundleURL.appendingPathComponent(manifest.referenceFastaPath)
         let fastaText = try String(contentsOf: fastaURL, encoding: .utf8)
+        let definitions = try MHCAmpliconReferenceBundle.haplotypeDefinitions(in: standardizedBundleURL)
+        return MHCReferenceBundleViewportModel(
+            bundleURL: standardizedBundleURL,
+            title: manifest.name,
+            fastaText: fastaText,
+            referenceCount: manifest.metrics.referenceCount,
+            definitionSummaries: definitions.map(Self.summary(for:))
+        )
+    }
+
+    /// Async variant of ``load(bundleURL:)`` that reads the reference FASTA off
+    /// the main actor via ``AsyncFileReader``. Parsing and manifest/definition
+    /// loading are identical to the synchronous version; only the FASTA read
+    /// moves off-main so a large reference does not block the UI during display.
+    static func loadAsync(bundleURL: URL) async throws -> MHCReferenceBundleViewportModel {
+        let standardizedBundleURL = bundleURL.standardizedFileURL
+        let manifest = try MHCAmpliconReferenceBundle.loadManifest(from: standardizedBundleURL)
+        let fastaURL = standardizedBundleURL.appendingPathComponent(manifest.referenceFastaPath)
+        let fastaText = try await AsyncFileReader.readString(fastaURL, encoding: .utf8)
         let definitions = try MHCAmpliconReferenceBundle.haplotypeDefinitions(in: standardizedBundleURL)
         return MHCReferenceBundleViewportModel(
             bundleURL: standardizedBundleURL,

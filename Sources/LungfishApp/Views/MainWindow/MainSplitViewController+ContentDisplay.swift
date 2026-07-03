@@ -222,30 +222,34 @@ extension MainSplitViewController {
         let displayToken = token ?? beginDisplayRequest(identity: displayIdentity)
 
         activityIndicator.show(message: "Loading \(url.lastPathComponent)...", style: .indeterminate)
-        DispatchQueue.main.async { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                defer { self.activityIndicator.hide() }
-                guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.activityIndicator.hide() }
+            guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
 
-                do {
-                    let model = try MHCReferenceBundleViewportModel.load(bundleURL: url)
-                    self.inspectorController.clearSelection()
-                    self.inspectorController.updateMHCReferenceBundleDocument(url)
-                    self.viewerController.displayMHCReferenceBundle(model) { [weak self] in
-                        guard let self else { return }
-                        HaplotypeDefinitionManagerWindowController.show(
-                            projectURL: self.sidebarController.currentProjectURL
-                                ?? DocumentManager.shared.activeProject?.url,
-                            editingBundleURL: url
-                        )
-                    }
-                } catch {
-                    mainSplitLogger.error(
-                        "displayMHCReferenceBundle: Failed - \(error.localizedDescription, privacy: .public)"
+            do {
+                // Read the reference FASTA off the main actor; a large reference
+                // must not block the UI during display.
+                let model = try await MHCReferenceBundleViewportModel.loadAsync(bundleURL: url)
+                // A newer sidebar selection may have superseded this load while the
+                // FASTA read was in flight; re-check the generation guard before
+                // committing the viewport.
+                guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
+                self.inspectorController.clearSelection()
+                self.inspectorController.updateMHCReferenceBundleDocument(url)
+                self.viewerController.displayMHCReferenceBundle(model) { [weak self] in
+                    guard let self else { return }
+                    HaplotypeDefinitionManagerWindowController.show(
+                        projectURL: self.sidebarController.currentProjectURL
+                            ?? DocumentManager.shared.activeProject?.url,
+                        editingBundleURL: url
                     )
-                    self.viewerController.clearViewport(statusMessage: "Unable to load MHC reference bundle.")
                 }
+            } catch {
+                mainSplitLogger.error(
+                    "displayMHCReferenceBundle: Failed - \(error.localizedDescription, privacy: .public)"
+                )
+                self.viewerController.clearViewport(statusMessage: "Unable to load MHC reference bundle.")
             }
         }
     }
@@ -520,23 +524,30 @@ extension MainSplitViewController {
     /// project sidebar (Finder double-click, "Open With", File > Open Recent, drag-to-dock).
     /// `updateMHCReferenceBundleDocument` sets the `.mhcReferenceBundle` provenance target.
     func displayMHCReferenceBundleFromExternalOpen(at url: URL) {
-        do {
-            let model = try MHCReferenceBundleViewportModel.load(bundleURL: url)
-            inspectorController.clearSelection()
-            inspectorController.updateMHCReferenceBundleDocument(url)
-            viewerController.displayMHCReferenceBundle(model) { [weak self] in
-                guard let self else { return }
-                HaplotypeDefinitionManagerWindowController.show(
-                    projectURL: self.sidebarController.currentProjectURL
-                        ?? DocumentManager.shared.activeProject?.url,
-                    editingBundleURL: url
+        // External open is a one-shot (Finder double-click / Open Recent), not a
+        // sidebar selection that a later selection can supersede, so no display
+        // generation guard is needed. The reference FASTA read moves off the
+        // main actor via `loadAsync` so a large reference does not block the UI.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let model = try await MHCReferenceBundleViewportModel.loadAsync(bundleURL: url)
+                self.inspectorController.clearSelection()
+                self.inspectorController.updateMHCReferenceBundleDocument(url)
+                self.viewerController.displayMHCReferenceBundle(model) { [weak self] in
+                    guard let self else { return }
+                    HaplotypeDefinitionManagerWindowController.show(
+                        projectURL: self.sidebarController.currentProjectURL
+                            ?? DocumentManager.shared.activeProject?.url,
+                        editingBundleURL: url
+                    )
+                }
+            } catch {
+                mainSplitLogger.error(
+                    "displayMHCReferenceBundleFromExternalOpen: Failed - \(error.localizedDescription, privacy: .public)"
                 )
+                self.viewerController.clearViewport(statusMessage: "Unable to load MHC reference bundle.")
             }
-        } catch {
-            mainSplitLogger.error(
-                "displayMHCReferenceBundleFromExternalOpen: Failed - \(error.localizedDescription, privacy: .public)"
-            )
-            viewerController.clearViewport(statusMessage: "Unable to load MHC reference bundle.")
         }
     }
 
