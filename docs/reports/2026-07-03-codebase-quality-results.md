@@ -22,11 +22,28 @@ Post-fix clean baseline (this is the gate every phase is measured against):
 
 Green from here = 0 non-environmental XCTest failures AND swift-testing = 0.
 
+## Batching strategy (tiered, adopted after the first 3 Core files)
+
+To cover ~1100 files tractably while keeping every confidence gate, batches are
+tiered by file size:
+
+- **Big / tangled files (>~800 lines): full solo treatment** — one audit agent,
+  one implementer, build + scoped tests, one independent adversarial reviewer,
+  revert-on-uncertainty, its own commit.
+- **Mid / small files (<~800 lines): clustered** — grouped by directory/concern
+  into one audit + implement + build + scoped-test + independent-review + commit
+  cycle per cluster. Same gates, fewer round-trips.
+- **File splits** of large files are batched into a dedicated mechanical
+  `git mv`/extension pass per module (pure relocation, no logic change), reviewed
+  as one diff.
+
+Each module still ends with a FULL green-bar gate before the next module begins.
+
 ## Per-module summary
 
 | Module | Batches applied | LOC delta | Deferrals | Green-bar |
 |---|---|---|---|---|
-| LungfishCore | - | - | - | - |
+| LungfishCore | IN PROGRESS: 21 files across 5 committed batches | net ~ -190 lines | rich (see 01-core.md) | scoped LungfishCoreTests 1158/0 after every batch; module-boundary FULL green-bar NOT yet run |
 | LungfishIO | - | - | - | - |
 | LungfishWorkflow | - | - | - | - |
 | LungfishKit | - | - | - | - |
