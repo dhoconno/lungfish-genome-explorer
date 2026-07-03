@@ -213,6 +213,15 @@ public final class AnnotationConverter: Sendable {
         let attributes: [String: String]
     }
 
+    /// Returns `true` when the already-computed feature `length` passes the
+    /// optional min/max length gates in `options`. Callers must supply the length
+    /// using their own coordinate convention (e.g. 1-based inclusive vs half-open).
+    private func passesLengthFilter(_ length: Int, _ options: ConversionOptions) -> Bool {
+        if let minLen = options.minLength, length < minLen { return false }
+        if let maxLen = options.maxLength, length > maxLen { return false }
+        return true
+    }
+
     private func readGFF3AsBED(
         from url: URL,
         options: ConversionOptions
@@ -289,8 +298,7 @@ public final class AnnotationConverter: Sendable {
             }
 
             let length = feature.end - feature.start + 1
-            if let minLen = options.minLength, length < minLen { continue }
-            if let maxLen = options.maxLength, length > maxLen { continue }
+            if !passesLengthFilter(length, options) { continue }
 
             // Collect key attributes for extra column 14
             var extraAttrs: [String] = []
@@ -420,8 +428,7 @@ public final class AnnotationConverter: Sendable {
 
             // Filter by length
             let length = chromEnd - chromStart
-            if let minLen = options.minLength, length < minLen { continue }
-            if let maxLen = options.maxLength, length > maxLen { continue }
+            if !passesLengthFilter(length, options) { continue }
 
             let entry = BEDEntry(
                 chrom: fields[0],
@@ -599,8 +606,7 @@ public final class AnnotationConverter: Sendable {
 
         // Filter by length
         let length = end - start
-        if let minLen = options.minLength, length < minLen { return nil }
-        if let maxLen = options.maxLength, length > maxLen { return nil }
+        if !passesLengthFilter(length, options) { return nil }
 
         let name = qualifiers["gene"] ?? qualifiers["locus_tag"] ?? qualifiers["product"] ?? type
 

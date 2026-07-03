@@ -44,6 +44,9 @@ public actor ENAService: DatabaseService {
     private var lastRequestTime: Date?
     private let minRequestInterval: TimeInterval = 0.02  // 50 requests/second
 
+    /// Field list requested from the ENA `read_run` filereport endpoint.
+    private static let readRunFields = "run_accession,experiment_accession,sample_accession,study_accession,experiment_title,library_layout,library_source,library_strategy,instrument_platform,base_count,read_count,fastq_ftp,fastq_bytes,fastq_md5,first_public"
+
     // MARK: - Initialization
 
     /// Creates a new ENA service.
@@ -219,7 +222,7 @@ public actor ENAService: DatabaseService {
         components.queryItems = [
             URLQueryItem(name: "accession", value: term),
             URLQueryItem(name: "result", value: "read_run"),
-            URLQueryItem(name: "fields", value: "run_accession,experiment_accession,sample_accession,study_accession,experiment_title,library_layout,library_source,library_strategy,instrument_platform,base_count,read_count,fastq_ftp,fastq_bytes,fastq_md5,first_public"),
+            URLQueryItem(name: "fields", value: Self.readRunFields),
             URLQueryItem(name: "format", value: "json"),
             URLQueryItem(name: "limit", value: String(limit)),
             URLQueryItem(name: "offset", value: String(offset))
@@ -257,7 +260,7 @@ public actor ENAService: DatabaseService {
         components.queryItems = [
             URLQueryItem(name: "accession", value: study),
             URLQueryItem(name: "result", value: "read_run"),
-            URLQueryItem(name: "fields", value: "run_accession,experiment_accession,sample_accession,study_accession,experiment_title,library_layout,library_source,library_strategy,instrument_platform,base_count,read_count,fastq_ftp,fastq_bytes,fastq_md5,first_public"),
+            URLQueryItem(name: "fields", value: Self.readRunFields),
             URLQueryItem(name: "format", value: "json"),
             URLQueryItem(name: "limit", value: String(limit))
         ]
@@ -353,14 +356,7 @@ public actor ENAService: DatabaseService {
     /// - Parameter record: The read record containing FTP paths
     /// - Returns: HTTPS URLs for FASTQ files
     public func fastqHTTPURLs(for record: ENAReadRecord) -> [URL] {
-        guard let ftpPaths = record.fastqFTP else { return [] }
-
-        return ftpPaths.components(separatedBy: ";").compactMap { ftpPath in
-            // Convert FTP path to HTTPS URL (HTTPS required by App Transport Security)
-            // ftp.sra.ebi.ac.uk/vol1/fastq/... -> https://ftp.sra.ebi.ac.uk/vol1/fastq/...
-            let httpPath = "https://\(ftpPath)"
-            return URL(string: httpPath)
-        }
+        record.fastqHTTPURLs
     }
 
     // MARK: - Private Methods
@@ -426,6 +422,12 @@ struct ENASearchRecord: Codable {
         case firstPublic = "first_public"
     }
 
+    private static let dateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         accession = try container.decode(String.self, forKey: .accession)
@@ -453,9 +455,7 @@ struct ENASearchRecord: Codable {
 
         // Parse date
         if let dateStr = try container.decodeIfPresent(String.self, forKey: .firstPublic) {
-            let formatter = DateFormatter()
-            formatter.dateFormat = "yyyy-MM-dd"
-            firstPublic = formatter.date(from: dateStr)
+            firstPublic = Self.dateFormatter.date(from: dateStr)
         } else {
             firstPublic = nil
         }
@@ -500,6 +500,12 @@ public struct ENAReadRecord: Codable, Sendable {
         case firstPublic = "first_public"
     }
 
+    private static let dateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
+
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         runAccession = try container.decode(String.self, forKey: .runAccession)
@@ -535,9 +541,7 @@ public struct ENAReadRecord: Codable, Sendable {
 
         // Parse date
         if let dateStr = try container.decodeIfPresent(String.self, forKey: .firstPublic) {
-            let formatter = DateFormatter()
-            formatter.dateFormat = "yyyy-MM-dd"
-            firstPublic = formatter.date(from: dateStr)
+            firstPublic = Self.dateFormatter.date(from: dateStr)
         } else {
             firstPublic = nil
         }
