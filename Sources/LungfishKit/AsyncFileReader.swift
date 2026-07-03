@@ -15,14 +15,14 @@ public enum AsyncFileReader {
         _ url: URL,
         encoding: String.Encoding = .utf8
     ) async throws -> String {
-        try await Task.detached {
+        try await Task.detached(priority: .userInitiated) {
             try String(contentsOf: url, encoding: encoding)
         }.value
     }
 
     /// Reads the raw bytes of `url`.
     public nonisolated static func readData(_ url: URL) async throws -> Data {
-        try await Task.detached {
+        try await Task.detached(priority: .userInitiated) {
             try Data(contentsOf: url)
         }.value
     }
@@ -33,7 +33,7 @@ public enum AsyncFileReader {
         to url: URL,
         options: Data.WritingOptions = .atomic
     ) async throws {
-        try await Task.detached {
+        try await Task.detached(priority: .userInitiated) {
             try data.write(to: url, options: options)
         }.value
     }
@@ -45,7 +45,7 @@ public enum AsyncFileReader {
         atomically: Bool = true,
         encoding: String.Encoding = .utf8
     ) async throws {
-        try await Task.detached {
+        try await Task.detached(priority: .userInitiated) {
             try string.write(to: url, atomically: atomically, encoding: encoding)
         }.value
     }
