@@ -91,6 +91,54 @@ final class VCFDatasetViewControllerTests: XCTestCase {
         XCTAssertEqual(vc.displayedVariantCountForTesting, 2)
     }
 
+    // MARK: - Search-Key Precompute Parity Tests
+
+    /// Reference implementation of the old per-apply search-key construction.
+    /// Filtering against the precomputed keys must return byte-identical results.
+    private func legacyMatches(_ variant: LungfishIO.VCFVariant, query: String) -> Bool {
+        let trimmed = query.trimmingCharacters(in: .whitespaces).lowercased()
+        if trimmed.isEmpty { return true }
+        let posStr = "\(variant.position)"
+        let combined = "\(variant.chromosome) \(posStr) \(variant.ref) \(variant.alt.joined(separator: ","))".lowercased()
+        return combined.contains(trimmed)
+    }
+
+    func testPrecomputedFilterMatchesLegacyResults() {
+        let vc = VCFDatasetViewController()
+        _ = vc.view
+        let variants = makeVariants()
+        vc.configure(summary: makeSummary(), variants: variants)
+
+        // Representative queries: chromosome, position substring, ref/alt, mixed case,
+        // whitespace-padded, no-match, and empty.
+        let queries = ["chr1", "chr2", "20", "15", "10", "A", "G", "t", "  CHR1  ", "zzz", "", "chr1 100"]
+        for query in queries {
+            let expected = variants.filter { legacyMatches($0, query: query) }
+            vc.setFilterText(query)
+            let actual = vc.testDisplayedVariants
+            XCTAssertEqual(actual.map(\.id), expected.map(\.id),
+                           "Filter results for query \"\(query)\" must match legacy semantics")
+        }
+    }
+
+    func testSearchKeysComputedOnceAtConfigureNotPerApply() {
+        let vc = VCFDatasetViewController()
+        _ = vc.view
+        let variants = makeVariants()
+
+        vc.configure(summary: makeSummary(), variants: variants)
+        let buildsAfterConfigure = vc.searchKeyBuildCountForTesting
+        XCTAssertEqual(buildsAfterConfigure, 1,
+                       "Search keys should be built exactly once at configure()")
+
+        // Multiple filter applies must not rebuild the keys.
+        vc.setFilterText("chr1")
+        vc.setFilterText("chr2")
+        vc.setFilterText("")
+        XCTAssertEqual(vc.searchKeyBuildCountForTesting, buildsAfterConfigure,
+                       "applyFilter() must not rebuild search keys")
+    }
+
     func testRapidSearchInputCoalescesToOneFilterApply() async throws {
         let vc = VCFDatasetViewController()
         _ = vc.view

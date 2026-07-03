@@ -24,6 +24,10 @@ public final class VCFDatasetViewController: NSViewController,
 
     private var summary: VCFSummary?
     private var allVariants: [VCFVariant] = []
+    /// Precomputed lowercased search keys, parallel to `allVariants` by index.
+    /// Built once in `configure` so the text filter never rebuilds a string per
+    /// variant on every apply (hot path on 50k+ variant files).
+    private var searchKeys: [String] = []
     private var displayedVariants: [VCFVariant] = []
     private var filterText: String = ""
     private var typeFilter: String? = nil
@@ -68,7 +72,11 @@ public final class VCFDatasetViewController: NSViewController,
     public func configure(summary: VCFSummary, variants: [VCFVariant]) {
         self.summary = summary
         self.allVariants = variants
+        self.searchKeys = Self.buildSearchKeys(variants)
         self.displayedVariants = variants
+        #if DEBUG
+        searchKeyBuildCount += 1
+        #endif
 
         summaryBar.update(with: summary)
         updateTypeChips()
@@ -259,22 +267,33 @@ public final class VCFDatasetViewController: NSViewController,
 
     // MARK: - Filtering
 
+    /// Builds the lowercased search key for a single variant. Matches the exact
+    /// fields/joining/casing the text filter compares against, so precomputing the
+    /// keys is behavior-preserving.
+    private static func buildSearchKeys(_ variants: [VCFVariant]) -> [String] {
+        variants.map { variant in
+            "\(variant.chromosome) \(variant.position) \(variant.ref) \(variant.alt.joined(separator: ","))".lowercased()
+        }
+    }
+
     private func applyFilter() {
         let trimmed = filterText.trimmingCharacters(in: .whitespaces).lowercased()
-        displayedVariants = allVariants.filter { variant in
+        var result: [VCFVariant] = []
+        result.reserveCapacity(allVariants.count)
+        for index in allVariants.indices {
+            let variant = allVariants[index]
             // Type filter
             if let tf = typeFilter {
                 let variantType = classifyVariantType(variant)
-                if variantType != tf { return false }
+                if variantType != tf { continue }
             }
-            // Text filter
+            // Text filter — match against the precomputed key (built once at configure).
             if !trimmed.isEmpty {
-                let posStr = "\(variant.position)"
-                let combined = "\(variant.chromosome) \(posStr) \(variant.ref) \(variant.alt.joined(separator: ","))".lowercased()
-                if !combined.contains(trimmed) { return false }
+                if !searchKeys[index].contains(trimmed) { continue }
             }
-            return true
+            result.append(variant)
         }
+        displayedVariants = result
         applySortOrder()
         updateCountLabel()
         tableView.reloadData()
@@ -412,6 +431,11 @@ public final class VCFDatasetViewController: NSViewController,
     #if DEBUG
     /// Incremented each time `applyFilter()` completes. Used by coalescing tests only.
     var applyFilterCount: Int = 0
+
+    /// Incremented each time the search keys are (re)built. Used to assert keys are
+    /// computed once at configure, not per apply.
+    var searchKeyBuildCount: Int = 0
+    var searchKeyBuildCountForTesting: Int { searchKeyBuildCount }
     #endif
 
     /// Applies a filter immediately without debouncing (programmatic / state-restoration path).
