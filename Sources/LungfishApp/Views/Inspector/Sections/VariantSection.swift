@@ -90,8 +90,21 @@ public final class VariantSectionViewModel {
     // MARK: - Methods
 
     /// Selects a variant and populates genotype summary.
+    ///
+    /// Eagerly resets genotype-summary display fields to their empty/loading state
+    /// before dispatching the off-main load, so the panel never shows the new
+    /// variant's identity next to a previous variant's stale counts.
     func select(variant: AnnotationSearchIndex.SearchResult) {
         selectedVariant = variant
+        // Eager reset: blank the counts immediately so the UI shows the new
+        // variant's identity with empty badges while the DB load is in flight,
+        // rather than retaining the previous variant's stale counts.
+        homRefCount = 0
+        hetCount = 0
+        homAltCount = 0
+        noCallCount = 0
+        infoFields = []
+        hasGenotypes = false
         loadGenotypeSummary(for: variant)
     }
 

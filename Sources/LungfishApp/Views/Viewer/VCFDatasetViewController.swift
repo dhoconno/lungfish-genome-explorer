@@ -261,6 +261,10 @@ public final class VCFDatasetViewController: NSViewController,
             let key = sorted[sender.tag].key
             typeFilter = (typeFilter == key) ? nil : key
         }
+        // Cancel any pending debounced text-filter task so it cannot fire a
+        // redundant second applyFilter() after this immediate call completes.
+        pendingFilterTask?.cancel()
+        pendingFilterTask = nil
         applyFilter()
         updateTypeChips()
     }

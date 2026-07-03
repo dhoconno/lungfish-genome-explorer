@@ -412,6 +412,42 @@ final class VariantSectionViewModelGenotypeTests: XCTestCase {
         XCTAssertFalse(vm.hasGenotypes)
     }
 
+    // MARK: - Eager Count Reset
+
+    /// Selecting a new variant must zero genotype counts synchronously, before
+    /// the async DB load commits, so the UI never shows the new variant's
+    /// identity alongside a previous variant's stale counts.
+    func testSelectEagerlyResetsCountsBeforeLoad() async throws {
+        let db = try makeTwoVariantDatabase()
+        let vm = VariantSectionViewModel()
+        vm.variantDatabase = db
+
+        // Select rs1 and wait for its counts to land.
+        vm.select(variant: variantResult(name: "rs1", start: 99, ref: "A", alt: "G", rowId: 1))
+        await vm.awaitGenotypeSummaryLoadForTesting()
+        XCTAssertEqual(vm.hetCount, 3, "Precondition: rs1 is all het")
+
+        // Select rs2 — counts must be zero synchronously, before the load completes.
+        vm.select(variant: variantResult(name: "rs2", start: 199, ref: "C", alt: "T", rowId: 2))
+        XCTAssertEqual(vm.homRefCount, 0,
+                       "homRefCount must be eagerly zeroed on re-select, before async load commits")
+        XCTAssertEqual(vm.hetCount, 0,
+                       "hetCount must be eagerly zeroed on re-select, before async load commits")
+        XCTAssertEqual(vm.homAltCount, 0,
+                       "homAltCount must be eagerly zeroed on re-select, before async load commits")
+        XCTAssertEqual(vm.noCallCount, 0,
+                       "noCallCount must be eagerly zeroed on re-select, before async load commits")
+        XCTAssertFalse(vm.hasGenotypes,
+                       "hasGenotypes must be false before the async load commits")
+        XCTAssertTrue(vm.infoFields.isEmpty,
+                      "infoFields must be cleared before the async load commits")
+
+        // After awaiting, rs2's real counts (all hom-alt) must be committed.
+        await vm.awaitGenotypeSummaryLoadForTesting()
+        XCTAssertEqual(vm.homAltCount, 3, "rs2 (all hom-alt) counts must land after async commit")
+        XCTAssertTrue(vm.hasGenotypes, "hasGenotypes must be true after async commit")
+    }
+
     // MARK: - Supersession
 
     /// Builds a two-variant database with distinct genotype profiles so a

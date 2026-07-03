@@ -197,6 +197,50 @@ final class VCFDatasetViewControllerTests: XCTestCase {
         XCTAssertEqual(vc.displayedVariantCountForTesting, 2,
                        "Final settled result should match the last search value (chr1 → 2 variants)")
     }
+
+    // MARK: - Chip Cancels Pending Debounce
+
+    /// Tapping a type chip while a debounced text-filter is pending must result
+    /// in exactly one applyFilter() call (from the chip), not two (chip + debounce).
+    func testChipTapCancelsPendingDebouncedTextFilter() async throws {
+        let vc = VCFDatasetViewController()
+        _ = vc.view
+        let variants = makeVariants()
+        vc.configure(summary: makeSummary(), variants: variants)
+
+        let countAfterConfigure = vc.applyFilterCount
+
+        // Trigger a debounced text-filter without waiting for it to fire.
+        let field = try XCTUnwrap(vc.view.firstDescendant(of: NSSearchField.self))
+        field.stringValue = "chr"
+        NotificationCenter.default.post(name: NSControl.textDidChangeNotification, object: field)
+
+        // Synchronously, the debounce task is pending and applyFilter hasn't fired yet.
+        XCTAssertEqual(vc.applyFilterCount, countAfterConfigure,
+                       "Precondition: debounce must still be pending")
+
+        // Simulate a chip tap by finding the SNP chip (tag 0) among the vc's chip
+        // buttons. The type-chips bar is view.subviews[1] (added second in loadView).
+        // We find buttons by recursing into that subview and selecting by tag so
+        // the test is insensitive to layout changes inside the bar.
+        let typeChipsBar = vc.view.subviews[1]
+        let chipButtons = typeChipsBar.subviews.compactMap { $0 as? NSButton }
+        // tag -1 is "All"; tag 0 is the first type chip (SNP in a single-type summary).
+        let snpChip = try XCTUnwrap(chipButtons.first(where: { $0.tag == 0 }),
+                                    "Expected an SNP chip (tag 0) in the type chips bar")
+        // Fire via NSApp.sendAction to mirror a real user click on the button.
+        NSApp.sendAction(snpChip.action!, to: snpChip.target, from: snpChip)
+
+        // After the chip tap the filter must have fired exactly once more (the chip's call).
+        XCTAssertEqual(vc.applyFilterCount, countAfterConfigure + 1,
+                       "Chip tap must trigger exactly one applyFilter(), not zero")
+
+        // Wait well past the debounce window; the cancelled task must NOT fire a second apply.
+        let countAfterChip = vc.applyFilterCount
+        try await Task.sleep(for: .milliseconds(400))
+        XCTAssertEqual(vc.applyFilterCount, countAfterChip,
+                       "Cancelled debounce task must not fire a second applyFilter() after the chip tap")
+    }
 }
 
 // MARK: - Test Helpers
