@@ -343,11 +343,4 @@ extension VariantDatabase {
     func normalizeSampleName(_ value: String) -> String {
         normalizeImportedCell(value).lowercased()
     }
-
-    // MARK: - Static Creation (for bundle building)
-
-    /// Creates a new variant database from a VCF file.
-    ///
-    /// Parses all variant records from the VCF, classifies them by type,
-    /// and inserts them into a SQLite database with spatial indexes.
 }

@@ -672,7 +672,7 @@ public final class TaxTriageDatabase: @unchecked Sendable {
         let trimmedSearch = organismSearchText?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let searchPattern = trimmedSearch.flatMap { text -> String? in
-            text.isEmpty ? nil : "%\(Self.escapedLikePattern(text))%"
+            text.isEmpty ? nil : SQLiteLikePattern.contains(text)
         }
         let placeholders = samples.map { _ in "?" }.joined(separator: ",")
         var whereClauses = ["sample IN (\(placeholders))"]
@@ -843,21 +843,6 @@ public final class TaxTriageDatabase: @unchecked Sendable {
             throw TaxTriageDatabaseError.queryFailed(msg)
         }
         return Int(sqlite3_column_int64(stmt, 0))
-    }
-
-    private static func escapedLikePattern(_ value: String) -> String {
-        var escaped = ""
-        escaped.reserveCapacity(value.count)
-        for character in value {
-            switch character {
-            case "\\", "%", "_":
-                escaped.append("\\")
-                escaped.append(character)
-            default:
-                escaped.append(character)
-            }
-        }
-        return escaped
     }
 
     /// Reads an optional TEXT column, returning nil if the column is NULL.

@@ -205,12 +205,6 @@ public final class NvdDatabase: @unchecked Sendable {
         }
     }
 
-    // MARK: - Private init (used by create)
-
-    private init(url: URL) {
-        self.url = url
-    }
-
     // MARK: - Create New Database
 
     /// Creates a new NVD database from parsed BLAST hits and sample metadata.
