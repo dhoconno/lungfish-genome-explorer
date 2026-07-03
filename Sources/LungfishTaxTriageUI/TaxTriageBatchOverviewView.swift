@@ -74,7 +74,21 @@ final class TaxTriageBatchOverviewView: NSView {
 
     // MARK: - State
 
+    /// FULL logical sample set. Used for the per-organism sample-count
+    /// denominator (`"\(sampleCount)/\(sampleIds.count)"`) and cross-sample row
+    /// construction. Never replaced by the display window.
     private var sampleIds: [String] = []
+
+    /// Display-only cap on instantiated per-sample columns. Windowing only ever
+    /// affects which columns `rebuildColumns()` instantiates and the
+    /// double-click column->sample mapping; `sampleIds` stays full.
+    private var columnWindow = SampleColumnWindow()
+
+    /// The display-only slice of `sampleIds` currently instantiated as columns.
+    /// The double-click handler maps clicked sample columns through THIS list so
+    /// the mapping stays aligned with the instantiated columns.
+    private var windowedSampleIds: [String] = []
+
     private var crossSampleRows: [CrossSampleRow] = []
     /// Unsorted rows, preserved for re-sorting.
     private var unsortedRows: [CrossSampleRow] = []
@@ -214,8 +228,11 @@ final class TaxTriageBatchOverviewView: NSView {
             tableView.addTableColumn(riskCol)
         }
 
-        // One column per sample (heatmap cells)
-        for sampleId in sampleIds {
+        // Display-only window: instantiate at most `columnWindow.limit` sample
+        // columns. `sampleIds` (the full logical set) is unchanged; per-cell
+        // values still resolve from `perSample*` dictionaries keyed by sample ID.
+        windowedSampleIds = columnWindow.windowedSamples(from: sampleIds)
+        for sampleId in windowedSampleIds {
             let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("sample_\(sampleId)"))
             col.title = sampleLabels[sampleId] ?? sampleId
             col.width = 70
@@ -259,9 +276,21 @@ final class TaxTriageBatchOverviewView: NSView {
         let rows = buildCrossSampleRows(from: metrics, sampleIds: sampleIds, negativeControlSampleIds: negativeControlSampleIds, perSampleDedup: perSampleDeduplicatedReadCounts)
         self.unsortedRows = rows
         self.crossSampleRows = rows
+        columnWindow.reset()
         rebuildColumns()
         tableView.reloadData()
         logger.info("Batch overview configured: \(self.crossSampleRows.count) organisms across \(sampleIds.count) samples, \(negativeControlSampleIds.count) negative controls")
+    }
+
+    /// Whether the per-sample columns are currently capped by the display window.
+    var isColumnWindowActive: Bool { columnWindow.caps(sampleIds) }
+
+    /// Reveal every per-sample column, defeating the display cap.
+    func showAllSampleColumns() {
+        guard columnWindow.caps(sampleIds) else { return }
+        columnWindow.revealAll()
+        rebuildColumns()
+        tableView.reloadData()
     }
 
     // MARK: - Data Building
@@ -340,10 +369,13 @@ final class TaxTriageBatchOverviewView: NSView {
 
         let rowData = crossSampleRows[row]
 
-        // If clicked on a sample column, navigate to that organism in that sample
+        // If clicked on a sample column, navigate to that organism in that sample.
+        // The clicked column index maps through the *instantiated* (windowed)
+        // sample columns, not the full logical `sampleIds`, so the mapping stays
+        // aligned when the display window caps columns.
         let fixedColumnCount = negativeControlSampleIds.isEmpty ? 4 : 5
-        if col >= fixedColumnCount, col - fixedColumnCount < sampleIds.count {
-            let sampleId = sampleIds[col - fixedColumnCount]
+        if col >= fixedColumnCount, col - fixedColumnCount < windowedSampleIds.count {
+            let sampleId = windowedSampleIds[col - fixedColumnCount]
             onCellSelected?(rowData.organism, sampleId)
         }
     }
@@ -554,3 +586,22 @@ extension TaxTriageBatchOverviewView: NSTableViewDelegate {
         return "\(count)"
     }
 }
+
+#if DEBUG
+extension TaxTriageBatchOverviewView {
+    /// Number of instantiated per-sample columns (identifier `sample_*`).
+    var testingSampleColumnCount: Int {
+        tableView.tableColumns.filter { $0.identifier.rawValue.hasPrefix("sample_") }.count
+    }
+
+    /// The FULL logical sample set (never windowed).
+    var testingFullSampleIds: [String] { sampleIds }
+
+    /// Per-organism sample-count denominator string for the given row, which must
+    /// reflect the FULL sample count, not the windowed column count.
+    func testingSampleCountLabel(row: Int) -> String? {
+        guard row >= 0, row < crossSampleRows.count else { return nil }
+        return "\(crossSampleRows[row].sampleCount)/\(sampleIds.count)"
+    }
+}
+#endif
