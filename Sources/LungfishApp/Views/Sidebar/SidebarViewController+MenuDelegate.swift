@@ -382,7 +382,10 @@ extension SidebarViewController: NSMenuDelegate {
 
             if FileManager.default.fileExists(atPath: manifestURL.path) {
                 do {
-                    let data = try Data(contentsOf: manifestURL)
+                    // Read off the main actor; this menu action just builds an
+                    // info string and shows an alert, so no supersession guard
+                    // is needed.
+                    let data = try await AsyncFileReader.readData(manifestURL)
                     if let manifest = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
                         // Extract key info from manifest
                         if let name = manifest["name"] as? String {
@@ -447,7 +450,7 @@ extension SidebarViewController: NSMenuDelegate {
             alert.addButton(withTitle: "OK")
 
             if let window = self.view.window ?? NSApp.keyWindow {
-                alert.beginSheetModal(for: window)
+                alert.beginSheetModal(for: window, completionHandler: nil)
             }
 
         }
