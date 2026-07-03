@@ -31,6 +31,9 @@ public final class VCFDatasetViewController: NSViewController,
     private var sortKey: String = ""
     private var sortAscending: Bool = true
 
+    private var pendingFilterTask: Task<Void, Never>?
+    private static let filterDebounceDelay: Duration = .milliseconds(180)
+
     /// Callback invoked when the user requests to download the inferred reference.
     public var onDownloadReferenceRequested: ((ReferenceInference.Result) -> Void)?
 
@@ -357,7 +360,27 @@ public final class VCFDatasetViewController: NSViewController,
     public func controlTextDidChange(_ obj: Notification) {
         guard let field = obj.object as? NSSearchField, field === searchField else { return }
         filterText = field.stringValue
-        applyFilter()
+        if filterText.isEmpty {
+            pendingFilterTask?.cancel()
+            pendingFilterTask = nil
+            applyFilter()
+            return
+        }
+        scheduleDebouncedFilter()
+    }
+
+    private func scheduleDebouncedFilter() {
+        pendingFilterTask?.cancel()
+        pendingFilterTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: Self.filterDebounceDelay)
+            } catch {
+                return
+            }
+            guard let self, !Task.isCancelled else { return }
+            self.pendingFilterTask = nil
+            self.applyFilter()
+        }
     }
 
     // MARK: - NSTableViewDataSource
@@ -376,6 +399,16 @@ public final class VCFDatasetViewController: NSViewController,
     }
 
     var testDisplayedVariants: [VCFVariant] { displayedVariants }
+
+    var displayedVariantCountForTesting: Int { displayedVariants.count }
+
+    /// Applies a filter immediately without debouncing (programmatic / state-restoration path).
+    func setFilterText(_ text: String) {
+        pendingFilterTask?.cancel()
+        pendingFilterTask = nil
+        filterText = text
+        applyFilter()
+    }
 
     func testApplySort(key: String, ascending: Bool) {
         sortKey = key
