@@ -104,6 +104,7 @@ final class TaxTriageBatchOverviewView: NSView {
     // MARK: - Child Views
 
     private let facetControl = NSSegmentedControl()
+    private let columnWindowBanner = SampleColumnWindowBanner()
     private let scrollView = NSScrollView()
     private let tableView = NSTableView()
 
@@ -144,6 +145,9 @@ final class TaxTriageBatchOverviewView: NSView {
     }
 
     private func setupTableView() {
+        columnWindowBanner.onShowAll = { [weak self] in self?.showAllSampleColumns() }
+        addSubview(columnWindowBanner)
+
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
@@ -154,7 +158,11 @@ final class TaxTriageBatchOverviewView: NSView {
             facetControl.topAnchor.constraint(equalTo: topAnchor, constant: 6),
             facetControl.centerXAnchor.constraint(equalTo: centerXAnchor),
 
-            scrollView.topAnchor.constraint(equalTo: facetControl.bottomAnchor, constant: 6),
+            columnWindowBanner.topAnchor.constraint(equalTo: facetControl.bottomAnchor, constant: 6),
+            columnWindowBanner.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            columnWindowBanner.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+
+            scrollView.topAnchor.constraint(equalTo: columnWindowBanner.bottomAnchor, constant: 6),
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -278,6 +286,7 @@ final class TaxTriageBatchOverviewView: NSView {
         self.crossSampleRows = rows
         columnWindow.reset()
         rebuildColumns()
+        syncColumnWindowBanner()
         tableView.reloadData()
         logger.info("Batch overview configured: \(self.crossSampleRows.count) organisms across \(sampleIds.count) samples, \(negativeControlSampleIds.count) negative controls")
     }
@@ -290,7 +299,17 @@ final class TaxTriageBatchOverviewView: NSView {
         guard columnWindow.caps(sampleIds) else { return }
         columnWindow.revealAll()
         rebuildColumns()
+        syncColumnWindowBanner()
         tableView.reloadData()
+    }
+
+    /// Keep the reveal banner in sync with the current window state.
+    private func syncColumnWindowBanner() {
+        columnWindowBanner.update(
+            isWindowActive: isColumnWindowActive,
+            shownCount: windowedSampleIds.count,
+            totalCount: sampleIds.count
+        )
     }
 
     // MARK: - Data Building
@@ -603,5 +622,11 @@ extension TaxTriageBatchOverviewView {
         guard row >= 0, row < crossSampleRows.count else { return nil }
         return "\(crossSampleRows[row].sampleCount)/\(sampleIds.count)"
     }
+
+    /// Whether the "Show all" reveal banner is currently visible.
+    var testingColumnWindowBannerVisible: Bool { !columnWindowBanner.isHidden }
+
+    /// Invoke the banner's "Show all" action, exercising the wired callback.
+    func testingTapShowAllBanner() { columnWindowBanner.onShowAll?() }
 }
 #endif

@@ -54,6 +54,28 @@ final class TaxTriageBatchOverviewColumnWindowingTests: XCTestCase {
         XCTAssertFalse(view.isColumnWindowActive)
     }
 
+    /// The reveal banner is visible while windowed, and its "Show all" action
+    /// instantiates every column and hides the banner.
+    func testShowAllBannerRevealsColumnsAndHides() {
+        let view = TaxTriageBatchOverviewView()
+        let ids = sampleIds(150)
+        view.configure(metrics: metrics(organisms: 3, sampleIds: ids), sampleIds: ids)
+        XCTAssertTrue(view.testingColumnWindowBannerVisible)
+
+        view.testingTapShowAllBanner()
+
+        XCTAssertEqual(view.testingSampleColumnCount, 150)
+        XCTAssertFalse(view.isColumnWindowActive)
+        XCTAssertFalse(view.testingColumnWindowBannerVisible)
+    }
+
+    func testShowAllBannerHiddenForSmallCohort() {
+        let view = TaxTriageBatchOverviewView()
+        let ids = sampleIds(40)
+        view.configure(metrics: metrics(organisms: 3, sampleIds: ids), sampleIds: ids)
+        XCTAssertFalse(view.testingColumnWindowBannerVisible)
+    }
+
     func testSmallCohortInstantiatesAllColumns() {
         let view = TaxTriageBatchOverviewView()
         let ids = sampleIds(40)

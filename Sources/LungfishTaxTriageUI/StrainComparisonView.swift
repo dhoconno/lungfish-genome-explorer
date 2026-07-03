@@ -57,6 +57,7 @@ final class StrainComparisonView: NSView {
     private let scrollView = NSScrollView()
     private let tableView = NSTableView()
     private let headerLabel = NSTextField(labelWithString: "")
+    private let columnWindowBanner = SampleColumnWindowBanner()
 
     // MARK: - Init
 
@@ -77,6 +78,9 @@ final class StrainComparisonView: NSView {
         headerLabel.font = .systemFont(ofSize: 12, weight: .semibold)
         headerLabel.textColor = .labelColor
         addSubview(headerLabel)
+
+        columnWindowBanner.onShowAll = { [weak self] in self?.showAllSampleColumns() }
+        addSubview(columnWindowBanner)
 
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.hasVerticalScroller = true
@@ -99,11 +103,24 @@ final class StrainComparisonView: NSView {
             headerLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
             headerLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
 
-            scrollView.topAnchor.constraint(equalTo: headerLabel.bottomAnchor, constant: 6),
+            columnWindowBanner.topAnchor.constraint(equalTo: headerLabel.bottomAnchor, constant: 6),
+            columnWindowBanner.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            columnWindowBanner.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+
+            scrollView.topAnchor.constraint(equalTo: columnWindowBanner.bottomAnchor, constant: 6),
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+    }
+
+    /// Keep the reveal banner in sync with the current window state.
+    private func syncColumnWindowBanner() {
+        columnWindowBanner.update(
+            isWindowActive: isColumnWindowActive,
+            shownCount: windowedSampleIds.count,
+            totalCount: sampleIds.count
+        )
     }
 
     private func rebuildColumns() {
@@ -163,6 +180,7 @@ final class StrainComparisonView: NSView {
 
         columnWindow.reset()
         rebuildColumns()
+        syncColumnWindowBanner()
         tableView.reloadData()
         logger.info("Strain comparison: \(entries.count) SNP(s) for \(organismName, privacy: .public) across \(sampleIds.count) samples")
     }
@@ -175,6 +193,7 @@ final class StrainComparisonView: NSView {
         guard columnWindow.caps(sampleIds) else { return }
         columnWindow.revealAll()
         rebuildColumns()
+        syncColumnWindowBanner()
         tableView.reloadData()
     }
 }
@@ -242,5 +261,11 @@ extension StrainComparisonView {
 
     /// The FULL logical sample set (never windowed).
     var testingFullSampleIds: [String] { sampleIds }
+
+    /// Whether the "Show all" reveal banner is currently visible.
+    var testingColumnWindowBannerVisible: Bool { !columnWindowBanner.isHidden }
+
+    /// Invoke the banner's "Show all" action, exercising the wired callback.
+    func testingTapShowAllBanner() { columnWindowBanner.onShowAll?() }
 }
 #endif

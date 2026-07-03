@@ -44,6 +44,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
 
     private let filterField = NSSearchField()
     private let locusPopup = NSPopUpButton()
+    private let columnWindowBanner = SampleColumnWindowBanner()
     private let pinnedScrollView = NSScrollView()
     private let pinnedTableView = GenotypeMatrixTableView()
     private let scrollView = NSScrollView()
@@ -415,6 +416,9 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         scrollView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         addSubview(scrollView)
 
+        columnWindowBanner.onShowAll = { [weak self] in self?.showAllSampleColumns() }
+        addSubview(columnWindowBanner)
+
         configureTableView(pinnedTableView)
         configureTableView(tableView)
         pinnedTableView.onCellClick = { [weak self] row, column, modifiers in
@@ -483,11 +487,15 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             locusPopup.centerYAnchor.constraint(equalTo: filterField.centerYAnchor),
             locusPopup.widthAnchor.constraint(equalToConstant: 130),
 
-            pinnedScrollView.topAnchor.constraint(equalTo: topAnchor),
+            columnWindowBanner.topAnchor.constraint(equalTo: topAnchor),
+            columnWindowBanner.leadingAnchor.constraint(equalTo: leadingAnchor),
+            columnWindowBanner.trailingAnchor.constraint(equalTo: trailingAnchor),
+
+            pinnedScrollView.topAnchor.constraint(equalTo: columnWindowBanner.bottomAnchor),
             pinnedScrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             pinnedScrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            scrollView.topAnchor.constraint(equalTo: topAnchor),
+            scrollView.topAnchor.constraint(equalTo: columnWindowBanner.bottomAnchor),
             scrollView.leadingAnchor.constraint(equalTo: pinnedScrollView.trailingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -567,6 +575,19 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         updatePinnedWidth()
         pinnedTableView.headerView?.frame.size.height = 34
         tableView.headerView?.frame.size.height = 34
+        syncColumnWindowBanner()
+    }
+
+    /// Keep the reveal banner in sync with the current window state. Driven from
+    /// `rebuildColumns()`, so every column instantiation (configure, filter,
+    /// cohort, display-state, and "Show all") refreshes the affordance. Reads the
+    /// FULL filtered logical set (`activeSampleNames()`), never the window.
+    private func syncColumnWindowBanner() {
+        columnWindowBanner.update(
+            isWindowActive: isColumnWindowActive,
+            shownCount: windowedColumnSampleNames.count,
+            totalCount: activeSampleNames().count
+        )
     }
 
     private func activeSampleNames() -> [String] {
@@ -2257,6 +2278,8 @@ extension GenotypeComparisonMatrixView {
     /// FULL filtered logical sample set (never windowed).
     var testingActiveSampleNames: [String] { activeSampleNames() }
     var testingIsColumnWindowActive: Bool { isColumnWindowActive }
+    var testingColumnWindowBannerVisible: Bool { !columnWindowBanner.isHidden }
+    func testingTapShowAllBanner() { columnWindowBanner.onShowAll?() }
     var testingVisibleSampleColumnTitles: [String] {
         tableView.tableColumns.compactMap { column in
             sampleColumnLookup[column.identifier] == nil ? nil : column.title

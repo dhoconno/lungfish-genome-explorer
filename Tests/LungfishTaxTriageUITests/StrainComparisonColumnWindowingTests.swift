@@ -46,6 +46,28 @@ final class StrainComparisonColumnWindowingTests: XCTestCase {
         XCTAssertFalse(view.isColumnWindowActive)
     }
 
+    /// The reveal banner is visible while windowed, and its "Show all" action
+    /// instantiates every column and hides the banner.
+    func testShowAllBannerRevealsColumnsAndHides() {
+        let view = StrainComparisonView()
+        let ids = sampleIds(150)
+        view.configure(entries: entries(count: 5, sampleIds: ids), sampleIds: ids, organismName: "E. coli")
+        XCTAssertTrue(view.testingColumnWindowBannerVisible)
+
+        view.testingTapShowAllBanner()
+
+        XCTAssertEqual(view.testingSampleColumnCount, 150)
+        XCTAssertFalse(view.isColumnWindowActive)
+        XCTAssertFalse(view.testingColumnWindowBannerVisible)
+    }
+
+    func testShowAllBannerHiddenForSmallCohort() {
+        let view = StrainComparisonView()
+        let ids = sampleIds(40)
+        view.configure(entries: entries(count: 5, sampleIds: ids), sampleIds: ids, organismName: "E. coli")
+        XCTAssertFalse(view.testingColumnWindowBannerVisible)
+    }
+
     func testSmallCohortInstantiatesAllColumns() {
         let view = StrainComparisonView()
         let ids = sampleIds(40)

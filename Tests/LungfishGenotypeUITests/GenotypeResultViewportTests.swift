@@ -1141,6 +1141,24 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertFalse(matrix.testingIsColumnWindowActive)
     }
 
+    /// The reveal banner is visible while windowed, and tapping its "Show all"
+    /// action instantiates every column and hides the banner.
+    func testComparisonMatrixShowAllBannerRevealsColumnsAndHides() {
+        let matrix = makeManySampleMatrix(sampleCount: 150)
+        XCTAssertTrue(matrix.testingColumnWindowBannerVisible)
+
+        matrix.testingTapShowAllBanner()
+
+        XCTAssertEqual(matrix.testingSampleColumnCount, 150)
+        XCTAssertFalse(matrix.testingIsColumnWindowActive)
+        XCTAssertFalse(matrix.testingColumnWindowBannerVisible)
+    }
+
+    func testComparisonMatrixShowAllBannerHiddenForSmallCohort() {
+        let matrix = makeManySampleMatrix(sampleCount: 40)
+        XCTAssertFalse(matrix.testingColumnWindowBannerVisible)
+    }
+
     func testComparisonMatrixSmallCohortInstantiatesAllColumns() {
         let matrix = makeManySampleMatrix(sampleCount: 40)
         XCTAssertEqual(matrix.testingSampleColumnCount, 40)
