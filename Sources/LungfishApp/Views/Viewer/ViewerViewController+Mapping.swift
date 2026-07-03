@@ -99,7 +99,6 @@ extension ViewerViewController {
         ])
 
         view.layoutSubtreeIfNeeded()
-        mappingView.layoutSubtreeIfNeeded()
         controller.configure(result: result, resultDirectoryURL: resultDirectoryURL)
         mappingView.layoutSubtreeIfNeeded()
         mappingResultController = controller
