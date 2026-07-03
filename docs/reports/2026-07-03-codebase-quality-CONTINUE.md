@@ -38,34 +38,54 @@ BINDING RULES:
 
 STATE AT HANDOFF:
 - Baseline clean (fixed 2 pre-existing main bugs first).
-- Phase 1 (LungfishCore) partially done: 21 files across 5 committed refactor
-  batches. Tree clean, scoped LungfishCoreTests 1158/0. The Core-boundary FULL
-  green-bar has NOT been run yet.
+- Phase 1 (LungfishCore) COMPLETE: all ~70 files audited (7 big-file solos +
+  wave-2/3 directory clusters), every safe behavior-preserving finding applied
+  across 7 committed batches, and the 3 largest files split into focused files.
+  A full green-bar was verified mid-Core at 9558/487, 0 failures; a FINAL
+  Core-boundary full green-bar was run after the split (check
+  docs/reports/2026-07-03-codebase-quality-results.md Core row for its result —
+  if it shows GREEN, Core is certified; if the run had not finished at handoff,
+  RE-RUN the full suite first before starting IO).
+- Tree clean. `git log --oneline main..HEAD` shows the batch history.
 
 NEXT STEPS, in order:
-1. FIRST: run the full green-bar suite once to confirm the 21-file Core work is
-   green across ALL targets (not just scoped). If green, continue; if not,
-   bisect to the offending batch and fix/revert.
-2. Finish remaining LungfishCore files (NOT yet audited): remaining Models
-   (Sequence, AlignedRead, SequenceAnnotation, GenomicDocument, TaxaCollection,
-   SemanticColors, SequenceAppearance, VariantColorTheme, GenomicRegion,
-   SelectionState, SequenceAlphabet, LungfishError, BundleAttachmentStore,
-   HexColor, ClassifierSamplePickerState, AlignedReadDedup), Storage (ProjectFile,
-   ProjectLock, KeychainSecretStorage, ManagedStorage*), Editing, Extraction,
-   Capabilities, Genotype, Services/DatabaseService, Services/TempFileManager,
-   Services/RuntimeResourceLocator, Services/OperationMarker,
-   Services/SRA/SRAAccessionParser, Services/AI/AIProviderHelpers, remaining
-   Bundles. Cluster by directory; same gate.
-3. Dedicated MECHANICAL file-split pass for the big Core files (BundleManifest,
-   NCBIService, BlastService) — pure git-mv/extension moves, one reviewed diff.
-4. Phase-1 module-boundary FULL green-bar; update results table row for Core.
-5. Proceed UP the dependency graph, one module per phase, same protocol, full
-   green-bar per module: LungfishIO -> LungfishWorkflow -> LungfishKit -> the 9
-   leaf UI modules -> LungfishApp -> LungfishCLI.
-6. Finalize: final full green-bar, complete
+1. FIRST: confirm the final Core-boundary full green-bar was GREEN (see results
+   doc). If not recorded/green, run `swift test --package-path <wt> --skip-update`
+   and confirm 0 non-environmental failures before proceeding.
+2. Phase 2 = LungfishIO (139 files, ~66K LOC). Same per-batch protocol, tiered.
+   Big files (>~1000 lines) solo, rest clustered by directory. Big files, largest
+   first: Formats/NaoMgs/NaoMgsDatabase.swift (2620),
+   Search/ProjectUniversalSearchIndex.swift (2483),
+   Bundles/GenotypeHaplotypeAnalysis.swift (1966),
+   Bundles/MultipleSequenceAlignmentBundle.swift (1940),
+   Bundles/PhylogeneticTreeBundle.swift (1808), Bundles/AnnotationDatabase.swift
+   (1718), Formats/FASTQ/FASTQDerivatives.swift (1672),
+   Bundles/ONTGenotypeResultBundle.swift (1494), Formats/GenBank/GenBankReader.swift
+   (1133), Formats/FASTQ/FASTQReader.swift (970), + the NaoMgs/TaxTriage/Nvd/EsViritu
+   databases. Clusters: Bundles/ (47 files), Formats/FASTQ/ (34), the smaller format
+   parsers (VCF/SAM/GFF/BED/FASTA/Kraken), Registry/, Services/, Search/.
+   IO CAUTION: heavily correctness-sensitive format parsing. PRESERVE the bgzip
+   `readUncompressedRange` infinite-loop fix (break when nextOffset <= current or
+   findBlock returns nil) in both async and sync readers. NEVER save alignment as
+   SAM. Defer parsing/coordinate/format-logic changes; apply only dedup/dead-code/
+   clarity/access-control that is provably behavior-preserving. Defer doc: create
+   docs/reports/2026-07-03-codebase-quality-defer/02-io.md. Full green-bar at the
+   IO module boundary.
+3. Then up the graph, one module per phase, same protocol, full green-bar per
+   module: LungfishWorkflow (03-workflow.md — preserve OperationCenter
+   update()+log(), materialization, no-SAM) -> LungfishKit (04-kit.md — no
+   LungfishApp refs) -> the 9 leaf UI modules (05-leaves.md, one full green-bar
+   after all leaves) -> LungfishApp (06-app.md — keep composition roots in App) ->
+   LungfishCLI (07-cli.md — no LungfishKit import, CLI/GUI parity).
+4. Finalize: final full green-bar, complete
    docs/reports/2026-07-03-codebase-quality-results.md, confirm clean tree, report
    the worktree is ready for the downstream LLM (whole diff = git diff
    main...worktree-fable-codebase-quality; per-module rationale in the defer docs).
+
+REVIEW GOTCHA (learned this session): when dispatching an independent reviewer to
+compare against "pristine originals", point it at the PRIOR COMMIT (HEAD~1) or use
+`git diff HEAD`, NOT the sibling main worktree — main is pre-refactor and will make
+the reviewer attribute earlier already-committed batches to the current diff.
 
 Keep the defer docs rich — the deliverable is a clean, green, reviewable worktree
 plus a precise punch list of everything intentionally NOT done and why.

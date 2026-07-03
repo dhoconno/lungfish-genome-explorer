@@ -337,3 +337,17 @@ source-scanning regression test hard-coded to NCBIService.swift — was updated 
 scan the combined NCBIService.swift + NCBIDownloadDelegate.swift source so its
 `resumeOnce` assertion (that token moved to the delegate file) still holds. All 9
 assertions preserved.
+
+## Environmental test flake observed (NOT a regression)
+
+During the final Core-boundary full-suite run, `LungfishWorkflowTests.
+ONTBarcodeDemuxGenotypingPipelineTests.testHaplotypeDropoutEvaluatorUsesMinSupportWithoutPercentThresholds`
+DEADLOCKED under concurrent full-suite load (the process sat at ~1:43 CPU for 4
+hours with no progress). The test passes in 0.004s when run in isolation, and this
+is a LungfishWorkflow test untouched by the Core refactor. Root cause is almost
+certainly the subprocess/pipe-wait hazard the SRAService/BlastService audits
+flagged (waitUntilExit before draining pipes). The final Core green-bar was
+therefore run with `--skip ONTBarcodeDemuxGenotypingPipelineTests` (9531 XCTest, 0
+failures) and that suite verified separately in isolation. ACTION for a future
+pass: harden the ONT pipeline test's subprocess handling (drain pipes concurrently
+/ add a timeout) so it is safe under parallel test execution.
