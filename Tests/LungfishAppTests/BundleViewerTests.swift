@@ -1839,12 +1839,12 @@ final class ViewerBundleRoutingTests: XCTestCase {
         XCTAssertEqual(vc.contentMode, .genomics)
     }
 
-    func testPhylogeneticTreeViewportRendersInteractiveRectangularCanvas() async throws {
+    func testPhylogeneticTreeViewportRendersInteractiveRectangularCanvas() throws {
         let controller = PhylogeneticTreeViewController()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1_200, height: 720)
         let bundleURL = try makePhylogeneticTreeBundle()
 
-        try await controller.displayBundle(at: bundleURL)
+        try controller.displayBundle(at: bundleURL)
         controller.view.layoutSubtreeIfNeeded()
 
         XCTAssertNotNil(controller.view.testingDescendant(accessibilityIdentifier: "phylogenetic-tree-canvas-view"))
@@ -1868,12 +1868,12 @@ final class ViewerBundleRoutingTests: XCTestCase {
         XCTAssertTrue(controller.testingDetailText.contains("branch"))
     }
 
-    func testPhylogeneticTreeViewportKeepsControlsInsideNarrowVisualizationArea() async throws {
+    func testPhylogeneticTreeViewportKeepsControlsInsideNarrowVisualizationArea() throws {
         let controller = PhylogeneticTreeViewController()
         controller.view.frame = NSRect(x: 0, y: 0, width: 760, height: 520)
         let bundleURL = try makePhylogeneticTreeBundle()
 
-        try await controller.displayBundle(at: bundleURL)
+        try controller.displayBundle(at: bundleURL)
         controller.view.layoutSubtreeIfNeeded()
 
         let layoutFrames = controller.testingTreeLayoutFrames
@@ -1894,12 +1894,12 @@ final class ViewerBundleRoutingTests: XCTestCase {
         XCTAssertTrue(controller.testingCanvasCommandAccessibilityLabels.contains("Zoom out"))
     }
 
-    func testPhylogeneticTreeToolbarDoesNotOverlapCanvasAndCommandsMutateView() async throws {
+    func testPhylogeneticTreeToolbarDoesNotOverlapCanvasAndCommandsMutateView() throws {
         let controller = PhylogeneticTreeViewController()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1_000, height: 640)
         let bundleURL = try makePhylogeneticTreeBundle()
 
-        try await controller.displayBundle(at: bundleURL)
+        try controller.displayBundle(at: bundleURL)
         controller.view.layoutSubtreeIfNeeded()
 
         let layoutFrames = controller.testingTreeLayoutFrames
@@ -1925,12 +1925,12 @@ final class ViewerBundleRoutingTests: XCTestCase {
         XCTAssertEqual(controller.testingCanvasColorMode, "support")
     }
 
-    func testPhylogeneticTreeHeaderSeparatesSummaryFromControls() async throws {
+    func testPhylogeneticTreeHeaderSeparatesSummaryFromControls() throws {
         let controller = PhylogeneticTreeViewController()
         controller.view.frame = NSRect(x: 0, y: 0, width: 760, height: 520)
         let bundleURL = try makePhylogeneticTreeBundle()
 
-        try await controller.displayBundle(at: bundleURL)
+        try controller.displayBundle(at: bundleURL)
         controller.view.layoutSubtreeIfNeeded()
 
         let layoutFrames = controller.testingTreeLayoutFrames
@@ -1948,12 +1948,12 @@ final class ViewerBundleRoutingTests: XCTestCase {
         )
     }
 
-    func testPhylogeneticTreeToolbarUsesInspectorSizedTextControls() async throws {
+    func testPhylogeneticTreeToolbarUsesInspectorSizedTextControls() throws {
         let controller = PhylogeneticTreeViewController()
         _ = controller.view
         let bundleURL = try makePhylogeneticTreeBundle()
 
-        try await controller.displayBundle(at: bundleURL)
+        try controller.displayBundle(at: bundleURL)
 
         let metrics = controller.testingToolbarTextControlMetrics
         XCTAssertEqual(metrics["search"]?.controlSize, .small)
@@ -1964,12 +1964,12 @@ final class ViewerBundleRoutingTests: XCTestCase {
         XCTAssertEqual(metrics["color"]?.fontPointSize, NSFont.smallSystemFontSize)
     }
 
-    func testPhylogeneticTreePhylogramScalesSmallBranchLengthsIntoVisibleRange() async throws {
+    func testPhylogeneticTreePhylogramScalesSmallBranchLengthsIntoVisibleRange() throws {
         let controller = PhylogeneticTreeViewController()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1_000, height: 640)
         let bundleURL = try makeSmallBranchLengthPhylogeneticTreeBundle()
 
-        try await controller.displayBundle(at: bundleURL)
+        try controller.displayBundle(at: bundleURL)
         controller.view.layoutSubtreeIfNeeded()
 
         let pointA = try XCTUnwrap(controller.testingCanvasPoint(label: "A"))
@@ -1985,12 +1985,12 @@ final class ViewerBundleRoutingTests: XCTestCase {
         )
     }
 
-    func testPhylogeneticTreeViewportContextMenuExposesNodeActions() async throws {
+    func testPhylogeneticTreeViewportContextMenuExposesNodeActions() throws {
         let controller = PhylogeneticTreeViewController()
         _ = controller.view
         let bundleURL = try makePhylogeneticTreeBundle()
 
-        try await controller.displayBundle(at: bundleURL)
+        try controller.displayBundle(at: bundleURL)
         controller.testingSelectNode(label: "B")
 
         XCTAssertEqual(
@@ -2010,14 +2010,14 @@ final class ViewerBundleRoutingTests: XCTestCase {
         )
     }
 
-    func testPhylogeneticTreeViewportControllerActionsExposeTreeTransforms() async throws {
+    func testPhylogeneticTreeViewportControllerActionsExposeTreeTransforms() throws {
         let controller = PhylogeneticTreeViewController()
         _ = controller.view
         let bundleURL = try makePhylogeneticTreeBundle()
         var requests: [PhylogeneticTreeViewController.TreeBundleOperationRequest] = []
         controller.onTreeBundleOperationRequested = { requests.append($0) }
 
-        try await controller.displayBundle(at: bundleURL)
+        try controller.displayBundle(at: bundleURL)
         controller.testingSelectNode(label: "90")
 
         XCTAssertEqual(controller.testingSelectedNodeTransformAvailability, [
@@ -2036,12 +2036,12 @@ final class ViewerBundleRoutingTests: XCTestCase {
         XCTAssertTrue(controller.testingNodeContextMenuTitles.contains("Expand Clade"))
     }
 
-    func testPhylogeneticTreeViewportSupportsTipMultiSelectionAndCopyNames() async throws {
+    func testPhylogeneticTreeViewportSupportsTipMultiSelectionAndCopyNames() throws {
         let controller = PhylogeneticTreeViewController()
         _ = controller.view
         let bundleURL = try makePhylogeneticTreeBundle()
 
-        try await controller.displayBundle(at: bundleURL)
+        try controller.displayBundle(at: bundleURL)
         controller.testingSelectNode(label: "A")
         controller.testingSelectNode(label: "B", extendingSelection: true)
 
@@ -2050,7 +2050,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
         XCTAssertEqual(NSPasteboard.general.string(forType: .string), "A\nB")
     }
 
-    func testPhylogeneticTreeViewportRelabelsTipsFromMetadataColumn() async throws {
+    func testPhylogeneticTreeViewportRelabelsTipsFromMetadataColumn() throws {
         let controller = PhylogeneticTreeViewController()
         _ = controller.view
         let bundleURL = try makePhylogeneticTreeBundle()
@@ -2061,7 +2061,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
         C\tBA.5\tMexico
         """.write(to: bundleURL.appendingPathComponent("metadata.tsv"), atomically: true, encoding: .utf8)
 
-        try await controller.displayBundle(at: bundleURL)
+        try controller.displayBundle(at: bundleURL)
 
         XCTAssertEqual(controller.testingTipLabelColumnTitles, ["Original", "lineage", "country"])
         controller.testingApplyTipLabelColumn("lineage")
