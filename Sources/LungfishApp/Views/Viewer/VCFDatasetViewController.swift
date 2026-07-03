@@ -278,6 +278,9 @@ public final class VCFDatasetViewController: NSViewController,
         applySortOrder()
         updateCountLabel()
         tableView.reloadData()
+        #if DEBUG
+        applyFilterCount += 1
+        #endif
     }
 
     private func classifyVariantType(_ variant: VCFVariant) -> String {
@@ -369,9 +372,13 @@ public final class VCFDatasetViewController: NSViewController,
         scheduleDebouncedFilter()
     }
 
+    deinit {
+        pendingFilterTask?.cancel()
+    }
+
     private func scheduleDebouncedFilter() {
         pendingFilterTask?.cancel()
-        pendingFilterTask = Task { [weak self] in
+        pendingFilterTask = Task { @MainActor [weak self] in
             do {
                 try await Task.sleep(for: Self.filterDebounceDelay)
             } catch {
@@ -401,6 +408,11 @@ public final class VCFDatasetViewController: NSViewController,
     var testDisplayedVariants: [VCFVariant] { displayedVariants }
 
     var displayedVariantCountForTesting: Int { displayedVariants.count }
+
+    #if DEBUG
+    /// Incremented each time `applyFilter()` completes. Used by coalescing tests only.
+    var applyFilterCount: Int = 0
+    #endif
 
     /// Applies a filter immediately without debouncing (programmatic / state-restoration path).
     func setFilterText(_ text: String) {

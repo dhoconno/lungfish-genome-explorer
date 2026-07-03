@@ -90,37 +90,37 @@ final class VCFDatasetViewControllerTests: XCTestCase {
         vc.setFilterText("chr1")
         XCTAssertEqual(vc.displayedVariantCountForTesting, 2)
     }
+
+    func testRapidSearchInputCoalescesToOneFilterApply() async throws {
+        let vc = VCFDatasetViewController()
+        _ = vc.view
+        let variants = makeVariants()
+        vc.configure(summary: makeSummary(), variants: variants)
+
+        let countAfterConfigure = vc.applyFilterCount   // typically 1 from configure()
+
+        let field = try XCTUnwrap(vc.view.firstDescendant(of: NSSearchField.self))
+
+        // Fire two rapid changes within the same debounce window.
+        field.stringValue = "chr"
+        NotificationCenter.default.post(name: NSControl.textDidChangeNotification, object: field)
+        field.stringValue = "chr1"
+        NotificationCenter.default.post(name: NSControl.textDidChangeNotification, object: field)
+
+        // Synchronously: no extra applyFilter should have run yet.
+        XCTAssertEqual(vc.applyFilterCount, countAfterConfigure,
+                       "applyFilter() must not run synchronously during debounce window")
+
+        // After debounce settles we expect exactly ONE additional application,
+        // reflecting only the final value "chr1" (2 matches — chr1 at 100 and 150).
+        try await waitUntilCondition { vc.applyFilterCount == countAfterConfigure + 1 }
+
+        XCTAssertEqual(vc.applyFilterCount, countAfterConfigure + 1,
+                       "Two rapid keystrokes should coalesce into exactly one applyFilter() call")
+        XCTAssertEqual(vc.displayedVariantCountForTesting, 2,
+                       "Final settled result should match the last search value (chr1 → 2 variants)")
+    }
 }
 
 // MARK: - Test Helpers
-
-private extension NSView {
-    func firstDescendant<T: NSView>(of type: T.Type) -> T? {
-        if let typed = self as? T {
-            return typed
-        }
-        for subview in subviews {
-            if let match = subview.firstDescendant(of: type) {
-                return match
-            }
-        }
-        return nil
-    }
-}
-
-@MainActor
-private func waitUntilCondition(
-    timeout: TimeInterval = 2.0,
-    file: StaticString = #filePath,
-    line: UInt = #line,
-    _ condition: @escaping @MainActor () -> Bool
-) async throws {
-    let deadline = Date().addingTimeInterval(timeout)
-    while Date() < deadline {
-        if condition() {
-            return
-        }
-        try await Task.sleep(for: .milliseconds(10))
-    }
-    XCTAssertTrue(condition(), file: file, line: line)
-}
+// firstDescendant(of:) and waitUntilCondition(_:) live in XCTestUISupport.swift (module-wide).

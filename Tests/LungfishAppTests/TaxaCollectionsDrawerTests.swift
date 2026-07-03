@@ -497,7 +497,7 @@ final class TaxaCollectionsDrawerTests: XCTestCase {
         )
 
         // After debounce fires the count narrows to only matched collections.
-        try await taxaDrawerWaitUntilCondition { drawer.displayedCollectionCount < TaxaCollection.builtIn.count }
+        try await waitUntilCondition { drawer.displayedCollectionCount < TaxaCollection.builtIn.count }
         XCTAssertLessThan(drawer.displayedCollectionCount, TaxaCollection.builtIn.count)
     }
 
@@ -531,28 +531,4 @@ final class TaxaCollectionsDrawerTests: XCTestCase {
 }
 
 // MARK: - Test Helpers
-
-private extension NSView {
-    func firstDescendant<T: NSView>(of type: T.Type) -> T? {
-        if let typed = self as? T { return typed }
-        for subview in subviews {
-            if let match = subview.firstDescendant(of: type) { return match }
-        }
-        return nil
-    }
-}
-
-@MainActor
-private func taxaDrawerWaitUntilCondition(
-    timeout: TimeInterval = 2.0,
-    file: StaticString = #filePath,
-    line: UInt = #line,
-    _ condition: @escaping @MainActor () -> Bool
-) async throws {
-    let deadline = Date().addingTimeInterval(timeout)
-    while Date() < deadline {
-        if condition() { return }
-        try await Task.sleep(for: .milliseconds(10))
-    }
-    XCTAssertTrue(condition(), file: file, line: line)
-}
+// firstDescendant(of:) and waitUntilCondition(_:) live in XCTestUISupport.swift (module-wide).

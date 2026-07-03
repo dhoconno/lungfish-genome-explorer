@@ -287,6 +287,10 @@ public final class TaxaCollectionsDrawerView: NSView {
         commonInit()
     }
 
+    deinit {
+        pendingFilterTask?.cancel()
+    }
+
     private func commonInit() {
         setupDivider()
         setupHeader()
