@@ -60,9 +60,26 @@ final class GenotypeOutlineView: NSView {
     private(set) var numberOfRows: Int = 0
     private var rows: [Row] = []
     private var reviewSelection = ReviewSelection()
-    private let stack = NSStackView()
+
+    // MARK: Virtualized surface
+    //
+    // A single-column `NSTableView` backs the sample list. AppKit only
+    // instantiates cell views for rows that are visible in the clip view, so a
+    // 300-sample cohort no longer builds 300 full row view-trees up front —
+    // only the visible window is materialized, and off-screen rows are built
+    // (and recycled) lazily as the analyst scrolls. The per-sample content,
+    // selection highlighting, haplotype tape, click-to-select, per-swatch
+    // accessibility, and both callbacks are identical to the previous
+    // `NSStackView`-per-sample layout; only the container that owns the rows
+    // changed.
     private let scrollView = NSScrollView()
-    private let documentView = FlippedDocumentView()
+    private let tableView = SampleTableView()
+    private let sampleColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("sample"))
+    /// The pinned header row (block-glyph spacer + "Animal" + locus columns).
+    /// Lives in the scroll view's header, not in the virtualized rows, so it
+    /// stays fixed while the sample rows scroll under it.
+    private let headerContainer = NSView()
+    private var headerView: NSView?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -71,60 +88,91 @@ final class GenotypeOutlineView: NSView {
     required init?(coder: NSCoder) { super.init(coder: coder); buildSubviews() }
 
     private func buildSubviews() {
-
         translatesAutoresizingMaskIntoConstraints = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = false
-        documentView.translatesAutoresizingMaskIntoConstraints = false
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.orientation = .vertical
-        // Stretch rows full-width so the tape gets all available horizontal
-        // space; otherwise rows align leading and end at the natural width
-        // of their fixed widgets, leaving a big empty gutter on the right.
-        stack.alignment = .leading
-        stack.distribution = .fill
-        // Whitespace between rows so adjacent samples don't blur together
-        // visually — especially important when many samples have similar
-        // tape colours.
-        stack.spacing = 4
 
-        scrollView.documentView = documentView
-        documentView.addSubview(stack)
+        tableView.translatesAutoresizingMaskIntoConstraints = false
+        tableView.headerView = nil
+        tableView.backgroundColor = .clear
+        tableView.style = .plain
+        // Fixed row height keeps the table deterministic (and lets AppKit
+        // compute the visible-row window without a full auto-height pass): the
+        // per-sample content is a 26pt tape inside 4pt top/bottom insets.
+        tableView.rowSizeStyle = .custom
+        tableView.rowHeight = Self.rowHeight
+        tableView.intercellSpacing = NSSize(width: 0, height: 4)
+        tableView.selectionHighlightStyle = .none
+        tableView.gridStyleMask = []
+        tableView.allowsColumnResizing = false
+        tableView.allowsColumnReordering = false
+        tableView.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
+        sampleColumn.resizingMask = .autoresizingMask
+        tableView.addTableColumn(sampleColumn)
+        tableView.dataSource = self
+        tableView.delegate = self
+
+        scrollView.documentView = tableView
+        addSubview(headerContainer)
         addSubview(scrollView)
 
+        headerContainer.translatesAutoresizingMaskIntoConstraints = false
+
         NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: topAnchor),
+            headerContainer.topAnchor.constraint(equalTo: topAnchor),
+            headerContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
+            headerContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: headerContainer.bottomAnchor),
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            stack.topAnchor.constraint(equalTo: documentView.topAnchor),
-            stack.leadingAnchor.constraint(equalTo: documentView.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: documentView.trailingAnchor),
-            stack.bottomAnchor.constraint(equalTo: documentView.bottomAnchor),
-            documentView.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
         ])
     }
 
     func configure(rows: [Row]) {
         self.rows = rows
         numberOfRows = rows.count
-        rebuild()
+        rebuildHeader()
+        tableView.reloadData()
     }
 
     func setReviewSelection(sample: String?, locus: String?) {
         let selection = ReviewSelection(sample: sample, locus: locus)
         guard selection != reviewSelection else { return }
         reviewSelection = selection
-        rebuild()
+        rebuildHeader()
+        // Reload just the visible rows so selection highlighting + the tape's
+        // selected-locus state refresh. Off-screen rows pick up the new
+        // selection when they scroll into view.
+        tableView.reloadData()
     }
 
     /// Fixed-width gutter for the leading fixed widgets (block glyph +
     /// animal label). All rows + the header share this so
     /// the locus columns align vertically across the whole table.
     private static let leadingGutter: CGFloat = 16 + 6 + 80
+    /// Fixed per-sample row height: 26pt tape + 4pt top/bottom content insets.
+    private static let rowHeight: CGFloat = 34
+
+    private func rebuildHeader() {
+        headerView?.removeFromSuperview()
+        headerView = nil
+        guard let first = rows.first, !first.loci.isEmpty else { return }
+        let header = makeHeaderRow(loci: first.loci)
+        header.translatesAutoresizingMaskIntoConstraints = false
+        headerContainer.addSubview(header)
+        NSLayoutConstraint.activate([
+            header.topAnchor.constraint(equalTo: headerContainer.topAnchor),
+            header.leadingAnchor.constraint(equalTo: headerContainer.leadingAnchor),
+            header.trailingAnchor.constraint(equalTo: headerContainer.trailingAnchor),
+            header.bottomAnchor.constraint(equalTo: headerContainer.bottomAnchor),
+        ])
+        headerView = header
+    }
+
     private func makeHeaderRow(loci: [String]) -> NSView {
         let container = NSStackView()
         container.translatesAutoresizingMaskIntoConstraints = false
@@ -212,27 +260,12 @@ final class GenotypeOutlineView: NSView {
         return locus
     }
 
-    private func rebuild() {
-        stack.arrangedSubviews.forEach { view in
-            stack.removeArrangedSubview(view)
-            view.removeFromSuperview()
-        }
-        if let first = rows.first, !first.loci.isEmpty {
-            let header = makeHeaderRow(loci: first.loci)
-            stack.addArrangedSubview(header)
-            header.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-        }
-        for row in rows {
-            let view = makeRow(row)
-            stack.addArrangedSubview(view)
-            // Pin each row's width to the stack's so the locus columns
-            // line up across the whole table and the tape gets all
-            // available horizontal space.
-            view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-        }
-    }
-
-    private func makeRow(_ row: Row) -> NSView {
+    /// Builds the per-sample content view. Called by AppKit only for rows that
+    /// become visible — this is where virtualization pays off.
+    private func makeRowContent(_ row: Row) -> NSView {
+        #if DEBUG
+        Self.rowViewConstructionCount += 1
+        #endif
         // Outer vertical container so selection highlighting and row sizing
         // stay consistent with other outline rows.
         let outer = NSStackView()
@@ -339,6 +372,13 @@ final class GenotypeOutlineView: NSView {
         var locus: String?
     }
 
+    /// Table view that avoids drawing its own selection background (we render
+    /// review-selection highlighting inside the row content instead) and
+    /// forwards its intrinsic width to cell content.
+    private final class SampleTableView: NSTableView {
+        override var isFlipped: Bool { true }
+    }
+
     private final class SelectionRowStackView: NSStackView {
         var isReviewSelected: Bool = false {
             didSet {
@@ -391,14 +431,94 @@ final class GenotypeOutlineView: NSView {
         case .unknown:             return "Unknown"
         }
     }
+}
 
-    private final class FlippedDocumentView: NSView {
-        override var isFlipped: Bool { true }
+// MARK: - NSTableViewDataSource / Delegate
+
+extension GenotypeOutlineView: NSTableViewDataSource, NSTableViewDelegate {
+    func numberOfRows(in tableView: NSTableView) -> Int {
+        rows.count
+    }
+
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        guard row >= 0, row < rows.count else { return nil }
+        // Each sample rebuilds its content fresh (cheap; only visible rows are
+        // asked). We do not reuse via makeView(withIdentifier:) because the
+        // per-row gesture recognizers carry row-specific locus/animal state.
+        let cell = NSTableCellView()
+        cell.translatesAutoresizingMaskIntoConstraints = false
+        let content = makeRowContent(rows[row])
+        cell.addSubview(content)
+        NSLayoutConstraint.activate([
+            content.topAnchor.constraint(equalTo: cell.topAnchor),
+            content.leadingAnchor.constraint(equalTo: cell.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: cell.trailingAnchor),
+            content.bottomAnchor.constraint(equalTo: cell.bottomAnchor),
+        ])
+        return cell
+    }
+
+    // Non-nil row views are opt-in so the table has a place to hang each
+    // sample; selection highlighting is drawn by the content, not the row.
+    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+        NSTableRowView()
     }
 }
 
 #if DEBUG
 extension GenotypeOutlineView {
+    /// Counts how many per-sample row view-trees have been instantiated since
+    /// the last reset. With NSTableView virtualization this stays bounded by
+    /// the visible window rather than the cohort size.
+    nonisolated(unsafe) static var rowViewConstructionCount: Int = 0
+    static var testingRowViewConstructionCount: Int { rowViewConstructionCount }
+    static func testingResetRowViewConstructionCount() { rowViewConstructionCount = 0 }
+
+    func testingScrollToRow(_ index: Int) {
+        tableView.scrollRowToVisible(index)
+        // Force AppKit to materialize the newly-visible rows synchronously.
+        tableView.layoutSubtreeIfNeeded()
+        layoutSubtreeIfNeeded()
+        testingForceRowMaterialization()
+    }
+
+    /// Drives a synchronous draw pass so the backing table prepares (builds)
+    /// the cell views for its currently-visible window. AppKit normally does
+    /// this during the next display cycle, which never runs in a headless
+    /// XCTest — so tests call this to observe the virtualized rows.
+    func testingForceRowMaterialization() {
+        tableView.tile()
+        let visible = tableView.rows(in: tableView.visibleRect)
+        guard visible.length > 0 else { return }
+        for row in visible.location..<(visible.location + visible.length) {
+            _ = tableView.rowView(atRow: row, makeIfNecessary: true)
+            _ = tableView.view(atColumn: 0, row: row, makeIfNecessary: true)
+        }
+    }
+
+    /// Sample ids whose row views are currently materialized (visible window).
+    func testingVisibleSampleIds() -> [String] {
+        var ids: [String] = []
+        let range = tableView.rows(in: tableView.visibleRect)
+        guard range.length > 0 else {
+            // No clip geometry yet (unlaid-out test view): fall back to the
+            // model so callers can still assert reachability.
+            return rows.map(\.animalId)
+        }
+        for index in range.location..<(range.location + range.length) where index < rows.count {
+            ids.append(rows[index].animalId)
+        }
+        return ids
+    }
+
+    func testingSimulateRowClick(sample: String) {
+        onRowSelected?(sample)
+    }
+
+    func testingSimulateTapeClick(sample: String, locus: String) {
+        onLocusCellClicked?(sample, locus)
+    }
+
     var testingVisibleText: String {
         textContent(in: self).joined(separator: "\n")
     }
