@@ -623,15 +623,10 @@ extension MainSplitViewController {
 
                 // If manifest has cached taxon rows, show them immediately.
                 if let cachedRows = manifest.cachedTaxonRows, !cachedRows.isEmpty {
-                    DispatchQueue.main.async { [weak self] in
-                        MainActor.assumeIsolated {
-                            guard let self else { return }
-                            guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
-                            placeholderVC.configureWithCachedRows(cachedRows, manifest: manifest, bundleURL: bundleURL)
-                            self.inspectorController?.updateNaoMgsManifest(manifest)
-                            mainSplitLogger.info("displayNaoMgsResult: Showing \(cachedRows.count) cached taxon rows instantly")
-                        }
-                    }
+                    guard canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
+                    placeholderVC.configureWithCachedRows(cachedRows, manifest: manifest, bundleURL: bundleURL)
+                    inspectorController?.updateNaoMgsManifest(manifest)
+                    mainSplitLogger.info("displayNaoMgsResult: Showing \(cachedRows.count) cached taxon rows instantly")
                 }
 
                 // Phase 2: Open SQLite database (slow — full file I/O + SQLite init).
@@ -643,49 +638,39 @@ extension MainSplitViewController {
                 try await upgradeNaoMgsBundleIfNeeded(bundleURL: bundleURL, manifest: manifest)
                 let database = try NaoMgsDatabase(at: dbURL)
 
-                DispatchQueue.main.async { [weak self] in
-                    MainActor.assumeIsolated {
-                        guard let self else { return }
-                        guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
-                        // Full configure with database — enables detail queries, filtering, BLAST.
-                        placeholderVC.configure(database: database, manifest: manifest, bundleURL: bundleURL)
+                guard canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
+                // Full configure with database — enables detail queries, filtering, BLAST.
+                placeholderVC.configure(database: database, manifest: manifest, bundleURL: bundleURL)
 
-                        // Update inspector with NAO-MGS manifest info
-                        self.inspectorController?.updateNaoMgsManifest(manifest)
+                // Update inspector with NAO-MGS manifest info
+                inspectorController?.updateNaoMgsManifest(manifest)
 
-                        // Wire sample picker state to Inspector for embedded sample selector
-                        let knownIds = Set(placeholderVC.sampleEntries.map(\.id))
-                        let metadataStore = SampleMetadataStore.load(from: bundleURL, knownSampleIds: knownIds)
-                        metadataStore?.wireAutosave(bundleURL: bundleURL)
-                        let attachmentStore = BundleAttachmentStore(bundleURL: bundleURL)
-                        placeholderVC.sampleMetadataStore = metadataStore
-                        self.inspectorController?.updateClassifierSampleState(
-                            pickerState: placeholderVC.samplePickerState,
-                            entries: placeholderVC.sampleEntries,
-                            strippedPrefix: placeholderVC.strippedPrefix,
-                            metadata: metadataStore,
-                            attachments: attachmentStore
-                        )
+                // Wire sample picker state to Inspector for embedded sample selector
+                let knownIds = Set(placeholderVC.sampleEntries.map(\.id))
+                let metadataStore = SampleMetadataStore.load(from: bundleURL, knownSampleIds: knownIds)
+                metadataStore?.wireAutosave(bundleURL: bundleURL)
+                let attachmentStore = BundleAttachmentStore(bundleURL: bundleURL)
+                placeholderVC.sampleMetadataStore = metadataStore
+                inspectorController?.updateClassifierSampleState(
+                    pickerState: placeholderVC.samplePickerState,
+                    entries: placeholderVC.sampleEntries,
+                    strippedPrefix: placeholderVC.strippedPrefix,
+                    metadata: metadataStore,
+                    attachments: attachmentStore
+                )
 
-                        let totalHits = (try? database.totalHitCount()) ?? manifest.hitCount
-                        mainSplitLogger.info("displayNaoMgsResult: Configured with database, \(totalHits) hits")
-                    }
-                }
+                let totalHits = (try? database.totalHitCount()) ?? manifest.hitCount
+                mainSplitLogger.info("displayNaoMgsResult: Configured with database, \(totalHits) hits")
             } catch {
-                DispatchQueue.main.async { [weak self] in
-                    MainActor.assumeIsolated {
-                        guard let self else { return }
-                        guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
-                        mainSplitLogger.error("displayNaoMgsResult: Failed - \(error.localizedDescription, privacy: .public)")
-                        let alert = NSAlert()
-                        alert.messageText = "Failed to Load NAO-MGS Result"
-                        alert.informativeText = error.localizedDescription
-                        alert.alertStyle = .warning
-                        alert.addButton(withTitle: "OK")
-                        if let window = self.view.window ?? NSApp.keyWindow {
-                            alert.beginSheetModal(for: window)
-                        }
-                    }
+                guard canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
+                mainSplitLogger.error("displayNaoMgsResult: Failed - \(error.localizedDescription, privacy: .public)")
+                let alert = NSAlert()
+                alert.messageText = "Failed to Load NAO-MGS Result"
+                alert.informativeText = error.localizedDescription
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "OK")
+                if let window = view.window ?? NSApp.keyWindow {
+                    await alert.beginSheetModal(for: window)
                 }
             }
         }
@@ -838,15 +823,10 @@ extension MainSplitViewController {
 
                 // If manifest has cached contig rows, show them immediately.
                 if let cachedRows = manifest.cachedTopContigs, !cachedRows.isEmpty {
-                    DispatchQueue.main.async { [weak self] in
-                        MainActor.assumeIsolated {
-                            guard let self else { return }
-                            guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
-                            placeholderVC.configureWithCachedRows(cachedRows, manifest: manifest, bundleURL: bundleURL)
-                            self.inspectorController?.updateNvdManifest(manifest)
-                            mainSplitLogger.info("displayNvdResult: Showing \(cachedRows.count) cached contig rows instantly")
-                        }
-                    }
+                    guard canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
+                    placeholderVC.configureWithCachedRows(cachedRows, manifest: manifest, bundleURL: bundleURL)
+                    inspectorController?.updateNvdManifest(manifest)
+                    mainSplitLogger.info("displayNvdResult: Showing \(cachedRows.count) cached contig rows instantly")
                 }
 
                 // Phase 2: Open SQLite database (slower — full file I/O + SQLite init).
@@ -857,49 +837,39 @@ extension MainSplitViewController {
                 }
                 let database = try NvdDatabase(at: dbURL)
 
-                DispatchQueue.main.async { [weak self] in
-                    MainActor.assumeIsolated {
-                        guard let self else { return }
-                        guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
-                        // Full configure with database — enables detail queries, filtering, BLAST.
-                        placeholderVC.configure(database: database, manifest: manifest, bundleURL: bundleURL)
+                guard canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
+                // Full configure with database — enables detail queries, filtering, BLAST.
+                placeholderVC.configure(database: database, manifest: manifest, bundleURL: bundleURL)
 
-                        // Update inspector with NVD manifest info
-                        self.inspectorController?.updateNvdManifest(manifest)
+                // Update inspector with NVD manifest info
+                inspectorController?.updateNvdManifest(manifest)
 
-                        // Wire sample picker state to Inspector for embedded sample selector
-                        let knownIds = Set(placeholderVC.sampleEntries.map(\.id))
-                        let metadataStore = SampleMetadataStore.load(from: bundleURL, knownSampleIds: knownIds)
-                        metadataStore?.wireAutosave(bundleURL: bundleURL)
-                        let attachmentStore = BundleAttachmentStore(bundleURL: bundleURL)
-                        placeholderVC.sampleMetadataStore = metadataStore
-                        self.inspectorController?.updateClassifierSampleState(
-                            pickerState: placeholderVC.samplePickerState,
-                            entries: placeholderVC.sampleEntries,
-                            strippedPrefix: placeholderVC.strippedPrefix,
-                            metadata: metadataStore,
-                            attachments: attachmentStore
-                        )
+                // Wire sample picker state to Inspector for embedded sample selector
+                let knownIds = Set(placeholderVC.sampleEntries.map(\.id))
+                let metadataStore = SampleMetadataStore.load(from: bundleURL, knownSampleIds: knownIds)
+                metadataStore?.wireAutosave(bundleURL: bundleURL)
+                let attachmentStore = BundleAttachmentStore(bundleURL: bundleURL)
+                placeholderVC.sampleMetadataStore = metadataStore
+                inspectorController?.updateClassifierSampleState(
+                    pickerState: placeholderVC.samplePickerState,
+                    entries: placeholderVC.sampleEntries,
+                    strippedPrefix: placeholderVC.strippedPrefix,
+                    metadata: metadataStore,
+                    attachments: attachmentStore
+                )
 
-                        let totalHits = (try? database.totalHitCount()) ?? manifest.hitCount
-                        mainSplitLogger.info("displayNvdResult: Configured with database, \(totalHits) hits")
-                    }
-                }
+                let totalHits = (try? database.totalHitCount()) ?? manifest.hitCount
+                mainSplitLogger.info("displayNvdResult: Configured with database, \(totalHits) hits")
             } catch {
-                DispatchQueue.main.async { [weak self] in
-                    MainActor.assumeIsolated {
-                        guard let self else { return }
-                        guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
-                        mainSplitLogger.error("displayNvdResult: Failed - \(error.localizedDescription, privacy: .public)")
-                        let alert = NSAlert()
-                        alert.messageText = "Failed to Load NVD Result"
-                        alert.informativeText = error.localizedDescription
-                        alert.alertStyle = .warning
-                        alert.addButton(withTitle: "OK")
-                        if let window = self.view.window ?? NSApp.keyWindow {
-                            alert.beginSheetModal(for: window)
-                        }
-                    }
+                guard canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
+                mainSplitLogger.error("displayNvdResult: Failed - \(error.localizedDescription, privacy: .public)")
+                let alert = NSAlert()
+                alert.messageText = "Failed to Load NVD Result"
+                alert.informativeText = error.localizedDescription
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "OK")
+                if let window = view.window ?? NSApp.keyWindow {
+                    await alert.beginSheetModal(for: window)
                 }
             }
         }
@@ -930,32 +900,22 @@ extension MainSplitViewController {
                 let manifest = try JSONDecoder().decode(CzIdImportManifest.self, from: manifestData)
                 let result = try ClassificationResult.load(from: bundleURL)
 
-                DispatchQueue.main.async { [weak self] in
-                    MainActor.assumeIsolated {
-                        guard let self else { return }
-                        guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
-                        let controller = CzIdResultViewController()
-                        controller.configure(result: result, manifest: manifest, bundleURL: bundleURL)
-                        self.viewerController.displayCzIdResult(controller)
-                        self.inspectorController?.clearBatchOperationDetails()
-                        mainSplitLogger.info("displayCzIdResult: Configured with \(manifest.rowCount, privacy: .public) taxa")
-                    }
-                }
+                guard canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
+                let controller = CzIdResultViewController()
+                controller.configure(result: result, manifest: manifest, bundleURL: bundleURL)
+                viewerController.displayCzIdResult(controller)
+                inspectorController?.clearBatchOperationDetails()
+                mainSplitLogger.info("displayCzIdResult: Configured with \(manifest.rowCount, privacy: .public) taxa")
             } catch {
-                DispatchQueue.main.async { [weak self] in
-                    MainActor.assumeIsolated {
-                        guard let self else { return }
-                        guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
-                        mainSplitLogger.error("displayCzIdResult: Failed - \(error.localizedDescription, privacy: .public)")
-                        let alert = NSAlert()
-                        alert.messageText = "Failed to Load CZ-ID Result"
-                        alert.informativeText = error.localizedDescription
-                        alert.alertStyle = .warning
-                        alert.addButton(withTitle: "OK")
-                        if let window = self.view.window ?? NSApp.keyWindow {
-                            alert.beginSheetModal(for: window)
-                        }
-                    }
+                guard canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
+                mainSplitLogger.error("displayCzIdResult: Failed - \(error.localizedDescription, privacy: .public)")
+                let alert = NSAlert()
+                alert.messageText = "Failed to Load CZ-ID Result"
+                alert.informativeText = error.localizedDescription
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "OK")
+                if let window = view.window ?? NSApp.keyWindow {
+                    await alert.beginSheetModal(for: window)
                 }
             }
         }
