@@ -120,6 +120,13 @@ public struct BundleManifest: Codable, Sendable, Equatable {
     /// Optional so legacy manifests without this cache still decode successfully.
     public let browserSummary: BundleBrowserSummary?
 
+    /// Hand-rolled equality. Instead of comparing the stored `browserSummary`
+    /// directly, it compares `equivalentBrowserSummary` (the stored summary, or
+    /// the one synthesized from genome/track counts when absent). Two manifests
+    /// are therefore equal when their *effective* summaries match, so a manifest
+    /// with a cached summary equals an otherwise-identical one that would
+    /// synthesize the same summary. Synthesized `Equatable` would compare the raw
+    /// stored `browserSummary` and is therefore unacceptable here.
     public static func == (lhs: BundleManifest, rhs: BundleManifest) -> Bool {
         lhs.formatVersion == rhs.formatVersion
             && lhs.name == rhs.name
@@ -306,7 +313,10 @@ public struct BundleManifest: Codable, Sendable, Equatable {
 
     // MARK: - Backward-Compatible Decoding
 
-    /// Custom decoder that handles manifests created before the `alignments` field existed.
+    /// Custom decoder whose only backward-compat behavior over synthesized `Codable`
+    /// is defaulting `alignments` to `[]` when the key is absent (manifests created
+    /// before the `alignments` field existed). Every other key mirrors synthesized
+    /// decoding behavior.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         formatVersion = try container.decode(String.self, forKey: .formatVersion)
@@ -1016,25 +1026,53 @@ extension BundleManifest {
         return try decoder.decode(BundleManifest.self, from: data)
     }
 
+    /// Returns a copy of this manifest with the given fields overridden.
+    ///
+    /// Every parameter defaults to the current property value, so callers only
+    /// specify the fields that change. This threads the ~15 initializer arguments
+    /// in one place; the immutable-update helpers below own their own semantics
+    /// (whether to reset `browserSummary` and bump `modifiedDate`) by passing
+    /// those fields explicitly.
+    private func copy(
+        formatVersion: String? = nil,
+        name: String? = nil,
+        identifier: String? = nil,
+        description: String?? = nil,
+        originBundlePath: String?? = nil,
+        createdDate: Date? = nil,
+        modifiedDate: Date? = nil,
+        source: SourceInfo? = nil,
+        genome: GenomeInfo?? = nil,
+        annotations: [AnnotationTrackInfo]? = nil,
+        variants: [VariantTrackInfo]? = nil,
+        tracks: [SignalTrackInfo]? = nil,
+        alignments: [AlignmentTrackInfo]? = nil,
+        metadata: [MetadataGroup]?? = nil,
+        browserSummary: BundleBrowserSummary?? = nil
+    ) -> BundleManifest {
+        BundleManifest(
+            formatVersion: formatVersion ?? self.formatVersion,
+            name: name ?? self.name,
+            identifier: identifier ?? self.identifier,
+            description: description ?? self.description,
+            originBundlePath: originBundlePath ?? self.originBundlePath,
+            createdDate: createdDate ?? self.createdDate,
+            modifiedDate: modifiedDate ?? self.modifiedDate,
+            source: source ?? self.source,
+            genome: genome ?? self.genome,
+            annotations: annotations ?? self.annotations,
+            variants: variants ?? self.variants,
+            tracks: tracks ?? self.tracks,
+            alignments: alignments ?? self.alignments,
+            metadata: metadata ?? self.metadata,
+            browserSummary: browserSummary ?? self.browserSummary
+        )
+    }
+
     /// Returns a new manifest with the given variant track appended.
     public func addingVariantTrack(_ track: VariantTrackInfo) -> BundleManifest {
-        BundleManifest(
-            formatVersion: formatVersion,
-            name: name,
-            identifier: identifier,
-            description: description,
-            originBundlePath: originBundlePath,
-            createdDate: createdDate,
-            modifiedDate: Date(),
-            source: source,
-            genome: genome,
-            annotations: annotations,
-            variants: variants + [track],
-            tracks: tracks,
-            alignments: alignments,
-            metadata: metadata,
-            browserSummary: nil
-        )
+        // Mutators reset the cached browser summary and bump the modified date.
+        copy(modifiedDate: Date(), variants: variants + [track], browserSummary: .some(nil))
     }
 
     /// Returns a new manifest with the variant count updated for a specific track.
@@ -1054,130 +1092,53 @@ extension BundleManifest {
                 version: track.version
             )
         }
-        return BundleManifest(
-            formatVersion: formatVersion,
-            name: name,
-            identifier: identifier,
-            description: description,
-            originBundlePath: originBundlePath,
-            createdDate: createdDate,
-            modifiedDate: Date(),
-            source: source,
-            genome: genome,
-            annotations: annotations,
-            variants: updatedVariants,
-            tracks: tracks,
-            alignments: alignments,
-            metadata: metadata,
-            browserSummary: nil
-        )
+        // Mutators reset the cached browser summary and bump the modified date.
+        return copy(modifiedDate: Date(), variants: updatedVariants, browserSummary: .some(nil))
     }
 
     /// Returns a new manifest with the given annotation track appended.
     public func addingAnnotationTrack(_ track: AnnotationTrackInfo) -> BundleManifest {
-        BundleManifest(
-            formatVersion: formatVersion,
-            name: name,
-            identifier: identifier,
-            description: description,
-            originBundlePath: originBundlePath,
-            createdDate: createdDate,
-            modifiedDate: Date(),
-            source: source,
-            genome: genome,
-            annotations: annotations + [track],
-            variants: variants,
-            tracks: tracks,
-            alignments: alignments,
-            metadata: metadata,
-            browserSummary: nil
-        )
+        // Mutators reset the cached browser summary and bump the modified date.
+        copy(modifiedDate: Date(), annotations: annotations + [track], browserSummary: .some(nil))
     }
 
     /// Returns a new manifest with the specified annotation track removed.
     public func removingAnnotationTrack(id: String) -> BundleManifest {
-        BundleManifest(
-            formatVersion: formatVersion,
-            name: name,
-            identifier: identifier,
-            description: description,
-            originBundlePath: originBundlePath,
-            createdDate: createdDate,
+        // Mutators reset the cached browser summary and bump the modified date.
+        copy(
             modifiedDate: Date(),
-            source: source,
-            genome: genome,
             annotations: annotations.filter { $0.id != id },
-            variants: variants,
-            tracks: tracks,
-            alignments: alignments,
-            metadata: metadata,
-            browserSummary: nil
+            browserSummary: .some(nil)
         )
     }
 
     /// Returns a new manifest with an existing annotation track replaced.
     public func replacingAnnotationTrack(_ replacement: AnnotationTrackInfo) -> BundleManifest {
-        BundleManifest(
-            formatVersion: formatVersion,
-            name: name,
-            identifier: identifier,
-            description: description,
-            originBundlePath: originBundlePath,
-            createdDate: createdDate,
+        // Mutators reset the cached browser summary and bump the modified date.
+        copy(
             modifiedDate: Date(),
-            source: source,
-            genome: genome,
             annotations: annotations.map { $0.id == replacement.id ? replacement : $0 },
-            variants: variants,
-            tracks: tracks,
-            alignments: alignments,
-            metadata: metadata,
-            browserSummary: nil
+            browserSummary: .some(nil)
         )
     }
 
     /// Returns a new manifest with the given alignment track appended.
     public func addingAlignmentTrack(_ track: AlignmentTrackInfo) -> BundleManifest {
-        BundleManifest(
-            formatVersion: formatVersion,
-            name: name,
-            identifier: identifier,
-            description: description,
-            originBundlePath: originBundlePath,
-            createdDate: createdDate,
-            modifiedDate: Date(),
-            source: source,
-            genome: genome,
-            annotations: annotations,
-            variants: variants,
-            tracks: tracks,
-            alignments: alignments + [track],
-            metadata: metadata,
-            browserSummary: nil
-        )
+        // Mutators reset the cached browser summary and bump the modified date.
+        copy(modifiedDate: Date(), alignments: alignments + [track], browserSummary: .some(nil))
     }
 
     /// Returns a new manifest with the specified alignment track removed.
     public func removingAlignmentTrack(id: String) -> BundleManifest {
-        BundleManifest(
-            formatVersion: formatVersion,
-            name: name,
-            identifier: identifier,
-            description: description,
-            originBundlePath: originBundlePath,
-            createdDate: createdDate,
+        // Mutators reset the cached browser summary and bump the modified date.
+        copy(
             modifiedDate: Date(),
-            source: source,
-            genome: genome,
-            annotations: annotations,
-            variants: variants,
-            tracks: tracks,
             alignments: alignments.filter { $0.id != id },
-            metadata: metadata,
-            browserSummary: nil
+            browserSummary: .some(nil)
         )
     }
 
+    // Used only by Equatable; see ==
     private var equivalentBrowserSummary: BundleBrowserSummary? {
         browserSummary ?? synthesizedBrowserSummary()
     }
@@ -1212,23 +1173,9 @@ extension BundleManifest {
     public func withSynthesizedBrowserSummaryIfNeeded() -> BundleManifest {
         guard browserSummary == nil, let synthesized = synthesizedBrowserSummary() else { return self }
 
-        return BundleManifest(
-            formatVersion: formatVersion,
-            name: name,
-            identifier: identifier,
-            description: description,
-            originBundlePath: originBundlePath,
-            createdDate: createdDate,
-            modifiedDate: modifiedDate,
-            source: source,
-            genome: genome,
-            annotations: annotations,
-            variants: variants,
-            tracks: tracks,
-            alignments: alignments,
-            metadata: metadata,
-            browserSummary: synthesized
-        )
+        // Unlike the mutators, this keeps `modifiedDate` and sets the synthesized
+        // summary rather than clearing it.
+        return copy(browserSummary: .some(synthesized))
     }
 
     public func save(to bundleURL: URL) throws {
@@ -1273,31 +1220,19 @@ extension BundleManifest {
             }
         }
 
-        // Check for duplicate track IDs
+        // Check for duplicate track IDs. Iteration order (annotations -> variants
+        // -> tracks -> alignments) is preserved so the first reported duplicate is
+        // deterministic.
         var trackIds = Set<String>()
-        for track in annotations {
-            if trackIds.contains(track.id) {
-                errors.append(.duplicateTrackId(track.id))
+        let allTrackIds = annotations.map(\.id)
+            + variants.map(\.id)
+            + tracks.map(\.id)
+            + alignments.map(\.id)
+        for id in allTrackIds {
+            if trackIds.contains(id) {
+                errors.append(.duplicateTrackId(id))
             }
-            trackIds.insert(track.id)
-        }
-        for track in variants {
-            if trackIds.contains(track.id) {
-                errors.append(.duplicateTrackId(track.id))
-            }
-            trackIds.insert(track.id)
-        }
-        for track in tracks {
-            if trackIds.contains(track.id) {
-                errors.append(.duplicateTrackId(track.id))
-            }
-            trackIds.insert(track.id)
-        }
-        for track in alignments {
-            if trackIds.contains(track.id) {
-                errors.append(.duplicateTrackId(track.id))
-            }
-            trackIds.insert(track.id)
+            trackIds.insert(id)
         }
 
         return errors
@@ -1412,13 +1347,14 @@ public func mapVCFChromosomes(
 
         // 7. FASTA description match: parse "chromosome N" from description
         //    e.g., description "Macaca mulatta chromosome 7" matches VCF "7"
+        let needle = "chromosome \(vcfChrom.lowercased())"
         if let match = bundleChromosomes.first(where: { chrom in
             guard let desc = chrom.fastaDescription?.lowercased() else { return false }
             // Match "chromosome <vcfChrom>" at word boundary
-            return desc.contains("chromosome \(vcfChrom.lowercased())")
-                && (desc.hasSuffix("chromosome \(vcfChrom.lowercased())")
-                    || desc.contains("chromosome \(vcfChrom.lowercased()),")
-                    || desc.contains("chromosome \(vcfChrom.lowercased()) "))
+            return desc.contains(needle)
+                && (desc.hasSuffix(needle)
+                    || desc.contains("\(needle),")
+                    || desc.contains("\(needle) "))
         }) {
             mapping[vcfChrom] = match.name
             continue
