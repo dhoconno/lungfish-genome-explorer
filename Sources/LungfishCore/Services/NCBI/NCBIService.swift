@@ -416,21 +416,27 @@ public actor NCBIService: DatabaseService {
         return content.hasPrefix("LOCUS") || content.contains("\nLOCUS")
     }
 
+    /// Returns the first whitespace-delimited token after a GenBank keyword
+    /// on a line such as `ACCESSION   NC_002549` or `VERSION   NC_002549.1`,
+    /// i.e. the second non-empty component, or nil when absent.
+    private nonisolated func firstTokenAfterKeyword(_ line: String) -> String? {
+        let parts = line.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+        return parts.count > 1 ? parts[1] : nil
+    }
+
     /// Extracts the accession number from GenBank file content.
     private func extractAccession(from content: String) -> String? {
         let lines = content.components(separatedBy: "\n")
         for line in lines {
             if line.hasPrefix("ACCESSION") {
-                let parts = line.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
-                if parts.count > 1 {
-                    return parts[1]
+                if let token = firstTokenAfterKeyword(line) {
+                    return token
                 }
             }
             if line.hasPrefix("VERSION") {
-                let parts = line.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
-                if parts.count > 1 {
+                if let token = firstTokenAfterKeyword(line) {
                     // VERSION line contains accession.version (e.g., NC_002549.1)
-                    return parts[1]
+                    return token
                 }
             }
         }
@@ -633,10 +639,10 @@ public actor NCBIService: DatabaseService {
         )
     }
 
-    /// Searches the genome/assembly database.
+    /// Searches the NCBI Assembly database for genome assemblies (RefSeq/GenBank).
     ///
-    /// Note: The NCBI Genome database doesn't support direct efetch.
-    /// Results should be linked to nuccore for sequence retrieval.
+    /// Note: assembly records don't support direct efetch of sequence data;
+    /// results should be linked to nuccore for sequence retrieval.
     ///
     /// - Parameters:
     ///   - term: The search term
@@ -1226,27 +1232,8 @@ public actor NCBIService: DatabaseService {
 
     /// Fetches SRR run accessions from SRA UIDs via EFetch runinfo CSV.
     public func sraEFetchRunAccessions(uids: [String]) async throws -> [String] {
-        guard !uids.isEmpty else { return [] }
-
         var allAccessions: [String] = []
-        let chunkSize = 200
-        for chunkStart in stride(from: 0, to: uids.count, by: chunkSize) {
-            let chunkEnd = min(chunkStart + chunkSize, uids.count)
-            let chunk = Array(uids[chunkStart..<chunkEnd])
-
-            var components = URLComponents(url: baseURL.appendingPathComponent("efetch.fcgi"), resolvingAgainstBaseURL: false)!
-            components.queryItems = [
-                URLQueryItem(name: "db", value: "sra"),
-                URLQueryItem(name: "id", value: chunk.joined(separator: ",")),
-                URLQueryItem(name: "rettype", value: "runinfo"),
-                URLQueryItem(name: "retmode", value: "csv")
-            ]
-            if let apiKey = apiKey {
-                components.queryItems?.append(URLQueryItem(name: "api_key", value: apiKey))
-            }
-
-            let data = try await makeRequest(url: components.url!)
-            let csvText = String(data: data, encoding: .utf8) ?? ""
+        for csvText in try await sraRunInfoCSVChunks(ids: uids) {
             allAccessions.append(contentsOf: Self.parseRunInfoCSV(csvText))
         }
         return allAccessions
@@ -1257,10 +1244,22 @@ public actor NCBIService: DatabaseService {
     /// The `id` parameter accepted by NCBI EFetch works with either SRA UIDs
     /// returned by ESearch or run accessions such as `SRR12345678`.
     public func sraEFetchRunInfo(ids: [String]) async throws -> [SRARunInfo] {
+        var allRuns: [SRARunInfo] = []
+        for csvText in try await sraRunInfoCSVChunks(ids: ids) {
+            allRuns.append(contentsOf: Self.parseRunInfoRows(csvText))
+        }
+        return allRuns
+    }
+
+    /// Fetches raw SRA EFetch runinfo CSV text, one entry per request chunk.
+    ///
+    /// Shared scaffolding for ``sraEFetchRunAccessions(uids:)`` and
+    /// ``sraEFetchRunInfo(ids:)``: identical chunking, request construction, and
+    /// CSV decoding; only the per-chunk parser differs at the call site.
+    private func sraRunInfoCSVChunks(ids: [String], chunkSize: Int = 200) async throws -> [String] {
         guard !ids.isEmpty else { return [] }
 
-        var allRuns: [SRARunInfo] = []
-        let chunkSize = 200
+        var chunks: [String] = []
         for chunkStart in stride(from: 0, to: ids.count, by: chunkSize) {
             let chunkEnd = min(chunkStart + chunkSize, ids.count)
             let chunk = Array(ids[chunkStart..<chunkEnd])
@@ -1277,10 +1276,9 @@ public actor NCBIService: DatabaseService {
             }
 
             let data = try await makeRequest(url: components.url!)
-            let csvText = String(data: data, encoding: .utf8) ?? ""
-            allRuns.append(contentsOf: Self.parseRunInfoRows(csvText))
+            chunks.append(String(data: data, encoding: .utf8) ?? "")
         }
-        return allRuns
+        return chunks
     }
 
     /// Parses NCBI SRA EFetch runinfo CSV to extract run accessions.
@@ -1576,14 +1574,12 @@ public actor NCBIService: DatabaseService {
                     metadata["molecule_type"] = parts[3]
                 }
             } else if line.hasPrefix("ACCESSION") {
-                let parts = line.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
-                if parts.count > 1 {
-                    accession = parts[1]
+                if let token = firstTokenAfterKeyword(line) {
+                    accession = token
                 }
             } else if line.hasPrefix("VERSION") {
-                let parts = line.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
-                if parts.count > 1 {
-                    version = parts[1]
+                if let token = firstTokenAfterKeyword(line) {
+                    version = token
                 }
             } else if line.hasPrefix("DEFINITION") {
                 title = String(line.dropFirst(12)).trimmingCharacters(in: .whitespaces)
@@ -1938,6 +1934,31 @@ struct ESearchErrorList: Codable {
     let phrasesnotfound: [String]?
 }
 
+/// Decodes the NCBI ESummary/ESearch style `{ "result": { "uids": [...], "<uid>": {...} } }`
+/// envelope into a `[uid: value]` dictionary, skipping the `uids` index array and
+/// silently dropping entries that fail to decode. Returns nil when no entries decode.
+enum NCBIKeyedResultDecoder {
+    private enum EnvelopeKey: String, CodingKey { case result }
+
+    static func decode<V: Decodable>(_ decoder: Decoder) throws -> [String: V]? {
+        let container = try decoder.container(keyedBy: EnvelopeKey.self)
+
+        // The result is nested inside the "result" key
+        let resultContainer = try container.nestedContainer(keyedBy: DynamicCodingKey.self, forKey: .result)
+        var result: [String: V] = [:]
+
+        for key in resultContainer.allKeys {
+            // Skip the "uids" array
+            if key.stringValue == "uids" { continue }
+            if let value = try? resultContainer.decode(V.self, forKey: key) {
+                result[key.stringValue] = value
+            }
+        }
+
+        return result.isEmpty ? nil : result
+    }
+}
+
 struct ESummaryResponse: Codable {
     let result: [String: NCBIDocumentSummary]?
 
@@ -1946,21 +1967,7 @@ struct ESummaryResponse: Codable {
     }
 
     init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-
-        // The result is nested inside the "result" key
-        let resultContainer = try container.nestedContainer(keyedBy: DynamicCodingKey.self, forKey: .result)
-        var result: [String: NCBIDocumentSummary] = [:]
-
-        for key in resultContainer.allKeys {
-            // Skip the "uids" array
-            if key.stringValue == "uids" { continue }
-            if let summary = try? resultContainer.decode(NCBIDocumentSummary.self, forKey: key) {
-                result[key.stringValue] = summary
-            }
-        }
-
-        self.result = result.isEmpty ? nil : result
+        result = try NCBIKeyedResultDecoder.decode(decoder)
     }
 }
 
@@ -2040,21 +2047,7 @@ struct AssemblyESummaryResponse: Codable {
     }
 
     init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-
-        // The result is nested inside the "result" key
-        let resultContainer = try container.nestedContainer(keyedBy: DynamicCodingKey.self, forKey: .result)
-        var result: [String: NCBIAssemblySummary] = [:]
-
-        for key in resultContainer.allKeys {
-            // Skip the "uids" array
-            if key.stringValue == "uids" { continue }
-            if let summary = try? resultContainer.decode(NCBIAssemblySummary.self, forKey: key) {
-                result[key.stringValue] = summary
-            }
-        }
-
-        self.result = result.isEmpty ? nil : result
+        result = try NCBIKeyedResultDecoder.decode(decoder)
     }
 }
 
@@ -2452,7 +2445,6 @@ public struct VirusLocation: Codable, Sendable {
 
 // MARK: - Download Progress Delegate
 
-/// A URLSession delegate that tracks download progress.
 /// URLSession download delegate that bridges to async/await via a continuation.
 ///
 /// Using `downloadTask(with:)` + continuation instead of the async `session.download(for:delegate:)`

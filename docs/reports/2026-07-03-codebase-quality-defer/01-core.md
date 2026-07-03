@@ -4,6 +4,40 @@ Items the expert audits flagged but that were NOT applied confidently during the
 refactor. Each is a candidate for the downstream LLM or a future Opus pass. Every
 entry names the file, the reason it was deferred, and a concrete suggestion.
 
+## NCBIService.swift
+
+- **HEAD-request methods bypass the injected `httpClient` (medium confidence).**
+  `getGenomeFileInfo` / `getAnnotationFileInfo` / `getAssemblyReportInfo` use
+  `URLSession.shared.data(for:)` directly (lines ~741, 801, 864), so they are
+  unthrottled against NCBI's FTP host and untestable via the `MockHTTPClient`
+  used elsewhere. Deferred because routing through `httpClient` would change
+  timeout (explicit 30/15s here vs client default) and User-Agent, i.e. live
+  behavior. Suggestion: either add HEAD support to the `HTTPClient` abstraction
+  and route through it, or add a comment documenting why `URLSession.shared` is
+  deliberate. Do not change silently.
+
+- **`dup-headrequest-fileinfo` (medium confidence).** The three HEAD methods are
+  ~90% identical but differ in throw-vs-return-nil error behavior and log text.
+  Deferred with the item above; a shared `headFileInfo(...throwOnMissing:)`
+  helper is viable but must preserve `getGenomeFileInfo`'s throw semantics
+  exactly.
+
+- **Unstructured `Task` in `fetchBatch` AsyncThrowingStream not cancelled on
+  early consumer termination (medium confidence).** Lines ~1045-1057: the
+  producer `Task` is not registered with `continuation.onTermination`, so an
+  abandoned consumer keeps hitting NCBI. Deferred because it changes the
+  abandoned-consumer path and the same shape exists in ENAService /
+  PathoplexusService (fix all three together for consistency). Suggestion:
+  capture the task and `continuation.onTermination = { _ in task.cancel() }` plus
+  `try Task.checkCancellation()` in the loop, applied across all three services.
+
+- **`dup-querycomponents-builder` / `dup-retry-event-append` (medium
+  confidence).** Repeated eutils URLComponents+api_key construction (~6 sites)
+  and retry-event append+sleep (~4 sites) could be DRY'd, but retry-event
+  contents/ordering are asserted by tests (`retryEventsSnapshot`) and URL query
+  ordering could matter. Deferred to avoid perturbing test-observed behavior;
+  extract only with those tests confirmed green before/after.
+
 ## BundleManifest.swift
 
 - **F3 — collapse backward-compat initializer overloads (medium confidence).**
