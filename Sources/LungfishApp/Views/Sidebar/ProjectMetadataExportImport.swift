@@ -515,9 +515,14 @@ final class MetadataImportSheet: NSViewController {
         existingOrder = resolved.sampleOrder
     }
 
-    private func parseAndPreview(csvURL: URL) {
+    /// Reads the user-picked CSV off the main actor, then builds the import
+    /// preview (summary label, match results, table reload) on the main actor.
+    ///
+    /// This is a modal import driven by a file panel and is not superseded by a
+    /// newer action, so no generation guard is required.
+    private func parseAndPreview(csvURL: URL) async {
         do {
-            let content = try String(contentsOf: csvURL, encoding: .utf8)
+            let content = try await AsyncFileReader.readString(csvURL)
             guard let parsed = FASTQSampleMetadata.parseMultiSampleCSV(content) else {
                 summaryLabel.stringValue = "Failed to parse CSV file. Ensure it has a header row."
                 matchResults = []
@@ -571,11 +576,10 @@ final class MetadataImportSheet: NSViewController {
         guard let window = view.window else { return }
         panel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK, let url = panel.url, let self else { return }
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    self.csvURL = url
-                    self.parseAndPreview(csvURL: url)
-                }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.csvURL = url
+                await self.parseAndPreview(csvURL: url)
             }
         }
     }
