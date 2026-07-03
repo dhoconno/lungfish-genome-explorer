@@ -51,7 +51,8 @@ public final class SampleColumnWindowBanner: NSView {
 
     private func build() {
         translatesAutoresizingMaskIntoConstraints = false
-        wantsLayer = true
+        // Views are layer-backed by default on macOS; `wantsLayer = true` is
+        // banned by the project's macOS 26 API rules. `layer` is non-nil here.
         layer?.backgroundColor = NSColor.lungfishMutedFill.cgColor
         layer?.cornerRadius = 4
         isHidden = true
