@@ -10,19 +10,48 @@ import os.log
 private let alignmentTreeViewerLogger = Logger(subsystem: LogSubsystem.app, category: "ViewerAlignmentTreeBundles")
 
 extension ViewerViewController {
-    public func displayMultipleSequenceAlignmentBundle(at url: URL) async throws {
+    /// Displays a multiple-sequence-alignment bundle, reading the primary
+    /// alignment FASTA off the main actor.
+    ///
+    /// The primary alignment read is a suspension point, so a newer sidebar
+    /// selection can supersede this request while the read is in flight. The
+    /// caller passes `canCommit` (the display generation guard); it is
+    /// re-checked on the main actor AFTER the awaited read but BEFORE the
+    /// viewport is installed. If the request has been superseded the freshly
+    /// built controller is torn down and NOTHING is committed to the viewport,
+    /// so a stale read cannot clobber a newer selection.
+    public func displayMultipleSequenceAlignmentBundle(
+        at url: URL,
+        canCommit: @MainActor () -> Bool = { true }
+    ) async throws {
         hideForNativeAlignmentTreeBundle()
         let controller = MultipleSequenceAlignmentViewController()
         addChild(controller)
         installNativeBundleSubview(controller.view)
 
-        do {
-            try await controller.displayBundle(at: url)
-        } catch {
+        func tearDownSupersededController() {
             controller.view.removeFromSuperview()
             controller.removeFromParent()
             showGenomicsStackAfterNativeBundle()
+        }
+
+        do {
+            try await controller.displayBundle(at: url)
+        } catch {
+            tearDownSupersededController()
             throw error
+        }
+
+        // The awaited FASTA read above is a suspension point. If a newer
+        // selection superseded this request while the read was in flight, tear
+        // down the just-built controller and commit nothing: the generation
+        // guard must dominate the viewport install below.
+        guard canCommit() else {
+            tearDownSupersededController()
+            alignmentTreeViewerLogger.info(
+                "displayMultipleSequenceAlignmentBundle: Superseded before install for \(url.lastPathComponent, privacy: .public)"
+            )
+            return
         }
 
         controller.onExtractSequenceRequested = { [weak self] fastaRecords, suggestedName in

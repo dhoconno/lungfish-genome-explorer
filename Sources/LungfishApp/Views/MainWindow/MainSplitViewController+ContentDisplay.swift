@@ -191,9 +191,14 @@ extension MainSplitViewController {
                 self.inspectorController.updateMultipleSequenceAlignmentDocument(bundle)
                 // `displayMultipleSequenceAlignmentBundle` reads the primary
                 // alignment FASTA off the main actor. A newer sidebar selection
-                // may supersede this load while that read is in flight, so
-                // re-check the generation guard before committing the viewport.
-                try await self.viewerController.displayMultipleSequenceAlignmentBundle(at: url)
+                // may supersede this load while that read is in flight, so the
+                // generation guard is threaded in and re-checked on the main
+                // actor after the read but before the viewport install — the
+                // guard dominates the install, so a stale read commits nothing.
+                try await self.viewerController.displayMultipleSequenceAlignmentBundle(at: url) { [weak self] in
+                    guard let self else { return false }
+                    return self.canCommitDisplayRequest(displayToken, identity: displayIdentity)
+                }
                 guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
                 if let controller = self.viewerController.multipleSequenceAlignmentViewController {
                     controller.onSelectionStateChanged = { [weak self] state in
