@@ -1104,6 +1104,73 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(snapshot.rows.first?.sampleReads, ["DW472": 148])
     }
 
+    // MARK: - Sample column windowing (Task 22)
+
+    private func makeManySampleMatrix(sampleCount: Int) -> GenotypeComparisonMatrixView {
+        let matrix = GenotypeComparisonMatrixView()
+        let genotype = "12_M3_B_075_01"
+        var calls: [ONTGenotypeCall] = []
+        var samples: [ONTGenotypeSampleResult] = []
+        for i in 0..<sampleCount {
+            let name = String(format: "SAMPLE_%03d", i)
+            let call = makeCall(sample: name, genotype: genotype, reads: 100 + i)
+            calls.append(call)
+            samples.append(ONTGenotypeSampleResult(
+                sample: name,
+                passedAlignments: 100 + i,
+                passedUniqueReads: 100 + i,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: [call]
+            ))
+        }
+        matrix.configure(result: makeResult(samples: samples, calls: calls))
+        return matrix
+    }
+
+    func testComparisonMatrixCapsSampleColumnsAtSixtyByDefault() {
+        let matrix = makeManySampleMatrix(sampleCount: 150)
+        XCTAssertEqual(matrix.testingSampleColumnCount, 60)
+        XCTAssertTrue(matrix.testingIsColumnWindowActive)
+    }
+
+    func testComparisonMatrixShowAllInstantiatesEveryColumn() {
+        let matrix = makeManySampleMatrix(sampleCount: 150)
+        matrix.showAllSampleColumns()
+        XCTAssertEqual(matrix.testingSampleColumnCount, 150)
+        XCTAssertFalse(matrix.testingIsColumnWindowActive)
+    }
+
+    func testComparisonMatrixSmallCohortInstantiatesAllColumns() {
+        let matrix = makeManySampleMatrix(sampleCount: 40)
+        XCTAssertEqual(matrix.testingSampleColumnCount, 40)
+        XCTAssertFalse(matrix.testingIsColumnWindowActive)
+    }
+
+    /// Anti-leak (critical): with 150 samples and the window showing 60 columns,
+    /// the FULL logical sample set (used by selection/support) AND scientific
+    /// export must still see all 150 samples.
+    func testComparisonMatrixExportSeesFullSampleSetWhileWindowed() {
+        let matrix = makeManySampleMatrix(sampleCount: 150)
+
+        // Window caps instantiated columns to 60...
+        XCTAssertEqual(matrix.testingSampleColumnCount, 60)
+        // ...but the full logical set is intact.
+        XCTAssertEqual(matrix.testingActiveSampleNames.count, 150)
+        XCTAssertEqual(matrix.testingVisibleSampleNames.count, 150)
+
+        // Export must include every sample, not just the windowed 60.
+        let snapshot = matrix.exportSnapshot(
+            bundleURL: URL(fileURLWithPath: "/tmp/example.lungfishgenotype"),
+            analysisName: "Example",
+            lens: "summary.matrix"
+        )
+        XCTAssertEqual(snapshot.sampleNames.count, 150)
+        XCTAssertTrue(snapshot.sampleNames.contains("SAMPLE_120"))
+        // The single shared row records reads for all 150 samples.
+        XCTAssertEqual(snapshot.rows.first?.sampleReads.count, 150)
+    }
+
     func testControllerExportSnapshotIncludesSavedFilterContext() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeExportContext-\(UUID().uuidString)", isDirectory: true)

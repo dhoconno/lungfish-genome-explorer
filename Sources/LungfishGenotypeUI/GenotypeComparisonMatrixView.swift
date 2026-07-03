@@ -1,6 +1,7 @@
 import AppKit
 import LungfishCore
 import LungfishIO
+import LungfishKit
 
 @MainActor
 final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTableViewDelegate {
@@ -54,7 +55,22 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private var allRows: [ONTGenotypeSharedCall] = []
     private var visibleRows: [ONTGenotypeSharedCall] = []
     private var sampleNames: [String] = []
+    /// FULL filtered logical sample set. Read PERVASIVELY by export
+    /// (`exportSnapshot`), annotation-target computation (`selectAllVisibleRowsAndColumns`,
+    /// `isAllVisibleRowsAndColumnsSelected`), support-cell selection, sort, and
+    /// selection. This is the caller-visible logical set and is NEVER replaced by
+    /// the display window.
     private var visibleSampleNames: [String] = []
+    /// Display-only cap on instantiated per-sample columns. Windowing only ever
+    /// affects `windowedColumnSampleNames` and the columns `rebuildColumns()`
+    /// instantiates. `visibleSampleNames` / `activeSampleNames()` stay full.
+    private var columnWindow = SampleColumnWindow()
+    /// The display-only slice of `visibleSampleNames` currently instantiated as
+    /// sample columns. Consumed ONLY by `rebuildColumns()`. `sampleColumnLookup`
+    /// therefore only maps instantiated columns, which is what confines the
+    /// per-column cell dataSource to the window without leaking into the logical
+    /// set.
+    private var windowedColumnSampleNames: [String] = []
     private var sampleColumnLookup: [NSUserInterfaceItemIdentifier: String] = [:]
     private var sampleReadTitleByName: [String: String] = [:]
     private var supportByRowAndSample: [RowKey: [String: ONTGenotypeSampleSupport]] = [:]
@@ -136,6 +152,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         selectedRowFilter = nil
         selectedSampleFilter = nil
         applyAnnotationSidecar(sidecar, reload: false)
+        columnWindow.reset()
         rebuildRowsFromResult()
         rebuildColumns()
         applyDefaultSortDescriptor()
@@ -326,6 +343,21 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             sampleNames: exportSampleNames,
             rows: rows
         )
+    }
+
+    /// Whether the per-sample columns are currently capped by the display window.
+    /// Reflects the FULL filtered logical set (`activeSampleNames()`), so the
+    /// affordance appears exactly when some sample columns are hidden.
+    var isColumnWindowActive: Bool { columnWindow.caps(activeSampleNames()) }
+
+    /// Reveal every per-sample column, defeating the display cap. Rebuilds only
+    /// column instantiation; the logical sample set is unaffected.
+    func showAllSampleColumns() {
+        guard columnWindow.caps(activeSampleNames()) else { return }
+        columnWindow.revealAll()
+        rebuildColumns()
+        applyDefaultSortDescriptor()
+        applyFilterAndSort()
     }
 
     func selectFirstSharedCall() {
@@ -520,7 +552,14 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         addColumn(to: pinnedTableView, identifier: ColumnID.samples, title: "Samples", width: 70, minWidth: 58, ascending: false)
         addColumn(to: pinnedTableView, identifier: ColumnID.uniqueReads, title: "Unique", width: 78, minWidth: 62, ascending: false)
 
-        for (index, sample) in visibleSampleNames.enumerated() {
+        // Display-only window: instantiate at most `columnWindow.limit` sample
+        // columns. `visibleSampleNames` (the full filtered logical set) is
+        // unchanged; export, annotation targets, support-cell selection, sort,
+        // and selection all continue to read the full set. `sampleColumnLookup`
+        // only maps the instantiated columns, which confines the per-column cell
+        // dataSource to the window without leaking into the logical set.
+        windowedColumnSampleNames = columnWindow.windowedSamples(from: visibleSampleNames)
+        for (index, sample) in windowedColumnSampleNames.enumerated() {
             let identifier = ColumnID.sample(index)
             sampleColumnLookup[identifier] = sample
             addColumn(to: tableView, identifier: identifier, title: sample, width: 68, minWidth: 58, ascending: false)
@@ -2211,6 +2250,13 @@ extension GenotypeComparisonMatrixView {
     var testingVisibleRows: [ONTGenotypeSharedCall] { visibleRows }
     var testingVisibleGenotypes: [String] { visibleRows.map(\.genotype) }
     var testingVisibleSampleNames: [String] { visibleSampleNames }
+    /// Count of INSTANTIATED per-sample columns (subject to the display window).
+    var testingSampleColumnCount: Int {
+        tableView.tableColumns.filter { sampleColumnLookup[$0.identifier] != nil }.count
+    }
+    /// FULL filtered logical sample set (never windowed).
+    var testingActiveSampleNames: [String] { activeSampleNames() }
+    var testingIsColumnWindowActive: Bool { isColumnWindowActive }
     var testingVisibleSampleColumnTitles: [String] {
         tableView.tableColumns.compactMap { column in
             sampleColumnLookup[column.identifier] == nil ? nil : column.title
