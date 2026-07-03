@@ -43,7 +43,7 @@ Each module still ends with a FULL green-bar gate before the next module begins.
 
 | Module | Batches applied | LOC delta | Deferrals | Green-bar |
 |---|---|---|---|---|
-| LungfishCore | IN PROGRESS: 21 files across 5 committed batches | net ~ -190 lines | rich (see 01-core.md) | scoped LungfishCoreTests 1158/0 after every batch; module-boundary FULL green-bar NOT yet run |
+| LungfishCore | LOGIC PASS COMPLETE: all ~70 files audited (7 big solo + wave-2/3 clusters), safe findings applied across 6 committed batches | net ~ -210 lines | rich (see 01-core.md) | FULL green-bar VERIFIED after the 21-file mark: 9558 XCTest / 487 swift-testing, 0 failures. Remaining: mechanical file-split pass, then final Core-boundary green-bar. |
 | LungfishIO | - | - | - | - |
 | LungfishWorkflow | - | - | - | - |
 | LungfishKit | - | - | - | - |
