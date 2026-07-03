@@ -615,7 +615,10 @@ extension MainSplitViewController {
                     throw NSError(domain: "NaoMgsDisplay", code: 1,
                                   userInfo: [NSLocalizedDescriptionKey: "manifest.json not found in NAO-MGS bundle"])
                 }
-                let manifestData = try Data(contentsOf: manifestURL)
+                // Read the manifest off the main actor; the commit below is
+                // already gated by `canCommitDisplayRequest`, which dominates
+                // the (await-free) UI mutation so a stale read commits nothing.
+                let manifestData = try await AsyncFileReader.readData(manifestURL)
                 let manifest = try decoder.decode(NaoMgsManifest.self, from: manifestData)
 
                 // If manifest has cached taxon rows, show them immediately.
@@ -827,7 +830,10 @@ extension MainSplitViewController {
                     throw NSError(domain: "NvdDisplay", code: 1,
                                   userInfo: [NSLocalizedDescriptionKey: "manifest.json not found in NVD bundle"])
                 }
-                let manifestData = try Data(contentsOf: manifestURL)
+                // Read the manifest off the main actor; the commit below is
+                // already gated by `canCommitDisplayRequest`, which dominates
+                // the (await-free) UI mutation so a stale read commits nothing.
+                let manifestData = try await AsyncFileReader.readData(manifestURL)
                 let manifest = try decoder.decode(NvdManifest.self, from: manifestData)
 
                 // If manifest has cached contig rows, show them immediately.
@@ -917,7 +923,10 @@ extension MainSplitViewController {
         Task {
             do {
                 let manifestURL = bundleURL.appendingPathComponent("cz-id-manifest.json")
-                let manifestData = try Data(contentsOf: manifestURL)
+                // Read the manifest off the main actor; the commit below is
+                // already gated by `canCommitDisplayRequest`, which dominates
+                // the (await-free) UI mutation so a stale read commits nothing.
+                let manifestData = try await AsyncFileReader.readData(manifestURL)
                 let manifest = try JSONDecoder().decode(CzIdImportManifest.self, from: manifestData)
                 let result = try ClassificationResult.load(from: bundleURL)
 
