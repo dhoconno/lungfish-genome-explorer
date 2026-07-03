@@ -9,10 +9,18 @@ Plan: [plan](../superpowers/plans/2026-07-03-codebase-quality-refactor.md)
 
 ## Green-bar baseline
 
-Baseline (untouched `main` HEAD, in worktree): _pending first full run_.
-Green = XCTest failures ⊆ the 9 known-environmental (6 `GenotypeRealBundleSmokeTests`,
-2 `ZhangArtifactCanaryTests`, 1 `VCFRobustnessTests.testAllRealVCFsFromDownloads`)
-AND swift-testing failures = 0.
+The first baseline run on untouched `main` HEAD surfaced TWO pre-existing
+non-environmental failures (a concurrency-lint failure in ViewerViewController and
+an MHC reference-bundle external-open routing regression). Per user decision both
+were fixed first (see [defer 00-baseline-fixes](2026-07-03-codebase-quality-defer/00-baseline-fixes.md)).
+
+Post-fix clean baseline (this is the gate every phase is measured against):
+
+- XCTest: 9558 executed, **0 failures**, 24 skipped (the environmental external-path
+  tests skip gracefully when volumes/paths are absent).
+- swift-testing: 487 tests in 67 suites, **0 failures**.
+
+Green from here = 0 non-environmental XCTest failures AND swift-testing = 0.
 
 ## Per-module summary
 
