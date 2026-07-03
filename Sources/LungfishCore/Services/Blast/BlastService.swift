@@ -111,22 +111,6 @@ public actor BlastService {
 
     // MARK: - Request Building
 
-    /// Builds a BLAST verification request by subsampling reads from classification output.
-    ///
-    /// This is a convenience method that handles:
-    /// 1. Scanning the Kraken2 per-read output for matching read IDs
-    /// 2. Extracting sequences from the source FASTQ
-    /// 3. Subsampling to the requested count
-    /// 4. Building the BlastVerificationRequest
-    ///
-    /// - Parameters:
-    ///   - taxonName: Display name of the taxon
-    ///   - taxId: NCBI taxonomy ID
-    ///   - targetTaxIds: All tax IDs to match (including descendants)
-    ///   - classificationOutputURL: Path to Kraken2 per-read output
-    ///   - sourceURL: Path to source FASTQ file
-    ///   - readCount: Number of reads to subsample (default 20)
-    /// - Returns: A ready-to-submit BlastVerificationRequest
     /// Builds a BLAST verification request using pre-fetched read IDs.
     ///
     /// Use this overload when read IDs have already been looked up via
@@ -164,6 +148,22 @@ public actor BlastService {
         )
     }
 
+    /// Builds a BLAST verification request by subsampling reads from classification output.
+    ///
+    /// This is a convenience method that handles:
+    /// 1. Scanning the Kraken2 per-read output for matching read IDs
+    /// 2. Extracting sequences from the source FASTQ
+    /// 3. Subsampling to the requested count
+    /// 4. Building the BlastVerificationRequest
+    ///
+    /// - Parameters:
+    ///   - taxonName: Display name of the taxon
+    ///   - taxId: NCBI taxonomy ID
+    ///   - targetTaxIds: All tax IDs to match (including descendants)
+    ///   - classificationOutputURL: Path to Kraken2 per-read output
+    ///   - sourceURL: Path to source FASTQ file
+    ///   - readCount: Number of reads to subsample (default 20)
+    /// - Returns: A ready-to-submit BlastVerificationRequest
     public func buildVerificationRequest(
         taxonName: String,
         taxId: Int,
@@ -188,7 +188,7 @@ public actor BlastService {
             )
             matchingReadIds = scanResult.matchingReadIds
             logger.info("buildVerificationRequest: scanned \(scanResult.totalClassified, privacy: .public) classified reads, \(matchingReadIds.count, privacy: .public) match target taxIds")
-        } else if !classificationExists {
+        } else {
             logger.error("buildVerificationRequest: classification output file not found at \(classificationOutputURL.path, privacy: .public)")
         }
 
@@ -593,7 +593,7 @@ public actor BlastService {
     ///   - maxConcurrentSubmissions: Maximum in-flight BLAST submissions for this process.
     /// - Returns: The job submission response with RID and RTOE
     /// - Throws: ``BlastServiceError`` on submission failure
-    public func submit(
+    func submit(
         query: String,
         program: String,
         database: String,
@@ -651,19 +651,12 @@ public actor BlastService {
 
         let (data, _) = try await requestWithTransportRetry(operation: "submit BLAST job") {
             let (data, response) = try await httpClient.data(for: request)
-
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw BlastServiceError.submissionFailed(message: "Non-HTTP response")
-            }
-
-            guard httpResponse.statusCode == 200 else {
-                let body = String(data: data, encoding: .utf8) ?? "(non-UTF8)"
-                if Self.retryableHTTPStatusCodes.contains(httpResponse.statusCode) {
-                    throw RetryableHTTPError(statusCode: httpResponse.statusCode, body: body)
-                }
-                throw BlastServiceError.httpError(statusCode: httpResponse.statusCode, body: body)
-            }
-
+            let httpResponse = try Self.validateHTTPResponse(
+                data,
+                response,
+                nonHTTPMessage: "Non-HTTP response",
+                failureBodyFallback: "(non-UTF8)"
+            )
             return (data, httpResponse)
         }
 
@@ -681,7 +674,7 @@ public actor BlastService {
     /// - Parameter rid: The Request ID to check
     /// - Returns: The job status
     /// - Throws: ``BlastServiceError`` on HTTP errors
-    public func checkStatus(rid: String) async throws -> BlastJobStatus {
+    func checkStatus(rid: String) async throws -> BlastJobStatus {
         var components = URLComponents(url: blastBaseURL, resolvingAgainstBaseURL: false)!
         components.queryItems = [
             URLQueryItem(name: "CMD", value: "Get"),
@@ -696,19 +689,12 @@ public actor BlastService {
 
         let (data, _) = try await requestWithTransportRetry(operation: "poll BLAST status (\(rid))") {
             let (data, response) = try await httpClient.data(for: request)
-
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw BlastServiceError.submissionFailed(message: "Status check returned non-HTTP response")
-            }
-
-            guard httpResponse.statusCode == 200 else {
-                let body = String(data: data, encoding: .utf8) ?? "Status check failed"
-                if Self.retryableHTTPStatusCodes.contains(httpResponse.statusCode) {
-                    throw RetryableHTTPError(statusCode: httpResponse.statusCode, body: body)
-                }
-                throw BlastServiceError.httpError(statusCode: httpResponse.statusCode, body: body)
-            }
-
+            let httpResponse = try Self.validateHTTPResponse(
+                data,
+                response,
+                nonHTTPMessage: "Status check returned non-HTTP response",
+                failureBodyFallback: "Status check failed"
+            )
             return (data, httpResponse)
         }
 
@@ -721,7 +707,7 @@ public actor BlastService {
     /// - Parameter rid: The Request ID whose results to retrieve
     /// - Returns: Parsed search results for each query sequence
     /// - Throws: ``BlastServiceError`` on HTTP or parsing errors
-    public func getResults(rid: String) async throws -> [BlastSearchResult] {
+    func getResults(rid: String) async throws -> [BlastSearchResult] {
         var components = URLComponents(url: blastBaseURL, resolvingAgainstBaseURL: false)!
         components.queryItems = [
             URLQueryItem(name: "CMD", value: "Get"),
@@ -737,19 +723,12 @@ public actor BlastService {
 
         let (data, httpResponse) = try await requestWithTransportRetry(operation: "fetch BLAST results (\(rid))") {
             let (data, response) = try await httpClient.data(for: request)
-
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw BlastServiceError.submissionFailed(message: "Result fetch returned non-HTTP response")
-            }
-
-            guard httpResponse.statusCode == 200 else {
-                let body = String(data: data, encoding: .utf8) ?? ""
-                if Self.retryableHTTPStatusCodes.contains(httpResponse.statusCode) {
-                    throw RetryableHTTPError(statusCode: httpResponse.statusCode, body: body)
-                }
-                throw BlastServiceError.httpError(statusCode: httpResponse.statusCode, body: body)
-            }
-
+            let httpResponse = try Self.validateHTTPResponse(
+                data,
+                response,
+                nonHTTPMessage: "Result fetch returned non-HTTP response",
+                failureBodyFallback: ""
+            )
             return (data, httpResponse)
         }
 
@@ -1376,7 +1355,41 @@ public actor BlastService {
         }
     }
 
-    private func isRetryableTransportError(_ error: Error) -> Bool {
+    /// Validates an HTTP response from a BLAST network call.
+    ///
+    /// Casts the response to ``HTTPURLResponse`` and branches on the status
+    /// code: 200 succeeds, retryable status codes surface a
+    /// ``RetryableHTTPError``, and all other codes throw
+    /// ``BlastServiceError/httpError(statusCode:body:)``.
+    ///
+    /// - Parameters:
+    ///   - data: The response body used to build error messages.
+    ///   - response: The raw ``URLResponse`` to validate.
+    ///   - nonHTTPMessage: Message used when the response is not an HTTP response.
+    ///   - failureBodyFallback: Fallback string used when the body is not valid UTF-8.
+    /// - Returns: The validated ``HTTPURLResponse`` on a 200 status.
+    private nonisolated static func validateHTTPResponse(
+        _ data: Data,
+        _ response: URLResponse,
+        nonHTTPMessage: String,
+        failureBodyFallback: String
+    ) throws -> HTTPURLResponse {
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw BlastServiceError.submissionFailed(message: nonHTTPMessage)
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            let body = String(data: data, encoding: .utf8) ?? failureBodyFallback
+            if retryableHTTPStatusCodes.contains(httpResponse.statusCode) {
+                throw RetryableHTTPError(statusCode: httpResponse.statusCode, body: body)
+            }
+            throw BlastServiceError.httpError(statusCode: httpResponse.statusCode, body: body)
+        }
+
+        return httpResponse
+    }
+
+    private nonisolated func isRetryableTransportError(_ error: Error) -> Bool {
         if error is RetryableHTTPError {
             return true
         }

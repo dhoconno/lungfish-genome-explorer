@@ -4,6 +4,37 @@ Items the expert audits flagged but that were NOT applied confidently during the
 refactor. Each is a candidate for the downstream LLM or a future Opus pass. Every
 entry names the file, the reason it was deferred, and a concrete suggestion.
 
+## BlastService.swift
+
+- **BS-05 — merge the two chunked file/gzip readers (medium confidence).**
+  `scanKrakenClassificationOutput` and `extractMatchingSequencesOnce` share
+  gzip-launch + chunk-read boilerplate, but differ in residual semantics
+  (byte-level `Data` vs string-level) and error behavior on gzip failure (one
+  throws on nonzero exit, the other only logs). Deferred because a naive merge
+  could change error semantics. Suggestion: extract only the process-launch, keep
+  per-caller residual + exit handling.
+
+- **BS-07 — debug-file writes on the hot path (medium confidence).**
+  `getResults` unconditionally writes `{rid}-raw-response` and `{rid}-extracted.json`
+  to temp on every fetch. Deferred: gating behind `#if DEBUG` would change release
+  behavior (arguably not behavior-preserving). Suggestion: extract to a named
+  `persistDebugResponse(...)` helper (pure extraction, no gating) if desired, or
+  decide policy on whether these should ship.
+
+- **BS-08 — `Thread.sleep` inside actor-isolated extraction (low/medium
+  confidence).** `extractMatchingSequences` blocks the actor executor with
+  `Thread.sleep(forTimeInterval: 0.5)`. Deferred: marking the pure-I/O helpers
+  `nonisolated` is safe but changes isolation; switching to `Task.sleep` requires
+  making the chain async (timing/cancellation behavior change). Suggestion: the
+  minimal safe step is `nonisolated` on the pure-I/O helpers only, done under a
+  dedicated review.
+
+- **BS-10 — split the 1735-line file by responsibility (high confidence,
+  mechanical).** Actor + submit/poll/verify vs the `nonisolated` parsing cluster
+  vs the subsampling extension vs `SeededRandomNumberGenerator`. Deferred to a
+  dedicated file-split pass (see the module-wide split note below) rather than
+  mixed into a logic-change batch.
+
 ## NCBIService.swift
 
 - **HEAD-request methods bypass the injected `httpClient` (medium confidence).**
