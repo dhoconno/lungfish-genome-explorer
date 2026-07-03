@@ -478,4 +478,81 @@ final class TaxaCollectionsDrawerTests: XCTestCase {
         XCTAssertEqual(CollectionScopeFilter.appWide.title, "App")
         XCTAssertEqual(CollectionScopeFilter.project.title, "Project")
     }
+
+    // MARK: - Debounce
+
+    func testUserSearchInputIsDebounced() async throws {
+        let drawer = TaxaCollectionsDrawerView(frame: NSRect(x: 0, y: 0, width: 800, height: 220))
+        drawer.layoutSubtreeIfNeeded()
+
+        let field = try XCTUnwrap(drawer.firstDescendant(of: NSSearchField.self))
+        field.stringValue = "respiratory"
+        NotificationCenter.default.post(name: NSControl.textDidChangeNotification, object: field)
+
+        // Synchronous: filter must not have applied yet (debounce not fired).
+        XCTAssertEqual(
+            drawer.displayedCollectionCount,
+            TaxaCollection.builtIn.count,
+            "Filter should not apply synchronously — debounce must delay it"
+        )
+
+        // After debounce fires the count narrows to only matched collections.
+        try await taxaDrawerWaitUntilCondition { drawer.displayedCollectionCount < TaxaCollection.builtIn.count }
+        XCTAssertLessThan(drawer.displayedCollectionCount, TaxaCollection.builtIn.count)
+    }
+
+    func testClearingUserSearchInputAppliesImmediately() throws {
+        let drawer = TaxaCollectionsDrawerView(frame: NSRect(x: 0, y: 0, width: 800, height: 220))
+        drawer.layoutSubtreeIfNeeded()
+
+        // Apply a filter via the immediate programmatic path.
+        drawer.setSearchText("respiratory")
+        let filteredCount = drawer.displayedCollectionCount
+        XCTAssertLessThan(filteredCount, TaxaCollection.builtIn.count)
+
+        // Clear via delegate notification — empty string must apply immediately.
+        let field = try XCTUnwrap(drawer.firstDescendant(of: NSSearchField.self))
+        field.stringValue = ""
+        NotificationCenter.default.post(name: NSControl.textDidChangeNotification, object: field)
+
+        XCTAssertEqual(drawer.displayedCollectionCount, TaxaCollection.builtIn.count)
+    }
+
+    func testProgrammaticSetSearchTextAppliesImmediately() {
+        let drawer = TaxaCollectionsDrawerView(frame: NSRect(x: 0, y: 0, width: 800, height: 220))
+        drawer.layoutSubtreeIfNeeded()
+
+        drawer.setSearchText("respiratory")
+        XCTAssertLessThan(drawer.displayedCollectionCount, TaxaCollection.builtIn.count)
+
+        drawer.setSearchText("")
+        XCTAssertEqual(drawer.displayedCollectionCount, TaxaCollection.builtIn.count)
+    }
+}
+
+// MARK: - Test Helpers
+
+private extension NSView {
+    func firstDescendant<T: NSView>(of type: T.Type) -> T? {
+        if let typed = self as? T { return typed }
+        for subview in subviews {
+            if let match = subview.firstDescendant(of: type) { return match }
+        }
+        return nil
+    }
+}
+
+@MainActor
+private func taxaDrawerWaitUntilCondition(
+    timeout: TimeInterval = 2.0,
+    file: StaticString = #filePath,
+    line: UInt = #line,
+    _ condition: @escaping @MainActor () -> Bool
+) async throws {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+        if condition() { return }
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    XCTAssertTrue(condition(), file: file, line: line)
 }

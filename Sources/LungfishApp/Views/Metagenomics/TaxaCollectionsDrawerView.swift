@@ -236,6 +236,12 @@ public final class TaxaCollectionsDrawerView: NSView {
     /// Current search filter text.
     private var searchText: String = ""
 
+    /// In-flight debounce task for user-typed search input.
+    private var pendingFilterTask: Task<Void, Never>?
+
+    /// Delay applied to user-typed input before re-filtering.
+    private static let filterDebounceDelay: Duration = .milliseconds(180)
+
     /// The taxonomy tree from the current classification result, for match status.
     private var tree: TaxonTree?
 
@@ -311,6 +317,17 @@ public final class TaxaCollectionsDrawerView: NSView {
     /// Returns the number of currently displayed collections (after filtering).
     var displayedCollectionCount: Int {
         filteredItems.count
+    }
+
+    /// Applies a search filter immediately, bypassing the debounce.
+    ///
+    /// Use this for programmatic/state-restoration paths. User-typed input goes
+    /// through `controlTextDidChange(_:)` which debounces at 180 ms instead.
+    func setSearchText(_ text: String) {
+        pendingFilterTask?.cancel()
+        pendingFilterTask = nil
+        searchText = text
+        applyFilters()
     }
 
     /// Returns the collection item at the given index, or `nil` if out of range.
@@ -870,6 +887,26 @@ extension TaxaCollectionsDrawerView: NSSearchFieldDelegate {
     public func controlTextDidChange(_ obj: Notification) {
         guard let field = obj.object as? NSSearchField else { return }
         searchText = field.stringValue
-        applyFilters()
+        if searchText.isEmpty {
+            pendingFilterTask?.cancel()
+            pendingFilterTask = nil
+            applyFilters()
+            return
+        }
+        scheduleDebouncedFilter()
+    }
+
+    private func scheduleDebouncedFilter() {
+        pendingFilterTask?.cancel()
+        pendingFilterTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: Self.filterDebounceDelay)
+            } catch {
+                return
+            }
+            guard let self, !Task.isCancelled else { return }
+            self.pendingFilterTask = nil
+            self.applyFilters()
+        }
     }
 }
