@@ -4,6 +4,91 @@ Items the expert audits flagged but that were NOT applied confidently during the
 refactor. Each is a candidate for the downstream LLM or a future Opus pass. Every
 entry names the file, the reason it was deferred, and a concrete suggestion.
 
+## ProjectStore.swift (escalations — behavior-changing, NOT applied)
+
+- **F1 — non-atomic multi-statement writes (high severity).** `recordVersion`
+  (INSERT version + UPDATE current_state + UPDATE sequences) and `storeSequence`
+  run multiple statements with no transaction; a mid-sequence failure leaves the
+  DB half-updated. Suggestion: a `withTransaction` helper (BEGIN IMMEDIATE /
+  COMMIT / ROLLBACK-on-throw). Deferred because it changes failure-path behavior
+  (rollback vs partial) — a durability fix, not a refactor.
+- **F4 — force-unwraps on DB-derived reads (medium).** `UUID(uuidString:)!` and
+  blob-pointer force-unwraps crash on a corrupted `.project.db`. Suggestion:
+  guard + throw `queryError`. Deferred: turns crash-on-corruption into a thrown
+  error (failure-path behavior change).
+- **F6 — `bindParameter` default binds NULL for unknown types (medium).** Silent
+  write corruption for unsupported bind types. Suggestion: throw
+  `serializationError` in the default case. Deferred (behavior change on a
+  currently-unreachable path).
+- **F8 — access-control demotion of checkpoint/setMetadata/getMetadata (medium
+  conf).** Appear test-only; could be `internal`. Deferred pending a cross-module
+  grep confirming no leaf/App caller.
+- **F11 — `reconstructSequence` negative-index trap (low).** A negative
+  `versionIndex` would trap on `0..<negative`. Suggestion: guard `>= 0` and
+  align clamp/throw semantics with `checkoutVersion`. Deferred (likely
+  unreachable; still a hardening change).
+
+## ReferenceBundleBuilder.swift (escalations — correctness, NOT applied)
+
+- **MAJOR FLAG — builder appears to be a stub, not a real conversion pipeline.**
+  Audit reports that `.gz`/`.bcf`/`.bb`/`.bw` outputs are plain `copyItem` with a
+  renamed extension (no bgzip/bcftools/bigBed conversion), `.bcf.csi` indexes are
+  written as ZERO-BYTE files (`Data().write`), the `.fai` is hand-authored from a
+  full-file UTF-8 read, and gzipped/CRLF/non-UTF8 FASTA input produces a wrong or
+  corrupt index. The manifest advertises these as real BCF/BigBed/BigWig with
+  index paths that are empty or absent. This needs OWNER/downstream-LLM
+  adjudication: is this builder the production path, or is real conversion done
+  elsewhere (conda samtools/bcftools pipeline)? If production, it is a
+  correctness problem (empty `.csi` is worse than no index; wrong `.fai` offsets
+  break random FASTA access). NOT touched by the refactor. Findings F2/F3/F4/F5.
+- **F12 — progress-weight sum: audit premise was WRONG (resolved, no change).**
+  The audit claimed the `BuildStep` weights sum to 1.05 and `.complete`'s 0.05 is
+  unused. Zeroing it was attempted and REVERTED: the other 8 weights sum to 0.95
+  and `.complete` carries the final 0.05 so the total is exactly 1.0, which
+  `testBuildStepProgressWeights` asserts. Kept `.complete = 0.05` with a corrected
+  comment. No further action.
+
+- **F9 — full-genome parse + file copy run on `@MainActor` (medium).** Blocks the
+  UI for the whole build; per project rules long pipelines should be off-main
+  with a thin `@MainActor` progress model. Deferred (significant restructuring,
+  not behavior-preserving).
+
+## SRAService.swift (escalations — behavior-changing / cross-file, NOT applied)
+
+- **F1 — ENA download buffers whole FASTQ.gz into memory (high).**
+  `downloadFASTQFromENA` uses `httpClient.data(for:)` then writes to disk;
+  multi-GB files risk OOM and give no mid-download progress. The binding rule is
+  `downloadTask + continuation`, copy in `didFinishDownloadingTo`. Deferred:
+  requires extending the shared `HTTPClient` contract (cross-file) and changes
+  memory/progress behavior.
+- **F10 — `runCommand` pipe-deadlock hazard (medium).** `waitUntilExit()` before
+  draining pipes can deadlock if fasterq-dump/prefetch writes > pipe buffer to
+  stderr before exit. Suggestion: drain pipes concurrently / via
+  `terminationHandler`. Deferred (correctness change, real-tool-only path).
+- **F7 — `parseDate` builds a `DateFormatter` per row + no POSIX locale (low).**
+  Suggestion: hoist a `static let` POSIX formatter. Deferred with the CSV work;
+  adding `en_US_POSIX` is strictly-more-correct but is a behavior change on
+  non-POSIX locales.
+- **F8 — `totalCount` is the returned-page count, not the ESearch corpus
+  `<Count>` (medium).** Misleads "N results" UIs. Fixing needs `ncbiService.esearch`
+  to return the corpus count (cross-file). Deferred; doc-note only for now.
+- **F5 — `parseRunInfoCSV` duplicated with NCBIService (low).** Two independent
+  runinfo CSV parsers. Deferred cross-file consolidation into a shared
+  `SRARunInfoCSVParser` with regression fixtures for both callers.
+
+## VariantTrack.swift (notes — mostly clean)
+
+- Audit confirmed the two hand-rolled Codable conformances (`VariantTrack`
+  tolerant `displaySettings` default; `VariantTrackDisplaySettings` enum-keyed
+  dict + Set serialization) are LOAD-BEARING and must NOT be collapsed to
+  synthesized Codable. Access control is already correct (public model types are
+  transitively reachable through `VariantTrack`'s public API; cannot demote).
+- F2/F3/F4 — several unused public query/conversion helpers (`passedFilters`,
+  `passingVariants`, `variants(ofType:/minQuality:/inRegion:)`, `infoInt`) and
+  untested `.byQuality`/`.byFrequency` color paths. Left in place (plausibly
+  intended public model API); flagged as public-surface-shrink candidates for the
+  downstream LLM if desired.
+
 ## BlastService.swift
 
 - **BS-05 — merge the two chunked file/gzip readers (medium confidence).**

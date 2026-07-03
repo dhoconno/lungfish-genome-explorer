@@ -268,12 +268,12 @@ public actor SRAService {
         let librarySourceIdx = 14
         let libraryLayoutIdx = 15
         let platformIdx = 18
-        _ = 19  // modelIdx - reserved for future use
+        // Column 19 is modelIdx - reserved for future use.
         let studyIdx = 20
         let bioprojectIdx = 21
         let sampleIdx = 24
         let biosampleIdx = 25
-        _ = 27  // taxIdIdx - reserved for future use
+        // Column 27 is taxIdIdx - reserved for future use.
         let scientificNameIdx = 28
 
         var runs: [SRARunInfo] = []
@@ -424,21 +424,24 @@ public actor SRAService {
         )
         let fasterqCompletedAt = Date()
 
-        if fasterqResult.exitCode != 0 {
-            trace?(
-                FASTQDownloadStepTrace(
-                    toolName: "fasterq-dump",
-                    toolVersion: "sra-tools",
-                    command: [toolkit.fasterqDump.path] + fasterqArguments,
-                    inputs: [sraFile.path],
-                    outputs: [],
-                    exitCode: fasterqResult.exitCode,
-                    wallTime: fasterqCompletedAt.timeIntervalSince(fasterqStartedAt),
-                    stderr: fasterqResult.stderr,
-                    startedAt: fasterqStartedAt,
-                    completedAt: fasterqCompletedAt
-                )
+        // Shared trace fields for both the failure and success paths; only `outputs` differs.
+        let makeFasterqTrace: ([URL]) -> FASTQDownloadStepTrace = { outputs in
+            FASTQDownloadStepTrace(
+                toolName: "fasterq-dump",
+                toolVersion: "sra-tools",
+                command: [toolkit.fasterqDump.path] + fasterqArguments,
+                inputs: [sraFile.path],
+                outputs: outputs,
+                exitCode: fasterqResult.exitCode,
+                wallTime: fasterqCompletedAt.timeIntervalSince(fasterqStartedAt),
+                stderr: fasterqResult.stderr,
+                startedAt: fasterqStartedAt,
+                completedAt: fasterqCompletedAt
             )
+        }
+
+        if fasterqResult.exitCode != 0 {
+            trace?(makeFasterqTrace([]))
             logger.error("fasterq-dump failed: \(fasterqResult.stderr, privacy: .public)")
             throw SRAError.conversionFailed(fasterqResult.stderr)
         }
@@ -463,20 +466,7 @@ public actor SRAService {
         progress?(1.0)
 
         logger.info("Downloaded \(fastqFiles.count, privacy: .public) FASTQ files for \(accession, privacy: .public)")
-        trace?(
-            FASTQDownloadStepTrace(
-                toolName: "fasterq-dump",
-                toolVersion: "sra-tools",
-                command: [toolkit.fasterqDump.path] + fasterqArguments,
-                inputs: [sraFile.path],
-                outputs: fastqFiles,
-                exitCode: fasterqResult.exitCode,
-                wallTime: fasterqCompletedAt.timeIntervalSince(fasterqStartedAt),
-                stderr: fasterqResult.stderr,
-                startedAt: fasterqStartedAt,
-                completedAt: fasterqCompletedAt
-            )
-        )
+        trace?(makeFasterqTrace(fastqFiles))
 
         return fastqFiles
     }

@@ -30,6 +30,9 @@ public enum BuildStep: String, Sendable, CaseIterable {
         case .convertingVariants: return 0.15
         case .generatingManifest: return 0.05
         case .validatingBundle: return 0.05
+        // The other eight weights sum to 0.95; `.complete` carries the final
+        // 0.05 so all weights sum to 1.0 (asserted by testBuildStepProgressWeights).
+        // `.complete` progress is also set explicitly to 1.0 at the end of build.
         case .complete: return 0.05
         }
     }
@@ -784,8 +787,9 @@ public final class ReferenceBundleBuilder: ObservableObject {
                 progressHandler
             )
 
-            let outputPath = "annotations/\(input.id).bb"
-            let outputURL = annotationsDir.appendingPathComponent("\(input.id).bb")
+            let filename = "\(input.id).bb"
+            let outputPath = "annotations/\(filename)"
+            let outputURL = annotationsDir.appendingPathComponent(filename)
 
             try FileManager.default.copyItem(at: input.url, to: outputURL)
 
@@ -813,6 +817,12 @@ public final class ReferenceBundleBuilder: ObservableObject {
     }
 
     private func countFeaturesInFile(_ url: URL) throws -> Int {
+        countNonCommentLines(in: url)
+    }
+
+    /// Counts non-empty, non-comment (`#`-prefixed) lines in a text file.
+    /// Returns 0 if the file cannot be read as UTF-8.
+    private func countNonCommentLines(in url: URL) -> Int {
         guard let content = try? String(contentsOf: url, encoding: .utf8) else {
             return 0
         }
@@ -868,10 +878,12 @@ public final class ReferenceBundleBuilder: ObservableObject {
                 progressHandler
             )
 
-            let outputPath = "variants/\(input.id).bcf"
-            let indexPath = "variants/\(input.id).bcf.csi"
-            let outputURL = variantsDir.appendingPathComponent("\(input.id).bcf")
-            let indexURL = variantsDir.appendingPathComponent("\(input.id).bcf.csi")
+            let filename = "\(input.id).bcf"
+            let indexFilename = "\(input.id).bcf.csi"
+            let outputPath = "variants/\(filename)"
+            let indexPath = "variants/\(indexFilename)"
+            let outputURL = variantsDir.appendingPathComponent(filename)
+            let indexURL = variantsDir.appendingPathComponent(indexFilename)
 
             try FileManager.default.copyItem(at: input.url, to: outputURL)
 
@@ -902,13 +914,7 @@ public final class ReferenceBundleBuilder: ObservableObject {
     }
 
     private func countVariantsInVCF(_ url: URL) throws -> Int {
-        guard let content = try? String(contentsOf: url, encoding: .utf8) else {
-            return 0
-        }
-
-        return content.components(separatedBy: .newlines)
-            .filter { !$0.isEmpty && !$0.hasPrefix("#") }
-            .count
+        countNonCommentLines(in: url)
     }
 
     private func processSignalTracks(
@@ -926,8 +932,9 @@ public final class ReferenceBundleBuilder: ObservableObject {
         let tracksDir = bundleURL.appendingPathComponent("tracks")
 
         for input in configuration.signalFiles {
-            let outputPath = "tracks/\(input.id).bw"
-            let outputURL = tracksDir.appendingPathComponent("\(input.id).bw")
+            let filename = "\(input.id).bw"
+            let outputPath = "tracks/\(filename)"
+            let outputURL = tracksDir.appendingPathComponent(filename)
 
             try FileManager.default.copyItem(at: input.url, to: outputURL)
 

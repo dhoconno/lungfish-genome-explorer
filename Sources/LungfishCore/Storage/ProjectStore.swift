@@ -4,6 +4,7 @@
 //
 // Owner: Storage & Indexing Lead (Role 18)
 
+import CommonCrypto
 import Foundation
 import SQLite3
 import os.log
@@ -674,16 +675,6 @@ public final class ProjectStore {
 
     // MARK: - Helper Methods
 
-    private func getVersionCount(for sequenceId: UUID) throws -> Int {
-        var count: Int = 0
-        try query("""
-            SELECT COUNT(*) FROM versions WHERE sequence_id = ?
-        """, parameters: [sequenceId.uuidString]) { stmt in
-            count = Int(sqlite3_column_int(stmt, 0))
-        }
-        return count
-    }
-
     private func computeHash(_ content: String) -> String {
         let data = Data(content.utf8)
         var hash = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
@@ -895,12 +886,15 @@ public final class ProjectStore {
         }
     }
 
+    /// The SQLite transient-destructor sentinel: tells SQLite to copy the bound bytes immediately.
+    private static let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+
     private func bindParameter(_ stmt: OpaquePointer?, at index: Int32, value: Any) throws {
         switch value {
         case is NSNull:
             sqlite3_bind_null(stmt, index)
         case let string as String:
-            sqlite3_bind_text(stmt, index, string, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_bind_text(stmt, index, string, -1, Self.SQLITE_TRANSIENT)
         case let int as Int:
             sqlite3_bind_int64(stmt, index, Int64(int))
         case let int64 as Int64:
@@ -909,7 +903,7 @@ public final class ProjectStore {
             sqlite3_bind_double(stmt, index, double)
         case let data as Data:
             _ = data.withUnsafeBytes { bytes in
-                sqlite3_bind_blob(stmt, index, bytes.baseAddress, Int32(data.count), unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+                sqlite3_bind_blob(stmt, index, bytes.baseAddress, Int32(data.count), Self.SQLITE_TRANSIENT)
             }
         case let optional as Optional<Any>:
             if case .none = optional {
@@ -922,10 +916,6 @@ public final class ProjectStore {
         }
     }
 }
-
-// MARK: - CommonCrypto Import
-
-import CommonCrypto
 
 // MARK: - Supporting Types
 
