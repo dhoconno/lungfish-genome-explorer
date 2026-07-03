@@ -385,58 +385,64 @@ Phase-start SHA: record before Task 18.
 
 ---
 
-## Phase 4: Large-dataset scaling (UX-altering, opt-in)
+## Phase 4: Large-dataset scaling (UX-altering) — RETARGETED 2026-07-02
 
-Phase-start SHA: record before Task 21. These change visible defaults — each new default gets an explicit regression test and existing expectations are updated deliberately.
+Phase-start SHA: record before Task 21. These change visible behavior — each gets an explicit regression test and updated expectations.
 
-**Pinned thresholds (decided in this plan):**
-- "Very large" table threshold = **5,000 rows**. At/above this, the table defaults to a top-N window.
-- Default top-N window = **1,000 rows**, with an explicit "Show all N,NNN rows" control that switches to the full set.
-- Genotype/EsViritu/TaxTriage matrices: default to a **sample window of 200 columns** when cohort > 200, with a control to page/show-all.
-(If a specific surface has a natural domain-appropriate default that differs, prefer it and note the deviation in the task's commit body.)
+**RETARGET RATIONALE (audit `2026-07-02-phase4-virtualization-audit`):** The original plan assumed non-virtualized result *tables* needing a top-N *row* cap. That premise is WRONG: every flagged result table is `NSTableView`/`NSOutlineView`, which VIRTUALIZE ROWS — a row cap gains no rendering benefit and would hide data. The genuine non-virtualized scaling problems are (a) `NSStackView` layouts that build one view-tree per data item, and (b) COLUMN-per-sample fan-out (AppKit does NOT virtualize columns). Phase 4 is retargeted to those. The 5000-row/1000-window/200-column pinned thresholds from the original plan are DROPPED; per-surface thresholds are set below.
 
-### Task 21: Top-N default for very large result tables
+**Confirmed non-virtualized surfaces (audit evidence):**
+- **`GenotypeOutlineView`** (`Sources/LungfishGenotypeUI/GenotypeOutlineView.swift:~225`) — WORST CASE: `NSStackView` with one full row view-tree (block glyph + label + `GenotypeHaplotypeTapeView`) per sample. Unbounded. 100+ samples = 100+ view trees upfront.
+- **`GenotypeComparisonMatrixView`** (`...:~523`) — one column per visible sample (50–200+). b951cd2f tightened cell rendering, NOT column count.
+- **`TaxTriageBatchOverviewView`** (`Sources/LungfishTaxTriageUI/TaxTriageBatchOverviewView.swift:~218`) — organism×sample heatmap, one column per sample.
+- **`StrainComparisonView`** (`Sources/LungfishTaxTriageUI/StrainComparisonView.swift:~121`) — one column per sample.
+- **`GenotypeHaplotypeDefinitionMatrixView`** (`...:~259`) — one column per diagnostic allele (lower reach, 10–50).
 
-**Files:**
-- Modify: the shared result table path if one exists (prefer adding this to `BatchTableView` in `LungfishKit` so all subclasses inherit it); else the specific large tables (VCF, taxonomy, NVD).
-- Test: `Tests/LungfishKitTests/` (if in BatchTableView) or per-table test.
+Note: the genotype v2 work has LANDED on main (the `codex/lungfishgenotype-viewport-inspector` branch is merged), so these files are safe to edit directly. Row-virtualized surfaces (GenotypeResultTableView, ViralDetectionTableView, BatchTaxTriageTableView, EsViritu detail pane, GenotypeResultViewController detail loops which are already `prefix`-capped) are SAFE — no change.
 
-**Interfaces:**
-- Produces: a `rowDisplayCap` mechanism on the shared table: when `unfilteredRows.count >= 5000`, `displayedRows` is capped at 1000 until "Show all" is invoked; a visible affordance shows the cap and total.
-
-- [ ] **Step 1: Re-read** `BatchTableView` display pipeline (`configure(rows:)`, `displayedRows`, filter/sort) to find the single choke point where the cap applies cleanly. Confirm which large tables subclass it (grep).
-- [ ] **Step 2: Write failing tests:** configuring with 6,000 rows displays 1,000 by default; invoking "show all" displays 6,000; configuring with 4,000 rows displays all 4,000 (below threshold). Assert the affordance text reflects the cap.
-- [ ] **Step 3: Run to verify fail** → FAIL.
-- [ ] **Step 4: Implement** the cap + "Show all" toggle in the shared table. Filtering/sorting operate on the full set; only the displayed window is capped. Programmatic full-population for tests/state remains available.
-- [ ] **Step 5: Run to verify pass** → PASS. Then update any existing test that assumed all rows always render (search for tests asserting `numberOfRows`/`displayedRows.count == input.count` on large inputs) and adjust expectations deliberately, documenting each in the commit.
-- [ ] **Step 6: Commit** `feat: cap very large result tables to a top-N window with Show all` with the Fable trailer.
-
-### Task 22: Genotype matrix sample windowing
+### Task 21: Virtualize GenotypeOutlineView (the worst case)
 
 **Files:**
-- Modify: `Sources/LungfishGenotypeUI/` matrix/outline view(s) (locate the column-per-sample renderer).
+- Modify: `Sources/LungfishGenotypeUI/GenotypeOutlineView.swift` (the `NSStackView`-per-sample `rebuild()` ~line 225).
 - Test: `Tests/LungfishGenotypeUITests/`.
 
-- [ ] **Step 1: Re-read** the genotype matrix rendering. Confirm it renders one column per sample with no windowing (note: rendering was tightened in b951cd2f — confirm windowing is still absent). Identify the cohort-size input.
-- [ ] **Step 2: Write failing test:** a cohort of 500 samples renders a 200-column window by default; a control expands it. A cohort of 150 renders all 150.
-- [ ] **Step 3: Run to verify fail** → FAIL.
-- [ ] **Step 4: Implement** the sample window (200) with a page/show-all control. Preserve selection and per-sample styling for windowed columns.
-- [ ] **Step 5: Run to verify pass** + `LungfishGenotypeUITests` green (⊆ the 6 known environmental genotype failures) → PASS.
-- [ ] **Step 6: Commit** `feat: window genotype matrix columns for large cohorts` with the Fable trailer.
+**Approach:** Replace the unbounded `NSStackView.addArrangedSubview`-per-sample layout with a virtualized surface. Preferred: back it with an `NSTableView` (single column, each row = the existing per-sample view content) so AppKit virtualizes rows — this preserves the visual design while only instantiating visible rows. If an `NSTableView` conversion is too invasive to land safely (the row content is a complex custom view with selection/tape/accessibility), fall back to a **windowing cap**: render the first N (N=100) sample rows with an explicit "Show all <count> samples" control, keeping the rest off-screen until requested. Whichever path: preserve selection, the haplotype tape rendering, accessibility elements per swatch, and all existing per-row callbacks.
 
-### Task 23: EsViritu / TaxTriage large-surface windowing
+- [ ] **Step 1: Re-read** `GenotypeOutlineView` fully — the `rebuild()` loop, `makeRow`, selection handling, tape subview, accessibility, and every callback the rows fire. Decide NSTableView-conversion vs windowing-cap based on what preserves behavior with least risk; state the decision in the report.
+- [ ] **Step 2: Write failing test:** a cohort of, say, 300 samples does NOT instantiate 300 row view-trees eagerly (assert via a row-view-construction counter, or that only ≤ window/visible count are built), while all 300 remain reachable (scroll or "Show all"). A small cohort (e.g. 20) renders all 20 identically to before.
+- [ ] **Step 3: Run to verify fail** → FAIL.
+- [ ] **Step 4: Implement** the chosen approach. Preserve selection, tape, accessibility, callbacks, and visual layout.
+- [ ] **Step 5: Run to verify pass** + `LungfishGenotypeUITests` green (XCTest ⊆ the 6 known environmental genotype failures) → PASS.
+- [ ] **Step 6: Commit** `perf: virtualize GenotypeOutlineView to bound per-sample view creation` with the Fable trailer.
+
+### Task 22: Column-window the per-sample matrices
 
 **Files:**
-- Modify: `Sources/LungfishEsVirituUI/`, `Sources/LungfishTaxTriageUI/` non-virtualized outlines/tables.
-- Test: respective module targets.
+- Modify: `Sources/LungfishGenotypeUI/GenotypeComparisonMatrixView.swift` (~523), `Sources/LungfishTaxTriageUI/TaxTriageBatchOverviewView.swift` (~218), `Sources/LungfishTaxTriageUI/StrainComparisonView.swift` (~121).
+- Test: respective module test targets.
 
-- [ ] **Step 1: Re-read** each surface; confirm non-virtualized stack/full reload at scale (TaxTriage selection was already tightened in 4d70b6f1 — do not undo that; target the display-size dimension only).
-- [ ] **Step 2–6:** per surface, add failing windowing test, implement (reuse the Task 21 cap where the surface is a `BatchTableView` subclass), verify, commit. One commit per module.
+**Approach:** For each per-sample-column matrix, cap the number of instantiated sample COLUMNS to a window (default **N=60** visible sample columns) when the sample count exceeds it, with an explicit affordance to page/reveal more (e.g. "Showing 60 of <total> samples — Show all"). The frozen/pinned identity columns (row labels) always stay. Filtering/sorting/selection continue to operate over the FULL sample set; only column *instantiation* is windowed. Prefer a small shared helper if the three sites can reuse one (they each call a `rebuildColumns()` that loops over sample ids) — but do NOT force a shared abstraction if the three differ enough that it adds coupling; per-site is acceptable.
+
+- [ ] **Step 1: Re-read** each `rebuildColumns()`. Confirm the one-column-per-sample loop and identify the sample-id source + any existing filter (GenotypeComparisonMatrixView already has `matrixSampleFilterText`/smart-cohort filters feeding `activeSampleNames()` — the window applies AFTER those filters). Decide shared-helper vs per-site.
+- [ ] **Step 2: Write failing tests (per surface):** configuring with e.g. 150 samples instantiates ≤ 60 sample columns by default; "show all" instantiates 150; configuring with 40 samples instantiates all 40. Assert the affordance reflects the window.
+- [ ] **Step 3: Run to verify fail** → FAIL.
+- [ ] **Step 4: Implement** the column window + reveal control per surface. Selection/sort/filter still see the full set.
+- [ ] **Step 5: Run to verify pass** + module targets green → PASS.
+- [ ] **Step 6: Commit** one per surface: `perf: window sample columns in <surface> for large cohorts` with the Fable trailer.
+
+### Task 23: Allele-column window for the haplotype-definition matrix (assess)
+
+**Files:**
+- Modify: `Sources/LungfishGenotypeUI/GenotypeHaplotypeDefinitionMatrixView.swift` (~259).
+- Test: `Tests/LungfishGenotypeUITests/`.
+
+- [ ] **Step 1: Re-read** the per-allele column loop. Assess the realistic allele-count reach (audit says 10–50; if it rarely exceeds ~30, the window may be low-value → N/A with evidence). Only window if the reach genuinely warrants it.
+- [ ] **Step 2–6:** if warranted, apply the same column-window pattern as Task 22 (default N=30 allele columns + reveal); else mark N/A. If reusing a Task 22 shared helper, do so.
 
 ### Phase 4 Gate
 
-- [ ] Green baseline; every UX-altering default has an explicit test; updated expectations are intentional and documented.
-- [ ] Reviewer panel; `code-reviewer` verifies no data loss (full set always reachable via "Show all") and that provenance/export paths still see the FULL dataset, not the windowed view. This is a hard check — windowing must never leak into scientific export. Iterate to satisfaction.
+- [ ] Green baseline; every UX-altering default (window sizes, "show all" affordances) has an explicit test; updated expectations are intentional and documented.
+- [ ] Reviewer panel; `code-reviewer` verifies NO DATA LOSS (full sample/allele set always reachable via "Show all", and filter/sort/selection operate over the full set, not the window) and — HARD CHECK — that windowing NEVER leaks into scientific export or provenance (exports must see the FULL dataset). `performance-engineer` confirms the virtualization/window actually bounds view/column instantiation. Iterate to satisfaction.
 
 ---
 
