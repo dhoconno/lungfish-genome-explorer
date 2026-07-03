@@ -307,3 +307,33 @@ AlignedRead F5 (doc param-order), ProjectFile F1 (delete orphan comment).
 - Genotype color palettes (HaplotypeColorToken) are scientifically load-bearing
   ("must never be reordered or recolored") — LEAVE ALONE except a harmless dead
   local alias (F14, deferred as not worth the reviewer alarm).
+
+## File-split pass (partial — access-level-blocked portions deferred)
+
+The 3 largest Core files were split into focused same-directory files (pure
+relocation). Three portions were NOT split because doing so would require
+promoting `private` members to `internal`/`fileprivate` (an API-surface change,
+not pure relocation) — left intact and recorded here:
+
+- **BundleManifest+Mutations.swift NOT created.** The `copy(...)` builder,
+  `synthesizedBrowserSummary()`, and `equivalentBrowserSummary` are `private` and
+  shared between the mutators and the base-file `==`. Splitting the mutators out
+  would need `copy` (and likely `synthesizedBrowserSummary`) to become
+  `internal`/`fileprivate`. The whole I/O + mutations extension stays in
+  BundleManifest.swift. Suggestion: if a split is wanted, promote `copy` to
+  `internal` (it is a pure builder) and move the mutators.
+- **URLSessionDownloadTaskBox stayed in NCBIService.swift.** It is `private final
+  class` used by the actor's `downloadGenomeFile` (stays). Co-locating it with the
+  moved `ContinuationDownloadDelegate` would need `internal`.
+- **Several Blast private helpers stayed in BlastService.swift**
+  (`extractQBlastValue`, `decompressZIPResponse`, `validateHTTPResponse`,
+  `formEncode`) — each `private` and used by base-file methods that stay. Only the
+  self-contained JSON2 parsing chain (reachable via the `internal`
+  `parseJSON2Results`) split cleanly into BlastService+Parsing.swift.
+
+Also fixed during the split: NCBIDownloadDelegate.swift needed `import os` (for
+`OSAllocatedUnfairLock`), and `NCBIDownloadCancellationSourceTests` — a
+source-scanning regression test hard-coded to NCBIService.swift — was updated to
+scan the combined NCBIService.swift + NCBIDownloadDelegate.swift source so its
+`resumeOnce` assertion (that token moved to the delegate file) still holds. All 9
+assertions preserved.

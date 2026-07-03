@@ -6,11 +6,21 @@ import XCTest
 
 final class NCBIDownloadCancellationSourceTests: XCTestCase {
     func testGenomeFileDownloadsBridgeTaskCancellationToURLSessionTask() throws {
-        let source = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishCore/Services/NCBI/NCBIService.swift"),
+        // The download-cancellation machinery lives across two files: the actor's
+        // download methods (NCBIService.swift) drive the cancellation handler and
+        // task, while the ContinuationDownloadDelegate implementation (moved into
+        // NCBIDownloadDelegate.swift) owns the resume-once bridging. Scan the
+        // combined source so this regression test is independent of that split.
+        let root = repositoryRoot().appendingPathComponent("Sources/LungfishCore/Services/NCBI")
+        let service = try String(
+            contentsOf: root.appendingPathComponent("NCBIService.swift"),
             encoding: .utf8
         )
+        let delegate = try String(
+            contentsOf: root.appendingPathComponent("NCBIDownloadDelegate.swift"),
+            encoding: .utf8
+        )
+        let source = service + "\n" + delegate
 
         XCTAssertTrue(source.contains("withTaskCancellationHandler"))
         XCTAssertTrue(source.contains("URLSessionDownloadTask"))
