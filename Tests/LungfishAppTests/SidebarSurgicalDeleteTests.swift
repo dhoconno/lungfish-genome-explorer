@@ -154,6 +154,54 @@ final class SidebarSurgicalDeleteTests: XCTestCase {
         XCTAssertEqual(items["root1"]!.children.count, 2)
     }
 
+    // MARK: - Last-child edge case (Phase 3 gate)
+
+    /// Regression: deleting the ONLY child of a parent must take the surgical path
+    /// (not fall back to full-reload), remove the child row, and leave the now-childless
+    /// parent alive in the tree.
+    func testSurgicalRemovalOfLastChildLeavesParentAlive() throws {
+        // Build a minimal tree: one parent with exactly one child.
+        let onlyChild = SidebarItem(title: "Only", type: .document, url: URL(fileURLWithPath: "/p/Reads/Only"))
+        let parent = SidebarItem(title: "Reads", type: .folder, children: [onlyChild], url: URL(fileURLWithPath: "/p/Reads"))
+        let roots: [SidebarItem] = [parent]
+
+        // Verify the plan is computable (non-nil) for the single-child case.
+        let plan = try XCTUnwrap(
+            SidebarViewController.surgicalRemovalPlan(
+                for: [onlyChild],
+                rootItems: roots,
+                isFiltered: false
+            ),
+            "surgicalRemovalPlan must return a non-nil plan for a single-child deletion"
+        )
+        XCTAssertEqual(plan.count, 1)
+        XCTAssertTrue(plan[0].parent === parent)
+        XCTAssertEqual(plan[0].indices, IndexSet(integer: 0))
+
+        // Integration: drive through applySurgicalRemoval on a real outline.
+        let sidebar = SidebarViewController()
+        sidebar.loadViewIfNeeded()
+        sidebar.rootItems = roots
+        sidebar.reloadData()
+        sidebar.outlineView.expandItem(nil, expandChildren: true)
+
+        let rowsBefore = sidebar.outlineView.numberOfRows
+        XCTAssertGreaterThan(rowsBefore, 0, "outline must have rows after expand")
+
+        let didSurgical = sidebar.applySurgicalRemoval(of: [onlyChild])
+        XCTAssertTrue(didSurgical, "deleting the last child of a parent must take the surgical path")
+
+        // The child row must be gone.
+        XCTAssertEqual(sidebar.outlineView.numberOfRows, rowsBefore - 1,
+                       "exactly one row (the child) must be removed")
+
+        // The parent must SURVIVE in the tree (now childless).
+        XCTAssertTrue(sidebar.rootItems.contains { $0 === parent },
+                      "the parent must still be present in rootItems after its last child is removed")
+        XCTAssertTrue(parent.children.isEmpty,
+                      "the parent must now have no children")
+    }
+
     func testSurgicalRemovalReturnsFalseForParentAndDescendant() {
         let sidebar = SidebarViewController()
         sidebar.loadViewIfNeeded()

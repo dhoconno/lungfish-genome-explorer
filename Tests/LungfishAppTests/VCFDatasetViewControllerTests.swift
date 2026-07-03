@@ -139,6 +139,35 @@ final class VCFDatasetViewControllerTests: XCTestCase {
                        "applyFilter() must not rebuild search keys")
     }
 
+    // MARK: - Empty-variants edge case (Phase 3 gate)
+
+    /// Regression: configure(summary:variants:[]) must not crash, must leave displayedCount==0,
+    /// and must safely build zero search keys (guard against nil-index in applyFilter loop).
+    func testConfigureWithEmptyVariantsIsNoopSafe() throws {
+        let vc = VCFDatasetViewController()
+        _ = vc.view
+
+        // configure with an empty array — must not crash
+        vc.configure(summary: makeSummary(variantCount: 0), variants: [])
+        XCTAssertEqual(vc.displayedVariantCountForTesting, 0,
+                       "displayedVariantCount must be 0 after configure with empty variants")
+
+        // applyFilter over an empty set must also be safe
+        vc.setFilterText("chr1")
+        XCTAssertEqual(vc.displayedVariantCountForTesting, 0,
+                       "filter over empty variants must still yield 0")
+
+        vc.setFilterText("")
+        XCTAssertEqual(vc.displayedVariantCountForTesting, 0,
+                       "clearing filter over empty variants must still yield 0")
+
+        #if DEBUG
+        // buildSearchKeys([]) must have been called exactly once at configure, not again at filter
+        XCTAssertEqual(vc.searchKeyBuildCountForTesting, 1,
+                       "search keys must be built exactly once even when variants is empty")
+        #endif
+    }
+
     func testRapidSearchInputCoalescesToOneFilterApply() async throws {
         let vc = VCFDatasetViewController()
         _ = vc.view
