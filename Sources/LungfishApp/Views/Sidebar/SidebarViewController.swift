@@ -77,7 +77,9 @@ public class SidebarViewController: NSViewController {
     var rootItems: [SidebarItem] = []
 
     /// Filtered copy of rootItems when search is active; nil when no filter.
-    private var filteredRootItems: [SidebarItem]?
+    /// Internal (not private) so the surgical-delete path in the OutlineDataSource
+    /// extension can detect an active filter and fall back to a full reload.
+    var filteredRootItems: [SidebarItem]?
 
     /// The items the outline view data source should use.
     var displayItems: [SidebarItem] {
@@ -549,7 +551,7 @@ public class SidebarViewController: NSViewController {
         postPreferredSidebarWidthIfNeeded()
     }
 
-    private func postPreferredSidebarWidthIfNeeded() {
+    func postPreferredSidebarWidthIfNeeded() {
         let width = recommendedSidebarWidth()
         guard abs(width - lastRecommendedSidebarWidth) >= 2 else { return }
         lastRecommendedSidebarWidth = width

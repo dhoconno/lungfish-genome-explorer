@@ -581,6 +581,11 @@ extension SidebarViewController: NSOutlineViewDataSource {
             selectedItemsByPath[url.standardizedFileURL.path] ?? findItem(byPath: url.standardizedFileURL.path)
         }
         var failedItems: [(String, Error)] = []
+        // Items whose row(s) we must remove from the outline once trashing succeeds.
+        // Collected here rather than removed inline so a single surgical
+        // removeItems(at:inParent:) pass (or one reload fallback) covers them all,
+        // and so the (parent, index) mapping is computed against a stable model.
+        var itemsToRemoveFromOutline: [SidebarItem] = []
 
         // Paired with end() below; do not add an early return between here and it,
         // or the interval leaks and the trace is silently wrong.
@@ -633,7 +638,7 @@ extension SidebarViewController: NSOutlineViewDataSource {
             }
 
             if let item {
-                removeItemFromSidebar(item)
+                itemsToRemoveFromOutline.append(item)
             }
         }
         PerfSignpost.sidebar.end("Delete.FilesystemTrash", trashSignpost)
@@ -641,11 +646,22 @@ extension SidebarViewController: NSOutlineViewDataSource {
         // Paired with end() below; do not add an early return between here and it.
         let modelSignpost = PerfSignpost.sidebar.begin("Delete.ModelMutation")
         for item in items where item.url == nil {
-            removeItemFromSidebar(item)
+            itemsToRemoveFromOutline.append(item)
+        }
+
+        // Surgical removal of just the deleted rows instead of a full teardown/rebuild.
+        // Falls back to reloadOutlineView() when surgical removal cannot be done safely
+        // (filter active, deleting a parent together with a descendant, or an item no
+        // longer in the tree) — applySurgicalRemoval mutates the model on success and
+        // reports false to request the fallback.
+        if !applySurgicalRemoval(of: itemsToRemoveFromOutline) {
+            for item in itemsToRemoveFromOutline {
+                removeItemFromSidebar(item)
+            }
+            reloadOutlineView()
         }
 
         PerfSignpost.sidebar.end("Delete.ModelMutation", modelSignpost)
-        reloadOutlineView()
 
         // Show error if some items failed
         if !failedItems.isEmpty {
@@ -695,6 +711,131 @@ extension SidebarViewController: NSOutlineViewDataSource {
             return true
         }
         return false
+    }
+
+    // MARK: - Surgical row removal (Task 18)
+
+    /// A grouped set of rows to remove from the outline: the `parent` under which the
+    /// rows live (`nil` for top-level `rootItems`) and the `IndexSet` of child indices
+    /// occupied in that parent's children (computed against the PRE-mutation model).
+    struct SurgicalRemovalGroup {
+        let parent: SidebarItem?
+        let indices: IndexSet
+    }
+
+    /// Computes the grouped (parent, indices) removals for `items`, or returns `nil`
+    /// when surgical removal cannot be performed safely and the caller must fall back
+    /// to a full `reloadData()`.
+    ///
+    /// Fallback (`nil`) is returned when:
+    ///   - a filter is active (`isFiltered`): the outline reads `filteredRootItems`, a
+    ///     detached copy, so indices computed against `rootItems` would not match;
+    ///   - any item being deleted is a descendant of another item also being deleted
+    ///     (removing the ancestor already removes the descendant — asking the outline
+    ///     to also remove the descendant row would corrupt its bookkeeping);
+    ///   - an item cannot be located in the tree at all.
+    ///
+    /// Indices are computed against the current (pre-removal) model. NSOutlineView's
+    /// `removeItems(at:inParent:)` interprets its `IndexSet` against the same pre-removal
+    /// state, so the caller must update the model to match INSIDE begin/endUpdates,
+    /// removing high indices first within each parent so earlier removals do not shift
+    /// the indices of later ones.
+    static func surgicalRemovalPlan(
+        for items: [SidebarItem],
+        rootItems: [SidebarItem],
+        isFiltered: Bool
+    ) -> [SurgicalRemovalGroup]? {
+        guard !isFiltered else { return nil }
+        guard !items.isEmpty else { return [] }
+
+        let deletionSet = Set(items.map(ObjectIdentifier.init))
+
+        // Locate each item's parent and index within the tree.
+        func findParent(of target: SidebarItem, in siblings: [SidebarItem], parent: SidebarItem?) -> SidebarItem? {
+            for item in siblings {
+                if item === target { return parent }
+                if let found = findParent(of: target, in: item.children, parent: item) {
+                    return found
+                }
+            }
+            return nil
+        }
+
+        // Reject deleting an item whose ancestor is also being deleted.
+        func hasAncestorInDeletionSet(_ item: SidebarItem) -> Bool {
+            var current = findParent(of: item, in: rootItems, parent: nil)
+            while let parent = current {
+                if deletionSet.contains(ObjectIdentifier(parent)) { return true }
+                current = findParent(of: parent, in: rootItems, parent: nil)
+            }
+            return false
+        }
+
+        var indicesByParent: [ObjectIdentifier?: IndexSet] = [:]
+        var parentByKey: [ObjectIdentifier?: SidebarItem?] = [:]
+
+        for item in items {
+            if hasAncestorInDeletionSet(item) { return nil }
+
+            let parent = findParent(of: item, in: rootItems, parent: nil)
+            let siblings = parent?.children ?? rootItems
+            guard let index = siblings.firstIndex(where: { $0 === item }) else {
+                // Item not present in the tree: cannot map to a row safely.
+                return nil
+            }
+
+            let key = parent.map(ObjectIdentifier.init)
+            parentByKey[key] = parent
+            indicesByParent[key, default: IndexSet()].insert(index)
+        }
+
+        return indicesByParent.map { key, indices in
+            SurgicalRemovalGroup(parent: parentByKey[key] ?? nil, indices: indices)
+        }
+    }
+
+    /// Surgically removes `items` from both the model and the outline, avoiding a full
+    /// `reloadData()`. Returns `true` if the surgical path ran; `false` if the caller
+    /// must fall back to `reloadOutlineView()`.
+    ///
+    /// The model is mutated INSIDE `begin/endUpdates`, removing the highest index first
+    /// within each parent so earlier removals don't shift later indices, keeping the
+    /// model and the outline's index-based `removeItems` in agreement.
+    @discardableResult
+    func applySurgicalRemoval(of items: [SidebarItem]) -> Bool {
+        guard let plan = Self.surgicalRemovalPlan(
+            for: items,
+            rootItems: rootItems,
+            isFiltered: filteredRootItems != nil
+        ) else {
+            return false
+        }
+        guard !plan.isEmpty else { return true }
+
+        outlineView.beginUpdates()
+        for group in plan {
+            // Remove from the model high-to-low so lower indices stay valid.
+            for index in group.indices.sorted(by: >) {
+                if let parent = group.parent {
+                    guard index < parent.children.count else { continue }
+                    parent.children.remove(at: index)
+                } else {
+                    guard index < rootItems.count else { continue }
+                    rootItems.remove(at: index)
+                }
+            }
+            outlineView.removeItems(
+                at: group.indices,
+                inParent: group.parent,
+                withAnimation: .slideUp
+            )
+        }
+        outlineView.endUpdates()
+
+        // A full reloadOutlineView() also recomputes the recommended width; keep that
+        // behavior on the surgical path (removed rows can shorten the widest label).
+        postPreferredSidebarWidthIfNeeded()
+        return true
     }
 
     /// Removes an item from the sidebar hierarchy (without touching the file)
