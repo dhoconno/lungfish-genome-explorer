@@ -11,7 +11,7 @@ import Foundation
 /// Callers `await` the result and then commit any UI changes on `@MainActor`.
 public enum AsyncFileReader {
     /// Reads the contents of `url` as a `String`.
-    public static func readString(
+    public nonisolated static func readString(
         _ url: URL,
         encoding: String.Encoding = .utf8
     ) async throws -> String {
@@ -21,14 +21,14 @@ public enum AsyncFileReader {
     }
 
     /// Reads the raw bytes of `url`.
-    public static func readData(_ url: URL) async throws -> Data {
+    public nonisolated static func readData(_ url: URL) async throws -> Data {
         try await Task.detached {
             try Data(contentsOf: url)
         }.value
     }
 
     /// Writes `data` to `url`.
-    public static func write(
+    public nonisolated static func write(
         _ data: Data,
         to url: URL,
         options: Data.WritingOptions = .atomic
@@ -39,7 +39,7 @@ public enum AsyncFileReader {
     }
 
     /// Writes `string` to `url`.
-    public static func writeString(
+    public nonisolated static func writeString(
         _ string: String,
         to url: URL,
         atomically: Bool = true,
