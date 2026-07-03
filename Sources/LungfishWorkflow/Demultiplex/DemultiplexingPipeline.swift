@@ -1570,51 +1570,6 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             return best
         }
 
-        private func findFivePrime(in bytes: [UInt8]) -> ExactBareBarcodeMatch? {
-            var best: ExactBareBarcodeMatch?
-            for length in lengths {
-                guard length <= bytes.count,
-                      let map = mapsByLength[length] else { continue }
-                let maxStart = min(maxDistanceFrom5Prime, bytes.count - length)
-                guard maxStart >= 0 else { continue }
-                if let match = findMatch(
-                    in: bytes,
-                    length: length,
-                    startRange: 0...maxStart,
-                    map: map,
-                    preferLast: false
-                ) {
-                    if best == nil || match.start < best!.start {
-                        best = match
-                    }
-                }
-            }
-            return best
-        }
-
-        private func findThreePrime(in bytes: [UInt8]) -> ExactBareBarcodeMatch? {
-            var best: ExactBareBarcodeMatch?
-            for length in lengths {
-                guard length <= bytes.count,
-                      let map = mapsByLength[length] else { continue }
-                let minStart = max(0, bytes.count - maxDistanceFrom3Prime - length)
-                let maxStart = bytes.count - length
-                guard minStart <= maxStart else { continue }
-                if let match = findMatch(
-                    in: bytes,
-                    length: length,
-                    startRange: minStart...maxStart,
-                    map: map,
-                    preferLast: true
-                ) {
-                    if best == nil || match.start > best!.start {
-                        best = match
-                    }
-                }
-            }
-            return best
-        }
-
         private func findMatch(
             in bytes: [UInt8],
             length: Int,

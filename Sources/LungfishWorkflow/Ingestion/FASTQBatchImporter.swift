@@ -1681,23 +1681,6 @@ public enum FASTQBatchImporter {
 
     // MARK: - Private Helpers
 
-    /// Creates a temp workspace directory anchored at the project (or system temp as fallback).
-    private static func createIngestionWorkspace(anchoredAt projectDir: URL) throws -> URL {
-        do {
-            return try ProjectTempDirectory.create(prefix: "lungfish-batch-", in: projectDir)
-        } catch {
-            // Fallback: use .itemReplacementDirectory near the project
-            let fm = FileManager.default
-            let tmp = try fm.url(
-                for: .itemReplacementDirectory,
-                in: .userDomainMask,
-                appropriateFor: projectDir,
-                create: true
-            )
-            return tmp
-        }
-    }
-
     /// Interleaves R1/R2 FASTQ files into a single interleaved output using reformat.sh.
     private static func interleavePairedInput(r1: URL, r2: URL, output: URL) async throws {
         let runner = NativeToolRunner.shared

@@ -97,30 +97,6 @@ private final class DataBox: @unchecked Sendable {
     var value = Data()
 }
 
-// MARK: - TailBuffer
-
-/// Ring buffer that retains only the last `capacity` bytes of appended data.
-/// Used to bound stderr capture for long-running tools like BBTools.
-private final class TailBuffer: @unchecked Sendable {
-    private let capacity: Int
-    private var buffer: Data
-
-    init(capacity: Int) {
-        self.capacity = capacity
-        self.buffer = Data()
-        self.buffer.reserveCapacity(capacity)
-    }
-
-    func append(_ chunk: Data) {
-        buffer.append(chunk)
-        if buffer.count > capacity {
-            buffer = buffer.suffix(capacity)
-        }
-    }
-
-    var data: Data { buffer }
-}
-
 private final class ProcessOutputAccumulator: @unchecked Sendable {
     private let lock = NSLock()
     private let maxBytes: Int?

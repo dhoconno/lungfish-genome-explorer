@@ -1005,7 +1005,6 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
     ) async throws -> InputPlan {
         switch resolvedMode {
         case .ontBarcodeDemux:
-            progressNoop()
             let inputFASTQURLs = try request.inputFASTQURLs.flatMap { inputURL in
                 try Self.resolveInputFASTQURLs(for: inputURL)
             }
@@ -1066,8 +1065,6 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             throw ONTBarcodeDemuxGenotypingError.ambiguousGenotypingMode
         }
     }
-
-    private func progressNoop() {}
 
     private static func mappingPreset(for mode: AmpliconGenotypingMode) -> String {
         mode == .illuminaPaired ? "sr" : "map-ont"
