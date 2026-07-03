@@ -180,29 +180,32 @@ extension MainSplitViewController {
         let displayToken = token ?? beginDisplayRequest(identity: displayIdentity)
 
         activityIndicator.show(message: "Loading \(url.lastPathComponent)...", style: .indeterminate)
-        DispatchQueue.main.async { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                defer { self.activityIndicator.hide() }
-                guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.activityIndicator.hide() }
+            guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
 
-                do {
-                    self.inspectorController.clearSelection()
-                    let bundle = try MultipleSequenceAlignmentBundle.load(from: url)
-                    self.inspectorController.updateMultipleSequenceAlignmentDocument(bundle)
-                    try self.viewerController.displayMultipleSequenceAlignmentBundle(at: url)
-                    if let controller = self.viewerController.multipleSequenceAlignmentViewController {
-                        controller.onSelectionStateChanged = { [weak self] state in
-                            self?.inspectorController.updateMultipleSequenceAlignmentSelection(state)
-                        }
-                        controller.notifySelectionStateIfAvailable()
+            do {
+                self.inspectorController.clearSelection()
+                let bundle = try MultipleSequenceAlignmentBundle.load(from: url)
+                self.inspectorController.updateMultipleSequenceAlignmentDocument(bundle)
+                // `displayMultipleSequenceAlignmentBundle` reads the primary
+                // alignment FASTA off the main actor. A newer sidebar selection
+                // may supersede this load while that read is in flight, so
+                // re-check the generation guard before committing the viewport.
+                try await self.viewerController.displayMultipleSequenceAlignmentBundle(at: url)
+                guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
+                if let controller = self.viewerController.multipleSequenceAlignmentViewController {
+                    controller.onSelectionStateChanged = { [weak self] state in
+                        self?.inspectorController.updateMultipleSequenceAlignmentSelection(state)
                     }
-                } catch {
-                    mainSplitLogger.error(
-                        "displayMultipleSequenceAlignmentBundle: Failed - \(error.localizedDescription, privacy: .public)"
-                    )
-                    self.viewerController.clearViewport(statusMessage: "Unable to load alignment bundle.")
+                    controller.notifySelectionStateIfAvailable()
                 }
+            } catch {
+                mainSplitLogger.error(
+                    "displayMultipleSequenceAlignmentBundle: Failed - \(error.localizedDescription, privacy: .public)"
+                )
+                self.viewerController.clearViewport(statusMessage: "Unable to load alignment bundle.")
             }
         }
     }

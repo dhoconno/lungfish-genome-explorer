@@ -1120,7 +1120,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     case .lungfishReferenceBundle:
                         try splitViewController?.displayReferenceBundleFromExternalOpen(at: url)
                     case .lungfishMultipleSequenceAlignmentBundle:
-                        try viewerController?.displayMultipleSequenceAlignmentBundle(at: url)
+                        try await viewerController?.displayMultipleSequenceAlignmentBundle(at: url)
                     case .lungfishPhylogeneticTreeBundle:
                         try viewerController?.displayPhylogeneticTreeBundle(at: url)
                     case .lungfishMHCReferenceBundle:

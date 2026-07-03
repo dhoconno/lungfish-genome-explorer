@@ -1755,20 +1755,21 @@ public class ViewerViewController: NSViewController {
         Task.detached {
             do {
                 _ = try await runner.run(arguments: arguments, operationID: opID)
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        guard let controller, controller.bundleURL == targetBundleURL else { return }
-                        do {
-                            try controller.displayBundle(at: targetBundleURL)
-                        } catch {
-                            OperationCenter.shared.log(
-                                id: opID,
-                                level: .warning,
-                                message: "Updated annotation store, but the alignment viewport could not be refreshed: \(error.localizedDescription)"
-                            )
-                        }
+                await Task { @MainActor in
+                    guard let controller, controller.bundleURL == targetBundleURL else { return }
+                    do {
+                        // `displayBundle` reads the primary alignment FASTA off the
+                        // main actor; the `bundleURL` check above already gates on
+                        // the same bundle still being displayed.
+                        try await controller.displayBundle(at: targetBundleURL)
+                    } catch {
+                        OperationCenter.shared.log(
+                            id: opID,
+                            level: .warning,
+                            message: "Updated annotation store, but the alignment viewport could not be refreshed: \(error.localizedDescription)"
+                        )
                     }
-                }
+                }.value
             } catch is CancellationError {
                 return
             } catch {

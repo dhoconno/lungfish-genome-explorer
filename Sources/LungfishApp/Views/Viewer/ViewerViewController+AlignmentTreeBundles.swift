@@ -10,14 +10,14 @@ import os.log
 private let alignmentTreeViewerLogger = Logger(subsystem: LogSubsystem.app, category: "ViewerAlignmentTreeBundles")
 
 extension ViewerViewController {
-    public func displayMultipleSequenceAlignmentBundle(at url: URL) throws {
+    public func displayMultipleSequenceAlignmentBundle(at url: URL) async throws {
         hideForNativeAlignmentTreeBundle()
         let controller = MultipleSequenceAlignmentViewController()
         addChild(controller)
         installNativeBundleSubview(controller.view)
 
         do {
-            try controller.displayBundle(at: url)
+            try await controller.displayBundle(at: url)
         } catch {
             controller.view.removeFromSuperview()
             controller.removeFromParent()
