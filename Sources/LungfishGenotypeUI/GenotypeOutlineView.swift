@@ -372,9 +372,9 @@ final class GenotypeOutlineView: NSView {
         var locus: String?
     }
 
-    /// Table view that avoids drawing its own selection background (we render
-    /// review-selection highlighting inside the row content instead) and
-    /// forwards its intrinsic width to cell content.
+    /// Table view flipped so rows lay out top-to-bottom. Selection background is
+    /// suppressed via `selectionHighlightStyle = .none` on the instance (review
+    /// selection is drawn inside the row content instead).
     private final class SampleTableView: NSTableView {
         override var isFlipped: Bool { true }
     }
