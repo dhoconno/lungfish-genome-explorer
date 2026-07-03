@@ -38,8 +38,19 @@ final class StrainComparisonView: NSView {
     // MARK: - State
 
     private var entries: [StrainComparisonEntry] = []
+    /// FULL logical sample set. Used by the cell dataSource (via `sample_<id>`
+    /// column identifiers) and preserved intact for any consumer that needs the
+    /// complete sample list. Never replaced by the display window.
     private var sampleIds: [String] = []
     private var organismName: String = ""
+
+    /// Display-only cap on instantiated per-sample columns. Windowing only ever
+    /// affects which columns `rebuildColumns()` instantiates; `sampleIds` stays
+    /// full.
+    private var columnWindow = SampleColumnWindow()
+
+    /// The display-only slice of `sampleIds` currently instantiated as columns.
+    private var windowedSampleIds: [String] = []
 
     // MARK: - Child Views
 
@@ -118,7 +129,11 @@ final class StrainComparisonView: NSView {
         refCol.minWidth = 30
         tableView.addTableColumn(refCol)
 
-        for sampleId in sampleIds {
+        // Display-only window: instantiate at most `columnWindow.limit` sample
+        // columns. `sampleIds` (the full logical set) is unchanged; the cell
+        // dataSource still resolves `sample_<id>` for the instantiated columns.
+        windowedSampleIds = columnWindow.windowedSamples(from: sampleIds)
+        for sampleId in windowedSampleIds {
             let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("sample_\(sampleId)"))
             col.title = sampleId
             col.width = 60
@@ -146,9 +161,21 @@ final class StrainComparisonView: NSView {
             headerLabel.stringValue = "\(organismName) \u{2014} \(entries.count) differing position(s)"
         }
 
+        columnWindow.reset()
         rebuildColumns()
         tableView.reloadData()
         logger.info("Strain comparison: \(entries.count) SNP(s) for \(organismName, privacy: .public) across \(sampleIds.count) samples")
+    }
+
+    /// Whether the per-sample columns are currently capped by the display window.
+    var isColumnWindowActive: Bool { columnWindow.caps(sampleIds) }
+
+    /// Reveal every per-sample column, defeating the display cap.
+    func showAllSampleColumns() {
+        guard columnWindow.caps(sampleIds) else { return }
+        columnWindow.revealAll()
+        rebuildColumns()
+        tableView.reloadData()
     }
 }
 
@@ -205,3 +232,15 @@ extension StrainComparisonView: NSTableViewDelegate {
         return field
     }
 }
+
+#if DEBUG
+extension StrainComparisonView {
+    /// Number of instantiated per-sample columns (identifier `sample_*`).
+    var testingSampleColumnCount: Int {
+        tableView.tableColumns.filter { $0.identifier.rawValue.hasPrefix("sample_") }.count
+    }
+
+    /// The FULL logical sample set (never windowed).
+    var testingFullSampleIds: [String] { sampleIds }
+}
+#endif
