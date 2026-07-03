@@ -355,9 +355,11 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     /// column instantiation; the logical sample set is unaffected.
     func showAllSampleColumns() {
         guard columnWindow.caps(activeSampleNames()) else { return }
+        let preservedSortDescriptors = activeSortDescriptors
         columnWindow.revealAll()
         rebuildColumns()
-        applyDefaultSortDescriptor()
+        activeSortDescriptors = preservedSortDescriptors
+        syncSortDescriptorsToTables()
         applyFilterAndSort()
     }
 
@@ -2478,6 +2480,20 @@ extension GenotypeComparisonMatrixView {
 
     func testingSetFilter(_ text: String) {
         setFilterText(text)
+    }
+
+    var testingActiveSortDescriptorKey: String? {
+        activeSortDescriptors.first?.key
+    }
+
+    func testingSortKey(forSample sample: String) -> String? {
+        sampleColumnLookup.first(where: { $0.value == sample })?.key.rawValue
+    }
+
+    func testingSetSortDescriptor(key: String, ascending: Bool) {
+        activeSortDescriptors = [NSSortDescriptor(key: key, ascending: ascending)]
+        syncSortDescriptorsToTables()
+        applyFilterAndSort()
     }
 }
 #endif

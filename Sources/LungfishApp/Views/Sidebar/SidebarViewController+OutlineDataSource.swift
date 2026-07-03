@@ -655,9 +655,7 @@ extension SidebarViewController: NSOutlineViewDataSource {
         // longer in the tree) — applySurgicalRemoval mutates the model on success and
         // reports false to request the fallback.
         if !applySurgicalRemoval(of: itemsToRemoveFromOutline) {
-            for item in itemsToRemoveFromOutline {
-                removeItemFromSidebar(item)
-            }
+            removeItemsFromSidebarForReloadFallback(itemsToRemoveFromOutline)
             reloadOutlineView()
         }
 
@@ -850,13 +848,28 @@ extension SidebarViewController: NSOutlineViewDataSource {
         }
     }
 
+    /// Fallback removal used when `applySurgicalRemoval` declines the fast path.
+    /// Filtered outlines contain detached copies, so resolve URL-backed rows to the
+    /// canonical root-model item before mutating `rootItems`.
+    func removeItemsFromSidebarForReloadFallback(_ items: [SidebarItem]) {
+        for item in items {
+            let modelItem = modelItemMatching(item) ?? item
+            removeItemFromSidebar(modelItem)
+        }
+    }
+
+    private func modelItemMatching(_ item: SidebarItem) -> SidebarItem? {
+        guard let url = item.url else { return item }
+        return findItem(byPath: url.standardizedFileURL.path) ?? findItem(byPath: url.path)
+    }
+
     // MARK: - Drag Helper Methods
 
     /// Finds a sidebar item by its URL path
     private func findItem(byPath path: String) -> SidebarItem? {
         func search(in items: [SidebarItem]) -> SidebarItem? {
             for item in items {
-                if item.url?.path == path || item.title == path {
+                if item.url?.path == path || item.url?.standardizedFileURL.path == path || item.title == path {
                     return item
                 }
                 if let found = search(in: item.children) {

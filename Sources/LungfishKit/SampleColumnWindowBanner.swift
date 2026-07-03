@@ -51,10 +51,6 @@ public final class SampleColumnWindowBanner: NSView {
 
     private func build() {
         translatesAutoresizingMaskIntoConstraints = false
-        // Views are layer-backed by default on macOS; `wantsLayer = true` is
-        // banned by the project's macOS 26 API rules. `layer` is non-nil here.
-        layer?.backgroundColor = NSColor.lungfishMutedFill.cgColor
-        layer?.cornerRadius = 4
         isHidden = true
         setAccessibilityIdentifier("sample-column-window-banner")
 
@@ -87,6 +83,12 @@ public final class SampleColumnWindowBanner: NSView {
         ])
     }
 
+    public override func draw(_ dirtyRect: NSRect) {
+        NSColor.lungfishMutedFill.setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: 4, yRadius: 4).fill()
+        super.draw(dirtyRect)
+    }
+
     /// Synchronize the banner with the current window state.
     ///
     /// - Parameters:
@@ -97,6 +99,7 @@ public final class SampleColumnWindowBanner: NSView {
     ///   - totalCount: The full logical sample count.
     public func update(isWindowActive: Bool, shownCount: Int, totalCount: Int) {
         isHidden = !isWindowActive
+        needsDisplay = true
         // Collapse the reserved 24pt row when hidden so the host layout closes the
         // gap; expand it back when the affordance is shown.
         heightConstraint?.constant = isWindowActive ? 24 : 0

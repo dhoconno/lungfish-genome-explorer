@@ -308,12 +308,35 @@ public final class VCFDatasetViewController: NSViewController,
 
     private func classifyVariantType(_ variant: VCFVariant) -> String {
         let ref = variant.ref
-        guard let firstAlt = variant.alt.first else { return "OTHER" }
-        if ref.count == 1 && firstAlt.count == 1 { return "SNP" }
+        let alts = variant.alt
+        guard !alts.isEmpty, alts.contains(where: { !$0.isEmpty && $0 != "." }) else {
+            return "REF"
+        }
+        if alts.contains(where: { $0 == "*" }) {
+            return "OTHER"
+        }
+        if alts.contains(where: { isSymbolicAlt($0) || isBreakendAlt($0) }) || variant.info["SVTYPE"] != nil {
+            return "SV"
+        }
+        if ref.count == 1 && alts.allSatisfy({ $0.count == 1 }) { return "SNP" }
+        guard alts.count == 1, let firstAlt = alts.first else {
+            if ref.count > 1 && alts.allSatisfy({ $0.count == ref.count }) {
+                return "MNP"
+            }
+            return "OTHER"
+        }
         if ref.count < firstAlt.count { return "INS" }
         if ref.count > firstAlt.count { return "DEL" }
         if ref.count == firstAlt.count && ref.count > 1 { return "MNP" }
         return "OTHER"
+    }
+
+    private func isSymbolicAlt(_ alt: String) -> Bool {
+        alt.count > 2 && alt.first == "<" && alt.last == ">"
+    }
+
+    private func isBreakendAlt(_ alt: String) -> Bool {
+        alt.contains("[") || alt.contains("]")
     }
 
     private func updateCountLabel() {
@@ -446,6 +469,7 @@ public final class VCFDatasetViewController: NSViewController,
     func setFilterText(_ text: String) {
         pendingFilterTask?.cancel()
         pendingFilterTask = nil
+        searchField.stringValue = text
         filterText = text
         applyFilter()
     }
@@ -565,6 +589,7 @@ public final class VCFDatasetViewController: NSViewController,
         case "INS": return .systemGreen
         case "DEL": return .lungfishDanger
         case "MNP": return .systemPurple
+        case "SV": return .systemOrange
         default: return .secondaryLabelColor
         }
     }

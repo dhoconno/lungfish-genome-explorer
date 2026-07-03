@@ -25,34 +25,41 @@ extension ViewerViewController {
         canCommit: @MainActor () -> Bool = { true }
     ) async throws {
         hideForNativeAlignmentTreeBundle()
+        hideGenomicsStackForNativeBundle()
         let controller = MultipleSequenceAlignmentViewController()
-        addChild(controller)
-        installNativeBundleSubview(controller.view)
 
-        func tearDownSupersededController() {
+        func tearDownFailedController() {
             controller.view.removeFromSuperview()
             controller.removeFromParent()
             showGenomicsStackAfterNativeBundle()
         }
 
         do {
-            try await controller.displayBundle(at: url)
+            guard try await controller.displayBundle(at: url, canCommit: canCommit) else {
+                alignmentTreeViewerLogger.info(
+                    "displayMultipleSequenceAlignmentBundle: Superseded before install for \(url.lastPathComponent, privacy: .public)"
+                )
+                return
+            }
         } catch {
-            tearDownSupersededController()
+            tearDownFailedController()
             throw error
         }
 
         // The awaited FASTA read above is a suspension point. If a newer
         // selection superseded this request while the read was in flight, tear
-        // down the just-built controller and commit nothing: the generation
-        // guard must dominate the viewport install below.
+        // down only this offscreen controller and commit nothing: the generation
+        // guard must dominate viewport installation and global viewer-chrome
+        // restoration, because the newer selection now owns those views.
         guard canCommit() else {
-            tearDownSupersededController()
             alignmentTreeViewerLogger.info(
                 "displayMultipleSequenceAlignmentBundle: Superseded before install for \(url.lastPathComponent, privacy: .public)"
             )
             return
         }
+
+        addChild(controller)
+        installNativeBundleSubview(controller.view)
 
         controller.onExtractSequenceRequested = { [weak self] fastaRecords, suggestedName in
             self?.presentFASTASequenceExtractionDialog(records: fastaRecords, suggestedName: suggestedName)
@@ -183,5 +190,13 @@ extension ViewerViewController {
         headerView?.isHidden = false
         statusBar?.isHidden = false
         geneTabBarView?.isHidden = true
+    }
+
+    private func hideGenomicsStackForNativeBundle() {
+        enhancedRulerView.isHidden = true
+        viewerView.isHidden = true
+        headerView.isHidden = true
+        statusBar.isHidden = true
+        geneTabBarView.isHidden = true
     }
 }

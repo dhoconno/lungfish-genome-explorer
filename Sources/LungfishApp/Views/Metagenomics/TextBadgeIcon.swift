@@ -18,6 +18,8 @@ enum TextBadgeIcon {
         alpha: 1.0
     )
 
+    private static let defaultImageCache = BadgeImageCache(limit: 64)
+
     /// Renders a badge icon with the given text.
     ///
     /// - Parameters:
@@ -31,6 +33,22 @@ enum TextBadgeIcon {
         size: NSSize,
         fillColor: NSColor = defaultFillColor,
         textColor: NSColor = .white
+    ) -> NSImage {
+        if fillColor.isEqual(defaultFillColor), textColor.isEqual(NSColor.white) {
+            let key = BadgeImageCache.Key(text: text, size: size)
+            return defaultImageCache.image(for: key) {
+                renderImage(text: text, size: size, fillColor: fillColor, textColor: textColor)
+            }
+        }
+
+        return renderImage(text: text, size: size, fillColor: fillColor, textColor: textColor)
+    }
+
+    private static func renderImage(
+        text: String,
+        size: NSSize,
+        fillColor: NSColor,
+        textColor: NSColor
     ) -> NSImage {
         NSImage(size: size, flipped: false) { rect in
             let cornerRadius = rect.height * 0.2
@@ -57,6 +75,37 @@ enum TextBadgeIcon {
             attrString.draw(at: textOrigin)
 
             return true
+        }
+    }
+
+    private final class BadgeImageCache: @unchecked Sendable {
+        struct Key: Hashable {
+            var text: String
+            var size: NSSize
+        }
+
+        private let limit: Int
+        private let lock = NSLock()
+        private var images: [Key: NSImage] = [:]
+
+        init(limit: Int) {
+            self.limit = limit
+        }
+
+        func image(for key: Key, render: () -> NSImage) -> NSImage {
+            lock.lock()
+            defer { lock.unlock() }
+
+            if let image = images[key] {
+                return image
+            }
+
+            let image = render()
+            if images.count >= limit {
+                images.removeAll(keepingCapacity: true)
+            }
+            images[key] = image
+            return image
         }
     }
 }

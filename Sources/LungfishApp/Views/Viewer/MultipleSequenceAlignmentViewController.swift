@@ -390,13 +390,18 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         configureLayout()
     }
 
-    func displayBundle(at url: URL) async throws {
+    @discardableResult
+    func displayBundle(
+        at url: URL,
+        canCommit: @MainActor () -> Bool = { true }
+    ) async throws -> Bool {
         _ = view
         let loaded = try MultipleSequenceAlignmentBundle.load(from: url)
         let primaryAlignmentURL = url.appendingPathComponent("alignment/primary.aligned.fasta")
         // The primary alignment FASTA can be large; read it off the main actor so
         // the read does not block the UI while a bundle is being displayed.
         let primaryAlignmentText = try await AsyncFileReader.readString(primaryAlignmentURL, encoding: .utf8)
+        guard canCommit() else { return false }
         let parsedRows = try Self.parseAlignedFASTA(primaryAlignmentText)
 
         bundleURL = url
@@ -427,6 +432,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         refreshAnnotationDrawer()
         scrollSelectionIntoView()
         notifySelectionStateIfAvailable()
+        return true
     }
 
     @objc private func siteModeChanged(_ sender: NSSegmentedControl) {

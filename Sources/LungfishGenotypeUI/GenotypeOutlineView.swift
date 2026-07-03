@@ -291,6 +291,7 @@ final class GenotypeOutlineView: NSView {
         leading.orientation = .horizontal
         leading.spacing = 6
         leading.alignment = .centerY
+        leading.identifier = NSUserInterfaceItemIdentifier(row.animalId)
         let blockGlyph = NSTextField(labelWithString: blockGlyphSymbol(row.blockKind))
         blockGlyph.font = NSFont.systemFont(ofSize: 11)
         blockGlyph.textColor = blockGlyphColor(row.blockKind)
@@ -515,6 +516,17 @@ extension GenotypeOutlineView {
         onRowSelected?(sample)
     }
 
+    func testingTriggerMaterializedRowClick(sample: String) {
+        guard let row = rows.firstIndex(where: { $0.animalId == sample }) else { return }
+        tableView.scrollRowToVisible(row)
+        testingForceRowMaterialization()
+        guard let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: true),
+              let recognizer = rowClickRecognizer(in: cell) else {
+            return
+        }
+        handleClick(recognizer)
+    }
+
     func testingSimulateTapeClick(sample: String, locus: String) {
         onLocusCellClicked?(sample, locus)
     }
@@ -550,6 +562,19 @@ extension GenotypeOutlineView {
             values.append(contentsOf: textContent(in: subview))
         }
         return values
+    }
+
+    private func rowClickRecognizer(in view: NSView) -> NSClickGestureRecognizer? {
+        if let recognizer = view.gestureRecognizers.compactMap({ $0 as? NSClickGestureRecognizer })
+            .first(where: { !($0 is TapeClickRecognizer) }) {
+            return recognizer
+        }
+        for subview in view.subviews {
+            if let recognizer = rowClickRecognizer(in: subview) {
+                return recognizer
+            }
+        }
+        return nil
     }
 
     private func tapeViews(in view: NSView) -> [GenotypeHaplotypeTapeView] {

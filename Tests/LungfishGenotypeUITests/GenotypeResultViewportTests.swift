@@ -1141,6 +1141,18 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertFalse(matrix.testingIsColumnWindowActive)
     }
 
+    func testComparisonMatrixShowAllPreservesExistingSampleSort() throws {
+        let matrix = makeManySampleMatrix(sampleCount: 150)
+        let key = try XCTUnwrap(matrix.testingSortKey(forSample: "SAMPLE_010"))
+        matrix.testingSetSortDescriptor(key: key, ascending: false)
+        XCTAssertEqual(matrix.testingActiveSortDescriptorKey, key)
+
+        matrix.showAllSampleColumns()
+
+        XCTAssertEqual(matrix.testingSampleColumnCount, 150)
+        XCTAssertEqual(matrix.testingActiveSortDescriptorKey, key)
+    }
+
     /// The reveal banner is visible while windowed, and tapping its "Show all"
     /// action instantiates every column and hides the banner.
     func testComparisonMatrixShowAllBannerRevealsColumnsAndHides() {

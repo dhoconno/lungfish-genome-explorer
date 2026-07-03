@@ -196,21 +196,17 @@ final class FolderMetadataEditorSheet: NSViewController {
         guard let window = view.window else { return }
         panel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK, let url = panel.url, let self else { return }
-            Task { @MainActor [weak self] in
-                await self?.performImport(from: url)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    self.performImport(from: url)
+                }
             }
         }
     }
 
-    /// Imports sample metadata from a user-picked CSV.
-    ///
-    /// The CSV is read off the main actor via `AsyncFileReader`; the merge and
-    /// `tableView.reloadData()` run on the main actor after the read. This is a
-    /// modal import triggered by a file panel and is not superseded by any
-    /// newer action, so no generation guard is required.
-    private func performImport(from csvURL: URL) async {
+    private func performImport(from csvURL: URL) {
         do {
-            let content = try await AsyncFileReader.readString(csvURL)
+            let content = try String(contentsOf: csvURL, encoding: .utf8)
             guard let imported = FASTQFolderMetadata.parse(csv: content) else {
                 logger.warning("Failed to parse imported CSV")
                 return

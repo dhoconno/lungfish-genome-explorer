@@ -330,6 +330,7 @@ public final class TaxaCollectionsDrawerView: NSView {
     func setSearchText(_ text: String) {
         pendingFilterTask?.cancel()
         pendingFilterTask = nil
+        searchField.stringValue = text
         searchText = text
         applyFilters()
     }

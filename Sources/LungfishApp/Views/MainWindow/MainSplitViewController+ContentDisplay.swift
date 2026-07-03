@@ -727,25 +727,22 @@ extension MainSplitViewController {
         let panel = FeatureFilePanelFactory.inspectorTextMetadataImportPanel()
         panel.beginSheetModal(for: window) { [weak self, weak controller] response in
             guard let self, let controller, response == .OK, let url = panel.url else { return }
-            Task { @MainActor [weak self, weak controller] in
-                guard let self, let controller else { return }
-                await self.finishTwelveSMetadataImport(
-                    from: url, into: controller, knownSampleIDs: knownSampleIDs, bundleURL: bundleURL)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { [weak self, weak controller] in
+                    guard let self, let controller else { return }
+                    self.finishTwelveSMetadataImport(
+                        from: url, into: controller, knownSampleIDs: knownSampleIDs, bundleURL: bundleURL)
+                }
             }
         }
     }
 
-    /// Finishes a 12S sample-metadata import. The CSV read runs off the main
-    /// actor via `AsyncFileReader`; the scan, import service, and viewport/
-    /// inspector updates run on the main actor after the read. This is a modal
-    /// import driven by a file panel and is not superseded, so no guard is
-    /// required.
     private func finishTwelveSMetadataImport(
         from url: URL,
         into controller: TwelveSAmpliconResultViewController,
         knownSampleIDs: Set<String>,
         bundleURL: URL
-    ) async {
+    ) {
         func alert(_ title: String, _ message: String) {
             let a = NSAlert()
             a.messageText = title
@@ -755,7 +752,7 @@ extension MainSplitViewController {
             if let window = view.window { a.beginSheetModal(for: window) }
         }
 
-        guard let data = try? await AsyncFileReader.readData(url) else {
+        guard let data = try? Data(contentsOf: url) else {
             alert("Metadata Import Failed", "The selected metadata file could not be read.")
             return
         }

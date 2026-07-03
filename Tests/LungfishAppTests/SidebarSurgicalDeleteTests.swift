@@ -211,4 +211,22 @@ final class SidebarSurgicalDeleteTests: XCTestCase {
 
         XCTAssertFalse(sidebar.applySurgicalRemoval(of: [items["root0"]!, items["child00"]!]))
     }
+
+    func testReloadFallbackRemovesFilteredCopyFromRootModelByURL() {
+        let sidebar = SidebarViewController()
+        sidebar.loadViewIfNeeded()
+        let (roots, items) = makeTree()
+        sidebar.rootItems = roots
+        sidebar.reloadData()
+
+        let filteredCopy = SidebarItem(
+            title: items["child01"]!.title,
+            type: items["child01"]!.type,
+            url: items["child01"]!.url
+        )
+
+        sidebar.removeItemsFromSidebarForReloadFallback([filteredCopy])
+
+        XCTAssertEqual(items["root0"]!.children.map(\.title), ["A", "C"])
+    }
 }

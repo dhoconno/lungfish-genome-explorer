@@ -20,6 +20,46 @@ private enum SidebarAccessibilityIdentifier {
     static let analysesGroup = "sidebar-group-analyses"
 }
 
+private struct SidebarDirectoryEntry {
+    let url: URL
+    let isDirectory: Bool
+}
+
+private let sidebarDirectoryEntryResourceKeys: Set<URLResourceKey> = [
+    .isDirectoryKey,
+    .isHiddenKey,
+    .isSymbolicLinkKey,
+]
+
+private func directoryEntries(in directoryURL: URL) throws -> [SidebarDirectoryEntry] {
+    let contents = try FileManager.default.contentsOfDirectory(
+        at: directoryURL,
+        includingPropertiesForKeys: Array(sidebarDirectoryEntryResourceKeys),
+        options: [.skipsHiddenFiles]
+    )
+
+    return contents.compactMap { url in
+        let values = try? url.resourceValues(forKeys: sidebarDirectoryEntryResourceKeys)
+        guard values?.isHidden != true else { return nil }
+        let isDirectory: Bool
+        if values?.isSymbolicLink == true {
+            var isDirectoryValue: ObjCBool = false
+            FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectoryValue)
+            isDirectory = isDirectoryValue.boolValue
+        } else if let resourceValue = values?.isDirectory {
+            isDirectory = resourceValue
+        } else {
+            var isDirectoryValue: ObjCBool = false
+            FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectoryValue)
+            isDirectory = isDirectoryValue.boolValue
+        }
+        return SidebarDirectoryEntry(
+            url: url,
+            isDirectory: isDirectory
+        )
+    }
+}
+
 private final class LocalEventMonitor {
     private var token: Any?
 
@@ -1147,40 +1187,25 @@ public class SidebarViewController: NSViewController {
     /// - Parameter projectURL: The project directory URL to scan
     /// - Returns: Array of SidebarItems representing the project's contents
     private func buildRootItems(from projectURL: URL) -> [SidebarItem] {
-        let fileManager = FileManager.default
-
         do {
-            let contents = try fileManager.contentsOfDirectory(
-                at: projectURL,
-                includingPropertiesForKeys: [.isDirectoryKey, .isHiddenKey],
-                options: [.skipsHiddenFiles]
-            )
-
             // Sort: folders first, then files alphabetically
-            let sorted = contents.sorted { url1, url2 in
-                var isDir1: ObjCBool = false
-                var isDir2: ObjCBool = false
-                fileManager.fileExists(atPath: url1.path, isDirectory: &isDir1)
-                fileManager.fileExists(atPath: url2.path, isDirectory: &isDir2)
-
-                if isDir1.boolValue != isDir2.boolValue {
-                    return isDir1.boolValue // Directories first
+            let sorted = try directoryEntries(in: projectURL).sorted { entry1, entry2 in
+                if entry1.isDirectory != entry2.isDirectory {
+                    return entry1.isDirectory // Directories first
                 }
-                return url1.lastPathComponent.localizedCaseInsensitiveCompare(url2.lastPathComponent) == .orderedAscending
+                return entry1.url.lastPathComponent.localizedCaseInsensitiveCompare(entry2.url.lastPathComponent) == .orderedAscending
             }
 
             // Build items for each entry
             var items: [SidebarItem] = []
-            for childURL in sorted {
-                var childIsDir: ObjCBool = false
-                fileManager.fileExists(atPath: childURL.path, isDirectory: &childIsDir)
+            for entry in sorted {
                 guard shouldIncludeSidebarEntry(
-                    childURL,
-                    isDirectory: childIsDir.boolValue,
+                    entry.url,
+                    isDirectory: entry.isDirectory,
                     context: .projectRoot
                 ) else { continue }
 
-                let childItem = buildSidebarTree(from: childURL, isRoot: false)
+                let childItem = buildSidebarTree(from: entry.url, isRoot: false)
                 items.append(childItem)
             }
 
@@ -1349,36 +1374,23 @@ public class SidebarViewController: NSViewController {
         var isDirectory: ObjCBool = false
         if fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue && !itemType.isBundle {
             do {
-                let contents = try fileManager.contentsOfDirectory(
-                    at: url,
-                    includingPropertiesForKeys: [.isDirectoryKey, .isHiddenKey],
-                    options: [.skipsHiddenFiles]
-                )
-
                 // Sort: folders first, then files alphabetically
-                let sorted = contents.sorted { url1, url2 in
-                    var isDir1: ObjCBool = false
-                    var isDir2: ObjCBool = false
-                    fileManager.fileExists(atPath: url1.path, isDirectory: &isDir1)
-                    fileManager.fileExists(atPath: url2.path, isDirectory: &isDir2)
-
-                    if isDir1.boolValue != isDir2.boolValue {
-                        return isDir1.boolValue // Directories first
+                let sorted = try directoryEntries(in: url).sorted { entry1, entry2 in
+                    if entry1.isDirectory != entry2.isDirectory {
+                        return entry1.isDirectory // Directories first
                     }
-                    return url1.lastPathComponent.localizedCaseInsensitiveCompare(url2.lastPathComponent) == .orderedAscending
+                    return entry1.url.lastPathComponent.localizedCaseInsensitiveCompare(entry2.url.lastPathComponent) == .orderedAscending
                 }
 
                 // Build children recursively
-                for childURL in sorted {
-                    var childIsDir: ObjCBool = false
-                    fileManager.fileExists(atPath: childURL.path, isDirectory: &childIsDir)
+                for entry in sorted {
                     guard shouldIncludeSidebarEntry(
-                        childURL,
-                        isDirectory: childIsDir.boolValue,
+                        entry.url,
+                        isDirectory: entry.isDirectory,
                         context: .regularDirectory
                     ) else { continue }
 
-                    let childItem = buildSidebarTree(from: childURL, isRoot: false)
+                    let childItem = buildSidebarTree(from: entry.url, isRoot: false)
                     item.children.append(childItem)
                 }
             } catch {

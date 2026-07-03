@@ -621,9 +621,10 @@ extension MainSplitViewController {
                 let manifestData = try await AsyncFileReader.readData(manifestURL)
                 let manifest = try decoder.decode(NaoMgsManifest.self, from: manifestData)
 
+                guard canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
+
                 // If manifest has cached taxon rows, show them immediately.
                 if let cachedRows = manifest.cachedTaxonRows, !cachedRows.isEmpty {
-                    guard canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
                     placeholderVC.configureWithCachedRows(cachedRows, manifest: manifest, bundleURL: bundleURL)
                     inspectorController?.updateNaoMgsManifest(manifest)
                     mainSplitLogger.info("displayNaoMgsResult: Showing \(cachedRows.count) cached taxon rows instantly")

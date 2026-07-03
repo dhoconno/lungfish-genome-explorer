@@ -91,6 +91,17 @@ final class VCFDatasetViewControllerTests: XCTestCase {
         XCTAssertEqual(vc.displayedVariantCountForTesting, 2)
     }
 
+    func testProgrammaticSetFilterTextUpdatesSearchField() throws {
+        let vc = VCFDatasetViewController()
+        _ = vc.view
+        vc.configure(summary: makeSummary(), variants: makeVariants())
+
+        vc.setFilterText("chr1")
+
+        let field = try XCTUnwrap(vc.view.firstDescendant(of: NSSearchField.self))
+        XCTAssertEqual(field.stringValue, "chr1")
+    }
+
     // MARK: - Search-Key Precompute Parity Tests
 
     /// Reference implementation of the old per-apply search-key construction.
@@ -240,6 +251,44 @@ final class VCFDatasetViewControllerTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(400))
         XCTAssertEqual(vc.applyFilterCount, countAfterChip,
                        "Cancelled debounce task must not fire a second applyFilter() after the chip tap")
+    }
+
+    func testStructuralVariantChipMatchesDisplayedRows() throws {
+        let vc = VCFDatasetViewController()
+        _ = vc.view
+        let variants = [
+            LungfishIO.VCFVariant(
+                id: "snp", chromosome: "chr1", position: 100,
+                ref: "A", alt: ["G"], quality: 60, filter: "PASS", info: [:]
+            ),
+            LungfishIO.VCFVariant(
+                id: "sv-del", chromosome: "chr1", position: 200,
+                ref: "N", alt: ["<DEL>"], quality: 50, filter: "PASS",
+                info: ["END": "250", "SVTYPE": "DEL"]
+            ),
+        ]
+        let summary = VCFSummary(
+            header: VCFHeader(),
+            variantCount: variants.count,
+            chromosomes: ["chr1"],
+            maxPositionPerChromosome: ["chr1": 250],
+            variantTypes: ["SNP": 1, "SV": 1],
+            hasSampleColumns: false,
+            inferredReference: nil,
+            qualityStats: VCFSummary.QualityStats(min: 50, max: 60, mean: 55, count: variants.count),
+            filterCounts: ["PASS": variants.count]
+        )
+        vc.configure(summary: summary, variants: variants)
+
+        let typeChipsBar = vc.view.subviews[1]
+        let svChip = try XCTUnwrap(
+            typeChipsBar.subviews.compactMap { $0 as? NSButton }.first { $0.title.hasPrefix("SV ") },
+            "Expected an SV type chip from the VCF summary"
+        )
+
+        NSApp.sendAction(svChip.action!, to: svChip.target, from: svChip)
+
+        XCTAssertEqual(vc.testDisplayedVariants.map(\.id), ["sv-del"])
     }
 }
 

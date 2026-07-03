@@ -60,6 +60,30 @@ final class MultipleSequenceAlignmentSupersessionTests: XCTestCase {
         )
     }
 
+    /// A superseded completion must not restore the generic genomics stack: by
+    /// definition a newer selection owns the viewport by the time the stale read
+    /// resolves, so stale cleanup must be limited to its own transient controller.
+    func testSupersededSelectionDoesNotRestoreGenomicsStack() async throws {
+        let bundleURL = msaBundleURL()
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: bundleURL.path), "MSA fixture missing")
+
+        let vc = ViewerViewController()
+        vc.view.frame = NSRect(x: 0, y: 0, width: 1400, height: 800)
+        vc.enhancedRulerView.isHidden = true
+        vc.viewerView.isHidden = true
+        vc.headerView.isHidden = true
+        vc.statusBar.isHidden = true
+        vc.geneTabBarView.isHidden = true
+
+        try await vc.displayMultipleSequenceAlignmentBundle(at: bundleURL, canCommit: { false })
+
+        XCTAssertTrue(vc.enhancedRulerView.isHidden)
+        XCTAssertTrue(vc.viewerView.isHidden)
+        XCTAssertTrue(vc.headerView.isHidden)
+        XCTAssertTrue(vc.statusBar.isHidden)
+        XCTAssertTrue(vc.geneTabBarView.isHidden)
+    }
+
     /// End-to-end supersession driven through the real display generation gate
     /// (`AsyncRequestGate`), reproducing "selection A, then quickly selection B"
     /// where A's off-main read resolves LAST.
@@ -106,5 +130,25 @@ final class MultipleSequenceAlignmentSupersessionTests: XCTestCase {
             gate.isCurrent(requestA, expectedIdentity: "bundle-A"),
             "Once the gate advances, the older request's commit must be rejected"
         )
+    }
+
+    /// The lower-level controller loader also has a suspension point. Refresh
+    /// paths that reuse an existing controller must be able to reject a stale
+    /// post-read commit before controller state or selection callbacks change.
+    func testControllerDisplayBundleRejectedCommitLeavesStateUnchanged() async throws {
+        let bundleURL = msaBundleURL()
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: bundleURL.path), "MSA fixture missing")
+
+        let controller = MultipleSequenceAlignmentViewController()
+        var selectionNotificationCount = 0
+        controller.onSelectionStateChanged = { _ in
+            selectionNotificationCount += 1
+        }
+
+        let didCommit = try await controller.displayBundle(at: bundleURL, canCommit: { false })
+
+        XCTAssertFalse(didCommit)
+        XCTAssertNil(controller.bundleURL)
+        XCTAssertEqual(selectionNotificationCount, 0)
     }
 }

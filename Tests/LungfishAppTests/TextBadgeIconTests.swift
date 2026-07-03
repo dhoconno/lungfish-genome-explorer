@@ -23,6 +23,15 @@ struct TextBadgeIconTests {
     }
 
     @Test
+    func reusesDefaultBadgeImageForIdenticalRequests() {
+        let size = NSSize(width: 16, height: 16)
+        let first = TextBadgeIcon.image(text: "NVD", size: size)
+        let second = TextBadgeIcon.image(text: "NVD", size: size)
+
+        #expect(first === second)
+    }
+
+    @Test
     func rendersBadgeAtDifferentSizes() {
         for dimension in [12, 16, 20, 24] {
             let size = NSSize(width: dimension, height: dimension)

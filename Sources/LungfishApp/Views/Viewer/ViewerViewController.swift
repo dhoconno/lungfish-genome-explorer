@@ -1752,16 +1752,22 @@ public class ViewerViewController: NSViewController {
             }
         }
 
-        Task.detached {
+        Task.detached { [weak self] in
             do {
                 _ = try await runner.run(arguments: arguments, operationID: opID)
-                await Task { @MainActor in
+                await Task { @MainActor [weak self] in
+                    guard let self else { return }
                     guard let controller, controller.bundleURL == targetBundleURL else { return }
                     do {
                         // `displayBundle` reads the primary alignment FASTA off the
-                        // main actor; the `bundleURL` check above already gates on
-                        // the same bundle still being displayed.
-                        try await controller.displayBundle(at: targetBundleURL)
+                        // main actor; re-check that this exact controller is still
+                        // current after the read and before displayBundle mutates
+                        // controller state or notifies selection.
+                        try await controller.displayBundle(at: targetBundleURL) { [weak self, weak controller] in
+                            guard let self, let controller else { return false }
+                            return self.multipleSequenceAlignmentViewController === controller
+                                && controller.bundleURL == targetBundleURL
+                        }
                     } catch {
                         OperationCenter.shared.log(
                             id: opID,

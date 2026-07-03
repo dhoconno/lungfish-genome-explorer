@@ -131,7 +131,7 @@ final class GenotypeOutlineVirtualizationTests: XCTestCase {
         view.onRowSelected = { selected = $0 }
         view.onLocusCellClicked = { clickedCell = ($0, $1) }
 
-        view.testingSimulateRowClick(sample: "C3")
+        view.testingTriggerMaterializedRowClick(sample: "C3")
         XCTAssertEqual(selected, "C3")
 
         view.testingSimulateTapeClick(sample: "C3", locus: "MHC-B")

@@ -528,6 +528,16 @@ final class TaxaCollectionsDrawerTests: XCTestCase {
         drawer.setSearchText("")
         XCTAssertEqual(drawer.displayedCollectionCount, TaxaCollection.builtIn.count)
     }
+
+    func testProgrammaticSetSearchTextUpdatesSearchField() throws {
+        let drawer = TaxaCollectionsDrawerView(frame: NSRect(x: 0, y: 0, width: 800, height: 220))
+        drawer.layoutSubtreeIfNeeded()
+
+        drawer.setSearchText("respiratory")
+
+        let field = try XCTUnwrap(drawer.firstDescendant(of: NSSearchField.self))
+        XCTAssertEqual(field.stringValue, "respiratory")
+    }
 }
 
 // MARK: - Test Helpers
