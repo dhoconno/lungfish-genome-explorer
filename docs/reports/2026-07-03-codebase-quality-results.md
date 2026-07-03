@@ -44,7 +44,7 @@ Each module still ends with a FULL green-bar gate before the next module begins.
 | Module | Batches applied | LOC delta | Deferrals | Green-bar |
 |---|---|---|---|---|
 | LungfishCore | **COMPLETE**: all ~70 files audited (7 big solo + wave-2/3 clusters) + 3 big files split into focused files, across 7 committed batches | net ~ -210 lines (+ file splits) | rich (see 01-core.md) | **CERTIFIED GREEN**. Mid-Core full run: 9558 XCTest / 487 swift-testing, 0 fail. Final Core-boundary run (ONT pipeline suite skipped — it deadlocks under concurrent load but passes in isolation; environmental, not a regression): 9531 XCTest, 0 failures. |
-| LungfishIO | - | - | - | - |
+| LungfishIO | **IN PROGRESS**. Batch 1: `NaoMgsDatabase.swift` (2621L) split into 5 focused files (+Create/+Merge/+Summaries/+Queries) + `defer`-ordering consistency tweak. 10 `private`->`internal` promotions (all verified minimal, none `public`); `logger`->`naoMgsDatabaseLogger` rename to avoid a module shadow. Verified pure relocation. | ~+44 (extension wrappers) | see 02-io.md | Batch 1 scoped-green: LungfishIOTests 2146 exec / 0 fail (2 env skips). Module-boundary full green-bar pending at IO end. |
 | LungfishWorkflow | - | - | - | - |
 | LungfishKit | - | - | - | - |
 | Leaf UI modules (9) | - | - | - | - |
