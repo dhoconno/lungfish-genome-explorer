@@ -1752,42 +1752,41 @@ public class ViewerViewController: NSViewController {
             }
         }
 
-        Task.detached { [weak self] in
+        // `runner` is an actor, so `runner.run` executes off the main actor
+        // regardless of the launching context. Use a main-actor `Task` (not
+        // `Task.detached`) so the CLI work still runs off-main while the
+        // follow-up UI work stays natural main-actor code, avoiding the banned
+        // background-to-main-actor Task hop.
+        Task { [weak self] in
             do {
                 _ = try await runner.run(arguments: arguments, operationID: opID)
-                await Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    guard let controller, controller.bundleURL == targetBundleURL else { return }
-                    do {
-                        // `displayBundle` reads the primary alignment FASTA off the
-                        // main actor; re-check that this exact controller is still
-                        // current after the read and before displayBundle mutates
-                        // controller state or notifies selection.
-                        try await controller.displayBundle(at: targetBundleURL) { [weak self, weak controller] in
-                            guard let self, let controller else { return false }
-                            return self.multipleSequenceAlignmentViewController === controller
-                                && controller.bundleURL == targetBundleURL
-                        }
-                    } catch {
-                        OperationCenter.shared.log(
-                            id: opID,
-                            level: .warning,
-                            message: "Updated annotation store, but the alignment viewport could not be refreshed: \(error.localizedDescription)"
-                        )
+                guard let self else { return }
+                guard let controller, controller.bundleURL == targetBundleURL else { return }
+                do {
+                    // `displayBundle` reads the primary alignment FASTA off the
+                    // main actor; re-check that this exact controller is still
+                    // current after the read and before displayBundle mutates
+                    // controller state or notifies selection.
+                    try await controller.displayBundle(at: targetBundleURL) { [weak self, weak controller] in
+                        guard let self, let controller else { return false }
+                        return self.multipleSequenceAlignmentViewController === controller
+                            && controller.bundleURL == targetBundleURL
                     }
-                }.value
+                } catch {
+                    OperationCenter.shared.log(
+                        id: opID,
+                        level: .warning,
+                        message: "Updated annotation store, but the alignment viewport could not be refreshed: \(error.localizedDescription)"
+                    )
+                }
             } catch is CancellationError {
                 return
             } catch {
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        OperationCenter.shared.fail(
-                            id: opID,
-                            detail: error.localizedDescription,
-                            errorMessage: error.localizedDescription
-                        )
-                    }
-                }
+                OperationCenter.shared.fail(
+                    id: opID,
+                    detail: error.localizedDescription,
+                    errorMessage: error.localizedDescription
+                )
             }
         }
     }
