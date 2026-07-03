@@ -269,7 +269,7 @@ final class VariantSectionViewModelTests: XCTestCase {
 final class VariantSectionViewModelGenotypeTests: XCTestCase {
 
     /// Tests genotype summary with a temporary variant database.
-    func testGenotypeSummaryWithDatabase() throws {
+    func testGenotypeSummaryWithDatabase() async throws {
         let tmpDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmpDir) }
@@ -309,6 +309,7 @@ final class VariantSectionViewModelGenotypeTests: XCTestCase {
         )
 
         vm.select(variant: variant)
+        await vm.awaitGenotypeSummaryLoadForTesting()
 
         XCTAssertTrue(vm.hasGenotypes)
         XCTAssertEqual(vm.homRefCount, 1)  // 0/0
@@ -321,7 +322,7 @@ final class VariantSectionViewModelGenotypeTests: XCTestCase {
         XCTAssertEqual(vm.alleleFrequency!, 0.5, accuracy: 0.001)
     }
 
-    func testInfoFieldParsing() throws {
+    func testInfoFieldParsing() async throws {
         let tmpDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmpDir) }
@@ -358,6 +359,7 @@ final class VariantSectionViewModelGenotypeTests: XCTestCase {
         )
 
         vm.select(variant: variant)
+        await vm.awaitGenotypeSummaryLoadForTesting()
 
         // Check INFO fields were parsed
         XCTAssertFalse(vm.infoFields.isEmpty)
@@ -368,7 +370,7 @@ final class VariantSectionViewModelGenotypeTests: XCTestCase {
         XCTAssertEqual(infoDict["DB"], "true")  // Flag field
     }
 
-    func testClearAfterSelect() throws {
+    func testClearAfterSelect() async throws {
         let tmpDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmpDir) }
@@ -396,6 +398,7 @@ final class VariantSectionViewModelGenotypeTests: XCTestCase {
         )
 
         vm.select(variant: variant)
+        await vm.awaitGenotypeSummaryLoadForTesting()
         XCTAssertTrue(vm.hasGenotypes)
         XCTAssertTrue(vm.hetCount + vm.homAltCount > 0)
 
@@ -407,5 +410,87 @@ final class VariantSectionViewModelGenotypeTests: XCTestCase {
         XCTAssertEqual(vm.noCallCount, 0)
         XCTAssertTrue(vm.infoFields.isEmpty)
         XCTAssertFalse(vm.hasGenotypes)
+    }
+
+    // MARK: - Supersession
+
+    /// Builds a two-variant database with distinct genotype profiles so a
+    /// supersession test can tell which variant's summary landed.
+    private func makeTwoVariantDatabase() throws -> VariantDatabase {
+        let tmpDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        // Variant 1 (rs1): all het.  Variant 2 (rs2): all hom-alt.
+        let vcfContent = """
+        ##fileformat=VCFv4.2
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\tS2\tS3
+        chr1\t100\trs1\tA\tG\t30\tPASS\t.\tGT\t0/1\t0/1\t0/1
+        chr1\t200\trs2\tC\tT\t30\tPASS\t.\tGT\t1/1\t1/1\t1/1
+        """
+        let vcfURL = tmpDir.appendingPathComponent("test.vcf")
+        try vcfContent.write(to: vcfURL, atomically: true, encoding: .utf8)
+        let dbURL = tmpDir.appendingPathComponent("test.db")
+        _ = try VariantDatabase.createFromVCF(vcfURL: vcfURL, outputURL: dbURL, parseGenotypes: true)
+        return try VariantDatabase(url: dbURL)
+    }
+
+    private func variantResult(name: String, start: Int, ref: String, alt: String, rowId: Int64) -> AnnotationSearchIndex.SearchResult {
+        AnnotationSearchIndex.SearchResult(
+            name: name, chromosome: "chr1", start: start, end: start + 1,
+            trackId: "variants", type: "SNP", strand: ".",
+            ref: ref, alt: alt, quality: 30.0, filter: "PASS",
+            sampleCount: 3, variantRowId: rowId
+        )
+    }
+
+    /// Baseline (non-raced): selecting a single variant lands its own summary.
+    func testSupersessionBaselineSingleSelect() async throws {
+        let db = try makeTwoVariantDatabase()
+        let vm = VariantSectionViewModel()
+        vm.variantDatabase = db
+
+        vm.select(variant: variantResult(name: "rs1", start: 99, ref: "A", alt: "G", rowId: 1))
+        await vm.awaitGenotypeSummaryLoadForTesting()
+
+        // rs1 is all het.
+        XCTAssertTrue(vm.hasGenotypes)
+        XCTAssertEqual(vm.hetCount, 3)
+        XCTAssertEqual(vm.homAltCount, 0)
+    }
+
+    /// A newer selection supersedes an in-flight load: after both loads settle,
+    /// the committed summary is the newer variant's, never the older one's.
+    func testSupersededSelectCommitsNewerSummary() async throws {
+        let db = try makeTwoVariantDatabase()
+        let vm = VariantSectionViewModel()
+        vm.variantDatabase = db
+
+        // Select rs1 (all het), then immediately rs2 (all hom-alt) before
+        // awaiting. The rs1 load is superseded and must not clobber rs2.
+        vm.select(variant: variantResult(name: "rs1", start: 99, ref: "A", alt: "G", rowId: 1))
+        vm.select(variant: variantResult(name: "rs2", start: 199, ref: "C", alt: "T", rowId: 2))
+        await vm.awaitGenotypeSummaryLoadForTesting()
+
+        // The committed summary must be rs2 (all hom-alt), not rs1 (all het).
+        XCTAssertEqual(vm.selectedVariant?.name, "rs2")
+        XCTAssertTrue(vm.hasGenotypes)
+        XCTAssertEqual(vm.homAltCount, 3, "newer selection (rs2, all hom-alt) must win")
+        XCTAssertEqual(vm.hetCount, 0, "stale rs1 (all het) summary must not land")
+    }
+
+    /// Clearing while a load is in flight supersedes it: no stale counts land.
+    func testClearSupersedesInFlightLoad() async throws {
+        let db = try makeTwoVariantDatabase()
+        let vm = VariantSectionViewModel()
+        vm.variantDatabase = db
+
+        vm.select(variant: variantResult(name: "rs1", start: 99, ref: "A", alt: "G", rowId: 1))
+        vm.clear()
+        // Await whatever the (now-detached) rs1 task produces; it must not commit.
+        await vm.awaitGenotypeSummaryLoadForTesting()
+
+        XCTAssertNil(vm.selectedVariant)
+        XCTAssertFalse(vm.hasGenotypes)
+        XCTAssertEqual(vm.hetCount, 0)
+        XCTAssertEqual(vm.homAltCount, 0)
     }
 }

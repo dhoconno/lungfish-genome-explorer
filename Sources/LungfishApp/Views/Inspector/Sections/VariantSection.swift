@@ -51,6 +51,17 @@ public final class VariantSectionViewModel {
     /// Whether the variant detail section is expanded.
     var isExpanded: Bool = true
 
+    /// Monotonic generation counter for genotype-summary loads.
+    ///
+    /// Bumped on every `select(variant:)` and `clear()`. The off-main DB load
+    /// captures the generation before its detached work and re-checks it on the
+    /// main actor before committing the computed genotype properties, so a
+    /// slower load for an older selection cannot clobber a newer one.
+    private var loadGeneration: Int = 0
+
+    /// In-flight genotype-summary load task, cancelled when superseded.
+    private var loadTask: Task<Void, Never>?
+
     // MARK: - Callbacks
 
     /// Called when the user requests zooming to the variant position.
@@ -86,6 +97,11 @@ public final class VariantSectionViewModel {
 
     /// Clears the variant selection.
     func clear() {
+        // Bump the generation so any in-flight genotype load is superseded and
+        // cannot commit stale counts after this clear.
+        loadGeneration &+= 1
+        loadTask?.cancel()
+        loadTask = nil
         selectedVariant = nil
         homRefCount = 0
         hetCount = 0
@@ -95,8 +111,34 @@ public final class VariantSectionViewModel {
         hasGenotypes = false
     }
 
+    /// Computed genotype summary produced off the main actor.
+    private struct GenotypeSummary {
+        var hasGenotypes: Bool
+        var homRefCount: Int
+        var hetCount: Int
+        var homAltCount: Int
+        var noCallCount: Int
+        var infoFields: [(key: String, value: String)]
+    }
+
     /// Loads genotype summary for a variant from the database.
+    ///
+    /// The four read-only `VariantDatabase` queries (`genotypes`, `sampleCount`,
+    /// `query`, `infoValues`) run off the main actor in a detached task —
+    /// `VariantDatabase` opens SQLite with `SQLITE_OPEN_FULLMUTEX` and each query
+    /// prepares/finalizes its own statement, so concurrent read access is safe.
+    ///
+    /// This is a selection path: a newer `select`/`clear` can supersede this
+    /// load while the detached queries are in flight. The generation captured
+    /// before the await is re-checked on the main actor with ZERO await between
+    /// the guard and the property commit, so a stale load commits nothing.
     private func loadGenotypeSummary(for variant: AnnotationSearchIndex.SearchResult) {
+        // Bump the generation and cancel any prior in-flight load.
+        loadGeneration &+= 1
+        let generation = loadGeneration
+        loadTask?.cancel()
+        loadTask = nil
+
         guard let rowId = variant.variantRowId else {
             hasGenotypes = false
             return
@@ -114,45 +156,96 @@ public final class VariantSectionViewModel {
             return
         }
 
-        let genotypes = db.genotypes(forVariantId: rowId)
-        let totalSamples = db.sampleCount()
+        // Capture the values needed off-main. `db` is @unchecked Sendable and
+        // safe for concurrent reads (FULLMUTEX + per-call statements).
+        let chromosome = variant.chromosome
+        let start = variant.start
+        let end = variant.end
+        let searchResultSampleCount = variant.sampleCount
 
-        // Determine called sample count (hom-ref genotypes are omitted from the DB).
-        // Prefer the SearchResult value; fall back to the DB variant record.
-        let calledSamples: Int
-        if let sc = variant.sampleCount {
-            calledSamples = sc
-        } else {
-            let records = db.query(chromosome: variant.chromosome, start: variant.start, end: variant.end, limit: 1)
-            calledSamples = records.first(where: { $0.id == rowId })?.sampleCount ?? 0
+        loadTask = Task { [weak self] in
+            let summary = await Self.computeGenotypeSummary(
+                db: db,
+                rowId: rowId,
+                chromosome: chromosome,
+                start: start,
+                end: end,
+                searchResultSampleCount: searchResultSampleCount
+            )
+            // Re-check the generation on the main actor. There is NO await
+            // between this guard and the property commit below, so the guard
+            // dominates the commit and a superseded load writes nothing.
+            guard let self, self.loadGeneration == generation else { return }
+            self.hasGenotypes = summary.hasGenotypes
+            self.homRefCount = summary.homRefCount
+            self.hetCount = summary.hetCount
+            self.homAltCount = summary.homAltCount
+            self.noCallCount = summary.noCallCount
+            self.infoFields = summary.infoFields
         }
+    }
 
-        hasGenotypes = true
-        var het = 0, hAlt = 0
+    /// Awaits the in-flight genotype-summary load, if any.
+    ///
+    /// Test-only seam: the genotype load runs off the main actor, so tests must
+    /// await it before asserting on the computed counts. Returns immediately
+    /// when no load is in flight.
+    func awaitGenotypeSummaryLoadForTesting() async {
+        await loadTask?.value
+    }
 
-        for gt in genotypes {
-            switch GenotypeDisplayCall.classify(genotype: gt.genotype, allele1: gt.allele1, allele2: gt.allele2) {
-            case .homRef: break  // should not appear in DB (omitted)
-            case .het:    het += 1
-            case .homAlt: hAlt += 1
-            case .noCall: break  // counted from calledSamples below
+    /// Runs the read-only genotype/INFO queries off the main actor and folds
+    /// them into a `GenotypeSummary`. Pure function of its inputs (identical
+    /// output to the former synchronous computation).
+    private nonisolated static func computeGenotypeSummary(
+        db: VariantDatabase,
+        rowId: Int64,
+        chromosome: String,
+        start: Int,
+        end: Int,
+        searchResultSampleCount: Int?
+    ) async -> GenotypeSummary {
+        await Task.detached {
+            let genotypes = db.genotypes(forVariantId: rowId)
+            let totalSamples = db.sampleCount()
+
+            // Determine called sample count (hom-ref genotypes are omitted from the DB).
+            // Prefer the SearchResult value; fall back to the DB variant record.
+            let calledSamples: Int
+            if let sc = searchResultSampleCount {
+                calledSamples = sc
+            } else {
+                let records = db.query(chromosome: chromosome, start: start, end: end, limit: 1)
+                calledSamples = records.first(where: { $0.id == rowId })?.sampleCount ?? 0
             }
-        }
 
-        // Infer hom-ref: called minus non-hom-ref called genotypes (het + homAlt).
-        homRefCount = max(0, calledSamples - (het + hAlt))
-        hetCount = het
-        homAltCount = hAlt
-        // No-call = total samples minus called samples.
-        noCallCount = max(0, totalSamples - calledSamples)
+            var het = 0, hAlt = 0
+            for gt in genotypes {
+                switch GenotypeDisplayCall.classify(genotype: gt.genotype, allele1: gt.allele1, allele2: gt.allele2) {
+                case .homRef: break  // should not appear in DB (omitted)
+                case .het:    het += 1
+                case .homAlt: hAlt += 1
+                case .noCall: break  // counted from calledSamples below
+                }
+            }
 
-        // Fetch structured INFO from variant_info EAV table
-        let infoDict = db.infoValues(variantId: rowId)
-        if !infoDict.isEmpty {
-            infoFields = infoDict.sorted(by: { $0.key < $1.key }).map { (key: $0.key, value: $0.value) }
-        } else {
-            infoFields = []
-        }
+            // Fetch structured INFO from variant_info EAV table
+            let infoDict = db.infoValues(variantId: rowId)
+            let infoFields: [(key: String, value: String)] = infoDict.isEmpty
+                ? []
+                : infoDict.sorted(by: { $0.key < $1.key }).map { (key: $0.key, value: $0.value) }
+
+            return GenotypeSummary(
+                hasGenotypes: true,
+                // Infer hom-ref: called minus non-hom-ref called genotypes (het + homAlt).
+                homRefCount: max(0, calledSamples - (het + hAlt)),
+                hetCount: het,
+                homAltCount: hAlt,
+                // No-call = total samples minus called samples.
+                noCallCount: max(0, totalSamples - calledSamples),
+                infoFields: infoFields
+            )
+        }.value
     }
 
 }
