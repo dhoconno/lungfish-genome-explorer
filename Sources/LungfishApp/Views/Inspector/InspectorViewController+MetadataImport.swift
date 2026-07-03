@@ -62,15 +62,17 @@ extension InspectorViewController {
         guard let window = self.view.window else { return }
         panel.beginSheetModal(for: window) { [weak self] response in
             guard let self, response == .OK, let url = panel.url else { return }
-            DispatchQueue.main.async { [weak self] in
-                MainActor.assumeIsolated {
-                    self?.handleMetadataImport(from: url)
-                }
+            Task { @MainActor [weak self] in
+                await self?.handleMetadataImport(from: url)
             }
         }
     }
 
-    private func handleMetadataImport(from url: URL) {
+    /// Handles a user-picked metadata CSV import. The file read runs off the
+    /// main actor via `AsyncFileReader`; all UI (alerts, column picker) is
+    /// presented on the main actor after the read. This is a modal import
+    /// driven by a file panel and is not superseded, so no guard is required.
+    private func handleMetadataImport(from url: URL) async {
         guard let context = currentSampleMetadataImportContext() else {
             showMetadataImportAlert(
                 title: "No Samples Available",
@@ -78,7 +80,7 @@ extension InspectorViewController {
             )
             return
         }
-        guard let data = try? Data(contentsOf: url) else {
+        guard let data = try? await AsyncFileReader.readData(url) else {
             showMetadataImportAlert(
                 title: "Metadata Import Failed",
                 message: InspectorSampleMetadataImportError.unreadableFile.localizedDescription
