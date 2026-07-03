@@ -180,3 +180,66 @@ entry names the file, the reason it was deferred, and a concrete suggestion.
   cross-module and a producer may exist in IO/Workflow. Suggestion: grep all
   modules for constructors of these cases; remove only if zero external
   producers.
+
+## Wave-2 cluster escalations (behavior-changing / cross-file — NOT applied)
+
+### Translation + Versioning
+- VersionHistory uses legacy `ObservableObject`/`@Published` in an otherwise
+  `@Observable` codebase (F6). Migration changes view-update timing — not
+  behavior-preserving. Defer to a deliberate observation-migration pass.
+- `VersionHistory.fromJSON` swallows checkout failure with `try?` (F7), leaving
+  index/sequence inconsistent on corrupt history. Changing to `try` alters the
+  throwing contract. Defer (needs a test decision).
+- Leave-alone (correctness-critical): codon tables + U→T normalization, diff
+  apply/inverse round-trip, `genomicRangesForCodon` strand mapping, SHA-256 hex.
+
+### Services/AI (3 providers + helpers)
+- R1 — HTTP status→AIProviderError switch duplicated 5x across providers. A
+  shared `mapNonSuccessStatus(...)` helper is the big DRY win but touches every
+  provider's FAILURE PATH (401-vs-{401,403}, quota, context-length, retry-after).
+  Defer: behavior-preserving only if parameterized exactly; needs provider
+  error-mapping tests green before/after.
+- E2 — Anthropic/Gemini call `httpClient.data(for:)` bare while OpenAI wraps
+  transport errors into `.networkError`. Wrapping them changes the error TYPE
+  surfaced on timeout/offline (inconsistent today). Defer (failure-path change).
+- E1 — Gemini maps 403→`.missingAPIKey` (often really quota/billing). Defer.
+- C1 — OpenAI `parseStructuredResponse` has two contradictory refusal guards
+  (empty-string refusal allowed by branch 1, rejected by branch 2). Needs a
+  decision on intended semantics. Defer.
+- AC1 — 10 AI helper free functions sit at LungfishCore module scope with
+  generic names (`parseErrorMessage`, `anyToJSONValue`). Namespacing under a
+  caseless enum is clean but a wide mechanical rename. Defer.
+- CN1 — structured send/parse skeleton near-identical OpenAI vs Anthropic; a
+  generic `sendJSONRequest<T>` template crosses actor isolation (parse closures
+  capture actor-isolated self). Defer to a dedicated pass.
+- Hardcoded model defaults noted, NOT changed: Anthropic `claude-sonnet-4-5-20250929`,
+  OpenAI `gpt-5.5`, Gemini `gemini-2.5-flash`.
+
+### Network services (ENA / Pathoplexus / SRA parser)
+- ENA `fetchBatch` AsyncThrowingStream lacks `onTermination` cancellation +
+  `Task.checkCancellation()` (F6) — same gap as NCBIService; Pathoplexus has the
+  correct pattern. Fix all three together (cross-file). Defer.
+- ENA date parsing omits `en_US_POSIX` locale (F10) — Pathoplexus sets it.
+  Strictly-more-correct but a behavior change under exotic locales. Defer (pair
+  with the DateFormatter caching that WAS applied).
+- ENA `search` `hasMore`/`totalCount` are page-based, not corpus totals (F9) —
+  false-positive `hasMore` when last page == limit. Needs an ENA count endpoint.
+  Defer.
+- ENA searchReads vs searchReadsByStudy empty/error handling has DRIFTED (F7):
+  one checks `errorText.contains("error")`, the other does not. Reconciling is a
+  failure-path change. Defer.
+- makeRequest status-switch duplicated across ENA/Pathoplexus/NCBI (F8) — shared
+  `RateLimitedHTTPRequester` is a cross-file design item. Defer.
+- Int/Double-or-String decode helper duplicated 5x+ (F1) — a shared
+  `KeyedDecodingContainer.decodeIntOrString/decodeDoubleOrString` is a clean win
+  but spans ENA + PathoplexusModels (2 files); left for a decode-helper pass.
+
+### Bundles/Converters
+- VariantConverter `convertToBCF` is a STUB (writes `##BCF_PLACEHOLDER` text +
+  text "index", not real BCF); several `VariantConversionError` /
+  `AnnotationConversionError` cases + `duplicateVariant` never constructed
+  (DEAD-03). Same stub concern as ReferenceBundleBuilder. Owner/downstream
+  adjudication.
+- AnnotationConverter `ConversionOptions.mergeOverlapping` is a public option
+  never consulted — silent no-op contract (CLARITY-04). Document-or-implement
+  decision. Defer.
