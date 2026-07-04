@@ -234,7 +234,8 @@ public enum MetagenomicsImportService {
         try ensureDirectoryExists(resultDirectory)
         writeAnalysisMetadataIfNeeded(tool: MetagenomicsImportKind.kraken2.toolIdentifier, to: resultDirectory)
         OperationMarker.markInProgress(resultDirectory, detail: "Importing Kraken2 results\u{2026}")
-        defer { OperationMarker.clearInProgress(resultDirectory) }
+        var importCompleted = false
+        defer { finalizeImportDirectory(resultDirectory, completed: importCompleted) }
 
         let canonicalReportURL = resultDirectory.appendingPathComponent("classification.kreport")
         progress?(0.25, "Copying report...")
@@ -320,6 +321,7 @@ public enum MetagenomicsImportService {
         }
 
         progress?(1.0, "Kraken2 import complete")
+        importCompleted = true
         return Kraken2ImportResult(
             resultDirectory: resultDirectory,
             totalReads: tree.totalReads,
@@ -368,7 +370,8 @@ public enum MetagenomicsImportService {
         try ensureDirectoryExists(resultDirectory)
         writeAnalysisMetadataIfNeeded(tool: MetagenomicsImportKind.esviritu.toolIdentifier, to: resultDirectory)
         OperationMarker.markInProgress(resultDirectory, detail: "Importing EsViritu results\u{2026}")
-        defer { OperationMarker.clearInProgress(resultDirectory) }
+        var importCompleted = false
+        defer { finalizeImportDirectory(resultDirectory, completed: importCompleted) }
         progress?(0.05, "Copying EsViritu files...")
 
         let copiedFiles = try copyInputPayload(from: inputURL, into: resultDirectory)
@@ -459,6 +462,7 @@ public enum MetagenomicsImportService {
         }
 
         progress?(1.0, "EsViritu import complete")
+        importCompleted = true
         return EsVirituImportResult(
             resultDirectory: resultDirectory,
             importedFileCount: copiedRegularFiles.count,
@@ -494,7 +498,8 @@ public enum MetagenomicsImportService {
         try ensureDirectoryExists(resultDirectory)
         writeAnalysisMetadataIfNeeded(tool: MetagenomicsImportKind.taxtriage.toolIdentifier, to: resultDirectory)
         OperationMarker.markInProgress(resultDirectory, detail: "Importing TaxTriage results\u{2026}")
-        defer { OperationMarker.clearInProgress(resultDirectory) }
+        var importCompleted = false
+        defer { finalizeImportDirectory(resultDirectory, completed: importCompleted) }
         progress?(0.05, "Copying TaxTriage files...")
 
         let copiedFiles = try copyInputPayload(from: inputURL, into: resultDirectory)
@@ -589,6 +594,7 @@ public enum MetagenomicsImportService {
         }
 
         progress?(1.0, "TaxTriage import complete")
+        importCompleted = true
         return TaxTriageImportResult(
             resultDirectory: resultDirectory,
             importedFileCount: allOutputFiles.count,
@@ -859,7 +865,8 @@ public enum MetagenomicsImportService {
         try ensureDirectoryExists(resultDirectory)
         writeAnalysisMetadataIfNeeded(tool: MetagenomicsImportKind.naomgs.toolIdentifier, to: resultDirectory)
         OperationMarker.markInProgress(resultDirectory, detail: "Importing NAO-MGS results\u{2026}")
-        defer { OperationMarker.clearInProgress(resultDirectory) }
+        var importCompleted = false
+        defer { finalizeImportDirectory(resultDirectory, completed: importCompleted) }
 
         do {
 
@@ -1102,6 +1109,7 @@ public enum MetagenomicsImportService {
         }
 
         progress?(1.0, "NAO-MGS import complete")
+        importCompleted = true
         return NaoMgsImportResult(
             resultDirectory: resultDirectory,
             sampleName: normalizedSampleName,
@@ -1440,6 +1448,14 @@ private func ensureDirectoryExists(_ directory: URL) throws {
             directory,
             error.localizedDescription
         )
+    }
+}
+
+private func finalizeImportDirectory(_ directory: URL, completed: Bool) {
+    if completed {
+        OperationMarker.clearInProgress(directory)
+    } else {
+        try? FileManager.default.removeItem(at: directory)
     }
 }
 

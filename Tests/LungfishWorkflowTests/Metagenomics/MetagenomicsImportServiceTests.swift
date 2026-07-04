@@ -103,6 +103,27 @@ struct MetagenomicsImportServiceTests {
     }
 
     @Test
+    func kraken2ImportRemovesPartialResultDirectoryOnParseFailure() throws {
+        let workspace = makeTemporaryDirectory(prefix: "metagenomics-import-kraken2-failure-")
+        defer { try? FileManager.default.removeItem(at: workspace) }
+
+        let sourceKreport = workspace.appendingPathComponent("invalid.kreport")
+        try "not-a-kreport\n".write(to: sourceKreport, atomically: true, encoding: .utf8)
+        let outputDirectory = workspace.appendingPathComponent("imports", isDirectory: true)
+
+        do {
+            _ = try MetagenomicsImportService.importKraken2(
+                kreportURL: sourceKreport,
+                outputDirectory: outputDirectory
+            )
+            Issue.record("Expected invalid Kraken2 import to throw")
+        } catch {
+            let visibleResults = try visibleResultDirectories(in: outputDirectory)
+            #expect(visibleResults.isEmpty)
+        }
+    }
+
+    @Test
     func esVirituImportCreatesSidecar() throws {
         let workspace = makeTemporaryDirectory(prefix: "metagenomics-import-esviritu-")
         defer { try? FileManager.default.removeItem(at: workspace) }
@@ -236,6 +257,31 @@ struct MetagenomicsImportServiceTests {
     }
 
     @Test
+    func naoMgsImportRemovesPartialResultDirectoryOnMalformedInput() async throws {
+        let workspace = makeTemporaryDirectory(prefix: "metagenomics-import-naomgs-failure-")
+        defer { try? FileManager.default.removeItem(at: workspace) }
+
+        let sourceFile = workspace.appendingPathComponent("virus_hits_final.tsv")
+        try """
+        this\tis\tnot\tthe\texpected\theader
+        bad\trow
+        """.write(to: sourceFile, atomically: true, encoding: .utf8)
+        let outputDirectory = workspace.appendingPathComponent("imports", isDirectory: true)
+
+        do {
+            _ = try await importNaoMgsForTesting(
+                inputURL: sourceFile,
+                outputDirectory: outputDirectory,
+                fetchReferences: false
+            )
+            Issue.record("Expected malformed NAO-MGS import to throw")
+        } catch {
+            let visibleResults = try visibleResultDirectories(in: outputDirectory)
+            #expect(visibleResults.isEmpty)
+        }
+    }
+
+    @Test
     func nvdImportCreatesDatabaseAssetsAndProvenance() async throws {
         let workspace = makeTemporaryDirectory(prefix: "metagenomics-import-nvd-")
         defer { try? FileManager.default.removeItem(at: workspace) }
@@ -347,6 +393,18 @@ private func makeTemporaryDirectory(prefix: String) -> URL {
         .appendingPathComponent("\(prefix)\(UUID().uuidString)", isDirectory: true)
     try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     return url
+}
+
+private func visibleResultDirectories(in outputDirectory: URL) throws -> [URL] {
+    guard FileManager.default.fileExists(atPath: outputDirectory.path) else {
+        return []
+    }
+    return try FileManager.default
+        .contentsOfDirectory(at: outputDirectory, includingPropertiesForKeys: [.isDirectoryKey])
+        .filter { url in
+            guard !url.lastPathComponent.hasPrefix(".") else { return false }
+            return (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+        }
 }
 
 private func makeNvdRunDirectory(in workspace: URL) throws -> URL {
