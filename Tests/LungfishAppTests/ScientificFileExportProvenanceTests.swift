@@ -55,6 +55,31 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
         XCTAssertEqual(envelope.options.resolvedDefaults["recordCount"]?.integerValue, 1)
     }
 
+    func testWriteCreatesAggregateDescriptorForDirectoryInputs() throws {
+        let sourceDirectory = tempDir.appendingPathComponent("source-bundle", isDirectory: true)
+        let nestedDirectory = sourceDirectory.appendingPathComponent("nested", isDirectory: true)
+        let outputURL = tempDir.appendingPathComponent("export.tsv")
+        try FileManager.default.createDirectory(at: nestedDirectory, withIntermediateDirectories: true)
+        try "alpha\n".write(to: sourceDirectory.appendingPathComponent("a.tsv"), atomically: true, encoding: .utf8)
+        try "beta\n".write(to: nestedDirectory.appendingPathComponent("b.tsv"), atomically: true, encoding: .utf8)
+        try "alpha\tbeta\n".write(to: outputURL, atomically: true, encoding: .utf8)
+
+        let sidecarURL = try ScientificFileExportProvenance.write(.init(
+            workflowName: "lungfish app directory export",
+            sourceURLs: [sourceDirectory],
+            outputURL: outputURL,
+            outputFormat: .text,
+            argv: ["Lungfish.app", "export-directory", "--output", outputURL.path],
+            startedAt: Date()
+        ))
+
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL))
+        let input = try XCTUnwrap(envelope.files.first { $0.path == sourceDirectory.path && $0.role == .input })
+        XCTAssertNotNil(input.checksumSHA256)
+        XCTAssertEqual(input.checksumSHA256?.count, 64)
+        XCTAssertEqual(input.fileSize, 11)
+    }
+
     func testFASTAExporterWritesScientificProvenanceSidecar() throws {
         let source = try String(
             contentsOf: repositoryRoot().appendingPathComponent("Sources/LungfishApp/Views/Viewer/ViewerViewController.swift"),
@@ -79,6 +104,31 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
         XCTAssertTrue(source.contains(#"workflowName: "lungfish app bookmarked variant export""#))
         XCTAssertTrue(source.contains("bookmarkedVariantExportSourceURLs"))
         XCTAssertTrue(source.contains("try? FileManager.default.removeItem(at: url)"))
+    }
+
+    func testMetagenomicsLeafExportersWriteScientificProvenanceSidecars() throws {
+        let root = repositoryRoot()
+        let files = [
+            ("Sources/LungfishNaoMgsUI/NaoMgsResultViewController.swift", "lungfish app naomgs summary export"),
+            ("Sources/LungfishNvdUI/NvdResultViewController.swift", "lungfish app nvd contigs export"),
+            ("Sources/LungfishEsVirituUI/EsVirituResultViewController.swift", "lungfish app esviritu detections export"),
+            ("Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift", "lungfish app taxtriage results export"),
+            ("Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift", "lungfish app taxtriage organism matrix export"),
+            ("Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift", "lungfish app taxtriage batch report export"),
+        ]
+
+        for (path, workflowName) in files {
+            let source = try String(contentsOf: root.appendingPathComponent(path), encoding: .utf8)
+            XCTAssertTrue(source.contains("ScientificFileExportProvenance.write(.init("), path)
+            XCTAssertTrue(source.contains(#"workflowName: "\#(workflowName)""#), path)
+        }
+
+        let taxTriageSource = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift"),
+            encoding: .utf8
+        )
+        XCTAssertFalse(taxTriageSource.contains("try? csv.write(to:"))
+        XCTAssertFalse(taxTriageSource.contains("try? report.write(to:"))
     }
 
     private func repositoryRoot() -> URL {

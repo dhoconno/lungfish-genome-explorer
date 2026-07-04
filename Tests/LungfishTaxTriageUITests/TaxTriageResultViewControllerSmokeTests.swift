@@ -355,4 +355,95 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
 
         XCTAssertEqual(vc.testBatchFlatTableView.displayedRows.count, rows.count)
     }
+
+    @MainActor func testBatchMatrixExportWritesScientificProvenanceSidecar() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TaxTriageMatrixExport-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let rows = [
+            Self.taxonomyRow(sample: "sample-1", organism: "Alpha virus", taxId: 1001, tassScore: 0.91, reads: 42),
+            Self.taxonomyRow(sample: "sample-2", organism: "Beta virus", taxId: 1002, tassScore: 0.82, reads: 24),
+        ]
+        let dbURL = tempDir.appendingPathComponent("taxtriage.sqlite")
+        let db = try TaxTriageDatabase.create(at: dbURL, rows: rows, metadata: ["tool": "taxtriage"])
+
+        let vc = TaxTriageResultViewController()
+        _ = vc.view
+        vc.configureFromDatabase(db, resultURL: tempDir)
+
+        let deadline = Date().addingTimeInterval(2)
+        while vc.testBatchFlatTableView.displayedRows.count < rows.count && Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+        XCTAssertEqual(vc.testBatchFlatTableView.displayedRows.count, rows.count)
+
+        let outputURL = tempDir.appendingPathComponent("organism-matrix.csv")
+        try vc.writeBatchMatrixCSV(to: outputURL)
+
+        let envelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: outputURL))
+        )
+        XCTAssertEqual(envelope.workflowName, "lungfish app taxtriage organism matrix export")
+        XCTAssertEqual(envelope.output?.path, outputURL.path)
+        XCTAssertNotNil(envelope.output?.checksumSHA256)
+        XCTAssertEqual(envelope.options.resolvedDefaults["rowCount"]?.integerValue, 2)
+        XCTAssertEqual(envelope.options.resolvedDefaults["metricCount"]?.integerValue, 2)
+        XCTAssertEqual(envelope.options.resolvedDefaults["sampleCount"]?.integerValue, 2)
+        XCTAssertEqual(envelope.options.resolvedDefaults["tableMode"]?.stringValue, "batchGroup")
+        XCTAssertEqual(
+            envelope.options.resolvedDefaults["sampleIds"]?.arrayValue?.compactMap(\.stringValue),
+            ["sample-1", "sample-2"]
+        )
+        XCTAssertTrue(envelope.files.contains { $0.path == dbURL.path && $0.checksumSHA256 != nil })
+    }
+
+    private static func taxonomyRow(
+        sample: String,
+        organism: String,
+        taxId: Int,
+        tassScore: Double,
+        reads: Int
+    ) -> TaxTriageTaxonomyRow {
+        TaxTriageTaxonomyRow(
+            sample: sample,
+            organism: organism,
+            taxId: taxId,
+            status: nil,
+            tassScore: tassScore,
+            readsAligned: reads,
+            uniqueReads: reads / 2,
+            pctReads: nil,
+            pctAlignedReads: nil,
+            coverageBreadth: nil,
+            meanCoverage: nil,
+            meanDepth: nil,
+            confidence: nil,
+            k2Reads: nil,
+            parentK2Reads: nil,
+            giniCoefficient: nil,
+            meanBaseQ: nil,
+            meanMapQ: nil,
+            mapqScore: nil,
+            disparityScore: nil,
+            minhashScore: nil,
+            diamondIdentity: nil,
+            k2DisparityScore: nil,
+            siblingsScore: nil,
+            breadthWeightScore: nil,
+            hhsPercentile: nil,
+            isAnnotated: nil,
+            annClass: nil,
+            microbialCategory: nil,
+            highConsequence: nil,
+            isSpecies: nil,
+            pathogenicSubstrains: nil,
+            sampleType: nil,
+            bamPath: nil,
+            bamIndexPath: nil,
+            primaryAccession: "NC_\(taxId)",
+            accessionLength: 1000
+        )
+    }
 }

@@ -61,5 +61,19 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
             )
         )
         XCTAssertTrue(content.contains("sample-1\t1234\tExample virus\t10\t8\t2\t99.50\t200.0\t1.0\t1\n"))
+
+        let provenance = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: outputURL))
+        )
+        XCTAssertEqual(provenance.workflowName, "lungfish app naomgs summary export")
+        XCTAssertEqual(provenance.output?.path, outputURL.path)
+        XCTAssertNotNil(provenance.output?.checksumSHA256)
+        XCTAssertEqual(provenance.options.resolvedDefaults["rowCount"]?.integerValue, 1)
+        XCTAssertEqual(
+            provenance.options.resolvedDefaults["selectedSamples"]?.arrayValue?.compactMap(\.stringValue),
+            ["sample-1"]
+        )
+        XCTAssertEqual(provenance.options.resolvedDefaults["columnFilterComposition"]?.stringValue, "all")
+        XCTAssertFalse(provenance.options.resolvedDefaults["sortDescriptors"]?.arrayValue?.isEmpty ?? true)
     }
 }

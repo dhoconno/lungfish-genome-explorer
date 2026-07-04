@@ -2185,7 +2185,80 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         guard !displayedRows.isEmpty else {
             throw SummaryExportError.noData
         }
+        let startedAt = Date()
         try summaryTSVContent().write(to: url, atomically: true, encoding: .utf8)
+        try ScientificFileExportProvenance.write(.init(
+            workflowName: "lungfish app naomgs summary export",
+            sourceURLs: exportProvenanceSourceURLs(),
+            outputURL: url,
+            outputFormat: .text,
+            argv: ["Lungfish.app", "export-naomgs-summary", "--output", url.path],
+            explicitOptions: [
+                "outputPath": .file(url),
+                "format": .string("tsv"),
+            ],
+            defaults: [
+                "format": .string("tsv"),
+            ],
+            resolved: [
+                "rowCount": .integer(displayedRows.count),
+                "sourceSampleCount": .integer(exportSourceSampleCount),
+                "selectedSamples": .array(exportSelectedSampleIds.map { .string($0) }),
+                "columnFilterComposition": .string(columnFilterSet.composition.rawValue),
+                "columnFilters": .array(columnFilterSet.activeFilters.map(exportColumnFilterParameter)),
+                "sortDescriptors": .array(exportSortDescriptorParameters()),
+                "metadataColumns": .array(metadataColumnController.exportHeaders.map { .string($0) }),
+                "sampleName": .string(manifest?.sampleName ?? "naomgs"),
+            ],
+            startedAt: startedAt
+        ))
+    }
+
+    private var exportSelectedSampleIds: [String] {
+        let selected = selectedSamples.sorted()
+        if !selected.isEmpty {
+            return selected
+        }
+        return Array(Set(displayedRows.map(\.sample))).sorted()
+    }
+
+    private var exportSourceSampleCount: Int {
+        max(sampleEntries.count, exportSelectedSampleIds.count)
+    }
+
+    private func exportSortDescriptorParameters() -> [ParameterValue] {
+        taxonomyTableView.sortDescriptors.map { descriptor in
+            .dictionary([
+                "key": descriptor.key.map(ParameterValue.string) ?? .null,
+                "ascending": .boolean(descriptor.ascending),
+                "selector": descriptor.selector.map { .string(NSStringFromSelector($0)) } ?? .null,
+            ])
+        }
+    }
+
+    private func exportColumnFilterParameter(_ filter: ColumnFilter) -> ParameterValue {
+        .dictionary([
+            "columnId": .string(filter.columnId),
+            "operator": .string(filter.op.rawValue),
+            "operatorName": .string(String(describing: filter.op)),
+            "value": .string(filter.value),
+            "value2": filter.value2.map(ParameterValue.string) ?? .null,
+            "inverted": .boolean(filter.isInverted),
+        ])
+    }
+
+    private func exportProvenanceSourceURLs() -> [URL] {
+        var urls: [URL] = []
+        if let database {
+            urls.append(database.databaseURL)
+        }
+        if let bundleURL {
+            urls.append(bundleURL.appendingPathComponent("manifest.json"))
+        }
+        if let sourceFilePath = manifest?.sourceFilePath, !sourceFilePath.isEmpty {
+            urls.append(URL(fileURLWithPath: sourceFilePath))
+        }
+        return urls.filter { FileManager.default.fileExists(atPath: $0.path) }
     }
 
     private func summaryTSVContent() -> String {

@@ -2,24 +2,24 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import CryptoKit
 import Foundation
-import LungfishWorkflow
 
-enum ScientificFileExportProvenance {
-    struct Request {
-        let workflowName: String
-        let toolName: String
-        let sourceURLs: [URL]
-        let outputURL: URL
-        let outputFormat: FileFormat
-        let argv: [String]
-        let explicitOptions: [String: ParameterValue]
-        let defaults: [String: ParameterValue]
-        let resolved: [String: ParameterValue]
-        let startedAt: Date
-        let completedAt: Date
+public enum ScientificFileExportProvenance {
+    public struct Request {
+        public let workflowName: String
+        public let toolName: String
+        public let sourceURLs: [URL]
+        public let outputURL: URL
+        public let outputFormat: FileFormat
+        public let argv: [String]
+        public let explicitOptions: [String: ParameterValue]
+        public let defaults: [String: ParameterValue]
+        public let resolved: [String: ParameterValue]
+        public let startedAt: Date
+        public let completedAt: Date
 
-        init(
+        public init(
             workflowName: String,
             toolName: String = "Lungfish.app",
             sourceURLs: [URL],
@@ -47,13 +47,8 @@ enum ScientificFileExportProvenance {
     }
 
     @discardableResult
-    static func write(_ request: Request) throws -> URL {
-        let inputDescriptors = request.sourceURLs.map { url in
-            ProvenanceFileDescriptor(
-                fileRecord: ProvenanceRecorder.fileRecord(url: url, role: .input),
-                sourceProvenancePath: ProvenanceRecorder.findProvenanceEnvelope(for: url)?.sidecarURL.path
-            )
-        }
+    public static func write(_ request: Request) throws -> URL {
+        let inputDescriptors = try request.sourceURLs.map { try inputDescriptor(for: $0) }
         let outputDescriptor = try ProvenanceFileDescriptor.file(
             url: request.outputURL,
             format: request.outputFormat,
@@ -105,6 +100,49 @@ enum ScientificFileExportProvenance {
         } catch {
             try? FileManager.default.removeItem(at: request.outputURL)
             throw error
+        }
+    }
+
+    private static func inputDescriptor(for url: URL) throws -> ProvenanceFileDescriptor {
+        let sourceProvenancePath = ProvenanceRecorder.findProvenanceEnvelope(for: url)?.sidecarURL.path
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue {
+            let manifest = try ProvenanceFileHasher.directoryManifest(for: url, role: .input)
+            return ProvenanceFileDescriptor(
+                path: url.standardizedFileURL.path,
+                checksumSHA256: directoryChecksum(from: manifest),
+                fileSize: directorySize(from: manifest),
+                format: .unknown,
+                role: .input,
+                sourceProvenancePath: sourceProvenancePath
+            )
+        }
+
+        return ProvenanceFileDescriptor(
+            fileRecord: ProvenanceRecorder.fileRecord(url: url, role: .input),
+            sourceProvenancePath: sourceProvenancePath
+        )
+    }
+
+    private static func directoryChecksum(from manifest: ProvenanceDirectoryManifest) -> String {
+        let canonical = manifest.files
+            .sorted { $0.path < $1.path }
+            .map { descriptor in
+                [
+                    descriptor.path,
+                    descriptor.checksumSHA256 ?? "",
+                    descriptor.fileSize.map(String.init) ?? "0",
+                ].joined(separator: "\t")
+            }
+            .joined(separator: "\n")
+        return SHA256.hash(data: Data(canonical.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
+    private static func directorySize(from manifest: ProvenanceDirectoryManifest) -> UInt64 {
+        manifest.files.reduce(UInt64(0)) { total, descriptor in
+            total + (descriptor.fileSize ?? 0)
         }
     }
 }

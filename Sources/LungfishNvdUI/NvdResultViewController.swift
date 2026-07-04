@@ -1777,33 +1777,85 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         savePanel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK, let url = savePanel.url, let self else { return }
 
-            var lines: [String] = []
-            var header = "sample_id\tcontig\tlength\tclassification\trank\taccession\tsubject\tpident\tevalue\tbitscore\tmapped_reads\treads_per_billion"
-            // Append visible metadata column headers
-            let metaHeaders = self.metadataColumnController.exportHeaders
-            if !metaHeaders.isEmpty {
-                header += "\t" + metaHeaders.joined(separator: "\t")
-            }
-            lines.append(header)
-
-            for hit in self.displayedContigs {
-                var line = "\(hit.sampleId)\t\(hit.qseqid)\t\(hit.qlen)\t\(hit.adjustedTaxidName)\t\(hit.adjustedTaxidRank)\t\(hit.sseqid)\t\(hit.stitle)\t\(String(format: "%.2f", hit.pident))\t\(hit.evalue)\t\(String(format: "%.1f", hit.bitscore))\t\(hit.mappedReads)\t\(String(format: "%.0f", hit.readsPerBillion))"
-                // Append metadata values for this hit's sample
-                let metaValues = self.metadataColumnController.exportValues(for: hit.sampleId)
-                if !metaValues.isEmpty {
-                    line += "\t" + metaValues.joined(separator: "\t")
-                }
-                lines.append(line)
-            }
-
-            let content = lines.joined(separator: "\n") + "\n"
             do {
-                try content.write(to: url, atomically: true, encoding: .utf8)
+                try self.writeContigsTSV(to: url)
                 logger.info("Exported NVD contigs to \(url.lastPathComponent, privacy: .public)")
             } catch {
                 logger.error("Failed to export NVD contigs: \(error.localizedDescription, privacy: .public)")
             }
         }
+    }
+
+    func writeContigsTSV(to url: URL) throws {
+        let startedAt = Date()
+        try contigsTSVContent().write(to: url, atomically: true, encoding: .utf8)
+        try ScientificFileExportProvenance.write(.init(
+            workflowName: "lungfish app nvd contigs export",
+            sourceURLs: exportProvenanceSourceURLs(),
+            outputURL: url,
+            outputFormat: .text,
+            argv: ["Lungfish.app", "export-nvd-contigs", "--output", url.path],
+            explicitOptions: [
+                "outputPath": .file(url),
+                "format": .string("tsv"),
+            ],
+            defaults: [
+                "format": .string("tsv"),
+            ],
+            resolved: [
+                "rowCount": .integer(displayedContigs.count),
+                "experiment": .string(manifest?.experiment ?? "nvd"),
+                "sourceSampleCount": .integer(sampleEntries.count),
+                "selectedSamples": .array(selectedSamples.sorted().map { .string($0) }),
+                "searchQuery": .string(searchQuery),
+                "groupingMode": .string(exportGroupingModeName),
+                "taxonGroupCount": .integer(taxonGroups.count),
+                "metadataColumns": .array(metadataColumnController.exportHeaders.map { .string($0) }),
+            ],
+            startedAt: startedAt
+        ))
+    }
+
+    private var exportGroupingModeName: String {
+        switch groupingMode {
+        case .bySample: return "bySample"
+        case .byTaxon: return "byTaxon"
+        }
+    }
+
+    private func contigsTSVContent() -> String {
+        var lines: [String] = []
+        var header = "sample_id\tcontig\tlength\tclassification\trank\taccession\tsubject\tpident\tevalue\tbitscore\tmapped_reads\treads_per_billion"
+        let metaHeaders = metadataColumnController.exportHeaders
+        if !metaHeaders.isEmpty {
+            header += "\t" + metaHeaders.joined(separator: "\t")
+        }
+        lines.append(header)
+
+        for hit in displayedContigs {
+            var line = "\(hit.sampleId)\t\(hit.qseqid)\t\(hit.qlen)\t\(hit.adjustedTaxidName)\t\(hit.adjustedTaxidRank)\t\(hit.sseqid)\t\(hit.stitle)\t\(String(format: "%.2f", hit.pident))\t\(hit.evalue)\t\(String(format: "%.1f", hit.bitscore))\t\(hit.mappedReads)\t\(String(format: "%.0f", hit.readsPerBillion))"
+            let metaValues = metadataColumnController.exportValues(for: hit.sampleId)
+            if !metaValues.isEmpty {
+                line += "\t" + metaValues.joined(separator: "\t")
+            }
+            lines.append(line)
+        }
+
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    private func exportProvenanceSourceURLs() -> [URL] {
+        var urls: [URL] = []
+        if let database {
+            urls.append(database.databaseURL)
+        }
+        if let bundleURL {
+            urls.append(bundleURL.appendingPathComponent("manifest.json"))
+        }
+        if let sourceDirectoryPath = manifest?.sourceDirectoryPath, !sourceDirectoryPath.isEmpty {
+            urls.append(URL(fileURLWithPath: sourceDirectoryPath, isDirectory: true))
+        }
+        return urls.filter { FileManager.default.fileExists(atPath: $0.path) }
     }
 
     // MARK: - Child Hits (Lazy Loading)

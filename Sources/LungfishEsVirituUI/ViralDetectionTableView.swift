@@ -560,6 +560,26 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         filteredItems ?? assemblyItems
     }
 
+    var exportSearchText: String {
+        filterText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var exportSortKey: String {
+        currentSortKey
+    }
+
+    var exportSortAscending: Bool {
+        currentSortAscending
+    }
+
+    var exportColumnFilterComposition: ColumnFilterComposition {
+        columnFilterSet.composition
+    }
+
+    var exportColumnFilters: [ColumnFilter] {
+        columnFilterSet.activeFilters
+    }
+
     // MARK: - Data Reload
 
     private func reloadData() {

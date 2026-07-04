@@ -1637,14 +1637,92 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         panel.beginSheetModal(for: window) { [weak self] response in
             guard let self, response == .OK, let url = panel.url else { return }
 
-            let content = self.buildDelimitedExport(result: result, separator: separator)
             do {
-                try content.write(to: url, atomically: true, encoding: .utf8)
+                try self.writeDelimitedDetections(result: result, separator: separator, fileExtension: fileExtension, to: url)
                 logger.info("Exported \(fileTypeName, privacy: .public) to \(url.lastPathComponent, privacy: .public)")
             } catch {
                 logger.error("Export failed: \(error.localizedDescription, privacy: .public)")
             }
         }
+    }
+
+    func writeDelimitedDetections(
+        result: LungfishIO.EsVirituResult,
+        separator: String,
+        fileExtension: String,
+        to url: URL
+    ) throws {
+        let startedAt = Date()
+        let content = buildDelimitedExport(result: result, separator: separator)
+        try content.write(to: url, atomically: true, encoding: .utf8)
+        try ScientificFileExportProvenance.write(.init(
+            workflowName: "lungfish app esviritu detections export",
+            sourceURLs: exportProvenanceSourceURLs(),
+            outputURL: url,
+            outputFormat: .text,
+            argv: ["Lungfish.app", "export-esviritu-detections", "--format", fileExtension, "--output", url.path],
+            explicitOptions: [
+                "outputPath": .file(url),
+                "format": .string(fileExtension),
+            ],
+            defaults: [
+                "format": .string("tsv"),
+            ],
+            resolved: [
+                "rowCount": .integer(result.detections.count),
+                "sampleId": .string(result.sampleId),
+                "selectedSamples": .array(exportSelectedSampleIds(for: result).map(ParameterValue.string)),
+                "sourceSampleCount": .integer(sampleEntries.count),
+                "tableMode": .string(isBatchMode ? "batchHierarchical" : "singleSample"),
+                "searchText": .string(detectionTableView.exportSearchText),
+                "sortDescriptors": .array([
+                    .dictionary([
+                        "key": .string(detectionTableView.exportSortKey),
+                        "ascending": .boolean(detectionTableView.exportSortAscending),
+                    ]),
+                ]),
+                "columnFilterComposition": .string(detectionTableView.exportColumnFilterComposition.rawValue),
+                "columnFilters": .array(detectionTableView.exportColumnFilters.map(exportColumnFilterParameter)),
+                "metadataColumns": .array(detectionTableView.metadataColumns.exportHeaders.map { .string($0) }),
+            ],
+            startedAt: startedAt
+        ))
+    }
+
+    private func exportSelectedSampleIds(for result: LungfishIO.EsVirituResult) -> [String] {
+        if isBatchMode, let samplePickerState {
+            return samplePickerState.selectedSamples.sorted()
+        }
+        let detectionSamples = Set(result.detections.map(\.sampleId))
+        if !detectionSamples.isEmpty {
+            return detectionSamples.sorted()
+        }
+        return result.sampleId == "batch" ? [] : [result.sampleId]
+    }
+
+    private func exportColumnFilterParameter(_ filter: ColumnFilter) -> ParameterValue {
+        .dictionary([
+            "columnId": .string(filter.columnId),
+            "operator": .string(filter.op.rawValue),
+            "operatorName": .string(String(describing: filter.op)),
+            "value": .string(filter.value),
+            "value2": filter.value2.map(ParameterValue.string) ?? .null,
+            "inverted": .boolean(filter.isInverted),
+        ])
+    }
+
+    private func exportProvenanceSourceURLs() -> [URL] {
+        var urls: [URL] = []
+        if let databaseURL = esVirituDatabase?.databaseURL {
+            urls.append(databaseURL)
+        }
+        if let batchURL {
+            urls.append(batchURL.appendingPathComponent(EsVirituBatchAggregatedManifest.filename))
+        }
+        if let outputDirectory = esVirituConfig?.outputDirectory {
+            urls.append(outputDirectory.appendingPathComponent("esviritu-result.json"))
+        }
+        return urls.filter { FileManager.default.fileExists(atPath: $0.path) }
     }
 
     /// Builds delimited export content from all detections.

@@ -3568,11 +3568,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     @objc private func exportBatchMatrixAction(_ sender: Any) {
         guard let window = view.window else { return }
-        let csv = TaxTriageBatchExporter.generateOrganismMatrixCSV(
-            metrics: metrics,
-            sampleIds: sampleIds,
-            negativeControlSampleIds: negativeControlSampleIds()
-        )
 
         let panel = MetagenomicsFilePanelFactory.delimitedExportPanel(
             title: "Export Organism Matrix",
@@ -3582,21 +3577,55 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
         panel.beginSheetModal(for: window) { response in
             guard response == .OK, let url = panel.url else { return }
-            try? csv.write(to: url, atomically: true, encoding: .utf8)
+            do {
+                try self.writeBatchMatrixCSV(to: url)
+            } catch {
+                logger.error("Failed to export TaxTriage organism matrix: \(error.localizedDescription, privacy: .public)")
+            }
         }
+    }
+
+    func writeBatchMatrixCSV(to url: URL) throws {
+        let startedAt = Date()
+        let negativeControlIds = negativeControlSampleIds()
+        let matrixMetrics = exportMetrics
+        let csv = TaxTriageBatchExporter.generateOrganismMatrixCSV(
+            metrics: matrixMetrics,
+            sampleIds: sampleIds,
+            negativeControlSampleIds: negativeControlIds
+        )
+        let exportedOrganismCount = taxTriageCrossSampleOrganismCount(in: matrixMetrics)
+        try csv.write(to: url, atomically: true, encoding: .utf8)
+        try ScientificFileExportProvenance.write(.init(
+            workflowName: "lungfish app taxtriage organism matrix export",
+            sourceURLs: exportProvenanceSourceURLs(),
+            outputURL: url,
+            outputFormat: .text,
+            argv: ["Lungfish.app", "export-taxtriage-organism-matrix", "--output", url.path],
+            explicitOptions: [
+                "outputPath": .file(url),
+                "format": .string("csv"),
+            ],
+            defaults: [
+                "format": .string("csv"),
+            ],
+            resolved: [
+                "rowCount": .integer(exportedOrganismCount),
+                "exportedOrganismCount": .integer(exportedOrganismCount),
+                "metricCount": .integer(matrixMetrics.count),
+                "sampleCount": .integer(sampleIds.count),
+                "sampleIds": .array(sampleIds.map { .string($0) }),
+                "negativeControlSampleIds": .array(negativeControlIds.sorted().map { .string($0) }),
+                "tableMode": .string(exportTableModeName),
+            ],
+            startedAt: startedAt
+        ))
     }
 
     @objc private func exportBatchReportAction(_ sender: Any) {
         guard let window = view.window,
               let result = taxTriageResult,
               let config = taxTriageConfig else { return }
-
-        let report = TaxTriageBatchExporter.generateSummaryReport(
-            result: result,
-            config: config,
-            metrics: metrics,
-            sampleIds: sampleIds
-        )
 
         let panel = MetagenomicsFilePanelFactory.delimitedExportPanel(
             title: "Export Batch Report",
@@ -3605,8 +3634,51 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
         panel.beginSheetModal(for: window) { response in
             guard response == .OK, let url = panel.url else { return }
-            try? report.write(to: url, atomically: true, encoding: .utf8)
+            do {
+                try self.writeBatchReport(to: url, result: result, config: config)
+            } catch {
+                logger.error("Failed to export TaxTriage batch report: \(error.localizedDescription, privacy: .public)")
+            }
         }
+    }
+
+    func writeBatchReport(to url: URL, result: TaxTriageResult, config: TaxTriageConfig) throws {
+        let startedAt = Date()
+        let negativeControlIds = negativeControlSampleIds()
+        let reportMetrics = exportMetrics
+        let report = TaxTriageBatchExporter.generateSummaryReport(
+            result: result,
+            config: config,
+            metrics: reportMetrics,
+            sampleIds: sampleIds
+        )
+        let reportLineCount = report.split(separator: "\n", omittingEmptySubsequences: false).count
+        try report.write(to: url, atomically: true, encoding: .utf8)
+        try ScientificFileExportProvenance.write(.init(
+            workflowName: "lungfish app taxtriage batch report export",
+            sourceURLs: exportProvenanceSourceURLs(),
+            outputURL: url,
+            outputFormat: .text,
+            argv: ["Lungfish.app", "export-taxtriage-batch-report", "--output", url.path],
+            explicitOptions: [
+                "outputPath": .file(url),
+                "format": .string("txt"),
+            ],
+            defaults: [
+                "format": .string("txt"),
+            ],
+            resolved: [
+                "reportLineCount": .integer(reportLineCount),
+                "metricCount": .integer(reportMetrics.count),
+                "sampleCount": .integer(sampleIds.count),
+                "exportedOrganismCount": .integer(taxTriageCrossSampleOrganismCount(in: reportMetrics)),
+                "sampleIds": .array(sampleIds.map { .string($0) }),
+                "negativeControlSampleIds": .array(negativeControlIds.sorted().map { .string($0) }),
+                "classifierCount": .integer(config.classifiers.count),
+                "tableMode": .string(exportTableModeName),
+            ],
+            startedAt: startedAt
+        ))
     }
 
     // MARK: - Delimited Export
@@ -3629,12 +3701,110 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
             let content = self.buildDelimitedExport(separator: separator)
             do {
-                try content.write(to: url, atomically: true, encoding: .utf8)
+                try self.writeDelimitedResults(separator: separator, fileExtension: fileExtension, to: url, content: content)
                 logger.info("Exported \(fileTypeName, privacy: .public) to \(url.lastPathComponent, privacy: .public)")
             } catch {
                 logger.error("Export failed: \(error.localizedDescription, privacy: .public)")
             }
         }
+    }
+
+    func writeDelimitedResults(
+        separator: String,
+        fileExtension: String,
+        to url: URL,
+        content: String? = nil
+    ) throws {
+        let startedAt = Date()
+        let exportContent = content ?? buildDelimitedExport(separator: separator)
+        try exportContent.write(to: url, atomically: true, encoding: .utf8)
+        try ScientificFileExportProvenance.write(.init(
+            workflowName: "lungfish app taxtriage results export",
+            sourceURLs: exportProvenanceSourceURLs(),
+            outputURL: url,
+            outputFormat: .text,
+            argv: ["Lungfish.app", "export-taxtriage-results", "--format", fileExtension, "--output", url.path],
+            explicitOptions: [
+                "outputPath": .file(url),
+                "format": .string(fileExtension),
+            ],
+            defaults: [
+                "format": .string("tsv"),
+            ],
+            resolved: [
+                "rowCount": .integer(organismTableView.exportRows.count),
+                "sampleIds": .array(sampleIds.map { .string($0) }),
+                "selectedSamples": .array(exportSelectedSampleIds().map(ParameterValue.string)),
+                "selectedSampleIndex": .integer(selectedSampleIndex),
+                "selectedSampleId": exportSelectedSampleId().map(ParameterValue.string) ?? .null,
+                "organismSearchText": .string(organismSearchText),
+                "tableMode": .string(exportTableModeName),
+                "sortDescriptors": .array(exportSortDescriptorParameters(organismTableView.exportSortDescriptors)),
+                "metadataColumns": .array(organismTableView.metadataColumns.exportHeaders.map { .string($0) }),
+            ],
+            startedAt: startedAt
+        ))
+    }
+
+    private func exportProvenanceSourceURLs() -> [URL] {
+        var urls: [URL] = []
+        if let databaseURL = taxTriageDatabase?.databaseURL {
+            urls.append(databaseURL)
+        }
+        if let batchGroupURL {
+            urls.append(batchGroupURL.appendingPathComponent(TaxTriageBatchManifest.filename))
+        }
+        if let outputDirectory = taxTriageConfig?.outputDirectory {
+            urls.append(outputDirectory)
+        }
+        if let resultDirectory = taxTriageResult?.outputDirectory {
+            urls.append(resultDirectory)
+        }
+        return urls.filter { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    private var exportTableModeName: String {
+        if isBatchGroupMode { return "batchGroup" }
+        if isMultiSampleSingleResultMode { return "multiSampleFlat" }
+        if selectedSampleIndex == 0, sampleIds.count > 1 { return "batchOverview" }
+        return "organismTable"
+    }
+
+    private func exportSelectedSampleIds() -> [String] {
+        if (isBatchGroupMode || isMultiSampleSingleResultMode), let samplePickerState {
+            return sampleIds.filter { samplePickerState.selectedSamples.contains($0) }
+        }
+        if let selected = exportSelectedSampleId() {
+            return [selected]
+        }
+        return sampleIds
+    }
+
+    private func exportSelectedSampleId() -> String? {
+        guard selectedSampleIndex > 0, selectedSampleIndex <= sampleIds.count else {
+            return sampleIds.count == 1 ? sampleIds.first : nil
+        }
+        return sampleIds[selectedSampleIndex - 1]
+    }
+
+    private func exportSortDescriptorParameters(_ descriptors: [NSSortDescriptor]) -> [ParameterValue] {
+        descriptors.map { descriptor in
+            .dictionary([
+                "key": descriptor.key.map(ParameterValue.string) ?? .null,
+                "ascending": .boolean(descriptor.ascending),
+                "selector": descriptor.selector.map { .string(NSStringFromSelector($0)) } ?? .null,
+            ])
+        }
+    }
+
+    private var exportMetrics: [TaxTriageMetric] {
+        metrics.isEmpty ? allBatchGroupRows : metrics
+    }
+
+    private func taxTriageCrossSampleOrganismCount(in metrics: [TaxTriageMetric]) -> Int {
+        Set(metrics.map {
+            $0.organism.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        }).count
     }
 
     /// Builds delimited export content from all table rows.
@@ -3650,7 +3820,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         headers.append(contentsOf: metaHeaders)
         lines.append(headers.joined(separator: separator))
 
-        for row in organismTableView.rows {
+        for row in organismTableView.exportRows {
             var fields: [String] = []
             fields.append(escapeField(row.organism, separator: separator))
             fields.append(String(format: "%.4f", row.tassScore))
@@ -3951,6 +4121,14 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
 
     /// The currently sorted rows.
     private var sortedRows: [TaxTriageTableRow] = []
+
+    var exportRows: [TaxTriageTableRow] {
+        sortedRows
+    }
+
+    var exportSortDescriptors: [NSSortDescriptor] {
+        tableView.sortDescriptors
+    }
 
     /// Shared formatter for integer read counts.
     private static let countFormatter: NumberFormatter = {
