@@ -532,40 +532,9 @@ struct BundleCreateSubcommand: AsyncParsableCommand {
     }
 
     private static func outputFileRecords(in bundleURL: URL) -> [FileRecord] {
-        guard let enumerator = FileManager.default.enumerator(
-            at: bundleURL,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: []
-        ) else { return [] }
-
-        let rootProvenancePath = bundleURL
-            .appendingPathComponent(ProvenanceRecorder.provenanceFilename)
-            .standardizedFileURL
-            .path
-        let provenanceDirectoryPrefix = bundleURL
-            .appendingPathComponent("provenance", isDirectory: true)
-            .standardizedFileURL
-            .path + "/"
-
-        var records: [FileRecord] = []
-        for case let url as URL in enumerator {
-            let standardized = url.standardizedFileURL
-            guard standardized.path != rootProvenancePath,
-                  !standardized.path.hasPrefix(provenanceDirectoryPrefix),
-                  !standardized.lastPathComponent.hasSuffix(".lungfish-provenance.json")
-            else {
-                continue
-            }
-            guard (try? standardized.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
-                continue
-            }
-            records.append(ProvenanceRecorder.fileRecord(
-                url: standardized,
-                format: fileFormat(for: standardized),
-                role: .output
-            ))
+        CLIProvenanceSupport.bundlePayloadURLs(in: bundleURL).map {
+            ProvenanceRecorder.fileRecord(url: $0, format: fileFormat(for: $0), role: .output)
         }
-        return records.sorted { $0.path < $1.path }
     }
 
     private static func provenanceParameters(

@@ -358,6 +358,44 @@ final class ScientificCLIProvenanceCoverageTests: XCTestCase {
         XCTAssertEqual(try loadFileSidecarEnvelope(for: out2URL).outputs.map(\.path), [out2URL.path])
     }
 
+    func testSingleStepRunPreservesCompleteRemoteInputDescriptor() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("scientific-cli-remote-input-provenance-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let outputURL = root.appendingPathComponent("reference.fa")
+        try ">chr1\nACGT\n".write(to: outputURL, atomically: true, encoding: .utf8)
+        let remoteInput = FileRecord(
+            path: "https://example.org/reference.fa.gz",
+            sha256: String(repeating: "a", count: 64),
+            sizeBytes: 128,
+            format: .fasta,
+            role: .reference
+        )
+
+        try await CLIProvenanceSupport.recordSingleStepRun(
+            name: "lungfish fetch genome",
+            parameters: ["accession": .string("GCF_000001405.40")],
+            toolName: "lungfish fetch genome",
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: ["lungfish", "fetch", "genome", "GCF_000001405.40"],
+            inputs: [remoteInput],
+            outputs: [ProvenanceRecorder.fileRecord(url: outputURL, format: .fasta, role: .output)],
+            exitCode: 0,
+            wallTime: 0.25,
+            stderr: nil,
+            status: .completed,
+            outputDirectory: root
+        )
+
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: root))
+        let recordedInput = try XCTUnwrap(envelope.files.first { $0.path == remoteInput.path })
+        XCTAssertEqual(recordedInput.checksumSHA256, remoteInput.sha256)
+        XCTAssertEqual(recordedInput.fileSize, remoteInput.sizeBytes)
+        XCTAssertEqual(recordedInput.role, .reference)
+    }
+
     func testConvertReferenceBundleWritesPayloadInputProvenance() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("scientific-convert-ref-provenance-\(UUID().uuidString)", isDirectory: true)

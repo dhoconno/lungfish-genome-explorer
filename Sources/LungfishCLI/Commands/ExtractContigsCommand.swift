@@ -182,41 +182,7 @@ struct ExtractContigsSubcommand: AsyncParsableCommand {
     }
 
     private func referenceBundlePayloadURLs(in bundleURL: URL) -> [URL] {
-        let fileManager = FileManager.default
-        guard let enumerator = fileManager.enumerator(
-            at: bundleURL,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [],
-            errorHandler: nil
-        ) else {
-            return []
-        }
-
-        let rootProvenancePath = bundleURL
-            .appendingPathComponent(ProvenanceRecorder.provenanceFilename)
-            .standardizedFileURL
-            .path
-        let provenanceDirectoryPrefix = bundleURL
-            .appendingPathComponent("provenance", isDirectory: true)
-            .standardizedFileURL
-            .path + "/"
-
-        var payloadURLs: [URL] = []
-        for case let fileURL as URL in enumerator {
-            let standardized = fileURL.standardizedFileURL
-            guard standardized.path != rootProvenancePath,
-                  !standardized.path.hasPrefix(provenanceDirectoryPrefix),
-                  !standardized.lastPathComponent.hasSuffix(".lungfish-provenance.json")
-            else {
-                continue
-            }
-            guard (try? standardized.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
-                continue
-            }
-            payloadURLs.append(standardized)
-        }
-
-        return payloadURLs.sorted { $0.path < $1.path }
+        CLIProvenanceSupport.bundlePayloadURLs(in: bundleURL)
     }
 
     private func requestedContigs() throws -> [String] {

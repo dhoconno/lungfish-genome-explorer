@@ -55,6 +55,49 @@ enum CLIProvenanceSupport {
         return fallback
     }
 
+    static func bundlePayloadURLs(in bundleURL: URL) -> [URL] {
+        let fileManager = FileManager.default
+        guard let enumerator = fileManager.enumerator(
+            at: bundleURL,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [],
+            errorHandler: nil
+        ) else {
+            return []
+        }
+
+        let rootProvenancePath = bundleURL
+            .appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+            .standardizedFileURL
+            .path
+        let provenanceDirectoryPrefix = bundleURL
+            .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
+            .standardizedFileURL
+            .path + "/"
+
+        var payloadURLs: [URL] = []
+        for case let fileURL as URL in enumerator {
+            let standardized = fileURL.standardizedFileURL
+            guard standardized.path != rootProvenancePath,
+                  !standardized.path.hasPrefix(provenanceDirectoryPrefix),
+                  !isProvenanceArtifactFilename(standardized.lastPathComponent)
+            else {
+                continue
+            }
+            guard (try? standardized.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
+                continue
+            }
+            payloadURLs.append(standardized)
+        }
+
+        return payloadURLs.sorted { $0.path < $1.path }
+    }
+
+    private static func isProvenanceArtifactFilename(_ filename: String) -> Bool {
+        filename == ProvenanceRecorder.provenanceFilename
+            || filename.contains(".lungfish-provenance.json")
+    }
+
     @discardableResult
     static func recordSingleStepRun(
         name: String,
@@ -111,18 +154,10 @@ enum CLIProvenanceSupport {
         .runtime(ProvenanceRuntimeIdentity())
 
         for input in inputs {
-            builder = try builder.input(
-                URL(fileURLWithPath: input.path),
-                format: input.format,
-                role: input.role
-            )
+            builder = try appendInputRecord(input, to: builder)
         }
         for output in outputs {
-            builder = try builder.output(
-                URL(fileURLWithPath: output.path),
-                format: output.format,
-                role: output.role
-            )
+            builder = try appendOutputRecord(output, to: builder)
         }
 
         builder = builder.step(step)
@@ -143,6 +178,9 @@ enum CLIProvenanceSupport {
 
         guard writeFileSidecars else { return envelope }
         for output in outputs {
+            guard !shouldUseDescriptorVerbatim(for: output.path) else {
+                continue
+            }
             let outputURL = URL(fileURLWithPath: output.path)
             var isDirectory: ObjCBool = false
             guard FileManager.default.fileExists(atPath: outputURL.path, isDirectory: &isDirectory),
@@ -157,5 +195,35 @@ enum CLIProvenanceSupport {
             try writer.write(focusedEnvelope, toSidecar: ProvenanceRecorder.fileSidecarURL(for: outputURL))
         }
         return envelope
+    }
+
+    private static func appendInputRecord(
+        _ record: FileRecord,
+        to builder: ProvenanceRunBuilder
+    ) throws -> ProvenanceRunBuilder {
+        if shouldUseDescriptorVerbatim(for: record.path) {
+            return try builder.input(ProvenanceFileDescriptor(fileRecord: record))
+        }
+        return try builder.input(URL(fileURLWithPath: record.path), format: record.format, role: record.role)
+    }
+
+    private static func appendOutputRecord(
+        _ record: FileRecord,
+        to builder: ProvenanceRunBuilder
+    ) throws -> ProvenanceRunBuilder {
+        if shouldUseDescriptorVerbatim(for: record.path) {
+            return try builder.output(ProvenanceFileDescriptor(fileRecord: record))
+        }
+        return try builder.output(URL(fileURLWithPath: record.path), format: record.format, role: record.role)
+    }
+
+    private static func shouldUseDescriptorVerbatim(for path: String) -> Bool {
+        guard path.contains("://") else {
+            return false
+        }
+        guard let scheme = URLComponents(string: path)?.scheme else {
+            return false
+        }
+        return scheme.lowercased() != "file"
     }
 }

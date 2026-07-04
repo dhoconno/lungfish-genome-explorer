@@ -33,6 +33,7 @@ public enum ProvenanceBuilderError: Error, LocalizedError, Sendable, Equatable {
     case unreadableFile(String)
     case invalidTimeRange(String)
     case incompleteFileDescriptor(String)
+    case localDescriptorRequiresURL(String)
 
     public var errorDescription: String? {
         switch self {
@@ -48,6 +49,8 @@ public enum ProvenanceBuilderError: Error, LocalizedError, Sendable, Equatable {
             return "Workflow '\(workflowName)' has an invalid provenance time range; endedAt is before startedAt."
         case .incompleteFileDescriptor(let path):
             return "Successful provenance file descriptor is missing checksum or file size: \(path)"
+        case .localDescriptorRequiresURL(let path):
+            return "Local provenance file descriptor must be added from a URL so checksum and size are computed from disk: \(path)"
         }
     }
 }
@@ -151,12 +154,22 @@ public struct ProvenanceRunBuilder: Sendable {
         return replacing(inputs: inputs + [descriptor])
     }
 
+    public func input(_ descriptor: ProvenanceFileDescriptor) throws -> Self {
+        try validateDescriptorIsNonFile(descriptor)
+        return replacing(inputs: inputs + [descriptor])
+    }
+
     public func output(
         _ url: URL,
         format: FileFormat? = nil,
         role: FileRole = .output
     ) throws -> Self {
         let descriptor = try fileDescriptor(url: url, format: format, role: role)
+        return replacing(outputs: outputs + [descriptor])
+    }
+
+    public func output(_ descriptor: ProvenanceFileDescriptor) throws -> Self {
+        try validateDescriptorIsNonFile(descriptor)
         return replacing(outputs: outputs + [descriptor])
     }
 
@@ -228,6 +241,13 @@ public struct ProvenanceRunBuilder: Sendable {
             return try ProvenanceFileDescriptor.file(url: url, format: format, role: role)
         } catch {
             throw ProvenanceBuilderError.unreadableFile(url.path)
+        }
+    }
+
+    private func validateDescriptorIsNonFile(_ descriptor: ProvenanceFileDescriptor) throws {
+        guard descriptor.path.contains("://"),
+              URLComponents(string: descriptor.path)?.scheme?.lowercased() != "file" else {
+            throw ProvenanceBuilderError.localDescriptorRequiresURL(descriptor.path)
         }
     }
 

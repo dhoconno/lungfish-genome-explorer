@@ -1424,6 +1424,7 @@ struct GenomeSubcommand: AsyncParsableCommand {
     @OptionGroup var globalOptions: GlobalOptions
 
     func run() async throws {
+        let startedAt = Date()
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
         let fileManager = FileManager.default
 
@@ -1443,6 +1444,15 @@ struct GenomeSubcommand: AsyncParsableCommand {
             print(formatter.info("Searching for assembly \(accession)..."))
         }
 
+        let explicitAPIKeyProvided = NCBIAPIKeyResolver.resolve(explicitAPIKey: apiKey, environment: [:]) != nil
+        let resolvedAPIKeyProvided = NCBIAPIKeyResolver.resolve(explicitAPIKey: apiKey) != nil
+        let apiKeySource: GenomeFetchProvenanceWriter.APIKeySource = if explicitAPIKeyProvided {
+            .explicit
+        } else if resolvedAPIKeyProvided {
+            .environment
+        } else {
+            .none
+        }
         let ncbiService = NCBIService(apiKey: apiKey)
 
         // Search the assembly database
@@ -1515,6 +1525,7 @@ struct GenomeSubcommand: AsyncParsableCommand {
 
         // Download GFF3 annotations (if not fasta-only)
         var gffPath: URL?
+        var gffSourceURL: URL?
         if !fastaOnly {
             if !globalOptions.quiet {
                 print(formatter.info("Downloading annotations (GFF3)..."))
@@ -1540,6 +1551,7 @@ struct GenomeSubcommand: AsyncParsableCommand {
                             if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
                                 try fileManager.moveItem(at: tempURL, to: downloadedGffPath)
                                 gffPath = downloadedGffPath
+                                gffSourceURL = gffURL
                                 if !globalOptions.quiet {
                                     print(formatter.success("Annotations downloaded"))
                                 }
@@ -1561,11 +1573,40 @@ struct GenomeSubcommand: AsyncParsableCommand {
         // If fasta-only or no-bundle, just decompress and save
         if fastaOnly || noBundle {
             let finalFastaPath = outputURL.appendingPathComponent("\(bundleName).fna.gz")
-            try fileManager.copyItem(at: fastaGzPath, to: finalFastaPath)
+            let finalGffPath = gffPath.map { _ in outputURL.appendingPathComponent("\(bundleName).gff.gz") }
+            var copiedOutputURLs: [URL] = []
 
-            if let gff = gffPath {
-                let finalGffPath = outputURL.appendingPathComponent("\(bundleName).gff.gz")
-                try fileManager.copyItem(at: gff, to: finalGffPath)
+            do {
+                try fileManager.copyItem(at: fastaGzPath, to: finalFastaPath)
+                copiedOutputURLs.append(finalFastaPath)
+                if let gff = gffPath, let finalGffPath {
+                    try fileManager.copyItem(at: gff, to: finalGffPath)
+                    copiedOutputURLs.append(finalGffPath)
+                }
+                try await GenomeFetchProvenanceWriter().writeDirectOutputs(
+                    .init(
+                        accession: accession,
+                        assemblyAccession: assemblyAccession,
+                        organism: organism,
+                        outputDirectory: outputURL,
+                        bundleName: name,
+                        fastaOnly: fastaOnly,
+                        noBundle: noBundle,
+                        apiKeySource: apiKeySource,
+                        outputFormat: globalOptions.outputFormat,
+                        quiet: globalOptions.quiet,
+                        fastaSourceURL: genomeFileInfo.url,
+                        downloadedFastaURL: fastaGzPath,
+                        gffSourceURL: gffSourceURL,
+                        downloadedGFFURL: gffPath,
+                        finalFastaURL: finalFastaPath,
+                        finalGFFURL: finalGffPath,
+                        startedAt: startedAt
+                    )
+                )
+            } catch {
+                cleanupGenomeFetchDirectOutputs(copiedOutputURLs)
+                throw error
             }
 
             if !globalOptions.quiet {
@@ -1582,7 +1623,7 @@ struct GenomeSubcommand: AsyncParsableCommand {
                     accession: assemblyAccession,
                     organism: organism,
                     fastaPath: outputURL.appendingPathComponent("\(bundleName).fna.gz").path,
-                    gffPath: gffPath != nil ? outputURL.appendingPathComponent("\(bundleName).gff.gz").path : nil,
+                    gffPath: finalGffPath?.path,
                     bundlePath: nil
                 )
                 let handler = JSONOutputHandler()
@@ -1629,6 +1670,9 @@ struct GenomeSubcommand: AsyncParsableCommand {
             annotationInputs.append(AnnotationInput(url: gff, name: "genes"))
         }
 
+        let bundleStagingOutputURL = tempDir.appendingPathComponent("bundle-staging", isDirectory: true)
+        try fileManager.createDirectory(at: bundleStagingOutputURL, withIntermediateDirectories: true)
+
         // Create build configuration
         let config = BuildConfiguration(
             name: name ?? organism,
@@ -1637,7 +1681,7 @@ struct GenomeSubcommand: AsyncParsableCommand {
             annotationFiles: annotationInputs,
             variantFiles: [],
             signalFiles: [],
-            outputDirectory: outputURL,
+            outputDirectory: bundleStagingOutputURL,
             source: SourceInfo(
                 organism: organism,
                 commonName: nil,
@@ -1651,15 +1695,49 @@ struct GenomeSubcommand: AsyncParsableCommand {
             ),
             compressFASTA: true
         )
+        let finalBundleURL = outputURL.appendingPathComponent(
+            "\(Self.bundleDirectoryName(for: config.name)).lungfishref",
+            isDirectory: true
+        )
+        if fileManager.fileExists(atPath: finalBundleURL.path) {
+            throw CLIError.outputWriteFailed(path: finalBundleURL.path, reason: "Path already exists")
+        }
 
         // Build the bundle
-        let bundleURL = try await builder.build(configuration: config) { step, progress, message in
+        let stagedBundleURL = try await builder.build(configuration: config) { step, progress, message in
             if !globalOptions.quiet && globalOptions.outputFormat == .text {
                 let progressPercent = Int(progress * 100)
                 print("\r  [\(progressPercent)%] \(message)", terminator: "")
                 fflush(stdout)
             }
         }
+
+        try fileManager.moveItem(at: stagedBundleURL, to: finalBundleURL)
+        do {
+            try await GenomeFetchProvenanceWriter().writeBundle(
+                .init(
+                    bundleURL: finalBundleURL,
+                    accession: accession,
+                    assemblyAccession: assemblyAccession,
+                    organism: organism,
+                    outputDirectory: outputURL,
+                    bundleName: name,
+                    fastaOnly: fastaOnly,
+                    noBundle: noBundle,
+                    apiKeySource: apiKeySource,
+                    outputFormat: globalOptions.outputFormat,
+                    quiet: globalOptions.quiet,
+                    fastaSourceURL: genomeFileInfo.url,
+                    downloadedFastaURL: fastaGzPath,
+                    gffSourceURL: gffSourceURL,
+                    downloadedGFFURL: gffPath,
+                    startedAt: startedAt
+                )
+            )
+        } catch {
+            try removeGenomeFetchBundleAfterProvenanceFailure(finalBundleURL, provenanceError: error)
+        }
+        let bundleURL = finalBundleURL
 
         if !globalOptions.quiet {
             print("") // newline after progress
@@ -1687,6 +1765,35 @@ struct GenomeSubcommand: AsyncParsableCommand {
             let handler = JSONOutputHandler()
             handler.writeData(result, label: nil)
         }
+    }
+
+    private static func bundleDirectoryName(for name: String) -> String {
+        name
+            .replacingOccurrences(of: " ", with: "_")
+            .replacingOccurrences(of: "/", with: "-")
+    }
+
+    private func cleanupGenomeFetchDirectOutputs(_ outputURLs: [URL]) {
+        let fileManager = FileManager.default
+        for outputURL in outputURLs {
+            try? fileManager.removeItem(at: outputURL)
+            try? fileManager.removeItem(at: ProvenanceRecorder.fileSidecarURL(for: outputURL))
+        }
+    }
+
+    private func removeGenomeFetchBundleAfterProvenanceFailure(
+        _ bundleURL: URL,
+        provenanceError: Error
+    ) throws {
+        do {
+            try FileManager.default.removeItem(at: bundleURL)
+        } catch {
+            throw CLIError.outputWriteFailed(
+                path: bundleURL.path,
+                reason: "Provenance write failed (\(provenanceError.localizedDescription)); cleanup failed (\(error.localizedDescription))"
+            )
+        }
+        throw provenanceError
     }
 }
 

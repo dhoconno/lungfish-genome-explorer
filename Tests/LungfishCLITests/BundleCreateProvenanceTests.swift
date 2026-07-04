@@ -6,6 +6,64 @@ import XCTest
 
 @MainActor
 final class BundleCreateProvenanceTests: XCTestCase {
+    func testBundlePayloadURLsExcludeProvenanceSidecars() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("bundle-payload-filter-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let bundleURL = tempDir.appendingPathComponent("Payload.lungfishref", isDirectory: true)
+        let genomeURL = bundleURL.appendingPathComponent("genome", isDirectory: true)
+        let provenanceURL = bundleURL.appendingPathComponent(
+            ProvenanceWriter.bundleProvenanceDirectoryName,
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: genomeURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: provenanceURL, withIntermediateDirectories: true)
+
+        let manifestURL = bundleURL.appendingPathComponent("manifest.json")
+        let fastaURL = genomeURL.appendingPathComponent("sequence.fa")
+        try "{}".write(to: manifestURL, atomically: true, encoding: .utf8)
+        try ">chr1\nACGT\n".write(to: fastaURL, atomically: true, encoding: .utf8)
+        try "{}".write(
+            to: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "{}".write(
+            to: provenanceURL.appendingPathComponent(ProvenanceWriter.bundleRollupFilename),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "{}".write(
+            to: genomeURL.appendingPathComponent("sequence.fa.lungfish-provenance.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "{}".write(
+            to: bundleURL.appendingPathComponent("\(ProvenanceRecorder.provenanceFilename).signature.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "{}".write(
+            to: bundleURL.appendingPathComponent("\(ProvenanceRecorder.provenanceFilename).pub"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "{}".write(
+            to: genomeURL.appendingPathComponent("sequence.fa.lungfish-provenance.json.signature.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "{}".write(
+            to: genomeURL.appendingPathComponent("sequence.fa.lungfish-provenance.json.pub"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let payloadPaths = Set(CLIProvenanceSupport.bundlePayloadURLs(in: bundleURL).map(\.path))
+        XCTAssertEqual(payloadPaths, [manifestURL.standardizedFileURL.path, fastaURL.standardizedFileURL.path])
+    }
+
     func testBundleCreateWritesWorkflowProvenanceSidecar() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("bundle-create-provenance-\(UUID().uuidString)")

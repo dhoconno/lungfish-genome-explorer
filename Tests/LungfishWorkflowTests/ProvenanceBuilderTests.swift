@@ -239,6 +239,79 @@ struct ProvenanceBuilderTests {
         }
     }
 
+    @Test("Builder accepts complete non-file URL descriptors")
+    func builderAcceptsCompleteNonFileURLDescriptors() throws {
+        let remoteInput = ProvenanceFileDescriptor(
+            path: "https://example.org/reference.fa.gz",
+            checksumSHA256: String(repeating: "a", count: 64),
+            fileSize: 128,
+            format: .fasta,
+            role: .reference
+        )
+        let remoteOutput = ProvenanceFileDescriptor(
+            path: "oci://registry.example.org/lungfish/reference:latest",
+            checksumSHA256: String(repeating: "b", count: 64),
+            fileSize: 256,
+            format: .unknown,
+            role: .output
+        )
+
+        let envelope = try ProvenanceRunBuilder(
+            workflowName: "remote.bundle",
+            workflowVersion: "2026.05",
+            toolName: "lungfish-cli",
+            toolVersion: "2026.05"
+        )
+        .argv(["lungfish", "fetch", "genome", "GCF_000001405.40"])
+        .runtime(ProvenanceRuntimeIdentity.fixture())
+        .input(remoteInput)
+        .output(remoteOutput)
+        .complete(
+            exitStatus: 0,
+            startedAt: Date(timeIntervalSince1970: 60),
+            endedAt: Date(timeIntervalSince1970: 61)
+        )
+
+        #expect(envelope.files.contains(remoteInput))
+        #expect(envelope.outputs == [remoteOutput])
+        #expect(envelope.output == remoteOutput)
+    }
+
+    @Test("Descriptor overloads reject local file paths")
+    func descriptorOverloadsRejectLocalFilePaths() throws {
+        let localDescriptor = ProvenanceFileDescriptor(
+            path: "/tmp/reference.fa",
+            checksumSHA256: String(repeating: "a", count: 64),
+            fileSize: 128,
+            format: .fasta,
+            role: .input
+        )
+        let builder = ProvenanceRunBuilder(
+            workflowName: "local.bypass",
+            workflowVersion: "2026.05",
+            toolName: "lungfish-cli",
+            toolVersion: "2026.05"
+        )
+
+        #expect(throws: ProvenanceBuilderError.localDescriptorRequiresURL("/tmp/reference.fa")) {
+            _ = try builder.input(localDescriptor)
+        }
+        #expect(throws: ProvenanceBuilderError.localDescriptorRequiresURL("/tmp/reference.fa")) {
+            _ = try builder.output(localDescriptor)
+        }
+
+        let mixedCaseFileDescriptor = ProvenanceFileDescriptor(
+            path: "File:///tmp/reference.fa",
+            checksumSHA256: String(repeating: "a", count: 64),
+            fileSize: 128,
+            format: .fasta,
+            role: .input
+        )
+        #expect(throws: ProvenanceBuilderError.localDescriptorRequiresURL("File:///tmp/reference.fa")) {
+            _ = try builder.input(mixedCaseFileDescriptor)
+        }
+    }
+
     @Test("Successful hidden incomplete step output is rejected")
     func successfulHiddenIncompleteStepOutputIsRejected() throws {
         let directory = try makeTempDirectory()
