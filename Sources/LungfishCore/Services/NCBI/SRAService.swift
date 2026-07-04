@@ -5,6 +5,7 @@
 // Owner: NCBI Integration Lead (Role 12)
 
 import Foundation
+import Darwin
 import os.log
 
 private let logger = Logger(subsystem: LogSubsystem.core, category: "SRAService")
@@ -789,49 +790,124 @@ public actor SRAService {
         }
     }
 
-    private func runCommand(_ path: String, arguments: [String]) async throws -> CommandResult {
-        return try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global().async {
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: path)
-                process.arguments = arguments
+    private final class CommandCancellationState: @unchecked Sendable {
+        private let lock = NSLock()
+        private var process: Process?
+        private var cancellationRequested = false
 
-                let stdoutPipe = Pipe()
-                let stderrPipe = Pipe()
-                process.standardOutput = stdoutPipe
-                process.standardError = stderrPipe
+        var isCancelled: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return cancellationRequested
+        }
 
-                do {
-                    try process.run()
-                    let stdoutData = PipeDataBox()
-                    let stderrData = PipeDataBox()
-                    let readGroup = DispatchGroup()
+        func store(_ process: Process) {
+            let shouldTerminate: Bool
+            lock.lock()
+            self.process = process
+            shouldTerminate = cancellationRequested
+            lock.unlock()
 
-                    readGroup.enter()
-                    DispatchQueue.global(qos: .utility).async {
-                        stdoutData.set(stdoutPipe.fileHandleForReading.readDataToEndOfFile())
-                        readGroup.leave()
-                    }
-                    readGroup.enter()
-                    DispatchQueue.global(qos: .utility).async {
-                        stderrData.set(stderrPipe.fileHandleForReading.readDataToEndOfFile())
-                        readGroup.leave()
-                    }
+            if shouldTerminate {
+                terminate(process)
+            }
+        }
 
-                    process.waitUntilExit()
-                    readGroup.wait()
+        func cancel() {
+            let process: Process?
+            lock.lock()
+            cancellationRequested = true
+            process = self.process
+            lock.unlock()
 
-                    let result = CommandResult(
-                        stdout: stdoutData.stringValue(),
-                        stderr: stderrData.stringValue(),
-                        exitCode: process.terminationStatus
-                    )
+            guard let process else { return }
+            terminate(process)
+        }
 
-                    continuation.resume(returning: result)
-                } catch {
-                    continuation.resume(throwing: error)
+        func terminateIfCancelled() {
+            let process: Process?
+            lock.lock()
+            process = cancellationRequested ? self.process : nil
+            lock.unlock()
+
+            guard let process else { return }
+            terminate(process)
+        }
+
+        private func terminate(_ process: Process) {
+            guard process.isRunning else { return }
+            process.terminate()
+            let pid = process.processIdentifier
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.5) {
+                if process.isRunning {
+                    kill(pid, SIGKILL)
                 }
             }
+        }
+    }
+
+    private func runCommand(_ path: String, arguments: [String]) async throws -> CommandResult {
+        let cancellationState = CommandCancellationState()
+
+        return try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            return try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global().async {
+                    let process = Process()
+                    process.executableURL = URL(fileURLWithPath: path)
+                    process.arguments = arguments
+                    cancellationState.store(process)
+
+                    let stdoutPipe = Pipe()
+                    let stderrPipe = Pipe()
+                    process.standardOutput = stdoutPipe
+                    process.standardError = stderrPipe
+
+                    do {
+                        try process.run()
+                        cancellationState.terminateIfCancelled()
+
+                        let stdoutData = PipeDataBox()
+                        let stderrData = PipeDataBox()
+                        let readGroup = DispatchGroup()
+
+                        readGroup.enter()
+                        DispatchQueue.global(qos: .utility).async {
+                            stdoutData.set(stdoutPipe.fileHandleForReading.readDataToEndOfFile())
+                            readGroup.leave()
+                        }
+                        readGroup.enter()
+                        DispatchQueue.global(qos: .utility).async {
+                            stderrData.set(stderrPipe.fileHandleForReading.readDataToEndOfFile())
+                            readGroup.leave()
+                        }
+
+                        process.waitUntilExit()
+                        readGroup.wait()
+
+                        if cancellationState.isCancelled {
+                            continuation.resume(throwing: CancellationError())
+                            return
+                        }
+
+                        let result = CommandResult(
+                            stdout: stdoutData.stringValue(),
+                            stderr: stderrData.stringValue(),
+                            exitCode: process.terminationStatus
+                        )
+
+                        continuation.resume(returning: result)
+                    } catch {
+                        if cancellationState.isCancelled {
+                            continuation.resume(throwing: CancellationError())
+                        } else {
+                            continuation.resume(throwing: error)
+                        }
+                    }
+                }
+            }
+        } onCancel: {
+            cancellationState.cancel()
         }
     }
 }

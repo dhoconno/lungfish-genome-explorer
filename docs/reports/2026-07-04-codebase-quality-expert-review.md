@@ -44,6 +44,9 @@ and behavior-preserving simplifications are useful and appropriate.
   invalid score/phase fields.
 - 2026-07-04 follow-up: `ProcessManager.runAndWait` now propagates Swift task cancellation to the
   spawned native process tree and throws `CancellationError` after cancellation.
+- 2026-07-04 follow-up: SRA Toolkit downloads now propagate cancellation into the active
+  `prefetch`/`fasterq-dump` process and surface `CancellationError` instead of a generic toolkit
+  failure.
 
 ## Still Deferred
 

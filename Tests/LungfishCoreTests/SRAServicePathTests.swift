@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import Darwin
 import XCTest
 @testable import LungfishCore
 
@@ -238,9 +239,106 @@ final class SRAServicePathTests: XCTestCase {
             "Expected fasterq-dump temp dir to live under the project .tmp folder"
         )
     }
+
+    func testDownloadFASTQCancellationTerminatesPrefetchProcess() async throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "sra-home-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let binDir = home.appendingPathComponent(".lungfish/conda/envs/sra-tools/bin", isDirectory: true)
+        let outputDir = home.appendingPathComponent("downloads", isDirectory: true)
+        let prefetchPIDFile = home.appendingPathComponent("prefetch.pid")
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: home)
+        }
+
+        try makeExecutableScript(
+            at: binDir.appendingPathComponent("prefetch"),
+            body: """
+            #!/bin/sh
+            echo $$ > '\(prefetchPIDFile.path)'
+            while true; do sleep 1; done
+            """
+        )
+        try makeExecutableScript(
+            at: binDir.appendingPathComponent("fasterq-dump"),
+            body: "#!/bin/sh\nexit 0\n"
+        )
+
+        let service = SRAService(homeDirectoryProvider: { home })
+        let task = Task {
+            try await service.downloadFASTQ(
+                accession: "SRR000003",
+                outputDir: outputDir
+            )
+        }
+
+        let prefetchPID = try await waitForPIDFile(prefetchPIDFile)
+        addTeardownBlock {
+            if processExists(pid: prefetchPID) {
+                kill(prefetchPID, SIGKILL)
+            }
+        }
+        XCTAssertTrue(processExists(pid: prefetchPID))
+
+        task.cancel()
+
+        let exited = await waitUntilProcessExits(pid: prefetchPID, timeout: 2.0)
+        if !exited {
+            kill(prefetchPID, SIGKILL)
+        }
+        XCTAssertTrue(exited, "Cancelling SRA download must terminate the active prefetch process")
+
+        do {
+            _ = try await task.value
+            XCTFail("Expected CancellationError")
+        } catch is CancellationError {
+            // Expected
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
 }
 
 private func makeExecutableScript(at url: URL, body: String) throws {
     try body.write(to: url, atomically: true, encoding: .utf8)
     try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+}
+
+private func waitForPIDFile(_ url: URL, timeout: TimeInterval = 5.0) async throws -> Int32 {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+        if let contents = try? String(contentsOf: url, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           let pid = Int32(contents) {
+            return pid
+        }
+        try await Task.sleep(nanoseconds: 50_000_000)
+    }
+    throw NSError(
+        domain: "SRAServicePathTests",
+        code: 1,
+        userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for process PID"]
+    )
+}
+
+private func waitUntilProcessExits(pid: Int32, timeout: TimeInterval) async -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+        if !processExists(pid: pid) {
+            return true
+        }
+        try? await Task.sleep(nanoseconds: 50_000_000)
+    }
+    return !processExists(pid: pid)
+}
+
+private func processExists(pid: Int32) -> Bool {
+    guard pid > 0 else { return false }
+    if kill(pid, 0) == 0 {
+        return true
+    }
+    return errno != ESRCH
 }
