@@ -223,9 +223,9 @@ original refactor was constrained to behavior-preserving edits:
   OpenAI `gpt-5.5`, Gemini `gemini-2.5-flash`.
 
 ### Network services (ENA / Pathoplexus / SRA parser)
-- ENA date parsing omits `en_US_POSIX` locale (F10) — Pathoplexus sets it.
-  Strictly-more-correct but a behavior change under exotic locales. Defer (pair
-  with the DateFormatter caching that WAS applied).
+- RESOLVED: ENA `first_public` date parsing now uses `en_US_POSIX` locale in
+  both search and read-record decoders, matching the Pathoplexus date parsing
+  convention while preserving the existing date-only timezone semantics.
 - ENA `search` `hasMore`/`totalCount` are page-based, not corpus totals (F9) —
   false-positive `hasMore` when last page == limit. Needs an ENA count endpoint.
   Defer.

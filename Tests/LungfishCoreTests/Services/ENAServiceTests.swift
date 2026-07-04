@@ -208,6 +208,49 @@ final class ENAServiceTests: XCTestCase {
         XCTAssertTrue(progressEvents.allSatisfy { $0.1 == 2 })
     }
 
+    func testENADateFormattersUsePOSIXLocale() throws {
+        let testFile = URL(fileURLWithPath: #filePath)
+        let packageRoot = testFile
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: packageRoot.appendingPathComponent("Sources/LungfishCore/Services/ENA/ENAService.swift"),
+            encoding: .utf8
+        )
+
+        let posixLocaleCount = source.components(separatedBy: #"Locale(identifier: "en_US_POSIX")"#).count - 1
+
+        XCTAssertGreaterThanOrEqual(posixLocaleCount, 2)
+    }
+
+    func testENASearchRecordDecodesFirstPublicDate() throws {
+        let data = """
+        {
+          "accession": "AB123456",
+          "first_public": "2020-03-18"
+        }
+        """.data(using: .utf8)!
+
+        let record = try JSONDecoder().decode(ENASearchRecord.self, from: data)
+
+        XCTAssertNotNil(record.firstPublic)
+    }
+
+    func testENAReadRecordDecodesFirstPublicDate() throws {
+        let data = """
+        {
+          "run_accession": "ERR_OK",
+          "first_public": "2020-03-18"
+        }
+        """.data(using: .utf8)!
+
+        let record = try JSONDecoder().decode(ENAReadRecord.self, from: data)
+
+        XCTAssertNotNil(record.firstPublic)
+    }
+
     // MARK: - Error Handling Tests
 
     func testHandles404Error() async throws {

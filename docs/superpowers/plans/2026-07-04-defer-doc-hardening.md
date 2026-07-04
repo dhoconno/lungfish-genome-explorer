@@ -52,6 +52,8 @@ changes that reduce future ambiguity across the codebase.
   retry backoff, and updated the stale defer entry that still listed it as pending.
 - Centralized SRA runinfo CSV parsing across the direct SRA service and the NCBI service, including
   consistent quote handling and timestamp/date-only release-date parsing.
+- Made ENA `first_public` date parsing POSIX-locale-stable in both ENA search and read-record
+  decoders without changing their date-only timezone semantics.
 - Embedded script/file splits remained deferred because the reviewed same-batch wins were in
   provenance/output correctness rather than large mechanical relocation.
 

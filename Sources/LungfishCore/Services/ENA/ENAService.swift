@@ -448,6 +448,7 @@ struct ENASearchRecord: Codable {
 
     private static let dateFormatter: DateFormatter = {
         let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd"
         return f
     }()
@@ -526,6 +527,7 @@ public struct ENAReadRecord: Codable, Sendable {
 
     private static let dateFormatter: DateFormatter = {
         let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd"
         return f
     }()
