@@ -120,8 +120,8 @@ final class ImportFastqE2ETests: XCTestCase {
     func testRealImportOnFixtures() throws {
         guard let fixtures = fixturesDir else { throw XCTSkip("Fixtures not found") }
 
-        // Copy FASTQ fixtures into a temp input directory so the importer doesn't
-        // move or delete the originals from the shared test fixture folder.
+        // Copy FASTQ fixtures into a temp input directory so this subprocess test
+        // can freely create adjacent sidecars without touching shared fixtures.
         let tmpInput = FileManager.default.temporaryDirectory
             .appendingPathComponent("cli-input-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmpInput, withIntermediateDirectories: true)

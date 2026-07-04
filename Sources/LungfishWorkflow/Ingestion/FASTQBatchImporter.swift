@@ -677,11 +677,20 @@ public enum FASTQBatchImporter {
             // Step 2: Clumpify + compress (on recipe output, or raw input if no recipe)
             let clumpifyInput: [URL]
             let clumpifyPairingMode: FASTQIngestionConfig.PairingMode
+            let deleteIngestionInputsAfterRun: Bool
             if let recipeOutput = recipeOutputFASTQ {
                 clumpifyInput = [recipeOutput]
                 clumpifyPairingMode = isPairedAfterRecipe ? .interleaved : .singleEnd
+                deleteIngestionInputsAfterRun = true
             } else {
-                clumpifyInput = pair.r2 != nil ? [pair.r1, pair.r2!] : [pair.r1]
+                let rawInputs = pair.r2 != nil ? [pair.r1, pair.r2!] : [pair.r1]
+                if config.optimizeStorage {
+                    clumpifyInput = rawInputs
+                    deleteIngestionInputsAfterRun = false
+                } else {
+                    clumpifyInput = try stageRawInputsForIngestion(rawInputs, in: workspace)
+                    deleteIngestionInputsAfterRun = true
+                }
                 clumpifyPairingMode = pair.r2 != nil ? .pairedEnd : .singleEnd
             }
 
@@ -690,7 +699,7 @@ public enum FASTQBatchImporter {
                 pairingMode: clumpifyPairingMode,
                 outputDirectory: workspace,
                 threads: config.threads,
-                deleteOriginals: true,
+                deleteOriginals: deleteIngestionInputsAfterRun,
                 qualityBinning: config.qualityBinning,
                 skipClumpify: !config.optimizeStorage
             )
@@ -900,6 +909,16 @@ public enum FASTQBatchImporter {
 
         return recipe.steps.contains { step in
             OperationContract.input(for: step.kind).requiredPairing != nil
+        }
+    }
+
+    private static func stageRawInputsForIngestion(_ inputs: [URL], in workspace: URL) throws -> [URL] {
+        try inputs.enumerated().map { index, source in
+            let destination = workspace.appendingPathComponent(
+                "raw-\(index + 1)-\(source.lastPathComponent)"
+            )
+            try FileManager.default.copyItem(at: source, to: destination)
+            return destination
         }
     }
 

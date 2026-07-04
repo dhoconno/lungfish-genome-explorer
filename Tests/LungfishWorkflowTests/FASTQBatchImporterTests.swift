@@ -443,6 +443,47 @@ final class FASTQBatchImporterTests: XCTestCase {
         XCTAssertTrue(result.errors.isEmpty)
     }
 
+    func testRunBatchImportNoOptimizePreservesPairedSourceFiles() async throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FASTQBatchImporterTests-source-preserve-\(UUID().uuidString)")
+        let sourceDir = tmpDir.appendingPathComponent("source", isDirectory: true)
+        let projectURL = tmpDir.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let r1 = sourceDir.appendingPathComponent("Sample_R1.fastq.gz")
+        let r2 = sourceDir.appendingPathComponent("Sample_R2.fastq.gz")
+        let r1Contents = "@read1/1\nACGT\n+\nIIII\n"
+        let r2Contents = "@read1/2\nTGCA\n+\nIIII\n"
+        try r1Contents.write(to: r1, atomically: true, encoding: .utf8)
+        try r2Contents.write(to: r2, atomically: true, encoding: .utf8)
+
+        let config = FASTQBatchImporter.ImportConfig(
+            projectDirectory: projectURL,
+            recipe: nil,
+            qualityBinning: QualityBinningScheme.none,
+            optimizeStorage: false,
+            threads: 1
+        )
+        let pair = SamplePair(sampleName: "Sample", r1: r1, r2: r2)
+
+        let result = await FASTQBatchImporter.runBatchImport(pairs: [pair], config: config, log: nil)
+
+        XCTAssertEqual(result.completed, 1, "Import should succeed. Errors: \(result.errors)")
+        XCTAssertEqual(try String(contentsOf: r1, encoding: .utf8), r1Contents)
+        XCTAssertEqual(try String(contentsOf: r2, encoding: .utf8), r2Contents)
+        let bundleURL = projectURL
+            .appendingPathComponent("Imports", isDirectory: true)
+            .appendingPathComponent("Sample.lungfishfastq", isDirectory: true)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.path))
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename).path
+            )
+        )
+    }
+
     func testRunBatchImportFailsPairedOnlyRecipeBeforeStartingStepsForSingleEndSample() async throws {
         let tmpDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("FASTQBatchImporterTests-pairing-preflight-\(UUID().uuidString)")
