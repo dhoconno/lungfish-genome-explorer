@@ -125,6 +125,52 @@ non-op-pipeline layers, NOT OperationCenter violations).
   flow with different downstream use.
 - FullLengthONTMHC two `formatNumber` differ in precision (recorded earlier).
 
+## Third big-file tier (Minimap2/ManagedMapping/ViralVariant + Conda/MetagenomicsDB/TwelveS/AIRunner) — findings
+
+No-SAM invariant traced and PASSES in all mapping/variant pipelines (intermediate SAM
+deleted on every path; ViralVariant's only `.sam` are header-scratch for `samtools
+reheader`, not alignment payloads). No MainActor-dispatch violations.
+
+### Applied (third Workflow batch)
+- `Minimap2Pipeline.parseFlagstat` (~927): tightened internal->private (only self-use at
+  ~876; the ManagedMapping copy is a separate private static).
+- `AIHaplotypingRunner.promptInputJSONString` (~582) + its sole-use private struct
+  `PromptInput` (~1178): dead pair removed together (grep-verified zero callers; distinct
+  from AIHaplotypingPromptInputPayload/Encoder).
+
+### Deferred (applied-adjacent, held for churn/value)
+- `ViralVariantCallingPipeline`: drop redundant `return` in single-expression arg builders
+  (~976/984/992/1031/1121) + fix 2 indentation anomalies (~325/392). Cosmetic, exact-
+  equivalent, but near-zero value on a correctness-critical file -> deferred to avoid churn.
+- `Minimap2Pipeline` (~538/578): `condaToolVersionString(...)` computed twice; hoist is
+  exact-equivalent but touches a failure-path provenance step -> deferred.
+
+### TRAPS the audits caught (look like cleanup, are NOT safe — do NOT touch)
+- `TwelveSAmpliconMatchingWorkflow` (~1184): private `zip<T,U>(_:_:) -> (T,U)?` free func
+  intentionally SHADOWS `Swift.zip` so `.map` works on the optional tuple. Removing it binds
+  to `Swift.zip` (sequence zip) -> behavior/compile change. Keep. If ever split, move it
+  WITH its sole user `writeProvenance`.
+- `CondaManager` single-string `install(packageSpec:)`/`reinstall(packageSpec:)` overloads:
+  look redundant vs the `packages:`-array versions but are pinned by CondaManagerTests:159/178.
+- `ProvenanceExporter`/`ViralVariant`/`Minimap2` `parseFlagstat`/`fileFormat` cross-file
+  near-duplicates: behaviorally DIVERGENT (bai case, leading-space check, .fa.gz handling)
+  -> not exact-equivalent, do NOT dedup across files.
+
+### Deferred SPLITS (separate reviewed passes; all same-module extension moves, no promotions)
+- Minimap2Pipeline (1263L): Types / Result+Persistence / Error / core.
+- ManagedMappingPipeline (1203L): Types / +Normalization / streaming helpers.
+- ViralVariantCallingPipeline (1229L): Types / +Arguments / +Execution.
+- CondaManager (1282L): +LauncherRepairs / +Nextflow / Models.
+- MetagenomicsDatabaseRegistry (1240L): Support types / +Recommendations.
+- TwelveSAmpliconMatchingWorkflow (1187L): +Bundle (TSV/JSON writers) / +Provenance (move
+  the `zip` shadow with it) / Types.
+- AIHaplotypingRunner (1191L): +Types / +MinimalMCM / +ProviderErrors.
+
+### Flagged UPWARD (pre-existing, out of scope — do NOT fix in this pass)
+- `MetagenomicsDatabaseRegistry.swift:105`: `public nonisolated(unsafe) static var shared`
+  is an unsynchronized mutable global -> genuine data-race surface under strict concurrency.
+  Pre-existing accepted risk; deserves a separate tracked fix, not a behavior-preserving edit.
+
 ## Deferred items (later batches)
 
 _(populated per batch as uncertain changes are reverted)_
