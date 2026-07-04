@@ -1592,8 +1592,9 @@ extension ImportCommand {
 
     /// Import NVD (Novel Virus Diagnostics) BLAST results into a Lungfish project.
     ///
-    /// Parses `*_blast_concatenated.csv(.gz)` and writes a `manifest.json` summary
-    /// into an `nvd-{experiment}` bundle directory.
+    /// Parses `*_blast_concatenated.csv(.gz)` and writes an app-viewable
+    /// `nvd-{experiment}` bundle with `manifest.json`, `hits.sqlite`, copied
+    /// sample assets when present, and canonical provenance.
     struct NvdSubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "nvd",
@@ -1626,33 +1627,9 @@ extension ImportCommand {
                 throw CLIExitCode.inputError.exitCode
             }
 
-            // Locate blast_concatenated.csv(.gz)
-            let labkeyDir = inputURL.appendingPathComponent("05_labkey_bundling", isDirectory: true)
-            guard FileManager.default.fileExists(atPath: labkeyDir.path) else {
-                print(formatter.error("Expected 05_labkey_bundling/ inside: \(inputPath)"))
-                throw CLIExitCode.inputError.exitCode
-            }
-
-            let labkeyContents = try FileManager.default.contentsOfDirectory(
-                at: labkeyDir,
-                includingPropertiesForKeys: nil
-            )
-            guard let csvURL = labkeyContents.first(where: NvdResultParser.isBlastConcatenatedCSV) else {
-                print(formatter.error("No *_blast_concatenated.csv or *.csv.gz found in 05_labkey_bundling/"))
-                throw CLIExitCode.inputError.exitCode
-            }
-
             if !globalOptions.quiet {
                 print(formatter.header("NVD Import"))
                 print("")
-                print(formatter.info("Parsing \(csvURL.lastPathComponent)..."))
-            }
-
-            let parser = NvdResultParser()
-            let result = try await parser.parse(at: csvURL) { lineCount in
-                if lineCount % 5000 == 0 && !globalOptions.quiet {
-                    print(String(format: "[%3.0f%%] Parsed %d rows", 0.0, lineCount))
-                }
             }
 
             let outputDirectory: URL
@@ -1662,81 +1639,44 @@ extension ImportCommand {
                 outputDirectory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             }
 
-            let bundleName = name ?? "nvd-\(result.experiment.isEmpty ? inputURL.lastPathComponent : result.experiment)"
-            let bundleDir = outputDirectory.appendingPathComponent(bundleName, isDirectory: true)
-            try FileManager.default.createDirectory(at: bundleDir, withIntermediateDirectories: true)
-
-            // Build per-sample summaries
-            var perSampleHits: [String: Int] = [:]
-            var perSampleContigs: [String: Set<String>] = [:]
-            var perSampleTotalReads: [String: Int] = [:]
-            for hit in result.hits {
-                perSampleHits[hit.sampleId, default: 0] += 1
-                perSampleContigs[hit.sampleId, default: []].insert(hit.qseqid)
-                if perSampleTotalReads[hit.sampleId] == nil {
-                    perSampleTotalReads[hit.sampleId] = hit.totalReads
-                }
+            var provenanceCommand = [
+                "lungfish-cli",
+                "import",
+                "nvd",
+                inputURL.path,
+                "--output-dir",
+                outputDirectory.path,
+            ]
+            if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                provenanceCommand += ["--name", name]
             }
 
-            let sampleSummaries = result.sampleIds.sorted().map { sampleId in
-                NvdSampleSummary(
-                    sampleId: sampleId,
-                    contigCount: perSampleContigs[sampleId]?.count ?? 0,
-                    hitCount: perSampleHits[sampleId] ?? 0,
-                    totalReads: perSampleTotalReads[sampleId] ?? 0,
-                    bamRelativePath: "bam/\(sampleId).filtered.bam",
-                    fastaRelativePath: "fasta/\(sampleId).human_virus.fasta"
-                )
-            }
-
-            let topContigs: [NvdContigRow] = result.hits
-                .filter { $0.hitRank == 1 }
-                .prefix(200)
-                .map { hit in
-                    NvdContigRow(
-                        sampleId: hit.sampleId,
-                        qseqid: hit.qseqid,
-                        qlen: hit.qlen,
-                        adjustedTaxidName: hit.adjustedTaxidName,
-                        adjustedTaxidRank: hit.adjustedTaxidRank,
-                        sseqid: hit.sseqid,
-                        stitle: hit.stitle,
-                        pident: hit.pident,
-                        evalue: hit.evalue,
-                        bitscore: hit.bitscore,
-                        mappedReads: hit.mappedReads,
-                        readsPerBillion: hit.readsPerBillion
-                    )
+            do {
+                let imported = try await MetagenomicsImportService.importNvd(
+                    inputURL: inputURL,
+                    outputDirectory: outputDirectory,
+                    preferredName: name,
+                    samtoolsPath: nil,
+                    provenanceCommand: provenanceCommand
+                ) { progress, message in
+                    if !globalOptions.quiet, progress < 1.0 {
+                        print(formatter.info(message))
+                    }
                 }
 
-            let manifest = NvdManifest(
-                experiment: result.experiment,
-                sampleCount: result.sampleIds.count,
-                contigCount: Set(result.hits.map { "\($0.sampleId)\u{1F}\($0.qseqid)" }).count,
-                hitCount: result.hits.count,
-                blastDbVersion: result.hits.first?.blastDbVersion,
-                snakemakeRunId: result.hits.first?.snakemakeRunId,
-                sourceDirectoryPath: inputURL.path,
-                samples: sampleSummaries,
-                cachedTopContigs: topContigs
-            )
-
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            encoder.dateEncodingStrategy = .iso8601
-            let manifestData = try encoder.encode(manifest)
-            let manifestURL = bundleDir.appendingPathComponent("manifest.json")
-            try manifestData.write(to: manifestURL, options: .atomic)
-
-            if !globalOptions.quiet {
-                print(formatter.keyValueTable([
-                    ("Experiment", result.experiment.isEmpty ? "(none)" : result.experiment),
-                    ("Total hits", String(result.hits.count)),
-                    ("Samples", String(result.sampleIds.count)),
-                    ("Output", bundleDir.lastPathComponent),
-                ]))
-                print("")
-                print(formatter.success("NVD import complete: \(bundleName)"))
+                if !globalOptions.quiet {
+                    print(formatter.keyValueTable([
+                        ("Total hits", String(imported.hitCount)),
+                        ("Samples", String(imported.sampleCount)),
+                        ("Contigs", String(imported.contigCount)),
+                        ("Output", imported.resultDirectory.lastPathComponent),
+                    ]))
+                    print("")
+                    print(formatter.success("NVD import complete: \(imported.resultDirectory.lastPathComponent)"))
+                }
+            } catch {
+                print(formatter.error(error.localizedDescription))
+                throw metagenomicsImportExitCode(for: error).exitCode
             }
         }
     }
@@ -1760,6 +1700,8 @@ private func metagenomicsImportExitCode(for error: MetagenomicsImportError) -> C
         return .inputError
     case .parseFailed:
         return .formatError
+    case .outputAlreadyExists:
+        return .outputError
     case .outputDirectoryCreationFailed, .copyFailed:
         return .outputError
     case .toolUnavailable:

@@ -214,6 +214,53 @@ struct MetagenomicsImportServiceTests {
     }
 
     @Test
+    func nvdImportCreatesDatabaseAssetsAndProvenance() async throws {
+        let workspace = makeTemporaryDirectory(prefix: "metagenomics-import-nvd-")
+        defer { try? FileManager.default.removeItem(at: workspace) }
+
+        let sourceDirectory = try makeNvdRunDirectory(in: workspace)
+        let outputDirectory = workspace.appendingPathComponent("imports", isDirectory: true)
+
+        let result = try await MetagenomicsImportService.importNvd(
+            inputURL: sourceDirectory,
+            outputDirectory: outputDirectory,
+            samtoolsPath: nil
+        )
+
+        let bundle = result.resultDirectory
+        #expect(bundle.lastPathComponent == "nvd-EXP001")
+        #expect(FileManager.default.fileExists(atPath: bundle.appendingPathComponent("manifest.json").path))
+        #expect(FileManager.default.fileExists(atPath: bundle.appendingPathComponent("hits.sqlite").path))
+        #expect(FileManager.default.fileExists(atPath: bundle.appendingPathComponent("bam/S1.bam").path))
+        #expect(FileManager.default.fileExists(atPath: bundle.appendingPathComponent("bam/S1.bam.bai").path))
+        #expect(FileManager.default.fileExists(atPath: bundle.appendingPathComponent("fasta/S1.human_virus.fasta").path))
+        #expect(!FileManager.default.fileExists(atPath: bundle.appendingPathComponent(".processing").path))
+        #expect(result.sampleCount == 1)
+        #expect(result.hitCount == 1)
+        #expect(result.copiedBAMCount == 1)
+        #expect(result.copiedFASTACount == 1)
+
+        let database = try NvdDatabase(at: bundle.appendingPathComponent("hits.sqlite"))
+        #expect(try database.totalHitCount() == 1)
+        #expect(try database.bamPath(forSample: "S1") == "bam/S1.bam")
+        #expect(try database.bamIndexPath(forSample: "S1") == "bam/S1.bam.bai")
+        #expect(try database.fastaPath(forSample: "S1") == "fasta/S1.human_virus.fasta")
+
+        try expectImportProvenance(
+            in: bundle,
+            workflowName: "lungfish import nvd",
+            inputURLs: [sourceDirectory],
+            outputNames: [
+                "manifest.json",
+                "hits.sqlite",
+                "S1.bam",
+                "S1.bam.bai",
+                "S1.human_virus.fasta",
+            ]
+        )
+    }
+
+    @Test
     func managedSamtoolsExecutableURLUsesSamtoolsEnvironmentLayout() throws {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent(
             "samtools-home-\(UUID().uuidString)",
@@ -237,6 +284,46 @@ private func makeTemporaryDirectory(prefix: String) -> URL {
     try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     return url
 }
+
+private func makeNvdRunDirectory(in workspace: URL) throws -> URL {
+    let nvdDir = workspace.appendingPathComponent("nvd-run", isDirectory: true)
+    let labkeyDir = nvdDir.appendingPathComponent("05_labkey_bundling", isDirectory: true)
+    let humanVirusDir = nvdDir
+        .appendingPathComponent("02_human_viruses", isDirectory: true)
+        .appendingPathComponent("03_human_virus_results", isDirectory: true)
+    let mappedReadsDir = humanVirusDir.appendingPathComponent("mapped_reads", isDirectory: true)
+
+    try FileManager.default.createDirectory(at: labkeyDir, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: mappedReadsDir, withIntermediateDirectories: true)
+
+    try nvdCSVFixture.write(
+        to: labkeyDir.appendingPathComponent("sample_blast_concatenated.csv"),
+        atomically: true,
+        encoding: .utf8
+    )
+    try "synthetic bam payload\n".write(
+        to: mappedReadsDir.appendingPathComponent("S1.filtered.bam"),
+        atomically: true,
+        encoding: .utf8
+    )
+    try "synthetic bai payload\n".write(
+        to: mappedReadsDir.appendingPathComponent("S1.filtered.bam.bai"),
+        atomically: true,
+        encoding: .utf8
+    )
+    try ">contig-1\nACGTACGT\n".write(
+        to: humanVirusDir.appendingPathComponent("S1.human_virus.fasta"),
+        atomically: true,
+        encoding: .utf8
+    )
+    return nvdDir
+}
+
+private let nvdCSVFixture = """
+experiment,blast_task,sample_id,qseqid,qlen,sseqid,stitle,tax_rank,length,pident,evalue,bitscore,sscinames,staxids,blast_db_version,snakemake_run_id,mapped_reads,total_reads,stat_db_version,adjusted_taxid,adjustment_method,adjusted_taxid_name,adjusted_taxid_rank
+EXP001,blastn,S1,contig-1,120,gb|NC_001|,Example virus species,S,118,99.2,1e-20,250.5,Example virus,12345,nt-2026,run-001,42,100000,stat-1,12345,unchanged,Example virus,species
+
+"""
 
 @discardableResult
 private func expectImportProvenance(
@@ -262,7 +349,18 @@ private func expectImportProvenance(
 
     let inputPaths = Set(envelope.files.filter { $0.role == .input }.map(\.path))
     for inputURL in inputURLs {
-        let inputPathCandidates = Set([inputURL.path, inputURL.standardizedFileURL.path])
+        var inputPathCandidates = Set([
+            inputURL.path,
+            inputURL.standardizedFileURL.path,
+            inputURL.resolvingSymlinksInPath().path,
+        ])
+        for candidate in inputPathCandidates {
+            if candidate.hasPrefix("/var/") {
+                inputPathCandidates.insert("/private" + candidate)
+            } else if candidate.hasPrefix("/private/var/") {
+                inputPathCandidates.insert(String(candidate.dropFirst("/private".count)))
+            }
+        }
         #expect(!inputPaths.isDisjoint(with: inputPathCandidates), sourceLocation: sourceLocation)
         let descriptor = try #require(
             envelope.files.first { inputPathCandidates.contains($0.path) },

@@ -369,12 +369,14 @@ final class OperationRoutingTests: XCTestCase {
 
         let nvdImport = try sourceFunctionBody(
             named: "func importNvdResultFromURL",
-            endingBefore: "/// Locates the samtools binary",
+            endingBefore: "@objc func launchOrientReads",
             in: source
         )
         XCTAssertTrue(nvdImport.contains("targetMainWindowController(routeContext: routeContext)"))
         XCTAssertTrue(nvdImport.contains("routeContext: routeContext"))
         XCTAssertTrue(nvdImport.contains("canWriteProjectOutputs"))
+        XCTAssertTrue(nvdImport.contains("MetagenomicsImportHelperClient.importViaCLI"))
+        XCTAssertTrue(nvdImport.contains("kind: .nvd"))
         XCTAssertFalse(nvdImport.contains("mainWindowController?.mainSplitViewController"))
 
         let czIdImport = try sourceFunctionBody(

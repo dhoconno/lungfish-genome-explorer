@@ -29,7 +29,6 @@ final class AppDelegateHelperExtractionTests: XCTestCase {
             "Sources/LungfishApp/App/ProjectSampleMetadataModalRouter.swift",
             "Sources/LungfishApp/App/SequenceExportOptions.swift",
             "Sources/LungfishApp/App/SequenceExportPanelController.swift",
-            "Sources/LungfishApp/Views/Metagenomics/NVDImportErrors.swift",
         ]
         for helperFile in expectedHelperFiles {
             XCTAssertTrue(

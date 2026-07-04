@@ -7,7 +7,6 @@ import SwiftUI
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
-import SQLite3
 import os
 import LungfishKit
 
@@ -476,167 +475,26 @@ extension AppDelegate {
 
         let opID = OperationCenter.shared.start(
             title: "NVD Import",
-            detail: "Parsing \(url.lastPathComponent)...",
-            cliCommand: nil,
+            detail: "Importing \(url.lastPathComponent)...",
+            cliCommand: OperationCenter.buildCLICommand(
+                subcommand: "import",
+                args: ["nvd", url.path, "--output-dir", importsDir.path]
+            ),
             routeContext: routeContext
         )
 
-        let task = Task.detached {
+        let task = Task.detached { [weak self] in
             do {
-                // Step 1: Parse the blast_concatenated.csv(.gz)
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        OperationCenter.shared.update(id: opID, progress: 0.05, detail: "Finding NVD CSV...")
-                        OperationCenter.shared.log(id: opID, level: .info, message: "Locating blast_concatenated.csv(.gz) in \(url.lastPathComponent)")
-                    }
-                }
-
-                let labkeyDir = url.appendingPathComponent("05_labkey_bundling", isDirectory: true)
-                let labkeyContents = try FileManager.default.contentsOfDirectory(
-                    at: labkeyDir,
-                    includingPropertiesForKeys: nil
-                )
-                guard let csvURL = labkeyContents.first(where: NvdResultParser.isBlastConcatenatedCSV) else {
-                    throw NvdImportError.csvNotFound("No *_blast_concatenated.csv or *.csv.gz found in 05_labkey_bundling/")
-                }
-
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        OperationCenter.shared.update(id: opID, progress: 0.1, detail: "Parsing \(csvURL.lastPathComponent)...")
-                        OperationCenter.shared.log(id: opID, level: .info, message: "Parsing \(csvURL.lastPathComponent)")
-                    }
-                }
-
-                let parser = NvdResultParser()
-                let parseResult = try await parser.parse(at: csvURL) { lineCount in
-                    if lineCount % 5000 == 0 {
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                OperationCenter.shared.updateWithLog(
-                                    id: opID,
-                                    progress: 0.1 + min(0.3, Double(lineCount) / 100_000.0 * 0.3),
-                                    detail: "Parsing CSV... \(lineCount) rows"
-                                )
-                            }
-                        }
-                    }
-                }
-
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        OperationCenter.shared.update(id: opID, progress: 0.4, detail: "Parsed \(parseResult.hits.count) BLAST hits from \(parseResult.sampleIds.count) samples")
-                        OperationCenter.shared.log(id: opID, level: .info, message: "Parsed \(parseResult.hits.count) hits, \(parseResult.sampleIds.count) samples")
-                    }
-                }
-
-                // Step 2: Compute per-sample metadata
-                let humanVirusDir = url
-                    .appendingPathComponent("02_human_viruses", isDirectory: true)
-                    .appendingPathComponent("03_human_virus_results", isDirectory: true)
-                let bamDir = humanVirusDir.appendingPathComponent("mapped_reads", isDirectory: true)
-
-                var perSampleHits: [String: Int] = [:]
-                var perSampleContigs: [String: Set<String>] = [:]
-                var perSampleTotalReads: [String: Int] = [:]
-                for hit in parseResult.hits {
-                    perSampleHits[hit.sampleId, default: 0] += 1
-                    perSampleContigs[hit.sampleId, default: []].insert(hit.qseqid)
-                    if perSampleTotalReads[hit.sampleId] == nil {
-                        perSampleTotalReads[hit.sampleId] = hit.totalReads
-                    }
-                }
-
-                // Step 3: Determine output bundle directory name
-                let bundleName = "nvd-\(parseResult.experiment.isEmpty ? url.lastPathComponent : parseResult.experiment)"
-                let bundleDir = importsDir.appendingPathComponent(bundleName, isDirectory: true)
-                let bamBundleDir = bundleDir.appendingPathComponent("bam", isDirectory: true)
-                let fastaBundleDir = bundleDir.appendingPathComponent("fasta", isDirectory: true)
-
-                try FileManager.default.createDirectory(at: bundleDir, withIntermediateDirectories: true)
-                try FileManager.default.createDirectory(at: bamBundleDir, withIntermediateDirectories: true)
-                try FileManager.default.createDirectory(at: fastaBundleDir, withIntermediateDirectories: true)
-
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        OperationCenter.shared.update(id: opID, progress: 0.45, detail: "Creating bundle directory...")
-                        OperationCenter.shared.log(id: opID, level: .info, message: "Bundle directory: \(bundleName)")
-                    }
-                }
-
-                // Step 4: Create SQLite database
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        OperationCenter.shared.update(id: opID, progress: 0.5, detail: "Building database...")
-                        OperationCenter.shared.log(id: opID, level: .info, message: "Creating NVD SQLite database")
-                    }
-                }
-
-                var sampleMetadataList: [NvdSampleMetadata] = []
-                var sampleAssetSources: [String: (bam: URL?, bamIndex: URL?, fasta: URL?)] = [:]
-
-                let sourceBamFiles: [URL] = (try? FileManager.default.contentsOfDirectory(
-                    at: bamDir, includingPropertiesForKeys: nil
-                )) ?? []
-                let sourceFastaFiles: [URL] = (try? FileManager.default.contentsOfDirectory(
-                    at: humanVirusDir, includingPropertiesForKeys: nil
-                )) ?? []
-
-                for sampleId in parseResult.sampleIds.sorted() {
-                    let bamSource = sourceBamFiles.first { url in
-                        let name = url.lastPathComponent
-                        return url.pathExtension == "bam" && name.localizedCaseInsensitiveContains(sampleId)
-                    }
-                    let bamIndexSource: URL? = {
-                        guard let bamSource else { return nil }
-                        let bai = URL(fileURLWithPath: bamSource.path + ".bai")
-                        let csi = URL(fileURLWithPath: bamSource.path + ".csi")
-                        if FileManager.default.fileExists(atPath: bai.path) { return bai }
-                        if FileManager.default.fileExists(atPath: csi.path) { return csi }
-                        let bamBai = sourceBamFiles.first { $0.lastPathComponent == bamSource.lastPathComponent + ".bai" }
-                        let bamCsi = sourceBamFiles.first { $0.lastPathComponent == bamSource.lastPathComponent + ".csi" }
-                        return bamBai ?? bamCsi
-                    }()
-
-                    let fastaSource = sourceFastaFiles.first { url in
-                        let name = url.lastPathComponent
-                        return name.hasSuffix(".human_virus.fasta") && name.localizedCaseInsensitiveContains(sampleId)
-                    }
-
-                    let canonicalBamName = "\(sampleId).bam"
-                    let bamRelPath = "bam/\(canonicalBamName)"
-                    let bamIndexRelPath: String? = {
-                        guard let bamIndexSource else { return nil }
-                        if bamIndexSource.pathExtension.lowercased() == "csi" {
-                            return "bam/\(canonicalBamName).csi"
-                        }
-                        return "bam/\(canonicalBamName).bai"
-                    }()
-                    let fastaRelPath = "fasta/\(sampleId).human_virus.fasta"
-
-                    let meta = NvdSampleMetadata(
-                        sampleId: sampleId,
-                        bamPath: bamRelPath,
-                        bamIndexPath: bamIndexRelPath,
-                        fastaPath: fastaRelPath,
-                        totalReads: perSampleTotalReads[sampleId] ?? 0,
-                        contigCount: perSampleContigs[sampleId]?.count ?? 0,
-                        hitCount: perSampleHits[sampleId] ?? 0
-                    )
-                    sampleMetadataList.append(meta)
-                    sampleAssetSources[sampleId] = (bam: bamSource, bamIndex: bamIndexSource, fasta: fastaSource)
-                }
-
-                let dbURL = bundleDir.appendingPathComponent("hits.sqlite")
-                try NvdDatabase.create(
-                    at: dbURL,
-                    hits: parseResult.hits,
-                    samples: sampleMetadataList
-                ) { fraction, message in
+                let result = try await MetagenomicsImportHelperClient.importViaCLI(
+                    kind: .nvd,
+                    inputURL: url,
+                    outputDirectory: importsDir
+                ) { progress, message in
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
                             OperationCenter.shared.update(
                                 id: opID,
-                                progress: 0.5 + fraction * 0.15,
+                                progress: progress,
                                 detail: message
                             )
                         }
@@ -645,191 +503,42 @@ extension AppDelegate {
 
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.log(id: opID, level: .info, message: "Database created successfully")
-                    }
-                }
-
-                // Step 5: Copy BAM and BAI files
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        OperationCenter.shared.update(id: opID, progress: 0.65, detail: "Copying BAM files...")
-                        OperationCenter.shared.log(id: opID, level: .info, message: "Copying BAM and BAI files")
-                    }
-                }
-
-                for sampleMeta in sampleMetadataList {
-                    let sampleId = sampleMeta.sampleId
-                    let sources = sampleAssetSources[sampleId]
-                    if let bamSource = sources?.bam {
-                        let bamDest = bundleDir.appendingPathComponent(sampleMeta.bamPath)
-                        if !FileManager.default.fileExists(atPath: bamDest.path) {
-                            try? FileManager.default.copyItem(at: bamSource, to: bamDest)
-                        }
-                    }
-                    if let bamIndexSource = sources?.bamIndex, let bamIndexRelPath = sampleMeta.bamIndexPath {
-                        let bamIndexDest = bundleDir.appendingPathComponent(bamIndexRelPath)
-                        if !FileManager.default.fileExists(atPath: bamIndexDest.path) {
-                            try? FileManager.default.copyItem(at: bamIndexSource, to: bamIndexDest)
-                        }
-                    }
-                }
-
-                // Step 5b: Run markdup on copied BAMs and populate unique_reads column
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        OperationCenter.shared.update(id: opID, progress: 0.72, detail: "Marking duplicates...")
-                        OperationCenter.shared.log(id: opID, level: .info, message: "Running samtools markdup on BAM files")
-                    }
-                }
-
-                if let samtoolsPath = AppDelegate.nvdLocateSamtools() {
-                    do {
-                        let markdupResults = try MarkdupService.markdupDirectory(
-                            bamBundleDir,
-                            samtoolsPath: samtoolsPath
-                        )
-                        let markedCount = markdupResults.filter { !$0.wasAlreadyMarkduped }.count
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                OperationCenter.shared.log(
-                                    id: opID, level: .info,
-                                    message: "Marked duplicates in \(markedCount)/\(markdupResults.count) BAM file(s)"
-                                )
-                            }
-                        }
-                    } catch {
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                OperationCenter.shared.log(
-                                    id: opID, level: .warning,
-                                    message: "Markdup failed: \(error.localizedDescription)"
-                                )
-                            }
-                        }
-                    }
-
-                    // Populate blast_hits.unique_reads via samtools view -c -F 0x404 per (sample, sseqid)
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            OperationCenter.shared.updateWithLog(id: opID, progress: 0.76, detail: "Counting unique reads...")
-                        }
-                    }
-
-                    AppDelegate.nvdPopulateUniqueReads(
-                        dbPath: dbURL.path,
-                        bundleDir: bundleDir,
-                        samtoolsPath: samtoolsPath
-                    )
-                } else {
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            OperationCenter.shared.log(
-                                id: opID, level: .warning,
-                                message: "samtools not found; skipping markdup and unique_reads population"
-                            )
-                        }
-                    }
-                }
-
-                // Step 6: Copy FASTA files
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        OperationCenter.shared.update(id: opID, progress: 0.8, detail: "Copying FASTA files...")
-                        OperationCenter.shared.log(id: opID, level: .info, message: "Copying FASTA assembly files")
-                    }
-                }
-
-                for sampleMeta in sampleMetadataList {
-                    let sampleId = sampleMeta.sampleId
-                    if let fastaSource = sampleAssetSources[sampleId]?.fasta {
-                        let fastaDest = bundleDir.appendingPathComponent(sampleMeta.fastaPath)
-                        if !FileManager.default.fileExists(atPath: fastaDest.path) {
-                            try? FileManager.default.copyItem(at: fastaSource, to: fastaDest)
-                        }
-                    }
-                }
-
-                // Step 7: Write manifest
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        OperationCenter.shared.update(id: opID, progress: 0.9, detail: "Writing manifest...")
-                        OperationCenter.shared.log(id: opID, level: .info, message: "Writing manifest.json")
-                    }
-                }
-
-                let topContigs: [NvdContigRow] = parseResult.hits
-                    .filter { $0.hitRank == 1 }
-                    .prefix(200)
-                    .map { hit in
-                        NvdContigRow(
-                            sampleId: hit.sampleId,
-                            qseqid: hit.qseqid,
-                            qlen: hit.qlen,
-                            adjustedTaxidName: hit.adjustedTaxidName,
-                            adjustedTaxidRank: hit.adjustedTaxidRank,
-                            sseqid: hit.sseqid,
-                            stitle: hit.stitle,
-                            pident: hit.pident,
-                            evalue: hit.evalue,
-                            bitscore: hit.bitscore,
-                            mappedReads: hit.mappedReads,
-                            readsPerBillion: hit.readsPerBillion
-                        )
-                    }
-
-                let sampleSummaries: [NvdSampleSummary] = sampleMetadataList.map { meta in
-                    NvdSampleSummary(
-                        sampleId: meta.sampleId,
-                        contigCount: meta.contigCount,
-                        hitCount: meta.hitCount,
-                        totalReads: meta.totalReads,
-                        bamRelativePath: meta.bamPath,
-                        fastaRelativePath: meta.fastaPath
-                    )
-                }
-
-                let manifest = NvdManifest(
-                    experiment: parseResult.experiment,
-                    sampleCount: parseResult.sampleIds.count,
-                    contigCount: Set(parseResult.hits.map { "\($0.sampleId)\u{1F}\($0.qseqid)" }).count,
-                    hitCount: parseResult.hits.count,
-                    blastDbVersion: parseResult.hits.first?.blastDbVersion,
-                    snakemakeRunId: parseResult.hits.first?.snakemakeRunId,
-                    sourceDirectoryPath: url.path,
-                    samples: sampleSummaries,
-                    cachedTopContigs: topContigs
-                )
-
-                let encoder = JSONEncoder()
-                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-                encoder.dateEncodingStrategy = .iso8601
-                let manifestData = try encoder.encode(manifest)
-                let manifestURL = bundleDir.appendingPathComponent("manifest.json")
-                try manifestData.write(to: manifestURL, options: .atomic)
-
-                // Done
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
                         OperationCenter.shared.complete(
                             id: opID,
-                            detail: "Imported \(parseResult.hits.count) BLAST hits from \(parseResult.sampleIds.count) samples",
-                            bundleURLs: [bundleDir]
+                            detail: result.detail,
+                            bundleURLs: [result.resultDirectory]
                         )
                         OperationCenter.shared.log(
                             id: opID,
                             level: .info,
-                            message: "NVD import complete: \(bundleName)"
+                            message: "NVD import complete: \(result.resultDirectory.lastPathComponent)"
                         )
+                        self?.targetMainWindowController(routeContext: routeContext)?
+                            .mainSplitViewController?.sidebarController.requestReloadFromFilesystem()
                     }
                 }
             } catch {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                        if let partialDir = (error as? MetagenomicsImportHelperClientError)?
+                            .partialResultDirectory {
+                            try? FileManager.default.removeItem(at: partialDir)
+                            OperationCenter.shared.log(
+                                id: opID,
+                                level: .info,
+                                message: "Cleaned up partial NVD import directory"
+                            )
+                        }
                         OperationCenter.shared.log(
                             id: opID,
                             level: .error,
                             message: "NVD import failed: \(error.localizedDescription)"
+                        )
+                        self?.showAlert(
+                            title: "NVD Import Failed",
+                            message: error.localizedDescription,
+                            presentingWindow: self?.targetMainWindowController(routeContext: routeContext)?.window
                         )
                     }
                 }
@@ -837,93 +546,6 @@ extension AppDelegate {
         }
 
         OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
-    }
-
-    /// Locates the samtools binary for NVD import markdup.
-    nonisolated private static func nvdLocateSamtools() -> String? {
-        BundleBuildHelpers.managedToolExecutablePath(.samtools)
-    }
-
-    /// Populates the `unique_reads` column in an NVD blast_hits table by running
-    /// `samtools view -c -F 0x404` for each (sample, sseqid) pair.
-    nonisolated private static func nvdPopulateUniqueReads(dbPath: String, bundleDir: URL, samtoolsPath: String) {
-        var db: OpaquePointer?
-        guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK else { return }
-        defer { sqlite3_close(db) }
-
-        // Fetch all blast_hits rows that need counts
-        let selectSQL = "SELECT rowid, sample_id, sseqid FROM blast_hits"
-        var selectStmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, selectSQL, -1, &selectStmt, nil) == SQLITE_OK else { return }
-        defer { sqlite3_finalize(selectStmt) }
-
-        struct Row { let rowid: Int64; let sampleId: String; let sseqid: String }
-        var rows: [Row] = []
-        while sqlite3_step(selectStmt) == SQLITE_ROW {
-            let rowid = sqlite3_column_int64(selectStmt, 0)
-            guard let sPtr = sqlite3_column_text(selectStmt, 1),
-                  let aPtr = sqlite3_column_text(selectStmt, 2) else { continue }
-            rows.append(Row(
-                rowid: rowid,
-                sampleId: String(cString: sPtr),
-                sseqid: String(cString: aPtr)
-            ))
-        }
-        guard !rows.isEmpty else { return }
-
-        // Load BAM paths from samples table so counting uses the exact SQLite pointers.
-        var bamBySample: [String: URL] = [:]
-        let sampleSQL = "SELECT sample_id, bam_path FROM samples"
-        var sampleStmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, sampleSQL, -1, &sampleStmt, nil) == SQLITE_OK {
-            while sqlite3_step(sampleStmt) == SQLITE_ROW {
-                guard let sidPtr = sqlite3_column_text(sampleStmt, 0),
-                      let bamPtr = sqlite3_column_text(sampleStmt, 1) else { continue }
-                let sampleId = String(cString: sidPtr)
-                let bamRelPath = String(cString: bamPtr)
-                bamBySample[sampleId] = bundleDir.appendingPathComponent(bamRelPath)
-            }
-        }
-        sqlite3_finalize(sampleStmt)
-        guard !bamBySample.isEmpty else { return }
-
-        // Prepare UPDATE statement
-        let updateSQL = "UPDATE blast_hits SET unique_reads = ? WHERE rowid = ?"
-        var updateStmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, updateSQL, -1, &updateStmt, nil) == SQLITE_OK else { return }
-        defer { sqlite3_finalize(updateStmt) }
-
-        // Count reads per (bam, sseqid) with caching
-        sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, nil)
-        var cache: [String: Int] = [:]
-        for row in rows {
-            guard let bamURL = bamBySample[row.sampleId] else { continue }
-            guard FileManager.default.fileExists(atPath: bamURL.path) else { continue }
-
-            let cacheKey = "\(bamURL.path)\t\(row.sseqid)"
-            let unique: Int
-            if let cached = cache[cacheKey] {
-                unique = cached
-            } else {
-                do {
-                    unique = try MarkdupService.countReads(
-                        bamURL: bamURL,
-                        accession: row.sseqid,
-                        flagFilter: 0x404,
-                        samtoolsPath: samtoolsPath
-                    )
-                    cache[cacheKey] = unique
-                } catch {
-                    continue
-                }
-            }
-
-            sqlite3_reset(updateStmt)
-            sqlite3_bind_int64(updateStmt, 1, Int64(unique))
-            sqlite3_bind_int64(updateStmt, 2, row.rowid)
-            sqlite3_step(updateStmt)
-        }
-        sqlite3_exec(db, "COMMIT", nil, nil, nil)
     }
 
     @objc func launchOrientReads(_ sender: Any?) {

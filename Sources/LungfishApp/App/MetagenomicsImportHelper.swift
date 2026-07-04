@@ -264,21 +264,44 @@ public enum MetagenomicsImportHelper {
                     ))
 
                 case .nvd:
-                    // NVD import is handled directly in AppDelegate (not via CLI subprocess).
-                    // This case is included for exhaustiveness; the helper path is not used.
+                    let result = try await MetagenomicsImportService.importNvd(
+                        inputURL: inputURL,
+                        outputDirectory: outputDirectory,
+                        preferredName: normalizedName,
+                        samtoolsPath: BundleBuildHelpers.managedToolExecutablePath(.samtools),
+                        provenanceCommand: arguments
+                    ) { progress, message in
+                        emit(Event(
+                            event: "progress",
+                            progress: max(0.0, min(1.0, progress)),
+                            message: message,
+                            resultPath: nil,
+                            sampleName: nil,
+                            totalReads: nil,
+                            speciesCount: nil,
+                            virusCount: nil,
+                            taxonCount: nil,
+                            fetchedReferenceCount: nil,
+                            createdBAM: nil,
+                            fileCount: nil,
+                            reportEntryCount: nil,
+                            error: nil
+                        ))
+                    }
+
                     emit(Event(
                         event: "done",
                         progress: 1.0,
-                        message: "NVD import: use the NVD import wizard instead",
-                        resultPath: nil,
+                        message: "Imported NVD result: \(formatNumber(result.hitCount)) hits, \(result.sampleCount) samples",
+                        resultPath: result.resultDirectory.path,
                         sampleName: nil,
-                        totalReads: nil,
+                        totalReads: result.hitCount,
                         speciesCount: nil,
                         virusCount: nil,
-                        taxonCount: nil,
+                        taxonCount: result.contigCount,
                         fetchedReferenceCount: nil,
                         createdBAM: nil,
-                        fileCount: nil,
+                        fileCount: result.copiedBAMCount + result.copiedBAMIndexCount + result.copiedFASTACount,
                         reportEntryCount: nil,
                         error: nil
                     ))
