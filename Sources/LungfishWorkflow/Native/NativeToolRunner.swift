@@ -1009,6 +1009,7 @@ public actor NativeToolRunner {
         let actualTimeout = timeout ?? defaultTimeout
         logger.info("Running \(tool.rawValue): \(arguments.joined(separator: " ")) > \(outputFile.path, privacy: .public)")
         let cancellationState = ProcessCancellationState()
+        let temporaryOutputFile = temporaryOutputURL(for: outputFile)
 
         try Task.checkCancellation()
 
@@ -1030,11 +1031,12 @@ public actor NativeToolRunner {
             }
             process.environment = processEnvironment
 
-            // Redirect stdout to file
-            FileManager.default.createFile(atPath: outputFile.path, contents: nil)
-            guard let outputHandle = FileHandle(forWritingAtPath: outputFile.path) else {
+            // Redirect stdout to a sibling temp file and publish only after success.
+            FileManager.default.createFile(atPath: temporaryOutputFile.path, contents: nil)
+            guard let outputHandle = FileHandle(forWritingAtPath: temporaryOutputFile.path) else {
+                try? FileManager.default.removeItem(at: temporaryOutputFile)
                 continuation.resume(throwing: NativeToolError.executionFailed(
-                    tool.rawValue, -1, "Cannot open output file for writing: \(outputFile.path)"
+                    tool.rawValue, -1, "Cannot open temporary output file for writing: \(temporaryOutputFile.path)"
                 ))
                 return
             }
@@ -1094,8 +1096,10 @@ public actor NativeToolRunner {
                 )
 
                 if result.isSuccess {
+                    try publishTemporaryOutput(temporaryOutputFile, to: outputFile)
                     self.logger.info("\(tool.rawValue) completed successfully (output: \(outputFile.lastPathComponent))")
                 } else {
+                    try? FileManager.default.removeItem(at: temporaryOutputFile)
                     self.logger.warning("\(tool.rawValue) exited with code \(result.exitCode)")
                 }
 
@@ -1104,6 +1108,7 @@ public actor NativeToolRunner {
             } catch is CancellationError {
                 timeoutWorkItem.cancel()
                 try? outputHandle.close()
+                try? FileManager.default.removeItem(at: temporaryOutputFile)
                 if cancellationState.didTimeOut {
                     continuation.resume(throwing: NativeToolError.timeout(tool.rawValue, actualTimeout))
                     return
@@ -1112,6 +1117,7 @@ public actor NativeToolRunner {
             } catch {
                 timeoutWorkItem.cancel()
                 try? outputHandle.close()
+                try? FileManager.default.removeItem(at: temporaryOutputFile)
                 if cancellationState.isCancelled {
                     if cancellationState.didTimeOut {
                         continuation.resume(throwing: NativeToolError.timeout(tool.rawValue, actualTimeout))
@@ -1129,6 +1135,27 @@ public actor NativeToolRunner {
         }
         } onCancel: {
             cancellationState.cancel()
+        }
+    }
+
+    private func temporaryOutputURL(for outputFile: URL) -> URL {
+        outputFile.deletingLastPathComponent()
+            .appendingPathComponent(
+                ".\(outputFile.lastPathComponent).\(UUID().uuidString).tmp",
+                isDirectory: false
+            )
+    }
+
+    private func publishTemporaryOutput(_ temporaryOutputFile: URL, to outputFile: URL) throws {
+        if FileManager.default.fileExists(atPath: outputFile.path) {
+            _ = try FileManager.default.replaceItemAt(
+                outputFile,
+                withItemAt: temporaryOutputFile,
+                backupItemName: nil,
+                options: []
+            )
+        } else {
+            try FileManager.default.moveItem(at: temporaryOutputFile, to: outputFile)
         }
     }
 
@@ -1492,6 +1519,7 @@ extension NativeToolRunner {
         let stageNames = stages.map(\.tool.rawValue).joined(separator: " | ")
         logger.info("Running pipeline (file output): \(stageNames) > \(outputFile.lastPathComponent)")
         let cancellationState = ProcessCancellationState()
+        let temporaryOutputFile = temporaryOutputURL(for: outputFile)
 
         try Task.checkCancellation()
 
@@ -1509,11 +1537,12 @@ extension NativeToolRunner {
                 }
             }
 
-            // Create output file and handle before building processes
-            FileManager.default.createFile(atPath: outputFile.path, contents: nil)
-            guard let handle = FileHandle(forWritingAtPath: outputFile.path) else {
+            // Create temp output and handle before building processes.
+            FileManager.default.createFile(atPath: temporaryOutputFile.path, contents: nil)
+            guard let handle = FileHandle(forWritingAtPath: temporaryOutputFile.path) else {
+                try? FileManager.default.removeItem(at: temporaryOutputFile)
                 continuation.resume(throwing: NativeToolError.executionFailed(
-                    stageNames, -1, "Cannot open output file for writing: \(outputFile.path)"
+                    stageNames, -1, "Cannot open temporary output file for writing: \(temporaryOutputFile.path)"
                 ))
                 return
             }
@@ -1608,8 +1637,10 @@ extension NativeToolRunner {
                 )
 
                 if result.isSuccess {
+                    try publishTemporaryOutput(temporaryOutputFile, to: outputFile)
                     self.logger.info("Pipeline completed (file output): \(stageNames)")
                 } else {
+                    try? FileManager.default.removeItem(at: temporaryOutputFile)
                     self.logger.warning("Pipeline failed (file output): \(stageNames), exit codes: \(exitCodes)")
                 }
 
@@ -1618,6 +1649,7 @@ extension NativeToolRunner {
             } catch is CancellationError {
                 timeoutWorkItem.cancel()
                 try? outputHandle?.close()
+                try? FileManager.default.removeItem(at: temporaryOutputFile)
                 if cancellationState.didTimeOut {
                     continuation.resume(throwing: NativeToolError.timeout(stageNames, actualTimeout))
                     return
@@ -1626,6 +1658,7 @@ extension NativeToolRunner {
             } catch {
                 timeoutWorkItem.cancel()
                 try? outputHandle?.close()
+                try? FileManager.default.removeItem(at: temporaryOutputFile)
                 if cancellationState.isCancelled {
                     if cancellationState.didTimeOut {
                         continuation.resume(throwing: NativeToolError.timeout(stageNames, actualTimeout))
