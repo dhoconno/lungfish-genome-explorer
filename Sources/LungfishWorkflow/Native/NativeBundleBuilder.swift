@@ -115,6 +115,7 @@ public final class NativeBundleBuilder: ObservableObject {
             .replacingOccurrences(of: "/", with: "-")
         let bundleURL = configuration.outputDirectory
             .appendingPathComponent("\(bundleName).lungfishref")
+        var didCreateBundle = false
         let buildStart = Date()
         let provenanceRunID = await ProvenanceRecorder.shared.beginRun(
             name: provenanceWorkflowName(for: configuration),
@@ -143,6 +144,7 @@ public final class NativeBundleBuilder: ObservableObject {
             try await executeStep(.creatingStructure, progressHandler: progressHandler) {
                 try self.createBundleStructure(at: bundleURL)
             }
+            didCreateBundle = true
 
             try checkCancellation()
 
@@ -221,7 +223,7 @@ public final class NativeBundleBuilder: ObservableObject {
 
         } catch {
             await ProvenanceRecorder.shared.completeRun(provenanceRunID, status: isCancelled ? .cancelled : .failed)
-            if FileManager.default.fileExists(atPath: bundleURL.path) {
+            if didCreateBundle, FileManager.default.fileExists(atPath: bundleURL.path) {
                 try? FileManager.default.removeItem(at: bundleURL)
             }
 
@@ -476,7 +478,7 @@ public final class NativeBundleBuilder: ObservableObject {
         let fileManager = FileManager.default
 
         if fileManager.fileExists(atPath: bundleURL.path) {
-            try fileManager.removeItem(at: bundleURL)
+            throw BundleBuildError.outputBundleAlreadyExists(bundleURL)
         }
 
         let directories = [

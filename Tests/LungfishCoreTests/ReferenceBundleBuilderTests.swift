@@ -205,6 +205,7 @@ final class ReferenceBundleBuilderTests: XCTestCase {
         XCTAssertNotNil(BundleBuildError.invalidFASTAFormat("test").recoverySuggestion)
         XCTAssertNotNil(BundleBuildError.cancelled.recoverySuggestion)
         XCTAssertNotNil(BundleBuildError.containerRuntimeNotAvailable.recoverySuggestion)
+        XCTAssertNotNil(BundleBuildError.outputBundleAlreadyExists(url).recoverySuggestion)
     }
 
     // MARK: - ReferenceBundleBuilder Tests
@@ -242,6 +243,48 @@ final class ReferenceBundleBuilderTests: XCTestCase {
         } catch {
             XCTFail("Unexpected error type: \(error)")
         }
+    }
+
+    @MainActor
+    func testBuildRejectsExistingOutputBundleWithoutDeletingIt() async throws {
+        let builder = ReferenceBundleBuilder()
+
+        let fastaURL = tempDirectory.appendingPathComponent("test.fa")
+        try ">chr1\nATCG\n".write(to: fastaURL, atomically: true, encoding: .utf8)
+
+        let outputDir = tempDirectory.appendingPathComponent("output")
+        let existingBundleURL = outputDir.appendingPathComponent("Test.lungfishref")
+        let sentinelURL = existingBundleURL.appendingPathComponent("do-not-delete.txt")
+        try FileManager.default.createDirectory(at: existingBundleURL, withIntermediateDirectories: true)
+        try "existing user data".write(to: sentinelURL, atomically: true, encoding: .utf8)
+
+        let config = BuildConfiguration(
+            name: "Test",
+            identifier: "test",
+            fastaURL: fastaURL,
+            outputDirectory: outputDir,
+            source: SourceInfo(organism: "Test", assembly: "v1"),
+            compressFASTA: false
+        )
+
+        do {
+            _ = try await builder.build(configuration: config)
+            XCTFail("Expected existing output bundle to be rejected")
+        } catch let error as BundleBuildError {
+            guard case .outputBundleAlreadyExists(let url) = error else {
+                XCTFail("Expected outputBundleAlreadyExists, got \(error)")
+                return
+            }
+            let actualPath = url.path.hasSuffix("/") ? String(url.path.dropLast()) : url.path
+            let expectedPath = existingBundleURL.path.hasSuffix("/") ? String(existingBundleURL.path.dropLast()) : existingBundleURL.path
+            XCTAssertEqual(actualPath, expectedPath)
+        }
+
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: sentinelURL.path),
+            "Rejecting an existing output bundle must not delete user data"
+        )
+        XCTAssertEqual(try String(contentsOf: sentinelURL, encoding: .utf8), "existing user data")
     }
 
     @MainActor

@@ -245,6 +245,9 @@ public enum BundleBuildError: Error, LocalizedError, Sendable {
     /// Failed to create bundle directory structure.
     case directoryCreationFailed(URL, String)
 
+    /// Output bundle already exists.
+    case outputBundleAlreadyExists(URL)
+
     /// FASTA compression failed.
     case compressionFailed(String)
 
@@ -285,6 +288,8 @@ public enum BundleBuildError: Error, LocalizedError, Sendable {
             return "Invalid FASTA format: \(reason)"
         case .directoryCreationFailed(let url, let reason):
             return "Failed to create directory at \(url.path): \(reason)"
+        case .outputBundleAlreadyExists(let url):
+            return "Output bundle already exists: \(url.path)"
         case .compressionFailed(let reason):
             return "FASTA compression failed: \(reason)"
         case .indexingFailed(let reason):
@@ -318,6 +323,8 @@ public enum BundleBuildError: Error, LocalizedError, Sendable {
             return "Ensure the file is a valid FASTA format with proper headers."
         case .directoryCreationFailed:
             return "Check disk space and write permissions for the output directory."
+        case .outputBundleAlreadyExists:
+            return "Choose a different bundle name or remove the existing output bundle before building."
         case .compressionFailed, .indexingFailed:
             return "Ensure the container runtime is working and try again."
         case .annotationConversionFailed:
@@ -387,6 +394,7 @@ public final class ReferenceBundleBuilder: ObservableObject {
             .replacingOccurrences(of: "/", with: "-")
         let bundleURL = configuration.outputDirectory
             .appendingPathComponent("\(bundleName).lungfishref")
+        var didCreateBundle = false
 
         do {
             try await executeStep(.validating, progressHandler: progressHandler) {
@@ -398,6 +406,7 @@ public final class ReferenceBundleBuilder: ObservableObject {
             try await executeStep(.creatingStructure, progressHandler: progressHandler) {
                 try self.createBundleStructure(at: bundleURL)
             }
+            didCreateBundle = true
 
             try checkCancellation()
 
@@ -462,7 +471,7 @@ public final class ReferenceBundleBuilder: ObservableObject {
             return bundleURL
 
         } catch {
-            if FileManager.default.fileExists(atPath: bundleURL.path) {
+            if didCreateBundle, FileManager.default.fileExists(atPath: bundleURL.path) {
                 try? FileManager.default.removeItem(at: bundleURL)
             }
 
@@ -593,7 +602,7 @@ public final class ReferenceBundleBuilder: ObservableObject {
         let fileManager = FileManager.default
 
         if fileManager.fileExists(atPath: bundleURL.path) {
-            try fileManager.removeItem(at: bundleURL)
+            throw BundleBuildError.outputBundleAlreadyExists(bundleURL)
         }
 
         let directories = [
