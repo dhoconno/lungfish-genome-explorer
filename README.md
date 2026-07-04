@@ -50,7 +50,7 @@ Lungfish Genome Explorer is built around five viewport classes (sequence, alignm
 ### Classification & Metagenomics
 
 - Run [Kraken 2](https://github.com/DerrickWood/kraken2) + [Bracken](https://github.com/jenniferlu717/Bracken), [EsViritu](https://github.com/cmmr/EsViritu) (viral discovery), [TaxTriage](https://github.com/jhuapl-bio/taxtriage) (multi-level taxonomic triage), and the [NAO-MGS](https://github.com/naobservatory/mgs-workflow) metagenomics workflow on FASTQ datasets.
-- Import results from the [NVD](https://github.com/dholab/nvd) (Novel Virus Discovery) Snakemake workflow as first-class taxonomy datasets.
+- Import results from the [NVD](https://github.com/dholab/nvd) (Novel Virus Diagnostics) Snakemake workflow as first-class taxonomy datasets.
 - Taxonomy browser with sortable hit table, sunburst chart, breadcrumb navigation, and detail pane.
 - Extract reads assigned to any taxon back into a fresh FASTQ dataset for downstream work.
 - BLAST any classified sequence against NCBI for verification.
@@ -72,7 +72,7 @@ Lungfish Genome Explorer is built around five viewport classes (sequence, alignm
 
 - Run curated local workflows from inside the app, including the experimental FASTQ Workflow Builder and the supported `nf-core/viralrecon` adapter.
 - Export recorded provenance as shell, Python, Nextflow, Snakemake, methods text, or raw JSON for external replay and review.
-- Direct import path for the [NVD (Novel Virus Discovery)](https://github.com/dholab/nvd) workflow. Point Lungfish Genome Explorer at an NVD output directory and the run lands in the taxonomy browser with reads, hits, and reports cross-linked.
+- Direct import path for the [NVD (Novel Virus Diagnostics)](https://github.com/dholab/nvd) workflow. Point Lungfish Genome Explorer at an NVD output directory and the run lands in the taxonomy browser with reads, hits, and reports cross-linked.
 - Workflow outputs from supported adapters auto-import as project datasets in the appropriate viewport.
 - Container support via [Apple Containerization](https://github.com/apple/containerization). Docker / Apptainer images run in lightweight Linux VMs on Apple Silicon.
 
@@ -89,10 +89,13 @@ The Plugin Manager handles managed tool packs and workflow/runtime integrations 
 Every major capability has a `lungfish-cli` counterpart for headless and scripted use:
 
 ```
-analyze    assemble    bam         blast        classify
-convert    extract     fastq       fetch        import
-map        markdup     metadata    nao-mgs      nvd
-orient     taxtriage   translate   variants     workflow
+align       analyze      assemble    bam       blast       build-db
+bundle      conda        convert     cz-id     debug       esviritu
+extract     fastq        fetch       freyja    gatk        genotype
+haplotypes  import       import-fastq map      markdup     metadata
+msa         nao-mgs      nvd         ops       orient      primers
+project     provenance   run-headless search   sequence    taxtriage
+translate   tree         universal-search      variants    workflow
 ```
 
 The `fastq` command groups subcommands for `materialize`, `orient`, `qc-summary`, `scrub-human`, `search-motif`, `search-text`, and `sequence-filter`.

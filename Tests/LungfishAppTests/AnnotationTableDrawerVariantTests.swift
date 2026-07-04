@@ -283,6 +283,17 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
         }
     }
 
+    private func waitForDisplayedAnnotations(
+        _ drawer: AnnotationTableDrawerView,
+        timeout: TimeInterval = 2.0,
+        matching predicate: () -> Bool
+    ) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !predicate() && Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+    }
+
     // MARK: - Tab Switching Tests
 
     func testSwitchToVariantsTab() throws {
@@ -506,11 +517,19 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
 
         // All 3 variants should be visible initially
         XCTAssertEqual(drawer.displayedAnnotations.count, 3)
+        XCTAssertTrue(drawer.selectAnnotation(named: "rs12345"))
 
-        // TODO: The chip filtering is driven by visibleTypes (private) through type chip toggles.
-        // We verify the data source correctly filters by checking that different types exist.
-        let types = Set(drawer.displayedAnnotations.map { $0.type })
-        XCTAssertEqual(types.count, 3, "Should have 3 distinct variant types")
+        let menu = NSMenu()
+        drawer.menuNeedsUpdate(menu)
+        let item = try XCTUnwrap(findMenuItem(titled: "Filter to SNP Only", in: menu))
+        drawer.filterToTypeAction(item)
+        waitForDisplayedAnnotations(drawer) {
+            drawer.displayedAnnotations.count == 1
+        }
+
+        XCTAssertEqual(drawer.displayedAnnotations.count, 1)
+        XCTAssertEqual(drawer.displayedAnnotations.first?.name, "rs12345")
+        XCTAssertEqual(Set(drawer.displayedAnnotations.map { $0.type }), ["SNP"])
     }
 
     func testAnnotationFilteringIndependentOfVariants() throws {

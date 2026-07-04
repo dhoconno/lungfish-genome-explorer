@@ -672,7 +672,9 @@ extension BuildDbCommand.TaxTriageSubcommand {
                 status: status,
                 tassScore: tassScore,
                 readsAligned: readsAligned,
-                uniqueReads: nil, // Deferred: computed in a separate pass via samtools dedup (Task 4)
+                // Filled by the post-parse unique-read update pass once samtools
+                // dedup counts are available for all rows.
+                uniqueReads: nil,
                 pctReads: Double(pctReads ?? ""),
                 pctAlignedReads: Double(pctAlignedReads ?? ""),
                 coverageBreadth: Double(coverageBreadth ?? ""),
@@ -1261,7 +1263,9 @@ extension BuildDbCommand {
                     subspecies: subspecies,
                     rpkmf: rpkmf,
                     readCount: readCount,
-                    uniqueReads: nil, // Deferred: computed in a separate pass
+                    // Filled by the post-parse unique-read update pass once
+                    // sample-level dedup counts are available.
+                    uniqueReads: nil,
                     coveredBases: coveredBases,
                     meanCoverage: meanCoverage,
                     avgReadIdentity: avgReadIdentity,
