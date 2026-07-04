@@ -44,40 +44,40 @@ a file with an applied edit AND a deferred split counts under applied, noted sep
 
 | Directory | total | audited | applied | clean | deferred |
 |---|---|---|---|---|---|
-| Views/Viewer | 75 | 0 | 0 | 0 | 0 |
-| Views/Inspector | 38 | 0 | 0 | 0 | 0 |
-| Views/Metagenomics | 32 | 0 | 0 | 0 | 0 |
-| Views/MainWindow | 14 | 0 | 0 | 0 | 0 |
-| Views/BAM | 12 | 0 | 0 | 0 | 0 |
-| Views/Sidebar | 11 | 0 | 0 | 0 | 0 |
-| Views/Results | 9 | 0 | 0 | 0 | 0 |
-| Views/DatabaseBrowser | 9 | 0 | 0 | 0 | 0 |
-| Views/WorkflowBuilder | 8 | 0 | 0 | 0 | 0 |
-| Views/Settings | 8 | 0 | 0 | 0 | 0 |
-| Views/FASTQ | 7 | 0 | 0 | 0 | 0 |
-| Views/ImportCenter | 6 | 0 | 0 | 0 | 0 |
-| Views/Shared | 5 | 0 | 0 | 0 | 0 |
-| Views/Assembly | 5 | 0 | 0 | 0 | 0 |
-| Views/WorkflowOperations | 4 | 0 | 0 | 0 | 0 |
-| Views/Mapping | 4 | 0 | 0 | 0 | 0 |
-| Views/WorkflowLibrary | 3 | 0 | 0 | 0 | 0 |
-| Views/PluginManager | 3 | 0 | 0 | 0 | 0 |
-| Views/Phylogenetics | 3 | 0 | 0 | 0 | 0 |
-| Views/Operations | 3 | 0 | 0 | 0 | 0 |
-| Views/Layout | 3 | 0 | 0 | 0 | 0 |
-| Views/Components | 2 | 0 | 0 | 0 | 0 |
-| Views/Welcome | 1 | 0 | 0 | 0 | 0 |
-| Views/TranslationTool | 1 | 0 | 0 | 0 | 0 |
-| Views/Sequence | 1 | 0 | 0 | 0 | 0 |
-| Views/Help | 1 | 0 | 0 | 0 | 0 |
-| Views/Extraction | 1 | 0 | 0 | 0 | 0 |
-| Views/AI | 1 | 0 | 0 | 0 | 0 |
-| Services | 86 | 0 | 0 | 0 | 0 |
-| App | 42 | 0 | 0 | 0 | 0 |
-| StateManagement | 6 | 0 | 0 | 0 | 0 |
-| ViewModels | 4 | 0 | 0 | 0 | 0 |
-| Support | 1 | 0 | 0 | 0 | 0 |
-| **TOTAL** | **409** | **0** | 0 | 0 | 0 |
+| Views/Viewer | 75 | 75 | 4 | 71 | 0 |
+| Views/Inspector | 38 | 38 | 0 | 38 | 0 |
+| Views/Metagenomics | 32 | 32 | 0 | 32 | 0 |
+| Views/MainWindow | 14 | 14 | 1 | 13 | 0 |
+| Views/BAM | 12 | 12 | 0 | 12 | 0 |
+| Views/Sidebar | 11 | 11 | 0 | 11 | 0 |
+| Views/Results | 9 | 9 | 0 | 9 | 0 |
+| Views/DatabaseBrowser | 9 | 9 | 1 | 8 | 0 |
+| Views/WorkflowBuilder | 8 | 8 | 0 | 8 | 0 |
+| Views/Settings | 8 | 8 | 0 | 8 | 0 |
+| Views/FASTQ | 7 | 7 | 0 | 7 | 0 |
+| Views/ImportCenter | 6 | 6 | 0 | 6 | 0 |
+| Views/Shared | 5 | 5 | 0 | 5 | 0 |
+| Views/Assembly | 5 | 5 | 0 | 5 | 0 |
+| Views/WorkflowOperations | 4 | 4 | 2 | 2 | 0 |
+| Views/Mapping | 4 | 4 | 0 | 4 | 0 |
+| Views/WorkflowLibrary | 3 | 3 | 0 | 3 | 0 |
+| Views/PluginManager | 3 | 3 | 0 | 3 | 0 |
+| Views/Phylogenetics | 3 | 3 | 0 | 3 | 0 |
+| Views/Operations | 3 | 3 | 0 | 3 | 0 |
+| Views/Layout | 3 | 3 | 0 | 3 | 0 |
+| Views/Components | 2 | 2 | 0 | 2 | 0 |
+| Views/Welcome | 1 | 1 | 0 | 1 | 0 |
+| Views/TranslationTool | 1 | 1 | 0 | 1 | 0 |
+| Views/Sequence | 1 | 1 | 0 | 1 | 0 |
+| Views/Help | 1 | 1 | 0 | 1 | 0 |
+| Views/Extraction | 1 | 1 | 0 | 1 | 0 |
+| Views/AI | 1 | 1 | 0 | 1 | 0 |
+| Services | 86 | 86 | 0 | 86 | 0 |
+| App | 42 | 42 | 1 | 41 | 0 |
+| StateManagement | 6 | 6 | 0 | 6 | 0 |
+| ViewModels | 4 | 4 | 0 | 4 | 0 |
+| Support | 1 | 1 | 0 | 1 | 0 |
+| **TOTAL** | **409** | **409** | **9** | **400** | **0** |
 
 ### Per-file APPLIED / DEFERRED notes
 (CLEAN files are summarized per-directory as "N files clean"; only APPLIED and DEFERRED get a
@@ -119,6 +119,24 @@ REJECTED candidates (audited, proven NOT safe — recorded so a future pass does
   AppDelegate+ImportCenter, ~13 sites): a parameter `foo: T? = nil` has a DEFAULT VALUE;
   removing `= nil` forces every caller to pass the arg = API/behavior/compile change. NOT
   behavior-preserving. Rejected wholesale.
+- FASTQMetadataSection.swift:595 `if !customKeys.isEmpty || true {` — an auditor proposed
+  dropping `|| true`. REJECTED: the `|| true` makes the Custom Fields DisclosureGroup ALWAYS
+  show; removing it makes it conditional on non-empty customKeys = a BEHAVIOR CHANGE (out of
+  scope). FLAGGED for maintainer instead (below) — likely a stale always-show override.
+- InspectorViewController+MetadataImport `assemblyContextRows`/`assemblyArtifactRows`: an
+  auditor briefly considered these dead but self-corrected — they are reached via the public
+  updateAssemblyDocument() API path. Kept.
+- WorkflowBuilder `colorForCategory` "duplicate" (WorkflowNodePalette:343 vs WorkflowNodeView:483):
+  byte-identical bodies but in DIFFERENT types, each with its own private callsite (296 / 358).
+  Cross-type helpers are NOT intra-type-dedup-able; merging would introduce a shared helper =
+  structural coupling change, not behavior-preserving. Kept both (auditor flagged low-confidence).
+
+APPLIED (Pass B batch 3 — pending build+commit):
+- `Views/DatabaseBrowser/DatabaseSearchDialogState.swift`: remove dead `convenience
+  init(selectedDestination:automationBackend:)` (~74-79) — grep-verified ZERO callers of the
+  `selectedDestination:` label in Sources + Tests (all sites use the designated
+  `init(initialDestination:)`, the positional form, or the no-arg default; both inits have
+  identical defaults). Internal type, app-internal, no cross-module/out-of-tree consumer.
 
 DEFERRED:
 - `Views/Viewer/FASTQMetadataDrawerView.swift`: no-op `public func
@@ -133,6 +151,10 @@ DEFERRED:
 - `08317789` — batch 1: 6 provably-safe items (4 dead members + 2 identical-branch IIFE
   collapses) across AnnotationTableDrawerView+Genotypes, FASTQDatasetViewController,
   WorkflowOperationDialogState, AppDelegate+Classification. Scoped-green.
+- `93b6b0c3` — batch 2: 4 items (dead @State pair, duplicate doc-comment, dead
+  calculateZoomPercent, dead performReverseComplement island) across WorkflowOperationsDialog,
+  MainSplitViewController+FASTQImport, EnhancedCoordinateRulerView, SequenceViewerView+Interaction.
+  Scoped-green (3152/0 + 159/0). Pass A (71 big files) audit COMPLETE.
 
 ## Deferred items
 
@@ -183,10 +205,29 @@ Pass A big files (catalogued from the solo audits):
   removed as dead) was never called, so expansion state was loaded-but-never-persisted. Removing
   the dead writer is behavior-preserving; WIRING a save call would be a behavior CHANGE (out of
   scope). Maintainer decision: either wire persistence or drop the load too.
+- `FASTQMetadataSection.swift:595` — `if !customKeys.isEmpty || true {` unconditionally shows
+  the Custom Fields section (the `|| true` defeats the isEmpty guard). If intentional, delete the
+  dead `!customKeys.isEmpty ||` clause for clarity; if a bug, drop `|| true` to hide the section
+  when empty. Either way it is a BEHAVIOR decision -> maintainer, not a behavior-preserving edit.
 - `FASTQMetadataDrawerView` — dead pair: `public func tableViewSelectionDidChange(_:)` (no-op
   break-only body) + its only reader `isSuppressingDelegateCallbacks` (never written). Left in
   place (public protocol-shaped surface); a maintainer pass could remove both.
 - No macOS-26 API violations (lockFocus/wantsLayer/runModal/synchronize/NSSplitViewController
   delegate methods) and no forbidden GCD->MainActor `Task { @MainActor` hops found in any Pass A
-  big file audited so far (the many `Task { @MainActor in }` are same-actor tasks on already
-  @MainActor types — legitimate, NOT the forbidden hop).
+  big file (the many `Task { @MainActor in }` are same-actor tasks on already-@MainActor types —
+  legitimate, NOT the forbidden hop).
+- NON-ISSUE (an auditor mislabeled these as violations — they are the CORRECT pattern, left as-is):
+  `DispatchQueue.main.async { MainActor.assumeIsolated { ... } }` in SidebarViewController+MenuDelegate
+  (~637/839/1032), AssemblyConfigurationViewModel (~603), FASTQIngestionService, and several
+  SequenceViewerView+* files. This IS the prescribed background->MainActor hop; do NOT "modernize"
+  it to `Task { @MainActor }` (that would be the forbidden hop and a concurrency-timing change).
+- DEFERRED dedup (SequenceViewerView+Interaction): `annotationAtPoint` vs `annotationRectAtPoint`
+  share coordinate-calculation logic, but merging is a geometry refactor -> DEFER (drawing math).
+- PRE-EXISTING forbidden GCD->MainActor hop (FLAGGED, NOT fixed — fixing changes concurrency
+  timing = behavior change, out of scope): `Services/ONTImportOperationCoordinator.swift:87` —
+  a progress callback (invoked from the ONTImportWorkflow non-MainActor execution context) uses
+  `Task { @MainActor in operationCenter.update(...) }`. The correct form per project rules is
+  `DispatchQueue.main.async { MainActor.assumeIsolated { operationCenter.update(...) } }` (see the
+  contrasting comment in MaterializationPipeline.swift:59). Deserves a separate tracked concurrency
+  fix. (All OTHER `Task { @MainActor }` in App are on already-@MainActor types = legitimate
+  same-actor tasks, NOT this hop.)

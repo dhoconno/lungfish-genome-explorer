@@ -71,13 +71,6 @@ final class DatabaseSearchDialogState {
         self.pathoplexusViewModel = DatabaseBrowserViewModel(source: .pathoplexus, automationBackend: automationBackend)
     }
 
-    convenience init(
-        selectedDestination: DatabaseSearchDestination = .genBankGenomes,
-        automationBackend: DatabaseSearchAutomationBackend? = nil
-    ) {
-        self.init(initialDestination: selectedDestination, automationBackend: automationBackend)
-    }
-
     var dialogTitle: String {
         selectedDestination.title
     }
