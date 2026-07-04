@@ -54,6 +54,39 @@ struct ProjectCommand: AsyncParsableCommand {
                 if (status == .active || status == .unknown) && !force {
                     throw ProjectCommandError.alreadyLocked(lockURL: lockURL, record: existing)
                 }
+
+                let replacementLockURL = ProjectLockManager.replacementLockURL(forLockAt: lockURL)
+                let replacementRecord = ProjectLockRecord.current(
+                    projectURL: projectURL,
+                    mode: "lock-replacement",
+                    toolName: "lungfish project lock",
+                    appVersion: ProjectCommandMetadata.appVersion
+                )
+                var replacementAcquired = try manager.acquireLock(replacementRecord, to: replacementLockURL)
+                if !replacementAcquired,
+                   let competingReplacement = try manager.readLock(at: replacementLockURL),
+                   manager.status(of: competingReplacement) == .stale,
+                   force || manager.canRemoveWithoutForce(competingReplacement) {
+                    try manager.removeLockIfPresent(at: replacementLockURL)
+                    replacementAcquired = try manager.acquireLock(replacementRecord, to: replacementLockURL)
+                }
+                guard replacementAcquired else {
+                    if let competingReplacement = try manager.readLock(at: replacementLockURL) {
+                        throw ProjectCommandError.lockReplacementInProgress(
+                            lockURL: replacementLockURL,
+                            record: competingReplacement
+                        )
+                    }
+                    throw ProjectCommandError.lockAcquisitionFailed(lockURL: replacementLockURL)
+                }
+                defer { try? manager.removeLockIfPresent(at: replacementLockURL) }
+
+                if let latest = try manager.readLock(at: lockURL) {
+                    guard latest == existing else {
+                        throw ProjectCommandError.alreadyLocked(lockURL: lockURL, record: latest)
+                    }
+                    try manager.removeLockIfPresent(at: lockURL)
+                }
             }
 
             let record = ProjectLockRecord.current(
@@ -62,7 +95,12 @@ struct ProjectCommand: AsyncParsableCommand {
                 toolName: "lungfish project lock",
                 appVersion: ProjectCommandMetadata.appVersion
             )
-            try manager.writeLock(record, to: lockURL)
+            guard try manager.acquireLock(record, to: lockURL) else {
+                if let competingRecord = try manager.readLock(at: lockURL) {
+                    throw ProjectCommandError.alreadyLocked(lockURL: lockURL, record: competingRecord)
+                }
+                throw ProjectCommandError.lockAcquisitionFailed(lockURL: lockURL)
+            }
 
             switch globalOptions.outputFormat {
             case .json:
@@ -517,6 +555,8 @@ private enum ProjectCommandError: Error, LocalizedError {
     case projectNotFound(path: String)
     case alreadyLocked(lockURL: URL, record: ProjectLockRecord)
     case foreignLock(lockURL: URL, record: ProjectLockRecord)
+    case lockReplacementInProgress(lockURL: URL, record: ProjectLockRecord)
+    case lockAcquisitionFailed(lockURL: URL)
 
     var errorDescription: String? {
         switch self {
@@ -526,6 +566,10 @@ private enum ProjectCommandError: Error, LocalizedError {
             return "Project is already locked at \(lockURL.path) by \(record.user)@\(record.host) pid \(record.pid) mode \(record.mode)."
         case .foreignLock(let lockURL, let record):
             return "Refusing to remove lock at \(lockURL.path) owned by \(record.user)@\(record.host) pid \(record.pid); pass --force to override."
+        case .lockReplacementInProgress(let lockURL, let record):
+            return "Project lock replacement is already in progress at \(lockURL.path) by \(record.user)@\(record.host) pid \(record.pid)."
+        case .lockAcquisitionFailed(let lockURL):
+            return "Could not acquire project lock at \(lockURL.path); retry after checking the lock file."
         }
     }
 }

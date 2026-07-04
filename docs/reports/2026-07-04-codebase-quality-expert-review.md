@@ -75,6 +75,9 @@ and behavior-preserving simplifications are useful and appropriate.
 - 2026-07-04 follow-up: Legacy FASTQ batch import now fails closed on unsupported recipe
   steps instead of skipping them, and the stale `amplicon` import recipe advertisement was
   removed until primer removal is executable in that path.
+- 2026-07-04 follow-up: Project lock acquisition now uses exclusive file creation so
+  racing CLI lock attempts cannot both overwrite `project.lock`; stale/forced replacement
+  uses a short-lived replacement guard and rechecks the original record before unlinking it.
 - 2026-07-04 follow-up: Sample metadata CSV/TSV import now rejects rows whose column count differs
   from the header before scanning or persisting metadata, avoiding silent misalignment in scientific
   import workflows.

@@ -261,10 +261,14 @@ original refactor was constrained to behavior-preserving edits:
   ProjectLockManager in App+CLI). Demoting would break downstream builds. Correctly
   keep them `public`. (Recorded so this is not re-attempted.)
 - **RESOLVED F3 — ProjectFile.saveMetadata writes metadata.json atomically.**
-- **F5/F6 — ProjectLock corrupt-lock throw + acquisition TOCTOU race (medium).**
-  `writeLock` overwrites unconditionally (no O_EXCL), so two processes racing to
-  acquire can both win. Real fix changes lock semantics; needs concurrency tests.
-  Defer to a lock-robustness pass.
+- **RESOLVED F6 — ProjectLock acquisition is now exclusive.** Lock acquisition now
+  uses `O_CREAT | O_EXCL` through `ProjectLockManager.acquireLock`, so racing CLI
+  lock attempts cannot both overwrite the same lock file; stale/forced replacement
+  uses a short-lived replacement guard and rechecks the original record before
+  removing it.
+- **F5 — ProjectLock corrupt-lock throw behavior (medium).** The current reader still
+  treats malformed lock JSON as a thrown read error. Defer any UX/policy change to a
+  lock-state presentation pass.
 - **F9/F10 — KeychainSecretStorage query consistency + non-UTF8 retrieve returns
   nil (low/medium).** Do NOT change keychain security semantics. Defer.
 - **F11 — ManagedStorageConfigStore mutable `@MainActor static var shared` on an

@@ -86,6 +86,10 @@ public struct ProjectLockManager {
             .appendingPathComponent("project.lock", isDirectory: false)
     }
 
+    public static func replacementLockURL(forLockAt lockURL: URL) -> URL {
+        lockURL.appendingPathExtension("replace")
+    }
+
     public func readLock(at lockURL: URL) throws -> ProjectLockRecord? {
         guard fileManager.fileExists(atPath: lockURL.path) else {
             return nil
@@ -106,6 +110,42 @@ public struct ProjectLockManager {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(record)
         try data.write(to: lockURL, options: [.atomic])
+    }
+
+    public func acquireLock(_ record: ProjectLockRecord, to lockURL: URL) throws -> Bool {
+        try fileManager.createDirectory(at: lockURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(record)
+
+        let descriptor = open(lockURL.path, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
+        guard descriptor >= 0 else {
+            if errno == EEXIST {
+                return false
+            }
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        defer { close(descriptor) }
+
+        do {
+            try Self.writeAll(data, to: descriptor)
+        } catch {
+            try? fileManager.removeItem(at: lockURL)
+            throw error
+        }
+
+        return true
+    }
+
+    public func removeLockIfPresent(at lockURL: URL) throws {
+        do {
+            try fileManager.removeItem(at: lockURL)
+        } catch {
+            guard Self.isMissingFileError(error) else {
+                throw error
+            }
+        }
     }
 
     public func status(of record: ProjectLockRecord) -> ProjectLockStatus {
@@ -149,6 +189,42 @@ public struct ProjectLockManager {
             return false
         }
         return status(of: record) == .stale
+    }
+
+    private static func writeAll(_ data: Data, to descriptor: Int32) throws {
+        try data.withUnsafeBytes { buffer in
+            guard let baseAddress = buffer.baseAddress else { return }
+
+            var offset = 0
+            while offset < data.count {
+                let written = Darwin.write(
+                    descriptor,
+                    baseAddress.advanced(by: offset),
+                    data.count - offset
+                )
+                if written < 0 {
+                    if errno == EINTR {
+                        continue
+                    }
+                    throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                }
+                guard written > 0 else {
+                    throw POSIXError(.EIO)
+                }
+                offset += written
+            }
+        }
+    }
+
+    private static func isMissingFileError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        if nsError.domain == NSCocoaErrorDomain && nsError.code == NSFileNoSuchFileError {
+            return true
+        }
+        if nsError.domain == NSPOSIXErrorDomain && nsError.code == Int(POSIXErrorCode.ENOENT.rawValue) {
+            return true
+        }
+        return false
     }
 }
 

@@ -140,6 +140,65 @@ final class ProjectCommandTests: XCTestCase {
         XCTAssertEqual(record["appVersion"] as? String, "lungfish-cli \(LungfishCLI.configuration.version)")
     }
 
+    func testConcurrentStaleLockReplacementAllowsOnlyOneWinner() async throws {
+        let projectURL = try makeProject()
+        try writeLockRecord(
+            [
+                "schemaVersion": 1,
+                "toolName": "lungfish project lock",
+                "appVersion": "lungfish-cli 0.0.0-test",
+                "projectPath": projectURL.standardizedFileURL.path,
+                "mode": "exclusive",
+                "user": currentUserName(),
+                "host": Host.current().localizedName ?? ProcessInfo.processInfo.hostName,
+                "pid": 999_999_937,
+                "processStartTime": "2000-01-01T00:00:00Z",
+                "cwd": "/tmp/old-cwd",
+                "createdAt": "2000-01-01T00:00:00Z",
+            ],
+            to: projectURL
+        )
+
+        let outcomes = await withTaskGroup(of: ProjectLockCommandOutcome.self) { group in
+            for index in 0..<20 {
+                let mode = "contender-\(index)"
+                let path = projectURL.path
+                group.addTask {
+                    do {
+                        let command = try ProjectCommand.LockSubcommand.parse([
+                            path,
+                            "--mode", mode,
+                            "--quiet",
+                        ])
+                        try await command.run()
+                        return .success(mode)
+                    } catch {
+                        return .failure(error.localizedDescription)
+                    }
+                }
+            }
+
+            var collected: [ProjectLockCommandOutcome] = []
+            for await outcome in group {
+                collected.append(outcome)
+            }
+            return collected
+        }
+
+        let successes = outcomes.compactMap { outcome -> String? in
+            if case .success(let mode) = outcome { return mode }
+            return nil
+        }
+        XCTAssertEqual(successes.count, 1, "Expected exactly one winning lock command, got \(outcomes)")
+        let record = try loadLockRecord(from: projectURL)
+        XCTAssertEqual(record["mode"] as? String, successes.first)
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: ProjectLockManager.replacementLockURL(forLockAt: lockURL(for: projectURL)).path
+            )
+        )
+    }
+
     func testUnlockRemovesOwnLock() async throws {
         let projectURL = try makeProject()
 
@@ -447,5 +506,19 @@ final class ProjectCommandTests: XCTestCase {
 
     private func currentUserName() -> String {
         NSUserName().isEmpty ? (ProcessInfo.processInfo.environment["USER"] ?? "unknown") : NSUserName()
+    }
+}
+
+private enum ProjectLockCommandOutcome: Sendable, CustomStringConvertible {
+    case success(String)
+    case failure(String)
+
+    var description: String {
+        switch self {
+        case .success(let mode):
+            return "success(\(mode))"
+        case .failure(let message):
+            return "failure(\(message))"
+        }
     }
 }

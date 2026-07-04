@@ -61,6 +61,8 @@ changes that reduce future ambiguity across the codebase.
 - Made legacy FASTQ batch import fail closed on unsupported recipe steps and removed the stale
   `amplicon` recipe advertisement from the import CLI/manual until primer removal is executable
   in that path.
+- Made project lock acquisition use exclusive file creation so racing CLI lock attempts cannot
+  both overwrite the same lock file.
 - Embedded script/file splits remained deferred because the reviewed same-batch wins were in
   provenance/output correctness rather than large mechanical relocation.
 
