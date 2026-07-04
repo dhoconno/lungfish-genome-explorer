@@ -7,6 +7,57 @@ import LungfishWorkflow
 @testable import LungfishApp
 
 final class ReferenceBundleImportServiceTests: XCTestCase {
+    @MainActor
+    func testImportAsReferenceBundleRecordsOriginalSourceInProvenance() async throws {
+        if let missingInfo = await NativeBundleBuilder().checkRequiredTools() {
+            throw XCTSkip("Native reference bundle tools are unavailable: \(missingInfo.description)")
+        }
+
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ReferenceBundleImportServiceTests-\(UUID().uuidString)", isDirectory: true)
+        let outputDirectory = root.appendingPathComponent("References", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+
+        let sourceURL = root.appendingPathComponent("source.fa")
+        try ">chr1\nACGTACGT\n".write(to: sourceURL, atomically: true, encoding: .utf8)
+
+        let result = try await ReferenceBundleImportService.shared.importAsReferenceBundle(
+            sourceURL: sourceURL,
+            outputDirectory: outputDirectory,
+            preferredBundleName: "Imported Ref"
+        )
+
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: result.bundleURL))
+        let expectedCommand = [
+            "lungfish-app",
+            "reference-bundle-import",
+            sourceURL.standardizedFileURL.path,
+            "--output-directory",
+            outputDirectory.standardizedFileURL.path,
+            "--name",
+            "Imported Ref",
+        ]
+        XCTAssertEqual(provenance.workflowName, "lungfish reference import")
+        XCTAssertEqual(provenance.argv, expectedCommand)
+        XCTAssertEqual(provenance.steps.first?.argv, expectedCommand)
+        XCTAssertTrue(provenance.files.contains {
+            $0.path == sourceURL.standardizedFileURL.path && $0.role == .input && $0.checksumSHA256 != nil
+        })
+        XCTAssertFalse(provenance.steps.flatMap(\.inputs).contains {
+            $0.path.contains("ref-import-")
+        })
+        XCTAssertTrue(provenance.outputs.contains {
+            $0.path.hasPrefix(result.bundleURL.path) && $0.checksumSHA256 != nil
+        })
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: result.bundleURL
+                .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
+                .appendingPathComponent(ProvenanceWriter.bundleRollupFilename)
+                .path
+        ))
+    }
+
     func testClassifiesStandaloneReferenceExtensions() {
         XCTAssertEqual(
             ReferenceBundleImportService.classify(URL(fileURLWithPath: "/tmp/reference.fasta")),

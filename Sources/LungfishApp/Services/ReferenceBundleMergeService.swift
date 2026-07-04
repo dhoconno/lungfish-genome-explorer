@@ -75,7 +75,8 @@ enum ReferenceBundleMergeService {
             let result = try await ReferenceBundleImportService.shared.importAsReferenceBundle(
                 sourceURL: mergedFASTA,
                 outputDirectory: outputDirectory,
-                preferredBundleName: bundleName
+                preferredBundleName: bundleName,
+                provenanceWorkflowName: nil
             )
             createdBundleURL = result.bundleURL
             let builderProvenance = try ProvenanceEnvelopeReader.load(from: result.bundleURL)
