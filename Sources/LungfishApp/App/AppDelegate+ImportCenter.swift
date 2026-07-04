@@ -928,21 +928,24 @@ extension AppDelegate {
                     )
                 }
 
-                var totalUpdated = 0
-                var updatedTracks = 0
-
-                for track in manifest.variants {
+                let targets = manifest.variants.compactMap { track -> VariantSampleMetadataImportTarget? in
                     guard let databasePath = track.databasePath else {
                         debugLog("performSampleMetadataImport: Skipping track '\(track.name)' (no databasePath)")
-                        continue
+                        return nil
                     }
-                    let dbURL = bundleURL.appendingPathComponent(databasePath)
-                    let rwDB = try VariantDatabase(url: dbURL, readWrite: true)
-                    let updated = try rwDB.importSampleMetadata(from: metadataURL, format: format)
-                    totalUpdated += updated
-                    updatedTracks += 1
-                    debugLog("performSampleMetadataImport: Track '\(track.name)' updated \(updated) rows")
+                    return VariantSampleMetadataImportTarget(
+                        databaseURL: bundleURL.appendingPathComponent(databasePath),
+                        trackName: track.name
+                    )
                 }
+                let result = try VariantSampleMetadataImportService().importMetadata(
+                    from: metadataURL,
+                    format: format,
+                    bundleURL: bundleURL,
+                    targets: targets
+                )
+                let totalUpdated = result.totalUpdated
+                let updatedTracks = result.updatedDatabaseCount
 
                 scheduleOnMainRunLoop { [weak self] in
                     guard let self else { return }

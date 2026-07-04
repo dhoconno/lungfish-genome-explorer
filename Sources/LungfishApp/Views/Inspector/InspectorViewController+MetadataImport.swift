@@ -474,20 +474,22 @@ extension InspectorViewController {
             let ext = fileURL.pathExtension.lowercased()
             let format: MetadataFormat = ext == "csv" ? .csv : .tsv
 
-            var totalUpdated = 0
-            for dbURL in variantDBURLs {
-                do {
-                    let rwDB = try VariantDatabase(url: dbURL, readWrite: true)
-                    let count = try rwDB.importSampleMetadata(from: fileURL, format: format)
-                    totalUpdated += count
-                } catch {
-                    inspectorLogger.warning("importSampleMetadata: \(error.localizedDescription)")
+            do {
+                let targets = variantDBURLs.map {
+                    VariantSampleMetadataImportTarget(databaseURL: $0)
                 }
+                let result = try VariantSampleMetadataImportService().importMetadata(
+                    from: fileURL,
+                    format: format,
+                    bundleURL: bundle.url,
+                    targets: targets
+                )
+                inspectorLogger.info("importSampleMetadata: Updated \(result.totalUpdated) samples from \(fileURL.lastPathComponent)")
+                // Refresh the sample section
+                self?.updateSampleSection(from: bundle)
+            } catch {
+                inspectorLogger.warning("importSampleMetadata: \(error.localizedDescription)")
             }
-
-            inspectorLogger.info("importSampleMetadata: Updated \(totalUpdated) samples from \(fileURL.lastPathComponent)")
-            // Refresh the sample section
-            self?.updateSampleSection(from: bundle)
         }
     }
 

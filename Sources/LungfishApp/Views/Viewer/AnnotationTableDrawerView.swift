@@ -6,6 +6,7 @@ import AppKit
 import SwiftUI
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 import os.log
 import LungfishKit
 
@@ -1332,6 +1333,25 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             workflowName: workflowName,
             presentingWindow: window
         ) ?? true
+    }
+
+    private func variantDatabaseBundleURL(from searchIndex: AnnotationSearchIndex) -> URL? {
+        searchIndex.variantDatabaseHandles
+            .compactMap { Self.enclosingLungfishBundleURL(for: $0.db.databaseURL) }
+            .first
+    }
+
+    private nonisolated static func enclosingLungfishBundleURL(for url: URL) -> URL? {
+        var candidate = url.standardizedFileURL.deletingLastPathComponent()
+        while candidate.path != "/" {
+            if ProvenanceWriter.isBundleDirectory(candidate) {
+                return candidate
+            }
+            let parent = candidate.deletingLastPathComponent()
+            guard parent != candidate else { break }
+            candidate = parent
+        }
+        return nil
     }
 
     // MARK: - Variant Selection Sync
@@ -4240,21 +4260,28 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
             let ext = fileURL.pathExtension.lowercased()
             let format: MetadataFormat = ext == "csv" ? .csv : .tsv
 
-            var totalUpdated = 0
-            for handle in searchIndex.variantDatabaseHandles {
-                do {
-                    let rwDB = try VariantDatabase(url: handle.db.databaseURL, readWrite: true)
-                    let count = try rwDB.importSampleMetadata(from: fileURL, format: format)
-                    totalUpdated += count
-                } catch {
-                    annotationDrawerLogger.warning("importSampleMetadata: \(error.localizedDescription)")
-                }
+            guard let bundleURL = self.variantDatabaseBundleURL(from: searchIndex) else {
+                annotationDrawerLogger.warning("importSampleMetadata: Could not resolve enclosing bundle for variant databases")
+                return
             }
+            do {
+                let targets = searchIndex.variantDatabaseHandles.map {
+                    VariantSampleMetadataImportTarget(databaseURL: $0.db.databaseURL, trackName: $0.trackId)
+                }
+                let result = try VariantSampleMetadataImportService().importMetadata(
+                    from: fileURL,
+                    format: format,
+                    bundleURL: bundleURL,
+                    targets: targets
+                )
 
-            annotationDrawerLogger.info("importSampleMetadata: Updated \(totalUpdated) samples from \(fileURL.lastPathComponent)")
-            self.populateSampleData(from: searchIndex)
-            self.configureColumnsForTab(.samples)
-            self.updateDisplayedSamples()
+                annotationDrawerLogger.info("importSampleMetadata: Updated \(result.totalUpdated) samples from \(fileURL.lastPathComponent)")
+                self.populateSampleData(from: searchIndex)
+                self.configureColumnsForTab(.samples)
+                self.updateDisplayedSamples()
+            } catch {
+                annotationDrawerLogger.warning("importSampleMetadata: \(error.localizedDescription)")
+            }
         }
     }
 
