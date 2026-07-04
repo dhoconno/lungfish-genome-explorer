@@ -108,10 +108,10 @@ non-op-pipeline layers, NOT OperationCenter violations).
   file-private type, untouched). Kept `SampleLocusLabel`.
 
 ### Deferred SPLITS (separate reviewed passes)
-- `GenotypeWorkbookRevisionService.swift` (1298L): ~660L is the embedded Python
-  `workbookOverrideScript`. HIGHEST-value low-risk move: extract that computed property to
-  `GenotypeWorkbookRevisionService+OverrideScript.swift` (same-type extension, same module,
-  no access change) -> drops the file to ~640L.
+- RESOLVED 2026-07-04: `GenotypeWorkbookRevisionService.swift` no longer carries the
+  ~660-line embedded Python `workbookOverrideScript`. The script moved unchanged to
+  `GenotypeWorkbookRevisionService+OverrideScript.swift`, dropping the service file to
+  ~633L while keeping the workflow behavior pinned by `GenotypeWorkbookRevisionServiceTests`.
 - `ONTBarcodeDemuxGenotypingPipeline` heredoc extraction (noted above) is the parallel move.
 - `TaxTriagePipeline.swift` (1598L): 4-way actor-extension split, NO promotions (actor
   extensions keep `private` in-module... but across files `private` doesn't span — so any
