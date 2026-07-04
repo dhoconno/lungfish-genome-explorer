@@ -575,11 +575,6 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         actionBar.setExtractEnabled(true)
     }
 
-    /// Stores accession selection from legacy list/table widgets.
-    private func switchToAccession(_ accession: String) {
-        selectedAccession = accession
-    }
-
     // MARK: - Detail Content Rebuild
 
     private func rebuildDetailContent() {
@@ -1186,81 +1181,6 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         return pill
     }
 
-    private func buildAccessionList(accessionSummaries: [DBAccessionSummary]) -> NSView {
-        let container = NSView()
-        container.translatesAutoresizingMaskIntoConstraints = false
-
-        let headerLabel = NSTextField(labelWithString: "Reference Accessions (\(accessionSummaries.count))")
-        headerLabel.font = .systemFont(ofSize: 11, weight: .semibold)
-        headerLabel.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(headerLabel)
-
-        // Create accession table
-        let tableScrollView = NSScrollView()
-        tableScrollView.translatesAutoresizingMaskIntoConstraints = false
-        tableScrollView.hasVerticalScroller = true
-        tableScrollView.autohidesScrollers = true
-
-        let accessionTable = NSTableView()
-        accessionTable.headerView = nil
-        accessionTable.rowHeight = 20
-        accessionTable.style = .plain
-        accessionTable.usesAlternatingRowBackgroundColors = false
-
-        let accColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("accession"))
-        accColumn.title = "Accession"
-        accessionTable.addTableColumn(accColumn)
-
-        // Use tags to identify this table vs the taxonomy table
-        accessionTable.tag = 999
-
-        // Store summaries for the data source
-        let wrapper = AccessionDataWrapper(summaries: accessionSummaries, selected: selectedAccession)
-        accessionTable.dataSource = wrapper
-        accessionTable.delegate = wrapper
-        objc_setAssociatedObject(container, &accessionDataKey, wrapper, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-
-        wrapper.onSelect = { [weak self] accession in
-            self?.selectedAccession = accession
-            self?.switchToAccession(accession)
-        }
-
-        // Right-click context menu for copying accession
-        let menu = NSMenu(title: "Accession Actions")
-        wrapper.contextMenu = menu
-        wrapper.populateMenu = { [weak self] menu, accession in
-            menu.removeAllItems()
-            let copyItem = NSMenuItem(title: "Copy Accession", action: #selector(self?.contextCopyAccession(_:)), keyEquivalent: "")
-            copyItem.target = self
-            copyItem.representedObject = accession
-            menu.addItem(copyItem)
-
-            let viewNCBI = NSMenuItem(title: "View on NCBI", action: #selector(self?.contextViewAccessionOnNCBI(_:)), keyEquivalent: "")
-            viewNCBI.target = self
-            viewNCBI.representedObject = accession
-            menu.addItem(viewNCBI)
-        }
-        accessionTable.menu = menu
-
-        tableScrollView.documentView = accessionTable
-
-        container.addSubview(tableScrollView)
-
-        NSLayoutConstraint.activate([
-            headerLabel.topAnchor.constraint(equalTo: container.topAnchor),
-            headerLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            headerLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-
-            tableScrollView.topAnchor.constraint(equalTo: headerLabel.bottomAnchor, constant: 4),
-            tableScrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            tableScrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            tableScrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 100),
-            tableScrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-        ])
-
-        return container
-    }
-
     // MARK: - Taxon Selection
 
     /// Selects a taxon by its taxonomy ID, updating both the table and detail pane.
@@ -1644,20 +1564,6 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         case .listLeading, .stacked:
             return (300, 250)
         }
-    }
-
-    private func resetInitialSplitPositionIfNeeded() {
-        splitCoordinator.resetInitialSplitPositionIfNeeded(
-            in: splitView,
-            minimumExtents: minimumExtents(for: MetagenomicsPanelLayout.current())
-        )
-    }
-
-    private func hasValidInitialSplitPosition() -> Bool {
-        splitCoordinator.hasValidInitialSplitPosition(
-            in: splitView,
-            minimumExtents: minimumExtents(for: MetagenomicsPanelLayout.current())
-        )
     }
 
     private func scheduleInitialSplitValidationIfNeeded() {
@@ -2293,44 +2199,6 @@ private final class FlippedNaoMgsContentView: NSView {
     override var isFlipped: Bool { true }
 }
 
-// MARK: - NaoMgsDetailContainer
-
-/// A self-contained detail pane container that manages a scroll view filling its bounds.
-///
-/// This is added directly as an NSSplitView arranged subview. NSSplitView
-/// manages its frame via frame-based layout. The container fills itself
-/// with the scroll view using autoresizing masks.
-private final class NaoMgsDetailContainer: NSView {
-
-    let scrollView: NSScrollView
-    let contentView: FlippedNaoMgsContentView
-
-    init(scrollView: NSScrollView, contentView: FlippedNaoMgsContentView) {
-        self.scrollView = scrollView
-        self.contentView = contentView
-        super.init(frame: .zero)
-
-        scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = false
-        scrollView.autohidesScrollers = true
-        scrollView.drawsBackground = false
-        scrollView.documentView = contentView
-        scrollView.autoresizingMask = [.width, .height]
-        addSubview(scrollView)
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) not implemented")
-    }
-
-    override var isFlipped: Bool { true }
-
-    override func resizeSubviews(withOldSize oldSize: NSSize) {
-        super.resizeSubviews(withOldSize: oldSize)
-        scrollView.frame = bounds
-    }
-}
-
 // MARK: - NSTableViewDataSource
 
 extension NaoMgsResultViewController: NSTableViewDataSource {
@@ -2734,76 +2602,3 @@ final class NaoMgsSummaryBar: GenomicSummaryCardBar {
     }
 }
 
-// MARK: - AccessionDataWrapper
-
-/// Lightweight data source for the accession table in the detail pane.
-///
-/// Stored as an associated object on the container view to keep it alive.
-nonisolated(unsafe) private var accessionDataKey: UInt8 = 0
-
-@MainActor
-private final class AccessionDataWrapper: NSObject, NSTableViewDataSource, NSTableViewDelegate {
-
-    let summaries: [DBAccessionSummary]
-    var selectedAccession: String?
-    var onSelect: ((String) -> Void)?
-    var contextMenu: NSMenu?
-    var populateMenu: ((NSMenu, String) -> Void)?
-
-    init(summaries: [DBAccessionSummary], selected: String?) {
-        self.summaries = summaries
-        self.selectedAccession = selected
-        super.init()
-    }
-
-    func numberOfRows(in tableView: NSTableView) -> Int {
-        summaries.count
-    }
-
-    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        guard row < summaries.count else { return nil }
-        let summary = summaries[row]
-
-        let cell = tableView.makeView(withIdentifier: NSUserInterfaceItemIdentifier("accRow"), owner: nil) as? NSTableCellView ?? {
-            let c = NSTableCellView()
-            c.identifier = NSUserInterfaceItemIdentifier("accRow")
-            let tf = NSTextField(labelWithString: "")
-            tf.translatesAutoresizingMaskIntoConstraints = false
-            tf.lineBreakMode = .byTruncatingTail
-            c.addSubview(tf)
-            c.textField = tf
-            NSLayoutConstraint.activate([
-                tf.leadingAnchor.constraint(equalTo: c.leadingAnchor, constant: 2),
-                tf.trailingAnchor.constraint(equalTo: c.trailingAnchor, constant: -2),
-                tf.centerYAnchor.constraint(equalTo: c.centerYAnchor),
-            ])
-            return c
-        }()
-
-        let coveredBP = NumberFormatter.localizedString(from: NSNumber(value: summary.coveredBasePairs), number: .decimal)
-        let coveragePct = String(format: "%.0f%%", summary.coverageFraction * 100)
-        cell.textField?.stringValue = "\(summary.accession)  \(naoMgsFormatCount(summary.readCount)) reads  \(coveredBP) bp (\(coveragePct))"
-        cell.textField?.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
-
-        if summary.accession == selectedAccession {
-            cell.textField?.textColor = .controlAccentColor
-        } else {
-            cell.textField?.textColor = .labelColor
-        }
-
-        return cell
-    }
-
-    func tableViewSelectionDidChange(_ notification: Notification) {
-        guard let tableView = notification.object as? NSTableView else { return }
-        let row = tableView.selectedRow
-        guard row >= 0, row < summaries.count else { return }
-        let accession = summaries[row].accession
-        selectedAccession = accession
-        onSelect?(accession)
-    }
-
-    func tableView(_ tableView: NSTableView, rowActionsForRow row: Int, edge: NSTableView.RowActionEdge) -> [NSTableViewRowAction] {
-        []
-    }
-}
