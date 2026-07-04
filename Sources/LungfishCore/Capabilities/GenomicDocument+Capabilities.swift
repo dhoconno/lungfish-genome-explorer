@@ -1,62 +1,18 @@
-// GenomicDocument+Capabilities.swift - CapabilityProvider conformance for GenomicDocument
+// GenomicDocument+Capabilities.swift - MainActor capability computation for GenomicDocument
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
 import Foundation
-
-// MARK: - GenomicDocument CapabilityProvider Conformance
-
-extension GenomicDocument: CapabilityProvider {
-    /// Computed capabilities based on document content.
-    ///
-    /// This property dynamically inspects the document's sequences, annotations,
-    /// metadata, and document type to determine what capabilities it provides.
-    ///
-    /// ## Important
-    ///
-    /// Because `GenomicDocument` is `@MainActor` isolated, accessing this property
-    /// from a non-MainActor context will return an empty capability set. Use
-    /// `computeCapabilities()` from MainActor context for accurate results.
-    ///
-    /// ## Capability Detection
-    ///
-    /// The following are automatically detected:
-    /// - **Sequence types**: DNA/RNA sequences add `.nucleotideSequence`, proteins add `.aminoAcidSequence`
-    /// - **Quality scores**: Sequences with quality scores add `.qualityScores`
-    /// - **Circular topology**: Circular sequences add `.circularTopology`
-    /// - **Annotations**: Non-empty annotations add `.annotations`
-    /// - **Rich metadata**: Organism or accession info adds `.richMetadata`
-    /// - **Document type**: Reference, alignment, variants, etc. add type-specific capabilities
-    ///
-    /// ## Example
-    /// ```swift
-    /// let document = GenomicDocument(name: "example")
-    /// document.addSequence(try! Sequence(name: "seq1", alphabet: .dna, bases: "ATCG"))
-    ///
-    /// if document.hasCapability(.nucleotideSequence) {
-    ///     print("Document contains DNA/RNA sequences")
-    /// }
-    /// ```
-    nonisolated public var capabilities: DocumentCapability {
-        // Note: For true nonisolated access, we'd need to redesign GenomicDocument
-        // to use actors or have thread-safe accessors. The protocol conformance
-        // is declared nonisolated for compatibility, but the actual implementation
-        // should be called from MainActor context through computeCapabilities().
-        //
-        // Returning empty set here is safe - callers should use computeCapabilities()
-        // for accurate results.
-        return .none
-    }
-}
 
 // MARK: - MainActor Capability Computation
 
 extension GenomicDocument {
     /// Computes capabilities on the MainActor where document properties are accessible.
     ///
-    /// Use this method when you need the actual computed capabilities.
-    /// The `capabilities` property from `CapabilityProvider` returns an empty
-    /// set when called from a non-MainActor context.
+    /// `GenomicDocument` does not conform directly to ``CapabilityProvider``
+    /// because its state is MainActor-isolated while that protocol is synchronous
+    /// and nonisolated. Use this method to compute a snapshot, then wrap it in
+    /// ``DocumentCapabilityWrapper`` when a generic capability provider is needed.
     ///
     /// - Returns: The computed capabilities based on document content.
     @MainActor

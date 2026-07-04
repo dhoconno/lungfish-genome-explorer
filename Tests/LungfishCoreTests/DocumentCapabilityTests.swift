@@ -2,6 +2,7 @@
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import Foundation
 import XCTest
 @testable import LungfishCore
 
@@ -486,5 +487,43 @@ final class DocumentCapabilityTests: XCTestCase {
         let result = document.validate(with: validator)
 
         XCTAssertTrue(result.isValid)
+    }
+
+    @MainActor
+    func testDocumentCapabilitiesUseSnapshotProviderForGenericValidation() throws {
+        let document = GenomicDocument(name: "test")
+        let sequence = try Sequence(name: "seq1", alphabet: .dna, bases: "ATCGATCG")
+        document.addSequence(sequence)
+
+        let provider = DocumentCapabilityWrapper(capabilities: document.computeCapabilities())
+        let validator = CapabilityValidator(required: .nucleotideSequence)
+
+        XCTAssertTrue(validator.validate(provider).isValid)
+    }
+
+    func testGenomicDocumentDoesNotExposeMisleadingCapabilityProviderConformance() throws {
+        let sourceURL = Self.repositoryRoot()
+            .appendingPathComponent("Sources/LungfishCore/Capabilities/GenomicDocument+Capabilities.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertFalse(
+            source.contains("extension GenomicDocument: CapabilityProvider"),
+            "GenomicDocument is MainActor-isolated; use computeCapabilities() plus DocumentCapabilityWrapper instead of direct CapabilityProvider conformance."
+        )
+        XCTAssertFalse(
+            source.contains("return .none"),
+            "The old nonisolated CapabilityProvider shim silently reported no capabilities and must not be reintroduced."
+        )
+    }
+
+    private static func repositoryRoot() -> URL {
+        var url = URL(fileURLWithPath: #filePath)
+        while url.pathComponents.count > 1 {
+            if FileManager.default.fileExists(atPath: url.appendingPathComponent("Package.swift").path) {
+                return url
+            }
+            url.deleteLastPathComponent()
+        }
+        return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
     }
 }
