@@ -82,6 +82,49 @@ reviewed pass.
 - FASTQBatchImporter: `reproducibleImportCommand` arg construction; `concatenateFiles`
   whole-file-in-memory (perf note, behavior change to stream).
 
+## Second big-file tier (TaxTriage/AIHaplotyping/Provenance/NativeBundleBuilder/Metagenomics/GenotypeWorkbookRevision) — findings
+
+All 6 clean at statement level, PASS all binding invariants (no SAM-save, no MainActor
+dispatch hop, ProvenanceRecorder/OperationMarker are the correct patterns for these
+non-op-pipeline layers, NOT OperationCenter violations).
+
+### Applied (second Workflow batch)
+- `NativeBundleBuilder.stripExtraBEDColumns` (~1274) — dead private throwing instance method;
+  the live caller uses a distinct `static func` in LungfishApp/ViewModels/BundleBuildHelpers.swift.
+- `GenotypeWorkbookRevisionService.snapshotRole` (~244) — identical-both-branches ternary
+  (`.externalEditSnapshot` either way) -> plain assignment; the separate `label:` ternary
+  below genuinely differs and stays.
+- `AIHaplotypingPatchValidator.SampleLocus` (~1507) — dead private struct (zero in-file
+  constructions; the same-named struct in AIHaplotypingRevisionPublisher.swift is a distinct
+  file-private type, untouched). Kept `SampleLocusLabel`.
+
+### Deferred SPLITS (separate reviewed passes)
+- `GenotypeWorkbookRevisionService.swift` (1298L): ~660L is the embedded Python
+  `workbookOverrideScript`. HIGHEST-value low-risk move: extract that computed property to
+  `GenotypeWorkbookRevisionService+OverrideScript.swift` (same-type extension, same module,
+  no access change) -> drops the file to ~640L.
+- `ONTBarcodeDemuxGenotypingPipeline` heredoc extraction (noted above) is the parallel move.
+- `TaxTriagePipeline.swift` (1598L): 4-way actor-extension split, NO promotions (actor
+  extensions keep `private` in-module... but across files `private` doesn't span — so any
+  cross-file helper needs `internal`; verify per-seam). Test-pinned internals stay internal.
+- `AIHaplotypingPatchValidator.swift` (1516L): 3-way split; the error enum (~262L, lines
+  4-266) is self-contained. ValidationContext cluster needs `private`->`internal` promotion.
+- `ProvenanceExporter.swift` (1379L): 4-way split; needs `internal` promotion of ~14 shared
+  private helpers (`private` doesn't cross files). Codable-heavy -> schema untouchable.
+- `NativeBundleBuilder.swift` (1377L): 4-way stage split; NO promotions needed (same-module
+  extensions on the `@MainActor` class). `convertGenBankToBED` stays test-visible.
+- `MetagenomicsImportService.swift` (1316L): models/importers/NaoMgs/helpers split; statics
+  already appropriately scoped, `selectTopAccessionsPerTaxon` test-pinned.
+
+### Deferred DEDUP-that-isn't (verified NON-equivalent, do NOT merge)
+- ProvenanceExporter `shellCommand` vs `portableCommand` vs `exportPython` inline: share
+  args[0] normalization but join differently (`" \\\n    "` vs `" "`) -> semantic, not exact.
+- ProvenanceExporter 4 `Set<String>` dedup loops: each keys on a DIFFERENT composite; two
+  also sort/filter-by-existence -> not equivalent.
+- NativeBundleBuilder `detectionURL` gz-strip repeated 3x but embedded in different control
+  flow with different downstream use.
+- FullLengthONTMHC two `formatNumber` differ in precision (recorded earlier).
+
 ## Deferred items (later batches)
 
 _(populated per batch as uncertain changes are reverted)_

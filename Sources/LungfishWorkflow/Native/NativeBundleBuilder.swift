@@ -1269,28 +1269,6 @@ public final class NativeBundleBuilder: ObservableObject {
         try clippedContent.write(to: bedURL, atomically: true, encoding: .utf8)
     }
 
-    /// Strips extra columns beyond `keepColumns` from a BED file in-place.
-    /// SQLite annotation import only needs the retained BED columns.
-    private func stripExtraBEDColumns(bedURL: URL, keepColumns: Int) throws {
-        guard let content = try? String(contentsOf: bedURL, encoding: .utf8) else { return }
-
-        var strippedLines: [String] = []
-        for line in content.components(separatedBy: .newlines) {
-            if line.isEmpty || line.hasPrefix("#") {
-                strippedLines.append(line)
-                continue
-            }
-            let fields = line.split(separator: "\t", omittingEmptySubsequences: false)
-            if fields.count > keepColumns {
-                strippedLines.append(fields.prefix(keepColumns).joined(separator: "\t"))
-            } else {
-                strippedLines.append(line)
-            }
-        }
-
-        try strippedLines.joined(separator: "\n").write(to: bedURL, atomically: true, encoding: .utf8)
-    }
-
     private func countVariantsInVCF(_ url: URL) throws -> Int {
         guard let content = try? String(contentsOf: url, encoding: .utf8) else {
             return 0

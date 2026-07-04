@@ -241,9 +241,7 @@ public struct GenotypeWorkbookRevisionService {
 
         do {
             let currentSHA256 = try ProvenanceFileHasher.sha256(of: currentURL)
-            let snapshotRole: ONTGenotypeWorkbookRevisionRole = previousCurrentRevision?.sha256 == currentSHA256
-                ? .externalEditSnapshot
-                : .externalEditSnapshot
+            let snapshotRole: ONTGenotypeWorkbookRevisionRole = .externalEditSnapshot
             let snapshotRevision = try snapshotCurrentWorkbook(
                 currentURL: currentURL,
                 bundleURL: bundle,
