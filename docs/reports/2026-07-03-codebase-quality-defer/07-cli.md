@@ -47,12 +47,12 @@ Columns: files total / audited / applied / clean / deferred.
 
 | Directory | total | audited | applied | clean | deferred |
 |---|---|---|---|---|---|
-| Commands | 82 | 0 | 0 | 0 | 0 |
-| Support | 4 | 0 | 0 | 0 | 0 |
-| Output | 2 | 0 | 0 | 0 | 0 |
-| Options | 1 | 0 | 0 | 0 | 0 |
-| (root) | 1 | 0 | 0 | 0 | 0 |
-| **TOTAL** | **90** | **0** | 0 | 0 | 0 |
+| Commands | 82 | 82 | 2 | 80 | 0 |
+| Support | 4 | 4 | 0 | 4 | 0 |
+| Output | 2 | 2 | 0 | 2 | 0 |
+| Options | 1 | 1 | 0 | 1 | 0 |
+| (root) | 1 | 1 | 0 | 1 | 0 |
+| **TOTAL** | **90** | **90** | 2 | 88 | 0 |
 
 ### Per-file APPLIED / DEFERRED notes
 
@@ -89,8 +89,40 @@ REJECTED candidates (audited, proven NOT safe — a future pass must not re-prop
 
 ## Applied batches (commit log)
 
-_(one line per committed batch)_
+- `b9534102` — batch 1: 2 dead private functions (ImportCommand.scanForFiles,
+  FastqCommand.saveProvenance). Scoped-green (859/0). 15 big files (>=800L) audited.
+
+## Phase 7 (LungfishCLI) — audit COMPLETE
+
+90/90 files audited (100% coverage — reconciled against `find Sources/LungfishCLI -name '*.swift'`
+= 90; every directory row audited == total). 15 big files (>=800L) solo + 8 infra
+(root/Options/Output/Support) + 68 Commands in 4 directory-sweep chunks. Applied: 1 committed
+batch, **2 provably-safe dead-private-function removals** (`b9534102`). The layer is statement-level
+clean (same pattern as all prior modules); value beyond the 2 removals is in DEFERRED file splits
+(the big command files — same-module extension seams, catalogued below).
+
+CLI-clean: NO `import LungfishKit` anywhere; NO direct `GlobalOptions()` init (all use
+`@OptionGroup` / `.parse([])`); NO persisted `.sam` alignment writes; NO `%s`-in-`String(format:)`;
+NO forbidden GCD->MainActor hops; version literals untouched.
+
+VERIFY-EVERY-CLAIM caught the recurring auditor misfire: a `private` helper CALLED at even one
+site is LIVE, not dead. The "8 dead statics" (GenotypeAIHaplotypingSubcommand) and "2 dead
+file-private" (BAMCommand) proposals were all live single-/few-caller helpers -> rejected. Cross-
+subcommand byte-identical helpers (BuildDbCommand directorySize/formatBytes, TreeCommand 3
+EventEmitters, the two importReferenceViaSharedService / replayArgv / validate() pairs) are in
+DIFFERENT types -> NOT dedup-able, correctly not proposed.
+
+### Deferred SPLITS (each its own reviewed pass; same-module extension moves)
+The large command files are split candidates (drop file size, no logic change). Highest value:
+FastqCommand (3208 — 30+ subcommands; split per subcommand-category extension), MSACommand (2922 —
+30+ subcommand structs), ImportCommand (1774 — MetadataSubcommand out), BuildDbCommand (1732 —
+per-classifier subcommand files + hoist `updateUniqueReadsInDB`), FetchCommand (1700 — provenance
+helper extraction), TreeCommand (1403 — event-emitter file), GenotypeAIHaplotypingSubcommand (1384
+— extract the `AIHaplotypingInputTableLoader` CSV/JSON parser), GenotypeXlsxWorkbookWriter (1005 —
+extract the Budde-palette / style-ID mapping). All are ArgumentParser structs whose run()/validate()
+stay reachable; verify per-seam that any cross-file helper is `internal` (private doesn't span
+files).
 
 ## Deferred items / splits / flags
 
-_(populated per batch)_
+Module-boundary green-bar: recorded in results.md (full suite --skip ONT + ONT in isolation).
