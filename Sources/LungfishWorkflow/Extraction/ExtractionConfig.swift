@@ -289,6 +289,21 @@ public struct ExtractionMetadata: Sendable, Codable {
         self.extractionDate = extractionDate
         self.parameters = parameters
     }
+
+    /// Returns metadata with additional parameters, preserving existing values
+    /// unless the added parameter intentionally replaces the same key.
+    public func mergingParameters(_ additionalParameters: [String: String]) -> ExtractionMetadata {
+        var merged = parameters
+        for (key, value) in additionalParameters {
+            merged[key] = value
+        }
+        return ExtractionMetadata(
+            sourceDescription: sourceDescription,
+            toolName: toolName,
+            extractionDate: extractionDate,
+            parameters: merged
+        )
+    }
 }
 
 // MARK: - RegionMatchResult

@@ -5,6 +5,7 @@
 import XCTest
 import SQLite3
 @testable import LungfishWorkflow
+import LungfishIO
 
 final class ClassifierReadResolverTests: XCTestCase {
 
@@ -652,6 +653,25 @@ final class ClassifierReadResolverTests: XCTestCase {
         XCTAssertFalse(bundleURL.path.contains("/.lungfish/.tmp/"),
                       "Bundle must NOT land in .lungfish/.tmp/")
         XCTAssertGreaterThan(n, 0)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let metadataURL = bundleURL.appendingPathComponent("extraction-metadata.json")
+        let extractionMetadata = try decoder.decode(
+            ExtractionMetadata.self,
+            from: Data(contentsOf: metadataURL)
+        )
+        XCTAssertEqual(extractionMetadata.parameters["classifierExtractionOutputLayout"], "single_file")
+        XCTAssertEqual(extractionMetadata.parameters["classifierExtractionOutputPairingMode"], "single_end")
+        XCTAssertEqual(extractionMetadata.parameters["classifierExtractionOutputFormat"], "fastq")
+        XCTAssertEqual(extractionMetadata.parameters["classifierExtractionReadCountUnit"], "reads")
+
+        let fastqURL = try XCTUnwrap(
+            try fm.contentsOfDirectory(at: bundleURL, includingPropertiesForKeys: nil)
+                .first { $0.pathExtension == "fastq" }
+        )
+        let persisted = try XCTUnwrap(FASTQMetadataStore.load(for: fastqURL))
+        XCTAssertEqual(persisted.ingestion?.pairingMode, .singleEnd)
     }
 
     func testDestination_clipboard_returnsSerializedFASTQ() async throws {

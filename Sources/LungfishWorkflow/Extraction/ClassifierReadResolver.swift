@@ -856,14 +856,18 @@ public actor ClassifierReadResolver {
             // is actor-isolated on ReadExtractionService, so we must `await` the call
             // even though the method itself is not declared `async`.
             let service = ReadExtractionService()
-            // TODO[phase3+]: the resolver does not currently know whether the
-            // upstream extraction was paired-end (selectors carry regions/taxa,
-            // not pair layout). `ReadExtractionService.createBundle` does not
-            // read `pairedEnd`, but any future caller that inspects
-            // `ExtractionResult.pairedEnd` (e.g. the CLI at
-            // `ExtractReadsCommand.swift:228`) will see `false` for every
-            // resolver-produced extraction. Plumb the real value when the CLI
-            // and GUI converge on a single extraction path.
+            let outputFormat = finalFile.pathExtension.lowercased() == "fasta" ? "fasta" : "fastq"
+            let bundleMetadata = metadata.mergingParameters([
+                "classifierExtractionOutputLayout": "single_file",
+                "classifierExtractionOutputPairingMode": "single_end",
+                "classifierExtractionOutputFormat": outputFormat,
+                "classifierExtractionReadCountUnit": "reads",
+            ])
+            // Classifier extraction intentionally normalizes BAM-backed and
+            // Kraken2 selections into one output file before bundling. Any
+            // upstream mate layout has already been flattened, so the bundle
+            // must be marked single-end rather than carrying an inferred
+            // paired-end flag that no longer matches the stored payload.
             let result = ExtractionResult(
                 fastqURLs: [finalFile],
                 readCount: readCount,
@@ -873,7 +877,7 @@ public actor ClassifierReadResolver {
                 from: result,
                 sourceName: displayName,
                 selectionDescription: "extract",
-                metadata: metadata,
+                metadata: bundleMetadata,
                 in: projectRoot
             )
             progress?(1.0, "Created bundle \(bundleURL.lastPathComponent)")

@@ -599,6 +599,12 @@ public actor ReadExtractionService {
             var persistedMeta = PersistedFASTQMetadata()
             persistedMeta.downloadSource = "read-extraction"
             persistedMeta.downloadDate = metadata.extractionDate
+            persistedMeta.ingestion = IngestionMetadata(
+                isCompressed: movedPrimaryName.hasSuffix(".gz"),
+                pairingMode: result.pairedEnd ? .pairedEnd : .singleEnd,
+                originalFilenames: result.fastqURLs.map(\.lastPathComponent),
+                ingestionDate: metadata.extractionDate
+            )
             FASTQMetadataStore.save(persistedMeta, for: movedPrimaryURL)
         }
 
