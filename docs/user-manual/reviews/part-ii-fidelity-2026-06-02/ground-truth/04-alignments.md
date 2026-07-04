@@ -545,19 +545,15 @@ describing a phantom feature. But several specifics are wrong.
    keeps. (b) Chapter 03 trims SRR36291587 with QIASeqDIRECT-SARS2; chapter
    04 calls the same fixture "ARTIC v3". Pick one truth per fixture.
 
-4. **CLI surface is broadly accurate where it overlaps; GUI menu paths are
+4. **CLI surface is broadly accurate where it overlaps; GUI menu paths were
    the weak spot.** `map`, `bam primer-trim`, and `workflow run` flag tables
-   largely match the built CLI help. The systematically wrong claims are GUI
-   entry points: the nonexistent `Tools > Map Reads…` (features.yaml `map`
-   entry, line 95 -- the real path is `Tools > FASTQ/FASTA Operations >
-   Mapping…`), the nonexistent `Tools > Workflows > Viral Recon`, and the
-   mis-pointed `Trimming & Filtering > Primer Trimming` for BAM trim.
-   `markdup --in/--out` is the one materially wrong CLI claim.
+   largely match the built CLI help. Resolved 2026-07-04: the mapping inventory
+   now points at `Tools > FASTQ/FASTA Operations > Mapping…`. Remaining
+   historical concerns in this review were the old Viral Recon and BAM primer
+   trim entry-point wording plus the `markdup --in/--out` CLI claim.
 
-5. **features.yaml is mostly trustworthy but has one stale GUI entry.**
+5. **features.yaml is mostly trustworthy.**
    `bam.primer-trim` entry points
    (`Inspector > Analysis > Primer-trim BAM…`, `CLI: lungfish bam primer-trim`)
-   match the code exactly. The `map` feature's `Tools > Map Reads...` entry
-   point is stale; the code only exposes `Tools > FASTQ/FASTA Operations >
-   Mapping…`. (Reporting this as an observation; per role boundaries I am not
-   editing features.yaml as part of this ground-truth task.)
+   match the code exactly. Resolved 2026-07-04: the `map` feature entry point
+   was refreshed to the current mapping menu path.

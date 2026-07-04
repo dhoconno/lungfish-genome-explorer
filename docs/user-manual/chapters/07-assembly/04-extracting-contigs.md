@@ -171,8 +171,8 @@ against an external reference such as MN908947.3.
 3. Select the longest contig only and click **Create Bundle**. The new
    reference bundle appears in `Reference Sequences/` under the suggested
    name. Open it to confirm it contains one sequence at the expected length.
-4. Open the Map Reads wizard from `Tools > FASTQ/FASTA Operations > Map
-   Reads`. Choose your original FASTQ bundle as the reads and your new
+4. Open the mapping wizard from `Tools > FASTQ/FASTA Operations >
+   Mapping…`. Choose your original FASTQ bundle as the reads and your new
    single-contig bundle as the reference. Run.
 5. Once mapping completes, run variant calling against the same reference.
    The variants you get are differences between your reads and your own

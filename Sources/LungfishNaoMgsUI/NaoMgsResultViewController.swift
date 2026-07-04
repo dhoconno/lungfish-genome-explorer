@@ -2149,6 +2149,17 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
     // MARK: - Export
 
+    public enum SummaryExportError: LocalizedError {
+        case noData
+
+        public var errorDescription: String? {
+            switch self {
+            case .noData:
+                return "No NAO-MGS rows are loaded; cannot export a summary."
+            }
+        }
+    }
+
     public func exportResults() {
         guard database != nil, let window = view.window else { return }
         let sampleName = manifest?.sampleName ?? "naomgs"
@@ -2161,33 +2172,72 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         savePanel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK, let url = savePanel.url, let self else { return }
 
-            var lines: [String] = []
-            var header = "sample\ttaxon_id\tname\thit_count\tunique_read_count\tpcr_duplicate_count\tavg_identity\tavg_bit_score\tavg_edit_distance\taccession_count"
-            // Append visible metadata column headers
-            let metaHeaders = self.metadataColumnController.exportHeaders
-            if !metaHeaders.isEmpty {
-                header += "\t" + metaHeaders.joined(separator: "\t")
-            }
-            lines.append(header)
-
-            for row in self.displayedRows {
-                var line = "\(row.sample)\t\(row.taxId)\t\(row.name)\t\(row.hitCount)\t\(row.uniqueReadCount)\t\(row.pcrDuplicateCount)\t\(String(format: "%.2f", row.avgIdentity))\t\(String(format: "%.1f", row.avgBitScore))\t\(String(format: "%.1f", row.avgEditDistance))\t\(row.accessionCount)"
-                // Append metadata values for this row's sample
-                let metaValues = self.metadataColumnController.exportValues(for: row.sample)
-                if !metaValues.isEmpty {
-                    line += "\t" + metaValues.joined(separator: "\t")
-                }
-                lines.append(line)
-            }
-
-            let content = lines.joined(separator: "\n") + "\n"
             do {
-                try content.write(to: url, atomically: true, encoding: .utf8)
+                try self.writeSummaryTSV(to: url)
                 logger.info("Exported NAO-MGS summary to \(url.lastPathComponent, privacy: .public)")
             } catch {
                 logger.error("Failed to export NAO-MGS summary: \(error.localizedDescription, privacy: .public)")
             }
         }
+    }
+
+    public func writeSummaryTSV(to url: URL) throws {
+        guard !displayedRows.isEmpty else {
+            throw SummaryExportError.noData
+        }
+        try summaryTSVContent().write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func summaryTSVContent() -> String {
+        var lines: [String] = []
+        var headerFields = [
+            "sample",
+            "taxon_id",
+            "name",
+            "hit_count",
+            "unique_read_count",
+            "pcr_duplicate_count",
+            "avg_identity",
+            "avg_bit_score",
+            "avg_edit_distance",
+            "accession_count",
+        ]
+        headerFields.append(contentsOf: metadataColumnController.exportHeaders.map(Self.tsvField))
+        lines.append(headerFields.joined(separator: "\t"))
+
+        for row in displayedRows {
+            var fields = [
+                Self.tsvField(row.sample),
+                "\(row.taxId)",
+                Self.tsvField(row.name),
+                "\(row.hitCount)",
+                "\(row.uniqueReadCount)",
+                "\(row.pcrDuplicateCount)",
+                Self.exportDecimal(row.avgIdentity, digits: 2),
+                Self.exportDecimal(row.avgBitScore, digits: 1),
+                Self.exportDecimal(row.avgEditDistance, digits: 1),
+                "\(row.accessionCount)",
+            ]
+            fields.append(contentsOf: metadataColumnController.exportValues(for: row.sample).map(Self.tsvField))
+            lines.append(fields.joined(separator: "\t"))
+        }
+
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    private static func exportDecimal(_ value: Double, digits: Int) -> String {
+        String(
+            format: "%.\(digits)f",
+            locale: Locale(identifier: "en_US_POSIX"),
+            value
+        )
+    }
+
+    private static func tsvField(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\t", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
     }
 
 }

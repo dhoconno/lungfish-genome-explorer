@@ -203,13 +203,13 @@ End-to-end execution against GIAB fixture deferred.
 
 ### docs-040 — Workflow Builder
 
-**Verdict:** BROKEN — Workflow Builder is **dead code**
+**Verdict:** Superseded 2026-07-04 — Workflow Builder is a reachable
+experimental feature
 
-The Tools menu has no Workflow Builder entry (`tools-menu.png`). The 612-line
-`WorkflowBuilderViewController` is never instantiated anywhere in the app.
-2,809 lines of Workflow Builder source in `Sources/LungfishApp/Views/WorkflowBuilder/`
-+ 1,300 lines of model in `Sources/LungfishWorkflow/Builder/` are unreachable
-from the GUI. Filed as docs-040a/b/c/d.
+Current app wiring exposes `Tools > Workflow Builder (Experimental)…`, routes it
+through `AppDelegate+ToolsMenu.swift`, assigns `WorkflowBuilderWindow`, and has
+XCUI coverage in `MainWindowNavigationXCUITests`. The original May 2026 verdict
+is retained only as historical context in the archived evaluation artifacts.
 
 ---
 

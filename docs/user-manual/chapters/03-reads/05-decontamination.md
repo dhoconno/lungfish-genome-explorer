@@ -106,7 +106,7 @@ Runtime:        1m 47s
 
 For a low-titre swab (Ct around 30 or higher), the removal rate is often much higher, sometimes 80 to 95 percent, and the kept-read count drops accordingly. For a high-titre swab from a culture supernatant, removal can be as low as 1 to 5 percent. A removal rate of 5 to 30 percent is the typical middle of the distribution and is what you should expect for routine clinical specimens.
 
-Pass the kept-read bundle to `Tools > Map Reads` against the SARS-CoV-2 reference. The resulting BAM is smaller, the mapping step is faster, and any low-quality alignments to host-derived sequence are gone before they have a chance to confuse the variant caller.
+Pass the kept-read bundle to `Tools > FASTQ/FASTA Operations > Mapping…` and choose the SARS-CoV-2 reference. The resulting BAM is smaller, the mapping step is faster, and any low-quality alignments to host-derived sequence are gone before they have a chance to confuse the variant caller.
 
 ## Troubleshooting
 
