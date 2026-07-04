@@ -72,6 +72,25 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
         let discovered = try XCTUnwrap(match)
         XCTAssertNotNil(discovered.referenceFASTAURL)
         XCTAssertEqual(discovered.definitionSet.id, "custom.install")
+
+        let provenanceURL = installed.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL))
+        XCTAssertEqual(provenance.workflowName, "MHC reference bundle install")
+        XCTAssertEqual(provenance.argv, ["lungfish-cli", "haplotypes", "bundle-install", sourceBundleURL.path])
+        XCTAssertEqual(provenance.output?.path, installed.path)
+        XCTAssertNotNil(provenance.output?.checksumSHA256)
+        XCTAssertNotNil(provenance.output?.fileSize)
+        let installStep = try XCTUnwrap(provenance.steps.first)
+        XCTAssertTrue(installStep.inputs.contains { $0.path == sourceBundleURL.path && $0.checksumSHA256 != nil })
+        XCTAssertTrue(provenance.outputs.contains { $0.path == installed.path && $0.checksumSHA256 != nil })
+        XCTAssertEqual(provenance.options.explicit["sourceBundle"]?.fileValue?.path, sourceBundleURL.path)
+        XCTAssertEqual(provenance.options.explicit["destinationBundle"]?.fileValue?.path, installed.path)
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: installed
+                .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
+                .appendingPathComponent(ProvenanceWriter.bundleRollupFilename)
+                .path
+        ))
     }
 
     func testInstallMHCReferenceBundleDisambiguatesExistingDestination() throws {

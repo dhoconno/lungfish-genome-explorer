@@ -143,16 +143,16 @@ public struct HaplotypeDefinitionCommandService: Sendable {
     /// same location used by manager-created bundles), so it is immediately
     /// discoverable by `HaplotypeDefinitionLibrary.records()`.
     ///
-    /// The source bundle already carries its own provenance, so a plain copy does
-    /// not write new provenance. If a bundle of the same name already exists in
-    /// the destination directory, the name is disambiguated (` 2`, ` 3`, …) rather
-    /// than overwriting. Returns the destination bundle URL.
+    /// The install writes new provenance for the final stored project payload.
+    /// If a bundle of the same name already exists in the destination directory,
+    /// the name is disambiguated (` 2`, ` 3`, …) rather than overwriting. Returns
+    /// the destination bundle URL.
     @discardableResult
     public func installMHCReferenceBundle(
         from sourceURL: URL,
         argv: [String]
     ) throws -> URL {
-        _ = argv
+        let startedAt = Date()
         guard let projectRoot else {
             throw HaplotypeDefinitionCommandServiceError.missingProjectRoot
         }
@@ -183,6 +183,18 @@ public struct HaplotypeDefinitionCommandService: Sendable {
             named: sourceURL.lastPathComponent
         )
         try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+        do {
+            try writeMHCReferenceBundleInstallProvenance(
+                sourceURL: sourceURL,
+                destinationURL: destinationURL,
+                destinationDirectory: destinationDirectory,
+                argv: argv,
+                startedAt: startedAt
+            )
+        } catch {
+            try? FileManager.default.removeItem(at: destinationURL)
+            throw error
+        }
         return destinationURL.standardizedFileURL
     }
 
@@ -773,6 +785,33 @@ public struct HaplotypeDefinitionCommandService: Sendable {
             exitStatus: 0
         )
         try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
+    }
+
+    private func writeMHCReferenceBundleInstallProvenance(
+        sourceURL: URL,
+        destinationURL: URL,
+        destinationDirectory: URL,
+        argv: [String],
+        startedAt: Date
+    ) throws {
+        let destination = destinationURL.standardizedFileURL
+        let completedAt = Date()
+        let sourceDescriptor = try directoryDescriptor(url: sourceURL.standardizedFileURL, role: .input)
+        let destinationDescriptor = try directoryDescriptor(url: destination, role: .output)
+        try writeMHCReferenceBundleProvenance(
+            workflowName: "MHC reference bundle install",
+            bundleURL: destination,
+            argv: argv,
+            startedAt: startedAt,
+            completedAt: completedAt,
+            explicit: [
+                "sourceBundle": .file(sourceURL.standardizedFileURL),
+                "destinationDirectory": .file(destinationDirectory.standardizedFileURL),
+                "destinationBundle": .file(destination),
+            ],
+            inputs: [sourceDescriptor],
+            outputs: [destinationDescriptor]
+        )
     }
 
     private func directoryDescriptor(url: URL, role: FileRole) throws -> ProvenanceFileDescriptor {
