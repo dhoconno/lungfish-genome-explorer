@@ -171,7 +171,13 @@ public actor TaxonomyExtractionPipeline {
         progress?(0.95, "Recording provenance...")
 
         let runtime = Date().timeIntervalSince(startTime)
-        await recordProvenance(config: config, extractedCount: totalExtracted, runtime: runtime)
+        await recordProvenance(
+            config: config,
+            resolvedTaxIds: targetTaxIds,
+            outputURLs: outputURLs,
+            extractedCount: totalExtracted,
+            runtime: runtime
+        )
 
         progress?(1.0, "Extraction complete: \(totalExtracted) reads")
         return outputURLs
@@ -482,35 +488,36 @@ public actor TaxonomyExtractionPipeline {
     /// Records provenance for the extraction operation.
     private func recordProvenance(
         config: TaxonomyExtractionConfig,
+        resolvedTaxIds: Set<Int>,
+        outputURLs: [URL],
         extractedCount: Int,
         runtime: TimeInterval
     ) async {
         let recorder = ProvenanceRecorder.shared
         let runID = await recorder.beginRun(
             name: "Taxonomy Read Extraction",
-            parameters: [
-                "taxIds": .string(config.taxIds.sorted().map(String.init).joined(separator: ",")),
-                "includeChildren": .boolean(config.includeChildren),
-                "extractedReads": .integer(extractedCount),
-                "pairedEnd": .boolean(config.isPairedEnd),
-            ]
+            parameters: extractionProvenanceParameters(
+                config: config,
+                resolvedTaxIds: resolvedTaxIds,
+                outputURLs: outputURLs,
+                extractedCount: extractedCount
+            )
         )
 
         let inputs = config.sourceFiles.map { url in
-            FileRecord(path: url.path, format: .fastq, role: .input)
+            ProvenanceRecorder.fileRecord(url: url, format: .fastq, role: .input)
         } + [
-            FileRecord(path: config.classificationOutput.path, format: .text, role: .input),
+            ProvenanceRecorder.fileRecord(url: config.classificationOutput, format: .text, role: .input),
         ]
-        let outputs = config.outputFiles.map { url in
-            FileRecord(path: url.path, format: .fastq, role: .output)
+        let outputs = outputURLs.map { url in
+            ProvenanceRecorder.fileRecord(url: url, format: .fastq, role: .output)
         }
 
         await recorder.recordStep(
             runID: runID,
-            toolName: "lungfish-extract",
-            toolVersion: "1.0",
-            command: ["lungfish", "extract", "--source", config.sourceFile.path,
-                      "--output", config.outputFile.path],
+            toolName: "lungfish-cli conda extract",
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: extractionReplayCommand(config: config, resolvedTaxIds: resolvedTaxIds),
             inputs: inputs,
             outputs: outputs,
             exitCode: 0,
@@ -520,10 +527,59 @@ public actor TaxonomyExtractionPipeline {
         await recorder.completeRun(runID, status: .completed)
 
         do {
-            let outputDir = config.outputFile.deletingLastPathComponent()
+            let outputDir = outputURLs.first?.deletingLastPathComponent()
+                ?? config.outputFile.deletingLastPathComponent()
             try await recorder.save(runID: runID, to: outputDir)
         } catch {
             logger.warning("Failed to save extraction provenance: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    private func extractionProvenanceParameters(
+        config: TaxonomyExtractionConfig,
+        resolvedTaxIds: Set<Int>,
+        outputURLs: [URL],
+        extractedCount: Int
+    ) -> [String: ParameterValue] {
+        [
+            "taxIds": .array(config.taxIds.sorted().map { .integer($0) }),
+            "resolvedTaxIds": .array(resolvedTaxIds.sorted().map { .integer($0) }),
+            "includeChildren": .boolean(config.includeChildren),
+            "keepReadPairs": .boolean(config.keepReadPairs),
+            "extractedReads": .integer(extractedCount),
+            "pairedEnd": .boolean(config.isPairedEnd),
+            "sourceFiles": .array(config.sourceFiles.map { .string($0.path) }),
+            "requestedOutputFiles": .array(config.outputFiles.map { .string($0.path) }),
+            "actualOutputFiles": .array(outputURLs.map { .string($0.path) }),
+            "classificationOutput": .string(config.classificationOutput.path),
+        ]
+    }
+
+    private func extractionReplayCommand(
+        config: TaxonomyExtractionConfig,
+        resolvedTaxIds: Set<Int>
+    ) -> [String] {
+        let replayTaxIds = config.includeChildren ? resolvedTaxIds : config.taxIds
+        var command = [
+            "lungfish",
+            "conda",
+            "extract",
+            "--kraken-output",
+            config.classificationOutput.path,
+        ]
+        for sourceFile in config.sourceFiles {
+            command.append(contentsOf: ["--source", sourceFile.path])
+        }
+        command.append(contentsOf: [
+            "--taxid",
+            replayTaxIds.sorted().map(String.init).joined(separator: ","),
+        ])
+        for outputFile in config.outputFiles {
+            command.append(contentsOf: ["--output", outputFile.path])
+        }
+        if !config.keepReadPairs {
+            command.append("--no-read-pairs")
+        }
+        return command
     }
 }

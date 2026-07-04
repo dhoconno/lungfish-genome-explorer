@@ -20,6 +20,19 @@ final class MultipleSequenceAlignmentBundleTests: XCTestCase {
         }
     }
 
+    func testColumnStatRemainsPublicAPI() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishIO/Bundles/MultipleSequenceAlignmentBundle.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("public struct ColumnStat"))
+        XCTAssertTrue(source.contains("public let consensusResidue"))
+        XCTAssertTrue(source.contains("public let parsimonyInformative"))
+    }
+
     func testImportsAcceptedP0FormatsIntoNativeBundle() throws {
         let fixtures: [(filename: String, source: String, format: MultipleSequenceAlignmentBundle.SourceFormat)] = [
             (

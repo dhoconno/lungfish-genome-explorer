@@ -457,6 +457,20 @@ final class BlastServiceTests: XCTestCase {
         service = BlastService(httpClient: mockClient)
     }
 
+    func testRequestLifecycleMethodsRemainPublicAPI() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishCore/Services/Blast/BlastService.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("public func submit("))
+        XCTAssertTrue(source.contains("public func checkStatus(rid:"))
+        XCTAssertTrue(source.contains("public func getResults(rid:"))
+    }
+
     // MARK: - Submission Tests
 
     func testSubmitBuildsPOSTRequest() async throws {

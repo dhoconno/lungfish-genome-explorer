@@ -1,5 +1,9 @@
 # Continuation prompt — codebase-quality refactor
 
+> Historical note: this was the mid-refactor continuation prompt. The refactor is now complete,
+> and the 2026-07-04 expert review uses `origin/main` @ 56e3a21d as the downstream review base.
+> Prefer `docs/reports/2026-07-03-codebase-quality-results.md` for current status.
+
 Paste the block below into a fresh Claude Code session (run from anywhere; it
 points at the worktree explicitly) to resume the autonomous refactor.
 
@@ -8,14 +12,14 @@ points at the worktree explicitly) to resume the autonomous refactor.
 Resume the autonomous codebase-quality refactor of the Lungfish genome explorer.
 
 Worktree: /Users/dho/Documents/lungfish-worktrees/codebase-quality
-Branch: worktree-fable-codebase-quality (off main). Work ONLY in this worktree.
+Branch: worktree-fable-codebase-quality (reviewed off origin/main). Work ONLY in this worktree.
 
 Read first (in the worktree):
 - docs/superpowers/specs/2026-07-03-codebase-quality-refactor-design.md
 - docs/superpowers/plans/2026-07-03-codebase-quality-refactor.md
 - docs/reports/2026-07-03-codebase-quality-results.md
 - docs/reports/2026-07-03-codebase-quality-defer/*.md
-Then `git log --oneline main..HEAD` to see exactly what has landed.
+Then `git log --oneline origin/main..HEAD` to see exactly what has landed.
 
 BINDING RULES:
 - Behavior-preserving ONLY (no feature/behavior/API changes). Anything that
@@ -46,7 +50,7 @@ STATE AT HANDOFF:
   docs/reports/2026-07-03-codebase-quality-results.md Core row for its result —
   if it shows GREEN, Core is certified; if the run had not finished at handoff,
   RE-RUN the full suite first before starting IO).
-- Tree clean. `git log --oneline main..HEAD` shows the batch history.
+- Tree clean. `git log --oneline origin/main..HEAD` shows the batch history.
 
 NEXT STEPS, in order:
 1. FIRST: confirm the final Core-boundary full green-bar was GREEN (see results
@@ -80,7 +84,7 @@ NEXT STEPS, in order:
 4. Finalize: final full green-bar, complete
    docs/reports/2026-07-03-codebase-quality-results.md, confirm clean tree, report
    the worktree is ready for the downstream LLM (whole diff = git diff
-   main...worktree-fable-codebase-quality; per-module rationale in the defer docs).
+   origin/main...worktree-fable-codebase-quality; per-module rationale in the defer docs).
 
 REVIEW GOTCHA (learned this session): when dispatching an independent reviewer to
 compare against "pristine originals", point it at the PRIOR COMMIT (HEAD~1) or use

@@ -16,6 +16,15 @@ Workflow-specific binding invariants (never refactor away):
 - Background->MainActor dispatch rules (never `Task { @MainActor in }` from GCD; use
   `DispatchQueue.main.async { [weak self] in MainActor.assumeIsolated { ... } }` or actors).
 
+## 2026-07-04 expert-review correction
+
+The review found a provenance blocker in `TaxonomyExtractionPipeline`: provenance recorded the
+requested `.fastq` path from the config even though the live `ReadExtractionService` writes
+actual `.fastq.gz` payloads, and it used bare file records plus a hard-coded `1.0` tool version.
+This was fixed. The pipeline now records the actual returned output URLs, checksums and sizes for
+inputs/outputs, the current Lungfish version, resolved options/defaults, and a replayable
+`lungfish conda extract` argv. A regression test covers the saved sidecar.
+
 Big pipeline files (audit solo, largest first): ONTBarcodeDemuxGenotypingPipeline (5749),
 FullLengthONTMHCGenotypingPipeline (3802), DemultiplexingPipeline (3569),
 FASTQBatchImporter (1820), NativeToolRunner (1789), TaxTriagePipeline (1598),

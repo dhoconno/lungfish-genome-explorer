@@ -94,6 +94,20 @@ public struct SequenceDiff: Codable, Sendable, Equatable {
         return SequenceDiff(operations: operations)
     }
 
+    /// Computes a more detailed diff with multiple operations.
+    ///
+    /// This compatibility API currently delegates to ``compute(from:to:)``.
+    /// A future implementation can switch to Myers diff or similar while
+    /// preserving the public entry point.
+    ///
+    /// - Parameters:
+    ///   - original: The original sequence
+    ///   - modified: The modified sequence
+    /// - Returns: A diff with individual operations
+    public static func computeDetailed(from original: String, to modified: String) -> SequenceDiff {
+        compute(from: original, to: modified)
+    }
+
     private static func commonPrefixLength(_ a: String, _ b: String) -> Int {
         var count = 0
         let aChars = Array(a)

@@ -388,6 +388,57 @@ final class TaxonomyExtractionPipelineTests: XCTestCase {
         XCTAssertFalse(content.contains("@read5"), "Should not contain read5 (Escherichia)")
     }
 
+    func testExtractionProvenanceRecordsActualOutputsWithChecksums() async throws {
+        let tree = makeTestTree()
+        let pipeline = TaxonomyExtractionPipeline()
+
+        let classOutput = try makeClassificationOutput(reads: [
+            (readId: "read1", taxId: 562, classified: true),
+            (readId: "read2", taxId: 1280, classified: true),
+        ])
+        let fastqURL = try makeFASTQ(reads: ["read1", "read2"])
+        let requestedOutputURL = tempDir.appendingPathComponent("provenance-extracted.fastq")
+
+        let config = TaxonomyExtractionConfig(
+            taxIds: [562],
+            includeChildren: false,
+            sourceFile: fastqURL,
+            outputFile: requestedOutputURL,
+            classificationOutput: classOutput
+        )
+
+        let outputURLs = try await pipeline.extract(config: config, tree: tree)
+        let run = try XCTUnwrap(ProvenanceRecorder.load(from: tempDir))
+        let step = try XCTUnwrap(run.steps.first { $0.toolName == "lungfish-cli conda extract" })
+
+        XCTAssertEqual(step.toolVersion, WorkflowRun.currentAppVersion)
+        XCTAssertEqual(step.outputs.map(\.path), outputURLs.map(\.path))
+        XCTAssertFalse(step.outputs.contains { $0.path == requestedOutputURL.path })
+        XCTAssertTrue(step.outputs.allSatisfy { $0.format == .fastq && $0.role == .output })
+        XCTAssertTrue(step.outputs.allSatisfy { $0.sha256 != nil && ($0.sizeBytes ?? 0) > 0 })
+        XCTAssertTrue(step.inputs.contains {
+            $0.path == fastqURL.path && $0.format == .fastq && $0.role == .input
+                && $0.sha256 != nil && $0.sizeBytes != nil
+        })
+        XCTAssertTrue(step.inputs.contains {
+            $0.path == classOutput.path && $0.format == .text && $0.role == .input
+                && $0.sha256 != nil && $0.sizeBytes != nil
+        })
+        XCTAssertEqual(run.parameters["includeChildren"]?.booleanValue, false)
+        XCTAssertEqual(run.parameters["keepReadPairs"]?.booleanValue, true)
+        XCTAssertEqual(run.parameters["requestedOutputFiles"]?.arrayValue?.first?.stringValue, requestedOutputURL.path)
+        XCTAssertEqual(run.parameters["actualOutputFiles"]?.arrayValue?.first?.stringValue, outputURLs.first?.path)
+        XCTAssertTrue(step.command.contains("lungfish"))
+        XCTAssertTrue(step.command.contains("conda"))
+        XCTAssertTrue(step.command.contains("extract"))
+        XCTAssertTrue(step.command.contains("--kraken-output"))
+        XCTAssertTrue(step.command.contains(classOutput.path))
+        XCTAssertTrue(step.command.contains("--source"))
+        XCTAssertTrue(step.command.contains(fastqURL.path))
+        XCTAssertTrue(step.command.contains("--output"))
+        XCTAssertTrue(step.command.contains(requestedOutputURL.path))
+    }
+
     func testExtractUnclassifiedReadsFromCompressedKrakenOutput() async throws {
         let tree = makeTestTree()
         let pipeline = TaxonomyExtractionPipeline()

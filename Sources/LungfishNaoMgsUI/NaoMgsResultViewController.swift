@@ -2601,4 +2601,3 @@ final class NaoMgsSummaryBar: GenomicSummaryCardBar {
         ]
     }
 }
-

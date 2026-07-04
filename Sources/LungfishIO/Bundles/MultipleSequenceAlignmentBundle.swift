@@ -170,15 +170,15 @@ public struct MultipleSequenceAlignmentBundle: Sendable {
         public let metadata: [String: String]
     }
 
-    struct ColumnStat: Codable, Sendable, Equatable {
-        let index: Int
-        let consensusResidue: String
-        let residueCounts: [String: Int]
-        let gapFraction: Double
-        let conservation: Double
-        let entropy: Double
-        let variableSite: Bool
-        let parsimonyInformative: Bool
+    public struct ColumnStat: Codable, Sendable, Equatable {
+        public let index: Int
+        public let consensusResidue: String
+        public let residueCounts: [String: Int]
+        public let gapFraction: Double
+        public let conservation: Double
+        public let entropy: Double
+        public let variableSite: Bool
+        public let parsimonyInformative: Bool
     }
 
     private static func annotationRecordOrder(

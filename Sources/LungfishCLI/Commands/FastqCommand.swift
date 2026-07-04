@@ -505,7 +505,6 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
 
         let startedAt = Date()
         let result = try await runner.run(.fastp, arguments: args)
-        let wallTime = Date().timeIntervalSince(startedAt)
         guard result.isSuccess else {
             throw CLIError.conversionFailed(reason: "fastp quality trim failed: \(result.stderr)")
         }
@@ -558,7 +557,6 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
             ],
             startedAt: startedAt
         )
-        _ = wallTime
         FileHandle.standardError.write(Data("Quality-trimmed reads written to \(output.output)\n".utf8))
     }
 
@@ -655,18 +653,6 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
             ]) { current, _ in current }
         )
     }
-}
-
-private func writeWorkflowRun(_ run: WorkflowRun, to directory: URL) throws {
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    let encoder = JSONEncoder()
-    encoder.dateEncodingStrategy = .iso8601
-    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-    let data = try encoder.encode(run)
-    try data.write(
-        to: directory.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
-        options: .atomic
-    )
 }
 
 func recordFASTQNativeToolProvenance(

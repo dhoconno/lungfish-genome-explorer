@@ -34,9 +34,11 @@ TwelveSAmpliconResultViewController (1183). Then per-module clusters for the sma
 
 ## Big leaf-VC audits (top 5) — findings
 
-All leaf-clean (no LungfishApp refs), macOS-26-clean, concurrency correct (the many
-`Task { ... }` on already-@MainActor VCs are same-actor tasks, NOT the forbidden GCD hop;
-`NSSplitView` view-delegate is NOT the forbidden `NSSplitViewController` delegate).
+All leaf-clean (no LungfishApp refs). No new macOS-26 API violations were introduced; a
+pre-existing `wantsLayer` cluster in `GenotypeComparisonMatrixView.swift` is flagged below for
+owner review. Concurrency is correct for the audited changes (the many `Task { ... }` on
+already-@MainActor VCs are same-actor tasks, NOT the forbidden GCD hop; `NSSplitView`
+view-delegate is NOT the forbidden `NSSplitViewController` delegate).
 
 ### Applied (committed leaf batches)
 - `TaxTriageResultViewController` (4738L): removed a 9-member dead island (~169 lines)
@@ -44,9 +46,9 @@ All leaf-clean (no LungfishApp refs), macOS-26-clean, concurrency correct (the m
 - `NvdResultViewController` (2476L): removed 7 dead members (~69 lines) — 3 split wrappers,
   3 `@objc` context methods with NO `#selector` in NvdUI (unreachable), 1 identity method.
   Committed.
-- `NaoMgsResultViewController` (2809L): removing the `buildAccessionList` island
+- `NaoMgsResultViewController` (2809L): removed the `buildAccessionList` island
   (`AccessionDataWrapper` + `accessionDataKey` + orphaned `switchToAccession`), the
-  zero-usage `NaoMgsDetailContainer` class, and 2 dead split wrappers (~190 lines). IN PROGRESS.
+  zero-usage `NaoMgsDetailContainer` class, and 2 dead split wrappers (~190 lines). Committed.
 
 ### CLEAN (0 logic applies)
 - `GenotypeResultViewController` (5756L): disciplined; every candidate pinned by the
@@ -131,8 +133,10 @@ All ~68 files audited (10 big VCs solo + ~58 support files in coverage sweeps). 
 6 committed leaf batches removing ~585 lines of grep-verified dead code (dead islands
 orphaned by removed entry points, unreferenced `@objc` methods with no `#selector`, dead
 overloads, write-only fields). GenotypeResultViewController + GenotypeComparisonMatrixView
-statement-clean (test-pinned/windowing). All leaf-clean (no LungfishApp refs), macOS-26
-compliant, concurrency correct. Value beyond the dead-code removal is in DEFERRED per-VC
+statement-clean (test-pinned/windowing). All leaf-clean (no LungfishApp refs). No new forbidden
+AppKit APIs were introduced, but pre-existing `wantsLayer` uses in
+`GenotypeComparisonMatrixView.swift` remain at lines 1829, 1834, 2137, and 2139. Concurrency is
+correct for the audited changes. Value beyond the dead-code removal is in DEFERRED per-VC
 splits (all >1000L VCs, same-module extensions, no promotions) + the 3 flagged unwired-UI
 islands for maintainer review.
 

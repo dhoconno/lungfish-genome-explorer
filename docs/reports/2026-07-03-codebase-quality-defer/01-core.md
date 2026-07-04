@@ -4,6 +4,19 @@ Items the expert audits flagged but that were NOT applied confidently during the
 refactor. Each is a candidate for the downstream LLM or a future Opus pass. Every
 entry names the file, the reason it was deferred, and a concrete suggestion.
 
+## 2026-07-04 expert-review corrections
+
+The downstream expert review agreed with the mechanical splits and most dead-code removals, but
+reverted public API shrinkage that was too risky for a foundational module:
+- `BlastService.submit`, `BlastService.checkStatus`, and `BlastService.getResults` remain
+  `public`.
+- `SequenceDiff.computeDetailed(from:to:)` remains `public` as a compatibility wrapper over the
+  simplified implementation.
+- `Version.computeHash(_:)` remains `public`.
+
+Regression tests now source-scan these declarations so future behavior-preserving refactors do
+not accidentally demote them again.
+
 ## ProjectStore.swift (escalations — behavior-changing, NOT applied)
 
 - **F1 — non-atomic multi-statement writes (high severity).** `recordVersion`
@@ -268,7 +281,7 @@ entry names the file, the reason it was deferred, and a concrete suggestion.
   unsynchronized (individual writes are `.atomic`). `var`->`let` is only safe if no
   reassignment exists; grep found no `shared =` reassignment, but leaving as-is is
   safest without a concurrency-model decision. Defer.
-- **F1 — stray orphan comment at ProjectFile.swift end — SAFE, will apply.**
+- **F1 — stray orphan comment at ProjectFile.swift end — applied in the wave-3 cluster.**
 
 ## Wave-3 cluster notes (Models-rest, Editing/Extraction/Capabilities/Genotype)
 

@@ -56,20 +56,20 @@ Columns: files total / audited / applied / clean / deferred.
 
 ### Per-file APPLIED / DEFERRED notes
 
-APPLIED (CLI batch 1 — pending build+commit):
+APPLIED (CLI batch 1 plus 2026-07-04 expert-review cleanup):
 - `Commands/ImportCommand.swift`: remove dead file-private `scanForFiles(in:extensions:)`
   (~1742-1759) — grep-verified exactly one occurrence (the definition), zero callers in Sources +
   Tests. (Sibling `scanRegularFilesRecursively` is live, kept.)
 - `Commands/FastqCommand.swift`: remove dead private `saveProvenance(...)`
   (~620-639, in FastqQualityTrimSubcommand) — grep-verified zero callers in Sources + Tests. Its
-  callees `makeProvenanceRun` (used by provenanceRunForTesting) and module-level `writeWorkflowRun`
-  (used elsewhere) both stay live -> no cascade.
+  callee `makeProvenanceRun` stays live via `provenanceRunForTesting`.
+- `Commands/FastqCommand.swift`: remove dead module-level `writeWorkflowRun(...)`.
+  A post-batch expert review found it became zero-caller after `saveProvenance(...)` was removed.
+- `Commands/FastqCommand.swift`: remove the discarded `wallTime` binding in
+  `FastqQualityTrimSubcommand.run()`. Provenance wall time is recorded from `startedAt` by
+  `recordFASTQNativeToolProvenance`, so this local value was a no-op.
 
 DEFERRED (audited, low-value / subtle — NOT applied):
-- `Commands/FastqCommand.swift:561` `_ = wallTime`: `wallTime` (computed at 508) is discarded here;
-  provenance now uses `startedAt`. Removing the discard alone leaves `let wallTime` unused
-  (warning); the clean edit removes both the 508 binding and the 561 discard. Near-zero value,
-  touches a provenance-recording site -> deferred.
 - `Commands/MarkdupCommand.swift:742` `provenanceExplicitOptions(for:)`: currently a byte-identical
   wrapper over `provenanceResolvedOptions(for:)`, but the explicit-vs-resolved distinction is a
   PROVENANCE-SCHEMA concept (explicit = user-set options vs resolved = incl. defaults). The two
@@ -91,13 +91,16 @@ REJECTED candidates (audited, proven NOT safe — a future pass must not re-prop
 
 - `b9534102` — batch 1: 2 dead private functions (ImportCommand.scanForFiles,
   FastqCommand.saveProvenance). Scoped-green (859/0). 15 big files (>=800L) audited.
+- 2026-07-04 expert-review commit — removes FastqCommand.writeWorkflowRun and the discarded
+  quality-trim wall-time local.
 
 ## Phase 7 (LungfishCLI) — audit COMPLETE
 
 90/90 files audited (100% coverage — reconciled against `find Sources/LungfishCLI -name '*.swift'`
 = 90; every directory row audited == total). 15 big files (>=800L) solo + 8 infra
 (root/Options/Output/Support) + 68 Commands in 4 directory-sweep chunks. Applied: 1 committed
-batch, **2 provably-safe dead-private-function removals** (`b9534102`). The layer is statement-level
+batch plus expert-review cleanup, **3 provably-safe dead-private-function removals** and one
+no-op wall-time cleanup. The layer is statement-level
 clean (same pattern as all prior modules); value beyond the 2 removals is in DEFERRED file splits
 (the big command files — same-module extension seams, catalogued below).
 

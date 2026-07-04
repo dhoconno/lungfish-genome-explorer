@@ -762,3 +762,34 @@ public actor FormatRegistry {
         return result
     }
 }
+
+// MARK: - FormatRegistryError
+
+/// Errors from FormatRegistry operations.
+public enum FormatRegistryError: Error, LocalizedError, Sendable {
+
+    /// Unknown file format.
+    case unknownFormat(URL)
+
+    /// No importer available for format.
+    case noImporterAvailable(FormatIdentifier)
+
+    /// No exporter available for format.
+    case noExporterAvailable(FormatIdentifier)
+
+    /// Document is incompatible with format.
+    case incompatibleDocument(format: FormatIdentifier, required: DocumentCapability, provided: DocumentCapability)
+
+    public var errorDescription: String? {
+        switch self {
+        case .unknownFormat(let url):
+            return "Unknown file format: \(url.lastPathComponent)"
+        case .noImporterAvailable(let format):
+            return "No importer available for format: \(format.id)"
+        case .noExporterAvailable(let format):
+            return "No exporter available for format: \(format.id)"
+        case .incompatibleDocument(let format, let required, _):
+            return "Document is incompatible with \(format.id) format (requires: \(required))"
+        }
+    }
+}

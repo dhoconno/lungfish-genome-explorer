@@ -92,7 +92,7 @@ APPLIED (Pass A batch 1 — committed 08317789, scoped-green 3152/0 + 159/0):
   so state is loaded-but-never-saved (pre-existing latent no-op persistence). Removing the
   unused writer is behavior-preserving. Flagged below for maintainer.
 
-APPLIED (Pass A batch 2 — pending build+commit):
+APPLIED (Pass A batch 2 — committed 93b6b0c3):
 - `Views/WorkflowOperations/WorkflowOperationsDialog.swift`: remove dead `@State private var
   showingReferencePanel`/`showingOutputPanel` (lines 55-56) — grep-verified zero reads incl.
   `$`-bindings in module + Tests/ (sibling showingTwelveSReferenceBuilder stays).
@@ -131,7 +131,7 @@ REJECTED candidates (audited, proven NOT safe — recorded so a future pass does
   Cross-type helpers are NOT intra-type-dedup-able; merging would introduce a shared helper =
   structural coupling change, not behavior-preserving. Kept both (auditor flagged low-confidence).
 
-APPLIED (Pass B batch 3 — pending build+commit):
+APPLIED (Pass B batch 3 — committed a6f7e84a):
 - `Views/DatabaseBrowser/DatabaseSearchDialogState.swift`: remove dead `convenience
   init(selectedDestination:automationBackend:)` (~74-79) — grep-verified ZERO callers of the
   `selectedDestination:` label in Sources + Tests (all sites use the designated
@@ -161,7 +161,8 @@ DEFERRED:
 
 ## Deferred items
 
-_(none yet — populated per batch as uncertain changes are reverted)_
+No reverted batch edits beyond the explicit flagged items below. Deferred work is mostly optional
+file splitting and maintainer-owned behavior decisions.
 
 ### Deferred file splits (each its own reviewed pass)
 

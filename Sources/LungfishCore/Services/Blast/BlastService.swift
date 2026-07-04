@@ -593,7 +593,7 @@ public actor BlastService {
     ///   - maxConcurrentSubmissions: Maximum in-flight BLAST submissions for this process.
     /// - Returns: The job submission response with RID and RTOE
     /// - Throws: ``BlastServiceError`` on submission failure
-    func submit(
+    public func submit(
         query: String,
         program: String,
         database: String,
@@ -674,7 +674,7 @@ public actor BlastService {
     /// - Parameter rid: The Request ID to check
     /// - Returns: The job status
     /// - Throws: ``BlastServiceError`` on HTTP errors
-    func checkStatus(rid: String) async throws -> BlastJobStatus {
+    public func checkStatus(rid: String) async throws -> BlastJobStatus {
         var components = URLComponents(url: blastBaseURL, resolvingAgainstBaseURL: false)!
         components.queryItems = [
             URLQueryItem(name: "CMD", value: "Get"),
@@ -707,7 +707,7 @@ public actor BlastService {
     /// - Parameter rid: The Request ID whose results to retrieve
     /// - Returns: Parsed search results for each query sequence
     /// - Throws: ``BlastServiceError`` on HTTP or parsing errors
-    func getResults(rid: String) async throws -> [BlastSearchResult] {
+    public func getResults(rid: String) async throws -> [BlastSearchResult] {
         var components = URLComponents(url: blastBaseURL, resolvingAgainstBaseURL: false)!
         components.queryItems = [
             URLQueryItem(name: "CMD", value: "Get"),
