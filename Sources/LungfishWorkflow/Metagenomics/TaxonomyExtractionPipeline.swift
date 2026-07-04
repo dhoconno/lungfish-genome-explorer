@@ -171,7 +171,7 @@ public actor TaxonomyExtractionPipeline {
         progress?(0.95, "Recording provenance...")
 
         let runtime = Date().timeIntervalSince(startTime)
-        await recordProvenance(
+        try await recordProvenance(
             config: config,
             resolvedTaxIds: targetTaxIds,
             outputURLs: outputURLs,
@@ -492,7 +492,7 @@ public actor TaxonomyExtractionPipeline {
         outputURLs: [URL],
         extractedCount: Int,
         runtime: TimeInterval
-    ) async {
+    ) async throws {
         let recorder = ProvenanceRecorder.shared
         let runID = await recorder.beginRun(
             name: "Taxonomy Read Extraction",
@@ -526,13 +526,9 @@ public actor TaxonomyExtractionPipeline {
 
         await recorder.completeRun(runID, status: .completed)
 
-        do {
-            let outputDir = outputURLs.first?.deletingLastPathComponent()
-                ?? config.outputFile.deletingLastPathComponent()
-            try await recorder.save(runID: runID, to: outputDir)
-        } catch {
-            logger.warning("Failed to save extraction provenance: \(error.localizedDescription, privacy: .public)")
-        }
+        let outputDir = outputURLs.first?.deletingLastPathComponent()
+            ?? config.outputFile.deletingLastPathComponent()
+        try await recorder.save(runID: runID, to: outputDir)
     }
 
     private func extractionProvenanceParameters(

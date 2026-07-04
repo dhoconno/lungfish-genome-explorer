@@ -433,12 +433,7 @@ public actor ClassificationPipeline {
         // Phase 6: Complete provenance (0.95 -- 1.0)
         await provenanceRecorder.completeRun(runID, status: .completed)
 
-        do {
-            try await provenanceRecorder.save(runID: runID, to: effectiveConfig.outputDirectory)
-        } catch {
-            // Provenance save failure is non-fatal.
-            logger.warning("Failed to save provenance: \(error.localizedDescription, privacy: .public)")
-        }
+        try await provenanceRecorder.save(runID: runID, to: effectiveConfig.outputDirectory)
 
         let totalRuntime = Date().timeIntervalSince(startTime)
 

@@ -608,17 +608,13 @@ extension AppDelegate {
                     appDelegateLogger.warning("runEsViritu: Failed to save batch manifest - \(error.localizedDescription, privacy: .public)")
                 }
 
-                do {
-                    try MetagenomicsBatchProvenanceWriter.writeEsVirituBatchProvenance(
-                        batchRoot: esvBatchRoot,
-                        manifest: manifest,
-                        summaryURL: summaryURL,
-                        sqliteURL: esvBatchRoot.appendingPathComponent("esviritu.sqlite"),
-                        command: esCliArgv
-                    )
-                } catch {
-                    appDelegateLogger.warning("runEsViritu: Failed to write root provenance - \(error.localizedDescription, privacy: .public)")
-                }
+                try MetagenomicsBatchProvenanceWriter.writeEsVirituBatchProvenance(
+                    batchRoot: esvBatchRoot,
+                    manifest: manifest,
+                    summaryURL: summaryURL,
+                    sqliteURL: esvBatchRoot.appendingPathComponent("esviritu.sqlite"),
+                    command: esCliArgv
+                )
 
                 let capturedResult = ioResult
                 let capturedConfig = config
@@ -1210,17 +1206,13 @@ extension AppDelegate {
             }
 
             if !successfulResults.isEmpty {
-                do {
-                    try MetagenomicsBatchProvenanceWriter.writeEsVirituBatchProvenance(
-                        batchRoot: batchRoot,
-                        manifest: manifest,
-                        summaryURL: summaryURL,
-                        sqliteURL: batchRoot.appendingPathComponent("esviritu.sqlite"),
-                        command: esBatchCliArgv
-                    )
-                } catch {
-                    appDelegateLogger.warning("runEsVirituBatch: Failed to write root provenance - \(error.localizedDescription, privacy: .public)")
-                }
+                try MetagenomicsBatchProvenanceWriter.writeEsVirituBatchProvenance(
+                    batchRoot: batchRoot,
+                    manifest: manifest,
+                    summaryURL: summaryURL,
+                    sqliteURL: batchRoot.appendingPathComponent("esviritu.sqlite"),
+                    command: esBatchCliArgv
+                )
             }
 
             let capturedDBBuildError = dbBuildErrorDescription
@@ -1407,7 +1399,7 @@ extension AppDelegate {
                     )
                 }
 
-                _ = MetagenomicsBatchProvenanceWriter.ensureTaxTriageProvenanceIfPossible(
+                _ = try MetagenomicsBatchProvenanceWriter.ensureTaxTriageProvenanceIfPossible(
                     resultDirectory: result.outputDirectory
                 )
 

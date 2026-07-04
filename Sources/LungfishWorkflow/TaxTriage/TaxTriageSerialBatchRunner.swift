@@ -112,7 +112,7 @@ public struct TaxTriageSerialBatchRunner: Sendable {
 
         guard !sampleResults.isEmpty else {
             await ProvenanceRecorder.shared.completeRun(runID, status: .failed)
-            try? await ProvenanceRecorder.shared.save(runID: runID, to: root)
+            try await ProvenanceRecorder.shared.save(runID: runID, to: root)
             throw TaxTriageSerialBatchError.allSamplesFailed(sampleFailures)
         }
 

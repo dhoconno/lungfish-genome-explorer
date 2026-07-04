@@ -115,8 +115,8 @@ struct ProvenanceCoverageMonitor {
             )
         }
 
-        _ = MetagenomicsBatchProvenanceWriter.ensureEsVirituBatchProvenanceIfPossible(batchRoot: url)
-        _ = MetagenomicsBatchProvenanceWriter.ensureTaxTriageProvenanceIfPossible(resultDirectory: url)
+        _ = try? MetagenomicsBatchProvenanceWriter.ensureEsVirituBatchProvenanceIfPossible(batchRoot: url)
+        _ = try? MetagenomicsBatchProvenanceWriter.ensureTaxTriageProvenanceIfPossible(resultDirectory: url)
         guard let resolved = ProvenanceRecorder.findProvenanceEnvelope(for: url) else {
             guard !requirement.isNotRequired else { return .notRequired }
             return ProvenanceAuditResult(

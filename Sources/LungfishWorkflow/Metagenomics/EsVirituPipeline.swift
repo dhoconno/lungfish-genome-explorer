@@ -572,11 +572,7 @@ public actor EsVirituPipeline {
         // Phase 5: Complete provenance (0.95 -- 1.0)
         await provenanceRecorder.completeRun(runID, status: .completed)
 
-        do {
-            try await provenanceRecorder.save(runID: runID, to: config.outputDirectory)
-        } catch {
-            logger.warning("Failed to save provenance: \(error.localizedDescription)")
-        }
+        try await provenanceRecorder.save(runID: runID, to: config.outputDirectory)
 
         let totalRuntime = Date().timeIntervalSince(startTime)
 
