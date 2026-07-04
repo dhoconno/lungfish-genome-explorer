@@ -1191,8 +1191,104 @@ final class WorkflowCommandRegressionTests: XCTestCase {
 
         let outputEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: expectedOutputURL))
         XCTAssertEqual(outputEnvelope.workflowName, "Run Local Snakemake workflow")
+        XCTAssertEqual(outputEnvelope.output?.path, expectedOutputURL.standardizedFileURL.path)
         XCTAssertTrue(outputEnvelope.outputs.contains { $0.path == expectedOutputURL.standardizedFileURL.path })
         XCTAssertTrue(outputEnvelope.argv.contains("--expected-output"))
+    }
+
+    func testNFCoreExecutionWritesExpectedOutputProvenance() async throws {
+        let originalRunner = RunSubcommand.nfCoreWorkflowProcessRunner
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("nfcore-cli-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            RunSubcommand.nfCoreWorkflowProcessRunner = originalRunner
+            try? FileManager.default.removeItem(at: tempDirectory)
+        }
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        let samplesheetURL = tempDirectory.appendingPathComponent("samplesheet.csv")
+        try "sample,fastq_1,fastq_2\nS1,R1.fastq.gz,R2.fastq.gz\n".write(
+            to: samplesheetURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        let resultsURL = tempDirectory.appendingPathComponent("results", isDirectory: true)
+        let expectedOutputURL = resultsURL.appendingPathComponent("consensus.lungfishref", isDirectory: true)
+        let expectedReportURL = resultsURL.appendingPathComponent("summary.tsv")
+        let bundleURL = tempDirectory.appendingPathComponent("viralrecon.lungfishrun", isDirectory: true)
+        let runner = StubNFCoreWorkflowProcessRunner(result: .init(
+            exitCode: 0,
+            standardOutput: "nextflow complete\n",
+            standardError: "nextflow warning\n"
+        )) { _ in
+            try FileManager.default.createDirectory(at: expectedOutputURL, withIntermediateDirectories: true)
+            try ">consensus\nACGT\n".write(
+                to: expectedOutputURL.appendingPathComponent("sequence.fasta"),
+                atomically: true,
+                encoding: .utf8
+            )
+            try "sample\tstatus\nS1\tok\n".write(to: expectedReportURL, atomically: true, encoding: .utf8)
+        }
+        RunSubcommand.nfCoreWorkflowProcessRunner = runner
+
+        let command = try RunSubcommand.parse([
+            "nf-core/viralrecon",
+            "--input", samplesheetURL.path,
+            "--expected-output", expectedOutputURL.path,
+            "--expected-output", expectedReportURL.path,
+            "--results-dir", resultsURL.path,
+            "--bundle-path", bundleURL.path,
+            "--executor", "local",
+            "--quiet",
+        ])
+
+        try await command.run()
+
+        let invocation = try XCTUnwrap(runner.invocations.first)
+        XCTAssertEqual(invocation.arguments.first, "run")
+        XCTAssertTrue(invocation.arguments.contains("nf-core/viralrecon"))
+        XCTAssertEqual(invocation.workingDirectory.path, bundleURL.appendingPathComponent("outputs", isDirectory: true).path)
+
+        let manifest = try NFCoreRunBundleStore.read(from: bundleURL)
+        XCTAssertEqual(manifest.workflowName, "viralrecon")
+        XCTAssertEqual(manifest.executionStatus, .completed)
+        XCTAssertEqual(manifest.exitCode, 0)
+        XCTAssertEqual(manifest.stdoutLogPath, "logs/stdout.log")
+        XCTAssertEqual(manifest.stderrLogPath, "logs/stderr.log")
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let provenance = try decoder.decode(
+            WorkflowRun.self,
+            from: Data(contentsOf: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+        )
+        XCTAssertEqual(provenance.status, .completed)
+        XCTAssertEqual(provenance.steps.first?.exitCode, 0)
+        XCTAssertEqual(provenance.steps.first?.stderr, "nextflow warning\n")
+        XCTAssertEqual(provenance.parameters["executor"], .string("local"))
+        XCTAssertEqual(provenance.parameters["expectedOutputs"], .array([
+            .file(expectedOutputURL.standardizedFileURL),
+            .file(expectedReportURL.standardizedFileURL)
+        ]))
+        XCTAssertTrue(provenance.steps.first?.command.contains("--expected-output") == true)
+        XCTAssertTrue(provenance.steps.first?.outputs.contains {
+            $0.path == expectedOutputURL.standardizedFileURL.path && $0.sha256 != nil && $0.sizeBytes != nil
+        } == true)
+        XCTAssertTrue(provenance.steps.first?.outputs.contains {
+            $0.path == expectedReportURL.standardizedFileURL.path && $0.sha256 != nil && $0.sizeBytes != nil
+        } == true)
+
+        let outputEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: expectedOutputURL))
+        XCTAssertEqual(outputEnvelope.workflowName, "Run nf-core/viralrecon")
+        XCTAssertEqual(outputEnvelope.output?.path, expectedOutputURL.standardizedFileURL.path)
+        XCTAssertTrue(outputEnvelope.outputs.contains { $0.path == expectedOutputURL.standardizedFileURL.path })
+        XCTAssertTrue(outputEnvelope.argv.contains("--expected-output"))
+
+        let reportEnvelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: expectedReportURL))
+        )
+        XCTAssertEqual(reportEnvelope.output?.path, expectedReportURL.standardizedFileURL.path)
+        XCTAssertEqual(reportEnvelope.outputs.map(\.path), [expectedReportURL.standardizedFileURL.path])
+        XCTAssertTrue(reportEnvelope.argv.contains("--expected-output"))
     }
 
     func testRunHelpAdvertisesOnlyViralReconNFCoreWorkflow() {
@@ -1278,6 +1374,35 @@ private final class StubLocalWorkflowProcessRunner: LocalWorkflowProcessRunning,
             arguments: arguments,
             workingDirectory: workingDirectory
         ))
+        return result
+    }
+}
+
+private final class StubNFCoreWorkflowProcessRunner: NFCoreWorkflowProcessRunning, @unchecked Sendable {
+    struct Invocation: Equatable {
+        let arguments: [String]
+        let workingDirectory: URL
+    }
+
+    private(set) var invocations: [Invocation] = []
+    let result: NFCoreWorkflowProcessResult
+    let onRun: ((Invocation) throws -> Void)?
+
+    init(
+        result: NFCoreWorkflowProcessResult,
+        onRun: ((Invocation) throws -> Void)? = nil
+    ) {
+        self.result = result
+        self.onRun = onRun
+    }
+
+    func runNextflow(
+        arguments: [String],
+        workingDirectory: URL
+    ) async throws -> NFCoreWorkflowProcessResult {
+        let invocation = Invocation(arguments: arguments, workingDirectory: workingDirectory)
+        invocations.append(invocation)
+        try onRun?(invocation)
         return result
     }
 }

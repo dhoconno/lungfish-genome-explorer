@@ -232,6 +232,7 @@ struct RunSubcommand: AsyncParsableCommand {
     )
 
     nonisolated(unsafe) static var localWorkflowProcessRunner: LocalWorkflowProcessRunning = ProcessLocalWorkflowProcessRunner()
+    nonisolated(unsafe) static var nfCoreWorkflowProcessRunner: NFCoreWorkflowProcessRunning = ProcessNFCoreWorkflowProcessRunner()
 
     @Argument(help: "Workflow file (*.nf, Snakefile) or supported nf-core workflow: nf-core/viralrecon")
     var workflow: String
@@ -555,12 +556,14 @@ struct RunSubcommand: AsyncParsableCommand {
         }
 
         let outputURL = URL(fileURLWithPath: resultsDir).standardizedFileURL
+        let expectedOutputURLs = expectedOutput.map { URL(fileURLWithPath: $0).standardizedFileURL }
         let request = NFCoreRunRequest(
             workflow: supportedWorkflow,
             version: version,
             executor: executor,
             inputURLs: inputURLs,
             outputDirectory: outputURL,
+            expectedOutputURLs: expectedOutputURLs,
             params: workflowParams,
             resume: resume,
             workDirectory: workDir.map { URL(fileURLWithPath: $0) }
@@ -599,7 +602,7 @@ struct RunSubcommand: AsyncParsableCommand {
             ),
             to: runBundleURL
         )
-        let processResult = try await runNextflow(
+        let processResult = try await Self.nfCoreWorkflowProcessRunner.runNextflow(
             arguments: request.nextflowArguments,
             workingDirectory: runBundleURL.appendingPathComponent("outputs", isDirectory: true)
         )
@@ -667,43 +670,6 @@ struct RunSubcommand: AsyncParsableCommand {
         throw CLIError.outputWriteFailed(path: base.path, reason: "Could not allocate a unique run bundle path")
     }
 
-    private func runNextflow(arguments: [String], workingDirectory: URL) async throws -> NFCoreWorkflowProcessResult {
-        try await withCheckedThrowingContinuation { continuation in
-            do {
-                try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
-                let stdoutURL = workingDirectory.appendingPathComponent(".nextflow-stdout.log")
-                let stderrURL = workingDirectory.appendingPathComponent(".nextflow-stderr.log")
-                _ = FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
-                _ = FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
-                let stdoutHandle = try FileHandle(forWritingTo: stdoutURL)
-                let stderrHandle = try FileHandle(forWritingTo: stderrURL)
-
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-                process.arguments = ["nextflow"] + arguments
-                process.currentDirectoryURL = workingDirectory
-                process.standardOutput = stdoutHandle
-                process.standardError = stderrHandle
-                process.terminationHandler = { process in
-                    try? stdoutHandle.close()
-                    try? stderrHandle.close()
-                    let stdout = (try? String(contentsOf: stdoutURL, encoding: .utf8)) ?? ""
-                    let stderr = (try? String(contentsOf: stderrURL, encoding: .utf8)) ?? ""
-                    try? FileManager.default.removeItem(at: stdoutURL)
-                    try? FileManager.default.removeItem(at: stderrURL)
-                    continuation.resume(returning: NFCoreWorkflowProcessResult(
-                        exitCode: process.terminationStatus,
-                        standardOutput: stdout,
-                        standardError: stderr
-                    ))
-                }
-                try process.run()
-            } catch {
-                continuation.resume(throwing: error)
-            }
-        }
-    }
-
     private func writeProcessLogs(_ result: NFCoreWorkflowProcessResult, to logsURL: URL) throws {
         try FileManager.default.createDirectory(at: logsURL, withIntermediateDirectories: true)
         try result.standardOutput.write(to: logsURL.appendingPathComponent("stdout.log"), atomically: true, encoding: .utf8)
@@ -740,12 +706,15 @@ struct RunSubcommand: AsyncParsableCommand {
                 format: .json,
                 role: .output
             )
-        ]
+        ] + expectedOutputRecords(for: request.expectedOutputURLs)
         var parameters = request.effectiveParams.mapValues { ParameterValue.string($0) }
         parameters["executor"] = .string(request.executor.rawValue)
         parameters["github_release_version"] = .string(request.version)
         parameters["resume"] = .boolean(request.resume)
         parameters["prepareOnly"] = .boolean(prepareOnly)
+        if !request.expectedOutputURLs.isEmpty {
+            parameters["expectedOutputs"] = .array(request.expectedOutputURLs.map { .file($0) })
+        }
         if let workDirectory = request.workDirectory {
             parameters["workDirectory"] = .file(workDirectory)
         }
@@ -776,6 +745,9 @@ struct RunSubcommand: AsyncParsableCommand {
         let provenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
         try data.write(to: provenanceURL, options: .atomic)
         try signProvenanceIfConfigured(at: provenanceURL)
+        if !prepareOnly, status == .completed {
+            try writeExpectedOutputProvenance(run, to: request.expectedOutputURLs)
+        }
     }
 
     private func writeLocalRunBundleProvenance(
@@ -849,7 +821,7 @@ struct RunSubcommand: AsyncParsableCommand {
 
     private func expectedOutputRecords(for outputURLs: [URL]) -> [FileRecord] {
         outputURLs.map { outputURL in
-            ProvenanceRecorder.fileRecord(url: outputURL, role: .output)
+            ProvenanceRecorder.fileOrDirectoryRecord(url: outputURL, role: .output)
         }
     }
 
@@ -870,11 +842,19 @@ struct RunSubcommand: AsyncParsableCommand {
 
             var isDirectory: ObjCBool = false
             FileManager.default.fileExists(atPath: outputURL.path, isDirectory: &isDirectory)
+            let outputPath = outputURL.standardizedFileURL.path
+            guard let outputDescriptor = envelope.outputs.first(where: { $0.path == outputPath }) else {
+                throw CLIError.outputWriteFailed(
+                    path: outputURL.path,
+                    reason: "Expected workflow output was not recorded in run provenance"
+                )
+            }
+            let focusedEnvelope = envelope.focusedOnOutput(outputDescriptor)
             if isDirectory.boolValue {
-                try writer.write(envelope, to: outputURL)
+                try writer.write(focusedEnvelope, to: outputURL)
             } else {
                 try writer.write(
-                    envelope,
+                    focusedEnvelope,
                     toSidecar: ProvenanceRecorder.fileSidecarURL(for: outputURL)
                 )
             }
@@ -887,10 +867,56 @@ struct RunSubcommand: AsyncParsableCommand {
     }
 }
 
-private struct NFCoreWorkflowProcessResult {
+struct NFCoreWorkflowProcessResult: Sendable, Equatable {
     let exitCode: Int32
     let standardOutput: String
     let standardError: String
+}
+
+protocol NFCoreWorkflowProcessRunning: Sendable {
+    func runNextflow(
+        arguments: [String],
+        workingDirectory: URL
+    ) async throws -> NFCoreWorkflowProcessResult
+}
+
+struct ProcessNFCoreWorkflowProcessRunner: NFCoreWorkflowProcessRunning {
+    func runNextflow(arguments: [String], workingDirectory: URL) async throws -> NFCoreWorkflowProcessResult {
+        try await withCheckedThrowingContinuation { continuation in
+            do {
+                try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+                let stdoutURL = workingDirectory.appendingPathComponent(".nextflow-stdout.log")
+                let stderrURL = workingDirectory.appendingPathComponent(".nextflow-stderr.log")
+                _ = FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
+                _ = FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
+                let stdoutHandle = try FileHandle(forWritingTo: stdoutURL)
+                let stderrHandle = try FileHandle(forWritingTo: stderrURL)
+
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+                process.arguments = ["nextflow"] + arguments
+                process.currentDirectoryURL = workingDirectory
+                process.standardOutput = stdoutHandle
+                process.standardError = stderrHandle
+                process.terminationHandler = { process in
+                    try? stdoutHandle.close()
+                    try? stderrHandle.close()
+                    let stdout = (try? String(contentsOf: stdoutURL, encoding: .utf8)) ?? ""
+                    let stderr = (try? String(contentsOf: stderrURL, encoding: .utf8)) ?? ""
+                    try? FileManager.default.removeItem(at: stdoutURL)
+                    try? FileManager.default.removeItem(at: stderrURL)
+                    continuation.resume(returning: NFCoreWorkflowProcessResult(
+                        exitCode: process.terminationStatus,
+                        standardOutput: stdout,
+                        standardError: stderr
+                    ))
+                }
+                try process.run()
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+    }
 }
 
 struct LocalWorkflowProcessResult: Sendable, Equatable {
