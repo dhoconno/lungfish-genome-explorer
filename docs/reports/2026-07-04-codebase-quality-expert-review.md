@@ -56,6 +56,9 @@ and behavior-preserving simplifications are useful and appropriate.
   an organism id, avoiding a misleading implicit `mpox` lookup at accession-only boundaries.
 - 2026-07-04 follow-up: The Pathoplexus browser now starts with the default `mpox` organism
   visibly selected and no longer validates a nil organism as a hidden browse default.
+- 2026-07-04 follow-up: BLAST URL API submissions now use strict
+  `application/x-www-form-urlencoded` escaping so read IDs and extra parameters cannot inject
+  additional form fields.
 
 ## Still Deferred
 

@@ -1361,11 +1361,21 @@ public actor BlastService {
     /// - Returns: A URL-encoded form string
     private nonisolated func formEncode(_ params: [(String, String)]) -> String {
         params.map { key, value in
-            let escapedKey = key.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? key
-            let escapedValue = value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? value
+            let escapedKey = Self.formEscape(key)
+            let escapedValue = Self.formEscape(value)
             return "\(escapedKey)=\(escapedValue)"
         }.joined(separator: "&")
     }
+
+    private nonisolated static func formEscape(_ value: String) -> String {
+        value.addingPercentEncoding(withAllowedCharacters: formAllowedCharacters) ?? value
+    }
+
+    private nonisolated static let formAllowedCharacters: CharacterSet = {
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-._*")
+        return allowed
+    }()
 
     /// Enforces the minimum interval between BLAST submissions.
     ///

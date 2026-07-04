@@ -510,6 +510,37 @@ final class BlastServiceTests: XCTestCase {
         XCTAssertTrue(body.contains("TOOL=lungfish"))
     }
 
+    func testSubmitFormEncodesBLASTBodyDelimiters() async throws {
+        await mockClient.register(
+            pattern: "blast/Blast.cgi",
+            response: .text(mockSubmissionResponse(rid: "SAFE123", rtoe: 30))
+        )
+
+        let query = ">read&FORMAT_TYPE=HTML=x+1\nATGC"
+        let entrezQuery = "txid123[Organism:exp]&src=a+b"
+        let filter = "L+low&FORMAT_TYPE=HTML"
+
+        _ = try await service.submit(
+            query: query,
+            program: "blastn",
+            database: "nt",
+            entrezQuery: entrezQuery,
+            evalue: 1e-10,
+            maxTargetSeqs: 10,
+            megablast: true,
+            extraParameters: ["FILTER": filter]
+        )
+
+        let requests = await mockClient.requests
+        let body = String(data: try XCTUnwrap(requests.first?.httpBody), encoding: .utf8)!
+        let fields = formFields(from: body)
+
+        XCTAssertEqual(fields["QUERY"], [query])
+        XCTAssertEqual(fields["ENTREZ_QUERY"], [entrezQuery])
+        XCTAssertEqual(fields["FILTER"], [filter])
+        XCTAssertEqual(fields["FORMAT_TYPE"], ["JSON2"])
+    }
+
     func testSubmitWithoutMegablast() async throws {
         await mockClient.register(
             pattern: "blast/Blast.cgi",
@@ -1272,6 +1303,23 @@ final class BlastServiceTests: XCTestCase {
         </body>
         </html>
         """
+    }
+
+    private func formFields(from body: String) -> [String: [String]] {
+        body.split(separator: "&", omittingEmptySubsequences: false).reduce(into: [:]) { fields, pair in
+            let parts = pair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            let rawKey = parts.first.map(String.init) ?? ""
+            let rawValue = parts.count > 1 ? String(parts[1]) : ""
+            let key = Self.decodeFormComponent(rawKey)
+            let value = Self.decodeFormComponent(rawValue)
+            fields[key, default: []].append(value)
+        }
+    }
+
+    private static func decodeFormComponent(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "+", with: " ")
+            .removingPercentEncoding ?? value
     }
 
     /// Generates a mock BLAST JSON2 response with 2 query results.
