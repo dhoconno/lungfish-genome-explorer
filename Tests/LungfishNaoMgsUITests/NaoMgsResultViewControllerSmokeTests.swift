@@ -76,4 +76,47 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
         XCTAssertEqual(provenance.options.resolvedDefaults["columnFilterComposition"]?.stringValue, "all")
         XCTAssertFalse(provenance.options.resolvedDefaults["sortDescriptors"]?.arrayValue?.isEmpty ?? true)
     }
+
+    @MainActor func testConfigureResultPopulatesCachedRowsForViewportExport() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("NaoMgsConfigureResult-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let result = NaoMgsResult(
+            virusHits: [],
+            taxonSummaries: [
+                NaoMgsTaxonSummary(
+                    taxId: 5678,
+                    name: "Cached result virus",
+                    hitCount: 12,
+                    avgIdentity: 98.25,
+                    avgBitScore: 175,
+                    avgEditDistance: 2,
+                    accessions: ["NC_000002.1", "NC_000003.1"],
+                    pcrDuplicateCount: 3
+                ),
+            ],
+            totalHitReads: 12,
+            sampleName: "parser-sample",
+            sourceDirectory: tempDir,
+            virusHitsFile: tempDir.appendingPathComponent("virus_hits_final.tsv")
+        )
+
+        let outputURL = tempDir.appendingPathComponent("parser-backed-summary.tsv")
+        let vc = NaoMgsResultViewController()
+        vc.loadViewIfNeeded()
+        vc.configure(result: result)
+
+        try vc.exportResults(to: outputURL, format: .tsv)
+
+        let content = try String(contentsOf: outputURL, encoding: .utf8)
+        XCTAssertTrue(content.contains("parser-sample\t5678\tCached result virus\t12\t9\t3\t98.25\t175.0\t2.0\t2\n"))
+
+        let provenance = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: outputURL))
+        )
+        XCTAssertEqual(provenance.options.resolvedDefaults["rowCount"]?.integerValue, 1)
+        XCTAssertEqual(provenance.options.resolvedDefaults["sampleName"]?.stringValue, "parser-sample")
+    }
 }

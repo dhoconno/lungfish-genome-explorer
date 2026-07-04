@@ -55,6 +55,36 @@ public struct NaoMgsTaxonSummaryRow: Codable, Sendable {
     public let topAccessions: [String]  // decoded from JSON
     public let bamPath: String?
     public let bamIndexPath: String?
+
+    public init(
+        sample: String,
+        taxId: Int,
+        name: String,
+        hitCount: Int,
+        uniqueReadCount: Int,
+        avgIdentity: Double,
+        avgBitScore: Double,
+        avgEditDistance: Double,
+        pcrDuplicateCount: Int,
+        accessionCount: Int,
+        topAccessions: [String],
+        bamPath: String?,
+        bamIndexPath: String?
+    ) {
+        self.sample = sample
+        self.taxId = taxId
+        self.name = name
+        self.hitCount = hitCount
+        self.uniqueReadCount = uniqueReadCount
+        self.avgIdentity = avgIdentity
+        self.avgBitScore = avgBitScore
+        self.avgEditDistance = avgEditDistance
+        self.pcrDuplicateCount = pcrDuplicateCount
+        self.accessionCount = accessionCount
+        self.topAccessions = topAccessions
+        self.bamPath = bamPath
+        self.bamIndexPath = bamIndexPath
+    }
 }
 
 /// Per-accession summary within a (sample, taxon) pair.

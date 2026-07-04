@@ -10,7 +10,7 @@
 //
 // ### NaoMgsResultViewController
 //   - ResultType = NaoMgsResult
-//   - configure(result:) already exists — satisfied automatically
+//   - configure(result:) adapts parser output into cached viewport rows
 //   - summaryBarView returns the NaoMgsSummaryBar subview
 //   - exportResults(to:format:) supports .tsv only; other formats throw
 
@@ -37,9 +37,9 @@ private enum NaoMgsExportError: LocalizedError {
 
 /// Adds `ResultViewportController` conformance to ``NaoMgsResultViewController``.
 ///
-/// `NaoMgsResultViewController` already implements `configure(result:NaoMgsResult)`,
-/// so only the three remaining protocol requirements are synthesised here:
-/// `summaryBarView`, `exportResults(to:format:)`, and `resultTypeName`.
+/// Parser-backed ``NaoMgsResult`` values are displayed from cached rows. Imported
+/// bundles should still use `configure(database:manifest:bundleURL:)` so detail
+/// panes can query the SQLite database.
 extension NaoMgsResultViewController: ResultViewportController {
 
     public typealias ResultType = NaoMgsResult

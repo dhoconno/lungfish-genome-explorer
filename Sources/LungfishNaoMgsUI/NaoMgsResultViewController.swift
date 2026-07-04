@@ -91,6 +91,9 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     /// Currently displayed taxonomy rows (filtered + sorted).
     private var displayedRows: [NaoMgsTaxonSummaryRow] = []
 
+    /// Cached taxonomy rows used before, or instead of, a SQLite database.
+    private var cachedTaxonRows: [NaoMgsTaxonSummaryRow] = []
+
     /// Currently selected taxon summary row.
     private var selectedRow: NaoMgsTaxonSummaryRow?
 
@@ -268,12 +271,23 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
     /// Configures the view with cached taxon rows from the manifest.
     ///
-    /// Shows the taxon list immediately from cached data in manifest.json.
-    /// The database is not yet available — detail pane and filters are disabled
-    /// until `configure(database:manifest:bundleURL:)` is called.
-    public func configureWithCachedRows(_ rows: [NaoMgsTaxonSummaryRow], manifest: NaoMgsManifest, bundleURL: URL? = nil) {
+    /// Shows the taxon list immediately from cached data in manifest.json or
+    /// parser output. Database-backed detail panes become available only after
+    /// `configure(database:manifest:bundleURL:)` is called.
+    public func configureWithCachedRows(
+        _ rows: [NaoMgsTaxonSummaryRow],
+        manifest: NaoMgsManifest,
+        bundleURL: URL? = nil,
+        awaitingDatabase: Bool = true
+    ) {
+        database = nil
         self.manifest = manifest
         self.bundleURL = bundleURL
+        cachedTaxonRows = rows
+        configureSampleSelection(
+            sampleHitCounts: Self.cachedSampleHitCounts(from: rows, manifest: manifest),
+            bundleURL: bundleURL
+        )
 
         // Populate the taxonomy table from cached data
         displayedRows = rows
@@ -283,9 +297,14 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         let totalHits = manifest.hitCount
         naoMgsTotalHits = totalHits
         actionBar.updateInfoText("Select a taxon to view details")
+        summaryBar.update(cachedRows: cachedTaxonRows, manifest: manifest, selectedSamples: Array(selectedSamples))
 
-        // Show loading indicator in the detail pane since database isn't ready
-        showLoadingOverlay("Opening database…")
+        if awaitingDatabase {
+            showLoadingOverlay("Opening database…")
+        } else {
+            hideLoadingOverlay()
+            showOverview()
+        }
 
         // Force the split view to re-apply its 40/60 position.
         applySplitPositionIfNeeded(force: true)
@@ -299,6 +318,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         self.database = database
         self.manifest = manifest
         self.bundleURL = bundleURL
+        cachedTaxonRows = []
 
         // Fetch samples from database
         do {
@@ -308,26 +328,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
             allSamples = []
         }
 
-        // Resolve human-readable display names via manifest lookup.
-        // bundleURL is the .lungfishfastq bundle; project is its parent.
-        let sampleNames = allSamples.map(\.sample)
-        let projectURL = bundleURL?.deletingLastPathComponent()
-        strippedPrefix = ""
-
-        // Create sample entries with resolved display names
-        sampleEntries = allSamples.map { item in
-            let displayName = FASTQDisplayNameResolver.resolveDisplayName(
-                sampleId: item.sample, projectURL: projectURL)
-            return NaoMgsSampleEntry(id: item.sample, displayName: displayName, hitCount: item.hitCount)
-        }
-
-        // Select all samples initially
-        selectedSamples = Set(sampleNames)
-        samplePickerState = ClassifierSamplePickerState(allSamples: selectedSamples)
-
-        // Observe sample selection changes reactively, so filtering works
-        // from both the popover picker and the Inspector-embedded picker.
-        startObservingSampleSelection()
+        configureSampleSelection(sampleHitCounts: allSamples, bundleURL: bundleURL)
 
         // Update summary bar
         summaryBar.update(database: database, manifest: manifest, selectedSamples: Array(selectedSamples))
@@ -354,69 +355,43 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         logger.info("Configured NAO-MGS viewer with database, \(self.allSamples.count) samples")
     }
 
-    /// Legacy configure method — kept for backward compatibility during transition.
+    /// Configures the viewport from parser output when a SQLite bundle is not available.
     public func configure(result: NaoMgsResult, bundleURL: URL? = nil) {
-        logger.warning("configure(result:) called — this code path is deprecated, use configure(database:manifest:bundleURL:)")
+        let rows = Self.cachedRows(from: result)
+        var manifest = NaoMgsManifest(
+            sampleName: result.sampleName,
+            sourceFilePath: result.virusHitsFile.path,
+            hitCount: result.totalHitReads,
+            taxonCount: result.taxonSummaries.count,
+            topTaxon: result.taxonSummaries.first?.name,
+            topTaxonId: result.taxonSummaries.first?.taxId
+        )
+        manifest.cachedTaxonRows = rows
+        configureWithCachedRows(
+            rows,
+            manifest: manifest,
+            bundleURL: bundleURL ?? result.sourceDirectory,
+            awaitingDatabase: false
+        )
+        logger.info("Configured NAO-MGS viewer from parser result with \(rows.count) cached taxon rows")
     }
 
     // MARK: - Taxonomy Table Reload
 
     private func reloadTaxonomyTable() {
-        guard let database else {
-            displayedRows = []
-            taxonomyTableView.reloadData()
-            return
-        }
-
-        do {
-            var rows = try database.fetchTaxonSummaryRows(samples: Array(selectedSamples))
-
-            if columnFilterSet.isActive {
-                rows = rows.filter { row in
-                    columnFilterSet.matches { filter in
-                        applyColumnFilter(filter, to: row)
-                    }
-                }
+        if let database {
+            do {
+                let rows = try database.fetchTaxonSummaryRows(samples: Array(selectedSamples))
+                displayedRows = applyCurrentTableTransforms(to: rows)
+            } catch {
+                logger.error("Failed to fetch taxon summaries: \(error.localizedDescription, privacy: .public)")
+                displayedRows = []
             }
-
-            // Apply sort
-            if let sortDescriptor = taxonomyTableView.sortDescriptors.first {
-                switch sortDescriptor.key {
-                case "sample":
-                    rows.sort {
-                        let compare = $0.sample.localizedCaseInsensitiveCompare($1.sample)
-                        return sortDescriptor.ascending ? compare == .orderedAscending : compare == .orderedDescending
-                    }
-                case "name":
-                    rows.sort {
-                        let compare = $0.name.localizedCaseInsensitiveCompare($1.name)
-                        return sortDescriptor.ascending ? compare == .orderedAscending : compare == .orderedDescending
-                    }
-                case "hits":
-                    rows.sort {
-                        sortDescriptor.ascending ? $0.hitCount < $1.hitCount : $0.hitCount > $1.hitCount
-                    }
-                case "unique":
-                    rows.sort {
-                        sortDescriptor.ascending
-                            ? $0.uniqueReadCount < $1.uniqueReadCount
-                            : $0.uniqueReadCount > $1.uniqueReadCount
-                    }
-                case "refs":
-                    rows.sort {
-                        sortDescriptor.ascending
-                            ? $0.accessionCount < $1.accessionCount
-                            : $0.accessionCount > $1.accessionCount
-                    }
-                default:
-                    break
-                }
-            }
-
-            displayedRows = rows
-        } catch {
-            logger.error("Failed to fetch taxon summaries: \(error.localizedDescription, privacy: .public)")
-            displayedRows = []
+        } else {
+            let rows = selectedSamples.isEmpty
+                ? cachedTaxonRows
+                : cachedTaxonRows.filter { selectedSamples.contains($0.sample) }
+            displayedRows = applyCurrentTableTransforms(to: rows)
         }
 
         let selectedTaxId = selectedRow?.taxId
@@ -450,11 +425,123 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         showOverview()
     }
 
+    private func applyCurrentTableTransforms(to sourceRows: [NaoMgsTaxonSummaryRow]) -> [NaoMgsTaxonSummaryRow] {
+        var rows = sourceRows
+
+        if columnFilterSet.isActive {
+            rows = rows.filter { row in
+                columnFilterSet.matches { filter in
+                    applyColumnFilter(filter, to: row)
+                }
+            }
+        }
+
+        if let sortDescriptor = taxonomyTableView.sortDescriptors.first {
+            switch sortDescriptor.key {
+            case "sample":
+                rows.sort {
+                    let compare = $0.sample.localizedCaseInsensitiveCompare($1.sample)
+                    return sortDescriptor.ascending ? compare == .orderedAscending : compare == .orderedDescending
+                }
+            case "name":
+                rows.sort {
+                    let compare = $0.name.localizedCaseInsensitiveCompare($1.name)
+                    return sortDescriptor.ascending ? compare == .orderedAscending : compare == .orderedDescending
+                }
+            case "hits":
+                rows.sort {
+                    sortDescriptor.ascending ? $0.hitCount < $1.hitCount : $0.hitCount > $1.hitCount
+                }
+            case "unique":
+                rows.sort {
+                    sortDescriptor.ascending
+                        ? $0.uniqueReadCount < $1.uniqueReadCount
+                        : $0.uniqueReadCount > $1.uniqueReadCount
+                }
+            case "refs":
+                rows.sort {
+                    sortDescriptor.ascending
+                        ? $0.accessionCount < $1.accessionCount
+                        : $0.accessionCount > $1.accessionCount
+                }
+            default:
+                break
+            }
+        }
+
+        return rows
+    }
+
     // MARK: - Sample Column Visibility
 
     private func updateSampleColumnVisibility() {
         // Sample column is always visible — even with a single sample,
         // it provides useful context about which dataset the rows come from.
+    }
+
+    private func configureSampleSelection(sampleHitCounts: [(sample: String, hitCount: Int)], bundleURL: URL?) {
+        allSamples = sampleHitCounts
+
+        // Resolve human-readable display names via manifest lookup.
+        // bundleURL is the .lungfishfastq bundle; project is its parent.
+        let sampleNames = allSamples.map(\.sample)
+        let projectURL = bundleURL?.deletingLastPathComponent()
+        strippedPrefix = ""
+
+        sampleEntries = allSamples.map { item in
+            let displayName = FASTQDisplayNameResolver.resolveDisplayName(
+                sampleId: item.sample,
+                projectURL: projectURL
+            )
+            return NaoMgsSampleEntry(id: item.sample, displayName: displayName, hitCount: item.hitCount)
+        }
+
+        selectedSamples = Set(sampleNames)
+        samplePickerState = ClassifierSamplePickerState(allSamples: selectedSamples)
+        updateSampleFilterButtonTitle()
+        updateMetadataColumnsForCurrentSamples()
+
+        // Observe sample selection changes reactively, so filtering works
+        // from both the popover picker and the Inspector-embedded picker.
+        startObservingSampleSelection()
+    }
+
+    private static func cachedRows(from result: NaoMgsResult) -> [NaoMgsTaxonSummaryRow] {
+        result.taxonSummaries.map { summary in
+            NaoMgsTaxonSummaryRow(
+                sample: result.sampleName,
+                taxId: summary.taxId,
+                name: summary.name,
+                hitCount: summary.hitCount,
+                uniqueReadCount: summary.uniqueReadCount,
+                avgIdentity: summary.avgIdentity,
+                avgBitScore: summary.avgBitScore,
+                avgEditDistance: summary.avgEditDistance,
+                pcrDuplicateCount: summary.pcrDuplicateCount,
+                accessionCount: summary.accessions.count,
+                topAccessions: Array(summary.accessions.prefix(5)),
+                bamPath: nil,
+                bamIndexPath: nil
+            )
+        }
+    }
+
+    private static func cachedSampleHitCounts(
+        from rows: [NaoMgsTaxonSummaryRow],
+        manifest: NaoMgsManifest
+    ) -> [(sample: String, hitCount: Int)] {
+        var counts: [String: Int] = [:]
+        for row in rows {
+            counts[row.sample, default: 0] += row.hitCount
+        }
+
+        guard !counts.isEmpty else {
+            return [(sample: manifest.sampleName, hitCount: manifest.hitCount)]
+        }
+
+        return counts.keys.sorted().map { sample in
+            (sample: sample, hitCount: counts[sample] ?? 0)
+        }
     }
 
     // MARK: - Sample Filter Button
@@ -493,6 +580,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
                 self.reloadTaxonomyTable()
                 if let database = self.database, let manifest = self.manifest {
                     self.summaryBar.update(database: database, manifest: manifest, selectedSamples: Array(newSelection))
+                } else if let manifest = self.manifest {
+                    self.summaryBar.update(cachedRows: self.cachedTaxonRows, manifest: manifest, selectedSamples: Array(newSelection))
                 }
                 // Re-register for the next change
                 self.startObservingSampleSelection()
@@ -538,11 +627,15 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         updateSampleColumnVisibility()
         updateMetadataColumnsForCurrentSamples()
         reloadTaxonomyTable()
-        summaryBar.update(
-            database: database,
-            manifest: manifest,
-            selectedSamples: Array(newSelection)
-        )
+        if let database, let manifest {
+            summaryBar.update(
+                database: database,
+                manifest: manifest,
+                selectedSamples: Array(newSelection)
+            )
+        } else if let manifest {
+            summaryBar.update(cachedRows: cachedTaxonRows, manifest: manifest, selectedSamples: Array(newSelection))
+        }
         samplePopover = nil
     }
 
@@ -1603,6 +1696,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         reloadTaxonomyTable()
         if let database, let manifest {
             summaryBar.update(database: database, manifest: manifest, selectedSamples: Array(newSelection))
+        } else if let manifest {
+            summaryBar.update(cachedRows: cachedTaxonRows, manifest: manifest, selectedSamples: Array(newSelection))
         }
     }
 
@@ -2707,6 +2802,26 @@ final class NaoMgsSummaryBar: GenomicSummaryCardBar {
         let rows = (try? database.fetchTaxonSummaryRows(samples: selectedSamples)) ?? []
         taxaLabel = rows.count == 1 ? "1 taxon" : "\(rows.count) taxa"
 
+        needsDisplay = true
+    }
+
+    func update(cachedRows: [NaoMgsTaxonSummaryRow], manifest: NaoMgsManifest?, selectedSamples: [String]) {
+        let allSampleIds = Set(cachedRows.map(\.sample))
+        let allSampleCount = max(allSampleIds.count, manifest == nil ? 0 : 1)
+        let selectedSampleIds = Set(selectedSamples)
+        let selectedCount = selectedSampleIds.isEmpty ? allSampleCount : selectedSampleIds.count
+
+        if selectedCount == allSampleCount {
+            samplesLabel = allSampleCount == 1 ? "1 sample" : "\(allSampleCount) samples"
+        } else {
+            samplesLabel = "\(selectedCount) of \(allSampleCount) samples"
+        }
+
+        let selectedRows = selectedSampleIds.isEmpty
+            ? cachedRows
+            : cachedRows.filter { selectedSampleIds.contains($0.sample) }
+        let taxonCount = selectedRows.isEmpty ? (cachedRows.isEmpty ? (manifest?.taxonCount ?? 0) : 0) : selectedRows.count
+        taxaLabel = taxonCount == 1 ? "1 taxon" : "\(taxonCount) taxa"
         needsDisplay = true
     }
 
