@@ -58,6 +58,14 @@ final class BundleContainerExportTests: XCTestCase {
         )
 
         XCTAssertEqual(resultA.imageDigest, resultB.imageDigest)
+        let sidecarURL = try XCTUnwrap(resultA.provenanceURL)
+        XCTAssertEqual(sidecarURL, ProvenanceRecorder.fileSidecarURL(for: outputA))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sidecarURL.path))
+
+        let sidecarEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL))
+        let archiveOutput = try XCTUnwrap(sidecarEnvelope.outputs.first { $0.path == outputA.standardizedFileURL.path })
+        XCTAssertNotNil(archiveOutput.checksumSHA256)
+        XCTAssertNotNil(archiveOutput.fileSize)
 
         let entries = try DeterministicTarReader.entries(in: outputA)
         let entriesB = try DeterministicTarReader.entries(in: outputB)
