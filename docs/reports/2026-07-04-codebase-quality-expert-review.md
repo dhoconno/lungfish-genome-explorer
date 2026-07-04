@@ -52,6 +52,8 @@ and behavior-preserving simplifications are useful and appropriate.
   lookups.
 - 2026-07-04 follow-up: ENA batch read lookup now rethrows cancellation from child tasks while
   preserving the intended per-accession failure tolerance for ordinary lookup failures.
+- 2026-07-04 follow-up: Generic Pathoplexus search/fetch now fail closed when the caller omits
+  an organism id, avoiding a misleading implicit `mpox` lookup at accession-only boundaries.
 
 ## Still Deferred
 

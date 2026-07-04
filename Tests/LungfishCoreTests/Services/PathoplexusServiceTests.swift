@@ -91,6 +91,21 @@ final class PathoplexusServiceTests: XCTestCase {
         XCTAssertGreaterThan(requests.count, 0)
     }
 
+    func testGenericSearchRequiresExplicitOrganism() async throws {
+        do {
+            _ = try await service.search(SearchQuery(term: "PP_001", limit: 10))
+            XCTFail("Expected generic Pathoplexus search to require an organism")
+        } catch let error as DatabaseServiceError {
+            guard case .invalidQuery(let reason) = error else {
+                return XCTFail("Expected invalidQuery, got \(error)")
+            }
+            XCTAssertTrue(reason.contains("organism"), "Reason should explain missing organism: \(reason)")
+        }
+
+        let requests = await mockClient.requests
+        XCTAssertTrue(requests.isEmpty, "Missing organism should fail before making network requests")
+    }
+
     // MARK: - Aggregated Count Tests
 
     func testGetAggregatedCount() async throws {
@@ -219,10 +234,25 @@ final class PathoplexusServiceTests: XCTestCase {
         ])
         await mockClient.register(pattern: "NucleotideSequences", response: .text(">PP_TEST\nATGCATGC"))
 
-        let record = try await service.fetch(accession: "PP_TEST")
+        let record = try await service.fetch(accession: "PP_TEST", organism: "mpox")
 
         XCTAssertEqual(record.accession, "PP_TEST")
         XCTAssertEqual(record.source, .pathoplexus)
+    }
+
+    func testGenericFetchRequiresExplicitOrganism() async throws {
+        do {
+            _ = try await service.fetch(accession: "PP_TEST")
+            XCTFail("Expected generic Pathoplexus fetch to require an organism")
+        } catch let error as DatabaseServiceError {
+            guard case .invalidQuery(let reason) = error else {
+                return XCTFail("Expected invalidQuery, got \(error)")
+            }
+            XCTAssertTrue(reason.contains("organism"), "Reason should explain missing organism: \(reason)")
+        }
+
+        let requests = await mockClient.requests
+        XCTAssertTrue(requests.isEmpty, "Missing organism should fail before making network requests")
     }
 
     // MARK: - Filter Building Tests
