@@ -4,8 +4,8 @@ title: Lungfish Genome Explorer User Manual
 
 # Lungfish Genome Explorer User Manual
 
-!!! warning "Under development"
-    This documentation is under active development and is **not yet ready for use**. Chapters may be incomplete, screenshots may be missing, and content may change without notice. Do not rely on these pages as a reference for production work. If you have questions, contact Dave O'Connor (dhoconno@wisc.edu) directly, or [file an issue on GitHub](https://github.com/dhoconno/lungfish-genome-explorer/issues).
+!!! note "Beta documentation"
+    This manual is being hardened for the beta release. Treat the command examples and workflow descriptions as the current user-facing reference, but check each chapter's preview or experimental callouts before relying on a feature for validated production work. If you find a mismatch, contact Dave O'Connor (dhoconno@wisc.edu) directly, or [file an issue on GitHub](https://github.com/dhoconno/lungfish-genome-explorer/issues).
 
 Welcome. This manual is the documentation for **Lungfish Genome Explorer** (LGE), the macOS app for viral genome analysis built by the Lungfish research collaboration. It is organised into three parts: **Foundations** (what to know before you start), **Working with the app** (every workflow LGE supports, organised by what you are trying to do), and **Reference** (the CLI, keyboard shortcuts, troubleshooting, and the [glossary](GLOSSARY.md)).
 

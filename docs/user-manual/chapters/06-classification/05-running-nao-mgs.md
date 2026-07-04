@@ -9,7 +9,7 @@ tags: [classification, nao-mgs, wastewater, surveillance, import]
 tools: [nao-mgs]
 entry_points:
   - "Import Center: Classification Results > NAO-MGS Results"
-  - "CLI: lungfish nao-mgs import, lungfish nao-mgs summary"
+  - "CLI: lungfish import nao-mgs, lungfish nao-mgs summary"
 shots: []
 planned_shots:
   - id: nao-mgs-import-card
@@ -96,15 +96,25 @@ The same import is available headless, which is the form to use from a
 scheduled job that drops new results into a project:
 
 ```bash
-lungfish nao-mgs import /path/to/nao-mgs-output/
+lungfish import nao-mgs /path/to/nao-mgs-output/ --output-dir /path/to/project/Imports/
 ```
 
 The argument is positional: it is the results directory or the
-`virus_hits_final.tsv(.gz)` file. Useful options are `--sample-name` to label
-the sample, `--output-dir` (`-o`) to choose where the converted files land, and
-`--min-bitscore` to drop weak hits. The import converts the pipeline's
-alignments to SAM so the viewport can show coverage. The Import-command family
-also offers `lungfish import nao-mgs`, which behaves the same way.
+`virus_hits_final.tsv(.gz)` file. For the project-import command, useful
+options are `--sample-name` to label the sample, `--output-dir` (`-o`) to choose
+the project or import directory, and `--no-fetch-references` when you want to
+skip reference FASTA downloads. This command writes the canonical
+`naomgs-<sample>/` result bundle that the app opens in the NAO-MGS viewport.
+
+There is also a standalone parser command:
+
+```bash
+lungfish nao-mgs import /path/to/virus_hits_final.tsv.gz --output-dir ./summaries
+```
+
+That form writes a JSON summary outside a project and supports
+`--sample-name`, `--output-dir` (`-o`), and `--min-bitscore`. Use it for quick
+inspection or scripting when you do not need a project bundle.
 
 For a quick look before importing, summarise the top taxa without writing
 anything:
@@ -160,5 +170,5 @@ describe the external run and then the Lungfish import as two steps.
 ## Next
 
 Continue to [BLAST Verification](06-blast-verification.md) to confirm a specific
-taxon against NCBI, or to [Novel Virus Diagnostics](08-novel-virus-detection.md)
+taxon against NCBI, or to [Novel Virus Diagnostics](09-novel-virus-detection.md)
 for the other wastewater-surveillance import path.

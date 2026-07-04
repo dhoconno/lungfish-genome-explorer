@@ -293,7 +293,7 @@ Runs the TaxTriage classification pipeline through Nextflow. Provide a single sa
 
 `lungfish nao-mgs summary <input-path>`
 
-Prints a quick summary of a NAO-MGS surveillance result (a directory or a `virus_hits_final.tsv.gz`). Use `lungfish nao-mgs import <input-path> [-o <dir>] [--sample-name <name>] [--sam]` to import the result and convert alignments for the viewport, or `lungfish import nao-mgs <path>` to import into a project's `Imports/` folder.
+Prints a quick summary of a NAO-MGS surveillance result (a directory or a `virus_hits_final.tsv.gz`). Use `lungfish import nao-mgs <input-path> [-o <dir>] [--sample-name <name>] [--no-fetch-references]` to create the canonical project import bundle, or `lungfish nao-mgs import <input-path> [-o <dir>] [--sample-name <name>] [--min-bitscore <float>]` to write a standalone JSON summary outside a project.
 
 `lungfish blast verify --kreport <report> --kraken-output <kraken> --source <fastq> --taxid <id> [--reads <n>]`
 

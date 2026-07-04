@@ -13,8 +13,9 @@ import LungfishIO
 /// on cloud infrastructure (AWS, 128 GB+ RAM, 29 Docker containers) and produces
 /// `virus_hits_final.tsv.gz` as its primary output.
 ///
-/// This command imports those results into Lungfish by parsing the TSV and
-/// optionally converting alignments to SAM format for viewport display.
+/// This command parses those results and writes a standalone JSON summary.
+/// Use `lungfish import nao-mgs` when you need a canonical project bundle for
+/// the app viewport.
 ///
 /// ## Examples
 ///
@@ -28,8 +29,8 @@ import LungfishIO
 /// # View a quick summary
 /// lungfish nao-mgs summary virus_hits_final.tsv.gz
 ///
-/// # Import and convert to SAM
-/// lungfish nao-mgs import virus_hits_final.tsv.gz --output-dir ./imported --sam
+/// # Write a filtered standalone summary
+/// lungfish nao-mgs import virus_hits_final.tsv.gz --output-dir ./summaries --min-bitscore 80
 /// ```
 struct NaoMgsCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
@@ -37,8 +38,8 @@ struct NaoMgsCommand: AsyncParsableCommand {
         abstract: "Import and view NAO-MGS metagenomic surveillance results",
         discussion: """
         Import results from the SecureBio NAO-MGS metagenomic surveillance
-        pipeline. Parses virus_hits_final.tsv.gz and converts alignments to
-        SAM format for display in the Lungfish genome viewer.
+        pipeline. Parses virus_hits_final.tsv.gz and writes a standalone JSON
+        summary. Use `lungfish import nao-mgs` for a project bundle.
         """,
         subcommands: [ImportSubcommand.self, SummarySubcommand.self],
         defaultSubcommand: SummarySubcommand.self
@@ -49,7 +50,7 @@ struct NaoMgsCommand: AsyncParsableCommand {
     struct ImportSubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "import",
-            abstract: "Import NAO-MGS results and convert to SAM"
+            abstract: "Import NAO-MGS results as a standalone JSON summary"
         )
 
         @OptionGroup var globalOptions: GlobalOptions

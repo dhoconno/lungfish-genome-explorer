@@ -50,7 +50,7 @@ A note on scope, because this is where the Builder is easy to over-read. The
 menu item is labelled **Workflow Builder (Experimental)** for a reason: the
 graph editor itself is general, but the only operations the native runner
 executes today are the five FASTQ-preprocessing steps listed below. The
-palette also contains generic Analysis placeholder nodes (Alignment, Variant
+palette also contains generic Analysis export nodes (Alignment, Variant
 Calling, Quantification, Assembly) and a few file-input nodes. Those generic
 nodes do not run inside the app. They exist so that a graph can be exported as
 Nextflow text for an external engine, and they are covered in
@@ -97,7 +97,7 @@ The palette groups operations into seven categories: **Input**,
 Processing**, **Analysis**, and **Output**. Click a category header to expand
 or collapse its contents. Hovering a node shows a one-line description. The
 five runnable FASTQ operations live in Trimming & Filtering, Decontamination,
-and Read Processing; the Analysis category holds the export-only placeholder
+and Read Processing; the Analysis category holds the export-only
 nodes.
 
 ### Drag a node onto the canvas
@@ -152,7 +152,7 @@ operation from a recipe. The parameters that exist depend on the node:
 | Merge overlapping pairs | Minimum overlap (15) |
 | Remove short reads | Minimum length (50), Maximum length (unset) |
 
-The generic Analysis placeholder nodes (Alignment, Variant Calling,
+The generic Analysis export nodes (Alignment, Variant Calling,
 Quantification, Assembly) do not expose scientific parameters such as a
 minimum allele frequency or a minimap2 preset. They carry only two hidden
 metadata fields used when the graph is exported as Nextflow text. If you need

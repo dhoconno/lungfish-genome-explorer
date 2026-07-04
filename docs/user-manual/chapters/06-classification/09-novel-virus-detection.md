@@ -1,6 +1,6 @@
 ---
 title: Novel Virus Diagnostics
-chapter_id: 06-classification/08-novel-virus-detection
+chapter_id: 06-classification/09-novel-virus-detection
 audience: analyst
 prereqs: [06-classification/01-what-is-classification]
 estimated_reading_min: 7
@@ -164,6 +164,6 @@ auditable steps.
 ## Next
 
 Return to [What Is Read Classification](01-what-is-classification.md) to choose
-among the runnable classifiers, or to [Importing CZ-ID Results](07-importing-cz-id-results.md)
+among the runnable classifiers, or to [Importing CZ-ID Results](08-importing-cz-id-results.md)
 and [Importing NAO-MGS Results](05-running-nao-mgs.md) for the other import
 paths.

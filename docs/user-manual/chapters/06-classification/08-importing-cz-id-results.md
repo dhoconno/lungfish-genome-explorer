@@ -1,6 +1,6 @@
 ---
 title: Importing CZ-ID Results
-chapter_id: 06-classification/07-importing-cz-id-results
+chapter_id: 06-classification/08-importing-cz-id-results
 audience: bench-scientist
 prereqs: [06-classification/01-what-is-classification]
 estimated_reading_min: 5
