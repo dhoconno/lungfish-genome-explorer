@@ -65,6 +65,14 @@ public enum MetagenomicsImportHelper {
             in: arguments,
             defaultValue: true
         )
+        let provenanceCommand = canonicalProvenanceCommand(
+            kind: kind,
+            inputURL: inputURL,
+            outputDirectory: outputDirectory,
+            secondaryInputURL: secondaryInputURL,
+            preferredName: normalizedName,
+            fetchReferences: fetchReferences
+        )
 
         final class ExitCodeBox: @unchecked Sendable {
             var value: Int32 = 0
@@ -98,7 +106,7 @@ public enum MetagenomicsImportHelper {
                         outputDirectory: outputDirectory,
                         outputFileURL: secondaryInputURL,
                         preferredName: normalizedName,
-                        provenanceCommand: arguments
+                        provenanceCommand: provenanceCommand
                     ) { progress, message in
                         emit(Event(
                             event: "progress",
@@ -140,7 +148,7 @@ public enum MetagenomicsImportHelper {
                         inputURL: inputURL,
                         outputDirectory: outputDirectory,
                         preferredName: normalizedName,
-                        provenanceCommand: arguments
+                        provenanceCommand: provenanceCommand
                     ) { progress, message in
                         emit(Event(
                             event: "progress",
@@ -182,7 +190,7 @@ public enum MetagenomicsImportHelper {
                         inputURL: inputURL,
                         outputDirectory: outputDirectory,
                         preferredName: normalizedName,
-                        provenanceCommand: arguments
+                        provenanceCommand: provenanceCommand
                     ) { progress, message in
                         emit(Event(
                             event: "progress",
@@ -226,7 +234,7 @@ public enum MetagenomicsImportHelper {
                         sampleName: nil,
                         fetchReferences: fetchReferences,
                         preferredName: normalizedName,
-                        provenanceCommand: arguments
+                        provenanceCommand: provenanceCommand
                     ) { progress, message in
                         emit(Event(
                             event: "progress",
@@ -269,7 +277,7 @@ public enum MetagenomicsImportHelper {
                         outputDirectory: outputDirectory,
                         preferredName: normalizedName,
                         samtoolsPath: BundleBuildHelpers.managedToolExecutablePath(.samtools),
-                        provenanceCommand: arguments
+                        provenanceCommand: provenanceCommand
                     ) { progress, message in
                         emit(Event(
                             event: "progress",
@@ -336,6 +344,47 @@ public enum MetagenomicsImportHelper {
 
         semaphore.wait()
         return exitState.value
+    }
+
+    static func canonicalProvenanceCommand(
+        kind: MetagenomicsImportKind,
+        inputURL: URL,
+        outputDirectory: URL,
+        secondaryInputURL: URL?,
+        preferredName: String?,
+        fetchReferences: Bool
+    ) -> [String] {
+        var command = [
+            "lungfish-cli",
+            "import",
+            kind.importCommandToken,
+            inputURL.path,
+            "--output-dir",
+            outputDirectory.path,
+        ]
+
+        switch kind {
+        case .kraken2:
+            if let secondaryInputURL {
+                command += ["--output", secondaryInputURL.path]
+            }
+            if let preferredName {
+                command += ["--name", preferredName]
+            }
+        case .esviritu, .taxtriage, .nvd:
+            if let preferredName {
+                command += ["--name", preferredName]
+            }
+        case .naomgs:
+            if let preferredName {
+                command += ["--sample-name", preferredName]
+            }
+            if !fetchReferences {
+                command.append("--no-fetch-references")
+            }
+        }
+
+        return command
     }
 
     private static func value(for flag: String, in arguments: [String]) -> String? {
