@@ -1252,11 +1252,26 @@ extension ImportCommand {
 
             let imported: Kraken2ImportResult
             do {
+                var provenanceCommand = [
+                    "lungfish-cli",
+                    "import",
+                    "kraken2",
+                    kreportURL.path,
+                    "--output-dir",
+                    outputDirectory.path,
+                ]
+                if let outputFile {
+                    provenanceCommand += ["--output", URL(fileURLWithPath: outputFile).path]
+                }
+                if let name {
+                    provenanceCommand += ["--name", name]
+                }
                 imported = try MetagenomicsImportService.importKraken2(
                     kreportURL: kreportURL,
                     outputDirectory: outputDirectory,
                     outputFileURL: outputFile.map { URL(fileURLWithPath: $0) },
-                    preferredName: name
+                    preferredName: name,
+                    provenanceCommand: provenanceCommand
                 )
             } catch {
                 print(formatter.error(error.localizedDescription))
@@ -1347,10 +1362,22 @@ extension ImportCommand {
 
             let imported: EsVirituImportResult
             do {
+                var provenanceCommand = [
+                    "lungfish-cli",
+                    "import",
+                    "esviritu",
+                    inputURL.path,
+                    "--output-dir",
+                    outputDirectory.path,
+                ]
+                if let name {
+                    provenanceCommand += ["--name", name]
+                }
                 imported = try MetagenomicsImportService.importEsViritu(
                     inputURL: inputURL,
                     outputDirectory: outputDirectory,
-                    preferredName: name
+                    preferredName: name,
+                    provenanceCommand: provenanceCommand
                 )
             } catch {
                 print(formatter.error(error.localizedDescription))
@@ -1416,10 +1443,22 @@ extension ImportCommand {
 
             let imported: TaxTriageImportResult
             do {
+                var provenanceCommand = [
+                    "lungfish-cli",
+                    "import",
+                    "taxtriage",
+                    inputURL.path,
+                    "--output-dir",
+                    outputDirectory.path,
+                ]
+                if let name {
+                    provenanceCommand += ["--name", name]
+                }
                 imported = try MetagenomicsImportService.importTaxTriage(
                     inputURL: inputURL,
                     outputDirectory: outputDirectory,
-                    preferredName: name
+                    preferredName: name,
+                    provenanceCommand: provenanceCommand
                 )
             } catch {
                 print(formatter.error(error.localizedDescription))
@@ -1505,12 +1544,27 @@ extension ImportCommand {
 
             let imported: NaoMgsImportResult
             do {
+                var provenanceCommand = [
+                    "lungfish-cli",
+                    "import",
+                    "nao-mgs",
+                    inputURL.path,
+                    "--output-dir",
+                    outputDirectory.path,
+                ]
+                if let sampleName {
+                    provenanceCommand += ["--sample-name", sampleName]
+                }
+                if !fetchReferences {
+                    provenanceCommand.append("--no-fetch-references")
+                }
                 imported = try await MetagenomicsImportService.importNaoMgs(
                     inputURL: inputURL,
                     outputDirectory: outputDirectory,
                     sampleName: sampleName,
                     fetchReferences: fetchReferences,
-                    preferredName: sampleName
+                    preferredName: sampleName,
+                    provenanceCommand: provenanceCommand
                 ) { progress, message in
                     guard !globalOptions.quiet else { return }
                     print(String(format: "[%3.0f%%] %@", progress * 100, message))

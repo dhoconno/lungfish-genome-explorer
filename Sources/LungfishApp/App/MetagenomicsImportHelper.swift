@@ -97,7 +97,8 @@ public enum MetagenomicsImportHelper {
                         kreportURL: inputURL,
                         outputDirectory: outputDirectory,
                         outputFileURL: secondaryInputURL,
-                        preferredName: normalizedName
+                        preferredName: normalizedName,
+                        provenanceCommand: arguments
                     ) { progress, message in
                         emit(Event(
                             event: "progress",
@@ -138,7 +139,8 @@ public enum MetagenomicsImportHelper {
                     let result = try MetagenomicsImportService.importEsViritu(
                         inputURL: inputURL,
                         outputDirectory: outputDirectory,
-                        preferredName: normalizedName
+                        preferredName: normalizedName,
+                        provenanceCommand: arguments
                     ) { progress, message in
                         emit(Event(
                             event: "progress",
@@ -179,7 +181,8 @@ public enum MetagenomicsImportHelper {
                     let result = try MetagenomicsImportService.importTaxTriage(
                         inputURL: inputURL,
                         outputDirectory: outputDirectory,
-                        preferredName: normalizedName
+                        preferredName: normalizedName,
+                        provenanceCommand: arguments
                     ) { progress, message in
                         emit(Event(
                             event: "progress",
@@ -222,7 +225,8 @@ public enum MetagenomicsImportHelper {
                         outputDirectory: outputDirectory,
                         sampleName: nil,
                         fetchReferences: fetchReferences,
-                        preferredName: normalizedName
+                        preferredName: normalizedName,
+                        provenanceCommand: arguments
                     ) { progress, message in
                         emit(Event(
                             event: "progress",

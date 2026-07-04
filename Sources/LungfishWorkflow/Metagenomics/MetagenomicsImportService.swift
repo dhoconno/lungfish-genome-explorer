@@ -37,6 +37,16 @@ public enum MetagenomicsImportKind: String, CaseIterable, Codable, Sendable {
     public var toolIdentifier: String {
         rawValue
     }
+
+    /// Token used by the `lungfish-cli import <token>` command family.
+    public var importCommandToken: String {
+        switch self {
+        case .naomgs:
+            return "nao-mgs"
+        default:
+            return rawValue
+        }
+    }
 }
 
 /// Result metadata for an imported Kraken2 classification directory.
@@ -155,8 +165,10 @@ public enum MetagenomicsImportService {
         outputDirectory: URL,
         outputFileURL: URL? = nil,
         preferredName: String? = nil,
+        provenanceCommand: [String]? = nil,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) throws -> Kraken2ImportResult {
+        let startedAt = Date()
         let fm = FileManager.default
 
         guard fm.fileExists(atPath: kreportURL.path) else {
@@ -241,6 +253,31 @@ public enum MetagenomicsImportService {
                 reason: error.localizedDescription
             )
         }
+        do {
+            try writeMetagenomicsImportProvenance(
+                kind: .kraken2,
+                sourceURLs: [kreportURL] + (outputFileURL.map { [$0] } ?? []),
+                resultDirectory: resultDirectory,
+                command: provenanceCommand,
+                explicitOptions: [
+                    "kreport": .file(kreportURL),
+                    "outputFile": outputFileURL.map(ParameterValue.file) ?? .null,
+                    "preferredName": preferredName.map(ParameterValue.string) ?? .null,
+                    "outputRoot": .file(outputDirectory),
+                ],
+                resolvedDefaults: [
+                    "classificationReport": .file(canonicalReportURL),
+                    "classificationOutput": .file(retainedOutputURL),
+                    "outputDirectory": .file(resultDirectory),
+                    "totalReads": .integer(tree.totalReads),
+                    "speciesCount": .integer(tree.speciesCount),
+                ],
+                startedAt: startedAt
+            )
+        } catch {
+            try? fm.removeItem(at: resultDirectory)
+            throw error
+        }
 
         progress?(1.0, "Kraken2 import complete")
         return Kraken2ImportResult(
@@ -268,8 +305,10 @@ public enum MetagenomicsImportService {
         inputURL: URL,
         outputDirectory: URL,
         preferredName: String? = nil,
+        provenanceCommand: [String]? = nil,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) throws -> EsVirituImportResult {
+        let startedAt = Date()
         let fm = FileManager.default
         guard fm.fileExists(atPath: inputURL.path) else {
             throw MetagenomicsImportError.inputNotFound(inputURL)
@@ -350,6 +389,34 @@ public enum MetagenomicsImportService {
             provenanceId: nil
         )
         try pipelineResult.save(to: resultDirectory)
+        do {
+            try writeMetagenomicsImportProvenance(
+                kind: .esviritu,
+                sourceURLs: sourcePayloadURLs(
+                    inputURL: inputURL,
+                    copiedRegularFiles: copiedRegularFiles,
+                    resultDirectory: resultDirectory
+                ),
+                resultDirectory: resultDirectory,
+                command: provenanceCommand,
+                explicitOptions: [
+                    "input": .file(inputURL),
+                    "preferredName": preferredName.map(ParameterValue.string) ?? .null,
+                    "outputRoot": .file(outputDirectory),
+                ],
+                resolvedDefaults: [
+                    "detectionFile": .file(detectionURL),
+                    "outputDirectory": .file(resultDirectory),
+                    "importedFileCount": .integer(copiedRegularFiles.count),
+                    "virusCount": .integer(virusCount),
+                    "sampleName": .string(sampleName),
+                ],
+                startedAt: startedAt
+            )
+        } catch {
+            try? fm.removeItem(at: resultDirectory)
+            throw error
+        }
 
         progress?(1.0, "EsViritu import complete")
         return EsVirituImportResult(
@@ -364,8 +431,10 @@ public enum MetagenomicsImportService {
         inputURL: URL,
         outputDirectory: URL,
         preferredName: String? = nil,
+        provenanceCommand: [String]? = nil,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) throws -> TaxTriageImportResult {
+        let startedAt = Date()
         let fm = FileManager.default
         guard fm.fileExists(atPath: inputURL.path) else {
             throw MetagenomicsImportError.inputNotFound(inputURL)
@@ -388,7 +457,8 @@ public enum MetagenomicsImportService {
         defer { OperationMarker.clearInProgress(resultDirectory) }
         progress?(0.05, "Copying TaxTriage files...")
 
-        _ = try copyInputPayload(from: inputURL, into: resultDirectory)
+        let copiedFiles = try copyInputPayload(from: inputURL, into: resultDirectory)
+        let copiedRegularFiles = copiedFiles.filter { isRegularFile($0) }
         let allOutputFiles = scanRegularFilesRecursively(in: resultDirectory)
 
         progress?(0.55, "Detecting report files...")
@@ -450,6 +520,33 @@ public enum MetagenomicsImportService {
             ignoredFailures: ignoredFailures
         )
         try result.save()
+        do {
+            try writeMetagenomicsImportProvenance(
+                kind: .taxtriage,
+                sourceURLs: sourcePayloadURLs(
+                    inputURL: inputURL,
+                    copiedRegularFiles: copiedRegularFiles,
+                    resultDirectory: resultDirectory
+                ),
+                resultDirectory: resultDirectory,
+                command: provenanceCommand,
+                explicitOptions: [
+                    "input": .file(inputURL),
+                    "preferredName": preferredName.map(ParameterValue.string) ?? .null,
+                    "outputRoot": .file(outputDirectory),
+                ],
+                resolvedDefaults: [
+                    "outputDirectory": .file(resultDirectory),
+                    "importedFileCount": .integer(allOutputFiles.count),
+                    "reportEntryCount": .integer(reportEntries),
+                    "ignoredFailureCount": .integer(ignoredFailures.count),
+                ],
+                startedAt: startedAt
+            )
+        } catch {
+            try? fm.removeItem(at: resultDirectory)
+            throw error
+        }
 
         progress?(1.0, "TaxTriage import complete")
         return TaxTriageImportResult(
@@ -470,8 +567,10 @@ public enum MetagenomicsImportService {
         minIdentity: Double = 0,
         fetchReferences: Bool = true,
         preferredName: String? = nil,
+        provenanceCommand: [String]? = nil,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> NaoMgsImportResult {
+        let startedAt = Date()
         let fm = FileManager.default
         guard fm.fileExists(atPath: inputURL.path) else {
             throw MetagenomicsImportError.inputNotFound(inputURL)
@@ -696,6 +795,36 @@ public enum MetagenomicsImportService {
 
         // ── Phase 6: Clean up staging artifacts ─────────────────────────
         try? fm.removeItem(at: stagingRoot)
+
+        do {
+            try writeMetagenomicsImportProvenance(
+                kind: .naomgs,
+                sourceURLs: [inputURL] + virusHitsFiles,
+                resultDirectory: resultDirectory,
+                command: provenanceCommand,
+                explicitOptions: [
+                    "input": .file(inputURL),
+                    "sampleName": sampleName.map(ParameterValue.string) ?? .null,
+                    "preferredName": preferredName.map(ParameterValue.string) ?? .null,
+                    "outputRoot": .file(outputDirectory),
+                    "minIdentity": .number(minIdentity),
+                    "fetchReferences": .boolean(fetchReferences),
+                ],
+                resolvedDefaults: [
+                    "outputDirectory": .file(resultDirectory),
+                    "sampleName": .string(normalizedSampleName),
+                    "sourceFileCount": .integer(virusHitsFiles.count),
+                    "totalHitReads": .integer(totalHitCount),
+                    "taxonCount": .integer(mergedTaxonCount),
+                    "fetchedReferenceCount": .integer(fetchedAccessions.count),
+                    "createdBAM": .boolean(!stageInputs.isEmpty),
+                ],
+                startedAt: startedAt
+            )
+        } catch {
+            try? fm.removeItem(at: resultDirectory)
+            throw error
+        }
 
         progress?(1.0, "NAO-MGS import complete")
         return NaoMgsImportResult(
@@ -1022,6 +1151,261 @@ private func ensureDirectoryExists(_ directory: URL) throws {
 private func writeAnalysisMetadataIfNeeded(tool: String, to directory: URL) {
     let metadata = AnalysesFolder.AnalysisMetadata(tool: tool, isBatch: false)
     try? AnalysesFolder.writeAnalysisMetadata(metadata, to: directory)
+}
+
+private func writeMetagenomicsImportProvenance(
+    kind: MetagenomicsImportKind,
+    sourceURLs: [URL],
+    resultDirectory: URL,
+    command: [String]?,
+    explicitOptions: [String: ParameterValue],
+    resolvedDefaults: [String: ParameterValue],
+    startedAt: Date
+) throws {
+    let completedAt = Date()
+    let argv = command ?? defaultMetagenomicsImportCommand(
+        kind: kind,
+        sourceURLs: sourceURLs,
+        resultDirectory: resultDirectory,
+        explicitOptions: explicitOptions
+    )
+    let inputDescriptors = try metagenomicsInputDescriptors(for: sourceURLs)
+    let resultDirectoryDescriptor = ProvenanceFileDescriptor(
+        path: resultDirectory.path,
+        format: .unknown,
+        role: .output
+    )
+    let outputDescriptors = try metagenomicsOutputDescriptors(in: resultDirectory)
+    let outputs = [resultDirectoryDescriptor] + outputDescriptors
+    let wallTime = completedAt.timeIntervalSince(startedAt)
+    let toolVersion = WorkflowRun.currentAppVersion
+    let step = ProvenanceStep(
+        toolName: "lungfish import",
+        toolVersion: toolVersion,
+        argv: argv,
+        durableReplayArgv: argv,
+        inputs: inputDescriptors,
+        outputs: outputs,
+        exitStatus: 0,
+        wallTimeSeconds: wallTime,
+        startedAt: startedAt,
+        completedAt: completedAt
+    )
+    let envelope = ProvenanceEnvelope(
+        createdAt: startedAt,
+        workflowName: "lungfish import \(kind.importCommandToken)",
+        workflowVersion: toolVersion,
+        toolName: "lungfish import",
+        toolVersion: toolVersion,
+        tool: ProvenanceToolIdentity(name: "lungfish import", version: toolVersion, kind: "cli"),
+        argv: argv,
+        durableReplayArgv: argv,
+        options: ProvenanceOptions(
+            explicit: explicitOptions,
+            defaults: defaultMetagenomicsImportOptions(kind: kind),
+            resolvedDefaults: resolvedDefaults.merging([
+                "outputDirectory": .file(resultDirectory),
+                "resultBundle": .file(resultDirectory),
+            ]) { existing, _ in existing }
+        ),
+        files: uniqueProvenanceDescriptors(inputDescriptors + outputs),
+        output: resultDirectoryDescriptor,
+        outputs: outputs,
+        steps: [step],
+        wallTimeSeconds: wallTime,
+        exitStatus: 0
+    )
+
+    try ProvenanceWriter(signingProvider: nil).write(envelope, to: resultDirectory)
+}
+
+private func defaultMetagenomicsImportCommand(
+    kind: MetagenomicsImportKind,
+    sourceURLs: [URL],
+    resultDirectory: URL,
+    explicitOptions: [String: ParameterValue]
+) -> [String] {
+    let source = sourceURLs.first?.path ?? "<input>"
+    var argv = [
+        "lungfish-cli",
+        "import",
+        kind.importCommandToken,
+        source,
+        "--output-dir",
+        resultDirectory.deletingLastPathComponent().path,
+    ]
+
+    switch kind {
+    case .kraken2:
+        if let preferredName = explicitOptions["preferredName"]?.stringValue, !preferredName.isEmpty {
+            argv += ["--name", preferredName]
+        }
+        if let outputFile = explicitOptions["outputFile"]?.fileValue {
+            argv += ["--output", outputFile.path]
+        }
+    case .esviritu, .taxtriage:
+        if let preferredName = explicitOptions["preferredName"]?.stringValue, !preferredName.isEmpty {
+            argv += ["--name", preferredName]
+        }
+    case .naomgs:
+        if let sampleName = explicitOptions["sampleName"]?.stringValue, !sampleName.isEmpty {
+            argv += ["--sample-name", sampleName]
+        }
+        if explicitOptions["fetchReferences"]?.booleanValue == false {
+            argv.append("--no-fetch-references")
+        }
+    case .nvd:
+        break
+    }
+
+    return argv
+}
+
+private func defaultMetagenomicsImportOptions(kind: MetagenomicsImportKind) -> [String: ParameterValue] {
+    switch kind {
+    case .kraken2:
+        return [
+            "outputFile": .null,
+            "preferredName": .null,
+        ]
+    case .esviritu, .taxtriage:
+        return [
+            "preferredName": .null,
+        ]
+    case .naomgs:
+        return [
+            "sampleName": .null,
+            "preferredName": .null,
+            "minIdentity": .number(0),
+            "fetchReferences": .boolean(true),
+        ]
+    case .nvd:
+        return [:]
+    }
+}
+
+private func metagenomicsInputDescriptors(for sourceURLs: [URL]) throws -> [ProvenanceFileDescriptor] {
+    var descriptors: [ProvenanceFileDescriptor] = []
+    for sourceURL in uniqueURLs(sourceURLs) {
+        if isDirectory(sourceURL) {
+            descriptors.append(ProvenanceFileDescriptor(
+                path: sourceURL.path,
+                format: .unknown,
+                role: .input
+            ))
+            descriptors.append(contentsOf: try scanRegularFilesRecursively(in: sourceURL).map {
+                try metagenomicsFileDescriptor(url: $0, role: .input)
+            })
+        } else {
+            descriptors.append(try metagenomicsFileDescriptor(url: sourceURL, role: .input))
+        }
+    }
+    return uniqueProvenanceDescriptors(descriptors)
+}
+
+private func sourcePayloadURLs(
+    inputURL: URL,
+    copiedRegularFiles: [URL],
+    resultDirectory: URL
+) -> [URL] {
+    guard isDirectory(inputURL) else {
+        return [inputURL]
+    }
+
+    let originalFiles = copiedRegularFiles.map { copiedURL in
+        inputURL.appendingPathComponent(relativePath(from: resultDirectory, to: copiedURL))
+    }
+    return [inputURL] + originalFiles
+}
+
+private func metagenomicsOutputDescriptors(in resultDirectory: URL) throws -> [ProvenanceFileDescriptor] {
+    try scanRegularFilesRecursively(in: resultDirectory)
+        .filter { !isGeneratedProvenanceArtifact($0, root: resultDirectory) }
+        .map { try metagenomicsFileDescriptor(url: $0, role: metagenomicsOutputRole(for: $0)) }
+}
+
+private func metagenomicsFileDescriptor(url: URL, role: FileRole) throws -> ProvenanceFileDescriptor {
+    try ProvenanceFileDescriptor.file(
+        url: url,
+        format: metagenomicsFileFormat(for: url),
+        role: role
+    )
+}
+
+private func metagenomicsOutputRole(for url: URL) -> FileRole {
+    let name = url.lastPathComponent.lowercased()
+    if name.hasSuffix(".bai") || name.hasSuffix(".csi") || name.hasSuffix(".fai") || name.hasSuffix(".idx.sqlite") {
+        return .index
+    }
+    if name.contains("report") || name.hasSuffix(".kreport") || name == "manifest.json" {
+        return .report
+    }
+    if name.contains("log") || name.hasSuffix(".trace") || name == "trace.txt" {
+        return .log
+    }
+    return .output
+}
+
+private func metagenomicsFileFormat(for url: URL) -> FileFormat {
+    let name = url.lastPathComponent.lowercased()
+    if name.hasSuffix(".fa") || name.hasSuffix(".fasta") || name.hasSuffix(".fna") {
+        return .fasta
+    }
+    if name.hasSuffix(".fastq") || name.hasSuffix(".fq") || name.hasSuffix(".fastq.gz") || name.hasSuffix(".fq.gz") {
+        return .fastq
+    }
+    if name.hasSuffix(".bam") {
+        return .bam
+    }
+    if name.hasSuffix(".sam") {
+        return .sam
+    }
+    if name.hasSuffix(".json") || name.hasSuffix(".json.gz") {
+        return .json
+    }
+    if name.hasSuffix(".html") || name.hasSuffix(".htm") {
+        return .html
+    }
+    if name.hasSuffix(".tsv") || name.hasSuffix(".tsv.gz") || name.hasSuffix(".txt") || name.hasSuffix(".log") || name.hasSuffix(".kreport") {
+        return .text
+    }
+    return .unknown
+}
+
+private func isGeneratedProvenanceArtifact(_ url: URL, root: URL) -> Bool {
+    let relativePath = relativePath(from: root, to: url)
+    return url.lastPathComponent == ProvenanceRecorder.provenanceFilename
+        || relativePath == ProvenanceWriter.bundleRollupFilename
+        || relativePath.hasPrefix("\(ProvenanceWriter.bundleProvenanceDirectoryName)/")
+        || url.lastPathComponent.hasSuffix(".sig")
+}
+
+private func uniqueURLs(_ urls: [URL]) -> [URL] {
+    var seen: Set<String> = []
+    var result: [URL] = []
+    for url in urls {
+        let key = url.standardizedFileURL.path
+        guard seen.insert(key).inserted else { continue }
+        result.append(url)
+    }
+    return result
+}
+
+private func uniqueProvenanceDescriptors(_ descriptors: [ProvenanceFileDescriptor]) -> [ProvenanceFileDescriptor] {
+    var seen: Set<String> = []
+    var result: [ProvenanceFileDescriptor] = []
+    for descriptor in descriptors {
+        guard seen.insert("\(descriptor.role.rawValue):\(descriptor.path)").inserted else { continue }
+        result.append(descriptor)
+    }
+    return result
+}
+
+private func relativePath(from root: URL, to url: URL) -> String {
+    let rootPath = root.standardizedFileURL.path
+    let path = url.standardizedFileURL.path
+    guard path.hasPrefix(rootPath + "/") else { return url.lastPathComponent }
+    return String(path.dropFirst(rootPath.count + 1))
 }
 
 private func copyFile(_ source: URL, to destination: URL) throws {

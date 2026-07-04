@@ -38,6 +38,12 @@ struct MetagenomicsImportServiceTests {
         #expect(FileManager.default.fileExists(
             atPath: result.resultDirectory.appendingPathComponent("classification-result.json").path
         ))
+        try expectImportProvenance(
+            in: result.resultDirectory,
+            workflowName: "lungfish import kraken2",
+            inputURLs: [sourceKreport],
+            outputNames: ["classification.kreport", "classification.kraken", "classification-result.json"]
+        )
         #expect(result.totalReads == 10)
         #expect(result.speciesCount == 1)
     }
@@ -78,6 +84,17 @@ struct MetagenomicsImportServiceTests {
 
         let loaded = try ClassificationResult.load(from: result.resultDirectory)
         #expect(loaded.outputURL.lastPathComponent == "classification.kraken.gz")
+        try expectImportProvenance(
+            in: result.resultDirectory,
+            workflowName: "lungfish import kraken2",
+            inputURLs: [sourceKreport, sourceOutput],
+            outputNames: [
+                "classification.kreport",
+                "classification.kraken.gz",
+                "classification.kraken.gz.idx.sqlite",
+                "classification-result.json",
+            ]
+        )
 
         let index = try KrakenIndexDatabase(url: indexURL)
         #expect(index.isClassifiedOnly)
@@ -105,6 +122,12 @@ struct MetagenomicsImportServiceTests {
         #expect(FileManager.default.fileExists(
             atPath: result.resultDirectory.appendingPathComponent("esviritu-result.json").path
         ))
+        try expectImportProvenance(
+            in: result.resultDirectory,
+            workflowName: "lungfish import esviritu",
+            inputURLs: [sourceDirectory],
+            outputNames: ["SampleA.detected_virus.info.tsv", "esviritu-result.json"]
+        )
         #expect(result.importedFileCount >= 1)
         #expect(result.virusCount >= 1)
     }
@@ -144,6 +167,12 @@ struct MetagenomicsImportServiceTests {
         #expect(result.reportEntryCount == 2)
         #expect(sidecar.ignoredFailures.count == 1)
         #expect(sidecar.ignoredFailures.first?.sampleID == "SRR35517992")
+        try expectImportProvenance(
+            in: result.resultDirectory,
+            workflowName: "lungfish import taxtriage",
+            inputURLs: [sourceDirectory],
+            outputNames: ["top_report.tsv", "nextflow.log", "taxtriage-result.json"]
+        )
     }
 
     @Test
@@ -174,6 +203,12 @@ struct MetagenomicsImportServiceTests {
         #expect(FileManager.default.fileExists(atPath: bundle.appendingPathComponent("hits.sqlite").path))
         #expect(result.sampleName == "SAMPLE_A")
         #expect(result.taxonCount == 2)
+        try expectImportProvenance(
+            in: result.resultDirectory,
+            workflowName: "lungfish import nao-mgs",
+            inputURLs: [sourceFile],
+            outputNames: ["manifest.json", "hits.sqlite"]
+        )
         // createdBAM reflects whether samtools was available in the test environment;
         // both true and false are valid outcomes after the materialization step was added.
     }
@@ -201,6 +236,66 @@ private func makeTemporaryDirectory(prefix: String) -> URL {
         .appendingPathComponent("\(prefix)\(UUID().uuidString)", isDirectory: true)
     try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     return url
+}
+
+@discardableResult
+private func expectImportProvenance(
+    in resultDirectory: URL,
+    workflowName: String,
+    inputURLs: [URL],
+    outputNames: [String],
+    sourceLocation: SourceLocation = #_sourceLocation
+) throws -> ProvenanceEnvelope {
+    let sidecarURL = resultDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+    #expect(FileManager.default.fileExists(atPath: sidecarURL.path), sourceLocation: sourceLocation)
+
+    let envelope = try #require(
+        try ProvenanceEnvelopeReader.load(from: resultDirectory),
+        sourceLocation: sourceLocation
+    )
+    #expect(envelope.workflowName == workflowName, sourceLocation: sourceLocation)
+    #expect(envelope.toolName == "lungfish import", sourceLocation: sourceLocation)
+    #expect(envelope.exitStatus == 0, sourceLocation: sourceLocation)
+    #expect(envelope.wallTimeSeconds != nil, sourceLocation: sourceLocation)
+    #expect(envelope.options.resolvedDefaults["outputDirectory"]?.fileValue?.path == resultDirectory.path, sourceLocation: sourceLocation)
+    #expect(envelope.argv.first == "lungfish-cli", sourceLocation: sourceLocation)
+
+    let inputPaths = Set(envelope.files.filter { $0.role == .input }.map(\.path))
+    for inputURL in inputURLs {
+        let inputPathCandidates = Set([inputURL.path, inputURL.standardizedFileURL.path])
+        #expect(!inputPaths.isDisjoint(with: inputPathCandidates), sourceLocation: sourceLocation)
+        let descriptor = try #require(
+            envelope.files.first { inputPathCandidates.contains($0.path) },
+            sourceLocation: sourceLocation
+        )
+        if isRegularFileForProvenanceTest(inputURL) {
+            #expect(descriptor.checksumSHA256 != nil, sourceLocation: sourceLocation)
+            #expect(descriptor.fileSize != nil, sourceLocation: sourceLocation)
+        } else {
+            let childInputs = envelope.files.filter {
+                let descriptorPath = $0.path
+                return $0.role == .input && inputPathCandidates.contains { candidate in
+                    descriptorPath.hasPrefix(candidate + "/")
+                }
+            }
+            #expect(!childInputs.isEmpty, sourceLocation: sourceLocation)
+            #expect(childInputs.allSatisfy { $0.checksumSHA256 != nil && $0.fileSize != nil }, sourceLocation: sourceLocation)
+        }
+    }
+
+    let outputBasenames = Set(envelope.outputs.map { URL(fileURLWithPath: $0.path).lastPathComponent })
+    for outputName in outputNames {
+        #expect(outputBasenames.contains(outputName), sourceLocation: sourceLocation)
+    }
+
+    let resultOutput = try #require(envelope.output, sourceLocation: sourceLocation)
+    #expect(resultOutput.path == resultDirectory.path, sourceLocation: sourceLocation)
+    #expect(resultOutput.role == .output, sourceLocation: sourceLocation)
+    return envelope
+}
+
+private func isRegularFileForProvenanceTest(_ url: URL) -> Bool {
+    (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
 }
 
 private func importNaoMgsForTesting(
