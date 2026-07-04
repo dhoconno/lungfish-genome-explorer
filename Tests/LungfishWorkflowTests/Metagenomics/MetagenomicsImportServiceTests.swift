@@ -203,14 +203,22 @@ struct MetagenomicsImportServiceTests {
         #expect(FileManager.default.fileExists(atPath: bundle.appendingPathComponent("hits.sqlite").path))
         #expect(result.sampleName == "SAMPLE_A")
         #expect(result.taxonCount == 2)
-        try expectImportProvenance(
+        let provenance = try expectImportProvenance(
             in: result.resultDirectory,
             workflowName: "lungfish import nao-mgs",
             inputURLs: [sourceFile],
             outputNames: ["manifest.json", "hits.sqlite"]
         )
-        // createdBAM reflects whether samtools was available in the test environment;
-        // both true and false are valid outcomes after the materialization step was added.
+        if result.createdBAM {
+            let samtoolsSteps = provenance.steps.filter { $0.toolName == "samtools" }
+            #expect(!samtoolsSteps.isEmpty)
+            #expect(samtoolsSteps.contains { step in
+                step.outputs.contains { descriptor in
+                    descriptor.path.hasSuffix(".bam") && descriptor.originPath != nil
+                }
+            })
+            #expect(samtoolsSteps.allSatisfy { $0.exitStatus != nil })
+        }
     }
 
     @Test

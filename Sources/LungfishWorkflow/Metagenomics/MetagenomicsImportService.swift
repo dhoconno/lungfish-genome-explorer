@@ -157,6 +157,7 @@ private struct NaoMgsSingleSampleStageResult {
     let taxonCount: Int
     let createdBAM: Bool
     let stageInput: NaoMgsStageDatabaseInput
+    let materializationSteps: [NaoMgsBamMaterializationStep]
 }
 
 /// Errors thrown while importing classifier outputs.
@@ -863,6 +864,7 @@ public enum MetagenomicsImportService {
         var totalHitCount = 0
         var totalTaxonCount = 0
         var firstSampleName: String?
+        var materializationSteps: [NaoMgsBamMaterializationStep] = []
         let sortedSamples = partition.sampleFiles.keys.sorted()
         let sampleCount = sortedSamples.count
 
@@ -880,6 +882,7 @@ public enum MetagenomicsImportService {
             )
             totalHitCount += stageResult.hitCount
             totalTaxonCount += stageResult.taxonCount
+            materializationSteps.append(contentsOf: stageResult.materializationSteps)
             // Skip samples where all rows were filtered out (e.g. by minIdentity).
             if stageResult.hitCount > 0 {
                 stageInputs.append(stageResult.stageInput)
@@ -900,6 +903,8 @@ public enum MetagenomicsImportService {
         // Copy per-sample BAMs into the final bundle's bams/ directory.
         let finalBamsDir = resultDirectory.appendingPathComponent("bams", isDirectory: true)
         try ensureDirectoryExists(finalBamsDir)
+        var bamStageOutputRelocations: [String: URL] = [:]
+        var copiedBAMCount = 0
         for stageInput in stageInputs {
             let stageBamsDir = stageInput.databaseURL.deletingLastPathComponent()
                 .appendingPathComponent("bams", isDirectory: true)
@@ -909,6 +914,10 @@ public enum MetagenomicsImportService {
                     let dst = finalBamsDir.appendingPathComponent(src.lastPathComponent)
                     try? fm.removeItem(at: dst)
                     try fm.copyItem(at: src, to: dst)
+                    recordNaoMgsOutputRelocation(from: src, to: dst, in: &bamStageOutputRelocations)
+                    if src.pathExtension.lowercased() == "bam" {
+                        copiedBAMCount += 1
+                    }
                 }
             }
         }
@@ -1062,9 +1071,15 @@ public enum MetagenomicsImportService {
                     "totalHitReads": .integer(totalHitCount),
                     "taxonCount": .integer(mergedTaxonCount),
                     "fetchedReferenceCount": .integer(fetchedAccessions.count),
-                    "createdBAM": .boolean(!stageInputs.isEmpty),
+                    "createdBAM": .boolean(copiedBAMCount > 0),
+                    "copiedBAMCount": .integer(copiedBAMCount),
                 ],
-                startedAt: startedAt
+                startedAt: startedAt,
+                additionalSteps: try naoMgsMaterializationProvenanceSteps(
+                    from: materializationSteps,
+                    sourceURLs: [inputURL] + virusHitsFiles,
+                    relocatedOutputs: bamStageOutputRelocations
+                )
             )
         } catch {
             try? fm.removeItem(at: resultDirectory)
@@ -1078,7 +1093,7 @@ public enum MetagenomicsImportService {
             totalHitReads: totalHitCount,
             taxonCount: mergedTaxonCount,
             fetchedReferenceCount: fetchedAccessions.count,
-            createdBAM: !stageInputs.isEmpty
+            createdBAM: copiedBAMCount > 0
         )
         } catch {
             // Clean up staging on failure too.
@@ -1113,12 +1128,15 @@ public enum MetagenomicsImportService {
 
         // Materialize BAMs for this sample.
         var createdBAM = false
+        var materializationSteps: [NaoMgsBamMaterializationStep] = []
         if let samtoolsPath = managedSamtoolsExecutableURL()?.path {
-            let generated = try NaoMgsBamMaterializer.materializeAll(
+            let materialized = try NaoMgsBamMaterializer.materializeAllWithProvenance(
                 dbPath: hitsDBURL.path,
                 resultURL: stageDir,
                 samtoolsPath: samtoolsPath
             )
+            let generated = materialized.bamURLs
+            materializationSteps.append(contentsOf: materialized.steps)
             createdBAM = !generated.isEmpty
 
             if !generated.isEmpty {
@@ -1171,7 +1189,8 @@ public enum MetagenomicsImportService {
                 databaseURL: hitsDBURL,
                 bamRelativePath: bamRelative,
                 bamIndexRelativePath: indexRelative
-            )
+            ),
+            materializationSteps: materializationSteps
         )
     }
 
@@ -1425,7 +1444,8 @@ private func writeMetagenomicsImportProvenance(
     resolvedDefaults: [String: ParameterValue],
     startedAt: Date,
     workflowName: String? = nil,
-    toolName: String = "lungfish import"
+    toolName: String = "lungfish import",
+    additionalSteps: [ProvenanceStep] = []
 ) throws {
     let completedAt = Date()
     let reportedResultDirectory = publishedResultDirectory ?? resultDirectory
@@ -1477,15 +1497,86 @@ private func writeMetagenomicsImportProvenance(
                 "resultBundle": .file(reportedResultDirectory),
             ]) { existing, _ in existing }
         ),
-        files: uniqueProvenanceDescriptors(inputDescriptors + outputs),
+        files: uniqueProvenanceDescriptors(
+            inputDescriptors
+                + outputs
+                + additionalSteps.flatMap(\.inputs)
+                + additionalSteps.flatMap(\.outputs)
+        ),
         output: resultDirectoryDescriptor,
         outputs: outputs,
-        steps: [step],
+        steps: [step] + additionalSteps,
         wallTimeSeconds: wallTime,
         exitStatus: 0
     )
 
     try ProvenanceWriter(signingProvider: nil).write(envelope, to: resultDirectory)
+}
+
+private func naoMgsMaterializationProvenanceSteps(
+    from materializationSteps: [NaoMgsBamMaterializationStep],
+    sourceURLs: [URL],
+    relocatedOutputs: [String: URL]
+) throws -> [ProvenanceStep] {
+    guard !materializationSteps.isEmpty else { return [] }
+    let inputDescriptors = try metagenomicsInputDescriptors(for: sourceURLs)
+    return try materializationSteps.map { step in
+        let outputDescriptors = try uniqueProvenanceDescriptors(step.outputURLs.compactMap { outputURL in
+            let finalURL = relocatedNaoMgsOutputURL(for: outputURL, relocatedOutputs: relocatedOutputs)
+            guard FileManager.default.fileExists(atPath: finalURL.path) else { return nil }
+            return try ProvenanceFileDescriptor.file(
+                url: finalURL,
+                format: metagenomicsFileFormat(for: finalURL),
+                role: metagenomicsOutputRole(for: finalURL),
+                originPath: finalURL.path == outputURL.path ? nil : outputURL.path
+            )
+        })
+        return ProvenanceStep(
+            toolName: step.toolName,
+            toolVersion: step.toolVersion,
+            argv: step.argv,
+            durableReplayArgv: step.argv,
+            reproducibleCommand: step.reproducibleCommand,
+            inputs: inputDescriptors,
+            outputs: outputDescriptors,
+            exitStatus: step.exitStatus,
+            wallTimeSeconds: step.wallTimeSeconds,
+            stderr: step.stderr,
+            startedAt: step.startedAt,
+            completedAt: step.completedAt
+        )
+    }
+}
+
+private func recordNaoMgsOutputRelocation(from sourceURL: URL, to destinationURL: URL, in relocations: inout [String: URL]) {
+    for path in naoMgsPathCandidates(for: sourceURL) {
+        relocations[path] = destinationURL
+    }
+}
+
+private func relocatedNaoMgsOutputURL(for outputURL: URL, relocatedOutputs: [String: URL]) -> URL {
+    for path in naoMgsPathCandidates(for: outputURL) {
+        if let relocated = relocatedOutputs[path] {
+            return relocated
+        }
+    }
+    return outputURL
+}
+
+private func naoMgsPathCandidates(for url: URL) -> Set<String> {
+    var candidates = Set([
+        url.path,
+        url.standardizedFileURL.path,
+        url.resolvingSymlinksInPath().path,
+    ])
+    for candidate in candidates {
+        if candidate.hasPrefix("/var/") {
+            candidates.insert("/private" + candidate)
+        } else if candidate.hasPrefix("/private/var/") {
+            candidates.insert(String(candidate.dropFirst("/private".count)))
+        }
+    }
+    return candidates
 }
 
 private func defaultMetagenomicsImportCommand(

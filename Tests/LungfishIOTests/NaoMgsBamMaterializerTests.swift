@@ -237,6 +237,37 @@ final class NaoMgsBamMaterializerTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: bamURL.path + ".bai"))
     }
 
+    func testMaterializeWithProvenanceRecordsSubprocessSteps() throws {
+        guard !samtoolsPath.isEmpty else { XCTFail("samtools not available"); return }
+
+        let tmp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let dbURL = tmp.appendingPathComponent("naomgs.sqlite")
+        try makeTestDatabase(at: dbURL, sample: "S1", duplicateCount: 3)
+
+        let result = try NaoMgsBamMaterializer.materializeAllWithProvenance(
+            dbPath: dbURL.path,
+            resultURL: tmp,
+            samtoolsPath: samtoolsPath,
+            samtoolsVersion: "samtools-test"
+        )
+
+        let bamURL = try XCTUnwrap(result.bamURLs.first)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bamURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bamURL.path + ".bai"))
+        XCTAssertFalse(result.steps.isEmpty)
+        XCTAssertTrue(result.steps.allSatisfy { $0.toolName == "samtools" })
+        XCTAssertTrue(result.steps.allSatisfy { $0.toolVersion == "samtools-test" })
+        XCTAssertTrue(result.steps.contains { $0.argv.first == "/bin/sh" && $0.argv.contains("-c") })
+        XCTAssertTrue(result.steps.contains { $0.reproducibleCommand.contains("samtools") })
+        XCTAssertTrue(result.steps.contains { step in
+            step.outputURLs.contains(bamURL)
+                && step.exitStatus == 0
+                && step.wallTimeSeconds != nil
+        })
+    }
+
     func testMaterializeDuplicatesAreMarked() throws {
         guard !samtoolsPath.isEmpty else { XCTFail("samtools not available"); return }
 

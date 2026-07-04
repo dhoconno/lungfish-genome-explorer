@@ -12,6 +12,59 @@ private let logger = Logger(subsystem: LogSubsystem.io, category: "NaoMgsBamMate
 /// The SQLITE_TRANSIENT destructor value, telling SQLite to copy the string immediately.
 private let SQLITE_TRANSIENT_DESTRUCTOR = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
+public struct NaoMgsBamMaterializationResult: Sendable {
+    public let bamURLs: [URL]
+    public let steps: [NaoMgsBamMaterializationStep]
+
+    public init(bamURLs: [URL], steps: [NaoMgsBamMaterializationStep]) {
+        self.bamURLs = bamURLs
+        self.steps = steps
+    }
+}
+
+public struct NaoMgsBamMaterializationStep: Sendable {
+    public let sample: String
+    public let toolName: String
+    public let toolVersion: String
+    public let argv: [String]
+    public let reproducibleCommand: String
+    public let inputURLs: [URL]
+    public let outputURLs: [URL]
+    public let exitStatus: Int?
+    public let wallTimeSeconds: TimeInterval?
+    public let stderr: String?
+    public let startedAt: Date?
+    public let completedAt: Date?
+
+    public init(
+        sample: String,
+        toolName: String,
+        toolVersion: String = "unknown",
+        argv: [String],
+        reproducibleCommand: String? = nil,
+        inputURLs: [URL] = [],
+        outputURLs: [URL] = [],
+        exitStatus: Int? = nil,
+        wallTimeSeconds: TimeInterval? = nil,
+        stderr: String? = nil,
+        startedAt: Date? = nil,
+        completedAt: Date? = nil
+    ) {
+        self.sample = sample
+        self.toolName = toolName
+        self.toolVersion = toolVersion
+        self.argv = argv
+        self.reproducibleCommand = reproducibleCommand ?? argv.map(naoMgsShellEscape).joined(separator: " ")
+        self.inputURLs = inputURLs
+        self.outputURLs = outputURLs
+        self.exitStatus = exitStatus
+        self.wallTimeSeconds = wallTimeSeconds
+        self.stderr = stderr
+        self.startedAt = startedAt
+        self.completedAt = completedAt
+    }
+}
+
 /// Generates real BAM files from NAO-MGS SQLite virus_hits rows so the
 /// miniBAM viewer can use the standard `displayContig(bamURL:...)` code path
 /// and benefit from samtools markdup PCR duplicate detection.
@@ -38,6 +91,24 @@ public enum NaoMgsBamMaterializer {
         force: Bool = false,
         markDuplicates: Bool = true
     ) throws -> [URL] {
+        try materializeAllWithProvenance(
+            dbPath: dbPath,
+            resultURL: resultURL,
+            samtoolsPath: samtoolsPath,
+            force: force,
+            markDuplicates: markDuplicates
+        ).bamURLs
+    }
+
+    /// Materializes BAM files and returns subprocess telemetry suitable for canonical provenance.
+    public static func materializeAllWithProvenance(
+        dbPath: String,
+        resultURL: URL,
+        samtoolsPath: String,
+        force: Bool = false,
+        markDuplicates: Bool = true,
+        samtoolsVersion: String? = nil
+    ) throws -> NaoMgsBamMaterializationResult {
         let fm = FileManager.default
         let bamsDir = resultURL.appendingPathComponent("bams")
         try fm.createDirectory(at: bamsDir, withIntermediateDirectories: true)
@@ -56,30 +127,58 @@ public enum NaoMgsBamMaterializer {
         let allRefLengths = try fetchReferenceLengths(db: db)
 
         var generated: [URL] = []
+        var steps: [NaoMgsBamMaterializationStep] = []
+        let resolvedSamtoolsVersion = samtoolsVersion ?? detectSamtoolsVersion(samtoolsPath: samtoolsPath)
+        let databaseURL = URL(fileURLWithPath: dbPath)
         for sample in samples {
             let bamURL = bamsDir.appendingPathComponent("\(sample).bam")
 
             if !force && fm.fileExists(atPath: bamURL.path) {
                 // Already generated; callers may defer markdup to a shared pipeline.
                 if markDuplicates {
-                    _ = try? MarkdupService.markdup(bamURL: bamURL, samtoolsPath: samtoolsPath)
-                    ensureIndex(bamURL: bamURL, samtoolsPath: samtoolsPath)
+                    if let step = markdupWithTelemetry(
+                        sample: sample,
+                        bamURL: bamURL,
+                        samtoolsPath: samtoolsPath,
+                        samtoolsVersion: resolvedSamtoolsVersion
+                    ) {
+                        steps.append(step)
+                    }
+                    if let indexStep = ensureIndex(
+                        sample: sample,
+                        bamURL: bamURL,
+                        samtoolsPath: samtoolsPath,
+                        samtoolsVersion: resolvedSamtoolsVersion
+                    ) {
+                        steps.append(indexStep)
+                    }
                 }
                 generated.append(bamURL)
                 continue
             }
 
             do {
-                try generateBam(
+                if let generateStep = try generateBam(
                     db: db,
                     sample: sample,
                     refLengths: allRefLengths,
                     bamURL: bamURL,
                     samtoolsPath: samtoolsPath,
+                    samtoolsVersion: resolvedSamtoolsVersion,
+                    databaseURL: databaseURL,
                     createIndex: markDuplicates
-                )
+                ) {
+                    steps.append(generateStep)
+                }
                 if markDuplicates {
-                    _ = try? MarkdupService.markdup(bamURL: bamURL, samtoolsPath: samtoolsPath)
+                    if let step = markdupWithTelemetry(
+                        sample: sample,
+                        bamURL: bamURL,
+                        samtoolsPath: samtoolsPath,
+                        samtoolsVersion: resolvedSamtoolsVersion
+                    ) {
+                        steps.append(step)
+                    }
                 }
                 generated.append(bamURL)
                 logger.info("Materialized NAO-MGS BAM for sample \(sample, privacy: .public)")
@@ -90,7 +189,7 @@ public enum NaoMgsBamMaterializer {
             }
         }
 
-        return generated
+        return NaoMgsBamMaterializationResult(bamURLs: generated, steps: steps)
     }
 
     // MARK: - Private
@@ -210,8 +309,10 @@ public enum NaoMgsBamMaterializer {
         refLengths: [String: Int],
         bamURL: URL,
         samtoolsPath: String,
+        samtoolsVersion: String,
+        databaseURL: URL,
         createIndex: Bool
-    ) throws {
+    ) throws -> NaoMgsBamMaterializationStep? {
         // 1. Collect accessions used by this sample to build @SQ header lines.
         //    Uses pre-computed accession_summaries (fast) instead of scanning virus_hits.
         var usedAccessions: Set<String> = []
@@ -250,7 +351,7 @@ public enum NaoMgsBamMaterializer {
 
         guard !usedAccessions.isEmpty else {
             logger.warning("No virus_hits for sample \(sample, privacy: .public); skipping BAM generation")
-            return
+            return nil
         }
 
         // 2. Build SAM header (small -- just @HD + @SQ lines)
@@ -263,9 +364,8 @@ public enum NaoMgsBamMaterializer {
         let headerText = header
 
         // 3. Start samtools pipeline BEFORE reading rows -- stream directly into it
-        let cmd = """
-        "\(samtoolsPath)" view -bS - | "\(samtoolsPath)" sort -m 256M -o "\(bamURL.path)"
-        """
+        let escapedSamtoolsPath = naoMgsShellEscape(samtoolsPath)
+        let cmd = "\(escapedSamtoolsPath) view -bS - | \(escapedSamtoolsPath) sort -m 256M -o \(naoMgsShellEscape(bamURL.path))"
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-c", cmd]
@@ -278,6 +378,7 @@ public enum NaoMgsBamMaterializer {
         // Ignore SIGPIPE so broken pipe doesn't kill our process
         signal(SIGPIPE, SIG_IGN)
 
+        let startedAt = Date()
         try process.run()
 
         // 4. Stream: write header, then iterate rows and write each SAM line.
@@ -481,40 +582,194 @@ public enum NaoMgsBamMaterializer {
         let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
         writeGroup.wait()
         process.waitUntilExit()
+        let completedAt = Date()
+        let stderr = String(data: errData, encoding: .utf8) ?? ""
+
+        let step = NaoMgsBamMaterializationStep(
+            sample: sample,
+            toolName: "samtools",
+            toolVersion: samtoolsVersion,
+            argv: ["/bin/sh", "-c", cmd],
+            inputURLs: [databaseURL],
+            outputURLs: [bamURL],
+            exitStatus: Int(process.terminationStatus),
+            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            stderr: stderr.isEmpty ? nil : stderr,
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
 
         if let err = writeError.value { throw err }
 
         guard process.terminationStatus == 0 else {
-            let stderr = String(data: errData, encoding: .utf8) ?? ""
             throw NSError(domain: "NaoMgsBamMaterializer", code: 5,
                           userInfo: [NSLocalizedDescriptionKey: "samtools pipeline failed: \(stderr)"])
         }
 
         // 5. Index the output BAM when this materializer owns the downstream markdup/index pass.
         if createIndex {
-            ensureIndex(bamURL: bamURL, samtoolsPath: samtoolsPath)
+            _ = ensureIndex(
+                sample: sample,
+                bamURL: bamURL,
+                samtoolsPath: samtoolsPath,
+                samtoolsVersion: samtoolsVersion
+            )
         }
+        return step
     }
 
     /// Ensures a BAM index (.bai) exists, creating one if needed.
     /// Best-effort -- logs a warning on failure but does not throw.
-    private static func ensureIndex(bamURL: URL, samtoolsPath: String) {
+    private static func ensureIndex(
+        sample: String,
+        bamURL: URL,
+        samtoolsPath: String,
+        samtoolsVersion: String
+    ) -> NaoMgsBamMaterializationStep? {
         let baiURL = URL(fileURLWithPath: bamURL.path + ".bai")
-        if FileManager.default.fileExists(atPath: baiURL.path) { return }
+        if FileManager.default.fileExists(atPath: baiURL.path) { return nil }
 
         let indexProc = Process()
         indexProc.executableURL = URL(fileURLWithPath: samtoolsPath)
         indexProc.arguments = ["index", bamURL.path]
         indexProc.standardOutput = FileHandle.nullDevice
-        indexProc.standardError = FileHandle.nullDevice
+        let errPipe = Pipe()
+        indexProc.standardError = errPipe
+        let startedAt = Date()
         do {
             try indexProc.run()
+            let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
             indexProc.waitUntilExit()
+            let completedAt = Date()
+            let stderr = String(data: errData, encoding: .utf8) ?? ""
+            let step = NaoMgsBamMaterializationStep(
+                sample: sample,
+                toolName: "samtools",
+                toolVersion: samtoolsVersion,
+                argv: [samtoolsPath, "index", bamURL.path],
+                inputURLs: [bamURL],
+                outputURLs: FileManager.default.fileExists(atPath: baiURL.path) ? [baiURL] : [],
+                exitStatus: Int(indexProc.terminationStatus),
+                wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+                stderr: stderr.isEmpty ? nil : stderr,
+                startedAt: startedAt,
+                completedAt: completedAt
+            )
             if indexProc.terminationStatus != 0 {
                 logger.warning("samtools index failed for \(bamURL.lastPathComponent, privacy: .public)")
             }
+            return step
         } catch {
             logger.warning("samtools index could not run for \(bamURL.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            let completedAt = Date()
+            return NaoMgsBamMaterializationStep(
+                sample: sample,
+                toolName: "samtools",
+                toolVersion: samtoolsVersion,
+                argv: [samtoolsPath, "index", bamURL.path],
+                inputURLs: [bamURL],
+                outputURLs: [],
+                exitStatus: 1,
+                wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+                stderr: error.localizedDescription,
+                startedAt: startedAt,
+                completedAt: completedAt
+            )
         }
     }
+
+    private static func markdupWithTelemetry(
+        sample: String,
+        bamURL: URL,
+        samtoolsPath: String,
+        samtoolsVersion: String
+    ) -> NaoMgsBamMaterializationStep? {
+        let startedAt = Date()
+        do {
+            let result = try MarkdupService.markdup(bamURL: bamURL, samtoolsPath: samtoolsPath)
+            let completedAt = Date()
+            let baiURL = URL(fileURLWithPath: bamURL.path + ".bai")
+            var outputURLs = [bamURL]
+            if FileManager.default.fileExists(atPath: baiURL.path) {
+                outputURLs.append(baiURL)
+            }
+            return NaoMgsBamMaterializationStep(
+                sample: sample,
+                toolName: "samtools",
+                toolVersion: samtoolsVersion,
+                argv: ["/bin/sh", "-c", markdupReplayCommand(bamURL: bamURL, samtoolsPath: samtoolsPath, threads: 4)],
+                inputURLs: [bamURL],
+                outputURLs: outputURLs,
+                exitStatus: 0,
+                wallTimeSeconds: result.durationSeconds,
+                startedAt: startedAt,
+                completedAt: completedAt
+            )
+        } catch {
+            logger.warning("samtools markdup failed for \(bamURL.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            let completedAt = Date()
+            return NaoMgsBamMaterializationStep(
+                sample: sample,
+                toolName: "samtools",
+                toolVersion: samtoolsVersion,
+                argv: ["/bin/sh", "-c", markdupReplayCommand(bamURL: bamURL, samtoolsPath: samtoolsPath, threads: 4)],
+                inputURLs: [bamURL],
+                outputURLs: [],
+                exitStatus: 1,
+                wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+                stderr: error.localizedDescription,
+                startedAt: startedAt,
+                completedAt: completedAt
+            )
+        }
+    }
+
+    private static func markdupReplayCommand(bamURL: URL, samtoolsPath: String, threads: Int) -> String {
+        let tempBamPath = bamURL.path + ".markdup.tmp"
+        let tempBaiPath = tempBamPath + ".bai"
+        let baiPath = bamURL.path + ".bai"
+        let csiPath = bamURL.path + ".csi"
+        let escapedSamtoolsPath = naoMgsShellEscape(samtoolsPath)
+        return [
+            "\(escapedSamtoolsPath) sort -n -@ \(threads) \(naoMgsShellEscape(bamURL.path))",
+            "\(escapedSamtoolsPath) fixmate -m - -",
+            "\(escapedSamtoolsPath) sort -@ \(threads) -",
+            "\(escapedSamtoolsPath) markdup - \(naoMgsShellEscape(tempBamPath))",
+        ].joined(separator: " | ")
+            + " && \(escapedSamtoolsPath) index \(naoMgsShellEscape(tempBamPath))"
+            + " && rm -f \(naoMgsShellEscape(baiPath)) \(naoMgsShellEscape(csiPath))"
+            + " && mv \(naoMgsShellEscape(tempBamPath)) \(naoMgsShellEscape(bamURL.path))"
+            + " && mv \(naoMgsShellEscape(tempBaiPath)) \(naoMgsShellEscape(baiPath))"
+    }
+
+    private static func detectSamtoolsVersion(samtoolsPath: String) -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: samtoolsPath)
+        process.arguments = ["--version"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        do {
+            try process.run()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            let output = String(data: data, encoding: .utf8) ?? ""
+            if let firstLine = output.split(separator: "\n").first {
+                return String(firstLine).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        } catch {
+            logger.warning("Could not detect samtools version: \(error.localizedDescription, privacy: .public)")
+        }
+        return "unknown"
+    }
+}
+
+private func naoMgsShellEscape(_ value: String) -> String {
+    if value.isEmpty { return "''" }
+    let safeCharacters = CharacterSet.alphanumerics
+        .union(CharacterSet(charactersIn: "-_./:=@+,"))
+    if value.unicodeScalars.allSatisfy({ safeCharacters.contains($0) }) {
+        return value
+    }
+    return "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
 }
