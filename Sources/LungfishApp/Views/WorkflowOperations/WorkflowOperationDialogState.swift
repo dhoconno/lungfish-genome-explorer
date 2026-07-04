@@ -1664,10 +1664,6 @@ final class WorkflowOperationDialogState {
         return fastaExtensions.contains { lowercasedName.hasSuffix(".\($0).gz") }
     }
 
-    private static func twelveSReferenceFASTAURL(for url: URL) -> URL? {
-        twelveSReferenceInput(for: url)?.fasta
-    }
-
     private static func twelveSReferenceInput(for url: URL) -> TwelveSReferenceInput? {
         let standardizedURL = url.standardizedFileURL
         if isTwelveSReferenceFASTA(standardizedURL) {
@@ -1798,20 +1794,6 @@ final class WorkflowOperationDialogState {
         return urls.filter { url in
             seen.insert(url.standardizedFileURL.path).inserted
         }
-    }
-
-    private static func defaultONTGenotypingAnalysisName(for selectedReadURLs: [URL]) -> String {
-        guard let stem = selectedReadURLs.first?.deletingPathExtension().lastPathComponent.lowercased() else {
-            return "ONT"
-        }
-        if let range = stem.range(of: #"barcode[-_ ]?([0-9]+)"#, options: .regularExpression) {
-            let match = String(stem[range])
-            let digits = match.filter(\.isNumber)
-            if !digits.isEmpty {
-                return "ONT\(digits)"
-            }
-        }
-        return "ONT"
     }
 
     private static func defaultONTGenotypingOutputName(for selectedReadURLs: [URL]) -> String {

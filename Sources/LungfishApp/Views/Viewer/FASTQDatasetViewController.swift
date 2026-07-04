@@ -344,15 +344,6 @@ public final class FASTQDatasetViewController: NSViewController {
         return Set(dict.filter { $0.value }.map { $0.key })
     }()
 
-    /// Persists the current expansion state to UserDefaults.
-    private func saveExpansionState() {
-        var dict: [String: Bool] = [:]
-        for (header, _) in Self.legacyOperationSections {
-            dict[header] = expandedCategories.contains(header)
-        }
-        UserDefaults.standard.set(dict, forKey: Self.expansionDefaultsKey)
-    }
-
     // MARK: - Properties
 
     private var statistics: FASTQDatasetStatistics?

@@ -706,13 +706,7 @@ extension AppDelegate {
 
         let sampleCount = configs.count
         let firstConfig = configs[0]
-        let batchRoot: URL = {
-            let parent = firstConfig.outputDirectory.deletingLastPathComponent()
-            if parent.lastPathComponent.hasPrefix("kraken2-batch-") {
-                return parent
-            }
-            return parent
-        }()
+        let batchRoot = firstConfig.outputDirectory.deletingLastPathComponent()
 
         let sampleIDs: [String] = configs.enumerated().map { index, config in
             let outputName = config.outputDirectory.lastPathComponent
@@ -1022,13 +1016,7 @@ extension AppDelegate {
 
         let sampleCount = configs.count
         let firstConfig = configs[0]
-        let batchRoot: URL = {
-            let parent = firstConfig.outputDirectory.deletingLastPathComponent()
-            if parent.lastPathComponent.hasPrefix("esviritu-batch-") {
-                return parent
-            }
-            return parent
-        }()
+        let batchRoot = firstConfig.outputDirectory.deletingLastPathComponent()
 
         let esBatchCliArgs: [String] = {
             var args = ["--input"]

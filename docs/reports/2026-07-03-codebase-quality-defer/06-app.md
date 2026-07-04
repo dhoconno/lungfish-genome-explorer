@@ -35,6 +35,95 @@ Views/FASTQ, Views/Metagenomics, App/, Services/, etc.).
 If tokens/time run short: complete whole batches, defer the untouched remainder EXPLICITLY
 here (never leave a half-applied batch).
 
+## Coverage ledger (the anti-selectivity proof — every one of 409 files accounted for)
+
+Columns: files total / audited / applied-count / clean-count / deferred-count.
+`audited` MUST equal `total` for every row before the module-boundary green-bar.
+`applied + clean + deferred` for a row equals `audited` (a file can be in only one bucket;
+a file with an applied edit AND a deferred split counts under applied, noted separately).
+
+| Directory | total | audited | applied | clean | deferred |
+|---|---|---|---|---|---|
+| Views/Viewer | 75 | 0 | 0 | 0 | 0 |
+| Views/Inspector | 38 | 0 | 0 | 0 | 0 |
+| Views/Metagenomics | 32 | 0 | 0 | 0 | 0 |
+| Views/MainWindow | 14 | 0 | 0 | 0 | 0 |
+| Views/BAM | 12 | 0 | 0 | 0 | 0 |
+| Views/Sidebar | 11 | 0 | 0 | 0 | 0 |
+| Views/Results | 9 | 0 | 0 | 0 | 0 |
+| Views/DatabaseBrowser | 9 | 0 | 0 | 0 | 0 |
+| Views/WorkflowBuilder | 8 | 0 | 0 | 0 | 0 |
+| Views/Settings | 8 | 0 | 0 | 0 | 0 |
+| Views/FASTQ | 7 | 0 | 0 | 0 | 0 |
+| Views/ImportCenter | 6 | 0 | 0 | 0 | 0 |
+| Views/Shared | 5 | 0 | 0 | 0 | 0 |
+| Views/Assembly | 5 | 0 | 0 | 0 | 0 |
+| Views/WorkflowOperations | 4 | 0 | 0 | 0 | 0 |
+| Views/Mapping | 4 | 0 | 0 | 0 | 0 |
+| Views/WorkflowLibrary | 3 | 0 | 0 | 0 | 0 |
+| Views/PluginManager | 3 | 0 | 0 | 0 | 0 |
+| Views/Phylogenetics | 3 | 0 | 0 | 0 | 0 |
+| Views/Operations | 3 | 0 | 0 | 0 | 0 |
+| Views/Layout | 3 | 0 | 0 | 0 | 0 |
+| Views/Components | 2 | 0 | 0 | 0 | 0 |
+| Views/Welcome | 1 | 0 | 0 | 0 | 0 |
+| Views/TranslationTool | 1 | 0 | 0 | 0 | 0 |
+| Views/Sequence | 1 | 0 | 0 | 0 | 0 |
+| Views/Help | 1 | 0 | 0 | 0 | 0 |
+| Views/Extraction | 1 | 0 | 0 | 0 | 0 |
+| Views/AI | 1 | 0 | 0 | 0 | 0 |
+| Services | 86 | 0 | 0 | 0 | 0 |
+| App | 42 | 0 | 0 | 0 | 0 |
+| StateManagement | 6 | 0 | 0 | 0 | 0 |
+| ViewModels | 4 | 0 | 0 | 0 | 0 |
+| Support | 1 | 0 | 0 | 0 | 0 |
+| **TOTAL** | **409** | **0** | 0 | 0 | 0 |
+
+### Per-file APPLIED / DEFERRED notes
+(CLEAN files are summarized per-directory as "N files clean"; only APPLIED and DEFERRED get a
+per-file line here.)
+
+APPLIED (Pass A batch 1 — pending build+commit):
+- `Views/Viewer/AnnotationTableDrawerView+Genotypes.swift`: remove dead file-private
+  `genotypeLogger` (line 18) — grep-verified zero reads in module + Tests/.
+- `Views/Viewer/FASTQDatasetViewController.swift`: remove dead private `saveExpansionState()`
+  (~347-354) — grep-verified zero callers in module + Tests/. NOTE: this is the WRITE half of
+  an expansion-state persistence pair; the READ half (`loadExpansionState` at ~341) still runs,
+  so state is loaded-but-never-saved (pre-existing latent no-op persistence). Removing the
+  unused writer is behavior-preserving. Flagged below for maintainer.
+
+REJECTED candidates (audited, proven NOT safe — recorded so a future pass does not re-propose):
+- MSA `MultipleSequenceAlignmentViewController.swift` "duplicate `isGap` at ~3131": NOT a
+  duplicate. Line 1917 is on `MultipleSequenceAlignmentViewController`; line 3131 is on the
+  private class `MSAAlignmentMatrixView` (opened ~2726). The `Self.isGap` calls at ~3067/3101
+  are inside `MSAAlignmentMatrixView`, so they resolve to 3131. Removing 3131 breaks compile.
+  File is CLEAN.
+- All `= nil` parameter-default removals proposed by an auditor (FASTQDatasetViewController,
+  AppDelegate+ImportCenter, ~13 sites): a parameter `foo: T? = nil` has a DEFAULT VALUE;
+  removing `= nil` forces every caller to pass the arg = API/behavior/compile change. NOT
+  behavior-preserving. Rejected wholesale.
+
+DEFERRED:
+- `Views/Viewer/FASTQMetadataDrawerView.swift`: no-op `public func
+  tableViewSelectionDidChange(_:)` (~1312-1321) — body is pure `break`s, behaviorally a no-op
+  delegate stub. Removal is behavior-equivalent but it is PUBLIC protocol-shaped surface with
+  near-zero cleanup value; deferred rather than touch public surface. `isSuppressingDelegate
+  Callbacks` (line 119) is its only reader and is never written -> both are effectively dead;
+  a maintainer pass could remove the pair.
+
+## Applied batches (commit log)
+
+_(one line per committed batch: commit hash + summary)_
+
 ## Deferred items
 
 _(none yet — populated per batch as uncertain changes are reverted)_
+
+### Deferred file splits (each its own reviewed pass)
+
+_(catalog of >1000-line files: seam files + private→internal promotion lists + @objc/protocol
+methods that must stay reachable)_
+
+### Flagged (pre-existing rule violations / unwired-UI islands — NOT fixed in this pass)
+
+_(macOS-26 API violations, forbidden MainActor hops, unwired-UI dead islands for maintainer)_
