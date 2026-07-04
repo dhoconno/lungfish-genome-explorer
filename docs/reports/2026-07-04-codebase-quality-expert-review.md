@@ -47,6 +47,9 @@ and behavior-preserving simplifications are useful and appropriate.
 - 2026-07-04 follow-up: SRA Toolkit downloads now propagate cancellation into the active
   `prefetch`/`fasterq-dump` process and surface `CancellationError` instead of a generic toolkit
   failure.
+- 2026-07-04 follow-up: NCBI genome/annotation/report HEAD probes now use the injected
+  `HTTPClient`, keeping tests deterministic and preserving cancellation semantics for optional
+  lookups.
 
 ## Still Deferred
 

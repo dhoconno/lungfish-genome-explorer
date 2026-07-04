@@ -436,6 +436,94 @@ final class NCBIServiceTests: XCTestCase {
         XCTAssertTrue(requests[0].url?.absoluteString.contains("efetch.fcgi") == true)
     }
 
+    // MARK: - Genome File Info Tests
+
+    func testGenomeFileInfoUsesInjectedHTTPClientForHeadRequest() async throws {
+        await mockClient.register(
+            pattern: "_genomic.fna.gz",
+            response: MockHTTPClient.MockResponse(
+                data: Data(),
+                statusCode: 200,
+                headers: ["Content-Length": "12345"]
+            )
+        )
+
+        let info = try await service.getGenomeFileInfo(for: makeAssemblySummary())
+
+        XCTAssertEqual(info.filename, "GCF_TEST_ASM_genomic.fna.gz")
+        XCTAssertEqual(info.estimatedSize, 12345)
+        let requests = await mockClient.requests
+        XCTAssertEqual(requests.count, 1)
+        XCTAssertEqual(requests.first?.httpMethod, "HEAD")
+        XCTAssertTrue(requests.first?.url?.absoluteString.contains("_genomic.fna.gz") == true)
+    }
+
+    func testAnnotationFileInfoUsesInjectedHTTPClientForHeadRequest() async throws {
+        await mockClient.register(
+            pattern: "_genomic.gff.gz",
+            response: MockHTTPClient.MockResponse(
+                data: Data(),
+                statusCode: 200,
+                headers: ["Content-Length": "6789"]
+            )
+        )
+
+        let optionalInfo = try await service.getAnnotationFileInfo(for: makeAssemblySummary())
+        let info = try XCTUnwrap(optionalInfo)
+
+        XCTAssertEqual(info.filename, "GCF_TEST_ASM_genomic.gff.gz")
+        XCTAssertEqual(info.estimatedSize, 6789)
+        let requests = await mockClient.requests
+        XCTAssertEqual(requests.count, 1)
+        XCTAssertEqual(requests.first?.httpMethod, "HEAD")
+        XCTAssertTrue(requests.first?.url?.absoluteString.contains("_genomic.gff.gz") == true)
+    }
+
+    func testAssemblyReportInfoUsesInjectedHTTPClientForHeadRequest() async throws {
+        await mockClient.register(
+            pattern: "_assembly_report.txt",
+            response: MockHTTPClient.MockResponse(
+                data: Data(),
+                statusCode: 200,
+                headers: ["Content-Length": "4321"]
+            )
+        )
+
+        let optionalInfo = try await service.getAssemblyReportInfo(for: makeAssemblySummary())
+        let info = try XCTUnwrap(optionalInfo)
+
+        XCTAssertEqual(info.filename, "GCF_TEST_ASM_assembly_report.txt")
+        XCTAssertEqual(info.estimatedSize, 4321)
+        let requests = await mockClient.requests
+        XCTAssertEqual(requests.count, 1)
+        XCTAssertEqual(requests.first?.httpMethod, "HEAD")
+        XCTAssertTrue(requests.first?.url?.absoluteString.contains("_assembly_report.txt") == true)
+    }
+
+    func testOptionalHeadLookupsPropagateCancellation() async throws {
+        await mockClient.register(pattern: "_genomic.gff.gz", response: .cancelled)
+
+        do {
+            _ = try await service.getAnnotationFileInfo(for: makeAssemblySummary())
+            XCTFail("Expected cancelled HEAD lookup to throw")
+        } catch let error as URLError where error.code == .cancelled {
+            // Expected
+        } catch {
+            XCTFail("Expected URLError.cancelled, got \(error)")
+        }
+    }
+
+    private func makeAssemblySummary() throws -> NCBIAssemblySummary {
+        let payload: [String: Any] = [
+            "uid": "asm-1",
+            "assemblyaccession": "GCF_TEST_ASM",
+            "assemblyname": "GCF_TEST_ASM",
+            "ftppath_refseq": "http://127.0.0.1:9/genomes/GCF_TEST_ASM"
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        return try JSONDecoder().decode(NCBIAssemblySummary.self, from: data)
+    }
+
     // MARK: - Rate Limiting Tests
 
     func testEFetchRetriesHTTP429WithExponentialBackoff() async throws {

@@ -761,7 +761,7 @@ public actor NCBIService: DatabaseService {
         request.timeoutInterval = 30
 
         logger.info("getGenomeFileInfo: HEAD \(fileURL.absoluteString, privacy: .public)")
-        let (_, response) = try await URLSession.shared.data(for: request)
+        let (_, response) = try await httpClient.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw DatabaseServiceError.networkError(underlying: "Bad server response")
@@ -821,7 +821,7 @@ public actor NCBIService: DatabaseService {
         request.timeoutInterval = 15
 
         do {
-            let (_, response) = try await URLSession.shared.data(for: request)
+            let (_, response) = try await httpClient.data(for: request)
 
             guard let httpResponse = response as? HTTPURLResponse else {
                 return nil
@@ -845,6 +845,9 @@ public actor NCBIService: DatabaseService {
                 assemblyAccession: summary.assemblyAccession ?? summary.uid
             )
         } catch {
+            if isCancellation(error) {
+                throw error
+            }
             // Network errors are non-fatal for annotation lookup
             logger.warning("getAnnotationFileInfo: Failed to check GFF3 availability: \(error.localizedDescription)")
             return nil
@@ -884,7 +887,7 @@ public actor NCBIService: DatabaseService {
         request.timeoutInterval = 15
 
         do {
-            let (_, response) = try await URLSession.shared.data(for: request)
+            let (_, response) = try await httpClient.data(for: request)
 
             guard let httpResponse = response as? HTTPURLResponse else {
                 return nil
@@ -906,6 +909,9 @@ public actor NCBIService: DatabaseService {
                 assemblyAccession: summary.assemblyAccession ?? summary.uid
             )
         } catch {
+            if isCancellation(error) {
+                throw error
+            }
             logger.warning("getAssemblyReportInfo: Failed to check assembly report availability: \(error.localizedDescription)")
             return nil
         }
