@@ -277,7 +277,7 @@ final class FASTQBatchImportTests: XCTestCase {
     // MARK: - Recipe Resolution
 
     func testResolveKnownRecipes() throws {
-        let recipes = ["vsp2", "wgs", "amplicon", "hifi"]
+        let recipes = ["vsp2", "wgs", "hifi"]
         for name in recipes {
             XCTAssertNoThrow(
                 try FASTQBatchImporter.resolveRecipe(named: name),
@@ -288,7 +288,17 @@ final class FASTQBatchImportTests: XCTestCase {
 
     func testResolveRecipeCaseInsensitive() throws {
         XCTAssertNoThrow(try FASTQBatchImporter.resolveRecipe(named: "WGS"))
-        XCTAssertNoThrow(try FASTQBatchImporter.resolveRecipe(named: "Amplicon"))
+        XCTAssertNoThrow(try FASTQBatchImporter.resolveRecipe(named: "HiFi"))
+    }
+
+    func testResolveAmpliconRecipeThrowsUnsupportedUntilPrimerRemovalIsExecutable() throws {
+        XCTAssertThrowsError(try FASTQBatchImporter.resolveRecipe(named: "Amplicon")) { error in
+            guard case BatchImportError.unsupportedRecipe(let name, let reason) = error else {
+                return XCTFail("Expected BatchImportError.unsupportedRecipe, got \(error)")
+            }
+            XCTAssertEqual(name, "Amplicon")
+            XCTAssertTrue(reason.contains("primer removal"), reason)
+        }
     }
 
     func testResolveUnknownRecipeThrows() throws {

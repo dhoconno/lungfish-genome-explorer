@@ -72,6 +72,9 @@ and behavior-preserving simplifications are useful and appropriate.
   without durable reproducibility metadata.
 - 2026-07-04 follow-up: `ProjectStore.reconstructSequence` now rejects version indexes past
   the available history instead of silently clamping to the latest sequence content.
+- 2026-07-04 follow-up: Legacy FASTQ batch import now fails closed on unsupported recipe
+  steps instead of skipping them, and the stale `amplicon` import recipe advertisement was
+  removed until primer removal is executable in that path.
 - 2026-07-04 follow-up: Sample metadata CSV/TSV import now rejects rows whose column count differs
   from the header before scanning or persisting metadata, avoiding silent misalignment in scientific
   import workflows.

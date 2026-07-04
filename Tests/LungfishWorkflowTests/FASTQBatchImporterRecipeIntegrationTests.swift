@@ -6,6 +6,21 @@ import XCTest
 @testable import LungfishWorkflow
 import LungfishIO
 
+private final class FASTQBatchImporterRecipeEventCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [ImportLogEvent] = []
+
+    func append(_ event: ImportLogEvent) {
+        lock.withLock {
+            storage.append(event)
+        }
+    }
+
+    var events: [ImportLogEvent] {
+        lock.withLock { storage }
+    }
+}
+
 final class FASTQBatchImporterRecipeIntegrationTests: XCTestCase {
 
     private var tempDir: URL!
@@ -25,9 +40,7 @@ final class FASTQBatchImporterRecipeIntegrationTests: XCTestCase {
         try await super.tearDown()
     }
 
-    func testRunBatchImportSkippedLeadingStepStillSucceedsForPairedFASTQ() async throws {
-        try await requireManagedTools([.fastp, .reformat])
-
+    func testRunBatchImportUnsupportedLegacyStepFailsBeforeProcessingPairedFASTQ() async throws {
         let pair = SamplePair(
             sampleName: "sample",
             r1: tempDir.appendingPathComponent("sample_R1.fastq"),
@@ -77,25 +90,35 @@ final class FASTQBatchImporterRecipeIntegrationTests: XCTestCase {
             optimizeStorage: false,
             threads: 2
         )
+        let collector = FASTQBatchImporterRecipeEventCollector()
 
         let result = await FASTQBatchImporter.runBatchImport(
             pairs: [pair],
-            config: config
+            config: config,
+            log: { collector.append($0) }
         )
 
-        XCTAssertEqual(result.completed, 1, "Importer should create a bundle even after skipping an unsupported leading step")
-        XCTAssertEqual(result.failed, 0, "Importer should not fail when running fastp on interleaved input")
-        XCTAssertTrue(result.errors.isEmpty)
+        XCTAssertEqual(result.completed, 0)
+        XCTAssertEqual(result.failed, 1)
+        XCTAssertEqual(result.errors.first?.sample, "sample")
+        XCTAssertTrue(
+            result.errors.first?.error.contains("unsupported step 'primerRemoval'") == true,
+            "Expected unsupported-step preflight error, got \(String(describing: result.errors.first?.error))"
+        )
 
         let bundleURL = config.projectDirectory
             .appendingPathComponent("Imports")
             .appendingPathComponent("sample.lungfishfastq")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.path))
-        XCTAssertTrue(
-            FileManager.default.fileExists(
-                atPath: bundleURL.appendingPathComponent("sample.fastq.gz").path
-            ),
-            "Imported bundle should contain the final FASTQ payload"
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: bundleURL.path),
+            "Unsupported legacy recipes must not leave a partial FASTQ bundle"
+        )
+        XCTAssertFalse(
+            collector.events.contains {
+                if case .stepStart = $0 { return true }
+                return false
+            },
+            "Unsupported legacy recipes should fail before recipe or ingestion steps start"
         )
     }
 

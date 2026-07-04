@@ -135,7 +135,7 @@ lungfish import fastq \
 
 For a folder of samples, pass the folder path; the CLI detects pairs the same way the GUI does. Run `lungfish import fastq --help` for the full option list.
 
-Two CLI defaults change the stored bytes, so name them in a methods record if bit-exact reproduction matters. `--quality-binning` defaults to `illumina4`, which re-quantises each base quality into one of four levels (the same scheme NovaSeq applies in hardware); pass `--quality-binning none` to keep the original per-base scores. Storage-optimized read reordering is on by default; pass `--no-optimize-storage` to keep the original read order. `--recipe` (one of `vsp2`, `wgs`, `amplicon`, `hifi`, `none`; default `none`) applies a packaged processing pass at import, and `--dry-run` lists the pairs the CLI detected without importing anything.
+Two CLI defaults change the stored bytes, so name them in a methods record if bit-exact reproduction matters. `--quality-binning` defaults to `illumina4`, which re-quantises each base quality into one of four levels (the same scheme NovaSeq applies in hardware); pass `--quality-binning none` to keep the original per-base scores. Storage-optimized read reordering is on by default; pass `--no-optimize-storage` to keep the original read order. `--recipe` (one of `vsp2`, `wgs`, `hifi`, `none`; default `none`) applies a packaged processing pass at import, and `--dry-run` lists the pairs the CLI detected without importing anything.
 
 ## What gets recorded at import
 

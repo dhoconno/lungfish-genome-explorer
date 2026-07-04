@@ -50,6 +50,9 @@ reviewed pass.
 - `ONTBarcodeDemuxGenotypingPipeline.progressNoop` (~1070) — empty no-op + its 1 call site.
 - `DemultiplexingPipeline.ExactBareBarcodeMatcher.findFivePrime`/`findThreePrime`
   (~1573/1595) — unreachable (live path is `assignment` -> `findAny` -> `findMatch`).
+- 2026-07-04 hardening pass: legacy FASTQ batch import now rejects unsupported recipe steps
+  during preflight instead of logging and skipping them; the unsupported legacy `amplicon`
+  resolver/help/manual references were removed until primer removal is executable in this path.
 
 ### Deferred SPLITS (each its own reviewed pass — high value, needs promotions)
 - `ONTBarcodeDemuxGenotypingPipeline.swift` (5749L, but ~3370L Swift + two embedded Python

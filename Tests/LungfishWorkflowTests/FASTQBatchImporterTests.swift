@@ -211,9 +211,15 @@ final class FASTQBatchImporterTests: XCTestCase {
         XCTAssertEqual(recipe.steps.count, 3)
     }
 
-    func testRecipeResolutionAmplicon() throws {
-        let recipe = try FASTQBatchImporter.resolveRecipe(named: "amplicon")
-        XCTAssertEqual(recipe.name, ProcessingRecipe.targetedAmplicon.name)
+    func testRecipeResolutionAmpliconIsRejectedUntilPrimerRemovalIsExecutable() {
+        XCTAssertThrowsError(try FASTQBatchImporter.resolveRecipe(named: "amplicon")) { error in
+            guard case BatchImportError.unsupportedRecipe(let name, let reason) = error else {
+                XCTFail("Expected unsupportedRecipe, got \(error)")
+                return
+            }
+            XCTAssertEqual(name, "amplicon")
+            XCTAssertTrue(reason.contains("primer removal"), reason)
+        }
     }
 
     func testRecipeResolutionHiFi() throws {
@@ -637,6 +643,67 @@ final class FASTQBatchImporterTests: XCTestCase {
                 return false
             },
             "Legacy recipes should fail during preflight before starting recipe or ingestion steps"
+        )
+    }
+
+    func testRunBatchImportFailsLegacyRecipeWithUnsupportedStepBeforeStartingSteps() async throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FASTQBatchImporterTests-legacy-unsupported-step-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let r1 = tmpDir.appendingPathComponent("Amplicon_R1.fastq")
+        let r2 = tmpDir.appendingPathComponent("Amplicon_R2.fastq")
+        try """
+        @read1/1
+        ACGTACGT
+        +
+        IIIIIIII
+        """.appending("\n").write(to: r1, atomically: true, encoding: .utf8)
+        try """
+        @read1/2
+        TGCATGCA
+        +
+        IIIIIIII
+        """.appending("\n").write(to: r2, atomically: true, encoding: .utf8)
+
+        let recipe = ProcessingRecipe(
+            name: "Primer Then Quality",
+            steps: [
+                FASTQDerivativeOperation(kind: .primerRemoval, createdAt: .distantPast),
+                FASTQDerivativeOperation(kind: .qualityTrim, createdAt: .distantPast),
+            ]
+        )
+        let projectURL = tmpDir.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let config = FASTQBatchImporter.ImportConfig(
+            projectDirectory: projectURL,
+            recipe: recipe,
+            qualityBinning: QualityBinningScheme.none,
+            optimizeStorage: false,
+            threads: 1
+        )
+        let pair = SamplePair(sampleName: "Amplicon", r1: r1, r2: r2)
+        let collector = FASTQBatchImporterEventCollector()
+
+        let result = await FASTQBatchImporter.runBatchImport(
+            pairs: [pair],
+            config: config,
+            log: { collector.append($0) }
+        )
+
+        XCTAssertEqual(result.completed, 0)
+        XCTAssertEqual(result.failed, 1)
+        XCTAssertEqual(result.errors.first?.sample, "Amplicon")
+        XCTAssertTrue(
+            result.errors.first?.error.contains("unsupported step 'primerRemoval'") == true,
+            "Expected unsupported-step preflight error, got \(String(describing: result.errors.first?.error))"
+        )
+        XCTAssertFalse(
+            collector.events.contains {
+                if case .stepStart = $0 { return true }
+                return false
+            },
+            "Unsupported legacy recipes should fail during preflight before starting recipe or ingestion steps"
         )
     }
 

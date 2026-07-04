@@ -60,6 +60,8 @@ public enum ImportLogEvent: Sendable {
 public enum BatchImportError: Error, LocalizedError {
     case noFASTQFilesFound(URL)
     case unknownRecipe(String)
+    case unsupportedRecipe(String, reason: String)
+    case unsupportedRecipeStep(recipe: String, step: String)
     case projectNotFound(URL)
     case recipeNotApplicable(recipe: String, sample: String, reason: String)
 
@@ -68,7 +70,11 @@ public enum BatchImportError: Error, LocalizedError {
         case .noFASTQFilesFound(let url):
             return "No FASTQ files found in \(url.lastPathComponent)"
         case .unknownRecipe(let name):
-            return "Unknown recipe '\(name)'. Valid names: vsp2, wgs, amplicon, hifi"
+            return "Unknown recipe '\(name)'. Valid names: vsp2, wgs, hifi"
+        case .unsupportedRecipe(let name, let reason):
+            return "Unsupported recipe '\(name)': \(reason)"
+        case .unsupportedRecipeStep(let recipe, let step):
+            return "Legacy batch import cannot execute recipe '\(recipe)' because it contains unsupported step '\(step)'."
         case .projectNotFound(let url):
             return "No .lungfish project found at or above \(url.path)"
         case .recipeNotApplicable(let recipe, let sample, let reason):
@@ -93,7 +99,7 @@ public enum FASTQBatchImporter {
         /// Sequencing platform. Drives default values for quality binning,
         /// storage optimisation, and compression level.
         public let platform: LungfishWorkflow.SequencingPlatform
-        /// Old-format recipe (for unmigrated recipes like WGS, amplicon, HiFi).
+        /// Old-format recipe (for supported unmigrated recipes like WGS and HiFi).
         public let recipe: ProcessingRecipe?
         /// New-format declarative recipe (e.g., VSP2).
         public let newRecipe: Recipe?
@@ -357,7 +363,7 @@ public enum FASTQBatchImporter {
 
     /// Resolves a short recipe name to a built-in `ProcessingRecipe`.
     ///
-    /// - Parameter named: Case-insensitive short name. Valid values: `"vsp2"`, `"wgs"`, `"amplicon"`, `"hifi"`.
+    /// - Parameter named: Case-insensitive short name. Valid values: `"vsp2"`, `"wgs"`, `"hifi"`.
     ///   Pass `nil` recipe in `ImportConfig` rather than `"none"` to skip recipe processing.
     /// - Throws: `BatchImportError.unknownRecipe` for unrecognized names.
     public static func resolveRecipe(named name: String) throws -> ProcessingRecipe {
@@ -367,7 +373,10 @@ public enum FASTQBatchImporter {
         case "wgs":
             return .illuminaWGS
         case "amplicon":
-            return .targetedAmplicon
+            throw BatchImportError.unsupportedRecipe(
+                name,
+                reason: "the legacy amplicon template includes primer removal, which batch import cannot execute without concrete primer parameters."
+            )
         case "hifi":
             return .pacbioHiFi
         default:
@@ -879,6 +888,13 @@ public enum FASTQBatchImporter {
     }
 
     private static func validateLegacyRecipeInputRequirement(_ recipe: ProcessingRecipe, pair: SamplePair) throws {
+        if let unsupportedStep = recipe.steps.first(where: { !legacyBatchImportSupportedStepKinds.contains($0.kind) }) {
+            throw BatchImportError.unsupportedRecipeStep(
+                recipe: recipe.name,
+                step: unsupportedStep.kind.rawValue
+            )
+        }
+
         if recipe.requiredPairingMode == .singleEnd, pair.r2 != nil {
             throw BatchImportError.recipeNotApplicable(
                 recipe: recipe.name,
@@ -911,6 +927,15 @@ public enum FASTQBatchImporter {
             OperationContract.input(for: step.kind).requiredPairing != nil
         }
     }
+
+    private static let legacyBatchImportSupportedStepKinds: Set<FASTQDerivativeOperationKind> = [
+        .deduplicate,
+        .adapterTrim,
+        .qualityTrim,
+        .humanReadScrub,
+        .pairedEndMerge,
+        .lengthFilter,
+    ]
 
     private static func stageRawInputsForIngestion(_ inputs: [URL], in workspace: URL) throws -> [URL] {
         try inputs.enumerated().map { index, source in
@@ -1618,14 +1643,10 @@ public enum FASTQBatchImporter {
                 }
 
             default:
-                // Skip unsupported step kinds — log a warning
-                logger.warning("FASTQBatchImporter: unsupported recipe step \(step.kind.rawValue) — skipping")
-                log?(.stepComplete(
-                    sample: pair.sampleName,
-                    step: stepName + " (skipped)",
-                    durationSeconds: Date().timeIntervalSince(stepStart)
-                ))
-                continue
+                throw BatchImportError.unsupportedRecipeStep(
+                    recipe: recipe.name,
+                    step: step.kind.rawValue
+                )
             }
 
             // Delete the previous intermediate file and advance current pointer

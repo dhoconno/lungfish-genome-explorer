@@ -58,6 +58,9 @@ changes that reduce future ambiguity across the codebase.
   saved, with source-policy and fake-runtime coverage.
 - Made `ProjectStore.reconstructSequence` reject version indexes past available history instead
   of returning latest content for nonexistent historical requests.
+- Made legacy FASTQ batch import fail closed on unsupported recipe steps and removed the stale
+  `amplicon` recipe advertisement from the import CLI/manual until primer removal is executable
+  in that path.
 - Embedded script/file splits remained deferred because the reviewed same-batch wins were in
   provenance/output correctness rather than large mechanical relocation.
 
