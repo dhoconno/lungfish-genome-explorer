@@ -29,6 +29,11 @@ original refactor was constrained to behavior-preserving edits:
   of silently binding NULL.
 - `ProjectStore.reconstructSequence` now rejects negative version indexes with
   `invalidVersionIndex` instead of trapping on a negative range.
+- `ProjectStore` row decoders now throw `queryError` for corrupted UUID/text/blob
+  columns instead of force-unwrapping DB-derived values.
+- `NCBIService.fetchBatch` and `ENAService.fetchBatch` now cancel their producer
+  tasks on stream termination and check cancellation before each fetch, matching
+  the existing Pathoplexus pattern.
 - `ProjectFile.saveMetadata` now writes `metadata.json` atomically.
 - `VariantColorTheme.init(name:)` now preserves the caller-provided name.
 - `SRAAccessionParser.parseCSV` now uses the same comma/tab/space/newline
@@ -41,10 +46,9 @@ original refactor was constrained to behavior-preserving edits:
 
 ## ProjectStore.swift (remaining escalations)
 
-- **F4 — force-unwraps on DB-derived reads (medium).** `UUID(uuidString:)!` and
-  blob-pointer force-unwraps crash on a corrupted `.project.db`. Suggestion:
-  guard + throw `queryError`. Deferred: turns crash-on-corruption into a thrown
-  error (failure-path behavior change).
+- **RESOLVED — DB-derived row decoding no longer force-unwraps corrupted data.**
+  Invalid UUID text and missing/invalid required blob/text payloads now throw
+  `ProjectStoreError.queryError` with column context instead of crashing.
 - **F8 — access-control demotion of checkpoint/setMetadata/getMetadata (medium
   conf).** Appear test-only; could be `internal`. Deferred pending a cross-module
   grep confirming no leaf/App caller.
@@ -154,14 +158,11 @@ original refactor was constrained to behavior-preserving edits:
   helper is viable but must preserve `getGenomeFileInfo`'s throw semantics
   exactly.
 
-- **Unstructured `Task` in `fetchBatch` AsyncThrowingStream not cancelled on
-  early consumer termination (medium confidence).** Lines ~1045-1057: the
-  producer `Task` is not registered with `continuation.onTermination`, so an
-  abandoned consumer keeps hitting NCBI. Deferred because it changes the
-  abandoned-consumer path and the same shape exists in ENAService /
-  PathoplexusService (fix all three together for consistency). Suggestion:
-  capture the task and `continuation.onTermination = { _ in task.cancel() }` plus
-  `try Task.checkCancellation()` in the loop, applied across all three services.
+- **RESOLVED — unstructured batch-stream producer tasks.** `NCBIService` and
+  `ENAService` now capture the producer `Task`, cancel it from
+  `continuation.onTermination`, and call `Task.checkCancellation()` before each
+  fetch. This matches the existing Pathoplexus implementation and prevents
+  abandoned consumers from continuing to issue network requests.
 
 - **`dup-querycomponents-builder` / `dup-retry-event-append` (medium
   confidence).** Repeated eutils URLComponents+api_key construction (~6 sites)

@@ -31,7 +31,11 @@ changes that reduce future ambiguity across the codebase.
   progress/notification `Task { @MainActor }` pattern.
 - Removed stale FASTQ sidebar accordion state and made Custom Fields visibility explicit.
 - Added Core storage hardening: atomic metadata writes, ProjectStore transactions,
-  unsupported-bind errors, and negative-version rejection.
+  unsupported-bind errors, negative-version rejection, and structured `queryError`
+  failures for corrupted ProjectStore row identifiers/payloads.
+- Aligned NCBI and ENA batch fetch streams with Pathoplexus cancellation semantics
+  so abandoned consumers cancel the producer task before it continues issuing
+  network requests.
 - Made Core bundle/variant conversion stubs fail closed rather than writing misleading
   scientific outputs.
 - Made NativeBundleBuilder fail closed on unavailable/failed VCF-to-BCF conversion instead of
