@@ -81,6 +81,40 @@ synchronize/split-view-delegate). Applies are small; value is in deferred splits
 - `blastVerdictDanger` intentionally duplicates `NSColor.lungfishDanger` RGB to keep the
   kernel free of app-level deps (documented).
 
+## Small-file sweep (41 files, 2 clustered coverage audits) — 1 apply, rest clean
+
+### Applied (final Kit item)
+- `FASTASequenceActionMenuBuilder.FASTASequenceActionHandlers.noop` — dead `internal static
+  let` (all-empty closures, grep-verified zero usages; internal so unreachable cross-module).
+
+### Deferred / traps (do NOT touch)
+- `BlastResultsDrawerContainerView.testContentContainer` (~147): grep-dead but a `testXxx`
+  test-affordance (siblings testDividerView/testDrawerTab ARE used) -> retained per convention.
+- Caller-less-but-PUBLIC-API (not provably dead per kernel public-API rule):
+  `GenomicSummaryCardBar.formatBases(Int)` overload, `LungfishKitControlStyle.
+  inspectorEmphasizedControlFont` / the `emphasized:true` branch, `SplitPaneHeaderContainerView`
+  4 inset `public var`s (deliberate config surface).
+- NOT-collapsible distinct-return-type twins: `ClassifierUniqueReads.normalized` (Int?) vs
+  `normalizedOrFloor` (Int); `ColumnFilter.matchesX` vs `PreparedColumnFilter` (caches parsed).
+- Test-pinned internals: `TaxonomyPhylumPalette.stablePhylumIndex`, `FASTAFileTypes.
+  readableExtensions`/`compressionWrapperExtensions`, `PerfSignpost` API, etc.
+- Concurrency verified CORRECT (not violations): `TwoPaneTrackedSplitCoordinator:109` and
+  `AsyncFileReader` (`nonisolated`+`Task.detached`) — legitimate off-actor/same-actor patterns.
+- macOS 26 compliant throughout: `SavePanelPresenting`/`SplitPaneHeaderContainerView` use
+  `beginSheetModal` (not runModal); `SampleColumnWindowBanner.draw` uses NSBezierPath (not
+  lockFocus).
+
+## Phase 4 (LungfishKit) — audit COMPLETE
+
+47/47 files audited. Applied: 5 provably-safe items across 2 committed batches (1 access
+tighten, 2 redundant-syntax, 2 dead-code removals). Kernel is clean (no LungfishApp refs,
+macOS-26-compliant, concurrency patterns correct). All substantial value is in the DEFERRED
+splits (BlastResultsDrawerTab 1946L, MiniBAMViewController 1871L, BatchTableView 974L,
+LungfishHelpContent 1007L — each catalogued with seams + promotion lists + the `@objc`/
+source-string test constraints). ONE pre-existing rule violation flagged for a downstream
+concurrency-scoped fix: MetadataColumnController.swift:220 `Task { @MainActor }` from a
+notification block.
+
 ## Deferred items
 
-_(populated per batch as uncertain changes are reverted)_
+_(none reverted — all applied items provably safe and verified green)_
