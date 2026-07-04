@@ -848,12 +848,6 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         showBlastPopover(for: selected[0])
     }
 
-    /// Shows the BLAST config popover anchored to the given row.
-    private func showBlastPopover(forRow row: Int) {
-        guard let item = outlineView.item(atRow: row) else { return }
-        showBlastPopover(for: item)
-    }
-
     private func showBlastPopover(for item: Any) {
         let detection: ViralDetection
         let accessions: [String]

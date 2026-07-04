@@ -826,26 +826,6 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         label.font = .systemFont(ofSize: 12)
         return cell
     }
-
-    private func paddedContainer(
-        _ content: NSView,
-        top: CGFloat,
-        bottom: CGFloat,
-        leading: CGFloat,
-        trailing: CGFloat
-    ) -> NSView {
-        let container = NSView()
-        container.translatesAutoresizingMaskIntoConstraints = false
-        content.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(content)
-        NSLayoutConstraint.activate([
-            content.topAnchor.constraint(equalTo: container.topAnchor, constant: top),
-            content.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -bottom),
-            content.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: leading),
-            content.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -trailing),
-        ])
-        return container
-    }
 }
 
 extension PhylogeneticTreeViewController {
@@ -1167,10 +1147,6 @@ private final class PhylogeneticTreeCanvasView: NSView {
             element.setAccessibilityFrameInParentSpace(rect.insetBy(dx: -6, dy: -6))
             return element
         }
-    }
-
-    func configure(nodes: [PhylogeneticTreeNormalizedNode]) {
-        configure(nodes: nodes, collapsedNodeIDs: collapsedNodeIDs)
     }
 
     func configure(nodes: [PhylogeneticTreeNormalizedNode], collapsedNodeIDs: Set<String>) {

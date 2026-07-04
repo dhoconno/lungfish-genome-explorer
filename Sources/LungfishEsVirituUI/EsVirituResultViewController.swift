@@ -1182,10 +1182,6 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         bamIndexURL = batchBAMIndexLookup[sampleId]
     }
 
-    private func currentSelectedSampleIDForActions() -> String? {
-        detectionTableView.selectedSampleIDs().first
-    }
-
     // MARK: - Recompute Unique Reads
 
     @objc private func recomputeUniqueReadsTapped() {
