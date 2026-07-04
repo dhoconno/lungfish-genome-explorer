@@ -8,6 +8,40 @@ import Darwin
 
 final class ProcessManagerTests: XCTestCase {
 
+    func testRunAndWaitBuffersPartialOutputLines() async throws {
+        let tempDir = try makeTemporaryDirectory()
+        let scriptURL = tempDir.appendingPathComponent("partial-lines.sh")
+        let script = """
+        #!/bin/sh
+        printf 'alpha'
+        sleep 0.05
+        printf ' beta\\n'
+        sleep 0.05
+        printf 'gamma'
+        sleep 0.05
+        printf ' delta'
+        sleep 0.05
+        printf 'warn' >&2
+        sleep 0.05
+        printf ' ing\\n' >&2
+        sleep 0.05
+        printf 'tail' >&2
+        """
+        try script.write(to: scriptURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
+
+        let result = try await ProcessManager.shared.runAndWait(
+            executable: scriptURL,
+            arguments: [],
+            workingDirectory: tempDir,
+            environment: nil
+        )
+
+        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.stdout, "alpha beta\ngamma delta")
+        XCTAssertEqual(result.stderr, "warn ing\ntail")
+    }
+
     func testTerminateKillsSpawnedProcessTree() async throws {
         let tempDir = try makeTemporaryDirectory()
         let childPIDFile = tempDir.appendingPathComponent("child.pid")

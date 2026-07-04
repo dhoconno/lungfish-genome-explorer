@@ -211,6 +211,53 @@ public actor ProcessManager: ProcessManaging {
         var stderrContinuation: AsyncStream<String>.Continuation?
     }
 
+    private final class PipeOutputLineBuffer: @unchecked Sendable {
+        private let lock = NSLock()
+        private var pending = Data()
+
+        func append(_ data: Data) -> [String] {
+            lock.lock()
+            pending.append(data)
+            let lines = drainCompleteLines()
+            lock.unlock()
+            return lines
+        }
+
+        func finish() -> [String] {
+            lock.lock()
+            defer { lock.unlock() }
+            guard !pending.isEmpty else { return [] }
+            let line = decodeLine(pending)
+            pending.removeAll(keepingCapacity: false)
+            return [line]
+        }
+
+        private func drainCompleteLines() -> [String] {
+            var lines: [String] = []
+            while let newlineIndex = pending.firstIndex(where: { $0 == 0x0A || $0 == 0x0D }) {
+                let lineData = pending[..<newlineIndex]
+                lines.append(decodeLineSlice(lineData))
+
+                var removalEnd = pending.index(after: newlineIndex)
+                if pending[newlineIndex] == 0x0D,
+                   removalEnd < pending.endIndex,
+                   pending[removalEnd] == 0x0A {
+                    removalEnd = pending.index(after: removalEnd)
+                }
+                pending.removeSubrange(pending.startIndex..<removalEnd)
+            }
+            return lines
+        }
+
+        private func decodeLineSlice(_ data: Data.SubSequence) -> String {
+            decodeLine(Data(data))
+        }
+
+        private func decodeLine(_ data: Data) -> String {
+            String(data: data, encoding: .utf8) ?? String(decoding: data, as: UTF8.self)
+        }
+    }
+
     // MARK: - Initialization
 
     /// Private initializer for singleton pattern.
@@ -389,6 +436,7 @@ public actor ProcessManager: ProcessManaging {
     ) {
         let fileHandle = pipe.fileHandleForReading
         let capturedContinuation = continuation
+        let lineBuffer = PipeOutputLineBuffer()
 
         fileHandle.readabilityHandler = { handle in
             let data = handle.availableData
@@ -396,17 +444,15 @@ public actor ProcessManager: ProcessManaging {
             if data.isEmpty {
                 // EOF reached
                 handle.readabilityHandler = nil
+                for line in lineBuffer.finish() where !line.isEmpty {
+                    capturedContinuation?.yield(line)
+                }
                 capturedContinuation?.finish()
                 return
             }
 
-            if let string = String(data: data, encoding: .utf8) {
-                // Split by newlines and yield each line
-                let lines = string.components(separatedBy: .newlines)
-                    .filter { !$0.isEmpty }
-                for line in lines {
-                    capturedContinuation?.yield(line)
-                }
+            for line in lineBuffer.append(data) where !line.isEmpty {
+                capturedContinuation?.yield(line)
             }
         }
     }

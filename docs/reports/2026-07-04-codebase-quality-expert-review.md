@@ -70,6 +70,9 @@ and behavior-preserving simplifications are useful and appropriate.
 - 2026-07-04 follow-up: FASTQ bundle `metadata.csv` parsing now reads the quoted commas, escaped
   quotes, and embedded newlines that the serializer already writes, so per-bundle sample metadata
   round-trips without silently splitting records.
+- 2026-07-04 follow-up: `ProcessManager` stdout/stderr streams now buffer partial pipe reads into
+  logical lines, so line-oriented progress parsers and `runAndWait` output collection no longer see
+  arbitrary chunk boundaries as separate lines.
 
 ## Still Deferred
 
