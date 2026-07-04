@@ -82,6 +82,13 @@ public actor SRAService {
         .cannotLoadFromNetwork,
     ]
 
+    private nonisolated static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError {
+            return true
+        }
+        return (error as? URLError)?.code == .cancelled
+    }
+
     private let ncbiService: NCBIService
     private let httpClient: HTTPClient
     private let homeDirectoryProvider: @Sendable () -> URL
@@ -536,6 +543,9 @@ public actor SRAService {
                 }
             }
         } catch {
+            if Self.isCancellation(error) {
+                throw error
+            }
             logger.warning("ENA portal URL resolution failed for \(accession, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
 
@@ -557,6 +567,7 @@ public actor SRAService {
         var attemptedURLs: [String] = []
         let totalCandidates = max(candidateURLs.count, 1)
         for (index, fileURL) in candidateURLs.enumerated() {
+            try Task.checkCancellation()
             let filename = fileURL.lastPathComponent.isEmpty
                 ? "\(accession)_\(index + 1).fastq.gz"
                 : fileURL.lastPathComponent
@@ -606,6 +617,9 @@ public actor SRAService {
 
                 logger.info("Downloaded: \(localPath.lastPathComponent, privacy: .public)")
             } catch {
+                if Self.isCancellation(error) {
+                    throw error
+                }
                 logger.warning("ENA FASTQ download failed for \(fileURL.absoluteString, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 continue
             }
@@ -655,10 +669,16 @@ public actor SRAService {
         do {
             return try await ena(accession, outputDir)
         } catch let enaError {
+            if Self.isCancellation(enaError) {
+                throw enaError
+            }
             onFallback?("Falling back to SRA Toolkit (prefetch + fasterq-dump)…")
             do {
                 return try await toolkit(accession, outputDir)
             } catch let toolkitError {
+                if Self.isCancellation(toolkitError) {
+                    throw toolkitError
+                }
                 throw SRAError.downloadFailed("ENA: \(enaError.localizedDescription); Toolkit: \(toolkitError.localizedDescription)")
             }
         }

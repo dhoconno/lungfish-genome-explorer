@@ -418,6 +418,24 @@ final class NCBIServiceTests: XCTestCase {
         XCTAssertTrue(url.contains("id=NC_002549.1"))
     }
 
+    func testFetchPropagatesDirectEFetchCancellationWithoutSearchFallback() async throws {
+        await mockClient.register(pattern: "efetch.fcgi", response: .cancelled)
+        await mockClient.registerNCBISearch(ids: ["12345"])
+
+        do {
+            _ = try await service.fetch(accession: "NC_002549.1")
+            XCTFail("Expected cancellation to be propagated")
+        } catch let error as URLError where error.code == .cancelled {
+            // Expected.
+        } catch {
+            XCTFail("Expected URLError.cancelled, got \(error)")
+        }
+
+        let requests = await mockClient.requests
+        XCTAssertEqual(requests.count, 1)
+        XCTAssertTrue(requests[0].url?.absoluteString.contains("efetch.fcgi") == true)
+    }
+
     // MARK: - Rate Limiting Tests
 
     func testEFetchRetriesHTTP429WithExponentialBackoff() async throws {

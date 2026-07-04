@@ -75,6 +75,37 @@ final class SRAServiceTests: XCTestCase {
             "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR123/SRR123456/SRR123456.fastq.gz"
         )
     }
+
+    func testDownloadFASTQFromENAPropagatesCancelledDownload() async throws {
+        let outputDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sra-ena-cancel-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: outputDirectory) }
+
+        let client = CancelledENADownloadHTTPClient()
+        let service = SRAService(
+            ncbiService: NCBIService(httpClient: client),
+            httpClient: client
+        )
+
+        do {
+            _ = try await service.downloadFASTQFromENA(
+                accession: "SRR123456",
+                outputDir: outputDirectory
+            )
+            XCTFail("Expected cancellation to be propagated")
+        } catch let error as URLError where error.code == .cancelled {
+            // Expected.
+        } catch {
+            XCTFail("Expected URLError.cancelled, got \(error)")
+        }
+
+        let downloadRequests = await client.downloadRequestURLs
+        XCTAssertEqual(downloadRequests.count, 1)
+        XCTAssertEqual(
+            downloadRequests.first?.absoluteString,
+            "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR123/SRR123456/SRR123456_1.fastq.gz"
+        )
+    }
 }
 
 private actor SequencedHTTPClient: HTTPClient {
@@ -144,6 +175,45 @@ private actor DownloadRecordingHTTPClient: HTTPClient {
             .appendingPathComponent("sra-download-client-\(UUID().uuidString)")
         try "@SRR123456\nACGT\n+\nIIII\n".write(to: temporaryURL, atomically: true, encoding: .utf8)
         return (temporaryURL, httpResponse(url: url, statusCode: 200))
+    }
+
+    private func httpResponse(url: URL, statusCode: Int) -> HTTPURLResponse {
+        HTTPURLResponse(
+            url: url,
+            statusCode: statusCode,
+            httpVersion: "HTTP/1.1",
+            headerFields: nil
+        )!
+    }
+}
+
+private actor CancelledENADownloadHTTPClient: HTTPClient {
+    private(set) var downloadRequestURLs: [URL] = []
+
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        let url = request.url ?? URL(string: "https://example.invalid")!
+        let payload: [[String: Any]] = [
+            [
+                "run_accession": "SRR123456",
+                "experiment_accession": "SRX123456",
+                "sample_accession": "SRS123456",
+                "study_accession": "SRP123456",
+                "library_layout": "PAIRED",
+                "fastq_ftp": [
+                    "ftp.sra.ebi.ac.uk/vol1/fastq/SRR123/SRR123456/SRR123456_1.fastq.gz",
+                    "ftp.sra.ebi.ac.uk/vol1/fastq/SRR123/SRR123456/SRR123456_2.fastq.gz",
+                ].joined(separator: ";"),
+                "fastq_bytes": "26;26",
+            ]
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        return (data, httpResponse(url: url, statusCode: 200))
+    }
+
+    func download(for request: URLRequest) async throws -> (URL, URLResponse) {
+        let url = request.url ?? URL(string: "https://example.invalid")!
+        downloadRequestURLs.append(url)
+        throw URLError(.cancelled)
     }
 
     private func httpResponse(url: URL, statusCode: Int) -> HTTPURLResponse {

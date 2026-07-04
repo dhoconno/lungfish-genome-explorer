@@ -374,6 +374,20 @@ public actor NCBIService: DatabaseService {
         return (content: content, accession: resolvedAccession)
     }
 
+    private func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError {
+            return true
+        }
+        if let urlError = error as? URLError {
+            return urlError.code == .cancelled
+        }
+        if let databaseError = error as? DatabaseServiceError,
+           case .cancelled = databaseError {
+            return true
+        }
+        return false
+    }
+
     private func fetchGenBankDataByAccessionOrSearch(accession: String) async throws -> (data: Data, resolvedIdentifier: String) {
         do {
             let data = try await efetch(
@@ -388,6 +402,9 @@ public actor NCBIService: DatabaseService {
                 "NCBI direct GenBank efetch for \(accession, privacy: .public) returned non-GenBank content; falling back to esearch"
             )
         } catch {
+            if isCancellation(error) {
+                throw error
+            }
             logger.warning(
                 "NCBI direct GenBank efetch for \(accession, privacy: .public) failed; falling back to esearch: \(String(describing: error), privacy: .public)"
             )

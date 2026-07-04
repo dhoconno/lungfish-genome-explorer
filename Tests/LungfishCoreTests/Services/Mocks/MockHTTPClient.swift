@@ -46,6 +46,12 @@ public actor MockHTTPClient: HTTPClient {
         public static func error(statusCode: Int, message: String = "Error") -> MockResponse {
             return MockResponse(data: message.data(using: .utf8)!, statusCode: statusCode)
         }
+
+        public static let cancelled = MockResponse(
+            data: Data(),
+            statusCode: 499,
+            headers: ["X-Lungfish-Mock-Error": "cancelled"]
+        )
     }
 
     public init() {}
@@ -95,27 +101,30 @@ public actor MockHTTPClient: HTTPClient {
             if urlString.contains(sequencedResponses[index].pattern),
                !sequencedResponses[index].responses.isEmpty {
                 let response = sequencedResponses[index].responses.removeFirst()
-                return makeResponse(response, for: request)
+                return try makeResponse(response, for: request)
             }
         }
 
         // Find matching response
         for (pattern, response) in responses {
             if urlString.contains(pattern) {
-                return makeResponse(response, for: request)
+                return try makeResponse(response, for: request)
             }
         }
 
         // Use default response
         if let response = defaultResponse {
-            return makeResponse(response, for: request)
+            return try makeResponse(response, for: request)
         }
 
         // No response configured - throw error
         throw URLError(.cannotFindHost)
     }
 
-    private func makeResponse(_ mock: MockResponse, for request: URLRequest) -> (Data, URLResponse) {
+    private func makeResponse(_ mock: MockResponse, for request: URLRequest) throws -> (Data, URLResponse) {
+        if mock.headers["X-Lungfish-Mock-Error"] == "cancelled" {
+            throw URLError(.cancelled)
+        }
         let response = HTTPURLResponse(
             url: request.url!,
             statusCode: mock.statusCode,
