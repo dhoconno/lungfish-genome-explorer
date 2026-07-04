@@ -234,3 +234,48 @@ Pass A big files (catalogued from the solo audits):
   contrasting comment in MaterializationPipeline.swift:59). Deserves a separate tracked concurrency
   fix. (All OTHER `Task { @MainActor }` in App are on already-@MainActor types = legitimate
   same-actor tasks, NOT this hop.)
+- NON-ISSUE (auditors flagged as violations, verified legitimate — NOT touched):
+  `AssemblyConfigurationViewController.swift:74` (type is `@MainActor`, line 39) and
+  `WorkflowLibraryViewModel.swift:270` (type is `@MainActor @Observable`, and it uses a proper
+  generation counter) both write `Task { @MainActor in ... }` on an ALREADY-@MainActor type =
+  legitimate same-actor tasks, NOT the forbidden GCD/detached hop. Left as-is.
+
+## Phase 6 (LungfishApp) — audit COMPLETE
+
+409/409 files audited (100% coverage — see the reconciled ledger above; `find Sources/LungfishApp
+-name '*.swift'` = 409, every directory row audited == total). Two passes:
+- PASS A: all 71 files >=800 lines, solo audits, largest-first.
+- PASS B: all ~338 remaining files, directory-by-directory coverage sweeps (Services 86, App 42,
+  Views/Viewer 75, Views/Inspector 38, Views/Metagenomics 32, and every other directory).
+
+Applied: 3 committed batches, **9 provably-safe items** (all grep-verified zero-caller +
+compiler-verified dead + scoped-green), ~55 source lines net removed:
+- batch 1 (`08317789`): dead `genotypeLogger`; dead `saveExpansionState`; dead
+  `twelveSReferenceFASTAURL` + `defaultONTGenotypingAnalysisName`; 2 identical-branch IIFE
+  collapses (AppDelegate+Classification batchRoot).
+- batch 2 (`93b6b0c3`): dead `@State` pair (WorkflowOperationsDialog); duplicate doc comment
+  (MainSplitViewController+FASTQImport); dead `calculateZoomPercent` (EnhancedCoordinateRulerView);
+  dead `performReverseComplement` island (SequenceViewerView+Interaction).
+- batch 3 (`a6f7e84a`): dead `convenience init(selectedDestination:)` (DatabaseSearchDialogState).
+
+The App module is ALREADY statement-level clean — the same pattern every prior phase found. The
+large remaining value is in DEFERRED file SPLITS (catalogued above; each its own reviewed pass).
+
+VERIFY-EVERY-CLAIM caught several auditor misfires (recorded under REJECTED above) that were NOT
+behavior-preserving and were correctly NOT applied: `= nil` parameter-default removals (remove a
+default = API break); cross-type "duplicate" methods (`isGap`, `colorForCategory` — different
+types, removing breaks `Self.` resolution); the `|| true` condition edit (behavior change);
+mislabeled correct concurrency patterns. This is the reason each apply is grep-verified before an
+implementer runs.
+
+Module-boundary green-bar: recorded in results.md (full suite --skip ONT + ONT in isolation).
+
+### Known-flaky test observed at the App boundary (environmental, NOT a regression)
+`ViralReconWorkflowExecutionServiceTests.testConcreteRunnerCancelTerminatesProcessTree` spawns a
+process tree and waits for a temp `ready` sentinel file to appear, then reads `root.pid`. Under
+heavy concurrent machine load (many audit agents + back-to-back full-suite runs) it flaked ONCE
+with "Timed out waiting for .../ready" + a missing `root.pid`. It passes in all other runs (the 3
+scoped batch runs, a clean full-suite run, and re-run IN ISOLATION = 1.96s). It touches NO code
+changed in Phase 6 (ViralReconWorkflowExecutionService + ViralReconWizardSheet were both audited
+CLEAN and untouched). Load-sensitive subprocess-timing flake, not a regression. A future hardening
+could increase the `ready`-sentinel timeout or reduce its reliance on wall-clock under load.
