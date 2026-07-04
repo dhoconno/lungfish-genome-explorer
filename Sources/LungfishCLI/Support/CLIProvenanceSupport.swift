@@ -65,6 +65,7 @@ enum CLIProvenanceSupport {
         toolVersion: String,
         command: [String],
         stepCommand: [String]? = nil,
+        extraSteps: [ProvenanceStep] = [],
         inputs: [FileRecord],
         outputs: [FileRecord],
         exitCode: Int32,
@@ -95,7 +96,7 @@ enum CLIProvenanceSupport {
             completedAt: completedAt
         )
 
-        let envelope = try ProvenanceRunBuilder(
+        var builder = ProvenanceRunBuilder(
             workflowName: name,
             workflowVersion: WorkflowRun.currentAppVersion,
             toolName: toolName,
@@ -108,8 +109,29 @@ enum CLIProvenanceSupport {
             resolved: resolvedOptions(explicit: parameters, defaults: defaults, resolved: resolved)
         )
         .runtime(ProvenanceRuntimeIdentity())
-        .step(step)
-        .complete(
+
+        for input in inputs {
+            builder = try builder.input(
+                URL(fileURLWithPath: input.path),
+                format: input.format,
+                role: input.role
+            )
+        }
+        for output in outputs {
+            builder = try builder.output(
+                URL(fileURLWithPath: output.path),
+                format: output.format,
+                role: output.role
+            )
+        }
+
+        builder = builder.step(step)
+
+        for extraStep in extraSteps {
+            builder = builder.step(extraStep)
+        }
+
+        let envelope = try builder.complete(
             exitStatus: Int(exitCode),
             stderr: stderr,
             startedAt: startedAt,
