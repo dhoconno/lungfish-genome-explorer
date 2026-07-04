@@ -1234,16 +1234,6 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         presentUnifiedExtractionDialog()
     }
 
-    @objc private func contextExtractSequence(_ sender: Any?) {
-        let records = selectedContigFASTARecords()
-        guard !records.isEmpty else { return }
-        if let onExtractSequenceRequested {
-            onExtractSequenceRequested(records, suggestedSequenceName(for: records, fallback: "nvd-contig"))
-        } else {
-            presentUnifiedExtractionDialog()
-        }
-    }
-
     @objc private func handleLayoutSwapRequested(_ notification: Notification) {
         applyLayoutPreference()
     }
@@ -1266,20 +1256,6 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         }
     }
 
-    private func resetInitialSplitPositionIfNeeded() {
-        splitCoordinator.resetInitialSplitPositionIfNeeded(
-            in: splitView,
-            minimumExtents: minimumExtents(for: MetagenomicsPanelLayout.current())
-        )
-    }
-
-    private func hasValidInitialSplitPosition() -> Bool {
-        splitCoordinator.hasValidInitialSplitPosition(
-            in: splitView,
-            minimumExtents: minimumExtents(for: MetagenomicsPanelLayout.current())
-        )
-    }
-
     private func scheduleInitialSplitValidationIfNeeded() {
         splitCoordinator.scheduleInitialSplitValidationIfNeeded(
             ownerView: view,
@@ -1290,17 +1266,6 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
             defaultLeadingFraction: { [weak self] in
                 self?.defaultLeadingFraction(for: MetagenomicsPanelLayout.current()) ?? 0.4
             },
-            afterApply: { [weak self] in
-                self?.resizeDetailContentToFit()
-            }
-        )
-    }
-
-    private func applyInitialSplitPositionIfNeeded() {
-        splitCoordinator.applyInitialSplitPositionIfNeeded(
-            to: splitView,
-            defaultLeadingFraction: defaultLeadingFraction(for: MetagenomicsPanelLayout.current()),
-            minimumExtents: minimumExtents(for: MetagenomicsPanelLayout.current()),
             afterApply: { [weak self] in
                 self?.resizeDetailContentToFit()
             }
@@ -1666,36 +1631,6 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     }
 
     // MARK: - Context Menu Actions
-
-    @objc private func contextBlastVerify(_ sender: NSMenuItem) {
-        guard let hit = sender.representedObject as? NvdBlastHit,
-              let bundleURL, let database else { return }
-
-        do {
-            guard let fastaRelPath = try database.fastaPath(forSample: hit.sampleId) else { return }
-            let fastaURL = bundleURL.appendingPathComponent(fastaRelPath)
-            guard let sequence = NvdDataConverter.extractContigSequence(from: fastaURL, contigName: hit.qseqid) else { return }
-            onBlastVerification?(hit, sequence)
-        } catch {
-            logger.error("Context BLAST verify failed: \(error.localizedDescription, privacy: .public)")
-        }
-    }
-
-    @objc private func contextCopyContigSequence(_ sender: NSMenuItem) {
-        guard let hit = sender.representedObject as? NvdBlastHit,
-              let bundleURL, let database else { return }
-
-        do {
-            guard let fastaRelPath = try database.fastaPath(forSample: hit.sampleId) else { return }
-            let fastaURL = bundleURL.appendingPathComponent(fastaRelPath)
-            guard let sequence = NvdDataConverter.extractContigSequence(from: fastaURL, contigName: hit.qseqid) else { return }
-            let fastaText = ">\(hit.qseqid)\n\(sequence)\n"
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(fastaText, forType: .string)
-        } catch {
-            logger.error("Copy contig sequence failed: \(error.localizedDescription, privacy: .public)")
-        }
-    }
 
     private func performBlastVerification(for hit: NvdBlastHit) {
         guard let sequence = contigSequence(for: hit) else { return }
@@ -2197,10 +2132,6 @@ extension NvdResultViewController {
 
     private func visibleIdentitySelectionCount() -> Int {
         selectedOutlineItemsByIdentity().count
-    }
-
-    private func hasVisibleIdentitySelection() -> Bool {
-        visibleIdentitySelectionCount() > 0
     }
 
     private func singleIdentityBackedSelectedHit() -> NvdBlastHit? {
