@@ -519,6 +519,6 @@ extension BundleManifest {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
 
         let data = try encoder.encode(withSynthesizedBrowserSummaryIfNeeded())
-        try data.write(to: manifestURL)
+        try data.write(to: manifestURL, options: .atomic)
     }
 }

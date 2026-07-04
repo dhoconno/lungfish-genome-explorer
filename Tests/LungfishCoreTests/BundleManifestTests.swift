@@ -98,6 +98,17 @@ final class BundleManifestTests: XCTestCase {
         XCTAssertEqual(loaded.originBundlePath, "@/Downloads/TestGenome.lungfishref")
     }
 
+    func testBundleManifestSaveUsesAtomicWrite() throws {
+        let root = try repoRoot()
+        let sourceURL = root.appendingPathComponent("Sources/LungfishCore/Bundles/BundleManifest.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(
+            source.contains("try data.write(to: manifestURL, options: .atomic)"),
+            "BundleManifest.save(to:) should atomically replace manifest.json instead of truncating in place"
+        )
+    }
+
     // MARK: - SourceInfo Tests
 
     func testSourceInfoCreation() {
@@ -1035,5 +1046,17 @@ final class BundleManifestTests: XCTestCase {
             variants: [],
             tracks: []
         )
+    }
+
+    private func repoRoot() throws -> URL {
+        var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        let fileManager = FileManager.default
+        for _ in 0..<10 {
+            if fileManager.fileExists(atPath: directory.appendingPathComponent("Package.swift").path) {
+                return directory
+            }
+            directory = directory.deletingLastPathComponent()
+        }
+        throw XCTSkip("Could not locate Package.swift above \(#filePath)")
     }
 }
