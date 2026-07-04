@@ -388,14 +388,15 @@ public struct VariantTrackInfo: Codable, Sendable, Equatable, Identifiable {
     /// Description of the track.
     public let description: String?
 
-    /// Relative path to the BCF file.
+    /// Relative path to the variant payload file.
     public let path: String
 
-    /// Relative path to the CSI index file.
+    /// Relative path to the payload index file.
     public let indexPath: String
 
     /// Relative path to the SQLite variant database (for fast region queries).
-    /// Nil for bundles that only have BCF/CSI without a pre-built database.
+    /// Nil for bundles that only have the original payload/index without a
+    /// pre-built database.
     public let databasePath: String?
 
     /// Type of variants in this track.

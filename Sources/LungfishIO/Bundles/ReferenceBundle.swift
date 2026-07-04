@@ -12,7 +12,8 @@ import LungfishCore
 ///
 /// `ReferenceBundle` provides access to the contents of a reference genome bundle,
 /// including the genome sequence, annotation tracks, variant tracks, and signal tracks.
-/// All operations support efficient random access to specific genomic regions.
+/// Region access is available for tracks that include a supported random-access
+/// representation such as a SQLite sidecar.
 ///
 /// ## Bundle Structure
 ///
@@ -20,7 +21,7 @@ import LungfishCore
 /// - `manifest.json` - Bundle metadata and track definitions
 /// - `genome/` - bgzip-compressed FASTA with .fai and .gzi indices
 /// - `annotations/` - SQLite annotation databases
-/// - `variants/` - Indexed BCF variant files
+/// - `variants/` - Variant payloads and optional SQLite query sidecars
 /// - `tracks/` - BigWig signal tracks
 ///
 /// ## Thread Safety
@@ -333,8 +334,8 @@ public final class ReferenceBundle: Sendable {
 
     /// Fetches variants from a track for a genomic region.
     ///
-    /// Queries the SQLite variant database for fast region-based retrieval.
-    /// Falls back to returning empty if no database is available.
+    /// Queries the SQLite variant database sidecar for fast region-based retrieval.
+    /// BCF/CSI-only tracks are detected but not queryable through this reader yet.
     ///
     /// - Parameters:
     ///   - trackId: The variant track ID
@@ -349,30 +350,34 @@ public final class ReferenceBundle: Sendable {
         // Try SQLite database first (fast path)
         if let dbPath = trackInfo.databasePath {
             let dbURL = url.appendingPathComponent(dbPath)
-            if FileManager.default.fileExists(atPath: dbURL.path) {
-                do {
-                    let variantDB = try VariantDatabase(url: dbURL)
-                    let records = variantDB.query(
-                        chromosome: region.chromosome,
-                        start: region.start,
-                        end: region.end
-                    )
-                    logger.debug("getVariants: \(trackId) returned \(records.count) variants from SQLite for \(region.description)")
-                    return records.map { $0.toBundleVariant() }
-                } catch {
-                    logger.error("getVariants: SQLite query failed for \(trackId): \(error.localizedDescription)")
-                }
+            guard FileManager.default.fileExists(atPath: dbURL.path) else {
+                throw ReferenceBundleError.variantReadFailed(
+                    "SQLite sidecar '\(dbPath)' for track '\(trackId)' is missing"
+                )
+            }
+            do {
+                let variantDB = try VariantDatabase(url: dbURL)
+                let records = try variantDB.queryRegionThrowing(
+                    chromosome: region.chromosome,
+                    start: region.start,
+                    end: region.end
+                )
+                logger.debug("getVariants: \(trackId) returned \(records.count) variants from SQLite for \(region.description)")
+                return records.map { $0.toBundleVariant() }
+            } catch {
+                logger.error("getVariants: SQLite query failed for \(trackId): \(error.localizedDescription)")
+                throw ReferenceBundleError.variantReadFailed(
+                    "SQLite sidecar '\(dbPath)' for track '\(trackId)' could not be read: \(error.localizedDescription)"
+                )
             }
         }
 
-        // Fallback: check for BCF file
         let trackURL = url.appendingPathComponent(trackInfo.path)
         guard FileManager.default.fileExists(atPath: trackURL.path) else {
             throw ReferenceBundleError.missingFile(trackInfo.path)
         }
 
-        logger.debug("getVariants: \(trackId) for \(region.description) - BCF reader not yet implemented, returning empty")
-        return []
+        throw unsupportedVariantTrackFormat(trackInfo)
     }
 
     /// Fetches variants as SequenceAnnotations for rendering in the annotation pipeline.
@@ -393,27 +398,38 @@ public final class ReferenceBundle: Sendable {
         // Try SQLite database (fast path)
         if let dbPath = trackInfo.databasePath {
             let dbURL = url.appendingPathComponent(dbPath)
-            if FileManager.default.fileExists(atPath: dbURL.path) {
-                do {
-                    let variantDB = try VariantDatabase(url: dbURL)
-                    let records = variantDB.query(
-                        chromosome: region.chromosome,
-                        start: region.start,
-                        end: region.end
-                    )
-                    logger.debug("getVariantAnnotations: \(trackId) returned \(records.count) variant annotations for \(region.description)")
-                    return records.map { record in
-                        var annotation = record.toAnnotation()
-                        annotation.qualifiers["variant_track_id"] = AnnotationQualifier(trackId)
-                        return annotation
-                    }
-                } catch {
-                    logger.error("getVariantAnnotations: SQLite query failed for \(trackId): \(error.localizedDescription)")
+            guard FileManager.default.fileExists(atPath: dbURL.path) else {
+                throw ReferenceBundleError.variantReadFailed(
+                    "SQLite sidecar '\(dbPath)' for track '\(trackId)' is missing"
+                )
+            }
+            do {
+                let variantDB = try VariantDatabase(url: dbURL)
+                let records = try variantDB.queryRegionThrowing(
+                    chromosome: region.chromosome,
+                    start: region.start,
+                    end: region.end
+                )
+                logger.debug("getVariantAnnotations: \(trackId) returned \(records.count) variant annotations for \(region.description)")
+                return records.map { record in
+                    var annotation = record.toAnnotation()
+                    annotation.qualifiers["variant_track_id"] = AnnotationQualifier(trackId)
+                    return annotation
                 }
+            } catch {
+                logger.error("getVariantAnnotations: SQLite query failed for \(trackId): \(error.localizedDescription)")
+                throw ReferenceBundleError.variantReadFailed(
+                    "SQLite sidecar '\(dbPath)' for track '\(trackId)' could not be read: \(error.localizedDescription)"
+                )
             }
         }
 
-        return []
+        let trackURL = url.appendingPathComponent(trackInfo.path)
+        guard FileManager.default.fileExists(atPath: trackURL.path) else {
+            throw ReferenceBundleError.missingFile(trackInfo.path)
+        }
+
+        throw unsupportedVariantTrackFormat(trackInfo)
     }
 
     // MARK: - SQLite Annotation Access
@@ -600,6 +616,22 @@ public final class ReferenceBundle: Sendable {
         return url.appendingPathComponent(path).path
     }
 
+    private func unsupportedVariantTrackFormat(_ trackInfo: VariantTrackInfo) -> ReferenceBundleError {
+        let path = trackInfo.path.lowercased()
+        let format: String
+        if path.hasSuffix(".vcf.gz") {
+            format = "VCF.GZ"
+        } else {
+            let ext = URL(fileURLWithPath: path).pathExtension
+            format = ext.isEmpty ? "unknown" : ext.uppercased()
+        }
+        return .unsupportedTrackFormat(
+            trackId: trackInfo.id,
+            format: format,
+            reason: "ReferenceBundle can query variant tracks only when the manifest includes a readable SQLite database_path sidecar."
+        )
+    }
+
 }
 
 // MARK: - BundleVariant
@@ -698,6 +730,9 @@ public enum ReferenceBundleError: Error, LocalizedError, Sendable {
     /// Alignment file path is stale and cannot be resolved.
     case alignmentFileNotFound(String)
 
+    /// The track exists but has no supported query representation.
+    case unsupportedTrackFormat(trackId: String, format: String, reason: String)
+
     public var errorDescription: String? {
         switch self {
         case .notADirectory(let url):
@@ -729,6 +764,8 @@ public enum ReferenceBundleError: Error, LocalizedError, Sendable {
             return "Failed to read alignment data: \(reason)"
         case .alignmentFileNotFound(let path):
             return "Alignment file not found: '\(path)'"
+        case .unsupportedTrackFormat(let trackId, let format, let reason):
+            return "Track '\(trackId)' uses unsupported format '\(format)': \(reason)"
         }
     }
 
@@ -750,6 +787,8 @@ public enum ReferenceBundleError: Error, LocalizedError, Sendable {
             return "Adjust the region to be within chromosome bounds"
         case .trackNotFound:
             return "Check available tracks with bundle.*TrackIds"
+        case .unsupportedTrackFormat:
+            return "Rebuild or import the reference bundle with a SQLite variant database sidecar, or query the BCF with a workflow that supports BCF/CSI."
         default:
             return nil
         }

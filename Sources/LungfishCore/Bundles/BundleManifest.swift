@@ -29,8 +29,9 @@ import Foundation
 /// │   ├── genes.bb                     # BigBed format
 /// │   └── transcripts.bb
 /// ├── variants/
-/// │   ├── snps.bcf                     # Indexed BCF
-/// │   └── snps.bcf.csi                 # CSI index
+/// │   ├── snps.bcf                     # Variant payload
+/// │   ├── snps.bcf.csi                 # CSI index when BCF is present
+/// │   └── snps.sqlite                  # Optional SQLite sidecar for app queries
 /// └── tracks/
 ///     └── gc_content.bw                # BigWig signal tracks
 /// ```

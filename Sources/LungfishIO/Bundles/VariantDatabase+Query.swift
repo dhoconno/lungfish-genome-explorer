@@ -24,7 +24,34 @@ extension VariantDatabase {
         onlyPassing: Bool = false,
         limit: Int = 50_000
     ) -> [VariantDatabaseRecord] {
-        guard let db else { return [] }
+        do {
+            return try queryRegionThrowing(
+                chromosome: chromosome,
+                start: start,
+                end: end,
+                types: types,
+                minQuality: minQuality,
+                onlyPassing: onlyPassing,
+                limit: limit
+            )
+        } catch {
+            variantDBLogger.error("Failed to query variants: \(error.localizedDescription)")
+            return []
+        }
+    }
+
+    func queryRegionThrowing(
+        chromosome: String,
+        start: Int,
+        end: Int,
+        types: Set<String> = [],
+        minQuality: Double? = nil,
+        onlyPassing: Bool = false,
+        limit: Int = 50_000
+    ) throws -> [VariantDatabaseRecord] {
+        guard let db else {
+            throw VariantDatabaseError.openFailed("Database handle is nil")
+        }
 
         var sql = "SELECT id, chromosome, position, end_pos, variant_id, ref, alt, variant_type, quality, filter, info, sample_count FROM variants"
         var conditions: [String] = []
@@ -71,8 +98,11 @@ extension VariantDatabase {
         var stmt: OpaquePointer?
         defer { sqlite3_finalize(stmt) }
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
-            variantDBLogger.error("Failed to prepare variant query: \(sql)")
-            return []
+            let message = String(cString: sqlite3_errmsg(db))
+            throw VariantDatabaseError.queryFailed("Failed to prepare region query: \(message)")
+        }
+        guard let stmt else {
+            throw VariantDatabaseError.queryFailed("Failed to prepare region query: missing SQLite statement")
         }
 
         for (idx, value) in bindingsText {
@@ -85,7 +115,7 @@ extension VariantDatabase {
             sqlite3_bind_double(stmt, idx, value)
         }
 
-        return readVariantRows(stmt: stmt!)
+        return try readVariantRowsThrowing(stmt: stmt)
     }
 
     /// Queries variant count in a region (without fetching full records).

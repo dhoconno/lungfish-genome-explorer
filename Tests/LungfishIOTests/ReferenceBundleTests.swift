@@ -181,6 +181,136 @@ final class ReferenceBundleTests: XCTestCase {
         XCTAssertEqual(trackIds, ["variants"])
     }
 
+    func testGetVariantsThrowsUnsupportedFormatForBCFOnlyTrack() async throws {
+        let bundleURL = try createBCFOnlyVariantBundle()
+        let bundle = try await ReferenceBundle(url: bundleURL)
+        let region = GenomicRegion(chromosome: "chr1", start: 0, end: 100)
+
+        XCTAssertThrowsError(try bundle.getVariants(trackId: "variants", region: region)) { error in
+            guard case ReferenceBundleError.unsupportedTrackFormat(let trackId, let format, let reason) = error else {
+                XCTFail("Expected unsupportedTrackFormat, got \(error)")
+                return
+            }
+            XCTAssertEqual(trackId, "variants")
+            XCTAssertEqual(format, "BCF")
+            XCTAssertTrue(reason.contains("SQLite"))
+        }
+    }
+
+    func testGetVariantAnnotationsThrowsUnsupportedFormatForBCFOnlyTrack() async throws {
+        let bundleURL = try createBCFOnlyVariantBundle()
+        let bundle = try await ReferenceBundle(url: bundleURL)
+        let region = GenomicRegion(chromosome: "chr1", start: 0, end: 100)
+
+        XCTAssertThrowsError(try bundle.getVariantAnnotations(trackId: "variants", region: region)) { error in
+            guard case ReferenceBundleError.unsupportedTrackFormat(let trackId, let format, _) = error else {
+                XCTFail("Expected unsupportedTrackFormat, got \(error)")
+                return
+            }
+            XCTAssertEqual(trackId, "variants")
+            XCTAssertEqual(format, "BCF")
+        }
+    }
+
+    func testGetVariantsUsesReadableSQLiteSidecar() async throws {
+        let bundleURL = try createSQLiteVariantBundle()
+        let bundle = try await ReferenceBundle(url: bundleURL)
+        let region = GenomicRegion(chromosome: "chr1", start: 0, end: 100)
+
+        let variants = try bundle.getVariants(trackId: "variants", region: region)
+
+        XCTAssertEqual(variants.count, 1)
+        XCTAssertEqual(variants.first?.variantId, "rs1")
+        XCTAssertEqual(variants.first?.ref, "A")
+        XCTAssertEqual(variants.first?.alt, ["G"])
+    }
+
+    func testGetVariantAnnotationsUsesReadableSQLiteSidecar() async throws {
+        let bundleURL = try createSQLiteVariantBundle()
+        let bundle = try await ReferenceBundle(url: bundleURL)
+        let region = GenomicRegion(chromosome: "chr1", start: 0, end: 100)
+
+        let annotations = try bundle.getVariantAnnotations(trackId: "variants", region: region)
+
+        XCTAssertEqual(annotations.count, 1)
+        XCTAssertEqual(annotations.first?.name, "rs1")
+        XCTAssertEqual(annotations.first?.qualifiers["variant_track_id"]?.firstValue, "variants")
+    }
+
+    func testGetVariantsThrowsVariantReadFailedForInvalidSQLiteSidecar() async throws {
+        let bundleURL = try createInvalidSQLiteVariantBundle()
+        let bundle = try await ReferenceBundle(url: bundleURL)
+        let region = GenomicRegion(chromosome: "chr1", start: 0, end: 100)
+
+        XCTAssertThrowsError(try bundle.getVariants(trackId: "variants", region: region)) { error in
+            guard case ReferenceBundleError.variantReadFailed(let reason) = error else {
+                XCTFail("Expected variantReadFailed, got \(error)")
+                return
+            }
+            XCTAssertTrue(reason.contains("SQLite sidecar"))
+            XCTAssertTrue(reason.contains("variants.db"))
+        }
+    }
+
+    func testGetVariantAnnotationsThrowsVariantReadFailedForInvalidSQLiteSidecar() async throws {
+        let bundleURL = try createInvalidSQLiteVariantBundle()
+        let bundle = try await ReferenceBundle(url: bundleURL)
+        let region = GenomicRegion(chromosome: "chr1", start: 0, end: 100)
+
+        XCTAssertThrowsError(try bundle.getVariantAnnotations(trackId: "variants", region: region)) { error in
+            guard case ReferenceBundleError.variantReadFailed(let reason) = error else {
+                XCTFail("Expected variantReadFailed, got \(error)")
+                return
+            }
+            XCTAssertTrue(reason.contains("SQLite sidecar"))
+            XCTAssertTrue(reason.contains("variants.db"))
+        }
+    }
+
+    func testGetVariantsThrowsVariantReadFailedForMissingSQLiteSidecar() async throws {
+        let bundleURL = try createSQLiteVariantBundle(writeDatabase: false)
+        let bundle = try await ReferenceBundle(url: bundleURL)
+        let region = GenomicRegion(chromosome: "chr1", start: 0, end: 100)
+
+        XCTAssertThrowsError(try bundle.getVariants(trackId: "variants", region: region)) { error in
+            guard case ReferenceBundleError.variantReadFailed(let reason) = error else {
+                XCTFail("Expected variantReadFailed, got \(error)")
+                return
+            }
+            XCTAssertTrue(reason.contains("is missing"))
+            XCTAssertTrue(reason.contains("variants.db"))
+        }
+    }
+
+    func testGetVariantAnnotationsThrowsVariantReadFailedForMissingSQLiteSidecar() async throws {
+        let bundleURL = try createSQLiteVariantBundle(writeDatabase: false)
+        let bundle = try await ReferenceBundle(url: bundleURL)
+        let region = GenomicRegion(chromosome: "chr1", start: 0, end: 100)
+
+        XCTAssertThrowsError(try bundle.getVariantAnnotations(trackId: "variants", region: region)) { error in
+            guard case ReferenceBundleError.variantReadFailed(let reason) = error else {
+                XCTFail("Expected variantReadFailed, got \(error)")
+                return
+            }
+            XCTAssertTrue(reason.contains("is missing"))
+            XCTAssertTrue(reason.contains("variants.db"))
+        }
+    }
+
+    func testGetVariantsThrowsMissingFileWhenBCFPayloadIsAbsent() async throws {
+        let bundleURL = try createBCFOnlyVariantBundle(writePayload: false)
+        let bundle = try await ReferenceBundle(url: bundleURL)
+        let region = GenomicRegion(chromosome: "chr1", start: 0, end: 100)
+
+        XCTAssertThrowsError(try bundle.getVariants(trackId: "variants", region: region)) { error in
+            guard case ReferenceBundleError.missingFile(let path) = error else {
+                XCTFail("Expected missingFile, got \(error)")
+                return
+            }
+            XCTAssertEqual(path, "variants/test.bcf")
+        }
+    }
+
     func testSignalTrackIds() async throws {
         let bundleURL = try createValidTestBundle()
         let bundle = try await ReferenceBundle(url: bundleURL)
@@ -227,6 +357,14 @@ final class ReferenceBundleTests: XCTestCase {
 
         let trackNotFoundError = ReferenceBundleError.trackNotFound("missing_track")
         XCTAssertTrue(trackNotFoundError.localizedDescription.contains("missing_track"))
+
+        let unsupportedTrackError = ReferenceBundleError.unsupportedTrackFormat(
+            trackId: "variants",
+            format: "BCF",
+            reason: "SQLite sidecar required"
+        )
+        XCTAssertTrue(unsupportedTrackError.localizedDescription.contains("variants"))
+        XCTAssertTrue(unsupportedTrackError.localizedDescription.contains("BCF"))
     }
 
     func testReferenceBundleErrorRecoverySuggestions() {
@@ -493,6 +631,122 @@ final class ReferenceBundleTests: XCTestCase {
 
         try manifest.save(to: bundleURL)
 
+        return bundleURL
+    }
+
+    private func createBCFOnlyVariantBundle(writePayload: Bool = true) throws -> URL {
+        let bundleURL = tempDirectory.appendingPathComponent("bcf-only.lungfishref")
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        let variantsDir = bundleURL.appendingPathComponent("variants")
+        try FileManager.default.createDirectory(at: variantsDir, withIntermediateDirectories: true)
+        if writePayload {
+            try Data([0x42, 0x43, 0x46]).write(to: variantsDir.appendingPathComponent("test.bcf"))
+            try Data([0x43, 0x53, 0x49]).write(to: variantsDir.appendingPathComponent("test.bcf.csi"))
+        }
+
+        let manifest = BundleManifest(
+            formatVersion: "1.0",
+            name: "BCF Only",
+            identifier: "test.bcf-only",
+            source: SourceInfo(
+                organism: "Test organism",
+                assembly: "TestAssembly",
+                database: "Test"
+            ),
+            variants: [
+                VariantTrackInfo(
+                    id: "variants",
+                    name: "BCF Variants",
+                    path: "variants/test.bcf",
+                    indexPath: "variants/test.bcf.csi",
+                    variantCount: 1
+                )
+            ]
+        )
+
+        try manifest.save(to: bundleURL)
+        return bundleURL
+    }
+
+    private func createSQLiteVariantBundle(writeDatabase: Bool = true) throws -> URL {
+        let bundleURL = tempDirectory.appendingPathComponent("sqlite-variants-\(UUID().uuidString).lungfishref")
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        let variantsDir = bundleURL.appendingPathComponent("variants")
+        try FileManager.default.createDirectory(at: variantsDir, withIntermediateDirectories: true)
+        try Data([0x42, 0x43, 0x46]).write(to: variantsDir.appendingPathComponent("test.bcf"))
+        try Data([0x43, 0x53, 0x49]).write(to: variantsDir.appendingPathComponent("test.bcf.csi"))
+
+        if writeDatabase {
+            let vcfURL = tempDirectory.appendingPathComponent("sqlite-variants-\(UUID().uuidString).vcf")
+            let vcf = """
+            ##fileformat=VCFv4.3
+            #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+            chr1\t10\trs1\tA\tG\t50\tPASS\t.
+            """
+            try vcf.write(to: vcfURL, atomically: true, encoding: .utf8)
+            let dbURL = variantsDir.appendingPathComponent("variants.db")
+            try VariantDatabase.createFromVCF(vcfURL: vcfURL, outputURL: dbURL)
+        }
+
+        let manifest = BundleManifest(
+            formatVersion: "1.0",
+            name: "SQLite Variants",
+            identifier: "test.sqlite-variants",
+            source: SourceInfo(
+                organism: "Test organism",
+                assembly: "TestAssembly",
+                database: "Test"
+            ),
+            variants: [
+                VariantTrackInfo(
+                    id: "variants",
+                    name: "SQLite Variants",
+                    path: "variants/test.bcf",
+                    indexPath: "variants/test.bcf.csi",
+                    databasePath: "variants/variants.db",
+                    variantCount: 1
+                )
+            ]
+        )
+
+        try manifest.save(to: bundleURL)
+        return bundleURL
+    }
+
+    private func createInvalidSQLiteVariantBundle() throws -> URL {
+        let bundleURL = tempDirectory.appendingPathComponent("invalid-sqlite-variants.lungfishref")
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        let variantsDir = bundleURL.appendingPathComponent("variants")
+        try FileManager.default.createDirectory(at: variantsDir, withIntermediateDirectories: true)
+        try Data([0x42, 0x43, 0x46]).write(to: variantsDir.appendingPathComponent("test.bcf"))
+        try Data([0x43, 0x53, 0x49]).write(to: variantsDir.appendingPathComponent("test.bcf.csi"))
+        try Data("not a sqlite database".utf8).write(to: variantsDir.appendingPathComponent("variants.db"))
+
+        let manifest = BundleManifest(
+            formatVersion: "1.0",
+            name: "Invalid SQLite Variants",
+            identifier: "test.invalid-sqlite-variants",
+            source: SourceInfo(
+                organism: "Test organism",
+                assembly: "TestAssembly",
+                database: "Test"
+            ),
+            variants: [
+                VariantTrackInfo(
+                    id: "variants",
+                    name: "Invalid SQLite Variants",
+                    path: "variants/test.bcf",
+                    indexPath: "variants/test.bcf.csi",
+                    databasePath: "variants/variants.db",
+                    variantCount: 1
+                )
+            ]
+        )
+
+        try manifest.save(to: bundleURL)
         return bundleURL
     }
 }

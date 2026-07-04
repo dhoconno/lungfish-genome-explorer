@@ -13,6 +13,7 @@ public enum VariantDatabaseError: Error, LocalizedError, Sendable {
     case openFailed(String)
     case createFailed(String)
     case invalidSchema(String)
+    case queryFailed(String)
     case cancelled
 
     public var errorDescription: String? {
@@ -20,6 +21,7 @@ public enum VariantDatabaseError: Error, LocalizedError, Sendable {
         case .openFailed(let msg): return "Failed to open variant database: \(msg)"
         case .createFailed(let msg): return "Failed to create variant database: \(msg)"
         case .invalidSchema(let msg): return "Invalid variant database schema: \(msg)"
+        case .queryFailed(let msg): return "Failed to query variant database: \(msg)"
         case .cancelled: return "VCF import was cancelled"
         }
     }

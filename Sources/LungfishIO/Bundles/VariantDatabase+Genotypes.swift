@@ -16,9 +16,16 @@ extension VariantDatabase {
     /// Expected column order: id, chromosome, position, end_pos, variant_id, ref, alt,
     /// variant_type, quality, filter, info, sample_count
     func readVariantRows(stmt: OpaquePointer) -> [VariantDatabaseRecord] {
+        (try? readVariantRowsThrowing(stmt: stmt)) ?? []
+    }
+
+    /// Reads variant rows from a prepared statement and throws when SQLite
+    /// reports an execution error instead of silently returning a partial/empty result.
+    func readVariantRowsThrowing(stmt: OpaquePointer) throws -> [VariantDatabaseRecord] {
         var results: [VariantDatabaseRecord] = []
 
-        while sqlite3_step(stmt) == SQLITE_ROW {
+        var rc = sqlite3_step(stmt)
+        while rc == SQLITE_ROW {
             let rowId = sqlite3_column_int64(stmt, 0)
             let chrom = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
             let pos = Int(sqlite3_column_int64(stmt, 2))
@@ -39,6 +46,12 @@ extension VariantDatabase {
                 quality: quality, filter: filter, info: info,
                 sampleCount: sampleCount
             ))
+            rc = sqlite3_step(stmt)
+        }
+        guard rc == SQLITE_DONE else {
+            let db = sqlite3_db_handle(stmt)
+            let message = db.map { String(cString: sqlite3_errmsg($0)) } ?? "SQLite error \(rc)"
+            throw VariantDatabaseError.queryFailed(message)
         }
         return results
     }

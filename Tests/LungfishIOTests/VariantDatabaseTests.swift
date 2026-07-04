@@ -300,6 +300,31 @@ final class VariantDatabaseTests: XCTestCase {
         XCTAssertTrue(results.isEmpty, "No variants in [5000, 6000)")
     }
 
+    func testQueryRegionThrowingReportsPrepareFailure() throws {
+        let vcfURL = try createTempVCF(content: testVCF)
+        let dbURL = tempDir.appendingPathComponent("query_prepare_failure.db")
+        try VariantDatabase.createFromVCF(vcfURL: vcfURL, outputURL: dbURL)
+        let db = try VariantDatabase(url: dbURL, readWrite: true)
+
+        sqlite3_exec(db.db, "PRAGMA foreign_keys = OFF", nil, nil, nil)
+        var sqlError: UnsafeMutablePointer<CChar>?
+        let rc = sqlite3_exec(db.db, "DROP TABLE variants", nil, nil, &sqlError)
+        if let sqlError {
+            let message = String(cString: sqlError)
+            sqlite3_free(sqlError)
+            XCTFail("Failed to remove variants table for test: \(message)")
+        }
+        XCTAssertEqual(rc, SQLITE_OK)
+
+        XCTAssertThrowsError(try db.queryRegionThrowing(chromosome: "chr1", start: 0, end: 100)) { error in
+            guard case VariantDatabaseError.queryFailed(let message) = error else {
+                XCTFail("Expected queryFailed, got \(error)")
+                return
+            }
+            XCTAssertTrue(message.contains("Failed to prepare region query"))
+        }
+    }
+
     func testQueryNonexistentChromosome() throws {
         let (db, _) = try createDatabase(from: testVCF)
         let results = db.query(chromosome: "chrX", start: 0, end: 1000000)
