@@ -88,9 +88,11 @@ original refactor was constrained to behavior-preserving edits:
 - **RESOLVED F8 — SRA search totals now use the ESearch corpus `<Count>`.**
   `SRAService.search` calls `NCBIService.esearchWithCount` and computes
   `hasMore` from `offset + returnedIDs < totalCount`.
-- **F5 — `parseRunInfoCSV` duplicated with NCBIService (low).** Two independent
-  runinfo CSV parsers. Deferred cross-file consolidation into a shared
-  `SRARunInfoCSVParser` with regression fixtures for both callers.
+- **RESOLVED F5 — SRA runinfo CSV parsing is shared.** `SRAService` and
+  `NCBIService` now use `SRARunInfoCSVParser` for the fixed runinfo column map,
+  quote-aware field splitting, and POSIX/UTC timestamp or date-only release
+  dates. Regression coverage pins NCBI detailed run-info rows with date-only
+  release dates.
 
 ## VariantTrack.swift (notes — mostly clean)
 
@@ -136,21 +138,15 @@ original refactor was constrained to behavior-preserving edits:
 
 ## NCBIService.swift
 
-- **HEAD-request methods bypass the injected `httpClient` (medium confidence).**
-  `getGenomeFileInfo` / `getAnnotationFileInfo` / `getAssemblyReportInfo` use
-  `URLSession.shared.data(for:)` directly (lines ~741, 801, 864), so they are
-  unthrottled against NCBI's FTP host and untestable via the `MockHTTPClient`
-  used elsewhere. Deferred because routing through `httpClient` would change
-  timeout (explicit 30/15s here vs client default) and User-Agent, i.e. live
-  behavior. Suggestion: either add HEAD support to the `HTTPClient` abstraction
-  and route through it, or add a comment documenting why `URLSession.shared` is
-  deliberate. Do not change silently.
+- **RESOLVED — HEAD-request methods use the injected `httpClient`.**
+  `getGenomeFileInfo`, `getAnnotationFileInfo`, and `getAssemblyReportInfo`
+  now route their HEAD probes through the injectable `HTTPClient`; focused tests
+  pin the three request paths and optional-lookup cancellation behavior.
 
 - **`dup-headrequest-fileinfo` (medium confidence).** The three HEAD methods are
   ~90% identical but differ in throw-vs-return-nil error behavior and log text.
-  Deferred with the item above; a shared `headFileInfo(...throwOnMissing:)`
-  helper is viable but must preserve `getGenomeFileInfo`'s throw semantics
-  exactly.
+  Deferred as a pure duplication item only; any shared `headFileInfo(...)`
+  helper must preserve `getGenomeFileInfo`'s throw semantics exactly.
 
 - **RESOLVED — unstructured batch-stream producer tasks.** `NCBIService` and
   `ENAService` now capture the producer `Task`, cancel it from

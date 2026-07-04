@@ -93,7 +93,6 @@ public actor SRAService {
     private let ncbiService: NCBIService
     private let httpClient: HTTPClient
     private let homeDirectoryProvider: @Sendable () -> URL
-    private let runInfoDateFormatters = SRAService.makeRunInfoDateFormatters()
 
     /// Closure type used to inject custom download strategies (primarily for tests).
     public typealias DownloadStrategy = @Sendable (_ accession: String, _ outputDir: URL?) async throws -> [URL]
@@ -193,7 +192,7 @@ public actor SRAService {
             throw SRAError.parseError("Invalid encoding")
         }
 
-        return parseRunInfoCSV(content)
+        return SRARunInfoCSVParser.parseRows(content)
     }
 
     private func fetchRunInfoData(request: URLRequest) async throws -> Data {
@@ -247,119 +246,6 @@ public actor SRAService {
 
                 throw SRAError.fetchFailed("Failed to fetch run info")
             }
-        }
-    }
-
-    /// Parses CSV run info from NCBI.
-    ///
-    /// NCBI efetch returns CSV without headers. The known column order is:
-    /// Run, ReleaseDate, LoadDate, spots, bases, spots_with_mates, avgLength, size_MB,
-    /// AssemblyName, download_path, Experiment, LibraryName, LibraryStrategy, LibrarySelection,
-    /// LibrarySource, LibraryLayout, InsertSize, InsertDev, Platform, Model, SRAStudy, BioProject,
-    /// Study_Pubmed_id, ProjectID, Sample, BioSample, SampleType, TaxID, ScientificName, SampleName, ...
-    private func parseRunInfoCSV(_ csv: String) -> [SRARunInfo] {
-        let lines = csv.components(separatedBy: "\n")
-        guard !lines.isEmpty else { return [] }
-
-        // Check if first line looks like a header (starts with "Run,")
-        let firstLine = lines[0]
-        let hasHeader = firstLine.hasPrefix("Run,")
-
-        // Column indices (0-based) for headerless CSV
-        // These are based on NCBI's fixed output format
-        let runIdx = 0
-        let releaseDateIdx = 1
-        let spotsIdx = 3
-        let basesIdx = 4
-        let avgLengthIdx = 6
-        let sizeMBIdx = 7
-        let experimentIdx = 10
-        let libraryStrategyIdx = 12
-        let librarySourceIdx = 14
-        let libraryLayoutIdx = 15
-        let platformIdx = 18
-        // Column 19 is modelIdx - reserved for future use.
-        let studyIdx = 20
-        let bioprojectIdx = 21
-        let sampleIdx = 24
-        let biosampleIdx = 25
-        // Column 27 is taxIdIdx - reserved for future use.
-        let scientificNameIdx = 28
-
-        var runs: [SRARunInfo] = []
-
-        // If there's a header, skip it; otherwise process all lines
-        let dataLines = hasHeader ? Array(lines.dropFirst()) : lines
-
-        for line in dataLines where !line.isEmpty {
-            let fields = parseCSVLine(line)
-            guard fields.count > runIdx, !fields[runIdx].isEmpty else { continue }
-
-            let run = SRARunInfo(
-                accession: fields[safe: runIdx] ?? "",
-                experiment: fields[safe: experimentIdx],
-                sample: fields[safe: sampleIdx],
-                study: fields[safe: studyIdx],
-                bioproject: fields[safe: bioprojectIdx],
-                biosample: fields[safe: biosampleIdx],
-                organism: fields[safe: scientificNameIdx],
-                platform: fields[safe: platformIdx],
-                libraryStrategy: fields[safe: libraryStrategyIdx],
-                librarySource: fields[safe: librarySourceIdx],
-                libraryLayout: fields[safe: libraryLayoutIdx],
-                spots: Int(fields[safe: spotsIdx] ?? ""),
-                bases: Int(fields[safe: basesIdx] ?? ""),
-                avgLength: Int(fields[safe: avgLengthIdx] ?? ""),
-                size: Int(fields[safe: sizeMBIdx] ?? ""),
-                releaseDate: parseDate(fields[safe: releaseDateIdx])
-            )
-
-            if !run.accession.isEmpty {
-                runs.append(run)
-            }
-        }
-
-        return runs
-    }
-
-    /// Parses a CSV line handling quoted fields.
-    private func parseCSVLine(_ line: String) -> [String] {
-        var fields: [String] = []
-        var current = ""
-        var inQuotes = false
-
-        for char in line {
-            if char == "\"" {
-                inQuotes.toggle()
-            } else if char == "," && !inQuotes {
-                fields.append(current)
-                current = ""
-            } else {
-                current.append(char)
-            }
-        }
-        fields.append(current)
-
-        return fields
-    }
-
-    private func parseDate(_ dateStr: String?) -> Date? {
-        guard let str = dateStr, !str.isEmpty else { return nil }
-        for formatter in runInfoDateFormatters {
-            if let date = formatter.date(from: str) {
-                return date
-            }
-        }
-        return nil
-    }
-
-    private static func makeRunInfoDateFormatters() -> [DateFormatter] {
-        ["yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd"].map { format in
-            let formatter = DateFormatter()
-            formatter.locale = Locale(identifier: "en_US_POSIX")
-            formatter.timeZone = TimeZone(secondsFromGMT: 0)
-            formatter.dateFormat = format
-            return formatter
         }
     }
 

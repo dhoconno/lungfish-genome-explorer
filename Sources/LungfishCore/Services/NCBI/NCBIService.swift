@@ -1310,100 +1310,11 @@ public actor NCBIService: DatabaseService {
     ///
     /// Only returns values that match SRA run accession patterns (SRR/ERR/DRR + digits).
     public static func parseRunInfoCSV(_ csv: String) -> [String] {
-        let runPattern = /^[SED]RR\d+$/
-        let lines = csv.components(separatedBy: .newlines)
-        guard lines.count > 1 else { return [] }
-        return lines.dropFirst().compactMap { line -> String? in
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard !trimmed.isEmpty else { return nil }
-            let run = trimmed.components(separatedBy: ",").first?.trimmingCharacters(in: .whitespaces) ?? ""
-            guard !run.isEmpty, run.wholeMatch(of: runPattern) != nil else { return nil }
-            return run
-        }
+        SRARunInfoCSVParser.parseRunAccessions(csv)
     }
 
     static func parseRunInfoRows(_ csv: String) -> [SRARunInfo] {
-        let lines = csv.components(separatedBy: "\n")
-        guard !lines.isEmpty else { return [] }
-
-        let firstLine = lines[0]
-        let hasHeader = firstLine.hasPrefix("Run,")
-
-        let runIdx = 0
-        let releaseDateIdx = 1
-        let spotsIdx = 3
-        let basesIdx = 4
-        let avgLengthIdx = 6
-        let sizeMBIdx = 7
-        let experimentIdx = 10
-        let libraryStrategyIdx = 12
-        let librarySourceIdx = 14
-        let libraryLayoutIdx = 15
-        let platformIdx = 18
-        let studyIdx = 20
-        let bioprojectIdx = 21
-        let sampleIdx = 24
-        let biosampleIdx = 25
-        let scientificNameIdx = 28
-
-        let dataLines = hasHeader ? Array(lines.dropFirst()) : lines
-
-        return dataLines.compactMap { line -> SRARunInfo? in
-            guard !line.isEmpty else { return nil }
-            let fields = Self.parseRunInfoLine(line)
-            guard fields.count > runIdx, !fields[runIdx].isEmpty else { return nil }
-            let field: (Int) -> String? = { index in
-                guard index >= 0 && index < fields.count else { return nil }
-                return fields[index]
-            }
-
-            let run = SRARunInfo(
-                accession: field(runIdx) ?? "",
-                experiment: field(experimentIdx),
-                sample: field(sampleIdx),
-                study: field(studyIdx),
-                bioproject: field(bioprojectIdx),
-                biosample: field(biosampleIdx),
-                organism: field(scientificNameIdx),
-                platform: field(platformIdx),
-                libraryStrategy: field(libraryStrategyIdx),
-                librarySource: field(librarySourceIdx),
-                libraryLayout: field(libraryLayoutIdx),
-                spots: Int(field(spotsIdx) ?? ""),
-                bases: Int(field(basesIdx) ?? ""),
-                avgLength: Int(field(avgLengthIdx) ?? ""),
-                size: Int(field(sizeMBIdx) ?? ""),
-                releaseDate: Self.parseRunInfoDate(field(releaseDateIdx))
-            )
-
-            return run.accession.isEmpty ? nil : run
-        }
-    }
-
-    private static func parseRunInfoLine(_ line: String) -> [String] {
-        var fields: [String] = []
-        var current = ""
-        var inQuotes = false
-
-        for char in line {
-            if char == "\"" {
-                inQuotes.toggle()
-            } else if char == "," && !inQuotes {
-                fields.append(current)
-                current = ""
-            } else {
-                current.append(char)
-            }
-        }
-        fields.append(current)
-        return fields
-    }
-
-    private static func parseRunInfoDate(_ dateStr: String?) -> Date? {
-        guard let str = dateStr, !str.isEmpty else { return nil }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        return formatter.date(from: str)
+        SRARunInfoCSVParser.parseRows(csv)
     }
 
     /// Retrieves document summaries for UIDs.
