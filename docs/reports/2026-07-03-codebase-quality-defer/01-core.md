@@ -122,13 +122,11 @@ original refactor was constrained to behavior-preserving edits:
   `persistDebugResponse(...)` helper (pure extraction, no gating) if desired, or
   decide policy on whether these should ship.
 
-- **BS-08 — `Thread.sleep` inside actor-isolated extraction (low/medium
-  confidence).** `extractMatchingSequences` blocks the actor executor with
-  `Thread.sleep(forTimeInterval: 0.5)`. Deferred: marking the pure-I/O helpers
-  `nonisolated` is safe but changes isolation; switching to `Task.sleep` requires
-  making the chain async (timing/cancellation behavior change). Suggestion: the
-  minimal safe step is `nonisolated` on the pure-I/O helpers only, done under a
-  dedicated review.
+- **RESOLVED BS-08 — gzip retry backoff no longer blocks the actor executor.**
+  `extractMatchingSequences` is now async only at the retry wrapper boundary and
+  uses cancellation-aware `Task.sleep` for gzip retry delays; the single-attempt
+  FASTQ parsing path remains synchronous. Regression coverage cancels during the
+  retry backoff and requires `CancellationError`.
 
 - **BS-10 — split the 1735-line file by responsibility (high confidence,
   mechanical).** Actor + submit/poll/verify vs the `nonisolated` parsing cluster

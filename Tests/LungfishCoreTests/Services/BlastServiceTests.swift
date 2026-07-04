@@ -1711,6 +1711,34 @@ final class BlastBuildRequestTests: XCTestCase {
         XCTAssertEqual(request.sequences.count, 5, "Should extract all 5 reads from gzipped FASTQ")
     }
 
+    func testGzipExtractionRetryBackoffHonorsCancellation() async throws {
+        let gzURL = tempDir.appendingPathComponent("reads.fastq.gz")
+        try Data("not a gzip stream".utf8).write(to: gzURL)
+        let blastService = try XCTUnwrap(service)
+
+        let task = Task {
+            try await blastService.buildVerificationRequestFromReadIds(
+                taxonName: "E. coli",
+                taxId: 562,
+                matchingReadIds: ["read_0"],
+                sourceURL: gzURL,
+                readCount: 20
+            )
+        }
+
+        try await Task.sleep(nanoseconds: 50_000_000)
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            XCTFail("Expected cancellation during gzip retry backoff")
+        } catch is CancellationError {
+            // Expected: retry backoff must be cooperative and cancellation-aware.
+        } catch {
+            XCTFail("Expected CancellationError, got \(error)")
+        }
+    }
+
     func testCorruptGzipFASTQExtractionThrowsInsteadOfReturningPartialReads() async throws {
         let rawURL = tempDir.appendingPathComponent("reads.fastq")
         try "@read_0\nATGCATGC\n+\nIIIIIIII\n"

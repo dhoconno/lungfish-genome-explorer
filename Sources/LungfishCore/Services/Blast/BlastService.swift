@@ -330,7 +330,7 @@ public actor BlastService {
         // Extract sequences from FASTQ, with retry for gzip subprocess failures.
         // The gzip subprocess can be killed by macOS XPC interruptions, so we
         // retry once before giving up.
-        let allSequences = try extractMatchingSequences(
+        let allSequences = try await extractMatchingSequences(
             from: sourceURL,
             matchingReadIds: matchingReadIds,
             isGzip: isGzip
@@ -465,7 +465,7 @@ public actor BlastService {
         from sourceURL: URL,
         matchingReadIds: Set<String>,
         isGzip: Bool
-    ) throws -> [(id: String, sequence: String)] {
+    ) async throws -> [(id: String, sequence: String)] {
         let maxAttempts = isGzip ? 2 : 1  // Retry only for gzip (subprocess can fail)
 
         for attempt in 1...maxAttempts {
@@ -479,7 +479,7 @@ public actor BlastService {
             } catch {
                 if isGzip, attempt < maxAttempts {
                     logger.warning("extractMatchingSequences: gzip attempt \(attempt, privacy: .public) failed: \(error.localizedDescription, privacy: .public); retrying...")
-                    Thread.sleep(forTimeInterval: 0.5)
+                    try await Task.sleep(nanoseconds: 500_000_000)
                     continue
                 }
                 throw error
@@ -493,7 +493,7 @@ public actor BlastService {
             // Retry once after a brief delay.
             if attempt < maxAttempts {
                 logger.warning("extractMatchingSequences: gzip returned 0 sequences on attempt \(attempt, privacy: .public), retrying...")
-                Thread.sleep(forTimeInterval: 0.5)
+                try await Task.sleep(nanoseconds: 500_000_000)
             }
         }
 

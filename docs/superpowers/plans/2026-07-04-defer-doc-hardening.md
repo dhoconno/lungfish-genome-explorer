@@ -48,6 +48,8 @@ changes that reduce future ambiguity across the codebase.
   path, including the Core builder's uncompressed FASTA fallback.
 - Removed stale/deceptive docs: obsolete continuation handoff, no-deferral baseline note,
   superseded queued IO notes, and deferred bullets for items now implemented.
+- Removed the remaining BLAST gzip retry `Thread.sleep` in favor of cooperative cancellation-aware
+  retry backoff, and updated the stale defer entry that still listed it as pending.
 - Embedded script/file splits remained deferred because the reviewed same-batch wins were in
   provenance/output correctness rather than large mechanical relocation.
 
