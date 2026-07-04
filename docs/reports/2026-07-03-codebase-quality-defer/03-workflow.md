@@ -53,15 +53,17 @@ reviewed pass.
 - 2026-07-04 hardening pass: legacy FASTQ batch import now rejects unsupported recipe steps
   during preflight instead of logging and skipping them; the unsupported legacy `amplicon`
   resolver/help/manual references were removed until primer removal is executable in this path.
+- 2026-07-04 hardening pass: `ONTBarcodeDemuxGenotypingPipeline`'s two embedded Python payloads
+  moved unchanged into `ONTBarcodeDemuxGenotypingPipeline+Scripts.swift`. The public
+  `writeFilterScript` and `writeReportScript` APIs stayed on the pipeline type via extension,
+  reducing the main pipeline file from ~5.7K lines to ~3.4K lines without changing script bytes.
 
 ### Deferred SPLITS (each its own reviewed pass — high value, needs promotions)
-- `ONTBarcodeDemuxGenotypingPipeline.swift` (5749L, but ~3370L Swift + two embedded Python
-  heredocs `filterScript` 3376-3977 / `reportScript` 3979-5749). Highest-value move:
-  extract the two heredocs to `ONTBarcodeDemuxGenotypingScripts.swift` (they inflate the
-  file to 5749L while being opaque strings to the Swift toolchain). Full 6-way split by
-  stage (Request / InputResolution / Mapping / FilterReportWorkbook / Provenance / Scripts)
-  needs ~15 `private`->`internal` promotions of nested step-result structs + cross-stage
-  helpers. Defer: crosses provenance/Codable/materialization types.
+- `ONTBarcodeDemuxGenotypingPipeline.swift` (now ~3.4K lines after script extraction). The
+  script split is resolved; the remaining optional split is a full 5-way stage split by
+  Request / InputResolution / Mapping / FilterReportWorkbook / Provenance. That still needs
+  ~15 `private`->`internal` promotions of nested step-result structs + cross-stage helpers,
+  and crosses provenance/Codable/materialization types.
 - `FullLengthONTMHCGenotypingPipeline.swift` (3802L). 5-way split (Request / +Savont /
   +Checkpoints / WorkbookBuilders / XLSXWriter) needs ~15 promotions incl. `isDirectory`
   free func + provenance/checkpoint types. Also A1 (drop unused `sample:` param from
@@ -118,7 +120,8 @@ non-op-pipeline layers, NOT OperationCenter violations).
 - RESOLVED 2026-07-04: `TaxTriagePipeline` now fails closed if `taxtriage-result.json`
   or run provenance cannot be saved. Source-policy and fake-runtime tests prevent returning
   a successful scientific workflow result after durable result/provenance sidecars are missing.
-- `ONTBarcodeDemuxGenotypingPipeline` heredoc extraction (noted above) is the parallel move.
+- RESOLVED 2026-07-04: `ONTBarcodeDemuxGenotypingPipeline` heredoc extraction is complete;
+  the moved script payloads were byte-verified and covered by `ONTBarcodeDemuxGenotypingPipelineTests`.
 - `TaxTriagePipeline.swift` (1598L): 4-way actor-extension split, NO promotions (actor
   extensions keep `private` in-module... but across files `private` doesn't span — so any
   cross-file helper needs `internal`; verify per-seam). Test-pinned internals stay internal.

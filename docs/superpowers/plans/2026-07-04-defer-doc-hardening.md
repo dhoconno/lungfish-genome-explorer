@@ -69,8 +69,9 @@ changes that reduce future ambiguity across the codebase.
 - Hardened Core-fallback reference bundle CLI wrappers: `extract contigs --bundle` and
   `bundle create` remove created bundles if final provenance cannot be written, and their
   output records exclude stale provenance sidecars while including final bundle payloads.
-- Embedded script/file splits remained deferred because the reviewed same-batch wins were in
-  provenance/output correctness rather than large mechanical relocation.
+- Extracted `ONTBarcodeDemuxGenotypingPipeline`'s embedded Python payloads into a dedicated
+  scripts extension while preserving the public script-writer APIs and byte-identical script
+  contents.
 
 ## Verification
 
