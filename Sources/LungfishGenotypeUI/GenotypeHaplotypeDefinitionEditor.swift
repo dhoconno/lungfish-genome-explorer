@@ -18,7 +18,6 @@ import LungfishKit
 public struct GenotypeHaplotypeDefinitionEditor: View {
     @State private var draft: GenotypeHaplotypeDefinitionSet
     @State private var selectedLocusIndex: Int = 0
-    @State private var selectedHaplotypeIndex: Int? = nil
     @State private var newAlleleText: String = ""
     let isReadOnly: Bool
     let allowsIdentityEditing: Bool
@@ -667,13 +666,6 @@ public struct GenotypeHaplotypeDefinitionEditor: View {
 }
 
 enum GenotypeHaplotypeDefinitionDrafting {
-    static func withDisplayName(
-        _ set: GenotypeHaplotypeDefinitionSet,
-        name: String
-    ) -> GenotypeHaplotypeDefinitionSet {
-        withDefinitionFields(set, displayName: name)
-    }
-
     static func withDefinitionFields(
         _ set: GenotypeHaplotypeDefinitionSet,
         id: String? = nil,

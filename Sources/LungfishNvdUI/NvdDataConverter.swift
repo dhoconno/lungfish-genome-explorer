@@ -75,17 +75,6 @@ public enum NvdDataConverter {
         return "\(name) (\(formatLength(qlen)))"
     }
 
-    /// Strips the common prefix from an array of sample IDs.
-    ///
-    /// Delegates to `ClassifierSamplePickerView.commonPrefix(of:)` for consistent behavior
-    /// across the sample picker and the result view controller.
-    ///
-    /// - Parameter names: Array of sample ID strings.
-    /// - Returns: The longest common prefix ending at a word boundary.
-    static func commonPrefix(of names: [String]) -> String {
-        ClassifierSamplePickerView.commonPrefix(of: names)
-    }
-
     // MARK: - Private Helpers
 
     /// Formats a base-pair length with comma separators and "bp" suffix.
