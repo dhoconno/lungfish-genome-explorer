@@ -107,7 +107,8 @@ public enum NaoMgsBamMaterializer {
         samtoolsPath: String,
         force: Bool = false,
         markDuplicates: Bool = true,
-        samtoolsVersion: String? = nil
+        samtoolsVersion: String? = nil,
+        lungfishVersion: String = "unknown"
     ) throws -> NaoMgsBamMaterializationResult {
         let fm = FileManager.default
         let bamsDir = resultURL.appendingPathComponent("bams")
@@ -165,6 +166,7 @@ public enum NaoMgsBamMaterializer {
                     bamURL: bamURL,
                     samtoolsPath: samtoolsPath,
                     samtoolsVersion: resolvedSamtoolsVersion,
+                    lungfishVersion: lungfishVersion,
                     databaseURL: databaseURL,
                     createIndex: markDuplicates
                 ) {
@@ -310,6 +312,7 @@ public enum NaoMgsBamMaterializer {
         bamURL: URL,
         samtoolsPath: String,
         samtoolsVersion: String,
+        lungfishVersion: String,
         databaseURL: URL,
         createIndex: Bool
     ) throws -> NaoMgsBamMaterializationStep? {
@@ -587,9 +590,17 @@ public enum NaoMgsBamMaterializer {
 
         let step = NaoMgsBamMaterializationStep(
             sample: sample,
-            toolName: "samtools",
-            toolVersion: samtoolsVersion,
-            argv: ["/bin/sh", "-c", cmd],
+            toolName: "lungfish nao-mgs materialize-bam",
+            toolVersion: lungfishVersion,
+            argv: [
+                "lungfish-internal",
+                "nao-mgs-materialize-bam",
+                "--database", databaseURL.path,
+                "--sample", sample,
+                "--output", bamURL.path,
+                "--samtools", samtoolsPath,
+            ],
+            reproducibleCommand: "lungfish-cli import nao-mgs <source-virus-hits.tsv> --output-dir <output-dir>",
             inputURLs: [databaseURL],
             outputURLs: [bamURL],
             exitStatus: Int(process.terminationStatus),
@@ -692,6 +703,21 @@ public enum NaoMgsBamMaterializer {
             var outputURLs = [bamURL]
             if FileManager.default.fileExists(atPath: baiURL.path) {
                 outputURLs.append(baiURL)
+            }
+            if result.wasAlreadyMarkduped {
+                return NaoMgsBamMaterializationStep(
+                    sample: sample,
+                    toolName: "samtools",
+                    toolVersion: samtoolsVersion,
+                    argv: [samtoolsPath, "view", "-H", bamURL.path],
+                    reproducibleCommand: "\(naoMgsShellEscape(samtoolsPath)) view -H \(naoMgsShellEscape(bamURL.path))",
+                    inputURLs: [bamURL],
+                    outputURLs: outputURLs,
+                    exitStatus: 0,
+                    wallTimeSeconds: result.durationSeconds,
+                    startedAt: startedAt,
+                    completedAt: completedAt
+                )
             }
             return NaoMgsBamMaterializationStep(
                 sample: sample,

@@ -210,11 +210,25 @@ struct MetagenomicsImportServiceTests {
             outputNames: ["manifest.json", "hits.sqlite"]
         )
         if result.createdBAM {
+            let materializationSteps = provenance.steps.filter { $0.toolName == "lungfish nao-mgs materialize-bam" }
+            #expect(!materializationSteps.isEmpty)
+            #expect(materializationSteps.contains { step in
+                step.inputs.contains { descriptor in
+                    descriptor.path == sourceFile.path
+                }
+            })
             let samtoolsSteps = provenance.steps.filter { $0.toolName == "samtools" }
             #expect(!samtoolsSteps.isEmpty)
             #expect(samtoolsSteps.contains { step in
                 step.outputs.contains { descriptor in
                     descriptor.path.hasSuffix(".bam") && descriptor.originPath != nil
+                }
+            })
+            #expect(samtoolsSteps.contains { step in
+                step.inputs.contains { descriptor in
+                    descriptor.path.hasSuffix(".bam")
+                        && descriptor.path.contains("/bams/")
+                        && !descriptor.path.contains(".naomgs-import-staging")
                 }
             })
             #expect(samtoolsSteps.allSatisfy { $0.exitStatus != nil })
@@ -266,6 +280,48 @@ struct MetagenomicsImportServiceTests {
                 "S1.human_virus.fasta",
             ]
         )
+    }
+
+    @Test
+    func nvdImportWithSamtoolsRecordsAuxiliaryProvenanceSteps() async throws {
+        let workspace = makeTemporaryDirectory(prefix: "metagenomics-import-nvd-samtools-")
+        defer { try? FileManager.default.removeItem(at: workspace) }
+
+        let sourceDirectory = try makeNvdRunDirectory(in: workspace)
+        let samtoolsURL = try makeFakeSamtools(in: workspace)
+        let outputDirectory = workspace.appendingPathComponent("imports", isDirectory: true)
+
+        let result = try await MetagenomicsImportService.importNvd(
+            inputURL: sourceDirectory,
+            outputDirectory: outputDirectory,
+            samtoolsPath: samtoolsURL.path
+        )
+
+        #expect(result.markdupBAMCount == 1)
+        #expect(result.uniqueReadRowsUpdated == 1)
+
+        let provenance = try expectImportProvenance(
+            in: result.resultDirectory,
+            workflowName: "lungfish import nvd",
+            inputURLs: [sourceDirectory],
+            outputNames: [
+                "manifest.json",
+                "hits.sqlite",
+                "S1.bam",
+                "S1.bam.bai",
+                "S1.human_virus.fasta",
+            ]
+        )
+        let samtoolsSteps = provenance.steps.filter { $0.toolName == "samtools" }
+        #expect(!samtoolsSteps.isEmpty)
+        #expect(samtoolsSteps.allSatisfy { $0.toolVersion == "samtools fake 1.0" })
+        #expect(samtoolsSteps.contains { $0.argv.first == "/bin/sh" && $0.reproducibleCommand.contains("markdup") })
+        #expect(samtoolsSteps.contains { $0.argv.contains("view") && $0.argv.contains("-c") })
+        #expect(samtoolsSteps.flatMap(\.outputs).contains { $0.path.hasSuffix("hits.sqlite") })
+        #expect(samtoolsSteps.flatMap(\.outputs).allSatisfy { descriptor in
+            descriptor.path.contains(result.resultDirectory.path)
+                && !descriptor.path.contains(".lungfish-nvd-import-")
+        })
     }
 
     @Test
@@ -325,6 +381,55 @@ private func makeNvdRunDirectory(in workspace: URL) throws -> URL {
         encoding: .utf8
     )
     return nvdDir
+}
+
+private func makeFakeSamtools(in workspace: URL) throws -> URL {
+    let samtoolsURL = workspace.appendingPathComponent("fake-samtools")
+    try """
+    #!/bin/sh
+    set -eu
+    command="${1:-}"
+    if [ "$command" = "--version" ]; then
+      echo "samtools fake 1.0"
+      exit 0
+    fi
+    case "$command" in
+      view)
+        if [ "${2:-}" = "-H" ]; then
+          exit 0
+        fi
+        if [ "${2:-}" = "-c" ]; then
+          echo "7"
+          exit 0
+        fi
+        exit 0
+        ;;
+      sort|fixmate)
+        cat >/dev/null || true
+        echo "fake-bam-stream"
+        exit 0
+        ;;
+      markdup)
+        output=""
+        for arg in "$@"; do
+          output="$arg"
+        done
+        cat >/dev/null || true
+        printf "fake markdup bam\\n" > "$output"
+        exit 0
+        ;;
+      index)
+        printf "fake index\\n" > "$2.bai"
+        exit 0
+        ;;
+      *)
+        echo "unsupported fake samtools command: $command" >&2
+        exit 2
+        ;;
+    esac
+    """.write(to: samtoolsURL, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: samtoolsURL.path)
+    return samtoolsURL
 }
 
 private let nvdCSVFixture = """

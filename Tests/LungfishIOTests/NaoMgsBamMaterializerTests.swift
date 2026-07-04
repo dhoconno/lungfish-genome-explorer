@@ -257,8 +257,9 @@ final class NaoMgsBamMaterializerTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: bamURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: bamURL.path + ".bai"))
         XCTAssertFalse(result.steps.isEmpty)
-        XCTAssertTrue(result.steps.allSatisfy { $0.toolName == "samtools" })
-        XCTAssertTrue(result.steps.allSatisfy { $0.toolVersion == "samtools-test" })
+        XCTAssertTrue(result.steps.contains { $0.toolName == "lungfish nao-mgs materialize-bam" })
+        XCTAssertTrue(result.steps.contains { $0.toolName == "samtools" })
+        XCTAssertTrue(result.steps.filter { $0.toolName == "samtools" }.allSatisfy { $0.toolVersion == "samtools-test" })
         XCTAssertTrue(result.steps.contains { $0.argv.first == "/bin/sh" && $0.argv.contains("-c") })
         XCTAssertTrue(result.steps.contains { $0.reproducibleCommand.contains("samtools") })
         XCTAssertTrue(result.steps.contains { step in

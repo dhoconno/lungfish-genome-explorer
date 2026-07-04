@@ -692,20 +692,30 @@ public enum MetagenomicsImportService {
 
             var markdupBAMCount = 0
             var uniqueReadRowsUpdated = 0
+            var auxiliarySamtoolsSteps: [NvdAuxiliaryStep] = []
             if let samtoolsPath, !copiedBAMs.bamURLs.isEmpty {
+                let samtoolsVersion = metagenomicsExternalToolVersion(executablePath: samtoolsPath)
                 progress?(0.72, "Marking duplicate reads...")
                 let markdupResults = try MarkdupService.markdupDirectory(
                     bamDirectory,
                     samtoolsPath: samtoolsPath
                 )
                 markdupBAMCount = markdupResults.filter { !$0.wasAlreadyMarkduped }.count
+                auxiliarySamtoolsSteps.append(contentsOf: nvdMarkdupAuxiliarySteps(
+                    from: markdupResults,
+                    samtoolsPath: samtoolsPath,
+                    samtoolsVersion: samtoolsVersion
+                ))
 
                 progress?(0.78, "Counting unique reads...")
-                uniqueReadRowsUpdated = nvdPopulateUniqueReads(
+                let uniqueReadResult = nvdPopulateUniqueReads(
                     dbPath: databaseURL.path,
                     bundleDir: stagingDirectory,
-                    samtoolsPath: samtoolsPath
+                    samtoolsPath: samtoolsPath,
+                    samtoolsVersion: samtoolsVersion
                 )
+                uniqueReadRowsUpdated = uniqueReadResult.updatedRows
+                auxiliarySamtoolsSteps.append(contentsOf: uniqueReadResult.steps)
             }
 
             progress?(0.82, "Copying NVD FASTA files...")
@@ -772,7 +782,12 @@ public enum MetagenomicsImportService {
                 ],
                 startedAt: startedAt,
                 workflowName: provenanceWorkflowName,
-                toolName: provenanceToolName
+                toolName: provenanceToolName,
+                additionalSteps: try nvdAuxiliaryProvenanceSteps(
+                    from: auxiliarySamtoolsSteps,
+                    stagingRoot: stagingDirectory,
+                    publishedRoot: finalDirectory
+                )
             )
 
             guard !fm.fileExists(atPath: finalDirectory.path) else {
@@ -1133,7 +1148,8 @@ public enum MetagenomicsImportService {
             let materialized = try NaoMgsBamMaterializer.materializeAllWithProvenance(
                 dbPath: hitsDBURL.path,
                 resultURL: stageDir,
-                samtoolsPath: samtoolsPath
+                samtoolsPath: samtoolsPath,
+                lungfishVersion: WorkflowRun.currentAppVersion
             )
             let generated = materialized.bamURLs
             materializationSteps.append(contentsOf: materialized.steps)
@@ -1519,16 +1535,26 @@ private func naoMgsMaterializationProvenanceSteps(
     relocatedOutputs: [String: URL]
 ) throws -> [ProvenanceStep] {
     guard !materializationSteps.isEmpty else { return [] }
-    let inputDescriptors = try metagenomicsInputDescriptors(for: sourceURLs)
+    let sourceInputDescriptors = try metagenomicsInputDescriptors(for: sourceURLs)
     return try materializationSteps.map { step in
+        let inputDescriptors: [ProvenanceFileDescriptor]
+        if step.toolName == "lungfish nao-mgs materialize-bam" {
+            inputDescriptors = sourceInputDescriptors
+        } else {
+            let directInputs = try uniqueProvenanceDescriptors(step.inputURLs.compactMap { inputURL in
+                try naoMgsRelocatedDescriptor(
+                    for: inputURL,
+                    role: .input,
+                    relocatedOutputs: relocatedOutputs
+                )
+            })
+            inputDescriptors = directInputs.isEmpty ? sourceInputDescriptors : directInputs
+        }
         let outputDescriptors = try uniqueProvenanceDescriptors(step.outputURLs.compactMap { outputURL in
-            let finalURL = relocatedNaoMgsOutputURL(for: outputURL, relocatedOutputs: relocatedOutputs)
-            guard FileManager.default.fileExists(atPath: finalURL.path) else { return nil }
-            return try ProvenanceFileDescriptor.file(
-                url: finalURL,
-                format: metagenomicsFileFormat(for: finalURL),
-                role: metagenomicsOutputRole(for: finalURL),
-                originPath: finalURL.path == outputURL.path ? nil : outputURL.path
+            try naoMgsRelocatedDescriptor(
+                for: outputURL,
+                role: metagenomicsOutputRole(for: relocatedNaoMgsOutputURL(for: outputURL, relocatedOutputs: relocatedOutputs)),
+                relocatedOutputs: relocatedOutputs
             )
         })
         return ProvenanceStep(
@@ -1546,6 +1572,21 @@ private func naoMgsMaterializationProvenanceSteps(
             completedAt: step.completedAt
         )
     }
+}
+
+private func naoMgsRelocatedDescriptor(
+    for url: URL,
+    role: FileRole,
+    relocatedOutputs: [String: URL]
+) throws -> ProvenanceFileDescriptor? {
+    let finalURL = relocatedNaoMgsOutputURL(for: url, relocatedOutputs: relocatedOutputs)
+    guard FileManager.default.fileExists(atPath: finalURL.path) else { return nil }
+    return try ProvenanceFileDescriptor.file(
+        url: finalURL,
+        format: metagenomicsFileFormat(for: finalURL),
+        role: role,
+        originPath: finalURL.path == url.path ? nil : url.path
+    )
 }
 
 private func recordNaoMgsOutputRelocation(from sourceURL: URL, to destinationURL: URL, in relocations: inout [String: URL]) {
@@ -2084,17 +2125,101 @@ private func nvdManifest(
     )
 }
 
-private func nvdPopulateUniqueReads(dbPath: String, bundleDir: URL, samtoolsPath: String) -> Int {
+private struct NvdAuxiliaryStep {
+    let toolName: String
+    let toolVersion: String
+    let argv: [String]
+    let reproducibleCommand: String
+    let inputURLs: [URL]
+    let outputURLs: [URL]
+    let exitStatus: Int?
+    let wallTimeSeconds: TimeInterval?
+    let stderr: String?
+    let startedAt: Date?
+    let completedAt: Date?
+}
+
+private struct NvdUniqueReadPopulationResult {
+    let updatedRows: Int
+    let steps: [NvdAuxiliaryStep]
+}
+
+private func nvdMarkdupAuxiliarySteps(
+    from results: [MarkdupResult],
+    samtoolsPath: String,
+    samtoolsVersion: String
+) -> [NvdAuxiliaryStep] {
+    results.map { result in
+        let baiURL = URL(fileURLWithPath: result.bamURL.path + ".bai")
+        var outputURLs = [result.bamURL]
+        if FileManager.default.fileExists(atPath: baiURL.path) {
+            outputURLs.append(baiURL)
+        }
+        let argv: [String]
+        let command: String
+        if result.wasAlreadyMarkduped {
+            argv = [samtoolsPath, "view", "-H", result.bamURL.path]
+            command = argv.map(metagenomicsShellEscape).joined(separator: " ")
+        } else {
+            command = nvdMarkdupReplayCommand(
+                bamURL: result.bamURL,
+                samtoolsPath: samtoolsPath,
+                threads: 4
+            )
+            argv = ["/bin/sh", "-c", command]
+        }
+        return NvdAuxiliaryStep(
+            toolName: "samtools",
+            toolVersion: samtoolsVersion,
+            argv: argv,
+            reproducibleCommand: command,
+            inputURLs: [result.bamURL],
+            outputURLs: outputURLs,
+            exitStatus: 0,
+            wallTimeSeconds: result.durationSeconds,
+            stderr: nil,
+            startedAt: nil,
+            completedAt: nil
+        )
+    }
+}
+
+private func nvdMarkdupReplayCommand(bamURL: URL, samtoolsPath: String, threads: Int) -> String {
+    let tempBamPath = bamURL.path + ".markdup.tmp"
+    let tempBaiPath = tempBamPath + ".bai"
+    let baiPath = bamURL.path + ".bai"
+    let csiPath = bamURL.path + ".csi"
+    let escapedSamtoolsPath = metagenomicsShellEscape(samtoolsPath)
+    return [
+        "\(escapedSamtoolsPath) sort -n -@ \(threads) \(metagenomicsShellEscape(bamURL.path))",
+        "\(escapedSamtoolsPath) fixmate -m - -",
+        "\(escapedSamtoolsPath) sort -@ \(threads) -",
+        "\(escapedSamtoolsPath) markdup - \(metagenomicsShellEscape(tempBamPath))",
+    ].joined(separator: " | ")
+        + " && \(escapedSamtoolsPath) index \(metagenomicsShellEscape(tempBamPath))"
+        + " && rm -f \(metagenomicsShellEscape(baiPath)) \(metagenomicsShellEscape(csiPath))"
+        + " && mv \(metagenomicsShellEscape(tempBamPath)) \(metagenomicsShellEscape(bamURL.path))"
+        + " && mv \(metagenomicsShellEscape(tempBaiPath)) \(metagenomicsShellEscape(baiPath))"
+}
+
+private func nvdPopulateUniqueReads(
+    dbPath: String,
+    bundleDir: URL,
+    samtoolsPath: String,
+    samtoolsVersion: String
+) -> NvdUniqueReadPopulationResult {
     var db: OpaquePointer?
     guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK, let db else {
         sqlite3_close(db)
-        return 0
+        return NvdUniqueReadPopulationResult(updatedRows: 0, steps: [])
     }
     defer { sqlite3_close(db) }
 
     let selectSQL = "SELECT rowid, sample_id, sseqid FROM blast_hits"
     var selectStmt: OpaquePointer?
-    guard sqlite3_prepare_v2(db, selectSQL, -1, &selectStmt, nil) == SQLITE_OK else { return 0 }
+    guard sqlite3_prepare_v2(db, selectSQL, -1, &selectStmt, nil) == SQLITE_OK else {
+        return NvdUniqueReadPopulationResult(updatedRows: 0, steps: [])
+    }
     defer { sqlite3_finalize(selectStmt) }
 
     struct Row { let rowid: Int64; let sampleId: String; let sseqid: String }
@@ -2113,11 +2238,15 @@ private func nvdPopulateUniqueReads(dbPath: String, bundleDir: URL, samtoolsPath
         ))
         step = sqlite3_step(selectStmt)
     }
-    guard step == SQLITE_DONE, !rows.isEmpty else { return 0 }
+    guard step == SQLITE_DONE, !rows.isEmpty else {
+        return NvdUniqueReadPopulationResult(updatedRows: 0, steps: [])
+    }
 
     let sampleSQL = "SELECT sample_id, bam_path FROM samples"
     var sampleStmt: OpaquePointer?
-    guard sqlite3_prepare_v2(db, sampleSQL, -1, &sampleStmt, nil) == SQLITE_OK else { return 0 }
+    guard sqlite3_prepare_v2(db, sampleSQL, -1, &sampleStmt, nil) == SQLITE_OK else {
+        return NvdUniqueReadPopulationResult(updatedRows: 0, steps: [])
+    }
     defer { sqlite3_finalize(sampleStmt) }
 
     var bamBySample: [String: URL] = [:]
@@ -2131,16 +2260,24 @@ private func nvdPopulateUniqueReads(dbPath: String, bundleDir: URL, samtoolsPath
         bamBySample[String(cString: samplePtr)] = bundleDir.appendingPathComponent(String(cString: bamPtr))
         step = sqlite3_step(sampleStmt)
     }
-    guard step == SQLITE_DONE, !bamBySample.isEmpty else { return 0 }
+    guard step == SQLITE_DONE, !bamBySample.isEmpty else {
+        return NvdUniqueReadPopulationResult(updatedRows: 0, steps: [])
+    }
 
     let updateSQL = "UPDATE blast_hits SET unique_reads = ? WHERE rowid = ?"
     var updateStmt: OpaquePointer?
-    guard sqlite3_prepare_v2(db, updateSQL, -1, &updateStmt, nil) == SQLITE_OK else { return 0 }
+    guard sqlite3_prepare_v2(db, updateSQL, -1, &updateStmt, nil) == SQLITE_OK else {
+        return NvdUniqueReadPopulationResult(updatedRows: 0, steps: [])
+    }
     defer { sqlite3_finalize(updateStmt) }
 
-    guard sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, nil) == SQLITE_OK else { return 0 }
+    guard sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, nil) == SQLITE_OK else {
+        return NvdUniqueReadPopulationResult(updatedRows: 0, steps: [])
+    }
     var cache: [String: Int] = [:]
     var updated = 0
+    var steps: [NvdAuxiliaryStep] = []
+    let databaseURL = URL(fileURLWithPath: dbPath)
     for row in rows {
         guard let bamURL = bamBySample[row.sampleId],
               FileManager.default.fileExists(atPath: bamURL.path) else { continue }
@@ -2150,12 +2287,16 @@ private func nvdPopulateUniqueReads(dbPath: String, bundleDir: URL, samtoolsPath
         if let cached = cache[cacheKey] {
             unique = cached
         } else {
-            guard let counted = try? MarkdupService.countReads(
+            let countResult = nvdCountReadsWithTelemetry(
                 bamURL: bamURL,
                 accession: row.sseqid,
                 flagFilter: 0x404,
-                samtoolsPath: samtoolsPath
-            ) else {
+                samtoolsPath: samtoolsPath,
+                samtoolsVersion: samtoolsVersion,
+                databaseURL: databaseURL
+            )
+            steps.append(countResult.step)
+            guard let counted = countResult.count else {
                 continue
             }
             cache[cacheKey] = counted
@@ -2172,9 +2313,175 @@ private func nvdPopulateUniqueReads(dbPath: String, bundleDir: URL, samtoolsPath
 
     if sqlite3_exec(db, "COMMIT", nil, nil, nil) != SQLITE_OK {
         sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
-        return 0
+        return NvdUniqueReadPopulationResult(updatedRows: 0, steps: steps)
     }
-    return updated
+    return NvdUniqueReadPopulationResult(updatedRows: updated, steps: steps)
+}
+
+private func nvdCountReadsWithTelemetry(
+    bamURL: URL,
+    accession: String,
+    flagFilter: Int,
+    samtoolsPath: String,
+    samtoolsVersion: String,
+    databaseURL: URL
+) -> (count: Int?, step: NvdAuxiliaryStep) {
+    let startedAt = Date()
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: samtoolsPath)
+    let argv = [samtoolsPath, "view", "-c", "-F", String(flagFilter), bamURL.path, accession]
+    process.arguments = Array(argv.dropFirst())
+    let stdout = Pipe()
+    let stderr = Pipe()
+    process.standardOutput = stdout
+    process.standardError = stderr
+
+    do {
+        try process.run()
+    } catch {
+        let completedAt = Date()
+        return (
+            nil,
+            NvdAuxiliaryStep(
+                toolName: "samtools",
+                toolVersion: samtoolsVersion,
+                argv: argv,
+                reproducibleCommand: argv.map(metagenomicsShellEscape).joined(separator: " "),
+                inputURLs: [bamURL],
+                outputURLs: [],
+                exitStatus: 1,
+                wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+                stderr: error.localizedDescription,
+                startedAt: startedAt,
+                completedAt: completedAt
+            )
+        )
+    }
+
+    let outputData = stdout.fileHandleForReading.readDataToEndOfFile()
+    let stderrData = stderr.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+    let completedAt = Date()
+    let stderrText = String(data: stderrData, encoding: .utf8)?
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let output = String(data: outputData, encoding: .utf8)?
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? "0"
+    let count = process.terminationStatus == 0 ? Int(output) : nil
+    return (
+        count,
+        NvdAuxiliaryStep(
+            toolName: "samtools",
+            toolVersion: samtoolsVersion,
+            argv: argv,
+            reproducibleCommand: argv.map(metagenomicsShellEscape).joined(separator: " "),
+            inputURLs: [bamURL],
+            outputURLs: count == nil ? [] : [databaseURL],
+            exitStatus: Int(process.terminationStatus),
+            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            stderr: stderrText.isEmpty ? nil : stderrText,
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+    )
+}
+
+private func nvdAuxiliaryProvenanceSteps(
+    from auxiliarySteps: [NvdAuxiliaryStep],
+    stagingRoot: URL,
+    publishedRoot: URL
+) throws -> [ProvenanceStep] {
+    try auxiliarySteps.map { step in
+        let inputs = try uniqueProvenanceDescriptors(step.inputURLs.compactMap { inputURL in
+            try nvdReportedDescriptor(
+                for: inputURL,
+                role: .input,
+                stagingRoot: stagingRoot,
+                publishedRoot: publishedRoot
+            )
+        })
+        let outputs = try uniqueProvenanceDescriptors(step.outputURLs.compactMap { outputURL in
+            try nvdReportedDescriptor(
+                for: outputURL,
+                role: metagenomicsOutputRole(for: outputURL),
+                stagingRoot: stagingRoot,
+                publishedRoot: publishedRoot
+            )
+        })
+        return ProvenanceStep(
+            toolName: step.toolName,
+            toolVersion: step.toolVersion,
+            argv: step.argv,
+            durableReplayArgv: step.argv,
+            reproducibleCommand: step.reproducibleCommand,
+            inputs: inputs,
+            outputs: outputs,
+            exitStatus: step.exitStatus,
+            wallTimeSeconds: step.wallTimeSeconds,
+            stderr: step.stderr,
+            startedAt: step.startedAt,
+            completedAt: step.completedAt
+        )
+    }
+}
+
+private func nvdReportedDescriptor(
+    for url: URL,
+    role: FileRole,
+    stagingRoot: URL,
+    publishedRoot: URL
+) throws -> ProvenanceFileDescriptor? {
+    guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+    let reportedURL = nvdPublishedURL(for: url, stagingRoot: stagingRoot, publishedRoot: publishedRoot)
+    return ProvenanceFileDescriptor(
+        path: reportedURL.path,
+        checksumSHA256: try ProvenanceFileHasher.sha256(of: url),
+        fileSize: try ProvenanceFileHasher.fileSize(of: url),
+        format: metagenomicsFileFormat(for: reportedURL),
+        role: role,
+        originPath: reportedURL.path == url.path ? nil : url.path
+    )
+}
+
+private func nvdPublishedURL(for url: URL, stagingRoot: URL, publishedRoot: URL) -> URL {
+    let stagingPath = stagingRoot.standardizedFileURL.path
+    let path = url.standardizedFileURL.path
+    guard path == stagingPath || path.hasPrefix(stagingPath + "/") else {
+        return url
+    }
+    let relativePath = String(path.dropFirst(stagingPath.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    guard !relativePath.isEmpty else { return publishedRoot }
+    return publishedRoot.appendingPathComponent(relativePath)
+}
+
+private func metagenomicsExternalToolVersion(executablePath: String) -> String {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: executablePath)
+    process.arguments = ["--version"]
+    let pipe = Pipe()
+    process.standardOutput = pipe
+    process.standardError = pipe
+    do {
+        try process.run()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        let output = String(data: data, encoding: .utf8) ?? ""
+        if let firstLine = output.split(separator: "\n").first {
+            return String(firstLine).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    } catch {
+        logger.warning("Could not detect external tool version for \(executablePath, privacy: .public): \(error.localizedDescription, privacy: .public)")
+    }
+    return "unknown"
+}
+
+private func metagenomicsShellEscape(_ value: String) -> String {
+    if value.isEmpty { return "''" }
+    let safeCharacters = CharacterSet.alphanumerics
+        .union(CharacterSet(charactersIn: "-_./:=@+,"))
+    if value.unicodeScalars.allSatisfy({ safeCharacters.contains($0) }) {
+        return value
+    }
+    return "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
 }
 
 private func scanRegularFilesRecursively(in directory: URL) -> [URL] {
