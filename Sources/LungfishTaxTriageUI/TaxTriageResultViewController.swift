@@ -204,12 +204,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Maps accessions → mapped read count from `samtools idxstats`.
     private var accessionMappedReadCounts: [String: Int] = [:]
 
-    /// Optional downloaded reference FASTA from TaxTriage output.
-    private var referenceFastaURL: URL?
-
-    /// Cached accession → reference sequence map loaded from `referenceFastaURL`.
-    private var referenceSequenceCache: [String: String] = [:]
-
     /// Cached normalized organism name → deduplicated read count.
     private var deduplicatedReadCounts: [String: Int] = [:]
 
@@ -997,20 +991,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     }
 
 
-    // MARK: - Sample Extraction
-
-    /// Extracts distinct sample identifiers from metrics, preserving discovery order.
-    private func extractSampleIds(from metrics: [TaxTriageMetric]) -> [String] {
-        var seen = Set<String>()
-        var ordered: [String] = []
-        for metric in metrics {
-            if let sample = metric.sample, !sample.isEmpty, seen.insert(sample).inserted {
-                ordered.append(sample)
-            }
-        }
-        return ordered
-    }
-
     // MARK: - CSV Metadata Labels
 
     /// Builds sample display labels from CSV metadata in each source bundle.
@@ -1436,113 +1416,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     }
 
 
-    /// Sets up the NSTabView with Report and Krona tabs.
-    // MARK: - Top Report Parser
-
-    /// Parses preferred confidence/organism reports in deterministic order.
-    private func parsePreferredConfidenceMetrics(from result: TaxTriageResult) -> [TaxTriageMetric] {
-        let files = result.allOutputFiles
-            .filter { TaxTriageOutputArtifactPolicy.isRetainedOutputFile($0, outputDirectory: result.config.outputDirectory) }
-            .sorted { $0.path < $1.path }
-
-        let preferred = files.filter {
-            $0.lastPathComponent == "multiqc_confidences.txt"
-                || $0.lastPathComponent.hasSuffix(".organisms.report.txt")
-        }
-
-        var parsed: [TaxTriageMetric] = []
-        for url in preferred {
-            if let metrics = try? TaxTriageMetricsParser.parse(url: url), !metrics.isEmpty {
-                logger.info("Parsed \(metrics.count) TaxTriage metrics from \(url.lastPathComponent, privacy: .public)")
-                parsed.append(contentsOf: metrics)
-            } else {
-                logger.warning("Failed to parse TaxTriage metrics from \(url.lastPathComponent, privacy: .public)")
-            }
-        }
-        if parsed.isEmpty {
-            logger.info("No preferred TaxTriage confidence metrics found in output files")
-        }
-        return parsed
-    }
-
-    /// Deduplicates metrics per (organism, sample) pair, keeping the highest TASS.
-    ///
-    /// Multi-sample runs produce overlapping files (multiqc_confidences.txt +
-    /// per-sample .organisms.report.txt) that contain the same data. This removes
-    /// true duplicates while preserving distinct per-sample entries.
-    private func deduplicatePerOrganismSample(_ metrics: [TaxTriageMetric]) -> [TaxTriageMetric] {
-        var seen = Set<String>()
-        var deduped: [TaxTriageMetric] = []
-        for metric in metrics.sorted(by: { $0.tassScore > $1.tassScore }) {
-            let orgKey = normalizedOrganismName(metric.organism)
-            let sampleKey = metric.sample ?? ""
-            let compositeKey = "\(orgKey)\t\(sampleKey)"
-            guard !seen.contains(compositeKey) else { continue }
-            seen.insert(compositeKey)
-            deduped.append(metric)
-        }
-        return deduped
-    }
-
-    /// Deduplicates metrics per organism (ignoring sample), keeping the highest TASS.
-    ///
-    /// Used for the merged "All Samples" organism list where each organism
-    /// appears once with its best score across all samples.
-    private func deduplicatedMetrics(_ metrics: [TaxTriageMetric]) -> [TaxTriageMetric] {
-        var seen = Set<String>()
-        var deduped: [TaxTriageMetric] = []
-        for metric in metrics.sorted(by: { $0.tassScore > $1.tassScore }) {
-            let key = normalizedOrganismName(metric.organism)
-            guard !seen.contains(key) else { continue }
-            seen.insert(key)
-            deduped.append(metric)
-        }
-        return deduped
-    }
-
-    /// Parses the TaxTriage top_report.tsv into TaxTriageOrganism objects.
-    ///
-    /// The top_report.tsv has columns:
-    /// `abundance, clade_fragments_covered, number_fragments_assigned, rank, taxid, name`
-    private func parseTopReport(url: URL) -> [TaxTriageOrganism] {
-        guard let content = try? String(contentsOf: url, encoding: .utf8) else { return [] }
-
-        let lines = content.components(separatedBy: .newlines)
-        guard lines.count > 1 else { return [] }
-
-        var organisms: [TaxTriageOrganism] = []
-
-        for line in lines.dropFirst() {  // Skip header
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard !trimmed.isEmpty else { continue }
-
-            let cols = trimmed.components(separatedBy: "\t")
-            guard cols.count >= 6 else { continue }
-
-            let abundance = Double(cols[0]) ?? 0
-            let cladeReads = Int(Double(cols[1]) ?? 0)
-            let rank = cols[3]
-            let taxId = Int(cols[4])
-            let name = cols[5].trimmingCharacters(in: .whitespacesAndNewlines)
-
-            let organism = TaxTriageOrganism(
-                name: name,
-                score: abundance,
-                reads: cladeReads,
-                coverage: nil,
-                taxId: taxId,
-                rank: rank
-            )
-            organisms.append(organism)
-        }
-
-        // Sort by clade reads descending
-        organisms.sort { $0.reads > $1.reads }
-
-        logger.info("Parsed \(organisms.count) organisms from \(url.lastPathComponent)")
-        return organisms
-    }
-
     typealias OrganismAccessionMap = [String: [String]]
     typealias TaxIDAccessionMap = [Int: [String]]
 
@@ -1825,53 +1698,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         let denominator = max(lhsTokens.count, rhsTokens.count)
         guard denominator > 0 else { return 0 }
         return Double(intersection) / Double(denominator)
-    }
-
-    private func referenceSequence(for accession: String) -> String? {
-        if referenceSequenceCache.isEmpty {
-            loadReferenceSequenceCache()
-        }
-        return referenceSequenceCache[accession]
-    }
-
-    private func loadReferenceSequenceCache() {
-        guard referenceSequenceCache.isEmpty else { return }
-        guard let fastaURL = referenceFastaURL else { return }
-        guard let content = try? String(contentsOf: fastaURL, encoding: .utf8) else {
-            logger.warning("Failed to load reference FASTA: \(fastaURL.lastPathComponent, privacy: .public)")
-            return
-        }
-
-        var cache: [String: String] = [:]
-        var currentAccession: String?
-        var sequenceBuffer = ""
-
-        for rawLine in content.components(separatedBy: .newlines) {
-            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !line.isEmpty else { continue }
-
-            if line.hasPrefix(">") {
-                if let accession = currentAccession, !sequenceBuffer.isEmpty {
-                    cache[accession] = sequenceBuffer
-                }
-                sequenceBuffer = ""
-                let header = String(line.dropFirst())
-                let accession = header
-                    .split(whereSeparator: { $0.isWhitespace })
-                    .first
-                    .map(String.init)
-                currentAccession = accession
-            } else {
-                sequenceBuffer.append(line.uppercased())
-            }
-        }
-
-        if let accession = currentAccession, !sequenceBuffer.isEmpty {
-            cache[accession] = sequenceBuffer
-        }
-
-        referenceSequenceCache = cache
-        logger.info("Loaded \(cache.count) reference sequences from \(fastaURL.lastPathComponent, privacy: .public)")
     }
 
     private static func deduplicatedReadCount(from reads: [AlignedRead]) -> Int {
