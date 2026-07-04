@@ -137,8 +137,6 @@ final class BAMVariantCallingDialogState {
         switch selectedToolAvailability {
         case .available:
             break
-        case .comingSoon:
-            return "\(selectedToolDisplayName) is coming soon."
         case .disabled(let reason):
             return reason
         }
