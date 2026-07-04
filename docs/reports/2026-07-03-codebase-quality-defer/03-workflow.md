@@ -252,6 +252,57 @@ Reinforces the statement-level-clean finding: only 2 of 28 files had a safe appl
   `import LungfishCore` with no qualified use, but symbols may resolve transitively -> import
   removal not provable without a compile -> deferred.
 
+## Small-file tier sweep (185 files <500L, 5 directory-scoped coverage audits) — 2 applies, rest clean
+
+COMPLETES Phase 3 audit coverage (all 272 Workflow files audited). Uniformly clean:
+only 2 of 185 small files had a provably-safe apply.
+
+### Applied (fifth Workflow batch)
+- `ProvenanceWriter.swift`: dead private `ProvenanceStep.replacingOutputDescriptors`
+  (~450) — grep-verified zero callers; private extension method, not a Codable/protocol
+  member; sibling `replacingOutputs` (used) kept.
+- `AIHaplotypingRunContext.swift`: `region(for:)` (~155) no-op conditional collapse — both
+  ternary/if arms returned `locus` unconditionally -> single-expression body. Provably
+  behavior-identical.
+
+### More TRAPS caught (do NOT touch) — the sweep's main deliverable
+- `WorkflowLibraryStore.shellEscape` (private) shadows the module `ShellUtilities.shellEscape`
+  but is NON-equivalent (private safe-set includes `%`, module one doesn't). Do NOT dedup.
+- Test-pinned "ForTesting"/DI members across the layer: `OrientConfig.vsearchArgumentsForTesting`
+  (PUBLIC, consumed by LungfishCLITests), `NFCoreSupportedWorkflowCatalog.{firstWave,
+  legacyWorkflows,futureCustomInterfaceWorkflows}`, many internal `init(...trackIDProvider:/
+  metadataAppender:/metadataCollector:)` DI overloads in Alignment services, and numerous
+  internal `static` parse helpers consumed cross-file + @testable. NONE removable/tightenable.
+- Hand-enumerated JSON-schema arrays (`AIHaplotypingResultSchema.aiCallStateRawValues` etc.):
+  do NOT "simplify" to `allCases.map(\.rawValue)` — order/membership is an on-wire contract.
+- `RecipeRegistryV2` deliberately named to avoid collision with LungfishIO's legacy
+  `RecipeRegistry` (identical-but-distinct namespaces).
+- Cross-file byte-identical private helpers (`directoryChecksum`/`directorySize`,
+  `relativePath`/`appendUnique`, `decompressGzipPrefix` with DIFFERENT buffer sizes):
+  distinct types in distinct files -> NOT intra-file-dedup-able, and some behaviorally diverge.
+- Always-empty-but-provenance-wired fields (`BundleContainerExportResult.provenanceURL`,
+  `GeneiousImportCollectionService.decodedFASTAURLs`, `AssemblyProvenance.advancedOptions`).
+- Defensive exhaustive `.sam` switch case in `PreparedAlignmentAttachmentService`
+  (unreachable because `validateSupportedFormat` rejects `.sam` first — NEVER-SAM upheld).
+- `GATKCommandBuilder.jointGenotypingCommands` `.auto` recursion bomb (unreachable).
+- `IVarCodonMerger` `_ = positions` deliberate placeholder ("retained for future codon-
+  position annotation") — not removed.
+
+### NEVER-SAM invariant: verified upheld module-wide
+All alignment/variant pipelines convert to sorted+indexed BAM and delete intermediate SAM;
+the only `.sam` files found are converted intermediates (`<sample>.raw.sam`,
+`aligned.sam`) or header-scratch for `samtools reheader` / genotyping-scoring
+(clusters-vs-reference) — none are persisted alignment artifacts.
+
+## Phase 3 (LungfishWorkflow) — audit COMPLETE
+
+272/272 files audited. Applied: 5 committed batches totaling ~11 provably-safe items
+(dead-code removals, 2 access tightens, 1 identical-branch collapse, 1 no-op collapse),
+~430 lines net removed. The layer is statement-level clean; ALL substantial quality value
+is in the DEFERRED file splits (14 large files >1000L catalogued above with per-seam
+promotion lists — each its own reviewed relocation pass for the downstream LLM). Rich trap
+inventory recorded so a future pass does not misfire on look-like-cleanup non-edits.
+
 ## Deferred items (later batches)
 
-_(populated per batch as uncertain changes are reverted)_
+_(none reverted — all applied items were provably safe and verified green)_

@@ -446,22 +446,4 @@ private extension ProvenanceStep {
             completedAt: completedAt
         )
     }
-
-    func replacingOutputDescriptors(_ replacementsByPath: [String: ProvenanceFileDescriptor]) -> ProvenanceStep {
-        ProvenanceStep(
-            id: id,
-            toolName: toolName,
-            toolVersion: toolVersion,
-            argv: argv,
-            reproducibleCommand: reproducibleCommand,
-            inputs: inputs,
-            outputs: outputs.map { replacementsByPath[$0.path] ?? $0 },
-            exitStatus: exitStatus,
-            wallTimeSeconds: wallTimeSeconds,
-            stderr: stderr,
-            dependsOn: dependsOn,
-            startedAt: startedAt,
-            completedAt: completedAt
-        )
-    }
 }
