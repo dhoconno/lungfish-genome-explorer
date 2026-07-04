@@ -2911,21 +2911,29 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         guard let searchIndex else { return }
         guard !idsByTrack.isEmpty else { return }
         guard canWriteVariantDatabaseOutputs(workflowName: "Variant deletion") else { return }
+        guard let bundleURL = variantDatabaseBundleURL(from: searchIndex) else {
+            annotationDrawerLogger.error("performVariantDeletion: Could not resolve enclosing variant bundle for provenance")
+            return
+        }
 
-        let handlesByTrack = Dictionary(uniqueKeysWithValues: searchIndex.variantDatabaseHandles.map { ($0.trackId, $0.db) })
-        var deletedCount = 0
-
-        for (trackId, ids) in idsByTrack {
-            guard let db = handlesByTrack[trackId] else {
-                annotationDrawerLogger.warning("performVariantDeletion: No variant database handle for track '\(trackId, privacy: .public)'")
-                continue
-            }
-            do {
-                let rwDB = try VariantDatabase(url: db.databaseURL, readWrite: true)
-                deletedCount += try rwDB.deleteVariants(ids: ids)
-            } catch {
-                annotationDrawerLogger.error("performVariantDeletion[\(trackId, privacy: .public)]: \(error.localizedDescription)")
-            }
+        let targets = searchIndex.variantDatabaseHandles.map {
+            VariantDeletionMutationTarget(
+                trackId: $0.trackId,
+                databaseURL: $0.db.databaseURL,
+                trackName: searchIndex.variantTrackName(for: $0.trackId)
+            )
+        }
+        let deletedCount: Int
+        do {
+            let result = try VariantDeletionMutationService().deleteVariants(
+                idsByTrack: idsByTrack,
+                bundleURL: bundleURL,
+                targets: targets
+            )
+            deletedCount = result.totalDeleted
+        } catch {
+            annotationDrawerLogger.error("performVariantDeletion: \(error.localizedDescription)")
+            return
         }
 
         if deletedCount > 0 {
@@ -2939,15 +2947,28 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
     private func performDeleteAllVariants() {
         guard let searchIndex else { return }
         guard canWriteVariantDatabaseOutputs(workflowName: "Variant deletion") else { return }
+        guard let bundleURL = variantDatabaseBundleURL(from: searchIndex) else {
+            annotationDrawerLogger.error("performDeleteAllVariants: Could not resolve enclosing variant bundle for provenance")
+            return
+        }
 
-        var deletedCount = 0
-        for (_, db) in searchIndex.variantDatabaseHandles {
-            do {
-                let rwDB = try VariantDatabase(url: db.databaseURL, readWrite: true)
-                deletedCount += try rwDB.deleteAllVariants()
-            } catch {
-                annotationDrawerLogger.error("performDeleteAllVariants: \(error.localizedDescription)")
-            }
+        let targets = searchIndex.variantDatabaseHandles.map {
+            VariantDeletionMutationTarget(
+                trackId: $0.trackId,
+                databaseURL: $0.db.databaseURL,
+                trackName: searchIndex.variantTrackName(for: $0.trackId)
+            )
+        }
+        let deletedCount: Int
+        do {
+            let result = try VariantDeletionMutationService().deleteAllVariants(
+                bundleURL: bundleURL,
+                targets: targets
+            )
+            deletedCount = result.totalDeleted
+        } catch {
+            annotationDrawerLogger.error("performDeleteAllVariants: \(error.localizedDescription)")
+            return
         }
 
         if deletedCount > 0 {

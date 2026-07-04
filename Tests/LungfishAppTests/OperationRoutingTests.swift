@@ -476,6 +476,7 @@ final class OperationRoutingTests: XCTestCase {
             in: source
         )
         XCTAssertTrue(deleteBody.contains("canWriteVariantDatabaseOutputs(workflowName: \"Variant deletion\")"))
+        XCTAssertTrue(deleteBody.contains("VariantDeletionMutationService().deleteVariants"))
 
         let deleteAllBody = try sourceFunctionBody(
             named: "private func performDeleteAllVariants",
@@ -483,6 +484,7 @@ final class OperationRoutingTests: XCTestCase {
             in: source
         )
         XCTAssertTrue(deleteAllBody.contains("canWriteVariantDatabaseOutputs(workflowName: \"Variant deletion\")"))
+        XCTAssertTrue(deleteAllBody.contains("VariantDeletionMutationService().deleteAllVariants"))
 
         let importBody = try sourceFunctionBody(
             named: "@objc private func importMetadataAction",
