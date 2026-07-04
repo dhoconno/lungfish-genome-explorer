@@ -770,6 +770,37 @@ final class BuildDbCommandTests: XCTestCase {
                       "classification-result.json should be preserved")
         XCTAssertTrue(fm.fileExists(atPath: resultDir.appendingPathComponent("kraken2.sqlite").path),
                       "kraken2.sqlite should be preserved")
+
+        let provenance = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: resultDir))
+        let provenanceOutputPaths = Set(provenance.outputs.map { URL(fileURLWithPath: $0.path).standardizedFileURL.path })
+        XCTAssertTrue(provenanceOutputPaths.contains(compressedOutput.standardizedFileURL.path))
+        XCTAssertTrue(provenanceOutputPaths.contains(retainedIndex.standardizedFileURL.path))
+    }
+
+    func testKraken2CleanupFallbackRecordsRetainedRawOutputProvenance() async throws {
+        let tmpDir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let fixtureDir = findFixtureDir("kraken2-mini")
+        let resultDir = tmpDir.appendingPathComponent("kraken2")
+        try FileManager.default.copyItem(at: fixtureDir, to: resultDir)
+
+        let sampleDir = resultDir.appendingPathComponent("SRR35517702")
+        let rawOutput = sampleDir.appendingPathComponent("classification.kraken")
+        try "not a kraken per-read record\n".write(to: rawOutput, atomically: true, encoding: .utf8)
+
+        let cmd = try BuildDbCommand.Kraken2Subcommand.parse([resultDir.path, "-q"])
+        try await cmd.run()
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: rawOutput.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: rawOutput.appendingPathExtension("gz").path))
+
+        let provenance = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: resultDir))
+        let provenanceOutputPaths = Set(provenance.outputs.map { URL(fileURLWithPath: $0.path).standardizedFileURL.path })
+        XCTAssertTrue(provenanceOutputPaths.contains(rawOutput.standardizedFileURL.path))
+
+        let rawSidecar = ProvenanceRecorder.fileSidecarURL(for: rawOutput.standardizedFileURL)
+        XCTAssertNotNil(ProvenanceRecorder.loadEnvelope(fromSidecar: rawSidecar))
     }
 
     /// Verifies that --no-cleanup preserves all intermediate directories.
@@ -827,5 +858,21 @@ final class BuildDbCommandTests: XCTestCase {
                 "Unexpected error: \(error.localizedDescription)"
             )
         }
+
+        let dbURL = resultDir.appendingPathComponent("taxtriage.sqlite")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: dbURL.path))
+
+        let provenance = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: resultDir))
+        XCTAssertEqual(provenance.exitStatus, 1)
+        XCTAssertTrue(provenance.stderr?.contains("Managed samtools is required") == true)
+        XCTAssertEqual(provenance.options.resolvedDefaults["samtoolsAvailable"]?.booleanValue, false)
+        XCTAssertTrue(provenance.outputs.contains {
+            URL(fileURLWithPath: $0.path).standardizedFileURL.path == dbURL.standardizedFileURL.path
+                && $0.checksumSHA256 != nil
+        })
+        let dbSidecar = try XCTUnwrap(
+            ProvenanceRecorder.loadEnvelope(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: dbURL.standardizedFileURL))
+        )
+        XCTAssertEqual(dbSidecar.exitStatus, 1)
     }
 }

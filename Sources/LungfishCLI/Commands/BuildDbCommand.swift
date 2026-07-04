@@ -307,6 +307,7 @@ extension BuildDbCommand {
         @OptionGroup var globalOptions: GlobalOptions
 
         func run() async throws {
+            let provenanceStartedAt = Date()
             let resultURL = URL(fileURLWithPath: resultDir)
             let dbURL = resultURL.appendingPathComponent("taxtriage.sqlite")
 
@@ -318,55 +319,83 @@ extension BuildDbCommand {
                 return
             }
 
-            // 1. Locate a supported taxonomy report
-            let resolvedInput = try resolveTaxonomyRows(resultURL: resultURL)
-            let rows = resolvedInput.rows
-            let accessionMap = resolvedInput.accessionMap
+            let provenanceInputs = BuildDbCommand.buildDbInputRecords(tool: .taxTriage, resultURL: resultURL)
 
-            if !globalOptions.quiet {
-                print("Parsed \(rows.count) taxonomy rows, \(accessionMap.count) accession entries from \(resolvedInput.sourceDescription)")
-            }
+            do {
+                // 1. Locate a supported taxonomy report
+                let resolvedInput = try resolveTaxonomyRows(resultURL: resultURL)
+                let rows = resolvedInput.rows
+                let accessionMap = resolvedInput.accessionMap
 
-            // 3. Build database
-            let metadata: [String: String] = [
-                "tool": "taxtriage",
-                "created_at": ISO8601DateFormatter().string(from: Date()),
-                "source_dir": resultURL.path,
-            ]
+                if !globalOptions.quiet {
+                    print("Parsed \(rows.count) taxonomy rows, \(accessionMap.count) accession entries from \(resolvedInput.sourceDescription)")
+                }
 
-            try TaxTriageDatabase.create(at: dbURL, rows: rows, accessionMap: accessionMap, metadata: metadata) { fraction, msg in
-                if self.globalOptions.outputFormat == .json {
-                    let obj: [String: Any] = ["progress": fraction, "message": msg]
-                    if let data = try? JSONSerialization.data(withJSONObject: obj),
-                       let json = String(data: data, encoding: .utf8) {
-                        FileHandle.standardError.write(Data((json + "\n").utf8))
+                // 3. Build database
+                let metadata: [String: String] = [
+                    "tool": "taxtriage",
+                    "created_at": ISO8601DateFormatter().string(from: Date()),
+                    "source_dir": resultURL.path,
+                ]
+
+                try TaxTriageDatabase.create(at: dbURL, rows: rows, accessionMap: accessionMap, metadata: metadata) { fraction, msg in
+                    if self.globalOptions.outputFormat == .json {
+                        let obj: [String: Any] = ["progress": fraction, "message": msg]
+                        if let data = try? JSONSerialization.data(withJSONObject: obj),
+                           let json = String(data: data, encoding: .utf8) {
+                            FileHandle.standardError.write(Data((json + "\n").utf8))
+                        }
                     }
                 }
-            }
 
-            if !globalOptions.quiet {
-                print("Built database at \(dbURL.path) with \(rows.count) rows")
-            }
+                if !globalOptions.quiet {
+                    print("Built database at \(dbURL.path) with \(rows.count) rows")
+                }
 
-            // 4. Compute unique reads from BAMs and update DB
-            try updateUniqueReadsInDB(
-                dbPath: dbURL.path,
-                table: "taxonomy_rows",
-                sampleCol: "sample",
-                accessionCol: "primary_accession",
-                bamPathCol: "bam_path",
-                totalReadsCol: "reads_aligned",
-                resultURL: resultURL,
-                bamPathResolver: { resultURL, _, bamRelPath in
-                    // TaxTriage BAM paths are relative to resultURL directly
-                    resultURL.appendingPathComponent(bamRelPath).path
-                },
-                updateAccessionLength: true,
-                quiet: globalOptions.quiet
-            )
+                // 4. Compute unique reads from BAMs and update DB
+                try updateUniqueReadsInDB(
+                    dbPath: dbURL.path,
+                    table: "taxonomy_rows",
+                    sampleCol: "sample",
+                    accessionCol: "primary_accession",
+                    bamPathCol: "bam_path",
+                    totalReadsCol: "reads_aligned",
+                    resultURL: resultURL,
+                    bamPathResolver: { resultURL, _, bamRelPath in
+                        // TaxTriage BAM paths are relative to resultURL directly
+                        resultURL.appendingPathComponent(bamRelPath).path
+                    },
+                    updateAccessionLength: true,
+                    quiet: globalOptions.quiet
+                )
 
-            if !noCleanup {
-                performCleanup(resultURL: resultURL)
+                if !noCleanup {
+                    performCleanup(resultURL: resultURL)
+                }
+
+                try await BuildDbCommand.recordBuildDbProvenance(
+                    tool: .taxTriage,
+                    resultURL: resultURL,
+                    dbURL: dbURL,
+                    force: force,
+                    noCleanup: noCleanup,
+                    globalOptions: globalOptions,
+                    startedAt: provenanceStartedAt,
+                    inputRecords: provenanceInputs
+                )
+            } catch {
+                await BuildDbCommand.recordBuildDbFailureProvenanceIfNeeded(
+                    tool: .taxTriage,
+                    resultURL: resultURL,
+                    dbURL: dbURL,
+                    force: force,
+                    noCleanup: noCleanup,
+                    globalOptions: globalOptions,
+                    startedAt: provenanceStartedAt,
+                    inputRecords: provenanceInputs,
+                    error: error
+                )
+                throw error
             }
         }
 
@@ -1037,6 +1066,7 @@ extension BuildDbCommand {
         @OptionGroup var globalOptions: GlobalOptions
 
         func run() async throws {
+            let provenanceStartedAt = Date()
             let resultURL = URL(fileURLWithPath: resultDir)
             let dbURL = resultURL.appendingPathComponent("esviritu.sqlite")
 
@@ -1048,87 +1078,115 @@ extension BuildDbCommand {
                 return
             }
 
-            // 1. Enumerate sample subdirectories containing detection TSVs
-            let rows = try parseSampleDirectories(resultURL: resultURL)
+            let provenanceInputs = BuildDbCommand.buildDbInputRecords(tool: .esViritu, resultURL: resultURL)
 
-            if !globalOptions.quiet {
-                print("Parsed \(rows.count) detection rows from EsViritu results")
-            }
+            do {
+                // 1. Enumerate sample subdirectories containing detection TSVs
+                let rows = try parseSampleDirectories(resultURL: resultURL)
 
-            // 2. Parse coverage windows from virus_coverage_windows.tsv files
-            var allWindows: [EsVirituCoverageWindow] = []
-            let fm = FileManager.default
-            if let sampleDirs = try? fm.contentsOfDirectory(at: resultURL, includingPropertiesForKeys: [.isDirectoryKey]) {
-                for dir in sampleDirs {
-                    let isDir = (try? dir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-                    guard isDir else { continue }
-                    let sampleName = dir.lastPathComponent
-                    guard !sampleName.hasPrefix(".") else { continue }
+                if !globalOptions.quiet {
+                    print("Parsed \(rows.count) detection rows from EsViritu results")
+                }
 
-                    let cwURL = dir.appendingPathComponent("\(sampleName).virus_coverage_windows.tsv")
-                    if fm.fileExists(atPath: cwURL.path) {
-                        if let parsed = try? EsVirituCoverageParser.parse(url: cwURL) {
-                            let dbWindows = parsed.map { w in
-                                EsVirituCoverageWindow(
-                                    sample: sampleName, accession: w.accession,
-                                    windowIndex: w.windowIndex, windowStart: w.windowStart,
-                                    windowEnd: w.windowEnd, averageCoverage: w.averageCoverage
-                                )
+                // 2. Parse coverage windows from virus_coverage_windows.tsv files
+                var allWindows: [EsVirituCoverageWindow] = []
+                let fm = FileManager.default
+                if let sampleDirs = try? fm.contentsOfDirectory(at: resultURL, includingPropertiesForKeys: [.isDirectoryKey]) {
+                    for dir in sampleDirs {
+                        let isDir = (try? dir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+                        guard isDir else { continue }
+                        let sampleName = dir.lastPathComponent
+                        guard !sampleName.hasPrefix(".") else { continue }
+
+                        let cwURL = dir.appendingPathComponent("\(sampleName).virus_coverage_windows.tsv")
+                        if fm.fileExists(atPath: cwURL.path) {
+                            if let parsed = try? EsVirituCoverageParser.parse(url: cwURL) {
+                                let dbWindows = parsed.map { w in
+                                    EsVirituCoverageWindow(
+                                        sample: sampleName, accession: w.accession,
+                                        windowIndex: w.windowIndex, windowStart: w.windowStart,
+                                        windowEnd: w.windowEnd, averageCoverage: w.averageCoverage
+                                    )
+                                }
+                                allWindows.append(contentsOf: dbWindows)
                             }
-                            allWindows.append(contentsOf: dbWindows)
                         }
                     }
                 }
-            }
 
-            if !globalOptions.quiet {
-                print("Parsed \(allWindows.count) coverage windows from EsViritu results")
-            }
+                if !globalOptions.quiet {
+                    print("Parsed \(allWindows.count) coverage windows from EsViritu results")
+                }
 
-            // 3. Build database
-            let metadata: [String: String] = [
-                "tool": "esviritu",
-                "created_at": ISO8601DateFormatter().string(from: Date()),
-                "source_dir": resultURL.path,
-            ]
+                // 3. Build database
+                let metadata: [String: String] = [
+                    "tool": "esviritu",
+                    "created_at": ISO8601DateFormatter().string(from: Date()),
+                    "source_dir": resultURL.path,
+                ]
 
-            _ = try EsVirituDatabase.create(at: dbURL, rows: rows, coverageWindows: allWindows, metadata: metadata) { fraction, msg in
-                if self.globalOptions.outputFormat == .json {
-                    let obj: [String: Any] = ["progress": fraction, "message": msg]
-                    if let data = try? JSONSerialization.data(withJSONObject: obj),
-                       let json = String(data: data, encoding: .utf8) {
-                        FileHandle.standardError.write(Data((json + "\n").utf8))
+                _ = try EsVirituDatabase.create(at: dbURL, rows: rows, coverageWindows: allWindows, metadata: metadata) { fraction, msg in
+                    if self.globalOptions.outputFormat == .json {
+                        let obj: [String: Any] = ["progress": fraction, "message": msg]
+                        if let data = try? JSONSerialization.data(withJSONObject: obj),
+                           let json = String(data: data, encoding: .utf8) {
+                            FileHandle.standardError.write(Data((json + "\n").utf8))
+                        }
                     }
                 }
-            }
 
-            if !globalOptions.quiet {
-                print("Built database at \(dbURL.path) with \(rows.count) rows")
-            }
+                if !globalOptions.quiet {
+                    print("Built database at \(dbURL.path) with \(rows.count) rows")
+                }
 
-            // 4. Relocate BAMs from <sample>/<sample>_temp/ to <sample>/bams/ so the
-            // resolver in updateUniqueReadsInDB and post-cleanup VC can both find them.
-            relocateEsVirituBAMs(resultURL: resultURL)
+                // 4. Relocate BAMs from <sample>/<sample>_temp/ to <sample>/bams/ so the
+                // resolver in updateUniqueReadsInDB and post-cleanup VC can both find them.
+                relocateEsVirituBAMs(resultURL: resultURL)
 
-            // 5. Compute unique reads from BAMs and update DB
-            try updateUniqueReadsInDB(
-                dbPath: dbURL.path,
-                table: "detection_rows",
-                sampleCol: "sample",
-                accessionCol: "accession",
-                bamPathCol: "bam_path",
-                totalReadsCol: "read_count",
-                resultURL: resultURL,
-                bamPathResolver: { resultURL, _, bamRelPath in
-                    // EsViritu BAM paths are now full relative paths from the result root.
-                    resultURL.appendingPathComponent(bamRelPath).path
-                },
-                updateAccessionLength: false,
-                quiet: globalOptions.quiet
-            )
+                // 5. Compute unique reads from BAMs and update DB
+                try updateUniqueReadsInDB(
+                    dbPath: dbURL.path,
+                    table: "detection_rows",
+                    sampleCol: "sample",
+                    accessionCol: "accession",
+                    bamPathCol: "bam_path",
+                    totalReadsCol: "read_count",
+                    resultURL: resultURL,
+                    bamPathResolver: { resultURL, _, bamRelPath in
+                        // EsViritu BAM paths are now full relative paths from the result root.
+                        resultURL.appendingPathComponent(bamRelPath).path
+                    },
+                    updateAccessionLength: false,
+                    quiet: globalOptions.quiet
+                )
 
-            if !noCleanup {
-                performCleanup(resultURL: resultURL)
+                if !noCleanup {
+                    performCleanup(resultURL: resultURL)
+                }
+
+                try await BuildDbCommand.recordBuildDbProvenance(
+                    tool: .esViritu,
+                    resultURL: resultURL,
+                    dbURL: dbURL,
+                    force: force,
+                    noCleanup: noCleanup,
+                    globalOptions: globalOptions,
+                    startedAt: provenanceStartedAt,
+                    inputRecords: provenanceInputs
+                )
+            } catch {
+                await BuildDbCommand.recordBuildDbFailureProvenanceIfNeeded(
+                    tool: .esViritu,
+                    resultURL: resultURL,
+                    dbURL: dbURL,
+                    force: force,
+                    noCleanup: noCleanup,
+                    globalOptions: globalOptions,
+                    startedAt: provenanceStartedAt,
+                    inputRecords: provenanceInputs,
+                    error: error
+                )
+                throw error
             }
         }
 
@@ -1483,6 +1541,7 @@ extension BuildDbCommand {
         @OptionGroup var globalOptions: GlobalOptions
 
         func run() async throws {
+            let provenanceStartedAt = Date()
             let resultURL = URL(fileURLWithPath: resultDir)
             let dbURL = resultURL.appendingPathComponent("kraken2.sqlite")
 
@@ -1494,40 +1553,68 @@ extension BuildDbCommand {
                 return
             }
 
-            // 1. Enumerate sample subdirectories and parse kreport files
-            let (rows, sampleMetadata) = try parseSampleDirectories(resultURL: resultURL)
+            let provenanceInputs = BuildDbCommand.buildDbInputRecords(tool: .kraken2, resultURL: resultURL)
 
-            if !globalOptions.quiet {
-                print("Parsed \(rows.count) classification rows from Kraken2 results")
-            }
+            do {
+                // 1. Enumerate sample subdirectories and parse kreport files
+                let (rows, sampleMetadata) = try parseSampleDirectories(resultURL: resultURL)
 
-            // 2. Build database
-            var metadata: [String: String] = [
-                "tool": "kraken2",
-                "created_at": ISO8601DateFormatter().string(from: Date()),
-                "source_dir": resultURL.path,
-            ]
-            // Merge per-sample tree statistics into metadata
-            for (key, value) in sampleMetadata {
-                metadata[key] = value
-            }
+                if !globalOptions.quiet {
+                    print("Parsed \(rows.count) classification rows from Kraken2 results")
+                }
 
-            try Kraken2Database.create(at: dbURL, rows: rows, metadata: metadata) { fraction, msg in
-                if self.globalOptions.outputFormat == .json {
-                    let obj: [String: Any] = ["progress": fraction, "message": msg]
-                    if let data = try? JSONSerialization.data(withJSONObject: obj),
-                       let json = String(data: data, encoding: .utf8) {
-                        FileHandle.standardError.write(Data((json + "\n").utf8))
+                // 2. Build database
+                var metadata: [String: String] = [
+                    "tool": "kraken2",
+                    "created_at": ISO8601DateFormatter().string(from: Date()),
+                    "source_dir": resultURL.path,
+                ]
+                // Merge per-sample tree statistics into metadata
+                for (key, value) in sampleMetadata {
+                    metadata[key] = value
+                }
+
+                try Kraken2Database.create(at: dbURL, rows: rows, metadata: metadata) { fraction, msg in
+                    if self.globalOptions.outputFormat == .json {
+                        let obj: [String: Any] = ["progress": fraction, "message": msg]
+                        if let data = try? JSONSerialization.data(withJSONObject: obj),
+                           let json = String(data: data, encoding: .utf8) {
+                            FileHandle.standardError.write(Data((json + "\n").utf8))
+                        }
                     }
                 }
-            }
 
-            if !globalOptions.quiet {
-                print("Built database at \(dbURL.path) with \(rows.count) rows")
-            }
+                if !globalOptions.quiet {
+                    print("Built database at \(dbURL.path) with \(rows.count) rows")
+                }
 
-            if !noCleanup {
-                performCleanup(resultURL: resultURL)
+                if !noCleanup {
+                    performCleanup(resultURL: resultURL)
+                }
+
+                try await BuildDbCommand.recordBuildDbProvenance(
+                    tool: .kraken2,
+                    resultURL: resultURL,
+                    dbURL: dbURL,
+                    force: force,
+                    noCleanup: noCleanup,
+                    globalOptions: globalOptions,
+                    startedAt: provenanceStartedAt,
+                    inputRecords: provenanceInputs
+                )
+            } catch {
+                await BuildDbCommand.recordBuildDbFailureProvenanceIfNeeded(
+                    tool: .kraken2,
+                    resultURL: resultURL,
+                    dbURL: dbURL,
+                    force: force,
+                    noCleanup: noCleanup,
+                    globalOptions: globalOptions,
+                    startedAt: provenanceStartedAt,
+                    inputRecords: provenanceInputs,
+                    error: error
+                )
+                throw error
             }
         }
 

@@ -77,6 +77,10 @@ and behavior-preserving simplifications are useful and appropriate.
   asynchronous readability callbacks, waits for process exit without blocking the actor executor,
   and cancels the full native process tree while surfacing `CancellationError` for user-initiated
   cancellation.
+- 2026-07-04 follow-up: `lungfish build-db` now writes canonical provenance for TaxTriage,
+  EsViritu, and Kraken2 SQLite database builds, including replay argv, resolved options,
+  checksummed source reports/retained inputs, final SQLite outputs, and retained relocated or
+  compacted classifier payloads.
 
 ## Still Deferred
 
