@@ -153,6 +153,8 @@ public final class BAMImportService: @unchecked Sendable {
         metadataDB.setFileInfo("format", value: format.rawValue)
         metadataDB.setFileInfo("import_date", value: ISO8601DateFormatter().string(from: Date()))
         metadataDB.setFileInfo("file_name", value: effectiveBAMURL.lastPathComponent)
+        let provenanceRelativePath = "alignments/\(trackId).import.lungfish-provenance.json"
+        metadataDB.setFileInfo("import_provenance_path", value: provenanceRelativePath)
 
         // Populate from samtools output
         metadataDB.populateFromIdxstats(idxstatsOutput)
@@ -203,6 +205,31 @@ public final class BAMImportService: @unchecked Sendable {
             outputFile: dbURL.path,
             exitCode: 0,
             duration: duration
+        )
+
+        let provenanceURL = bundleURL.appendingPathComponent(provenanceRelativePath)
+        try writeImportProvenance(
+            bamURL: bamURL,
+            bundleURL: bundleURL,
+            trackId: trackId,
+            trackName: name ?? fileName,
+            sourceFormat: sourceFormat,
+            outputFormat: format,
+            alignmentURL: effectiveBAMURL,
+            indexURL: materialized.indexURL,
+            metadataDBURL: dbURL,
+            provenanceURL: provenanceURL,
+            metadataDBRelativePath: "alignments/\(dbFileName)",
+            sourceRelativePath: "alignments/\(effectiveBAMURL.lastPathComponent)",
+            indexRelativePath: "alignments/\(materialized.indexURL.lastPathComponent)",
+            provenanceRelativePath: provenanceRelativePath,
+            indexWasCreated: indexCreated,
+            wasSorted: wasSorted,
+            sortInvocation: materialized.sortInvocation,
+            indexInvocation: materialized.indexInvocation,
+            startedAt: startTime,
+            completedAt: Date(),
+            explicitTrackName: name
         )
 
         // 9. Get file size for staleness detection
@@ -275,6 +302,18 @@ public final class BAMImportService: @unchecked Sendable {
         let format: AlignmentFormat
         let indexWasCreated: Bool
         let wasSorted: Bool
+        let sortInvocation: TimedNativeToolResult
+        let indexInvocation: TimedNativeToolResult
+    }
+
+    private struct TimedNativeToolResult {
+        let result: NativeToolResult
+        let startedAt: Date
+        let completedAt: Date
+
+        var wallTimeSeconds: TimeInterval {
+            completedAt.timeIntervalSince(startedAt)
+        }
     }
 
     /// Creates a normalized, sorted and indexed alignment file inside the bundle.
@@ -327,7 +366,9 @@ public final class BAMImportService: @unchecked Sendable {
         }
         sortArgs.append(sourceURL.path)
 
+        let sortStartedAt = Date()
         let sortResult = try await runner.run(.samtools, arguments: sortArgs, timeout: sortTimeout)
+        let sortCompletedAt = Date()
         guard sortResult.isSuccess else {
             throw BAMImportError.indexCreationFailed("Failed to sort alignment: \(sortResult.stderr)")
         }
@@ -340,7 +381,9 @@ public final class BAMImportService: @unchecked Sendable {
         if outputFormat == .cram, let referenceFasta {
             indexArgs = ["index", "--reference", referenceFasta, outputURL.path]
         }
+        let indexStartedAt = Date()
         let indexResult = try await runner.run(.samtools, arguments: indexArgs, timeout: 3600)
+        let indexCompletedAt = Date()
         guard indexResult.isSuccess else {
             throw BAMImportError.indexCreationFailed("Failed to index sorted alignment: \(indexResult.stderr)")
         }
@@ -351,8 +394,193 @@ public final class BAMImportService: @unchecked Sendable {
             indexURL: indexURL,
             format: outputFormat,
             indexWasCreated: true,
-            wasSorted: true
+            wasSorted: true,
+            sortInvocation: TimedNativeToolResult(
+                result: sortResult,
+                startedAt: sortStartedAt,
+                completedAt: sortCompletedAt
+            ),
+            indexInvocation: TimedNativeToolResult(
+                result: indexResult,
+                startedAt: indexStartedAt,
+                completedAt: indexCompletedAt
+            )
         )
+    }
+
+    private static func writeImportProvenance(
+        bamURL: URL,
+        bundleURL: URL,
+        trackId: String,
+        trackName: String,
+        sourceFormat: AlignmentFormat,
+        outputFormat: AlignmentFormat,
+        alignmentURL: URL,
+        indexURL: URL,
+        metadataDBURL: URL,
+        provenanceURL: URL,
+        metadataDBRelativePath: String,
+        sourceRelativePath: String,
+        indexRelativePath: String,
+        provenanceRelativePath: String,
+        indexWasCreated: Bool,
+        wasSorted: Bool,
+        sortInvocation: TimedNativeToolResult,
+        indexInvocation: TimedNativeToolResult,
+        startedAt: Date,
+        completedAt: Date,
+        explicitTrackName: String?
+    ) throws {
+        let appVersion = WorkflowRun.currentAppVersion
+        let argv = importProvenanceArgv(bamURL: bamURL, bundleURL: bundleURL, name: explicitTrackName)
+        let input = try ProvenanceFileDescriptor.file(
+            url: bamURL,
+            format: fileFormat(for: sourceFormat),
+            role: .input
+        )
+        let alignmentOutput = try ProvenanceFileDescriptor.file(
+            url: alignmentURL,
+            format: fileFormat(for: outputFormat),
+            role: .output,
+            originPath: bamURL.path
+        )
+        let indexOutput = try ProvenanceFileDescriptor.file(url: indexURL, role: .index)
+        let metadataOutput = try ProvenanceFileDescriptor.file(url: metadataDBURL, format: .unknown, role: .output)
+
+        var files = [input, alignmentOutput, indexOutput, metadataOutput]
+        var referenceInputs: [ProvenanceFileDescriptor] = []
+        if let referencePath = findReferenceFASTA(in: bundleURL) {
+            let reference = try ProvenanceFileDescriptor.file(
+                url: URL(fileURLWithPath: referencePath),
+                format: .fasta,
+                role: .reference
+            )
+            files.append(reference)
+            referenceInputs.append(reference)
+        }
+
+        let sortStep = ProvenanceStep(
+            toolName: "samtools",
+            toolVersion: "unknown",
+            argv: sortInvocation.result.arguments,
+            inputs: [input] + referenceInputs,
+            outputs: [alignmentOutput],
+            exitStatus: Int(sortInvocation.result.exitCode),
+            wallTimeSeconds: sortInvocation.wallTimeSeconds,
+            stderr: nonEmpty(sortInvocation.result.stderr),
+            startedAt: sortInvocation.startedAt,
+            completedAt: sortInvocation.completedAt
+        )
+        let indexStep = ProvenanceStep(
+            toolName: "samtools",
+            toolVersion: "unknown",
+            argv: indexInvocation.result.arguments,
+            inputs: [alignmentOutput] + referenceInputs,
+            outputs: [indexOutput],
+            exitStatus: Int(indexInvocation.result.exitCode),
+            wallTimeSeconds: indexInvocation.wallTimeSeconds,
+            stderr: nonEmpty(indexInvocation.result.stderr),
+            startedAt: indexInvocation.startedAt,
+            completedAt: indexInvocation.completedAt
+        )
+        let metadataStep = ProvenanceStep(
+            toolName: "Lungfish.app",
+            toolVersion: appVersion,
+            argv: argv + ["--collect-alignment-metadata", "--metadata-db", metadataDBURL.path],
+            inputs: [alignmentOutput, indexOutput],
+            outputs: [metadataOutput],
+            exitStatus: 0,
+            wallTimeSeconds: nil,
+            stderr: nil
+        )
+
+        let envelope = ProvenanceEnvelope(
+            createdAt: startedAt,
+            workflowName: "lungfish app bam import",
+            workflowVersion: appVersion,
+            toolName: "Lungfish.app",
+            toolVersion: appVersion,
+            argv: argv,
+            durableReplayArgv: argv,
+            options: ProvenanceOptions(
+                explicit: explicitOptions(
+                    bamURL: bamURL,
+                    bundleURL: bundleURL,
+                    explicitTrackName: explicitTrackName
+                ),
+                defaults: [
+                    "name": .string(bamURL.deletingPathExtension().lastPathComponent),
+                    "sort": .boolean(true),
+                    "index": .boolean(true),
+                    "outputDirectory": .string("alignments"),
+                ],
+                resolvedDefaults: [
+                    "trackId": .string(trackId),
+                    "trackName": .string(trackName),
+                    "sourceFormat": .string(sourceFormat.rawValue),
+                    "outputFormat": .string(outputFormat.rawValue),
+                    "sourcePathInBundle": .string(sourceRelativePath),
+                    "indexPathInBundle": .string(indexRelativePath),
+                    "metadataDBPath": .string(metadataDBRelativePath),
+                    "importProvenancePath": .string(provenanceRelativePath),
+                    "indexWasCreated": .boolean(indexWasCreated),
+                    "wasSorted": .boolean(wasSorted),
+                ]
+            ),
+            runtimeIdentity: ProvenanceRuntimeIdentity(),
+            files: files,
+            output: alignmentOutput,
+            outputs: [alignmentOutput, indexOutput, metadataOutput],
+            steps: [sortStep, indexStep, metadataStep],
+            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            exitStatus: 0,
+            stderr: nonEmpty([sortInvocation.result.stderr, indexInvocation.result.stderr].filter { !$0.isEmpty }.joined(separator: "\n"))
+        )
+        try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: provenanceURL)
+    }
+
+    private static func importProvenanceArgv(bamURL: URL, bundleURL: URL, name: String?) -> [String] {
+        let executableName = URL(fileURLWithPath: ProvenanceRuntimeIdentity.currentExecutablePath).lastPathComponent
+        var argv = [
+            executableName,
+            "--bam-import-helper",
+            "--bam-path",
+            bamURL.path,
+            "--bundle-path",
+            bundleURL.path,
+        ]
+        if let name {
+            argv += ["--name", name]
+        }
+        return argv
+    }
+
+    private static func explicitOptions(
+        bamURL: URL,
+        bundleURL: URL,
+        explicitTrackName: String?
+    ) -> [String: ParameterValue] {
+        var options: [String: ParameterValue] = [
+            "bamPath": .file(bamURL),
+            "bundlePath": .file(bundleURL),
+        ]
+        if let explicitTrackName {
+            options["name"] = .string(explicitTrackName)
+        }
+        return options
+    }
+
+    private static func fileFormat(for format: AlignmentFormat) -> FileFormat {
+        switch format {
+        case .bam: return .bam
+        case .cram: return .cram
+        case .sam: return .sam
+        }
+    }
+
+    private static func nonEmpty(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : value
     }
 
     /// Resolves whichever index extension samtools created for the alignment.
