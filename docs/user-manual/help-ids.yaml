@@ -498,7 +498,7 @@ menu.Tools.WorkflowBuilder:
   chapter: 08-workflows/01-the-workflow-builder
   anchor: procedure
   scope: menu
-  description: Tools > Workflow Builder
+  description: Tools > Workflow Builder (Experimental)
 
 menu.File.NewProject:
   chapter: 01-foundations/06-the-lungfish-project

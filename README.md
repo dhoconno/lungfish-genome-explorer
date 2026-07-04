@@ -50,7 +50,7 @@ Lungfish Genome Explorer is built around five viewport classes (sequence, alignm
 ### Classification & Metagenomics
 
 - Run [Kraken 2](https://github.com/DerrickWood/kraken2) + [Bracken](https://github.com/jenniferlu717/Bracken), [EsViritu](https://github.com/cmmr/EsViritu) (viral discovery), [TaxTriage](https://github.com/jhuapl-bio/taxtriage) (multi-level taxonomic triage), and the [NAO-MGS](https://github.com/naobservatory/mgs-workflow) metagenomics workflow on FASTQ datasets.
-- Import results from the [NVD](https://github.com/dholab/nvd) (Novel Virus Discovery) Nextflow workflow as first-class taxonomy datasets.
+- Import results from the [NVD](https://github.com/dholab/nvd) (Novel Virus Discovery) Snakemake workflow as first-class taxonomy datasets.
 - Taxonomy browser with sortable hit table, sunburst chart, breadcrumb navigation, and detail pane.
 - Extract reads assigned to any taxon back into a fresh FASTQ dataset for downstream work.
 - BLAST any classified sequence against NCBI for verification.
@@ -70,10 +70,10 @@ Lungfish Genome Explorer is built around five viewport classes (sequence, alignm
 
 ### Workflows
 
-- Run [Nextflow](https://www.nextflow.io/) and [Snakemake](https://snakemake.readthedocs.io/) workflows from inside the app. Nextflow pipelines with a `nextflow_schema.json` get an auto-generated parameter form.
-- Browse the [nf-core](https://nf-co.re/) pipeline catalogue and launch directly into the project.
+- Run curated local workflows from inside the app, including the experimental FASTQ Workflow Builder and the supported `nf-core/viralrecon` adapter.
+- Export recorded provenance as shell, Python, Nextflow, Snakemake, methods text, or raw JSON for external replay and review.
 - Direct import path for the [NVD (Novel Virus Discovery)](https://github.com/dholab/nvd) workflow. Point Lungfish Genome Explorer at an NVD output directory and the run lands in the taxonomy browser with reads, hits, and reports cross-linked.
-- Workflow outputs auto-import as project datasets in the appropriate viewport.
+- Workflow outputs from supported adapters auto-import as project datasets in the appropriate viewport.
 - Container support via [Apple Containerization](https://github.com/apple/containerization). Docker / Apptainer images run in lightweight Linux VMs on Apple Silicon.
 
 ### AI Assistant

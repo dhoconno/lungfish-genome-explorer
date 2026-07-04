@@ -122,7 +122,7 @@ public final class WorkflowBuilderRunService {
         let graphChecksum = try WorkflowBuilderRunStore.graphChecksum(for: graph)
         let argv = [
             "Lungfish",
-            "Tools > Workflow Builder",
+            "Tools > Workflow Builder (Experimental)",
             "run",
             workflowBundleURL.standardizedFileURL.path,
             "--sample",
