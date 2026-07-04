@@ -9,7 +9,7 @@ A native macOS workbench for everyday genomics. Lungfish Genome Explorer brings 
 
 Lungfish Genome Explorer is developed in association with the [Lungfish Research Collaboratory](http://lung.fish).
 
-> ⚠️ **Alpha software.** Lungfish Genome Explorer is at an early alpha stage. Expect rough edges, missing polish, and bugs that have not yet been surfaced. The current shape of the app reflects where it is headed rather than a finished product, and a lot of what's visible today will be sharpened as more people start using it. Please report what you find on the [Issues](../../issues) tracker.
+> ⚠️ **Beta candidate.** Lungfish Genome Explorer is being hardened for beta use. Expect rough edges and bugs that have not yet been surfaced, especially around large local datasets and long-running workflow tools. Please report what you find on the [Issues](../../issues) tracker.
 
 ## About
 
@@ -80,9 +80,9 @@ Lungfish Genome Explorer is built around five viewport classes (sequence, alignm
 
 A built-in chat panel can answer questions about the active dataset, suggest workflows, and help interpret classification or variant results. The panel supports multiple providers; bring your own API key.
 
-### Plugins
+### Plugin Packs
 
-A multi-language plugin system supports extensions in Python, Rust, Swift, and any CLI executable. Plugins can add sequence operations, annotation generators, viewers, data sources, or workflow integrations. The Plugin Manager handles discovery, installation, and lifecycle.
+The Plugin Manager handles managed tool packs and workflow/runtime integrations used by the app. A general third-party multi-language plugin SDK is not currently a shipped SwiftPM product; historical plugin-architecture plans live under `docs/archive/` until that surface is implemented.
 
 ### Command Line
 
@@ -135,21 +135,22 @@ A signed and notarized `.dmg` can be produced with `bash scripts/release/build-n
 
 ## User Manual
 
-Primitive documentation is now available on Read the Docs at [lungfish.readthedocs.io](https://lungfish.readthedocs.io/). The manual is early and incomplete, but it is now the canonical place for user-facing workflow documentation as it matures.
+User documentation is available on Read the Docs at [lungfish.readthedocs.io](https://lungfish.readthedocs.io/). The manual is still being hardened for beta, and it is the canonical place for user-facing workflow documentation as it matures.
 
 ## Architecture
 
-Lungfish Genome Explorer is organised into seven Swift modules:
+Lungfish Genome Explorer is organised as SwiftPM products with a small core and feature-focused UI modules:
 
-| Module             | Purpose                                              |
-|--------------------|------------------------------------------------------|
-| **LungfishCore**     | Core data models for sequences, annotations, documents |
-| **LungfishIO**       | File-format parsers, indexers, and writers           |
-| **LungfishUI**       | Rendering, tracks, viewport rendering                |
-| **LungfishWorkflow** | Native tool runner, Nextflow / Snakemake integration |
-| **LungfishPlugin**   | Multi-language plugin system                         |
-| **LungfishApp**      | macOS application UI                                 |
-| **LungfishCLI**      | `lungfish-cli` headless interface                    |
+| Product / module | Purpose |
+|------------------|---------|
+| **LungfishCore** | Core models, bundle manifests, project storage, metadata |
+| **LungfishIO** | File-format parsers, indexes, bundle readers/writers |
+| **LungfishWorkflow** | Native tool execution, workflows, provenance, conda/tool management |
+| **LungfishApp** | Shared macOS application services, state, and AppKit integration |
+| **LungfishKit** | Reusable app UI controls and support utilities |
+| **Feature UI modules** | Focused result/viewer surfaces: Alignment, Assembly, TwelveS, NVD, NAO-MGS, TaxTriage, EsViritu, Genotype, Phylogenetics |
+| **Lungfish** | Graphical app executable |
+| **LungfishCLI** | `lungfish-cli` headless interface |
 
 ## Optional test gates
 
