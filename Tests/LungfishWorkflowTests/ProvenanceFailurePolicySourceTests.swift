@@ -22,6 +22,7 @@ final class ProvenanceFailurePolicySourceTests: XCTestCase {
             "Sources/LungfishWorkflow/Metagenomics/MetagenomicsBatchProvenanceWriter.swift",
             "Sources/LungfishWorkflow/Metagenomics/TaxonomyExtractionPipeline.swift",
             "Sources/LungfishWorkflow/TaxTriage/TaxTriageSerialBatchRunner.swift",
+            "Sources/LungfishWorkflow/TaxTriage/TaxTriagePipeline.swift",
         ]
 
         for file in files {
@@ -33,6 +34,10 @@ final class ProvenanceFailurePolicySourceTests: XCTestCase {
             XCTAssertFalse(
                 text.contains("Failed to save extraction provenance"),
                 "\(file) still treats extraction provenance save failure as a warning"
+            )
+            XCTAssertFalse(
+                text.contains(#"logger.warning("Failed to save TaxTriage"#),
+                "\(file) still treats TaxTriage provenance/result persistence failure as a warning"
             )
             XCTAssertFalse(
                 text.contains("Failed to write root provenance"),

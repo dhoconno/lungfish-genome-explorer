@@ -54,6 +54,8 @@ changes that reduce future ambiguity across the codebase.
   consistent quote handling and timestamp/date-only release-date parsing.
 - Made ENA `first_public` date parsing POSIX-locale-stable in both ENA search and read-record
   decoders without changing their date-only timezone semantics.
+- Made `TaxTriagePipeline` fail closed when result metadata or run provenance sidecars cannot be
+  saved, with source-policy and fake-runtime coverage.
 - Embedded script/file splits remained deferred because the reviewed same-batch wins were in
   provenance/output correctness rather than large mechanical relocation.
 

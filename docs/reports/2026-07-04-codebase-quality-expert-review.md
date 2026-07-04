@@ -67,6 +67,9 @@ and behavior-preserving simplifications are useful and appropriate.
   `NCBIService`, keeping quote handling and date-only release-date parsing consistent.
 - 2026-07-04 follow-up: ENA `first_public` date decoders now use POSIX locale consistently
   with Pathoplexus while preserving their existing date-only timezone semantics.
+- 2026-07-04 follow-up: `TaxTriagePipeline` now fails closed when result metadata or
+  run provenance sidecars cannot be saved, preventing successful scientific workflow returns
+  without durable reproducibility metadata.
 - 2026-07-04 follow-up: Sample metadata CSV/TSV import now rejects rows whose column count differs
   from the header before scanning or persisting metadata, avoiding silent misalignment in scientific
   import workflows.

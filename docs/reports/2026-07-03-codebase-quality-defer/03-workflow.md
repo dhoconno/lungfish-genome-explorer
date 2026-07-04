@@ -112,6 +112,9 @@ non-op-pipeline layers, NOT OperationCenter violations).
   ~660-line embedded Python `workbookOverrideScript`. The script moved unchanged to
   `GenotypeWorkbookRevisionService+OverrideScript.swift`, dropping the service file to
   ~633L while keeping the workflow behavior pinned by `GenotypeWorkbookRevisionServiceTests`.
+- RESOLVED 2026-07-04: `TaxTriagePipeline` now fails closed if `taxtriage-result.json`
+  or run provenance cannot be saved. Source-policy and fake-runtime tests prevent returning
+  a successful scientific workflow result after durable result/provenance sidecars are missing.
 - `ONTBarcodeDemuxGenotypingPipeline` heredoc extraction (noted above) is the parallel move.
 - `TaxTriagePipeline.swift` (1598L): 4-way actor-extension split, NO promotions (actor
   extensions keep `private` in-module... but across files `private` doesn't span — so any
