@@ -69,7 +69,9 @@ enum ReferenceBundleMergeService {
                 try await appendFASTAContents(from: fastaURL, to: outputHandle)
             }
 
-            // TODO: Merge annotations, variants, and tracks when merging .lungfishref bundles.
+            // Keep this as an explicit sequence-only merge. Rich bundles are
+            // rejected before this point so annotations, variants, tracks, and
+            // alignments cannot be silently dropped from the output bundle.
             let result = try await ReferenceBundleImportService.shared.importAsReferenceBundle(
                 sourceURL: mergedFASTA,
                 outputDirectory: outputDirectory,

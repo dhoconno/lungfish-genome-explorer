@@ -186,6 +186,21 @@ final class SidebarViewControllerSelectionTests: XCTestCase {
         )
     }
 
+    func testMergeDialogInformativeTextClarifiesReferenceMergeLimit() {
+        XCTAssertEqual(
+            SidebarViewController.mergeDialogInformativeText(for: .fastq),
+            "Enter a name for the merged FASTQ bundle:"
+        )
+        XCTAssertTrue(
+            SidebarViewController.mergeDialogInformativeText(for: .reference)
+                .contains("sequence-only reference bundle")
+        )
+        XCTAssertTrue(
+            SidebarViewController.mergeDialogInformativeText(for: .reference)
+                .contains("rejected rather than partially merged")
+        )
+    }
+
     func testDeepestCommonParentUsesSharedContainingDirectory() {
         let urls = [
             URL(fileURLWithPath: "/tmp/project/Reads/A.lungfishfastq"),

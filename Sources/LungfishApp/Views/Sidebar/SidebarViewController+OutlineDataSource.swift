@@ -281,6 +281,15 @@ extension SidebarViewController: NSOutlineViewDataSource {
         return trimmedTitle.isEmpty ? "Merged Bundle" : "\(trimmedTitle) merged"
     }
 
+    static func mergeDialogInformativeText(for mergeKind: BundleMergeSelectionKind) -> String {
+        switch mergeKind {
+        case .fastq:
+            return "Enter a name for the merged FASTQ bundle:"
+        case .reference:
+            return "Enter a name for the merged sequence-only reference bundle. Bundles with annotations, variants, tracks, or alignments are rejected rather than partially merged."
+        }
+    }
+
     static func deepestCommonParent(for urls: [URL]) -> URL? {
         let parentComponents = urls.map { $0.deletingLastPathComponent().standardizedFileURL.pathComponents }
         guard var sharedComponents = parentComponents.first else { return nil }

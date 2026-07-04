@@ -311,7 +311,7 @@ extension SidebarViewController: NSMenuDelegate {
 
         let alert = NSAlert()
         alert.messageText = "Merge into New Bundle"
-        alert.informativeText = "Enter a name for the merged bundle:"
+        alert.informativeText = Self.mergeDialogInformativeText(for: mergeKind)
         alert.addButton(withTitle: "Merge")
         alert.addButton(withTitle: "Cancel")
 
