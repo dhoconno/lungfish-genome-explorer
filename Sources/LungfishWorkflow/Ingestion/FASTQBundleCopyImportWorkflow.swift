@@ -112,9 +112,10 @@ public final class FASTQBundleCopyImportWorkflow: @unchecked Sendable {
         }
 
         let startedAt = Date()
+        let stagingBundleURL = stagingBundleURL(for: destinationBundleURL)
         do {
-            try fileManager.copyItem(at: sourceBundleURL, to: destinationBundleURL)
-            let copiedFiles = try concreteFiles(in: destinationBundleURL)
+            try fileManager.copyItem(at: sourceBundleURL, to: stagingBundleURL)
+            let copiedFiles = try concreteFiles(in: stagingBundleURL)
             let sourceFiles = try concreteFiles(in: sourceBundleURL)
             let completedAt = Date()
             let sourceProvenancePath = sourceProvenanceURL(in: sourceBundleURL)?.path
@@ -122,24 +123,28 @@ public final class FASTQBundleCopyImportWorkflow: @unchecked Sendable {
                 context: context,
                 sourceBundleURL: sourceBundleURL,
                 destinationBundleURL: destinationBundleURL,
+                copiedFilesRootURL: stagingBundleURL,
                 sourceFiles: sourceFiles,
                 copiedFiles: copiedFiles,
                 sourceProvenancePath: sourceProvenancePath,
                 startedAt: startedAt,
                 completedAt: completedAt
             )
-            try provenanceWriter.write(envelope, to: destinationBundleURL)
+            try provenanceWriter.write(envelope, to: stagingBundleURL)
+            let totalCopiedBytes = copiedFiles.reduce(UInt64(0)) {
+                $0 + ((try? ProvenanceFileHasher.fileSize(of: $1)) ?? 0)
+            }
+            try fileManager.moveItem(at: stagingBundleURL, to: destinationBundleURL)
             return FASTQBundleCopyImportResult(
                 sourceBundleURL: sourceBundleURL,
                 bundleURL: destinationBundleURL,
                 copiedFileCount: copiedFiles.count,
-                totalCopiedBytes: copiedFiles.reduce(UInt64(0)) {
-                    $0 + ((try? ProvenanceFileHasher.fileSize(of: $1)) ?? 0)
-                },
+                totalCopiedBytes: totalCopiedBytes,
                 provenanceURL: destinationBundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename),
                 wallClockSeconds: completedAt.timeIntervalSince(startedAt)
             )
         } catch {
+            try? fileManager.removeItem(at: stagingBundleURL)
             try? fileManager.removeItem(at: destinationBundleURL)
             throw error
         }
@@ -157,6 +162,7 @@ public final class FASTQBundleCopyImportWorkflow: @unchecked Sendable {
         context: CommandContext,
         sourceBundleURL: URL,
         destinationBundleURL: URL,
+        copiedFilesRootURL: URL,
         sourceFiles: [URL],
         copiedFiles: [URL],
         sourceProvenancePath: String?,
@@ -179,11 +185,14 @@ public final class FASTQBundleCopyImportWorkflow: @unchecked Sendable {
             sourceProvenancePath: sourceProvenancePath
         )
         let outputDescriptors = try copiedFiles.map { copiedURL in
-            let relativePath = relativePath(from: destinationBundleURL, to: copiedURL)
+            let relativePath = relativePath(from: copiedFilesRootURL, to: copiedURL)
             let sourceURL = sourceBundleURL.appendingPathComponent(relativePath)
-            return try ProvenanceFileDescriptor.file(
-                url: copiedURL,
-                format: provenanceFormat(for: copiedURL),
+            let finalCopiedURL = destinationBundleURL.appendingPathComponent(relativePath)
+            return ProvenanceFileDescriptor(
+                path: finalCopiedURL.path,
+                checksumSHA256: try ProvenanceFileHasher.sha256(of: copiedURL),
+                fileSize: try ProvenanceFileHasher.fileSize(of: copiedURL),
+                format: provenanceFormat(for: finalCopiedURL),
                 role: .output,
                 originPath: sourceURL.path,
                 sourceProvenancePath: sourceProvenancePath
@@ -234,6 +243,16 @@ public final class FASTQBundleCopyImportWorkflow: @unchecked Sendable {
 
     private func resolvedDestinationBundleURL(outputURL: URL, sourceBundleURL: URL) -> URL {
         Self.resolvedDestinationBundleURL(outputURL: outputURL, sourceBundleURL: sourceBundleURL)
+    }
+
+    private func stagingBundleURL(for destinationBundleURL: URL) -> URL {
+        let parentURL = destinationBundleURL.deletingLastPathComponent()
+        let name = destinationBundleURL.deletingPathExtension().lastPathComponent
+        let ext = destinationBundleURL.pathExtension
+        return parentURL.appendingPathComponent(
+            ".\(name).\(UUID().uuidString).\(ext)",
+            isDirectory: true
+        )
     }
 
     private func concreteFiles(in rootURL: URL) throws -> [URL] {
