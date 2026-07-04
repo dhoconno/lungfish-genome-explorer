@@ -283,6 +283,39 @@ final class ProjectStoreTests: XCTestCase {
         }
     }
 
+    func testReconstructSequenceRejectsVersionIndexPastHistory() throws {
+        let sequenceId = try store.storeSequence(
+            name: "high_reconstruct",
+            content: "AAAA"
+        )
+        let diff = SequenceDiff.compute(from: "AAAA", to: "AABB")
+        try store.recordVersion(
+            sequenceId: sequenceId,
+            diff: diff,
+            newContentHash: "hash1"
+        )
+
+        XCTAssertThrowsError(try store.reconstructSequence(id: sequenceId, atVersion: 2)) { error in
+            guard case ProjectStoreError.invalidVersionIndex(let index) = error else {
+                XCTFail("Expected invalidVersionIndex, got \(error)")
+                return
+            }
+            XCTAssertEqual(index, 2)
+        }
+    }
+
+    func testReconstructSequenceReportsMissingSequenceBeforeHighVersionIndex() throws {
+        let missingID = UUID()
+
+        XCTAssertThrowsError(try store.reconstructSequence(id: missingID, atVersion: 99)) { error in
+            guard case ProjectStoreError.sequenceNotFound(let id) = error else {
+                XCTFail("Expected sequenceNotFound, got \(error)")
+                return
+            }
+            XCTAssertEqual(id, missingID)
+        }
+    }
+
     func testCheckoutVersion() throws {
         let sequenceId = try store.storeSequence(
             name: "checkout_test",

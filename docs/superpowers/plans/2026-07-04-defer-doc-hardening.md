@@ -56,6 +56,8 @@ changes that reduce future ambiguity across the codebase.
   decoders without changing their date-only timezone semantics.
 - Made `TaxTriagePipeline` fail closed when result metadata or run provenance sidecars cannot be
   saved, with source-policy and fake-runtime coverage.
+- Made `ProjectStore.reconstructSequence` reject version indexes past available history instead
+  of returning latest content for nonexistent historical requests.
 - Embedded script/file splits remained deferred because the reviewed same-batch wins were in
   provenance/output correctness rather than large mechanical relocation.
 

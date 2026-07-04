@@ -70,6 +70,8 @@ and behavior-preserving simplifications are useful and appropriate.
 - 2026-07-04 follow-up: `TaxTriagePipeline` now fails closed when result metadata or
   run provenance sidecars cannot be saved, preventing successful scientific workflow returns
   without durable reproducibility metadata.
+- 2026-07-04 follow-up: `ProjectStore.reconstructSequence` now rejects version indexes past
+  the available history instead of silently clamping to the latest sequence content.
 - 2026-07-04 follow-up: Sample metadata CSV/TSV import now rejects rows whose column count differs
   from the header before scanning or persisting metadata, avoiding silent misalignment in scientific
   import workflows.

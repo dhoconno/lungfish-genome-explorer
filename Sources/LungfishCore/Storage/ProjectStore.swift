@@ -517,9 +517,11 @@ public final class ProjectStore {
 
         // Apply diffs up to the specified version
         let versions = try getVersionHistory(for: id)
-        let versionsToApply = min(versionIndex, versions.count)
+        guard versionIndex <= versions.count else {
+            throw ProjectStoreError.invalidVersionIndex(index: versionIndex)
+        }
 
-        for i in 0..<versionsToApply {
+        for i in 0..<versionIndex {
             content = try versions[i].diff.apply(to: content)
         }
 

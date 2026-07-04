@@ -173,6 +173,14 @@ final class ProjectFileTests: XCTestCase {
         XCTAssertEqual(try project.getSequenceContent(id: sequenceId, atVersion: 0), originalContent)
         XCTAssertEqual(try project.getSequenceContent(id: sequenceId, atVersion: 1), version1Content)
         XCTAssertEqual(try project.getSequenceContent(id: sequenceId, atVersion: 2), version2Content)
+
+        XCTAssertThrowsError(try project.getSequenceContent(id: sequenceId, atVersion: 3)) { error in
+            guard case ProjectStoreError.invalidVersionIndex(let index) = error else {
+                XCTFail("Expected invalidVersionIndex, got \(error)")
+                return
+            }
+            XCTAssertEqual(index, 3)
+        }
     }
 
     func testGetSequenceContent() throws {

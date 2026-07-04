@@ -27,8 +27,9 @@ original refactor was constrained to behavior-preserving edits:
   rollback.
 - `ProjectStore.bindParameter` now throws for unsupported parameter types instead
   of silently binding NULL.
-- `ProjectStore.reconstructSequence` now rejects negative version indexes with
-  `invalidVersionIndex` instead of trapping on a negative range.
+- `ProjectStore.reconstructSequence` now rejects negative and past-history version
+  indexes with `invalidVersionIndex` instead of trapping or clamping to the latest
+  sequence content.
 - `ProjectStore` row decoders now throw `queryError` for corrupted UUID/text/blob
   columns instead of force-unwrapping DB-derived values.
 - `NCBIService.fetchBatch` and `ENAService.fetchBatch` now cancel their producer
