@@ -64,13 +64,14 @@ extension ViewerViewController {
                 OperationCenter.shared.cancel(id: operationID)
             }
 
+            let cliCancellation = LungfishCLIRunner.CancellationHandle()
             let task = Task.detached {
                 do {
                     try FileManager.default.createDirectory(
                         at: exportURL.deletingLastPathComponent(),
                         withIntermediateDirectories: true
                     )
-                    _ = try LungfishCLIRunner.run(arguments: arguments)
+                    _ = try LungfishCLIRunner.run(arguments: arguments, cancellation: cliCancellation)
                     try Self.verifyTwelveSBlastPreparationProvenance(
                         sidecarURL: exportURL.appendingPathExtension("lungfish-provenance.json"),
                         outputURL: exportURL
@@ -114,6 +115,13 @@ extension ViewerViewController {
                             controller.onUnresolvedBlastCancelRequested = nil
                         }
                     }
+                } catch LungfishCLIRunner.RunError.cancelled {
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            OperationCenter.shared.log(id: operationID, level: .info, message: "12S BLAST preparation cancelled")
+                            controller.onUnresolvedBlastCancelRequested = nil
+                        }
+                    }
                 } catch {
                     let message = error.localizedDescription
                     DispatchQueue.main.async {
@@ -129,7 +137,10 @@ extension ViewerViewController {
                     }
                 }
             }
-            OperationCenter.shared.setCancelCallback(for: operationID) { task.cancel() }
+            OperationCenter.shared.setCancelCallback(for: operationID) {
+                task.cancel()
+                cliCancellation.cancel()
+            }
         }
 
         annotationDrawerView?.isHidden = true

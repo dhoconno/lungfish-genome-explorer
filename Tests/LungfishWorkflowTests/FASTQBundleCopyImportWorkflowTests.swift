@@ -17,6 +17,20 @@ final class FASTQBundleCopyImportWorkflowTests: XCTestCase {
         )
     }
 
+    func testFailedImportCleanupOnlyRemovesOwnedStagingBundle() throws {
+        let source = try String(
+            contentsOf: packageRoot()
+                .appendingPathComponent("Sources/LungfishWorkflow/Ingestion/FASTQBundleCopyImportWorkflow.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("removeItem(at: stagingBundleURL)"))
+        XCTAssertFalse(
+            source.contains("removeItem(at: destinationBundleURL)"),
+            "Failure cleanup must not delete a final destination that another process may have created after the initial collision check."
+        )
+    }
+
     func testImportProvenanceUsesFinalBundlePaths() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("FASTQBundleCopyImport-\(UUID().uuidString)", isDirectory: true)

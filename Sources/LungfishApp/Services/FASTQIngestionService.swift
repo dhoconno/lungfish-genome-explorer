@@ -1139,113 +1139,161 @@ public enum FASTQIngestionService {
         operationID opID: UUID,
         completion: @escaping @MainActor (Result<Int, Error>) -> Void
     ) async {
+        let cancellationHandle = NativeProcessCancellationHandle()
         do {
-            guard let cliURL = CLIImportRunner.cliBinaryPath() else {
-                throw BatchImportError.projectNotFound(Bundle.main.bundleURL)
-            }
+            try await withTaskCancellationHandler {
+                try Task.checkCancellation()
 
-            guard FileManager.default.isExecutableFile(atPath: cliURL.path) else {
-                throw BatchImportError.projectNotFound(cliURL)
-            }
+                guard let cliURL = CLIImportRunner.cliBinaryPath() else {
+                    throw BatchImportError.projectNotFound(Bundle.main.bundleURL)
+                }
 
-            let process = Process()
-            process.executableURL = cliURL
-            process.arguments = [
-                "import", "fastq",
-                inputDirectory.path,
-                "--project", projectDirectory.path,
-                "--recipe", recipe,
-                "--quality-binning", qualityBinning.rawValue,
-            ]
+                guard FileManager.default.isExecutableFile(atPath: cliURL.path) else {
+                    throw BatchImportError.projectNotFound(cliURL)
+                }
 
-            let stdoutPipe = Pipe()
-            let stderrPipe = Pipe()
-            process.standardOutput = stdoutPipe
-            process.standardError = stderrPipe
+                let process = Process()
+                process.executableURL = cliURL
+                process.arguments = [
+                    "import", "fastq",
+                    inputDirectory.path,
+                    "--project", projectDirectory.path,
+                    "--recipe", recipe,
+                    "--quality-binning", qualityBinning.rawValue,
+                ]
 
-            try process.run()
+                let stdoutPipe = Pipe()
+                let stderrPipe = Pipe()
+                process.standardOutput = stdoutPipe
+                process.standardError = stderrPipe
 
-            // Track last known progress so detail-only events can reuse it
-            var lastProgress: Double = 0.0
+                let stderrState = OSAllocatedUnfairLock(initialState: Data())
+                let stderrHandle = stderrPipe.fileHandleForReading
+                stderrHandle.readabilityHandler = { handle in
+                    let data = handle.availableData
+                    guard !data.isEmpty else { return }
+                    stderrState.withLock { $0.append(data) }
+                }
 
-            // Parse JSON lines from stdout for progress updates
-            let handle = stdoutPipe.fileHandleForReading
-            while true {
-                let data = handle.availableData
-                if data.isEmpty { break }
-                guard let text = String(data: data, encoding: .utf8) else { continue }
-
-                for line in text.split(separator: "\n") {
-                    guard let jsonData = line.data(using: .utf8),
-                          let dict = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
-                          let event = dict["event"] as? String else { continue }
-
-                    let detail: String
-                    var progress: Double? = nil
-
-                    switch event {
-                    case "sampleStart":
-                        let sample = dict["sample"] as? String ?? "?"
-                        let index = dict["index"] as? Int ?? 0
-                        let total = dict["total"] as? Int ?? 1
-                        detail = "[\(index)/\(total)] \(sample)"
-                        progress = Double(index - 1) / Double(max(1, total))
-                    case "stepStart":
-                        let sample = dict["sample"] as? String ?? "?"
-                        let step = dict["step"] as? String ?? "?"
-                        detail = "\(sample): \(step)"
-                    case "sampleComplete":
-                        let sample = dict["sample"] as? String ?? "?"
-                        detail = "\(sample): complete"
-                    case "sampleSkip":
-                        let sample = dict["sample"] as? String ?? "?"
-                        detail = "\(sample): skipped"
-                    case "sampleFailed":
-                        let sample = dict["sample"] as? String ?? "?"
-                        let error = dict["error"] as? String ?? "unknown error"
-                        detail = "\(sample): failed — \(error)"
-                    case "importComplete":
-                        let completed = dict["completed"] as? Int ?? 0
-                        let failed = dict["failed"] as? Int ?? 0
-                        detail = "Complete: \(completed) imported, \(failed) failed"
-                        progress = 1.0
-                    default:
-                        continue
+                do {
+                    try process.run()
+                    cancellationHandle.store(process)
+                    cancellationHandle.terminateIfRequested()
+                } catch {
+                    stderrHandle.readabilityHandler = nil
+                    if cancellationHandle.isTerminationRequested || Task.isCancelled {
+                        throw CancellationError()
                     }
+                    throw error
+                }
+                defer {
+                    stderrHandle.readabilityHandler = nil
+                    cancellationHandle.clear(process)
+                }
 
-                    let resolvedProgress = progress ?? lastProgress
-                    if let p = progress { lastProgress = p }
+                try Task.checkCancellation()
 
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            OperationCenter.shared.updateWithLog(id: opID, progress: resolvedProgress, detail: detail)
+                // Track last known progress so detail-only events can reuse it
+                var lastProgress: Double = 0.0
+
+                // Parse JSON lines from stdout for progress updates
+                let handle = stdoutPipe.fileHandleForReading
+                while true {
+                    let data = handle.availableData
+                    if data.isEmpty { break }
+                    guard let text = String(data: data, encoding: .utf8) else { continue }
+
+                    for line in text.split(separator: "\n") {
+                        guard let jsonData = line.data(using: .utf8),
+                              let dict = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+                              let event = dict["event"] as? String else { continue }
+
+                        let detail: String
+                        var progress: Double? = nil
+
+                        switch event {
+                        case "sampleStart":
+                            let sample = dict["sample"] as? String ?? "?"
+                            let index = dict["index"] as? Int ?? 0
+                            let total = dict["total"] as? Int ?? 1
+                            detail = "[\(index)/\(total)] \(sample)"
+                            progress = Double(index - 1) / Double(max(1, total))
+                        case "stepStart":
+                            let sample = dict["sample"] as? String ?? "?"
+                            let step = dict["step"] as? String ?? "?"
+                            detail = "\(sample): \(step)"
+                        case "sampleComplete":
+                            let sample = dict["sample"] as? String ?? "?"
+                            detail = "\(sample): complete"
+                        case "sampleSkip":
+                            let sample = dict["sample"] as? String ?? "?"
+                            detail = "\(sample): skipped"
+                        case "sampleFailed":
+                            let sample = dict["sample"] as? String ?? "?"
+                            let error = dict["error"] as? String ?? "unknown error"
+                            detail = "\(sample): failed - \(error)"
+                        case "importComplete":
+                            let completed = dict["completed"] as? Int ?? 0
+                            let failed = dict["failed"] as? Int ?? 0
+                            detail = "Complete: \(completed) imported, \(failed) failed"
+                            progress = 1.0
+                        default:
+                            continue
+                        }
+
+                        let resolvedProgress = progress ?? lastProgress
+                        if let p = progress { lastProgress = p }
+
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                OperationCenter.shared.updateWithLog(id: opID, progress: resolvedProgress, detail: detail)
+                            }
                         }
                     }
                 }
-            }
 
-            process.waitUntilExit()
+                process.waitUntilExit()
+                if cancellationHandle.isTerminationRequested || Task.isCancelled {
+                    throw CancellationError()
+                }
 
-            let exitCode = process.terminationStatus
-            if exitCode == 0 {
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        OperationCenter.shared.complete(id: opID, detail: "Batch import complete", bundleURLs: [])
-                        completion(.success(Int(exitCode)))
+                stderrHandle.readabilityHandler = nil
+                let remainingStderr = stderrHandle.readDataToEndOfFile()
+                if !remainingStderr.isEmpty {
+                    stderrState.withLock { $0.append(remainingStderr) }
+                }
+
+                let exitCode = process.terminationStatus
+                if exitCode == 0 {
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            OperationCenter.shared.complete(id: opID, detail: "Batch import complete", bundleURLs: [])
+                            completion(.success(Int(exitCode)))
+                        }
+                    }
+                } else {
+                    let stderrStr = stderrState.withLock {
+                        String(data: $0, encoding: .utf8) ?? "unknown error"
+                    }
+                    let truncated = String(stderrStr.suffix(500))
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            OperationCenter.shared.fail(id: opID, detail: "Exit code \(exitCode): \(truncated)")
+                            completion(.failure(BatchImportError.projectNotFound(projectDirectory)))
+                        }
                     }
                 }
-            } else {
-                let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-                let stderrStr = String(data: stderrData, encoding: .utf8) ?? "unknown error"
-                let truncated = String(stderrStr.suffix(500))
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        OperationCenter.shared.fail(id: opID, detail: "Exit code \(exitCode): \(truncated)")
-                        completion(.failure(BatchImportError.projectNotFound(projectDirectory)))
-                    }
+            } onCancel: {
+                cancellationHandle.requestProcessTreeTermination()
+            }
+        } catch is CancellationError {
+            logger.info("CLI subprocess import cancelled")
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    OperationCenter.shared.fail(id: opID, detail: "Cancelled")
+                    completion(.failure(CancellationError()))
                 }
             }
-
         } catch {
             logger.error("CLI subprocess failed: \(error)")
             DispatchQueue.main.async {

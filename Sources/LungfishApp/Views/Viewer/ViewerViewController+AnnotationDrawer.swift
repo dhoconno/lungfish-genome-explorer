@@ -450,9 +450,10 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             cliCommand: command
         )
 
-        Task.detached { [weak self] in
+        let cliCancellation = LungfishCLIRunner.CancellationHandle()
+        let task = Task.detached { [weak self] in
             do {
-                let output = try LungfishCLIRunner.run(arguments: arguments)
+                let output = try LungfishCLIRunner.run(arguments: arguments, cancellation: cliCancellation)
                 DispatchQueue.main.async { MainActor.assumeIsolated {
                     if !output.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         OperationCenter.shared.log(id: opID, level: .info, message: output.stdout)
@@ -472,6 +473,10 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
                         self?.presentAnnotationTrackDeletionFailure(error, title: "Reload Failed")
                     }
                 }}
+            } catch LungfishCLIRunner.RunError.cancelled {
+                DispatchQueue.main.async { MainActor.assumeIsolated {
+                    OperationCenter.shared.log(id: opID, level: .info, message: "Delete Annotations cancelled")
+                }}
             } catch {
                 DispatchQueue.main.async { MainActor.assumeIsolated {
                     OperationCenter.shared.fail(
@@ -482,6 +487,10 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
                     self?.presentAnnotationTrackDeletionFailure(error, title: "Delete Annotations Failed")
                 }}
             }
+        }
+        OperationCenter.shared.setCancelCallback(for: opID) {
+            task.cancel()
+            cliCancellation.cancel()
         }
     }
 
@@ -541,9 +550,10 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             cliCommand: command
         )
 
-        Task.detached { [weak self] in
+        let cliCancellation = LungfishCLIRunner.CancellationHandle()
+        let task = Task.detached { [weak self] in
             do {
-                let output = try LungfishCLIRunner.run(arguments: arguments)
+                let output = try LungfishCLIRunner.run(arguments: arguments, cancellation: cliCancellation)
                 DispatchQueue.main.async { MainActor.assumeIsolated {
                     if !output.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         OperationCenter.shared.log(id: opID, level: .info, message: output.stdout)
@@ -561,6 +571,10 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
                         self?.presentAnnotationTrackDeletionFailure(error, title: "Reload Failed")
                     }
                 }}
+            } catch LungfishCLIRunner.RunError.cancelled {
+                DispatchQueue.main.async { MainActor.assumeIsolated {
+                    OperationCenter.shared.log(id: opID, level: .info, message: "Delete Annotation Track cancelled")
+                }}
             } catch {
                 DispatchQueue.main.async { MainActor.assumeIsolated {
                     OperationCenter.shared.fail(
@@ -571,6 +585,10 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
                     self?.presentAnnotationTrackDeletionFailure(error, title: "Delete Annotation Track Failed")
                 }}
             }
+        }
+        OperationCenter.shared.setCancelCallback(for: opID) {
+            task.cancel()
+            cliCancellation.cancel()
         }
     }
 

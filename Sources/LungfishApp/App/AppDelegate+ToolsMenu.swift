@@ -517,6 +517,16 @@ extension AppDelegate {
                             .mainSplitViewController?.sidebarController.requestReloadFromFilesystem()
                     }
                 }
+            } catch is CancellationError {
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        OperationCenter.shared.log(
+                            id: opID,
+                            level: .info,
+                            message: "NVD import cancelled"
+                        )
+                    }
+                }
             } catch {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {

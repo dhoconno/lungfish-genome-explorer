@@ -529,6 +529,91 @@ final class OperationRoutingTests: XCTestCase {
         )
     }
 
+    func testMetagenomicsHelperCancellationTerminatesSubprocessTree() throws {
+        let serviceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishApp/Services/MetagenomicsImportHelperClient.swift")
+        let source = try String(contentsOf: serviceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("NativeProcessCancellationHandle"))
+        XCTAssertTrue(source.contains("withTaskCancellationHandler"))
+        XCTAssertTrue(source.contains("requestProcessTreeTermination"))
+        XCTAssertTrue(source.contains("cancellationHandle.store(process)"))
+        XCTAssertTrue(source.contains("cancellationHandle.clear(process)"))
+        XCTAssertTrue(source.contains("throw CancellationError()"))
+    }
+
+    func testFASTQBatchSubprocessCancellationTerminatesTreeAndDrainsStderr() throws {
+        let serviceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishApp/Services/FASTQIngestionService.swift")
+        let source = try String(contentsOf: serviceURL, encoding: .utf8)
+        let body = try sourceFunctionBody(
+            named: "nonisolated private static func runCLISubprocess",
+            endingBefore: "    }\n}",
+            in: source
+        )
+
+        XCTAssertTrue(body.contains("NativeProcessCancellationHandle"))
+        XCTAssertTrue(body.contains("withTaskCancellationHandler"))
+        XCTAssertTrue(body.contains("requestProcessTreeTermination"))
+        XCTAssertTrue(body.contains("cancellationHandle.store(process)"))
+        XCTAssertTrue(body.contains("cancellationHandle.clear(process)"))
+        XCTAssertTrue(body.contains("stderrHandle.readabilityHandler"))
+        XCTAssertTrue(body.contains("throw CancellationError()"))
+    }
+
+    func testTwelveSBlastPreparationCancelsCLISubprocessTree() throws {
+        let viewerURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishApp/Views/Viewer/ViewerViewController+TwelveS.swift")
+        let source = try String(contentsOf: viewerURL, encoding: .utf8)
+        let body = try sourceFunctionBody(
+            named: "controller.onUnresolvedBlastRequested",
+            endingBefore: "        annotationDrawerView?.isHidden",
+            in: source
+        )
+
+        XCTAssertTrue(body.contains("LungfishCLIRunner.CancellationHandle()"))
+        XCTAssertTrue(body.contains("LungfishCLIRunner.run(arguments: arguments, cancellation: cliCancellation)"))
+        XCTAssertTrue(body.contains("catch LungfishCLIRunner.RunError.cancelled"))
+        XCTAssertTrue(body.contains("cliCancellation.cancel()"))
+    }
+
+    func testAnnotationDeletionOperationsCancelCLISubprocessTree() throws {
+        let viewerURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishApp/Views/Viewer/ViewerViewController+AnnotationDrawer.swift")
+        let source = try String(contentsOf: viewerURL, encoding: .utf8)
+
+        let rowDeleteBody = try sourceFunctionBody(
+            named: "private func runAnnotationRowDeletion",
+            endingBefore: "    func annotationDrawer(",
+            in: source
+        )
+        let trackDeleteBody = try sourceFunctionBody(
+            named: "private func runAnnotationTrackDeletion",
+            endingBefore: "    private func presentAnnotationTrackDeletionFailure",
+            in: source
+        )
+
+        for body in [rowDeleteBody, trackDeleteBody] {
+            XCTAssertTrue(body.contains("LungfishCLIRunner.CancellationHandle()"))
+            XCTAssertTrue(body.contains("cancellation: cliCancellation"))
+            XCTAssertTrue(body.contains("catch LungfishCLIRunner.RunError.cancelled"))
+            XCTAssertTrue(body.contains("OperationCenter.shared.setCancelCallback"))
+            XCTAssertTrue(body.contains("cliCancellation.cancel()"))
+        }
+    }
+
     private func sourceFunctionBody(named startNeedle: String, endingBefore endNeedle: String, in source: String) throws -> String {
         let start = try XCTUnwrap(source.range(of: startNeedle))
         let end = try XCTUnwrap(source[start.lowerBound...].range(of: endNeedle))

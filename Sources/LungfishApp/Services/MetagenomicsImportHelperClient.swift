@@ -75,7 +75,8 @@ public enum MetagenomicsImportHelperClient {
         naoMgsOptions: NaoMgsOptions? = nil,
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> Result {
-        try await Task.detached(priority: .userInitiated) {
+        let cancellationHandle = NativeProcessCancellationHandle()
+        let helperTask = Task.detached(priority: .userInitiated) {
             try runHelper(
                 kind: kind,
                 inputURL: inputURL,
@@ -83,9 +84,17 @@ public enum MetagenomicsImportHelperClient {
                 secondaryInputURL: secondaryInputURL,
                 preferredName: preferredName,
                 naoMgsOptions: naoMgsOptions,
-                progressHandler: progressHandler
+                progressHandler: progressHandler,
+                cancellationHandle: cancellationHandle
             )
-        }.value
+        }
+
+        return try await withTaskCancellationHandler {
+            try await helperTask.value
+        } onCancel: {
+            helperTask.cancel()
+            cancellationHandle.requestProcessTreeTermination()
+        }
     }
 
     private static func runHelper(
@@ -95,11 +104,13 @@ public enum MetagenomicsImportHelperClient {
         secondaryInputURL: URL?,
         preferredName: String?,
         naoMgsOptions: NaoMgsOptions?,
-        progressHandler: (@Sendable (Double, String) -> Void)?
+        progressHandler: (@Sendable (Double, String) -> Void)?,
+        cancellationHandle: NativeProcessCancellationHandle
     ) throws -> Result {
         guard let executablePath = CommandLine.arguments.first, !executablePath.isEmpty else {
             throw MetagenomicsImportHelperClientError.helperExecutableNotFound
         }
+        try Task.checkCancellation()
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executablePath)
@@ -201,10 +212,18 @@ public enum MetagenomicsImportHelperClient {
 
         do {
             try process.run()
+            cancellationHandle.store(process)
+            cancellationHandle.terminateIfRequested()
         } catch {
             stdoutHandle.readabilityHandler = nil
             stderrHandle.readabilityHandler = nil
+            if cancellationHandle.isTerminationRequested || Task.isCancelled {
+                throw CancellationError()
+            }
             throw MetagenomicsImportHelperClientError.helperLaunchFailed(error.localizedDescription)
+        }
+        defer {
+            cancellationHandle.clear(process)
         }
 
         process.waitUntilExit()
@@ -219,6 +238,10 @@ public enum MetagenomicsImportHelperClient {
             return state.stdoutBuffer
         }) {
             handleEventLine(trailing)
+        }
+
+        if cancellationHandle.isTerminationRequested || Task.isCancelled {
+            throw CancellationError()
         }
 
         if process.terminationStatus != 0 {

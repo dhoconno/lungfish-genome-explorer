@@ -145,7 +145,6 @@ public final class FASTQBundleCopyImportWorkflow: @unchecked Sendable {
             )
         } catch {
             try? fileManager.removeItem(at: stagingBundleURL)
-            try? fileManager.removeItem(at: destinationBundleURL)
             throw error
         }
     }
