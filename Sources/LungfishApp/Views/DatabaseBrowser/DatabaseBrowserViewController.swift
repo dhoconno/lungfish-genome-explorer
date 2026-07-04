@@ -1032,10 +1032,11 @@ public class DatabaseBrowserViewModel: ObservableObject {
 
     // MARK: - Computed Properties
 
-    /// Whether search text is valid (non-empty after trimming, or any text for Pathoplexus which allows browsing)
+    /// Whether search text is valid.
     var isSearchTextValid: Bool {
-        // Pathoplexus allows browsing all records without a search term
-        if isPathoplexusSearch { return true }
+        if isPathoplexusSearch {
+            return pathoplexusOrganism != nil
+        }
         return !searchText.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
@@ -1224,6 +1225,9 @@ public class DatabaseBrowserViewModel: ObservableObject {
         self.enaService = enaService
         self.automationBackend = automationBackend
         self.largeResultActionProvider = largeResultActionProvider
+        if source == .pathoplexus {
+            self.pathoplexusOrganism = pathoplexusOrganisms.first { $0.id == "mpox" }
+        }
         loadSearchHistory()
     }
 
@@ -1471,7 +1475,9 @@ public class DatabaseBrowserViewModel: ObservableObject {
     /// may not execute properly during modal sheet sessions.
     func performSearch() {
         guard isSearchTextValid else {
-            errorMessage = "Please enter a search term"
+            errorMessage = isPathoplexusSearch
+                ? "Select a Pathoplexus organism"
+                : "Please enter a search term"
             return
         }
 
@@ -2041,7 +2047,9 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         }
                     }
 
-                    let ppOrganism = capturedPpOrganism?.id ?? "mpox"
+                    guard let ppOrganism = capturedPpOrganism?.id else {
+                        throw DatabaseServiceError.invalidQuery(reason: "Select a Pathoplexus organism")
+                    }
                     logger.info("performSearch: Calling Pathoplexus search for organism=\(ppOrganism, privacy: .public)")
 
                     // Build Pathoplexus-specific filters
@@ -2434,7 +2442,12 @@ public class DatabaseBrowserViewModel: ObservableObject {
         // Capture the genome download view model for genome assembly downloads
         let genomeVM = genomeDownloadViewModel
         let genBankVM = genBankDownloadViewModel
-        let ppOrganism = pathoplexusOrganism?.id ?? "mpox"
+        if currentSource == .pathoplexus, pathoplexusOrganism == nil {
+            isDownloading = false
+            errorMessage = "Select a Pathoplexus organism"
+            return
+        }
+        let ppOrganism = pathoplexusOrganism?.id ?? ""
 
         // Build a descriptive title including accession(s) for the Downloads popover
         let accessionList = recordsToDownload.prefix(3).map(\.accession).joined(separator: ", ")

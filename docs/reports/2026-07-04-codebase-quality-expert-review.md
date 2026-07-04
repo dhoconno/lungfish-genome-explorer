@@ -54,6 +54,8 @@ and behavior-preserving simplifications are useful and appropriate.
   preserving the intended per-accession failure tolerance for ordinary lookup failures.
 - 2026-07-04 follow-up: Generic Pathoplexus search/fetch now fail closed when the caller omits
   an organism id, avoiding a misleading implicit `mpox` lookup at accession-only boundaries.
+- 2026-07-04 follow-up: The Pathoplexus browser now starts with the default `mpox` organism
+  visibly selected and no longer validates a nil organism as a hidden browse default.
 
 ## Still Deferred
 

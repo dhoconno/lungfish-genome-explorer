@@ -45,11 +45,8 @@ struct PathoplexusSearchPane: View {
     }
 
     private func selectOrganism(_ organism: PathoplexusOrganism) {
-        if viewModel.pathoplexusOrganism?.id == organism.id {
-            viewModel.pathoplexusOrganism = nil
-        } else {
-            viewModel.pathoplexusOrganism = organism
-        }
+        guard viewModel.pathoplexusOrganism?.id != organism.id else { return }
+        viewModel.pathoplexusOrganism = organism
 
         viewModel.results = []
         viewModel.selectedRecords = []
