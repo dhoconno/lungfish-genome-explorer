@@ -97,7 +97,6 @@ public final class MiniBAMViewController: NSViewController {
     private var contigName: String = ""
     private var contigLength: Int = 0
     private var reads: [AlignedRead] = []
-    private var depthPoints: [DepthPoint] = []
     private var referenceSequence: String?
     private var displayedReadSetIsSketch = false
     private var estimatedTotalReadCount: Int?
@@ -947,7 +946,6 @@ public final class MiniBAMViewController: NSViewController {
         deferredReferenceTask = nil
         loadGeneration &+= 1
         reads = []
-        depthPoints = []
         uniqueReadCount = 0
         displayedReadSetIsSketch = false
         estimatedTotalReadCount = nil
