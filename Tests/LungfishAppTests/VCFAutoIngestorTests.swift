@@ -6,6 +6,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
 @testable import LungfishIO
+@testable import LungfishWorkflow
 
 final class VCFAutoIngestorTests: XCTestCase {
 
@@ -59,6 +60,62 @@ final class VCFAutoIngestorTests: XCTestCase {
         XCTAssertEqual(result.variantCount, 2)
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.bundleURL.path))
         XCTAssertTrue(result.bundleURL.pathExtension == "lungfishref")
+    }
+
+    func testIngestSingleVCFWritesBundleProvenance() async throws {
+        let vcf = writeVCF("""
+        ##fileformat=VCFv4.2
+        ##contig=<ID=chr1,length=1000>
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+        chr1\t100\trs1\tA\tG\t30.0\tPASS\t.
+        chr1\t200\trs2\tC\tT\t25.0\tPASS\t.
+        """)
+        let out = outputDir()
+
+        let result = try await VCFAutoIngestor.ingest(
+            vcfURL: vcf,
+            outputDirectory: out
+        )
+
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: result.bundleURL))
+        let dbURL = result.bundleURL.appendingPathComponent("variants/variants.db")
+        let manifestURL = result.bundleURL.appendingPathComponent(BundleManifest.filename)
+
+        XCTAssertEqual(envelope.workflowName, "lungfish app vcf auto-ingest")
+        XCTAssertEqual(envelope.toolName, "Lungfish.app")
+        XCTAssertEqual(envelope.exitStatus, 0)
+        XCTAssertTrue(envelope.argv.contains("--vcf-path"))
+        XCTAssertTrue(envelope.argv.contains(vcf.path))
+        XCTAssertEqual(envelope.options.resolvedDefaults["variantCount"]?.integerValue, 2)
+        XCTAssertEqual(envelope.options.resolvedDefaults["referenceBundlePath"]?.fileValue?.path, result.bundleURL.path)
+
+        let input = try XCTUnwrap(envelope.files.first { $0.path == vcf.path && $0.role == .input })
+        XCTAssertEqual(input.format, .vcf)
+        XCTAssertNotNil(input.checksumSHA256)
+        XCTAssertNotNil(input.fileSize)
+
+        let dbOutput = try XCTUnwrap(envelope.outputs.first { $0.path == dbURL.path })
+        XCTAssertEqual(dbOutput.role, .output)
+        XCTAssertEqual(dbOutput.format, .unknown)
+        XCTAssertNotNil(dbOutput.checksumSHA256)
+        XCTAssertNotNil(dbOutput.fileSize)
+
+        let manifestOutput = try XCTUnwrap(envelope.outputs.first { $0.path == manifestURL.path })
+        XCTAssertEqual(manifestOutput.format, .json)
+        XCTAssertNotNil(manifestOutput.checksumSHA256)
+        XCTAssertNotNil(manifestOutput.fileSize)
+
+        let rollupURL = result.bundleURL
+            .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
+            .appendingPathComponent(ProvenanceWriter.bundleRollupFilename)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: rollupURL.path))
+
+        let dbSidecarURL = try XCTUnwrap(ProvenanceWriter.bundleOutputSidecarURL(
+            for: dbURL,
+            inBundle: result.bundleURL
+        ))
+        let dbFocusedEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: dbSidecarURL))
+        XCTAssertEqual(dbFocusedEnvelope.output?.path, dbURL.path)
     }
 
     func testIngestEmptyVCFThrows() async {
@@ -210,6 +267,12 @@ final class VCFAutoIngestorTests: XCTestCase {
 
         XCTAssertEqual(result.variantCount, 2)
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.bundleURL.path))
+
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: result.bundleURL))
+        XCTAssertEqual(envelope.workflowName, "lungfish app vcf auto-ingest")
+        XCTAssertTrue(envelope.files.contains { $0.path == vcf1.path && $0.role == .input })
+        XCTAssertTrue(envelope.files.contains { $0.path == vcf2.path && $0.role == .input })
+        XCTAssertEqual(envelope.options.resolvedDefaults["importedVCFFileCount"]?.integerValue, 2)
     }
 
     func testIngestBundleCleanupOnFailure() async {
