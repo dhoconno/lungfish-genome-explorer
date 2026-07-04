@@ -234,6 +234,32 @@ final class NCBIServiceTests: XCTestCase {
         XCTAssertTrue(url.contains("id=id1,id2,id3") || url.contains("id=id1%2Cid2%2Cid3"))
     }
 
+    func testFetchBatchCancelsProducerWhenIterationIsCancelled() async throws {
+        await mockClient.setResponseDelayNanoseconds(100_000_000)
+        await mockClient.register(
+            pattern: "efetch.fcgi",
+            response: .text(Self.genBankFixture(accession: "NC_000001"))
+        )
+
+        let stream = try await service.fetchBatch(accessions: ["NC_000001", "NC_000002"])
+        let consumer = Task<DatabaseRecord?, Error> {
+            var iterator = stream.makeAsyncIterator()
+            return try await iterator.next()
+        }
+
+        try await waitForRecordedRequestCount(1)
+        consumer.cancel()
+        do {
+            _ = try await consumer.value
+        } catch is CancellationError {
+            // Expected: cancelling iteration terminates the stream and producer.
+        }
+
+        try await Task.sleep(nanoseconds: 250_000_000)
+        let requests = await mockClient.requests
+        XCTAssertEqual(requests.count, 1)
+    }
+
     func testEFetchGFF3BuildsGFF3URL() async throws {
         await mockClient.register(pattern: "efetch.fcgi", response: .text("##gff-version 3\n"))
 
@@ -1710,6 +1736,35 @@ final class NCBIServiceTests: XCTestCase {
         XCTAssertEqual(result.totalCount, 1000)
         XCTAssertEqual(result.retmax, 50)
         XCTAssertEqual(result.retstart, 100)
+    }
+
+    private func waitForRecordedRequestCount(
+        _ expectedCount: Int,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        for _ in 0..<50 {
+            if await mockClient.requests.count >= expectedCount {
+                return
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let actualCount = await mockClient.requests.count
+        XCTFail("Timed out waiting for \(expectedCount) recorded request(s); saw \(actualCount)", file: file, line: line)
+    }
+
+    private static func genBankFixture(accession: String) -> String {
+        """
+        LOCUS       \(accession)              4 bp    DNA     linear   VRL
+        DEFINITION  Test sequence.
+        ACCESSION   \(accession)
+        VERSION     \(accession).1
+        SOURCE      Synthetic construct
+          ORGANISM  Synthetic construct
+        ORIGIN
+                1 atgc
+        //
+        """
     }
 }
 

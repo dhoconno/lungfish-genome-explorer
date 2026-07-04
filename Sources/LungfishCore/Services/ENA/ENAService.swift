@@ -142,9 +142,10 @@ public actor ENAService: DatabaseService {
 
     public nonisolated func fetchBatch(accessions: [String]) async throws -> AsyncThrowingStream<DatabaseRecord, Error> {
         AsyncThrowingStream { continuation in
-            Task {
+            let task = Task {
                 do {
                     for accession in accessions {
+                        try Task.checkCancellation()
                         let record = try await self.fetch(accession: accession)
                         continuation.yield(record)
                     }
@@ -153,6 +154,7 @@ public actor ENAService: DatabaseService {
                     continuation.finish(throwing: error)
                 }
             }
+            continuation.onTermination = { @Sendable _ in task.cancel() }
         }
     }
 

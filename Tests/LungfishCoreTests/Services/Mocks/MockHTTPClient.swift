@@ -20,6 +20,9 @@ public actor MockHTTPClient: HTTPClient {
     /// Default response when no pattern matches
     private var defaultResponse: MockResponse?
 
+    /// Optional delay used by cancellation tests.
+    private var responseDelayNanoseconds: UInt64?
+
     public struct MockResponse: Sendable {
         public let data: Data
         public let statusCode: Int
@@ -62,6 +65,11 @@ public actor MockHTTPClient: HTTPClient {
         defaultResponse = response
     }
 
+    /// Sets a cancellable delay before registered responses are returned.
+    public func setResponseDelayNanoseconds(_ nanoseconds: UInt64?) {
+        responseDelayNanoseconds = nanoseconds
+    }
+
     /// Clears all recorded requests.
     public func clearRequests() {
         requests.removeAll()
@@ -76,6 +84,10 @@ public actor MockHTTPClient: HTTPClient {
 
     public func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         requests.append(request)
+
+        if let responseDelayNanoseconds {
+            try await Task.sleep(nanoseconds: responseDelayNanoseconds)
+        }
 
         let urlString = request.url?.absoluteString ?? ""
 

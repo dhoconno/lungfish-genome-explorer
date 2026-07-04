@@ -136,6 +136,29 @@ final class ENAServiceTests: XCTestCase {
         XCTAssertNotNil(record.sequence)
     }
 
+    func testFetchBatchCancelsProducerWhenIterationIsCancelled() async throws {
+        await mockClient.setResponseDelayNanoseconds(100_000_000)
+        await mockClient.registerENAFasta(fasta: ">AB123456 Test\nATGCATGC")
+
+        let stream = try await service.fetchBatch(accessions: ["AB123456", "AB789012"])
+        let consumer = Task<DatabaseRecord?, Error> {
+            var iterator = stream.makeAsyncIterator()
+            return try await iterator.next()
+        }
+
+        try await waitForRecordedRequestCount(1)
+        consumer.cancel()
+        do {
+            _ = try await consumer.value
+        } catch is CancellationError {
+            // Expected: cancelling iteration terminates the stream and producer.
+        }
+
+        try await Task.sleep(nanoseconds: 250_000_000)
+        let requests = await mockClient.requests
+        XCTAssertEqual(requests.count, 1)
+    }
+
     // MARK: - Error Handling Tests
 
     func testHandles404Error() async throws {
@@ -176,5 +199,20 @@ final class ENAServiceTests: XCTestCase {
 
     func testServiceBaseURL() async {
         XCTAssertTrue(service.baseURL.absoluteString.contains("ebi.ac.uk"))
+    }
+
+    private func waitForRecordedRequestCount(
+        _ expectedCount: Int,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        for _ in 0..<50 {
+            if await mockClient.requests.count >= expectedCount {
+                return
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let actualCount = await mockClient.requests.count
+        XCTFail("Timed out waiting for \(expectedCount) recorded request(s); saw \(actualCount)", file: file, line: line)
     }
 }
