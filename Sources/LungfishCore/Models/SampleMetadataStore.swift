@@ -69,8 +69,17 @@ public final class SampleMetadataStore: @unchecked Sendable {
             throw MetadataParseError.insufficientColumns
         }
 
-        let dataRows = lines.dropFirst().map { line in
-            DelimitedLineParser.fields(in: line, delimiter: delimiter)
+        var dataRows: [[String]] = []
+        for (offset, line) in lines.dropFirst().enumerated() {
+            let fields = DelimitedLineParser.fields(in: line, delimiter: delimiter)
+            guard fields.count == headers.count else {
+                throw MetadataParseError.rowWidthMismatch(
+                    row: offset + 2,
+                    expected: headers.count,
+                    actual: fields.count
+                )
+            }
+            dataRows.append(fields)
         }
 
         return (headers: headers, dataRows: dataRows, delimiter: delimiter)
@@ -295,16 +304,19 @@ public final class SampleMetadataStore: @unchecked Sendable {
     }
 }
 
-public enum MetadataParseError: Error, LocalizedError {
+public enum MetadataParseError: Error, LocalizedError, Equatable {
     case invalidEncoding
     case noData
     case insufficientColumns
+    case rowWidthMismatch(row: Int, expected: Int, actual: Int)
 
     public var errorDescription: String? {
         switch self {
         case .invalidEncoding: return "File is not valid UTF-8 text"
         case .noData: return "File contains no data rows"
         case .insufficientColumns: return "File must have at least 2 columns (sample ID + metadata)"
+        case .rowWidthMismatch(let row, let expected, let actual):
+            return "Metadata row \(row) has \(actual) columns; expected \(expected)"
         }
     }
 }

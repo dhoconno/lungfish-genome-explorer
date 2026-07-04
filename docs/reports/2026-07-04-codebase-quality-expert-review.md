@@ -61,6 +61,9 @@ and behavior-preserving simplifications are useful and appropriate.
   additional form fields.
 - 2026-07-04 follow-up: BLAST read extraction now fails closed on nonzero gzip exits instead of
   accepting partial FASTQ/Kraken output as successful verification input.
+- 2026-07-04 follow-up: Sample metadata CSV/TSV import now rejects rows whose column count differs
+  from the header before scanning or persisting metadata, avoiding silent misalignment in scientific
+  import workflows.
 
 ## Still Deferred
 
