@@ -1614,9 +1614,58 @@ public class ViewerViewController: NSViewController {
             ) else {
                 return
             }
+            let startedAt = Date()
             let normalized = records.joined(separator: "")
-            try? normalized.write(to: destination, atomically: true, encoding: .utf8)
+            let sourceURLs = self.fastaExportSourceURLs()
+            do {
+                try normalized.write(to: destination, atomically: true, encoding: .utf8)
+                try ScientificFileExportProvenance.write(.init(
+                    workflowName: "lungfish app fasta export",
+                    sourceURLs: sourceURLs,
+                    outputURL: destination,
+                    outputFormat: .fasta,
+                    argv: self.fastaExportArgv(sourceURLs: sourceURLs, outputURL: destination),
+                    explicitOptions: [
+                        "sourcePaths": .array(sourceURLs.map { .file($0) }),
+                        "outputPath": .file(destination),
+                        "suggestedName": .string(suggestedName),
+                    ],
+                    resolved: [
+                        "recordCount": .integer(records.count),
+                        "outputByteCount": .integer(normalized.utf8.count),
+                    ],
+                    startedAt: startedAt
+                ))
+            } catch {
+                try? FileManager.default.removeItem(at: destination)
+                logger.error("FASTA export failed for \(destination.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
         }
+    }
+
+    private func fastaExportSourceURLs() -> [URL] {
+        let candidates = [
+            currentDocument?.url,
+            currentBundleURL,
+            currentReferenceBundle?.url,
+            multipleSequenceAlignmentViewController?.bundleURL,
+            phylogeneticTreeViewController?.bundleURL,
+        ]
+        var seen = Set<String>()
+        return candidates.compactMap { candidate in
+            guard let url = candidate?.standardizedFileURL else { return nil }
+            guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+            return seen.insert(url.path).inserted ? url : nil
+        }
+    }
+
+    private func fastaExportArgv(sourceURLs: [URL], outputURL: URL) -> [String] {
+        var argv = ["Lungfish Genome Explorer", "export-fasta"]
+        for sourceURL in sourceURLs {
+            argv.append(contentsOf: ["--source", sourceURL.path])
+        }
+        argv.append(contentsOf: ["--output", outputURL.path])
+        return argv
     }
 
     func exportMSASelectionViaCLI(_ request: MultipleSequenceAlignmentSelectionExportRequest) {
