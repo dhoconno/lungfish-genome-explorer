@@ -4131,28 +4131,28 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
                 guard let sampleName = self.sampleNameByRowKey[rowKey] else { return nil }
                 return (sampleName, self.sampleSourceFiles[rowKey] ?? "", self.sampleMetadata[rowKey] ?? [:])
             }
-            let dbURLs = searchIndex.variantDatabaseHandles.map(\.db.databaseURL)
+            guard let bundleURL = self.variantDatabaseBundleURL(from: searchIndex) else {
+                annotationDrawerLogger.warning("deleteSampleMetadataFieldAction: Could not resolve enclosing bundle for variant databases")
+                return
+            }
+            let targets = searchIndex.variantDatabaseHandles.map {
+                VariantSampleMetadataImportTarget(databaseURL: $0.db.databaseURL, trackName: $0.trackId)
+            }
+            let mutationRows = sampleRows.map {
+                VariantSampleMetadataMutationRow(name: $0.name, sourceFile: $0.sourceFile, metadata: $0.metadata)
+            }
 
             DispatchQueue.global(qos: .userInitiated).async {
                 var firstError: Error?
-                for dbURL in dbURLs {
-                    do {
-                        let rwDB = try VariantDatabase(url: dbURL, readWrite: true)
-                        let dbSourceBySample = rwDB.allSourceFiles()
-                        for sample in sampleRows {
-                            guard let dbSource = dbSourceBySample[sample.name] else {
-                                continue
-                            }
-                            if !Self.sourceFileMatches(dbSource, sample.sourceFile) {
-                                continue
-                            }
-                            var updated = sample.metadata
-                            updated.removeValue(forKey: fieldToRemove)
-                            try rwDB.updateSampleMetadata(name: sample.name, metadata: updated)
-                        }
-                    } catch {
-                        if firstError == nil { firstError = error }
-                    }
+                do {
+                    _ = try VariantSampleMetadataMutationService().deleteMetadataField(
+                        fieldName: fieldToRemove,
+                        sampleRows: mutationRows,
+                        bundleURL: bundleURL,
+                        targets: targets
+                    )
+                } catch {
+                    firstError = error
                 }
 
                 DispatchQueue.main.async {
@@ -4430,16 +4430,23 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         guard let searchIndex else { return }
         let fullMetadata = displayedSamples[row].metadata
 
-        for handle in searchIndex.variantDatabaseHandles {
-            do {
-                let rwDB = try VariantDatabase(url: handle.db.databaseURL, readWrite: true)
-                let dbSourceBySample = rwDB.allSourceFiles()
-                guard let dbSource = dbSourceBySample[sampleName],
-                      Self.sourceFileMatches(dbSource, sampleSourceFile) else { continue }
-                try rwDB.updateSampleMetadata(name: sampleName, metadata: fullMetadata)
-            } catch {
-                annotationDrawerLogger.warning("Inline metadata edit failed: \(error.localizedDescription)")
+        guard let bundleURL = variantDatabaseBundleURL(from: searchIndex) else {
+            annotationDrawerLogger.warning("Inline metadata edit failed: could not resolve enclosing bundle")
+            return
+        }
+        do {
+            let targets = searchIndex.variantDatabaseHandles.map {
+                VariantSampleMetadataImportTarget(databaseURL: $0.db.databaseURL, trackName: $0.trackId)
             }
+            _ = try VariantSampleMetadataMutationService().updateSampleMetadata(
+                sampleName: sampleName,
+                sourceFile: sampleSourceFile,
+                metadata: fullMetadata,
+                bundleURL: bundleURL,
+                targets: targets
+            )
+        } catch {
+            annotationDrawerLogger.warning("Inline metadata edit failed: \(error.localizedDescription)")
         }
     }
 

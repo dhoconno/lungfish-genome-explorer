@@ -435,14 +435,19 @@ extension InspectorViewController {
                 bundleURL: capturedBundleURL,
                 workflowName: "Sample metadata edit"
             ) == true else { return }
-            for dbURL in capturedURLs {
-                do {
-                    let rwDB = try VariantDatabase(url: dbURL, readWrite: true)
-                    try rwDB.updateSampleMetadata(name: sampleName, metadata: metadata)
-                    inspectorLogger.info("updateSampleSection: Saved metadata for '\(sampleName)' to \(dbURL.lastPathComponent)")
-                } catch {
-                    inspectorLogger.warning("updateSampleSection: Failed to save metadata: \(error.localizedDescription)")
+            do {
+                let targets = capturedURLs.map {
+                    VariantSampleMetadataImportTarget(databaseURL: $0)
                 }
+                let result = try VariantSampleMetadataMutationService().updateSampleMetadata(
+                    sampleName: sampleName,
+                    metadata: metadata,
+                    bundleURL: capturedBundleURL,
+                    targets: targets
+                )
+                inspectorLogger.info("updateSampleSection: Saved metadata for '\(sampleName)' to \(result.totalUpdated) variant database(s)")
+            } catch {
+                inspectorLogger.warning("updateSampleSection: Failed to save metadata: \(error.localizedDescription)")
             }
         }
 
