@@ -148,24 +148,25 @@ public actor SRAService {
     /// - Returns: Search results with SRA run information
     public func search(_ query: SearchQuery) async throws -> SRASearchResults {
         // Use NCBI ESearch with SRA database
-        let ids = try await ncbiService.esearch(
+        let searchResult = try await ncbiService.esearchWithCount(
             database: .sra,
             term: query.term,
             retmax: query.limit,
             retstart: query.offset
         )
+        let ids = searchResult.ids
 
         guard !ids.isEmpty else {
-            return SRASearchResults(totalCount: 0, runs: [])
+            return SRASearchResults(totalCount: searchResult.totalCount, runs: [])
         }
 
         // Get run info via EFetch
         let runs = try await fetchRunInfo(ids: ids)
 
         return SRASearchResults(
-            totalCount: ids.count,
+            totalCount: searchResult.totalCount,
             runs: runs,
-            hasMore: runs.count == query.limit
+            hasMore: query.offset + ids.count < searchResult.totalCount
         )
     }
 

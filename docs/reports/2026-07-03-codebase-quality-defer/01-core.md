@@ -51,6 +51,8 @@ original refactor was constrained to behavior-preserving edits:
   subprocesses run, avoiding pipe-buffer deadlocks on verbose tools.
 - `SRAService` now reuses POSIX/UTC run-info date formatters and accepts both
   timestamp and date-only NCBI run-info dates.
+- `SRAService.search` now uses NCBI `esearchWithCount` so SRA search results
+  report corpus totals and page boundaries instead of returned-page counts.
 
 ## ProjectStore.swift (remaining escalations)
 
@@ -83,9 +85,9 @@ original refactor was constrained to behavior-preserving edits:
 
 ## SRAService.swift (remaining escalations)
 
-- **F8 — `totalCount` is the returned-page count, not the ESearch corpus
-  `<Count>` (medium).** Misleads "N results" UIs. Fixing needs `ncbiService.esearch`
-  to return the corpus count (cross-file). Deferred; doc-note only for now.
+- **RESOLVED F8 — SRA search totals now use the ESearch corpus `<Count>`.**
+  `SRAService.search` calls `NCBIService.esearchWithCount` and computes
+  `hasMore` from `offset + returnedIDs < totalCount`.
 - **F5 — `parseRunInfoCSV` duplicated with NCBIService (low).** Two independent
   runinfo CSV parsers. Deferred cross-file consolidation into a shared
   `SRARunInfoCSVParser` with regression fixtures for both callers.

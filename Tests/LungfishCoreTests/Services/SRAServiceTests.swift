@@ -39,6 +39,38 @@ final class SRAServiceTests: XCTestCase {
         XCTAssertEqual(requests.count, 2, "Expected one retry for transient run-info fetch failure")
     }
 
+    func testSearchUsesNCBICorpusCountForPagination() async throws {
+        let ncbiClient = MockHTTPClient()
+        await ncbiClient.register(
+            pattern: "esearch.fcgi",
+            response: .json([
+                "esearchresult": [
+                    "count": "7",
+                    "retmax": "2",
+                    "retstart": "5",
+                    "idlist": ["111", "222"],
+                ]
+            ])
+        )
+
+        let runInfoCSV = """
+        Run,ReleaseDate,LoadDate,spots,bases,spots_with_mates,avgLength,size_MB,AssemblyName,download_path,Experiment,LibraryName,LibraryStrategy,LibrarySelection,LibrarySource,LibraryLayout,InsertSize,InsertDev,Platform,Model,SRAStudy,BioProject,Study_Pubmed_id,ProjectID,Sample,BioSample,SampleType,TaxID,ScientificName,SampleName
+        SRR11140748,2020-03-18,2020-03-18,421352,126405600,421352,300,210,na,https://example.invalid/SRR11140748.sra,SRX7892566,,WGS,RANDOM,GENOMIC,PAIRED,0,0,ILLUMINA,Illumina NextSeq 500,SRP252920,PRJNA615032,,615032,SRS6529339,SAMN14430827,simple,2697049,Severe acute respiratory syndrome coronavirus 2,USA-WA-UW-2244/2020
+        SRR22240748,2020-03-19,2020-03-19,123,456,123,300,1,na,https://example.invalid/SRR22240748.sra,SRX7892567,,WGS,RANDOM,GENOMIC,SINGLE,0,0,ILLUMINA,Illumina NextSeq 500,SRP252920,PRJNA615032,,615032,SRS6529340,SAMN14430828,simple,2697049,Severe acute respiratory syndrome coronavirus 2,USA-WA-UW-2245/2020
+        """
+        let efetchClient = SequencedHTTPClient(responses: [.text(runInfoCSV)])
+        let service = SRAService(
+            ncbiService: NCBIService(httpClient: ncbiClient),
+            httpClient: efetchClient
+        )
+
+        let results = try await service.search(SearchQuery(term: "SARS-CoV-2", limit: 2, offset: 5))
+
+        XCTAssertEqual(results.totalCount, 7)
+        XCTAssertEqual(results.runs.map(\.accession), ["SRR11140748", "SRR22240748"])
+        XCTAssertFalse(results.hasMore)
+    }
+
     func testDownloadFASTQFromENAUsesHTTPClientDownload() async throws {
         let outputDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("sra-ena-download-\(UUID().uuidString)", isDirectory: true)
