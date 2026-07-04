@@ -30,53 +30,57 @@ lead_approved: false
 ---
 
 !!! note "Newer workflow area"
-    MHC genotyping is a newer part of Lungfish, and no MCM MHC example dataset
-    ships with this manual yet. The sample names, target IDs, read counts, and
-    calls in this chapter are illustrative. They show how the dashboard reads,
-    not a fixture you can open and match cell for cell.
+    MHC genotyping arrived in Lungfish after the alignment and variant tools.
+    No MCM MHC example dataset ships with this manual yet, so the sample names,
+    allele-target IDs, read counts, and calls shown here are invented to
+    demonstrate how the dashboard reads, not cells you can match one for one.
 
 ## What it is
 
 The genotype comparison viewport is the dashboard where you read a genotype
-result bundle. It is a comparison surface, not a genome view: it does not draw a
-coordinate axis, and it is deliberately not one of the five genomic viewport
-classes (sequence, alignment, variant, taxonomy, assembly). Instead it lays out
-allele-target rows against sample columns and layers the M-family calls on top.
+result bundle. It is a comparison surface, not a genome view. It does not draw a
+coordinate axis. Instead it lays out allele-target rows against sample columns
+and layers the M-family calls on top.
 
 <!-- planned: genotype-matrix-overview -->
 
-The dashboard has three regions that answer three different questions. The
-comparison matrix answers "which targets did each sample show, and how
-strongly." The haplotype tape answers "which M-family did each locus resolve
-to." The cohort summary answers "across all my samples, what needs attention."
-Selecting a sample or a locus in one region updates the others, so you move
-between the raw evidence and the finished call without leaving the viewport.
+The dashboard has three regions, and it helps to know what each is for before
+you open one. The comparison matrix is the raw evidence: which allele targets
+each sample showed, and how strongly. Above it sits the haplotype tape, which
+collapses that evidence into the finished call, the M-family each locus resolved
+to. Off to one side, the cohort summary looks across every sample at once and
+points you toward the ones that need attention. Selecting a sample or a locus in
+one region updates the others, so you move between the raw evidence and the
+finished call without leaving the viewport.
 
-So what should you do with this: read the tape for the finished call, drop into
-the matrix and call evidence when a call looks surprising, and let the cohort
-summary steer you to the samples that need a human.
+The practical takeaway: trust the tape for
+routine calls, and reach past it, into the matrix and the call evidence, only
+when something looks off. The cohort summary is what tells you where that closer
+look is worth spending.
 
 ## What you will learn
 
-By the end of this chapter you will be able to read the comparison matrix and
-the haplotype tape, open the per-sample call evidence to see which targets and
-read counts drove a call, recognise the overcall guard when it fires, and apply
-a manual haplotyping override or an annotation to a locus slot.
+This chapter works from the finished call back down to the evidence beneath it.
+First the matrix and the haplotype tape, which is where a call is stated. Then
+the per-sample call evidence, which shows the allele targets and read counts a
+call rested on. Along the way you will learn to spot the overcall guard when it
+fires, and to step in yourself with a manual override or an annotation.
 
 ## The genotype comparison matrix
 
 The matrix is the raw evidence layer. Each row is an allele target from the
-reference library, written with its target ID and source label such as
+reference library, written with its identifier and source label such as
 `0068[MHC-A1]`. Each column is a sample. A filled cell means that sample showed
-that target, and the cell carries the retained read count behind it. Reading a
-column top to bottom tells you every target a sample produced. Reading a row
-left to right tells you which samples share a target.
+that allele target, and the cell carries the retained read count behind it.
+Reading a column top to bottom tells you every allele target a sample produced.
+Reading a row left to right tells you which samples share an allele target.
 
 Cells are colored by the M-family they support, using a fixed palette so the
-same family reads the same way everywhere in the report. When a target is shared
-by more than one family, Lungfish colors it as a resolved family only when the
-surrounding primary evidence or a linked locus settles which family it belongs
-to. Otherwise the cell is marked shared or ambiguous rather than being given a
+same family reads the same way everywhere in the report. When an allele target
+is shared by more than one family, Lungfish colors it as a resolved family only
+when the surrounding primary evidence or a linked locus (a neighbouring locus
+that tends to be inherited alongside it) settles which family it belongs to.
+Otherwise the cell is marked shared or ambiguous rather than being given a
 misleading color. The matrix never modifies the bundle: sorting, filtering, and
 selecting are display state only.
 
@@ -89,12 +93,15 @@ M-family name or a `?` when the slot is unresolved.
 
 <!-- planned: genotype-haplotype-tape -->
 
-The two slots are report positions, nothing more. Lungfish swaps H1 and H2
-freely to keep the same M-family aligned down a column of loci, because an intact
-family is the common case. A `?` is not a failure: it is an honest statement that
-the evidence at that slot did not resolve to one family. Clicking a slot selects
-that locus and pulls its supporting targets into focus in the matrix and the
-call-evidence panel.
+Each locus gets two slots because an animal inherits at most two MHC haplotypes,
+one from each parent. It is natural to expect H1 to be the family from one
+parent and H2 the family from the other, but that is not what they are. The two
+slots are report positions, nothing more. Lungfish reorders H1 and H2 freely to
+keep the same M-family aligned down a column of loci, because an intact family is
+the common case, so a slot carries no parental origin. A `?` is not a failure: it
+is an honest statement that the evidence at that slot did not resolve to one
+family. Clicking a slot selects that locus and pulls its supporting allele
+targets into focus in the matrix and the call-evidence panel.
 
 ## The cohort summary
 
@@ -128,43 +135,47 @@ Select a sample from the list. Read its haplotype tape across the six loci, then
 glance at the matrix below: the colored cells under that sample column should
 cluster into the same one or two families the tape names.
 
-When a tape slot reads `?`, click it. The matrix highlights the targets that
-locus does have, so you can see whether the slot is empty for lack of reads or
-unresolved because the evidence is split.
+When a tape slot reads `?`, click it. The matrix highlights the allele targets
+that locus does have, so you can see whether the slot is empty for lack of reads
+or unresolved because the evidence is split.
 
 ### Step 3. Read per-sample call evidence
 
-The call-evidence panel is where a call explains itself. For a selected sample
-and locus it lists the observed target IDs, their read counts, and a short
-rationale for the call. The rationale is what turns a set of matches into a
-defensible family assignment.
+The call-evidence panel is where you see the reasoning behind a call. For a
+selected sample and locus it lists the observed allele-target IDs, their read
+counts, and a short rationale for the call. The rationale is what turns a set of
+matches into a defensible family assignment.
 
 <!-- planned: genotype-call-evidence -->
 
 Four rationale categories cover most calls. This is a simplification of a longer
 internal set, kept short here because these four are the ones you act on:
 
-- `direct-primary`: a defining target for the family is present with credible
-  support, so the family is called directly.
-- `shared-resolved`: a target shared by several families was resolved to one
-  family by neighbouring primary or linked-locus evidence.
-- `secondary-rescued`: primary targets could not settle the locus, so additional
-  workbook-mapped targets rescued the call under strict support rules.
+- `direct-primary`: a defining allele target for the family is present with
+  credible support, so the family is called directly.
+- `shared-resolved`: an allele target shared by several families was resolved to
+  one family by neighbouring primary or linked-locus evidence.
+- `secondary-rescued`: primary allele targets could not settle the locus, so
+  additional workbook-mapped targets (targets recorded in the run's workbook, its
+  saved table of per-sample evidence) rescued the call under strict support rules.
 - `overcall-human-curation`: too many families have credible support, so the
   locus is reported `?/?` and handed to a human.
 
-The overcall guard behind that last category is worth understanding, because it
-is where the workflow refuses to guess. Before ranking any calls, Lungfish asks
-whether the sample looks like one interpretable animal at all. If more than two
-M-families have credible, non-trivial support at a locus, a fourth or fifth
-family is not treated as a weak extra heterozygous call. It is treated as
-evidence that the sample is not confidently interpretable, and the locus is
-reported `?/?`. The archetype is an LF2840-like sample: credible support for
-nearly every family, M1 through M7, repeated across many loci. That pattern is
-more consistent with a mixed sample or cross-sample carryover than with a rich
-genotype, so all six loci report `?/?` with the rationale
-`overcall-human-curation` naming the excess families, rather than being reduced
-to the two highest-scoring families.
+The overcall guard behind that last category is the workflow's refusal to guess,
+and it rests on simple biology. A single animal has two MHC haplotypes, one from
+each parent, so at any one locus it can genuinely carry at most two families.
+Before ranking any calls, Lungfish checks whether the sample is even consistent
+with that. If three or more M-families have credible support at a locus, the
+extra families cannot all be real in one animal. Lungfish does not treat a third
+or fourth family as a weak extra call to keep. It treats it as a sign that the
+sample itself is the problem, and reports the locus as `?/?`.
+
+Picture a hypothetical animal we will call LF2840, showing credible support for
+nearly every family, M1 through M7, repeated across many loci. No single macaque
+carries seven haplotypes. That pattern fits a mixed or cross-contaminated sample
+far better than a rich genotype, so all six loci report `?/?` with the rationale
+`overcall-human-curation` naming the excess families, rather than being squeezed
+down to the two highest-scoring ones.
 
 ### Step 4. Apply manual haplotyping and annotation overrides
 
@@ -201,3 +212,4 @@ Continue to
 [Haplotype Definitions, AI-Assisted Haplotyping, and Export](04-haplotype-definitions-and-export.md)
 to edit the named haplotypes behind these calls and to export the reviewed
 bundle.
+</content>

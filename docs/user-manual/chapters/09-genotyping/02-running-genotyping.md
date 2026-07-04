@@ -32,47 +32,63 @@ lead_approved: false
 ---
 
 !!! note "Newer workflow area"
-    MHC genotyping is a newer part of Lungfish, and no MCM MHC example dataset
-    ships with this manual yet. The paths, sample counts, and read counts below
-    are illustrative. They show the shape of a run rather than a fixture you can
-    download and reproduce step for step.
+    MHC genotyping is one of the newer corners of Lungfish. No MCM MHC example
+    dataset ships with this manual yet, so the paths, sample counts, and read
+    counts in the steps below stand in for a real run rather than describing one
+    you can download. They show the shape of a run, not a fixture you can
+    reproduce step for step.
 
 ## What it is
 
 A genotyping run turns prepared reads into a genotype result bundle: a
 self-contained folder holding the comparison matrix, the per-sample calls, the
-run statistics, and full provenance. You start every run from the Workflow
-Library, the launcher that lists the workflows Lungfish can run against your
-project data. The reads go in as FASTQ files or `.lungfishfastq` bundles, and
-the run compares them to an MHC allele-library reference bundle: a
-`.lungfishmhcref` package that carries the allele FASTA plus the haplotype
-definitions used to name families.
+run statistics, and full provenance (a record of exactly which inputs, tools,
+and settings produced a result). You start every run from the Workflow Library,
+the launcher that lists the workflows Lungfish can run against your project
+data. The reads go in as FASTQ files (the standard text format holding
+sequencing reads and their quality scores) or `.lungfishfastq` bundles, and the
+run compares them to an MHC allele-library reference bundle: a `.lungfishmhcref`
+package that carries the allele FASTA (a plain-text file listing each sequence)
+plus the haplotype definitions used to name families.
+
+In most labs that reference bundle already exists and is handed to you, so your
+first move is often just to ask a colleague which `.lungfishmhcref` file to use.
+If you have to build one yourself, that is a separate task covered in
+[Haplotype Definitions, AI-Assisted Haplotyping, and
+Export](04-haplotype-definitions-and-export.md), or the `mhc-reference-bundle`
+step in the command-line section below.
 
 Three routes share this chapter because they solve the same problem for
-different data. Paired Illumina reads use the miSeq amplicon route. Barcoded or
-per-sample ONT reads use the ONT genotyping route. Long ONT reads that span a
-whole allele use the full-length route, which clusters reads into consensus
-sequences before genotyping them.
+different data. Paired Illumina reads from a MiSeq (an Illumina short-read
+platform) use the miSeq amplicon route. Reads from an Oxford Nanopore (ONT) run
+that already arrive split by sample or by barcode (a short sequence tag added
+per sample) use the ONT genotyping route. Long ONT reads that span a whole
+allele use the full-length route, which first clusters reads into consensus
+sequences, each a single cleaned-up sequence built from many overlapping noisy
+reads, before genotyping them.
 
-So what should you do with this: match your reads to one of the three routes
-using the table below, run it, and watch the Operations Panel until a genotype
-result bundle appears in the sidebar.
+In practice, your one real decision is which of the three
+routes fits your data, so start at the table below and match it. After that the
+run is mostly a matter of watching the Operations Panel until a genotype result
+bundle lands in the sidebar.
 
 ## What you will learn
 
-By the end of this chapter you will be able to open the Workflow Library and
-pick the right genotyping workflow for your data, run a single sample or a
-cohort, understand where clustering fits in the full-length ONT route, track a
-run in the Operations Panel, and reproduce the whole procedure from the command
+The goal here is a genotype result bundle you can open in the next chapter.
+Reaching it means picking the right workflow for your data, running either a
+single sample or a whole cohort (a batch of samples run together), knowing where
+clustering fits into the full-length ONT route, following the run in the
+Operations Panel, and, if you script, reproducing all of it from the command
 line.
 
 ## Choosing a genotyping workflow
 
 The route depends on the sequencing platform and, for ONT, on how the reads
 reach Lungfish. The biological reason to care is read length: short reads are
-matched directly to allele targets, while long reads are first collapsed into
-per-cluster consensus sequences so that sequencing error does not fragment a
-single allele into many near-duplicate matches.
+matched directly to allele targets, allowing for the odd indel (a small
+insertion or deletion), while long reads are first collapsed into per-cluster
+consensus sequences so that sequencing error does not fragment a single allele
+into many near-duplicate matches.
 
 | If your data is | Use | Why |
 |---|---|---|
@@ -107,23 +123,24 @@ Illumina, and short reads are best matched straight to the allele library. In
 the configuration sheet, choose your paired FASTQ inputs and the MHC
 reference bundle, then leave the mode on Illumina sample bundles. Click Run.
 
-Lungfish maps the reads, keeps only reads that span a target cleanly, and counts
-the retained unique-read support per allele target. The `--min-support` setting
-controls how many retained reads a target needs before it appears as a genotype
-row. Raising it trims low-support noise; lowering it keeps faint signals for
-review.
+Lungfish maps the reads, keeps only reads that span an allele target cleanly,
+and counts the retained unique-read support per allele target. The
+`--min-support` setting controls how many retained reads an allele target needs
+before it appears as a genotype row. Raising it trims low-support noise;
+lowering it keeps faint signals for review.
 
 ### Step 3. Run ONT genotyping on barcode-demux or sample bundles
 
 The ONT route handles reads that arrive already separated by sample, either as
 one bundle per sample or split by Fluidigm barcode. It maps and filters each
 sample without a clustering step, which suits reads that are already close to
-one target each.
+one allele target each.
 
 Choose ONT sample bundles when you have one prepared `.lungfishfastq` bundle per
-animal. Choose the barcode-demux mode only for legacy barcode-split inputs: it is
-deprecated in favour of preparing per-sample bundles first. In both cases, select
-the MHC reference bundle and click Run.
+animal. Choose the barcode-demux mode (demux is short for demultiplex, sorting
+mixed reads back into per-sample groups by their barcode) only for legacy
+barcode-split inputs: it is deprecated in favour of preparing per-sample bundles
+first. In both cases, select the MHC reference bundle and click Run.
 
 <!-- planned: genotyping-ont-barcode-config -->
 
@@ -163,10 +180,10 @@ the message.
 
 ## Command-line parity
 
-Every route runs headless with the same inputs, which is the reliable way to put
-a genotyping run in a script or a pipeline. Build the MHC reference bundle once,
-then call the route that matches your data. The block below reproduces the
-procedure above.
+Every route runs headless (from the command line, with no graphical window) with
+the same inputs, which is the reliable way to put a genotyping run in a script or
+a pipeline. Build the MHC reference bundle once, then call the route that matches
+your data. The block below reproduces the procedure above.
 
 ```bash
 # Build the MHC allele-library reference bundle once.
@@ -197,8 +214,12 @@ lungfish fastq pbaa-cluster sampleC.lungfishfastq \
   --output-dir results/sampleC-pbaa
 ```
 
-Each command writes CSV summaries, a workbook, run statistics, and provenance
-into its output directory, the same artifacts the Workflow Library produces.
+Route A takes the two files a MiSeq sample comes off the instrument as, R1 and
+R2 (the forward and reverse reads). Pass both, as shown. See [Importing
+FASTQ](../03-reads/01-importing-fastq.md) for how those files are named and
+paired. Each command writes CSV summaries, a workbook, run statistics, and
+provenance into its output directory, the same artifacts the Workflow Library
+produces.
 
 ## What good looks like
 
@@ -212,7 +233,7 @@ above your `--min-support` floor, and only a minority of loci are unresolved.
 
 A run that produces a bundle but leaves most loci as `?` is telling you
 something about the input, not failing silently. Thin read support across the
-board usually means the reads did not cover the target panel, so check that the
+board usually means the reads did not cover the panel, so check that the
 reference bundle matches the wet-lab panel you actually ran. A sample where
 nearly every M-family has substantial support across many loci is the pattern
 the overcall guard is designed to catch, and it points to a mixed or
@@ -225,3 +246,4 @@ Continue to
 [Reading the Genotype Comparison Viewport](03-reading-the-genotype-comparison.md)
 to open the bundle you just produced and read its matrix, haplotype tape, and
 call evidence.
+</content>

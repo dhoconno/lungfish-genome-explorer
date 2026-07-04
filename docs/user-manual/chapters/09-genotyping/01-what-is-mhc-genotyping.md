@@ -26,70 +26,96 @@ lead_approved: false
 !!! note "Newer workflow area"
     MHC genotyping is a newer part of Lungfish than the alignment and variant
     workflows. No Mauritian cynomolgus macaque MHC example dataset ships with
-    this manual yet, so every genotype, target ID, and read count in this
-    chapter is drawn from the reference definition set as an illustrative
-    example. Treat these values as representative of the shape of a result, not
-    as a guaranteed output you can reproduce from a bundled fixture.
+    this manual yet, so every genotype, allele-target ID, and read count you
+    see here is drawn from the reference definition set purely to illustrate
+    the shape of a result. Read the numbers as representative, not as output
+    you can reproduce from a bundled fixture.
 
 ## What it is
 
 Amplicon MHC genotyping reads the immune-recognition region of a genome by
 sequencing many short, targeted PCR products and matching each read against a
 library of known allele sequences. An amplicon is a short stretch of DNA copied
-from one defined region by PCR. The MHC (major histocompatibility complex) is
-the dense cluster of immune-system genes that a genotyping assay is trying to
-characterise. The worked organism throughout this chapter is the Mauritian
-cynomolgus macaque, abbreviated MCM, because its MHC region is unusually well
-catalogued and its haplotypes are named and stable.
+from one defined region by PCR. The reads arrive as FASTQ files (the standard
+text format holding sequencing reads and their quality scores), and the library
+they are matched against is a FASTA file (a plain-text file listing each
+sequence). The MHC (major histocompatibility complex) is the dense cluster of
+immune-system genes that a genotyping assay is trying to characterise. The
+worked organism throughout this chapter is the Mauritian cynomolgus macaque,
+abbreviated MCM, because its MHC region is unusually well catalogued and its
+haplotypes are named and stable.
 
 The genotyping workflows live together in the Workflow Library, alongside the
-short-amplicon miSeq route and the full-length ONT route.
+short-amplicon miSeq route, which expects reads from a MiSeq (an Illumina
+short-read platform), and the full-length Oxford Nanopore (ONT) route, which
+expects long reads.
 
 <!-- planned: workflow-library-genotyping -->
 
-The important difference from ordinary variant calling is what the assay
-compares against. GATK germline calling (see
-[HaplotypeCaller](../06-human-germline-variants/01-haplotype-caller.md))
-compares your reads to one reference genome and reports the positions where
-they differ, as a VCF. Amplicon MHC genotyping does not look for per-position
-differences against a single reference. It asks, for each of hundreds of known
-MHC allele sequences in a curated library, whether that allele is present in
-this animal and with how much read support. The result is a presence-and-support
-matrix across an allele library, not a list of coordinate variants.
+The important difference from ordinary variant calling is the question the
+assay asks. Ordinary variant calling lines your reads up against one reference
+genome and lists every position where the sample differs from it. That list is
+a VCF (a variant-call file recording positions where a sample differs from a
+reference). Amplicon MHC genotyping asks something else entirely. It does not
+hunt for per-position differences against a single reference. Instead, for each
+of the hundreds of known MHC allele sequences held in a curated library, it
+asks one plain question: is this allele present in this animal, and how many
+reads support it? The result is a presence-and-support matrix across an allele
+library, not a list of coordinate differences.
 
-So what should you do with this: read this chapter to decide whether your data
-belongs in the short-amplicon miSeq route or the full-length ONT route, then
-move to [Running Amplicon MHC Genotyping](02-running-genotyping.md).
+So what should you do with this? The one habit to carry into every later
+chapter is to keep the allele-versus-family distinction straight from the
+outset, because almost every way a genotype result gets misread traces back to
+blurring those two units. With that in hand, work out which route your reads
+belong to and continue to [Running Amplicon MHC
+Genotyping](02-running-genotyping.md).
 
 ## What you will learn
 
-By the end of this chapter you will be able to say what an amplicon MHC
-genotyping run consumes and produces, tell the difference between an individual
-allele and a named M-family haplotype, describe what Lungfish decides
-automatically and what it hands back for human curation, and choose between the
-miSeq and ONT routes for your own reads.
+This chapter builds the vocabulary the rest of the section leans on. You will
+come away able to say what a genotyping run consumes and produces, to tell an
+individual allele apart from a named M-family haplotype, and to judge which
+parts of a result Lungfish settles on its own versus which it hands back for a
+person to curate. It also lays out how to choose between the miSeq and ONT
+routes before you commit reads to either.
 
 ## Alleles versus haplotypes
 
-Two units of evidence run through every genotyping result, and keeping them
-distinct is the single most useful habit for reading one. An allele here is an
-individual MiSeq target: one sequence in the reference library, written with its
-target ID and a source label, such as `0068[MHC-A1]`. A named haplotype is an
-M-family (M1 through M7 for MCM) that spans all six MHC loci at once: MHC-A,
-MHC-E, MHC-B, MHC-DR, MHC-DQ, and MHC-DP. Alleles are what the reads match
-directly. M-families are the interpretation Lungfish builds on top of those
-matches.
+Mauritian cynomolgus macaques descend from a small group of founders that
+reached the island only a few centuries ago. That genetic bottleneck left the
+whole colony carrying just a handful of MHC variants. Because the region is
+passed down as one long block rather than reshuffled gene by gene, the entire
+MHC of a Mauritian animal is almost always one of a small, fixed set of blocks
+named M1 through M7. Each of these M-families is a whole-region haplotype: a
+single set of alleles inherited together as a block, spanning all six MHC loci
+(a locus is the spot on a chromosome where a particular gene sits). Those six
+are three class I loci (MHC-A, MHC-E, and MHC-B) and three class II loci
+(MHC-DR, MHC-DQ, and MHC-DP). This is why the rest of these chapters can name a
+family such as M1 and treat it as a single unit. In this population it
+effectively is one.
+
+Against that backdrop, two units of evidence run through every genotyping
+result, and it pays to keep them straight from the start. The first is the
+allele target: one reference allele sequence in the library, the thing a read
+either matches or does not. Each allele target has an identifier such as
+`0068[MHC-A1]`, where `0068` is that sequence's catalogue number in the library
+and the bracketed part names its locus. The second unit is the named haplotype,
+an M-family (M1 through M7 for MCM) that spans all six loci at once. Reads match
+allele targets directly. M-families are the interpretation Lungfish builds on
+top of those matches. Throughout these chapters, "allele target" always means
+one reference sequence in the library, and "allele" on its own means a sequence
+actually observed in an animal.
 
 The illustrative block below shows one allele target and the family it helps
-define. The M1 family is spread across the six loci in the MCM MiSeq definition
+define. The M1 family is spread across the six loci in the MCM miSeq definition
 set, so a run does not "see" M1 as a single thing. It sees the individual
-targets and assembles the family from them.
+allele targets and assembles the family from them.
 
 ```text
-Allele (one MiSeq target):   0068[MHC-A1]
-Named haplotype (M-family):  M1
+Allele target (one library sequence):  0068[MHC-A1]
+Named haplotype (M-family):            M1
 
-M1 across the six MCM MiSeq loci (illustrative):
+M1 across the six MCM miSeq loci (illustrative):
   MHC-A    0068[MHC-A1], 0129[MHC-K], 0079[MHC-AG1]
   MHC-E    0010
   MHC-B    0073[MHC-B], 0065[MHC-B]
@@ -100,54 +126,60 @@ M1 across the six MCM MiSeq loci (illustrative):
 
 <!-- planned: alleles-vs-haplotypes-schematic -->
 
-MCM M-families are usually intact: the same family tends to hold together across
-neighbouring loci. Lungfish prefers to keep a family intact when the evidence
-allows, because an intact pattern is the common biological case. It does not
-force an intact pattern over strong direct contradictory evidence. When a locus
-carries a target that clearly belongs to a different family, that direct
-evidence stays visible and the locus is marked discordant or unresolved rather
-than being smoothed into a tidy family call.
+Because of that founder history, MCM M-families are usually intact: the same
+family tends to hold together across neighbouring loci, and Lungfish prefers to
+keep a family intact when the evidence allows, since an intact pattern is the
+common biological case. It does not force an intact pattern over strong direct
+evidence to the contrary. When a locus carries an allele target that clearly
+belongs to a different family, that evidence stays visible and the locus is
+marked discordant or unresolved rather than smoothed into a tidy family call.
 
 ## What Lungfish does and does not do
 
-Within a genotyping run, Lungfish matches reads to the MHC allele library, tallies
-per-target read support, presents the results as a comparison matrix, assembles
-the supported targets into named M-family calls for each locus, and exports the
-reviewed result. Each locus gets two report slots, labelled H1 and H2. These are
-presentation slots only: Lungfish swaps them freely to keep the same M-family
-aligned across loci, and an unresolved slot is written as `?`.
+Within a genotyping run, Lungfish matches reads to the MHC allele library,
+tallies per-allele-target read support, presents the results as a comparison
+matrix, assembles the supported allele targets into named M-family calls for
+each locus, and exports the reviewed result. Each locus gets two report slots,
+labelled H1 and H2. Two slots is not an arbitrary number: an animal inherits at
+most two MHC haplotypes, one from each parent, so at any locus there are at most
+two families to show.
 
-Two limits are worth stating plainly, because they are where a reader's
-expectations most often diverge from what the workflow produces.
+It is tempting to read H1 as the family from one parent and H2 as the family
+from the other. Resist that. H1 and H2 are report positions, nothing more.
+Lungfish reorders them freely to keep the same M-family aligned down a column of
+loci, so a slot carries no parental origin, and an unresolved slot is written as
+`?`.
 
-- Lungfish does not describe the two slots as separate physical arrangements of
-  DNA. H1 and H2 are report columns, nothing more.
-- When more than two M-families have credible, non-trivial support at a locus,
-  Lungfish does not force the two strongest into H1 and H2. It reports `?/?` and
-  flags the locus for human curation, because too many credible families is a
-  signal that the sample is not confidently interpretable by this workflow.
-
-That second behaviour is the overcall guard, and it is covered in detail in
-[Reading the Genotype Comparison Viewport](03-reading-the-genotype-comparison.md).
-The short version: a fourth or fifth strongly supported family is not a weak
-extra call to be discarded. It is evidence that a human should look.
+Those two slots also set up the workflow's main guardrail. A single diploid
+animal cannot genuinely carry three or more different M-families at one locus,
+because it has only two haplotypes to give. So when three or more families turn
+up with credible support at a locus, Lungfish does not quietly pick the two
+strongest and move on. It reports `?/?` and flags the locus for a person,
+because an excess of well-supported families usually means the sample is mixed
+or contaminated rather than richly heterozygous. That behaviour is the overcall
+guard, covered in detail in [Reading the Genotype Comparison
+Viewport](03-reading-the-genotype-comparison.md). A fourth or fifth strongly
+supported family is not a weak extra call to discard. It is a reason for a human
+to look.
 
 ## When to use amplicon MHC genotyping
 
 The choice between the two routes comes down to read length and the panel you
 ran. The short-amplicon miSeq route expects paired Illumina reads from the
-established MCM MiSeq target panel. It maps short reads to the allele library and
-counts exact and indel-aware matches per target. Use it when your wet-lab
-protocol is the miSeq amplicon panel and you want fast, well-calibrated calls
-against the curated target set.
+established MCM miSeq amplicon panel. It maps short reads to the allele library
+and counts exact and indel-aware matches per allele target, where an indel is a
+small insertion or deletion. Use it when your wet-lab protocol is the miSeq
+amplicon panel and you want fast, well-calibrated calls against the curated
+allele set.
 
 The full-length ONT route expects long Oxford Nanopore reads that span whole
-allele sequences. It clusters reads into consensus sequences first, with Savont
-or pbAA, and then genotypes those consensus sequences against the allele
-library. Use it when your reads are long enough to cover a full allele, when you
-want full-length allele resolution, or when you are working outside the fixed
-miSeq panel. Both routes end in the same place: a genotype result bundle you
-open in the comparison dashboard.
+allele sequences. It first clusters reads into consensus sequences (a consensus
+sequence is a single cleaned-up sequence built from many overlapping noisy
+reads), using Savont or pbAA, and then genotypes those consensus sequences
+against the allele library. Use it when your reads are long enough to cover a
+full allele, when you want full-length allele resolution, or when you are
+working outside the fixed miSeq panel. Both routes end in the same place: a
+genotype result bundle you open in the comparison dashboard.
 
 ## Next
 
@@ -155,3 +187,5 @@ Continue to [Running Amplicon MHC Genotyping](02-running-genotyping.md) to
 launch a run, or skip ahead to
 [Reading the Genotype Comparison Viewport](03-reading-the-genotype-comparison.md)
 if you already have a result bundle to open.
+</content>
+</invoke>

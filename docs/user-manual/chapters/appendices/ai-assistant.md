@@ -37,19 +37,19 @@ The assistant is a bring-your-own-key feature: it does not include a model,
 and Lungfish does not run one for you. You connect your own account with an
 external AI provider by entering an API key, and requests go to that
 provider under your key. The panel is provider-neutral and works with any of
-the supported providers. This surface is still evolving, so the exact
-questions it handles best and the tools it can call will change between
-releases. So what should you do with this? Treat it as an assistant for
-interpreting and navigating your data, not as a source of record.
+the supported providers. This panel is still changing release to release, so
+what it answers well today may shift. The bottom line: treat it as an
+assistant for interpreting and navigating your data, not as a source of
+record.
 
 <!-- planned: ai-assistant-panel -->
 
 ## What you will learn
 
-By the end of this appendix you will be able to open the AI Assistant panel,
-connect a bring-your-own-key provider, ask a question about the active
-dataset, and understand the boundary between what the assistant can do for
-you and what it deliberately will not do.
+This appendix shows you how to open the AI Assistant panel, connect a
+bring-your-own-key provider, and ask a question about the active dataset,
+and it maps where the line falls between what the assistant can do for you
+and what it deliberately will not do.
 
 ## Connecting a bring-your-own-key provider
 

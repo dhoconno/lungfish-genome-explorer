@@ -36,9 +36,15 @@ lead_approved: false
 
 !!! note "Newer workflow area"
     MHC genotyping is a newer part of Lungfish, and no MCM MHC example dataset
-    ships with this manual yet. Definition IDs, target lists, and export paths
-    below are illustrative examples that show how the editors and exporters
-    behave, not a fixture you can reproduce file for file.
+    ships with this manual yet. The definition IDs, target lists, and export
+    paths below are illustrative, meant to show how the editors and exporters
+    behave rather than to be reproduced file for file.
+
+!!! note "Who this chapter is for"
+    This chapter is written for the analyst who maintains the calling rules and
+    ships results onward. If you are a student or a bench scientist, the part
+    you are most likely to need is the LabKey export at the end, for when a
+    reviewed result has to land in a shared database.
 
 ## What it is
 
@@ -48,31 +54,35 @@ targets that support it. The genotyping run applies a definition set to your
 reads; this chapter is about editing that rulebook and getting the reviewed
 result out of Lungfish. Definition sets live in `.lungfishmhcref` bundles and in
 your project, and they are deterministic: the same reads and the same definition
-set produce the same calls.
+set produce the same calls, every time.
 
 Three tasks sit in this chapter. Editing definitions changes how families are
-named. AI-assisted haplotyping proposes definition changes for a human to accept
-or reject. Export moves the reviewed result into a spreadsheet or a LabKey
-server. The first and third are deterministic. The middle one is advisory, and
-this chapter is careful to keep that line visible.
+named. AI-assisted haplotyping drafts definition changes for a human to accept
+or reject. Export moves the reviewed result into a spreadsheet or a LabKey server
+(LabKey is a database platform many labs use to store and share experimental
+results). Editing and export are deterministic: run them again and the output
+does not move. The AI step is the one exception, an advisory draft rather than a
+settled result, and the chapter keeps flagging that difference as it goes.
 
-So what should you do with this: edit definitions when the calling rules need to
-change, treat the AI panels as a drafting aid you review, and export through the
-format that matches where the results are going next.
+Come back to this chapter when the calling rules
+themselves need attention, or when a reviewed cohort is ready to leave Lungfish.
+The one rule to carry all the way through it is to treat anything the AI panels
+produce as a draft you sign off on, never as a call in its own right.
 
 ## What you will learn
 
-By the end of this chapter you will be able to open and edit a named haplotype
-definition from its marker columns, run AI Discovery or AI Refinement and
-understand what they do and do not change, and export a reviewed bundle to XLSX,
-CSV, TSV, the samples-across pivot workbook, or LabKey-ready CSV.
+By the time you finish, editing a named haplotype definition from its marker
+columns should feel routine, you will know exactly what AI Discovery and AI
+Refinement do and, just as important, what they leave untouched, and you will be
+able to send a reviewed bundle out as XLSX, CSV, TSV, a samples-across pivot
+workbook, or LabKey-ready CSV.
 
 ## Named haplotypes and defining targets
 
 A definition set is organised by locus and by family. Each of the six loci
 (MHC-A, MHC-E, MHC-B, MHC-DR, MHC-DQ, and MHC-DP) lists the M-families it can
 call, and each family at that locus names its defining targets. A defining target
-is a MiSeq target ID whose presence, at credible read support, is evidence for
+is an allele-target ID whose presence, at credible read support, is evidence for
 that family. Some families are called from a single distinctive target; others
 need a combination, and some targets are shared across families and only resolve
 in context.
@@ -90,8 +100,8 @@ Edit a definition when the calling rules need to change: a new allele joins the
 panel, or a family's defining targets need adjusting. Open the editor from
 **Tools > Haplotype Definitions...**, or from the Haplotype Definitions control
 in the genotype viewport. The editor opens as a sheet showing the definition's
-loci down one axis and its families across the marker columns, so you can see
-which targets define which family at a glance.
+loci down one axis and its families across the marker columns, one column per
+family, so you can see which targets define which family at a glance.
 
 <!-- planned: haplotype-definition-editor -->
 
@@ -117,12 +127,14 @@ sample or to the unresolved calls only.
 Both panels use a bring-your-own-key provider: you supply credentials for an
 AI provider such as OpenAI or Anthropic, and the request runs against that
 provider. A run does not overwrite your deterministic definitions. It appends a
-validated workbook revision, a versioned analysis carrying its own provenance and
-review metadata, which you review before you rely on it. This is the important
-boundary: the AI output is a proposal to accept or reject, not a replacement for
-the `.lungfishmhcref` definition sets that drive deterministic calling. From the
-command line the same workflow is `lungfish genotype ai-haplotyping`, with
-`--preview-prompt` to render the request without contacting a provider at all.
+workbook revision: a separate, dated draft analysis that leaves your original
+definitions untouched, carrying its own provenance (a record of which inputs,
+tools, and settings produced it) and review metadata for you to check before you
+rely on it. This is the important boundary: the AI output is a proposal to accept
+or reject, not a replacement for the `.lungfishmhcref` definition sets that drive
+deterministic calling. From the command line the same workflow is `lungfish
+genotype ai-haplotyping`, with `--preview-prompt` to render the request without
+contacting a provider at all.
 
 ### Step 3. Export to XLSX, CSV, and TSV
 
@@ -147,10 +159,12 @@ annotations. The headless equivalents are `lungfish genotype export-xlsx`,
 ### Step 4. Export LabKey-ready CSV files
 
 When results feed a LabKey server, export the LabKey-ready CSV set rather than a
-single workbook. It writes several long-format CSV files, one row per fact, with
-stable headers and standard escaping so an ingestion step can load them directly.
-The set covers the final post-override haplotype calls, the per-sample per-allele
-read counts, the analyst overrides, the audit trail, and the saved cohorts.
+single workbook. It writes several long-format CSV files, one row per fact (each
+row records one small fact: one sample, one allele, one count), the shape a
+database loads most easily, with stable headers and standard escaping so an
+ingestion step can load them directly. The set covers the final post-override
+haplotype calls, the per-sample per-allele read counts, the analyst overrides,
+the audit trail, and the saved cohorts.
 
 <!-- planned: genotype-labkey-export -->
 
@@ -176,3 +190,4 @@ Return to
 to review calls before a final export, or to
 [What Is Amplicon MHC Genotyping](01-what-is-mhc-genotyping.md) for the concepts
 behind the definitions you just edited.
+</content>

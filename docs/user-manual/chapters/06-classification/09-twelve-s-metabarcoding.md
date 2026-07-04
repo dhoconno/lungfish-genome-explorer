@@ -54,8 +54,9 @@ FASTA: a curated file where every record is one known 12S sequence labelled
 with the species it belongs to, and identical sequences have been collapsed
 so each unique sequence appears once. A read that matches a reference
 exactly is assigned to that reference's species. This differs from a
-classifier like Kraken2, which breaks reads into short k-mers and looks
-them up in a large tree-of-life database. Exact matching is the right tool
+classifier like Kraken2, which breaks reads into short k-mers (short
+overlapping chunks of each read) and looks them up in a large
+tree-of-life database. Exact matching is the right tool
 here because a 12S amplicon is short, the reference is small and curated,
 and a base-perfect match to a curated record is a confident species call.
 
@@ -69,27 +70,28 @@ FASTA, and are labelled as such.
 ACCCGCCGTCGTAAGCACGCCCTGACAAGCTTAGCTATAAGCGCAGGGCTA
 >Rangifer_tarandus|taxid=9870|group=Mammal
 ACCCGCCACCGCAAGCACGCCTTGATAGGCCTTAGCTATAAACACAGGGCTC
-# Each header names one species and its taxid; the line below is the
+# Each header names one species and its taxid (its NCBI taxonomy ID
+# number); the line below is the
 # deduplicated 12S sequence a merged read must match exactly.
 ```
 
 Two sequences that are identical across species produce a cross-species
 match: one read that could belong to more than one animal. Lungfish handles
 these explicitly rather than guessing silently, and it flags reads that
-match nothing so you can review them. So what should you do with this? Run
-the workflow, read the species table to see what resolved, then review the
+match nothing so you can review them. The practical takeaway: run the
+workflow, read the species table to see what resolved, then check the
 unresolved and cross-species rows before you trust the roster.
 
 <!-- planned: twelve-s-workflow-library -->
 
 ## What you will learn
 
-By the end of this chapter you will be able to launch the 12S Amplicon
-Matching workflow on merged reads and a reference FASTA, read the resulting
-species table, understand how cross-species identical sequences are
-resolved, review unresolved sequence clusters, verify an unresolved cluster
-against NCBI BLAST, export species and unresolved rows, and run the same
-match from the command line.
+This chapter walks you through launching the 12S Amplicon Matching workflow
+on merged reads and a reference FASTA, reading the resulting species table,
+seeing how cross-species identical sequences get resolved, reviewing
+unresolved sequence clusters, checking an unresolved cluster against NCBI
+BLAST, exporting species and unresolved rows, and running the same match
+from the command line.
 
 ## Exact matching against a deduplicated reference
 
@@ -171,7 +173,7 @@ Select one or more unresolved clusters and click **BLAST Verify** in the
 action bar. Lungfish sends the cluster sequence to NCBI BLAST, which
 compares it against GenBank and returns the closest published sequences.
 The hits appear in a drawer below the table with their species, percent
-identity, and accession. A high-identity hit to a plausible species is
+identity, and accession (the GenBank record ID). A high-identity hit to a plausible species is
 strong evidence that the cluster is a real animal missing from your
 reference. A weak or scattered set of hits points back toward an artifact
 or chimera. BLAST runs against the public NCBI service, so it needs a
@@ -199,15 +201,15 @@ For a diet or eDNA sample you typically expect a handful of vertebrates to
 dominate, a high exact-match percentage, and a short unresolved tail rather
 than a long one.
 
-Use these three checks. First, the exact-match percentage in the summary is
-high (often well above 80 percent for a clean sample against a matching
-reference); a low value means your reference is missing species or your
-reads are noisy. Second, the species table is dominated by a few rows with
-large read counts, not spread thinly across dozens of near-zero rows. Third,
-the unresolved tail is small and mostly chimera-flagged or low-count; a
-large clean unresolved cluster is normal to see once or twice and is your
-cue to BLAST it, but a table full of them means the reference does not fit
-your sample.
+A few things tell you the run went well. The exact-match percentage in the
+summary should be high, often well above 80 percent for a clean sample
+against a matching reference; a low value means your reference is missing
+species or your reads are noisy. You also want the species table dominated
+by a few rows with large read counts, rather than spread thinly across
+dozens of near-zero rows. The unresolved tail should stay small and mostly
+chimera-flagged or low-count. A large clean unresolved cluster is normal to
+see once or twice and is your cue to BLAST it, but a table full of them
+means the reference does not fit your sample.
 
 A small unresolved tail is expected and is not a failure. Real samples
 contain PCR artifacts, off-target amplification, and the occasional species
