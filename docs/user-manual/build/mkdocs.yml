@@ -111,6 +111,7 @@ nav:
     - Running Freyja: chapters/06-classification/07-running-freyja.md
     - Importing CZ ID Results: chapters/06-classification/07-importing-cz-id-results.md
     - Novel Virus Diagnostics: chapters/06-classification/08-novel-virus-detection.md
+    - 12S Amplicon Metabarcoding: chapters/06-classification/09-twelve-s-metabarcoding.md
 
   - Human Germline Variants (Preview):
     - HaplotypeCaller Dry Runs: chapters/06-human-germline-variants/01-haplotype-caller.md
@@ -124,6 +125,12 @@ nav:
     - Running Flye or hifiasm: chapters/07-assembly/03-running-flye-or-hifiasm.md
     - Extracting Contigs: chapters/07-assembly/04-extracting-contigs.md
 
+  - Genotyping:
+    - What Is Amplicon MHC Genotyping: chapters/09-genotyping/01-what-is-mhc-genotyping.md
+    - Running Amplicon MHC Genotyping: chapters/09-genotyping/02-running-genotyping.md
+    - Reading the Genotype Comparison Viewport: chapters/09-genotyping/03-reading-the-genotype-comparison.md
+    - Haplotype Definitions, AI-Assisted Haplotyping, and Export: chapters/09-genotyping/04-haplotype-definitions-and-export.md
+
   - Workflows:
     - The Workflow Builder: chapters/08-workflows/01-the-workflow-builder.md
     - Exporting as Nextflow or Snakemake: chapters/08-workflows/02-exporting-as-nextflow-or-snakemake.md
@@ -135,6 +142,7 @@ nav:
     - Primer Schemes: chapters/appendices/primer-schemes.md
     - Tool Versions: chapters/appendices/tool-versions.md
     - Running in CI: chapters/appendices/06-running-in-ci.md
+    - The AI Assistant Panel: chapters/appendices/ai-assistant.md
     - Power User Notes: chapters/appendices/power-user-notes.md
     - Shared Projects and Bundle Migration: chapters/appendices/shared-projects.md
     - Troubleshooting: chapters/appendices/troubleshooting.md

@@ -5,7 +5,7 @@ audience: bench-scientist
 prereqs: [01-foundations/02-sequencing-reads, 03-reads/01-importing-fastq]
 estimated_reading_min: 8
 task: Understand the question read classifiers answer and choose between the three runnable classifiers (Kraken2, EsViritu, TaxTriage) and the imported-result tools (CZ-ID, NAO-MGS, NVD).
-tags: [classification, taxonomy, kraken2, esviritu, taxtriage, nao-mgs, nvd, cz-id]
+tags: [classification, taxonomy, kraken2, esviritu, taxtriage, nao-mgs, nvd, cz-id, twelve-s]
 tools: []
 entry_points:
   - "Tools > FASTQ/FASTA Operations > Classification…"
@@ -50,6 +50,8 @@ No single tool does everything well, which is why there is more than one. A gene
 The import-only tools are hosted platforms or heavy external pipelines. CZ-ID is a hosted metagenomics service. NAO-MGS is a wastewater metagenomic surveillance pipeline from SecureBio that runs on large cloud machines. NVD (Novel Virus Diagnostics) is a Snakemake pipeline that assembles contigs and BLASTs them for novel-virus discovery. For all three, Lungfish does not run the analysis or submit your reads. It takes the output you already produced, converts it into a Lungfish result, and records the upstream pipeline and database metadata when those columns are present. Results produced by Kraken2, EsViritu, or TaxTriage outside Lungfish can also be imported through the Import Center, so the import path is not limited to CZ-ID.
 
 Freyja is adjacent to classification but answers a narrower wastewater question. It does not classify every read in a FASTQ. It consumes variant and depth tables from a SARS-CoV-2 wastewater sample and estimates lineage mixture. Use it after you have mapped and summarized the target genome, not as a replacement for any classifier.
+
+12S amplicon metabarcoding is also adjacent, but distinct. It identifies which vertebrate species a sample contains by matching merged 12S amplicon reads exactly to a curated reference FASTA, rather than classifying reads against a taxonomic database. Reach for it on diet, eDNA, or mixed-sample work, and see [12S Metabarcoding](09-twelve-s-metabarcoding.md) for the walkthrough.
 
 The table below splits the section by whether the tool runs inside Lungfish. Each tool has its own chapter later in this part with a full walkthrough.
 

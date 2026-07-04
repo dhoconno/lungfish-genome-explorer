@@ -5,19 +5,21 @@ audience: bench-scientist
 prereqs: [01-foundations/02-sequencing-reads, 03-reads/01-importing-fastq]
 estimated_reading_min: 7
 task: Import an Oxford Nanopore run directory and orient reads against a reference.
-tags: [reads, nanopore, ont, long-read, orient, barcoded]
-tools: [vsearch]
+tags: [reads, nanopore, ont, long-read, orient, barcoded, demultiplex]
+tools: [vsearch, cutadapt]
 entry_points:
   - "Import Center (Cmd-Shift-I) > Sequencing Reads > ONT Run Folder"
   - "Tools > FASTQ/FASTA Operations > Read Processing… (then Orient Reads)"
+  - "Tools > FASTQ/FASTA Operations > Demultiplexing"
   - "CLI: lungfish fastq import-ont, lungfish fastq orient"
+  - "CLI: lungfish fastq demultiplex, lungfish fastq scout"
 shots: []
 planned_shots:
   - id: ont-import-dialog
     caption: "The Import Center ONT Run Folder tile with a barcoded run directory selected."
 illustrations: []
 glossary_refs: [FASTQ, basecaller, barcode, Orient Reads]
-features_refs: []
+features_refs: [fastq.demultiplex]
 fixtures_refs: []
 brand_reviewed: false
 lead_approved: false
@@ -238,6 +240,79 @@ can demultiplex from the command line: `lungfish fastq demultiplex` and
 `lungfish fastq scout` carry the ONT barcode kits (for example `ont-nbd114`,
 `ont-rbk114-24`, `ont-16s114-24`). Run `lungfish fastq demultiplex --help`
 for the kit list.
+
+## Re-demultiplexing a barcoded run
+
+Demultiplexing is the step that sorts a pool of reads into per-sample bins by
+reading the short barcode sequence attached to each read. MinKNOW usually does
+this during the run, which is why an ONT import already arrives split into
+`barcodeNN` folders. Sometimes you need to redo it: MinKNOW wrote a single
+undemultiplexed `fastq_pass/`, the run used barcodes MinKNOW does not know, or
+you want to split on a second, internal barcode. Lungfish demultiplexes from the
+command line and from `Tools > FASTQ/FASTA Operations > Demultiplexing` in the
+app.
+
+So what should you do with this? Reach for demultiplexing only when the
+per-barcode split you need is missing or wrong. If MinKNOW already produced the
+right barcode folders, import those directly instead.
+
+### Previewing barcodes with the scout
+
+Before committing to a full run, scan a sample of reads to see which barcodes
+are actually present. This is the barcode scout:
+
+```bash
+lungfish fastq scout reads.fastq.gz --kit ont-nbd114 -o scout-result.json
+```
+
+The scout reads up to 10,000 reads by default (`--read-limit`), counts hits for
+every barcode in the kit, and writes a `scout-result.json` with a suggested
+accept or reject for each barcode. A barcode with at least `--accept-threshold`
+hits (default 10) is marked accepted, one with at most `--reject-threshold` hits
+(default 3) is marked rejected, and the rest are left undecided for you to
+judge. Use it to confirm the kit is right and to spot barcodes that were
+expected but never appear.
+
+### Running the demultiplex
+
+Point the demultiplexer at a FASTQ (or a `.lungfishfastq` bundle) and name a
+barcode kit:
+
+```bash
+lungfish fastq demultiplex reads.fastq.gz --kit ont-nbd114 -o demux-out/
+```
+
+`--kit` takes a built-in kit ID or a path to a custom CSV/TSV barcode file with
+`id,sequence[,secondary_sequence][,sample_name]` columns. Lungfish runs cutadapt
+(the barcode-matching tool) to sort the reads and writes one `.lungfishfastq`
+bundle per barcode under the output directory, plus a `demux-manifest.json`
+recording the per-barcode read counts and the exact command. A few options
+adjust matching:
+
+- `--location`: where the barcode sits, `5prime`, `3prime`, or `bothends` (default).
+- `--error-rate`: how much mismatch to tolerate (default 0.15).
+- `--no-trim`: keep the barcode bases in the output reads instead of cutting them.
+- `--discard-unassigned`: drop reads that matched no barcode (see below).
+- `--threads`: cutadapt thread count (default 4).
+
+### Reads that match no barcode
+
+Reads whose barcode could not be called go to a bin named `unassigned`, the same
+idea as MinKNOW's `unclassified`. By default Lungfish keeps this bin as its own
+bundle so you can inspect it. Pass `--discard-unassigned` to throw it away. A
+large unassigned fraction usually means the wrong kit, too strict an error rate,
+or barcodes at an end you did not search. The scout above is the quickest way to
+catch that before a full run.
+
+### Splitting on two barcodes in sequence
+
+Some libraries carry two barcodes, for example an outer ONT native barcode and
+an inner index. Lungfish supports multi-step demultiplexing: it splits the raw
+reads on the first kit, then splits each resulting bin again on the second kit.
+For a combinatorial dual-index kit supplied without explicit sample
+assignments, Lungfish auto-scouts each step to discover which barcode pairs
+actually occur rather than expanding every possible combination. The result is
+one bundle per final barcode combination.
 
 ## What this chapter does not cover
 

@@ -10,6 +10,7 @@ tools: []
 entry_points:
   - "Tools > Search Online Databases > Search SRA"
   - "CLI: lungfish fetch sra search, lungfish fetch sra download"
+  - "CLI: lungfish fetch ena reads, lungfish fetch ena fasta"
 shots: []
 planned_shots:
   - id: sra-search-results
@@ -18,7 +19,7 @@ planned_shots:
     caption: "The Operations Panel row for an SRA download, with the provenance disclosure expanded."
 illustrations: []
 glossary_refs: [SRA, ENA, FASTQ]
-features_refs: [fetch.sra]
+features_refs: [fetch.sra, fetch.ena]
 fixtures_refs: []
 brand_reviewed: false
 lead_approved: false
@@ -137,6 +138,38 @@ GUI uses; the two paths are interchangeable. By default it pulls from ENA. Add
 `--use-toolkit` to force the NCBI SRA Toolkit path (`prefetch` then
 `fasterq-dump`) directly, which is occasionally the only way to fetch a run
 that ENA has not yet mirrored.
+
+## Fetching from ENA directly
+
+The download path above resolves through ENA automatically, so most people never
+address the archive by name. When you do want to reach the European Nucleotide
+Archive directly, for example to see the exact FASTQ URLs behind a run or to
+pull a reference sequence that ENA holds, `lungfish fetch ena` exposes it as
+three subcommands: `search`, `reads`, and `fasta`.
+
+`lungfish fetch ena reads <accession>` looks up a run or study accession and
+prints its metadata (platform, library strategy, layout, read count, file size)
+together with the exact ENA FASTQ download URLs:
+
+```sh
+lungfish fetch ena reads SRR36291587
+```
+
+This resolves the URLs; it does not pull the bytes. To download and checksum the
+reads with a provenance sidecar, use `lungfish fetch sra download` (covered
+above), which prefers those same ENA URLs and falls back to the SRA Toolkit.
+Unlike the `fetch sra download` path, the `fetch ena` subcommands do not write a
+provenance sidecar, so treat them as a lookup and inspection tool rather than
+the recorded download step.
+
+`lungfish fetch ena fasta <accession> --save-to <path>` fetches a sequence
+rather than reads, in FASTA form, which is occasionally useful when ENA holds a
+record NCBI has not mirrored. For reference sequences that need annotations,
+prefer the NCBI path in
+[Downloading from NCBI](../02-sequences/02-downloading-from-ncbi.md); the ENA
+FASTA carries bases only. In short: use `fetch ena reads` to inspect what ENA
+will serve for a run, and `fetch sra download` to actually pull the reads with
+provenance.
 
 ## Interpretation
 

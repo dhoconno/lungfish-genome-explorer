@@ -5,12 +5,13 @@ audience: bench-scientist
 prereqs: [01-foundations/02-sequencing-reads, 01-foundations/06-the-lungfish-project]
 estimated_reading_min: 8
 task: Import FASTQ files into a Lungfish project, including paired-end pairing and batch import.
-tags: [reads, fastq, import, paired-end, batch]
+tags: [reads, fastq, import, paired-end, batch, metadata, biosample]
 tools: []
 entry_points:
   - "Import Center (Cmd-Shift-I) > Sequencing Reads > FASTQ Files"
   - "Drag-drop into the sidebar"
   - "CLI: lungfish import-fastq"
+  - "CLI: lungfish metadata import, lungfish metadata export-biosample"
 shots: []
 planned_shots:
   - id: import-center-fastq
@@ -23,7 +24,7 @@ planned_shots:
     caption: "The Inspector with sample metadata fields editable for a selected FASTQ bundle."
 illustrations: []
 glossary_refs: [FASTQ, paired-end, single-end, project, sidebar, inspector, provenance]
-features_refs: []
+features_refs: [import.sample-metadata]
 fixtures_refs: []
 brand_reviewed: false
 lead_approved: false
@@ -31,7 +32,7 @@ lead_approved: false
 
 ## What it is
 
-This chapter covers importing FASTQ files that already live on disk. To pull reads from a public archive instead, see [Downloading from SRA](02-downloading-from-sra.md); to import an Oxford Nanopore run directory, see [Oxford Nanopore Runs](07-ont-runs.md).
+This chapter covers importing FASTQ files that already live on disk. To pull reads from a public archive instead, see [Downloading from SRA](02-downloading-from-sra.md); to import an Oxford Nanopore run directory, see [Oxford Nanopore Runs](07-ont-runs.md). If reads still need splitting into per-sample bins by barcode, see the demultiplexing section of that same [Oxford Nanopore Runs](07-ont-runs.md) chapter.
 
 Lungfish imports FASTQ files into a project so that every downstream step (QC, trimming, mapping, classification, assembly, variant calling) has a stable, named input to work from. An import is not a copy step alone. It is the moment Lungfish records where the file came from, computes a checksum, and creates a FASTQ bundle that the rest of the project can reference by name.
 
@@ -172,6 +173,33 @@ For many samples at once, prepare a CSV with one row per sample and import it fr
 ```sh
 lungfish metadata import ~/Projects/SARS-CoV-2-WW.lungfish/Imports samples.csv --sync-bundles
 ```
+
+## Exporting sample metadata for NCBI submission
+
+The same per-sample metadata you edit in the Inspector can be filled in for a
+whole folder at once and exported in the shape NCBI expects for a submission.
+Two surfaces reach it. In the app, open a folder's metadata editor from the
+sidebar to get a `Sample Metadata` sheet with `Import CSV…` and `Export CSV…`
+buttons; changes save to a folder-level `samples.csv` and sync into each bundle.
+From the command line, `lungfish metadata import` and `lungfish metadata export`
+do the same round trip, and both CSV and TSV are accepted on import.
+
+The metadata fields follow PHA4GE and NCBI BioSample conventions (snake_case
+names such as `collection_date`, `sample_type`, and `host`), so a completed
+sheet can be turned into a submission file directly. A BioSample is NCBI's
+registered description of the physical material a sequence came from, and its
+submission portal takes a tab-separated sheet. Export one with:
+
+```sh
+lungfish metadata export-biosample ~/Projects/SARS-CoV-2-WW.lungfish/Imports > biosample.tsv
+```
+
+The `--package` option chooses the template: `clinical` (the default) for
+patient-derived samples, or `environmental` for wastewater and other
+environmental sources. The resulting TSV uploads to NCBI's BioSample submission
+portal without further reshaping. Fill the sheet in once per run, keep it as the
+folder's `samples.csv`, and export the BioSample TSV when you are ready to
+deposit.
 
 ## Next
 

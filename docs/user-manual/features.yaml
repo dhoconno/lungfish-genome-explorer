@@ -176,3 +176,999 @@ features:
       provenance JSON capturing resolved options, command line, runtime
       identity, input and output file records, per-step commands, exit status,
       stderr when available, checksums, sizes, and wall time.
+
+  # --- Sequences (sequence viewport) ---
+  import.sequence:
+    title: Import a reference sequence
+    entry_points:
+      - "File > Open (filter: FASTA, GenBank, 2bit)"
+      - "Import Center > Reference"
+      - "CLI: lungfish import reference"
+    inputs: [fasta, genbank, 2bit, gff3, gtf, bed]
+    outputs: [lungfishref]
+    viewport_class: sequence
+    sources:
+      - Sources/LungfishApp/App/ReferenceImportHelper.swift
+      - Sources/LungfishApp/App/GenBankSynchronousParser.swift
+      - Sources/LungfishCLI/Commands/ImportCommand.swift
+      - Sources/LungfishCLI/Commands/BundleCommand.swift
+      - Sources/LungfishIO/Bundles/BundleManifest.swift
+    notes: >-
+      Imports a standalone FASTA, GenBank, or 2bit sequence plus optional
+      GFF3, GTF, or BED annotations as an indexed .lungfishref bundle with a
+      .fai index for random access.
+  viewport.sequence-browser:
+    title: Sequence browser viewport
+    entry_points:
+      - "Open a FASTA or reference bundle from the sidebar"
+    inputs: [lungfishref, fasta, 2bit]
+    outputs: [fasta, viewer-graphics-export]
+    viewport_class: sequence
+    sources:
+      - Sources/LungfishApp/Views/Viewer/ViewerViewController.swift
+      - Sources/LungfishApp/Views/Viewer/SequenceViewerView+Interaction.swift
+      - Sources/LungfishApp/App/ViewerGraphicsExportPanelController.swift
+    notes: >-
+      Renders a scrollable base-level sequence track with annotation lanes,
+      random access through .fai indices, and per-feature navigation. Supports
+      graphics export of the current view.
+  sequence.analyze:
+    title: Sequence statistics and validation
+    entry_points:
+      - "CLI: lungfish analyze"
+      - "CLI: lungfish composition"
+    inputs: [fasta, fastq]
+    outputs: [json, tsv]
+    viewport_class: none
+    sources:
+      - Sources/LungfishCLI/Commands/AnalyzeCommand.swift
+      - Sources/LungfishCLI/Commands/CompositionCommand.swift
+    notes: >-
+      Computes length, GC, and per-record statistics, validates file format,
+      and reports detailed nucleotide or amino acid composition.
+  sequence.translate:
+    title: Translate DNA to protein
+    entry_points:
+      - "Sequence > Translate"
+      - "CLI: lungfish translate"
+    inputs: [fasta, sequence-selection]
+    outputs: [protein-fasta]
+    viewport_class: sequence
+    sources:
+      - Sources/LungfishApp/App/AppDelegate+SequenceMenu.swift
+      - Sources/LungfishApp/Views/TranslationTool
+      - Sources/LungfishCLI/Commands/TranslateCommand.swift
+    notes: >-
+      Translates a DNA or RNA sequence or selection to protein using a chosen
+      genetic code and reading frame.
+  sequence.annotate:
+    title: Annotate sequence features
+    entry_points:
+      - "Sequence > Add Annotation"
+      - "CLI: lungfish sequence annotate-orfs"
+      - "CLI: lungfish bam annotate-cds-best"
+    inputs: [lungfishref, fasta]
+    outputs: [annotation-track, lungfishref]
+    viewport_class: sequence
+    sources:
+      - Sources/LungfishApp/App/AppDelegate+SequenceMenu.swift
+      - Sources/LungfishApp/Views/Sequence/SequenceORFOperationDialog.swift
+      - Sources/LungfishCLI/Commands/SequenceCommand.swift
+      - Sources/LungfishWorkflow/SequenceAnnotation
+    notes: >-
+      Adds manual annotations from a selection or auto-detects open reading
+      frames and best-match CDS features, writing an annotation track into the
+      bundle.
+  sequence.extract-features:
+    title: Extract annotation feature sequences
+    entry_points:
+      - "CLI: lungfish bundle extract-annotations"
+      - "CLI: lungfish extract"
+    inputs: [lungfishref, annotation-track]
+    outputs: [lungfishref, fasta]
+    viewport_class: sequence
+    sources:
+      - Sources/LungfishCLI/Commands/BundleCommand.swift
+      - Sources/LungfishCLI/Commands/ExtractCommand.swift
+    notes: >-
+      Extracts annotated feature sequences (genes, CDS, ORFs) from a reference
+      bundle into a new .lungfishref bundle or FASTA.
+  search.universal:
+    title: Universal project search
+    entry_points:
+      - "Sidebar search field"
+      - "CLI: lungfish universal-search"
+    inputs: [project]
+    outputs: [search-results]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/Sidebar/SidebarViewController.swift
+      - Sources/LungfishApp/Views/Sidebar/UniversalSearchAdvancedPopoverController.swift
+      - Sources/LungfishCLI/Commands/UniversalSearchCommand.swift
+    notes: >-
+      Searches across datasets, annotations, and analyses in a project with an
+      advanced filter popover for scoping by type and attribute.
+
+  # --- Reads (FASTQ dataset dashboard) ---
+  import.fastq:
+    title: Import FASTQ reads
+    entry_points:
+      - "File > Open (filter: FASTQ)"
+      - "Import Center > Reads"
+      - "CLI: lungfish import-fastq"
+    inputs: [fastq, fastq.gz]
+    outputs: [fastq-dataset]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/FASTQ/FASTQImportConfigSheet.swift
+      - Sources/LungfishCLI/Commands/ImportFastqCommand.swift
+      - Sources/LungfishCLI/Commands/FastqMaterializeSubcommand.swift
+    notes: >-
+      Batch-imports paired-end or single-end FASTQ at any size with virtual
+      previews that keep the UI responsive while operations run on the full
+      file.
+  viewport.fastq-dataset:
+    title: FASTQ dataset dashboard
+    entry_points:
+      - "Open a FASTQ dataset from the sidebar"
+    inputs: [fastq-dataset]
+    outputs: []
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift
+      - Sources/LungfishApp/Services/FASTQStatisticsService.swift
+      - Sources/LungfishKit/FASTQDisplayNameResolver.swift
+    notes: >-
+      Presents read counts, quality summaries, and sample metadata for a FASTQ
+      dataset and launches the FASTQ operation dialogs. This dashboard is not
+      one of the five genomic viewport classes.
+  fastq.qc-summary:
+    title: FASTQ quality control and reporting
+    entry_points:
+      - "Tools > FASTQ/FASTA Operations > QC & Reporting"
+      - "CLI: lungfish fastq qc-summary"
+    inputs: [fastq, fastq.gz]
+    outputs: [json, qc-report]
+    viewport_class: none
+    sources:
+      - Sources/LungfishCLI/Commands/FastqQCSummarySubcommand.swift
+      - Sources/LungfishCLI/Commands/OpsCommand.swift
+      - Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift
+    notes: >-
+      Computes a JSON QC summary and optional clumpify, compress, and index
+      steps for FASTQ inputs.
+  fastq.trim-filter:
+    title: Trim and filter reads
+    entry_points:
+      - "Tools > FASTQ/FASTA Operations > Trimming & Filtering"
+      - "CLI: lungfish fastq adapter-trim"
+      - "CLI: lungfish fastq sequence-filter"
+    inputs: [fastq, fastq.gz]
+    outputs: [fastq, fastq.gz]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift
+      - Sources/LungfishApp/Services/FASTQOperationPlanner.swift
+      - Sources/LungfishCLI/Commands/FastqCommand.swift
+      - Sources/LungfishCLI/Commands/FastqSequenceFilterSubcommand.swift
+    notes: >-
+      Trims adapters and low-quality bases with fastp, trims fixed base counts,
+      filters by read length, and subsamples by proportion or count.
+  fastq.decontaminate:
+    title: Decontaminate reads
+    entry_points:
+      - "Tools > FASTQ/FASTA Operations > Decontamination"
+      - "CLI: lungfish fastq scrub-human"
+      - "CLI: lungfish fastq deacon-ribo"
+    inputs: [fastq, fastq.gz]
+    outputs: [fastq, fastq.gz]
+    viewport_class: none
+    sources:
+      - Sources/LungfishCLI/Commands/FastqScrubHumanSubcommand.swift
+      - Sources/LungfishCLI/Commands/FastqDeaconRiboSubcommand.swift
+      - Sources/LungfishCLI/Commands/FastqRiboDetectorSubcommand.swift
+    notes: >-
+      Removes human reads, ribosomal RNA with Deacon and BBMap ribokmers, and
+      contaminant reads with bbduk.
+  fastq.read-processing:
+    title: Read processing operations
+    entry_points:
+      - "Tools > FASTQ/FASTA Operations > Read Processing"
+      - "CLI: lungfish fastq deduplicate"
+      - "CLI: lungfish fastq error-correct"
+    inputs: [fastq, fastq.gz]
+    outputs: [fastq, fastq.gz]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift
+      - Sources/LungfishCLI/Commands/FastqCommand.swift
+    notes: >-
+      Reverse-complements, merges overlapping pairs with bbmerge, corrects
+      errors with tadpole, deduplicates with clumpify, and repairs, interleaves,
+      or deinterleaves paired reads.
+  fastq.search-subset:
+    title: Search and subset reads
+    entry_points:
+      - "Tools > FASTQ/FASTA Operations > Search & Subsetting"
+      - "CLI: lungfish fastq search-motif"
+      - "CLI: lungfish extract-reads"
+    inputs: [fastq, fastq.gz]
+    outputs: [fastq, fastq.gz]
+    viewport_class: none
+    sources:
+      - Sources/LungfishCLI/Commands/FastqSearchMotifSubcommand.swift
+      - Sources/LungfishCLI/Commands/FastqSearchTextSubcommand.swift
+      - Sources/LungfishCLI/Commands/ExtractReadsCommand.swift
+    notes: >-
+      Searches reads by motif or text, selects reads by sequence presence, and
+      extracts reads by identifier into a fresh FASTQ dataset.
+  fastq.demultiplex:
+    title: Demultiplex reads by barcode
+    entry_points:
+      - "Tools > FASTQ/FASTA Operations > Demultiplexing"
+      - "CLI: lungfish fastq demultiplex"
+    inputs: [fastq, fastq.gz, barcode-kit]
+    outputs: [fastq, demux-manifest]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/Metagenomics/SampleGroupSheet.swift
+      - Sources/LungfishWorkflow/Demultiplex/DemultiplexingPipeline.swift
+      - Sources/LungfishWorkflow/Demultiplex/DemultiplexingPipeline+MultiStep.swift
+      - Sources/LungfishCLI/Commands/FastqCommand.swift
+    notes: >-
+      Demultiplexes reads by internal barcode kit with multi-step support,
+      singleton handling, platform-aware adapters, and a barcode scout preview.
+  fastq.orient:
+    title: Orient reads against a reference
+    entry_points:
+      - "Tools > FASTQ/FASTA Operations > Read Processing"
+      - "CLI: lungfish orient"
+      - "CLI: lungfish fastq orient"
+    inputs: [fastq, fastq.gz, reference-sequence]
+    outputs: [fastq, fastq.gz]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/Metagenomics/OrientWizardSheet.swift
+      - Sources/LungfishCLI/Commands/OrientCommand.swift
+      - Sources/LungfishCLI/Commands/FastqOrientSubcommand.swift
+      - Sources/LungfishWorkflow/Orient
+    notes: >-
+      Reorients reads to a reference so that forward and reverse reads share a
+      consistent strand before mapping or classification.
+  convert.bam-fastq:
+    title: Convert between BAM and FASTQ
+    entry_points:
+      - "CLI: lungfish convert"
+    inputs: [bam, fastq, fastq.gz]
+    outputs: [fastq, fastq.gz, bam]
+    viewport_class: none
+    sources:
+      - Sources/LungfishCLI/Commands/ConvertCommand.swift
+    notes: >-
+      Converts BAM to FASTQ for re-mapping or sharing and interconverts related
+      read formats.
+
+  # --- Reference data downloads ---
+  fetch.ena:
+    title: Download sequences and reads from ENA
+    entry_points:
+      - "CLI: lungfish fetch ena"
+    inputs: [ena-accession, ena-run-accession]
+    outputs: [fasta, fastq, fastq.gz, provenance-sidecar]
+    viewport_class: none
+    sources:
+      - Sources/LungfishCLI/Commands/FetchCommand.swift
+    notes: >-
+      Searches the European Nucleotide Archive and fetches sequences in FASTA
+      or reads with FASTQ download URLs, recording a provenance sidecar.
+  download.ncbi-genome:
+    title: Download genome assemblies as indexed bundles
+    entry_points:
+      - "Tools > Search Online Databases > Search NCBI..."
+      - "CLI: lungfish fetch genome"
+      - "CLI: lungfish build-db"
+    inputs: [ncbi-assembly-accession]
+    outputs: [lungfishref, fai, provenance-sidecar]
+    viewport_class: sequence
+    sources:
+      - Sources/LungfishApp/Views/DatabaseBrowser/GenBankGenomesSearchPane.swift
+      - Sources/LungfishApp/ViewModels/GenBankBundleDownloadViewModel.swift
+      - Sources/LungfishCLI/Commands/FetchCommand.swift
+    notes: >-
+      Downloads a genome assembly with annotations from NCBI and builds an
+      indexed .lungfishref bundle ready for the sequence viewport.
+  database.pathoplexus:
+    title: Browse the Pathoplexus catalogue
+    entry_points:
+      - "Tools > Search Online Databases > Search Pathoplexus..."
+    inputs: [pathoplexus-query]
+    outputs: [fasta, lungfishref]
+    viewport_class: none
+    sources:
+      - Sources/LungfishCore/Services/Pathoplexus/PathoplexusService.swift
+      - Sources/LungfishCore/Services/Pathoplexus/PathoplexusModels.swift
+      - Sources/LungfishApp/Views/DatabaseBrowser/DatabaseSearchDialog.swift
+    notes: >-
+      Searches the Pathoplexus pathogen reference catalogue and imports selected
+      records as reference bundles.
+  database.manage:
+    title: Manage metagenomics reference databases
+    entry_points:
+      - "CLI: lungfish db list"
+      - "CLI: lungfish db download-db"
+    inputs: [database-catalog]
+    outputs: [reference-database]
+    viewport_class: none
+    sources:
+      - Sources/LungfishCLI/Commands/DbCommand.swift
+      - Sources/LungfishCore/Services/DatabaseService.swift
+    notes: >-
+      Lists available and installed classification databases, shows version and
+      update status, downloads from the catalog, and removes databases.
+
+  # --- Alignments (alignment viewport) ---
+  import.bam:
+    title: Import BAM or CRAM alignments
+    entry_points:
+      - "File > Open (filter: BAM, CRAM, SAM)"
+      - "CLI: lungfish import bam"
+    inputs: [bam, cram, sam]
+    outputs: [alignment-track, bai]
+    viewport_class: alignment
+    sources:
+      - Sources/LungfishApp/App/BAMImportHelper.swift
+      - Sources/LungfishApp/Services/BAMImportService.swift
+      - Sources/LungfishCLI/Commands/ImportCommand.swift
+    notes: >-
+      Imports a sorted, indexed BAM or CRAM alignment via HTSlib and attaches
+      it as an alignment track for the pileup viewport.
+  viewport.alignment-pileup:
+    title: Alignment pileup viewport
+    entry_points:
+      - "Open a BAM or CRAM alignment from the sidebar"
+    inputs: [alignment-track, bam, cram]
+    outputs: []
+    viewport_class: alignment
+    sources:
+      - Sources/LungfishKit/MiniBAMViewController.swift
+      - Sources/LungfishAlignmentUI/AlignmentResultViewController.swift
+      - Sources/LungfishApp/Services/MappingViewerBundlePreparer.swift
+    notes: >-
+      Pile-up viewer for sorted, indexed BAM and CRAM with a coverage track,
+      base mismatches, soft-clip indicators, and a read inspector. All mapping
+      tools share this single viewport.
+  bam.markdup:
+    title: Mark and remove duplicate reads
+    entry_points:
+      - "CLI: lungfish markdup"
+      - "CLI: lungfish bam deduplicate-alignments"
+    inputs: [reference-bundle, bundle-alignment-track]
+    outputs: [bam, bai, alignment-track]
+    viewport_class: alignment
+    sources:
+      - Sources/LungfishCLI/Commands/MarkdupCommand.swift
+      - Sources/LungfishCLI/Commands/BAMCommand.swift
+    notes: >-
+      Marks PCR duplicates with samtools markdup and can write a new bundle with
+      duplicates removed from alignment tracks.
+  bam.extract-reads:
+    title: Extract reads by region
+    entry_points:
+      - "CLI: lungfish extract-reads"
+      - "CLI: lungfish extract"
+    inputs: [bam, cram, region]
+    outputs: [fastq, bam]
+    viewport_class: alignment
+    sources:
+      - Sources/LungfishCLI/Commands/ExtractReadsCommand.swift
+      - Sources/LungfishCLI/Commands/ExtractCommand.swift
+    notes: >-
+      Extracts reads by region or chromosome from an alignment back into FASTQ
+      or a subset BAM for downstream work.
+  align.viral-recon:
+    title: Viral consensus and reconstruction wizard
+    entry_points:
+      - "Tools > FASTQ/FASTA Operations > Alignment"
+    inputs: [fastq, reference-bundle, primer-scheme]
+    outputs: [bam, vcf.gz, consensus-fasta]
+    viewport_class: variant
+    sources:
+      - Sources/LungfishApp/Views/Metagenomics/ViralReconWizardSheet.swift
+      - Sources/LungfishWorkflow/ViralRecon
+    notes: >-
+      Guided amplicon pipeline that maps reads, trims primers, calls variants,
+      and builds a viral consensus in one wizard.
+
+  # --- Variants ---
+  variants.freyja-demix:
+    title: Freyja wastewater lineage demixing
+    entry_points:
+      - "Tools > Freyja Demix"
+      - "CLI: lungfish freyja demix"
+    inputs: [variant-table, depth-table]
+    outputs: [freyja-demix-report]
+    viewport_class: none
+    sources:
+      - Sources/LungfishCLI/Commands/FreyjaCommand.swift
+      - Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift
+    notes: >-
+      Constructs and runs a Freyja demix command plan from variant and depth
+      tables to estimate lineage abundances in a mixed wastewater sample.
+  variants.gatk-germline:
+    title: GATK4 germline variant workflow
+    entry_points:
+      - "CLI: lungfish gatk haplotype-caller"
+      - "CLI: lungfish gatk genotype"
+      - "CLI: lungfish gatk bqsr"
+    inputs: [reference-bundle, bam, known-sites-vcf]
+    outputs: [gvcf, vcf.gz, variant-table]
+    viewport_class: variant
+    sources:
+      - Sources/LungfishCLI/Commands/GATKCommand.swift
+      - Sources/LungfishCLI/Commands/VariantsCommand.swift
+    notes: >-
+      Constructs GATK4 command plans for germline calling: HaplotypeCaller,
+      joint genotyping, VariantFiltration, SelectVariants, BQSR, and metrics
+      collection.
+  variants.query:
+    title: Query and filter variant tracks
+    entry_points:
+      - "Inspector > Variant query builder"
+      - "CLI: lungfish variants query"
+      - "CLI: lungfish variants extract-sample"
+    inputs: [reference-bundle, variant-track, variant-sqlite-db]
+    outputs: [vcf, filtered-variant-set]
+    viewport_class: variant
+    sources:
+      - Sources/LungfishApp/Views/Metagenomics/VariantQueryBuilderSheet.swift
+      - Sources/LungfishCLI/Commands/VariantsCommand.swift
+    notes: >-
+      Applies per-sample smart filters to a bundle variant database and extracts
+      one sample's calls from a multi-sample store.
+  import.sample-metadata:
+    title: Import sample metadata into variant tracks
+    entry_points:
+      - "CLI: lungfish import metadata"
+      - "CLI: lungfish metadata import"
+    inputs: [csv, tsv, reference-bundle]
+    outputs: [variant-track, fastq-dataset]
+    viewport_class: variant
+    sources:
+      - Sources/LungfishCLI/Commands/ImportCommand.swift
+      - Sources/LungfishCLI/Commands/MetadataCommand.swift
+      - Sources/LungfishApp/Views/Metagenomics/FolderMetadataEditorSheet.swift
+    notes: >-
+      Imports a CSV or TSV metadata table into variant tracks or FASTQ folders
+      and can export folder metadata as NCBI BioSample submission TSV.
+
+  # --- Classification and metagenomics (taxonomy viewport) ---
+  classify.kraken2:
+    title: Kraken2 and Bracken classification
+    entry_points:
+      - "Tools > FASTQ/FASTA Operations > Classification"
+      - "CLI: lungfish classify"
+    inputs: [fastq, fasta, kraken2-database]
+    outputs: [kraken2-kreport, taxonomy-dataset]
+    viewport_class: taxonomy
+    sources:
+      - Sources/LungfishApp/Views/Metagenomics/ClassificationWizardSheet.swift
+      - Sources/LungfishApp/Views/Metagenomics/TaxonomyViewController.swift
+      - Sources/LungfishCLI/Commands/ClassifyCommand.swift
+    notes: >-
+      Runs Kraken2 taxonomic classification with Bracken abundance estimation on
+      FASTQ or FASTA inputs and opens the results in the taxonomy browser.
+  classify.esviritu:
+    title: EsViritu viral detection
+    entry_points:
+      - "Tools > FASTQ/FASTA Operations > Classification"
+      - "CLI: lungfish esviritu"
+    inputs: [fastq, esviritu-database]
+    outputs: [esviritu-report, taxonomy-dataset]
+    viewport_class: taxonomy
+    sources:
+      - Sources/LungfishApp/Views/Metagenomics/EsVirituWizardSheet.swift
+      - Sources/LungfishEsVirituUI/EsVirituResultViewController.swift
+      - Sources/LungfishCLI/Commands/EsVirituCommand.swift
+    notes: >-
+      Runs EsViritu viral metagenomics detection and presents per-sample viral
+      assemblies with coverage sparklines and segment completeness.
+  classify.taxtriage:
+    title: TaxTriage taxonomic triage
+    entry_points:
+      - "Tools > FASTQ/FASTA Operations > Classification"
+      - "CLI: lungfish taxtriage"
+    inputs: [fastq, taxtriage-database]
+    outputs: [taxtriage-report, taxonomy-dataset]
+    viewport_class: taxonomy
+    sources:
+      - Sources/LungfishApp/Views/Metagenomics/TaxTriageWizardSheet.swift
+      - Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift
+      - Sources/LungfishCLI/Commands/TaxTriageCommand.swift
+    notes: >-
+      Runs multi-level TaxTriage clinical triage and shows a confidence view,
+      batch overview, and strain comparison across samples.
+  classify.nao-mgs:
+    title: NAO-MGS metagenomic surveillance
+    entry_points:
+      - "Import Center > NAO-MGS"
+      - "CLI: lungfish nao-mgs"
+    inputs: [nao-mgs-output-directory]
+    outputs: [nao-mgs-report, taxonomy-dataset]
+    viewport_class: taxonomy
+    sources:
+      - Sources/LungfishApp/Views/Metagenomics/NaoMgsImportSheet.swift
+      - Sources/LungfishNaoMgsUI/NaoMgsResultViewController.swift
+      - Sources/LungfishCLI/Commands/NaoMgsCommand.swift
+    notes: >-
+      Imports NAO-MGS metagenomic surveillance results into a SQLite-backed
+      viewport with charts and provenance for fast random-access queries.
+  classify.twelve-s:
+    title: 12S amplicon metabarcoding
+    entry_points:
+      - "Workflow Library > 12S Amplicon Matching"
+      - "CLI: lungfish fastq 12s-match"
+    inputs: [fastq, twelve-s-reference-fasta]
+    outputs: [twelve-s-result, csv, tsv, xlsx]
+    viewport_class: taxonomy
+    sources:
+      - Sources/LungfishWorkflow/TwelveS/TwelveSAmpliconMatchingWorkflow.swift
+      - Sources/LungfishTwelveSUI/TwelveSAmpliconResultViewController.swift
+      - Sources/LungfishCLI/Commands/FastqTwelveSMatchSubcommand.swift
+      - Sources/LungfishCLI/Commands/FastqTwelveSExportSubcommands.swift
+    notes: >-
+      Matches merged 12S amplicon reads exactly to a deduplicated reference
+      FASTA, resolves cross-species ambiguity, and reviews unresolved sequence
+      clusters. Species and unresolved rows export to CSV, TSV, Excel, or FASTA.
+  import.nvd:
+    title: Import NVD novel-virus results
+    entry_points:
+      - "Import Center > NVD"
+      - "CLI: lungfish nvd import"
+    inputs: [nvd-output-directory]
+    outputs: [taxonomy-dataset]
+    viewport_class: taxonomy
+    sources:
+      - Sources/LungfishApp/Views/Metagenomics/NvdImportSheet.swift
+      - Sources/LungfishNvdUI/NvdResultViewController.swift
+      - Sources/LungfishCLI/Commands/NvdCommand.swift
+    notes: >-
+      Imports Novel Virus Discovery Nextflow output as a first-class taxonomy
+      dataset with reads, BLAST hits, and reports cross-linked in an outline
+      browser.
+  import.czid:
+    title: Import CZ-ID results
+    entry_points:
+      - "Import Center > CZ-ID"
+      - "CLI: lungfish cz-id import"
+    inputs: [czid-taxon-report-tsv]
+    outputs: [taxonomy-dataset]
+    viewport_class: taxonomy
+    sources:
+      - Sources/LungfishApp/Views/Metagenomics/CzIdImportSheet.swift
+      - Sources/LungfishApp/Views/Metagenomics/CzIdResultViewController.swift
+      - Sources/LungfishCLI/Commands/CzIdCommand.swift
+      - Sources/LungfishCLI/Commands/ImportCzIdSubcommand.swift
+    notes: >-
+      Imports a hosted CZ-ID taxon report TSV into a Lungfish result directory
+      and opens it as a taxonomy dataset.
+  viewport.taxonomy-browser:
+    title: Taxonomy browser viewport
+    entry_points:
+      - "Open a taxonomy dataset from the sidebar"
+    inputs: [taxonomy-dataset]
+    outputs: [fastq, csv, tsv]
+    viewport_class: taxonomy
+    sources:
+      - Sources/LungfishApp/Views/Metagenomics/TaxonomyViewController.swift
+      - Sources/LungfishApp/Views/Metagenomics/TaxonomySunburstView.swift
+      - Sources/LungfishApp/Views/Metagenomics/TaxonomyBreadcrumbBar.swift
+      - Sources/LungfishApp/Views/Results/Taxonomy/TaxonomyResultViewController.swift
+    notes: >-
+      Shared taxonomy viewport with a sortable hit table, sunburst chart,
+      breadcrumb navigation, and detail pane for Kraken2, EsViritu, TaxTriage,
+      NAO-MGS, NVD, and CZ-ID datasets.
+  classify.blast-verify:
+    title: BLAST verification of classified reads
+    entry_points:
+      - "Taxonomy browser > BLAST"
+      - "CLI: lungfish blast"
+    inputs: [sequence, taxon-selection]
+    outputs: [blast-results]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/Metagenomics/TaxonomyViewController+Blast.swift
+      - Sources/LungfishKit/BlastResultsDrawerContainerView.swift
+      - Sources/LungfishCLI/Commands/BlastCommand.swift
+    notes: >-
+      Verifies a classified sequence or taxon against NCBI BLAST and shows the
+      hits in a results drawer.
+  classify.extract-reads:
+    title: Extract reads by taxon
+    entry_points:
+      - "Taxonomy browser > Extract Reads"
+      - "CLI: lungfish extract-reads"
+    inputs: [taxonomy-dataset, taxon-selection]
+    outputs: [fastq]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/Metagenomics/TaxonomyReadExtractionAction.swift
+      - Sources/LungfishApp/Views/Metagenomics/ClassifierExtractionDialog.swift
+      - Sources/LungfishWorkflow/Metagenomics/TaxonomyExtractionPipeline.swift
+    notes: >-
+      Extracts reads assigned to any taxon back into a fresh FASTQ dataset for
+      downstream mapping or assembly.
+
+  # --- Assembly (assembly viewport) ---
+  assemble:
+    title: De novo genome assembly
+    entry_points:
+      - "Tools > FASTQ/FASTA Operations > Assembly"
+      - "CLI: lungfish assemble"
+    inputs: [fastq, fastq.gz]
+    outputs: [assembly-fasta, assembly-result]
+    viewport_class: assembly
+    sources:
+      - Sources/LungfishApp/Views/Assembly/AssemblyWizardSheet.swift
+      - Sources/LungfishApp/Views/Assembly/AssemblyConfigurationViewController.swift
+      - Sources/LungfishCLI/Commands/AssembleCommand.swift
+      - Sources/LungfishWorkflow/Assembly
+    notes: >-
+      Assembles reads with SPAdes, MEGAHIT, SKESA, Flye, or hifiasm in
+      short-read, long-read, or haplotype-aware modes with a guided wizard.
+  viewport.assembly:
+    title: Assembly result viewport
+    entry_points:
+      - "Open an assembly result from the sidebar"
+    inputs: [assembly-result]
+    outputs: [fasta]
+    viewport_class: assembly
+    sources:
+      - Sources/LungfishAssemblyUI/AssemblyResultViewController.swift
+      - Sources/LungfishAssemblyUI/AssemblyContigTableView.swift
+      - Sources/LungfishAssemblyUI/AssemblySummaryStrip.swift
+    notes: >-
+      Combines a contig table, Nx plot, summary statistics, and the standard
+      sequence viewer for any selected contig.
+  assembly.extract-contigs:
+    title: Extract contigs from an assembly
+    entry_points:
+      - "Assembly viewport > Extract Contigs"
+      - "CLI: lungfish extract-contigs"
+    inputs: [assembly-fasta, assembly-result, selection]
+    outputs: [fasta, lungfishref]
+    viewport_class: assembly
+    sources:
+      - Sources/LungfishAssemblyUI/AssemblyContigMaterializationAction.swift
+      - Sources/LungfishCLI/Commands/ExtractContigsCommand.swift
+    notes: >-
+      Extracts contigs by length, coverage, or selection for re-mapping or
+      annotation.
+
+  # --- Amplicon genotyping (genotype dashboard) ---
+  genotype.amplicon:
+    title: Amplicon MHC genotyping
+    entry_points:
+      - "Workflow Library > miSeq amplicon MHC genotyping"
+      - "CLI: lungfish fastq ont-genotype"
+      - "CLI: lungfish fastq genotype"
+    inputs: [fastq, fastq.gz, mhc-reference-bundle]
+    outputs: [genotype-bundle]
+    viewport_class: none
+    sources:
+      - Sources/LungfishWorkflow/ONTGenotyping/ONTGenotypingPipeline.swift
+      - Sources/LungfishWorkflow/ONTGenotyping/AmpliconGenotypingMode.swift
+      - Sources/LungfishCLI/Commands/FastqGenotypingSubcommand.swift
+      - Sources/LungfishCLI/Commands/FastqONTGenotypingSubcommand.swift
+    notes: >-
+      Runs platform-aware exact and indel amplicon genotyping against an MHC
+      allele library for ONT barcode-demux, ONT sample bundles, or Illumina
+      paired reads, across single samples or cohorts.
+  genotype.full-length-ont-mhc:
+    title: Full-length ONT MHC genotyping
+    entry_points:
+      - "Workflow Library > Full-length ONT MHC genotyping"
+      - "CLI: lungfish fastq full-length-ont-mhc-genotype"
+      - "CLI: lungfish fastq pbaa-cluster"
+    inputs: [fastq, fastq.gz, mhc-reference-bundle]
+    outputs: [genotype-bundle, cluster-consensus-fasta]
+    viewport_class: none
+    sources:
+      - Sources/LungfishWorkflow/ONTGenotyping/FullLengthONTMHCGenotypingPipeline.swift
+      - Sources/LungfishWorkflow/PBAA/PBAAClusteringPipeline.swift
+      - Sources/LungfishCLI/Commands/FastqFullLengthONTMHCGenotypingSubcommand.swift
+      - Sources/LungfishCLI/Commands/FastqPBAAClusterSubcommand.swift
+    notes: >-
+      Clusters full-length ONT MHC amplicons with Savont or pbAA and genotypes
+      the cluster consensus sequences against an MHC allele library.
+  genotype.ai-haplotyping:
+    title: AI-assisted haplotype discovery
+    entry_points:
+      - "Genotype viewport > AI Discovery / AI Refinement"
+      - "CLI: lungfish genotype ai-haplotyping"
+    inputs: [genotype-bundle]
+    outputs: [haplotype-definitions, genotype-bundle-revision]
+    viewport_class: none
+    sources:
+      - Sources/LungfishWorkflow/ONTGenotyping/AIHaplotypingRunner.swift
+      - Sources/LungfishGenotypeUI/GenotypeResultViewController.swift
+      - Sources/LungfishCLI/Commands/GenotypeAIHaplotypingSubcommand.swift
+    notes: >-
+      Uses an AI provider to discover or refine haplotype definitions from
+      genotype evidence and publishes a validated workbook revision.
+  viewport.genotype-matrix:
+    title: Genotype comparison viewport
+    entry_points:
+      - "Open a genotype result bundle from the sidebar"
+    inputs: [genotype-bundle]
+    outputs: [xlsx, csv, tsv]
+    viewport_class: none
+    sources:
+      - Sources/LungfishGenotypeUI/GenotypeResultViewController.swift
+      - Sources/LungfishGenotypeUI/GenotypeComparisonMatrixView.swift
+      - Sources/LungfishGenotypeUI/GenotypeHaplotypeTapeView.swift
+      - Sources/LungfishGenotypeUI/GenotypeCohortSummaryPanelView.swift
+    notes: >-
+      Presents a genotype comparison matrix, haplotype tape, cohort summary, and
+      per-sample call evidence with manual haplotyping and annotation overrides.
+      This dashboard is not one of the five genomic viewport classes.
+  genotype.export:
+    title: Export genotype results
+    entry_points:
+      - "Genotype viewport > Export"
+      - "CLI: lungfish genotype export-xlsx"
+      - "CLI: lungfish genotype export-labkey"
+    inputs: [genotype-bundle]
+    outputs: [xlsx, csv, tsv, labkey-csv]
+    viewport_class: none
+    sources:
+      - Sources/LungfishGenotypeUI/GenotypeViewportExportService.swift
+      - Sources/LungfishCLI/Commands/GenotypeExportSubcommand.swift
+      - Sources/LungfishCLI/Commands/GenotypeExportXlsxSubcommand.swift
+      - Sources/LungfishCLI/Commands/GenotypeExportLabKeySubcommand.swift
+    notes: >-
+      Exports the analyst-reviewed genotype bundle as XLSX, CSV, or TSV, a
+      samples-across pivot workbook, or LabKey-ready CSV files.
+  genotype.haplotype-definitions:
+    title: Manage haplotype definitions
+    entry_points:
+      - "Genotype viewport > Haplotype Definitions"
+      - "CLI: lungfish haplotypes"
+    inputs: [haplotype-definitions]
+    outputs: [haplotype-definitions]
+    viewport_class: none
+    sources:
+      - Sources/LungfishGenotypeUI/GenotypeHaplotypeDefinitionEditor.swift
+      - Sources/LungfishGenotypeUI/GenotypeHaplotypeDefinitionMatrixView.swift
+      - Sources/LungfishCLI/Commands/HaplotypeDefinitionsCommand.swift
+    notes: >-
+      Defines and edits named haplotypes from aligned marker columns and applies
+      them to genotype calls.
+
+  # --- Multiple sequence alignment and phylogenetics ---
+  msa.align:
+    title: Multiple sequence alignment
+    entry_points:
+      - "Tools > Multiple Sequence Alignment"
+      - "CLI: lungfish align mafft"
+    inputs: [fasta, sequence-collection]
+    outputs: [lungfishmsa]
+    viewport_class: sequence
+    sources:
+      - Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift
+      - Sources/LungfishWorkflow/MSA/MAFFTAlignmentPipeline.swift
+      - Sources/LungfishCLI/Commands/AlignCommand.swift
+    notes: >-
+      Aligns FASTA sequences with MAFFT and creates a native .lungfishmsa
+      alignment bundle.
+  msa.actions:
+    title: MSA editing and analysis
+    entry_points:
+      - "CLI: lungfish msa consensus"
+      - "CLI: lungfish msa distance"
+    inputs: [lungfishmsa]
+    outputs: [lungfishmsa, consensus-fasta, distance-matrix]
+    viewport_class: sequence
+    sources:
+      - Sources/LungfishCLI/Commands/MSACommand.swift
+      - Sources/LungfishCLI/Commands/ImportMSATreeSubcommands.swift
+    notes: >-
+      Adds column annotations, builds consensus sequences, extracts rows and
+      columns, creates masked or trimmed derivatives, and computes identity or
+      p-distance matrices.
+  tree.infer:
+    title: Infer phylogenetic trees
+    entry_points:
+      - "CLI: lungfish tree infer"
+      - "CLI: lungfish msa tree"
+    inputs: [lungfishmsa, newick]
+    outputs: [lungfishtree]
+    viewport_class: none
+    sources:
+      - Sources/LungfishCLI/Commands/TreeCommand.swift
+      - Sources/LungfishCLI/Commands/MSACommand.swift
+      - Sources/LungfishCLI/Commands/ImportMSATreeSubcommands.swift
+    notes: >-
+      Infers a maximum-likelihood tree from a .lungfishmsa bundle with IQ-TREE
+      or imports an existing Newick tree as a .lungfishtree bundle.
+  viewport.phylogenetic-tree:
+    title: Phylogenetic tree viewport
+    entry_points:
+      - "Open a tree bundle from the sidebar"
+    inputs: [lungfishtree]
+    outputs: [newick]
+    viewport_class: none
+    sources:
+      - Sources/LungfishPhylogeneticsUI/PhylogeneticTreeViewController.swift
+      - Sources/LungfishPhylogeneticsUI/PhylogeneticTreeSelectionState.swift
+    notes: >-
+      Renders a native .lungfishtree bundle with a canvas, node table, layout and
+      color modes, search, and a node detail pane. This viewport is not one of
+      the five genomic viewport classes.
+  tree.transform:
+    title: Transform phylogenetic trees
+    entry_points:
+      - "CLI: lungfish tree extract-subtree"
+      - "CLI: lungfish tree infer reroot"
+    inputs: [lungfishtree]
+    outputs: [lungfishtree, newick]
+    viewport_class: none
+    sources:
+      - Sources/LungfishCLI/Commands/TreeCommand.swift
+    notes: >-
+      Re-roots a tree, extracts a selected clade or subtree, and relabels tips
+      from bundle metadata, writing new bundles with provenance.
+
+  # --- Workflows ---
+  workflow.builder:
+    title: Native Workflow Builder
+    entry_points:
+      - "Tools > Operations > Workflow Builder"
+      - "CLI: lungfish workflow builder-run"
+    inputs: [workflow-graph, project-datasets]
+    outputs: [workflow-run-bundle, project-datasets]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/WorkflowBuilder/WorkflowBuilderViewController.swift
+      - Sources/LungfishApp/Views/WorkflowBuilder/WorkflowCanvasView.swift
+      - Sources/LungfishCLI/Commands/WorkflowCommand.swift
+      - Sources/LungfishWorkflow/Builder
+    notes: >-
+      Builds and runs a native operation graph on project datasets, with outputs
+      auto-imported into the appropriate viewport.
+  workflow.nextflow:
+    title: Run Nextflow and nf-core pipelines
+    entry_points:
+      - "Tools > Operations > Workflows"
+      - "CLI: lungfish workflow run"
+    inputs: [nextflow-pipeline, nf-core-pipeline]
+    outputs: [workflow-run-bundle, project-datasets]
+    viewport_class: none
+    sources:
+      - Sources/LungfishWorkflow/Nextflow/WorkflowSchema.swift
+      - Sources/LungfishWorkflow/nf-core/NFCoreSupportedWorkflowCatalog.swift
+      - Sources/LungfishCLI/Commands/WorkflowCommand.swift
+    notes: >-
+      Runs Nextflow pipelines with auto-generated parameter forms from
+      nextflow_schema.json and launches from the nf-core catalogue.
+  workflow.snakemake:
+    title: Run Snakemake workflows
+    entry_points:
+      - "Tools > Operations > Workflows"
+      - "CLI: lungfish workflow run"
+    inputs: [snakemake-workflow]
+    outputs: [workflow-run-bundle, project-datasets]
+    viewport_class: none
+    sources:
+      - Sources/LungfishWorkflow/WorkflowRunner.swift
+      - Sources/LungfishWorkflow/WorkflowDefinition.swift
+      - Sources/LungfishCLI/Commands/WorkflowCommand.swift
+    notes: >-
+      Runs Snakemake workflows from inside the app with outputs auto-imported as
+      project datasets.
+  workflow.export:
+    title: Export as Nextflow or Snakemake
+    entry_points:
+      - "File > Export > Nextflow Pipeline"
+      - "File > Export > Snakemake Workflow"
+    inputs: [workflow-graph, project-history]
+    outputs: [nextflow-pipeline, snakemake-workflow]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/App/MainMenu.swift
+      - Sources/LungfishApp/App/AppDelegate+ImportExport.swift
+      - Sources/LungfishWorkflow/ApplicationExports
+    notes: >-
+      Exports the current operation history or builder graph as a runnable
+      Nextflow pipeline or Snakemake workflow.
+
+  # --- Provenance, project, and infrastructure ---
+  provenance.export:
+    title: Provenance reports and verification
+    entry_points:
+      - "File > Export > Methods Section"
+      - "File > Export > Full Provenance (JSON)"
+      - "CLI: lungfish provenance export"
+    inputs: [provenance-sidecar, bundle]
+    outputs: [methods-section, provenance-json, bibliography]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/App/AppProvenanceExportCommandBuilder.swift
+      - Sources/LungfishApp/App/MainMenu.swift
+      - Sources/LungfishCLI/Commands/ProvenanceCommand.swift
+      - Sources/LungfishWorkflow/Provenance/ProvenanceRecorder.swift
+    notes: >-
+      Exports a methods section, full provenance JSON, or citation bibliography
+      from a bundle and verifies signed provenance sidecars.
+  project.manage:
+    title: Manage projects and shared locks
+    entry_points:
+      - "File > Open Project Folder"
+      - "CLI: lungfish project"
+    inputs: [lungfish-project]
+    outputs: [project-lock, bundle-migration]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/App/ProjectOpenCoordinator.swift
+      - Sources/LungfishApp/App/ProjectLockWarningPresentation.swift
+      - Sources/LungfishCLI/Commands/ProjectCommand.swift
+    notes: >-
+      Opens project folders, creates and removes project-local lock records, and
+      migrates bundles for shared multi-user projects.
+  tools.provision:
+    title: Provision managed tools
+    entry_points:
+      - "CLI: lungfish provision-tools"
+      - "CLI: lungfish conda install"
+    inputs: [tool-catalog]
+    outputs: [conda-environment, managed-tool]
+    viewport_class: none
+    sources:
+      - Sources/LungfishCLI/Commands/ProvisionToolsCommand.swift
+      - Sources/LungfishCLI/Commands/CondaCommand.swift
+      - Sources/LungfishKit/CLIBinaryLocator.swift
+    notes: >-
+      Bootstraps micromamba and installs bioconda tool packs into managed conda
+      environments, with offline export and import.
+  plugins.manage:
+    title: Plugin Manager
+    entry_points:
+      - "Tools > Plugin Manager"
+      - "CLI: lungfish conda"
+    inputs: [plugin-pack]
+    outputs: [installed-plugin]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/PluginManager/PluginManagerWindowController.swift
+      - Sources/LungfishApp/Views/PluginManager/PluginManagerViewModel.swift
+      - Sources/LungfishCLI/Commands/CondaCommand.swift
+    notes: >-
+      Discovers, installs, and manages the lifecycle of Python, Rust, Swift, and
+      CLI plugins that add operations, viewers, data sources, or workflows.
+  ai.assistant:
+    title: AI assistant panel
+    entry_points:
+      - "View > AI Assistant"
+    inputs: [active-dataset, chat-prompt]
+    outputs: [chat-response]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/AI/AIAssistantPanel.swift
+      - Sources/LungfishApp/Services/AI/AIAssistantService.swift
+    notes: >-
+      Chat panel that answers questions about the active dataset, suggests
+      workflows, and helps interpret results using a bring-your-own-key provider.
+  containers.run:
+    title: Containerized tool execution
+    entry_points:
+      - "Runs automatically for containerized workflow steps"
+      - "CLI: lungfish debug container"
+    inputs: [container-image]
+    outputs: [container-run-output]
+    viewport_class: none
+    sources:
+      - Sources/LungfishWorkflow/Containers/Container.swift
+      - Sources/LungfishWorkflow/Containers/ContainerImageRegistry.swift
+      - Sources/LungfishCLI/Commands/DebugCommand.swift
+    notes: >-
+      Runs Docker or Apptainer images in lightweight Linux VMs on Apple Silicon
+      via Apple Containerization for workflow steps that need them.

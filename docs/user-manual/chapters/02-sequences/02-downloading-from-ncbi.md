@@ -5,10 +5,11 @@ audience: bench-scientist
 prereqs: [01-foundations/06-the-lungfish-project, 02-sequences/01-importing-and-viewing]
 estimated_reading_min: 8
 task: Download a reference sequence and its annotations from NCBI by accession.
-tags: [sequences, ncbi, download, fasta, gff3, genbank, accession]
+tags: [sequences, ncbi, download, fasta, gff3, genbank, accession, pathoplexus]
 tools: []
 entry_points:
   - "Tools > Search Online Databases > Search NCBI…"
+  - "Tools > Search Online Databases > Search Pathoplexus…"
   - "CLI: lungfish fetch ncbi"
 shots: []
 planned_shots:
@@ -20,7 +21,7 @@ illustrations:
   - id: ncbi-accession-anatomy
     caption: "How an NCBI accession decomposes into prefix, number, and version, and which fetch path to use."
 glossary_refs: [reference-genome, reference-bundle, GFF, SRA]
-features_refs: [fetch.ncbi]
+features_refs: [fetch.ncbi, database.pathoplexus]
 fixtures_refs: []
 brand_reviewed: false
 lead_approved: false
@@ -151,6 +152,8 @@ To search Pathoplexus:
 4. Enter an accession or free-text term, then narrow with filters such as country, lineage, host, mutations, INSDC availability, collection date, or sequence length.
 
 To download Pathoplexus records, click search, then select the records you want and download them. Restricted records are rejected in the dialog. When a record has an INSDC accession, Lungfish tries the GenBank path first and appends Pathoplexus metadata; if that retrieval fails or no INSDC accession exists, it builds a FASTA-backed bundle from the Pathoplexus record instead.
+
+The offered organisms are a fixed catalogue of ten outbreak-relevant pathogens: Mpox virus, Marburg virus, measles, the Sudan and Zaire ebolaviruses, RSV-A and RSV-B, human metapneumovirus, West Nile virus, and Crimean-Congo hemorrhagic fever. A few carry segmented genomes, meaning the organism's sequence is split across several molecules rather than one; Crimean-Congo hemorrhagic fever splits into `S`, `M`, and `L` segments, which the dialog lets you pick between. Whichever retrieval path builds the bundle, the result is a `.lungfishref` reference bundle in the project's `Reference Sequences/` folder with a provenance sidecar, so a Pathoplexus import behaves exactly like an NCBI download in every later chapter.
 
 For raw sequencing reads (FASTQs from the SRA), use the SRA chapter ([R02, Downloading from SRA](../03-reads/02-downloading-from-sra.md)) instead. SRA accessions begin with `SRR`, `ERR`, or `DRR` and route through `lungfish fetch sra`, which uses an ENA mirror and falls back to the SRA Toolkit. The NCBI tab covered in this chapter does not handle them.
 
