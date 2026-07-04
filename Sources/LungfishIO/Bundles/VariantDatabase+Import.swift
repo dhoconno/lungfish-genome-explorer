@@ -311,13 +311,7 @@ extension VariantDatabase {
             }
             let fraction = Double(i) / Double(neededIndexes.count)
             progressHandler?(fraction, "Creating index \(i + 1) of \(neededIndexes.count) (\(name))...")
-            var idxErr: UnsafeMutablePointer<CChar>?
-            sqlite3_exec(db, sql, nil, nil, &idxErr)
-            if let idxErr {
-                let msg = String(cString: idxErr)
-                sqlite3_free(idxErr)
-                variantDBLogger.warning("resumeImport: Index '\(name)' failed: \(msg)")
-            }
+            try createRequiredIndex(db: db, name: name, sql: sql, context: "resumeImport")
             sqlite3_exec(db, "INSERT OR REPLACE INTO db_metadata VALUES ('idx_\(name)', 'created')", nil, nil, nil)
             _ = sqlite3_db_release_memory(db)
             sqlite3_exec(db, "PRAGMA shrink_memory", nil, nil, nil)
@@ -451,6 +445,30 @@ extension VariantDatabase {
             }
         }
         return result
+    }
+
+    static func createRequiredIndex(
+        db: OpaquePointer?,
+        name: String,
+        sql: String,
+        context: String
+    ) throws {
+        var idxErr: UnsafeMutablePointer<CChar>?
+        let rc = sqlite3_exec(db, sql, nil, nil, &idxErr)
+        if rc == SQLITE_OK {
+            return
+        }
+
+        let message: String
+        if let idxErr {
+            message = String(cString: idxErr)
+            sqlite3_free(idxErr)
+        } else if let db {
+            message = String(cString: sqlite3_errmsg(db))
+        } else {
+            message = "SQLite error \(rc)"
+        }
+        throw VariantDatabaseError.createFailed("\(context): failed to create index '\(name)': \(message)")
     }
 
     // MARK: - Post-Import EAV Materialization
@@ -648,13 +666,7 @@ extension VariantDatabase {
             }
             let indexProgress = 0.92 + (Double(i) / Double(max(1, variantInfoIndexes.count))) * 0.06
             progressHandler?(indexProgress, "Creating index \(name)...")
-            var idxErr: UnsafeMutablePointer<CChar>?
-            sqlite3_exec(db, sql, nil, nil, &idxErr)
-            if let idxErr {
-                let msg = String(cString: idxErr)
-                sqlite3_free(idxErr)
-                variantDBLogger.warning("materializeVariantInfo: Index '\(name)' failed: \(msg)")
-            }
+            try createRequiredIndex(db: db, name: name, sql: sql, context: "materializeVariantInfo")
             _ = sqlite3_db_release_memory(db)
             sqlite3_exec(db, "PRAGMA shrink_memory", nil, nil, nil)
         }

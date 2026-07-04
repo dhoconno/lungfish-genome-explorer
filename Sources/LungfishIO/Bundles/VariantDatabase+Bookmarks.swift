@@ -405,13 +405,7 @@ extension VariantDatabase {
 
         if tuning.createIndexesUpFront {
             for (name, sql) in Self.allIndexStatements {
-                var idxErr: UnsafeMutablePointer<CChar>?
-                sqlite3_exec(db, sql, nil, nil, &idxErr)
-                if let idxErr {
-                    let msg = String(cString: idxErr)
-                    sqlite3_free(idxErr)
-                    variantDBLogger.warning("createFromVCF: Upfront index '\(name)' failed: \(msg)")
-                }
+                try Self.createRequiredIndex(db: db, name: name, sql: sql, context: "createFromVCF upfront")
             }
             variantDBLogger.info("createFromVCF: Created \(Self.allIndexStatements.count) indexes upfront for incremental maintenance")
         }
@@ -1167,13 +1161,7 @@ extension VariantDatabase {
                     }
                     let indexProgress = 0.92 + (Double(i) / Double(indexesToBuild.count)) * 0.07
                     progressHandler?(indexProgress, "Creating index \(i + 1) of \(indexesToBuild.count)...")
-                    var idxErr: UnsafeMutablePointer<CChar>?
-                    sqlite3_exec(db, sql, nil, nil, &idxErr)
-                    if let idxErr {
-                        let msg = String(cString: idxErr)
-                        sqlite3_free(idxErr)
-                        variantDBLogger.warning("createFromVCF: Index '\(name)' creation failed: \(msg)")
-                    }
+                    try Self.createRequiredIndex(db: db, name: name, sql: sql, context: "createFromVCF")
                     Self.insertMetadataRow(db, key: "idx_\(name)", value: "created", replace: true)
                     releaseSQLiteMemory(forceShrink: true)
                 }

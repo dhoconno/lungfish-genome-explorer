@@ -1228,6 +1228,69 @@ final class VariantDatabaseTests: XCTestCase {
         XCTAssertEqual(results.count, 5)
     }
 
+    func testResumeImportThrowsAndKeepsIndexingStateWhenRequiredIndexFails() throws {
+        let dbURL = tempDir.appendingPathComponent("broken_indexing.db")
+
+        do {
+            var db: OpaquePointer?
+            XCTAssertEqual(sqlite3_open(dbURL.path, &db), SQLITE_OK)
+            defer { sqlite3_close(db) }
+
+            let schema = """
+            CREATE TABLE variants (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chromosome TEXT NOT NULL,
+                position INTEGER NOT NULL
+            );
+            CREATE TABLE genotypes (
+                variant_id INTEGER NOT NULL,
+                sample_name TEXT NOT NULL
+            );
+            CREATE TABLE samples (
+                name TEXT PRIMARY KEY
+            );
+            CREATE TABLE variant_info (
+                variant_id INTEGER NOT NULL,
+                key TEXT NOT NULL,
+                value TEXT NOT NULL
+            );
+            CREATE TABLE variant_info_defs (
+                key TEXT PRIMARY KEY,
+                type TEXT NOT NULL,
+                number TEXT NOT NULL,
+                description TEXT
+            );
+            CREATE TABLE db_metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            );
+            INSERT INTO db_metadata VALUES ('import_state', 'indexing');
+            INSERT INTO db_metadata VALUES ('import_variant_count', '1');
+            INSERT INTO variants (chromosome, position) VALUES ('chr1', 1);
+            """
+            var sqlError: UnsafeMutablePointer<CChar>?
+            let rc = sqlite3_exec(db, schema, nil, nil, &sqlError)
+            if let sqlError {
+                let message = String(cString: sqlError)
+                sqlite3_free(sqlError)
+                XCTFail("Failed to create malformed test database: \(message)")
+            }
+            XCTAssertEqual(rc, SQLITE_OK)
+        }
+
+        XCTAssertThrowsError(try VariantDatabase.resumeImport(existingDBURL: dbURL)) { error in
+            guard case VariantDatabaseError.createFailed(let message) = error else {
+                XCTFail("Expected createFailed, got \(error)")
+                return
+            }
+            XCTAssertTrue(message.contains("failed to create index"))
+            XCTAssertTrue(message.contains("idx_variants_region"))
+        }
+
+        XCTAssertEqual(VariantDatabase.importState(at: dbURL), "indexing")
+        XCTAssertNil(VariantDatabase.metadataValue(at: dbURL, key: "idx_idx_variants_region"))
+    }
+
     func testResumeAlreadyComplete() throws {
         let vcfURL = try createTempVCF(content: testVCF)
         let dbURL = tempDir.appendingPathComponent("complete.db")
