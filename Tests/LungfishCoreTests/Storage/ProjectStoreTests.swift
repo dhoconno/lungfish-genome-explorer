@@ -105,6 +105,16 @@ final class ProjectStoreTests: XCTestCase {
         XCTAssertEqual(names, ["seq1", "seq2", "seq3"])
     }
 
+    func testListSequencesThrowsQueryErrorForCorruptSequenceID() throws {
+        let sequenceId = try store.storeSequence(name: "corrupt_id", content: "ATCG")
+        try executeRawSQL("UPDATE sequences SET id = 'not-a-uuid' WHERE id = '\(sequenceId.uuidString)'")
+
+        assertThrowsProjectStoreQueryError(
+            try store.listSequences(),
+            contains: "sequences.id"
+        )
+    }
+
     // MARK: - Version Tests
 
     func testRecordVersion() throws {
@@ -131,6 +141,24 @@ final class ProjectStoreTests: XCTestCase {
         XCTAssertEqual(history.count, 1)
         XCTAssertEqual(history[0].message, "Added GGG insertion")
         XCTAssertEqual(history[0].author, "Test")
+    }
+
+    func testVersionHistoryThrowsQueryErrorForCorruptVersionID() throws {
+        let sequenceId = try store.storeSequence(
+            name: "versioned_corrupt_id",
+            content: "ATCG"
+        )
+        try store.recordVersion(
+            sequenceId: sequenceId,
+            diff: SequenceDiff.compute(from: "ATCG", to: "ATGG"),
+            newContentHash: "hash1"
+        )
+        try executeRawSQL("UPDATE versions SET id = 'not-a-uuid' WHERE sequence_id = '\(sequenceId.uuidString)'")
+
+        assertThrowsProjectStoreQueryError(
+            try store.getVersionHistory(for: sequenceId),
+            contains: "versions.id"
+        )
     }
 
     func testRecordVersionRollsBackWhenCurrentStateUpdateFails() throws {
@@ -367,6 +395,26 @@ final class ProjectStoreTests: XCTestCase {
         XCTAssertEqual(annotations[0].color, "#FF0000")
     }
 
+    func testGetAnnotationsThrowsQueryErrorForCorruptAnnotationID() throws {
+        let sequenceId = try store.storeSequence(
+            name: "annotation_corrupt_id",
+            content: String(repeating: "ATCG", count: 100)
+        )
+        try store.storeAnnotation(
+            sequenceId: sequenceId,
+            type: "gene",
+            name: "geneA",
+            startPosition: 10,
+            endPosition: 100
+        )
+        try executeRawSQL("UPDATE annotations SET id = 'not-a-uuid' WHERE sequence_id = '\(sequenceId.uuidString)'")
+
+        assertThrowsProjectStoreQueryError(
+            try store.getAnnotations(sequenceId: sequenceId),
+            contains: "annotations.id"
+        )
+    }
+
     func testGetAnnotationsInRange() throws {
         let sequenceId = try store.storeSequence(
             name: "range_test",
@@ -493,6 +541,12 @@ final class ProjectStoreTests: XCTestCase {
         try body(db)
     }
 
+    private func executeRawSQL(_ sql: String) throws {
+        try withRawDatabase { db in
+            XCTAssertEqual(sqlite3_exec(db, sql, nil, nil, nil), SQLITE_OK)
+        }
+    }
+
     private func rawScalarInt(_ sql: String, parameters: [String] = []) throws -> Int {
         var result = 0
         try withRawDatabase { db in
@@ -514,6 +568,26 @@ final class ProjectStoreTests: XCTestCase {
             result = Int(sqlite3_column_int(stmt, 0))
         }
         return result
+    }
+
+    private func assertThrowsProjectStoreQueryError<T>(
+        _ expression: @autoclosure () throws -> T,
+        contains expectedMessage: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertThrowsError(try expression(), file: file, line: line) { error in
+            guard case ProjectStoreError.queryError(let message) = error else {
+                XCTFail("Expected ProjectStoreError.queryError, got \(error)", file: file, line: line)
+                return
+            }
+            XCTAssertTrue(
+                message.contains(expectedMessage),
+                "Expected query error to mention \(expectedMessage), got: \(message)",
+                file: file,
+                line: line
+            )
+        }
     }
 
     private func sqliteDate(_ string: String) -> Date {

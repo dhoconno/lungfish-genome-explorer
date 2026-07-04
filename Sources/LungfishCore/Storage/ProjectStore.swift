@@ -388,12 +388,12 @@ public final class ProjectStore {
             ORDER BY s.name
         """) { stmt in
             let summary = SequenceSummary(
-                id: UUID(uuidString: String(cString: sqlite3_column_text(stmt, 0)))!,
-                name: String(cString: sqlite3_column_text(stmt, 1)),
-                alphabet: String(cString: sqlite3_column_text(stmt, 2)),
+                id: try requiredUUIDColumn(stmt, 0, name: "sequences.id"),
+                name: try requiredTextColumn(stmt, 1, name: "sequences.name"),
+                alphabet: try requiredTextColumn(stmt, 2, name: "sequences.alphabet"),
                 length: Int(sqlite3_column_int64(stmt, 3)),
-                createdAt: parseDate(String(cString: sqlite3_column_text(stmt, 4))),
-                modifiedAt: parseDate(String(cString: sqlite3_column_text(stmt, 5))),
+                createdAt: parseDate(try requiredTextColumn(stmt, 4, name: "sequences.created_at")),
+                modifiedAt: parseDate(try requiredTextColumn(stmt, 5, name: "sequences.modified_at")),
                 versionCount: Int(sqlite3_column_int(stmt, 6))
             )
             results.append(summary)
@@ -713,28 +713,23 @@ public final class ProjectStore {
             throw ProjectStoreError.queryError(message: "Invalid statement")
         }
 
-        let contentBlob = sqlite3_column_blob(stmt, 2)
-        let contentLength = sqlite3_column_bytes(stmt, 2)
-        let contentData = Data(bytes: contentBlob!, count: Int(contentLength))
+        let contentData = try requiredBlobColumn(stmt, 2, name: "sequences.original_content")
         let content = String(data: contentData, encoding: .utf8) ?? ""
 
         var metadata: [String: String]?
-        if sqlite3_column_type(stmt, 6) != SQLITE_NULL {
-            let metadataBlob = sqlite3_column_blob(stmt, 6)
-            let metadataLength = sqlite3_column_bytes(stmt, 6)
-            let metadataData = Data(bytes: metadataBlob!, count: Int(metadataLength))
+        if let metadataData = try optionalBlobColumn(stmt, 6, name: "sequences.metadata") {
             metadata = try? JSONDecoder().decode([String: String].self, from: metadataData)
         }
 
         return StoredSequence(
-            id: UUID(uuidString: String(cString: sqlite3_column_text(stmt, 0)))!,
-            name: String(cString: sqlite3_column_text(stmt, 1)),
+            id: try requiredUUIDColumn(stmt, 0, name: "sequences.id"),
+            name: try requiredTextColumn(stmt, 1, name: "sequences.name"),
             originalContent: content,
-            contentHash: String(cString: sqlite3_column_text(stmt, 3)),
-            alphabet: String(cString: sqlite3_column_text(stmt, 4)),
+            contentHash: try requiredTextColumn(stmt, 3, name: "sequences.content_hash"),
+            alphabet: try requiredTextColumn(stmt, 4, name: "sequences.alphabet"),
             length: Int(sqlite3_column_int64(stmt, 5)),
             metadata: metadata,
-            currentVersionHash: sqlite3_column_type(stmt, 7) != SQLITE_NULL ? String(cString: sqlite3_column_text(stmt, 7)) : nil,
+            currentVersionHash: try optionalTextColumn(stmt, 7, name: "current_state.version_hash"),
             currentVersionIndex: Int(sqlite3_column_int(stmt, 8))
         )
     }
@@ -744,19 +739,17 @@ public final class ProjectStore {
             throw ProjectStoreError.queryError(message: "Invalid statement")
         }
 
-        let diffBlob = sqlite3_column_blob(stmt, 3)
-        let diffLength = sqlite3_column_bytes(stmt, 3)
-        let diffData = Data(bytes: diffBlob!, count: Int(diffLength))
+        let diffData = try requiredBlobColumn(stmt, 3, name: "versions.diff_data")
         let diff = try JSONDecoder().decode(SequenceDiff.self, from: diffData)
 
         return StoredVersion(
-            id: UUID(uuidString: String(cString: sqlite3_column_text(stmt, 0)))!,
-            parentHash: sqlite3_column_type(stmt, 1) != SQLITE_NULL ? String(cString: sqlite3_column_text(stmt, 1)) : nil,
-            contentHash: String(cString: sqlite3_column_text(stmt, 2)),
+            id: try requiredUUIDColumn(stmt, 0, name: "versions.id"),
+            parentHash: try optionalTextColumn(stmt, 1, name: "versions.parent_hash"),
+            contentHash: try requiredTextColumn(stmt, 2, name: "versions.content_hash"),
             diff: diff,
-            message: sqlite3_column_type(stmt, 4) != SQLITE_NULL ? String(cString: sqlite3_column_text(stmt, 4)) : nil,
-            author: sqlite3_column_type(stmt, 5) != SQLITE_NULL ? String(cString: sqlite3_column_text(stmt, 5)) : nil,
-            createdAt: parseDate(String(cString: sqlite3_column_text(stmt, 6)))
+            message: try optionalTextColumn(stmt, 4, name: "versions.message"),
+            author: try optionalTextColumn(stmt, 5, name: "versions.author"),
+            createdAt: parseDate(try requiredTextColumn(stmt, 6, name: "versions.created_at"))
         )
     }
 
@@ -766,23 +759,79 @@ public final class ProjectStore {
         }
 
         var qualifiers: [String: String]?
-        if sqlite3_column_type(stmt, 6) != SQLITE_NULL {
-            let qualBlob = sqlite3_column_blob(stmt, 6)
-            let qualLength = sqlite3_column_bytes(stmt, 6)
-            let qualData = Data(bytes: qualBlob!, count: Int(qualLength))
+        if let qualData = try optionalBlobColumn(stmt, 6, name: "annotations.qualifiers") {
             qualifiers = try? JSONDecoder().decode([String: String].self, from: qualData)
         }
 
         return StoredAnnotation(
-            id: UUID(uuidString: String(cString: sqlite3_column_text(stmt, 0)))!,
-            type: String(cString: sqlite3_column_text(stmt, 1)),
-            name: String(cString: sqlite3_column_text(stmt, 2)),
+            id: try requiredUUIDColumn(stmt, 0, name: "annotations.id"),
+            type: try requiredTextColumn(stmt, 1, name: "annotations.type"),
+            name: try requiredTextColumn(stmt, 2, name: "annotations.name"),
             startPosition: Int(sqlite3_column_int(stmt, 3)),
             endPosition: Int(sqlite3_column_int(stmt, 4)),
-            strand: String(cString: sqlite3_column_text(stmt, 5)),
+            strand: try requiredTextColumn(stmt, 5, name: "annotations.strand"),
             qualifiers: qualifiers,
-            color: sqlite3_column_type(stmt, 7) != SQLITE_NULL ? String(cString: sqlite3_column_text(stmt, 7)) : nil
+            color: try optionalTextColumn(stmt, 7, name: "annotations.color")
         )
+    }
+
+    private func requiredUUIDColumn(_ stmt: OpaquePointer?, _ index: Int32, name: String) throws -> UUID {
+        let value = try requiredTextColumn(stmt, index, name: name)
+        guard let uuid = UUID(uuidString: value) else {
+            throw ProjectStoreError.queryError(message: "Invalid UUID in \(name): \(value)")
+        }
+        return uuid
+    }
+
+    private func requiredTextColumn(_ stmt: OpaquePointer?, _ index: Int32, name: String) throws -> String {
+        guard let stmt else {
+            throw ProjectStoreError.queryError(message: "Invalid statement while reading \(name)")
+        }
+        guard sqlite3_column_type(stmt, index) != SQLITE_NULL,
+              let text = sqlite3_column_text(stmt, index) else {
+            throw ProjectStoreError.queryError(message: "Missing required text column \(name)")
+        }
+        return String(cString: text)
+    }
+
+    private func optionalTextColumn(_ stmt: OpaquePointer?, _ index: Int32, name: String) throws -> String? {
+        guard let stmt else {
+            throw ProjectStoreError.queryError(message: "Invalid statement while reading \(name)")
+        }
+        guard sqlite3_column_type(stmt, index) != SQLITE_NULL else {
+            return nil
+        }
+        guard let text = sqlite3_column_text(stmt, index) else {
+            throw ProjectStoreError.queryError(message: "Invalid text column \(name)")
+        }
+        return String(cString: text)
+    }
+
+    private func requiredBlobColumn(_ stmt: OpaquePointer?, _ index: Int32, name: String) throws -> Data {
+        guard let stmt else {
+            throw ProjectStoreError.queryError(message: "Invalid statement while reading \(name)")
+        }
+        guard sqlite3_column_type(stmt, index) != SQLITE_NULL else {
+            throw ProjectStoreError.queryError(message: "Missing required blob column \(name)")
+        }
+        let byteCount = sqlite3_column_bytes(stmt, index)
+        guard byteCount > 0 else {
+            return Data()
+        }
+        guard let blob = sqlite3_column_blob(stmt, index) else {
+            throw ProjectStoreError.queryError(message: "Invalid blob column \(name)")
+        }
+        return Data(bytes: blob, count: Int(byteCount))
+    }
+
+    private func optionalBlobColumn(_ stmt: OpaquePointer?, _ index: Int32, name: String) throws -> Data? {
+        guard let stmt else {
+            throw ProjectStoreError.queryError(message: "Invalid statement while reading \(name)")
+        }
+        guard sqlite3_column_type(stmt, index) != SQLITE_NULL else {
+            return nil
+        }
+        return try requiredBlobColumn(stmt, index, name: name)
     }
 
     // MARK: - WAL Checkpointing
