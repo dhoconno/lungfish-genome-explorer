@@ -779,16 +779,6 @@ public class EnhancedCoordinateRulerView: NSView {
         }
     }
 
-    /// Calculates current zoom percentage (100% = entire sequence visible)
-    private func calculateZoomPercent() -> Double {
-        guard let frame = referenceFrame, frame.sequenceLength > 0 else {
-            return 100
-        }
-
-        let visibleFraction = (frame.end - frame.start) / Double(frame.sequenceLength)
-        return min(100, visibleFraction * 100)
-    }
-
     // MARK: - Mouse Event Handling
 
     public override func mouseDown(with event: NSEvent) {

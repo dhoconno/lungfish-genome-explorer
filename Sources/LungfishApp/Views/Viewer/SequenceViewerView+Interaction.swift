@@ -1248,24 +1248,6 @@ extension SequenceViewerView {
         sequenceViewerLogger.info("Copied \(bases.count) bases from annotation '\(annotation.name)' to clipboard")
     }
 
-    /// Copies the current selection's reverse complement to the clipboard.
-    /// Called by the Sequence > Reverse Complement menu item.
-    func performReverseComplement() {
-        guard let seq = sequence,
-              let range = selectionRange else {
-            NSSound.beep()
-            return
-        }
-        let start = max(0, range.lowerBound)
-        let end = min(seq.length, range.upperBound)
-        let selectedBases = seq[start..<end]
-        let revComp = reverseComplementString(selectedBases)
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(revComp, forType: .string)
-        sequenceViewerLogger.info("Reverse complement: copied \(end - start) bases to clipboard")
-    }
-
     struct FASTAOperationInput {
         let records: [String]
         let suggestedName: String

@@ -83,7 +83,7 @@ a file with an applied edit AND a deferred split counts under applied, noted sep
 (CLEAN files are summarized per-directory as "N files clean"; only APPLIED and DEFERRED get a
 per-file line here.)
 
-APPLIED (Pass A batch 1 — pending build+commit):
+APPLIED (Pass A batch 1 — committed 08317789, scoped-green 3152/0 + 159/0):
 - `Views/Viewer/AnnotationTableDrawerView+Genotypes.swift`: remove dead file-private
   `genotypeLogger` (line 18) — grep-verified zero reads in module + Tests/.
 - `Views/Viewer/FASTQDatasetViewController.swift`: remove dead private `saveExpansionState()`
@@ -91,6 +91,23 @@ APPLIED (Pass A batch 1 — pending build+commit):
   an expansion-state persistence pair; the READ half (`loadExpansionState` at ~341) still runs,
   so state is loaded-but-never-saved (pre-existing latent no-op persistence). Removing the
   unused writer is behavior-preserving. Flagged below for maintainer.
+
+APPLIED (Pass A batch 2 — pending build+commit):
+- `Views/WorkflowOperations/WorkflowOperationsDialog.swift`: remove dead `@State private var
+  showingReferencePanel`/`showingOutputPanel` (lines 55-56) — grep-verified zero reads incl.
+  `$`-bindings in module + Tests/ (sibling showingTwelveSReferenceBuilder stays).
+- `Views/MainWindow/MainSplitViewController+FASTQImport.swift`: remove one of two byte-identical
+  `///` doc-comment lines above showDuplicateFileDialog (~471-472). Cosmetic, behavior-preserving.
+- `Views/Viewer/EnhancedCoordinateRulerView.swift`: remove dead private `calculateZoomPercent()`
+  (~782-790) — grep-verified zero callers in module + Tests/ (drawing/geometry math around it left
+  untouched).
+- `Views/Viewer/SequenceViewerView+Interaction.swift`: remove dead `performReverseComplement()`
+  (~1251-1267) — orphaned island. Its stale doc comment claims "Called by the Sequence > Reverse
+  Complement menu item", but the LIVE menu path is #selector(SequenceMenuActions.reverseComplement)
+  -> AppDelegate+SequenceMenu.reverseComplement -> viewerView.runSelectedSequenceFASTAOperation(
+  toolID: .reverseComplement). The method is non-@objc (cannot be a menu action target) with zero
+  callers anywhere; the shared helper `reverseComplementString` has 4 other live callers -> no
+  cascade. Verified dead.
 
 REJECTED candidates (audited, proven NOT safe — recorded so a future pass does not re-propose):
 - MSA `MultipleSequenceAlignmentViewController.swift` "duplicate `isGap` at ~3131": NOT a
@@ -113,7 +130,9 @@ DEFERRED:
 
 ## Applied batches (commit log)
 
-_(one line per committed batch: commit hash + summary)_
+- `08317789` — batch 1: 6 provably-safe items (4 dead members + 2 identical-branch IIFE
+  collapses) across AnnotationTableDrawerView+Genotypes, FASTQDatasetViewController,
+  WorkflowOperationDialogState, AppDelegate+Classification. Scoped-green.
 
 ## Deferred items
 
@@ -121,9 +140,53 @@ _(none yet — populated per batch as uncertain changes are reverted)_
 
 ### Deferred file splits (each its own reviewed pass)
 
-_(catalog of >1000-line files: seam files + private→internal promotion lists + @objc/protocol
-methods that must stay reachable)_
+All same-module `extension` moves (private does NOT cross files in Swift, so any cross-file
+helper needs a `private`->`internal` promotion; @objc/#selector/NSTableViewDelegate/NSMenuDelegate
+conformance methods must remain reachable from the type that declares the conformance). Splits
+are DEFERRED by design — each is a large relocation warranting its own reviewed+green commit.
+
+Pass A big files (catalogued from the solo audits):
+- `AnnotationTableDrawerView.swift` (5224) — already partly split (+Filtering/+Columns/+TableView/
+  +Genotypes/+Bookmarks/+Export). Further seams: +UI (setup/layout), +Notifications (the @objc
+  handleVariantSelected/handleViewportVariantsUpdated/handleViewerCoordinatesChanged/
+  handleSampleDisplayStateChanged/variantColorThemeDidChange must stay #selector-reachable),
+  +MenuHandling (context-menu @objc actions). Promote core state (displayedAnnotations, activeTab,
+  delegate, tableView, searchIndex, isLoading) to internal.
+- `ViewerViewController.swift` (3762, COMPOSITION ROOT) — already well-decomposed via 18
+  ViewerViewController+*.swift. Further extraction would promote private helpers to internal
+  (widens surface); low value. Generation-counter guards stay. Statement-clean.
+- `DatabaseBrowserViewController.swift` (3565) — CLEAN; split by concern (SRA search / Pathoplexus
+  metadata / result-table / provenance). Private request-identity structs stay same-module.
+- `MultipleSequenceAlignmentViewController.swift` (3521) — CLEAN. Safest seam: move the
+  #if DEBUG testing extension (~2025-...) to +Testing.swift (all internal/testing-scoped, no
+  promotions). The trailing private NSView subclasses (MSAAlignment* Corner/Gutter/ColumnHeader/
+  Overview/Overlay/Matrix, ~2292-3418) could move to +Views.swift (each carries its own isGap
+  etc.). @objc #selector methods (~565-1395) stay reachable.
+- `FASTQDatasetViewController.swift` (3032) — split UI-configuration (+UIConfiguration) from
+  API/panes; @objc methods reachable. Materialization-adjacent nothing here.
+- `SidebarViewController.swift` (2697, COMPOSITION ROOT) — CLEAN; already split (+OutlineDataSource/
+  +OutlineDelegate/+MenuDelegate). @objc at ~379/469/689 are #selector-pinned.
+- `ReadStyleSection.swift` (2482) — CLEAN; SwiftUI views already well-sectioned; low-value split.
+- `FASTQMetadataDrawerView.swift` (2115), `FASTQOperationDialogState.swift` (2088),
+  `SequenceViewerView.swift` (2069, +6 extension files already), `ReadTrackRenderer.swift` (1973,
+  drawing — leave whole), `WorkflowOperationDialogState.swift` (1928), `OperationPreviewView.swift`
+  (1764), `TaxonomyViewController.swift` (1783, +Blast/+Collections already) — all statement-clean;
+  splits are optional file-size hygiene, deferred.
+- `AppDelegate+*.swift` cluster (ImportCenter 2843 / Classification 1879 / ToolsMenu 1590 /
+  MenuActions 879 / SequenceMenu 845) — already concern-split extensions on AppDelegate; @objc
+  menu actions are NSMenu-dispatched, keep reachable. Materialization in +ImportCenter untouchable.
 
 ### Flagged (pre-existing rule violations / unwired-UI islands — NOT fixed in this pass)
 
-_(macOS-26 API violations, forbidden MainActor hops, unwired-UI dead islands for maintainer)_
+- `FASTQDatasetViewController` — latent no-op persistence: `loadExpansionState` reads
+  `expandedCategories` from UserDefaults at init, but the writer (`saveExpansionState`, now
+  removed as dead) was never called, so expansion state was loaded-but-never-persisted. Removing
+  the dead writer is behavior-preserving; WIRING a save call would be a behavior CHANGE (out of
+  scope). Maintainer decision: either wire persistence or drop the load too.
+- `FASTQMetadataDrawerView` — dead pair: `public func tableViewSelectionDidChange(_:)` (no-op
+  break-only body) + its only reader `isSuppressingDelegateCallbacks` (never written). Left in
+  place (public protocol-shaped surface); a maintainer pass could remove both.
+- No macOS-26 API violations (lockFocus/wantsLayer/runModal/synchronize/NSSplitViewController
+  delegate methods) and no forbidden GCD->MainActor `Task { @MainActor` hops found in any Pass A
+  big file audited so far (the many `Task { @MainActor in }` are same-actor tasks on already
+  @MainActor types — legitimate, NOT the forbidden hop).

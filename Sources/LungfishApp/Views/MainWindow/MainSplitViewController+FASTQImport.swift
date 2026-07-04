@@ -469,7 +469,6 @@ extension MainSplitViewController {
     // MARK: - Duplicate File Handling
 
     /// Shows a dialog asking the user how to handle a duplicate file
-    /// Shows a dialog asking the user how to handle a duplicate file
     func showDuplicateFileDialog(filename: String) async -> DuplicateResolution {
         let alert = NSAlert()
         alert.messageText = "File Already Exists"
