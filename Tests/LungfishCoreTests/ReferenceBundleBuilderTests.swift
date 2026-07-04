@@ -423,6 +423,352 @@ final class ReferenceBundleBuilderTests: XCTestCase {
     }
 
     @MainActor
+    func testCancellingParentTaskCancelsDetachedBuildWork() async throws {
+        let builder = ReferenceBundleBuilder()
+
+        let fastaURL = tempDirectory.appendingPathComponent("large.fa")
+        let fastaContent = ">chr1\n" + String(
+            repeating: "ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG\n",
+            count: 50_000
+        )
+        try fastaContent.write(to: fastaURL, atomically: true, encoding: .utf8)
+
+        let outputDir = tempDirectory.appendingPathComponent("output")
+        let expectedBundleURL = outputDir.appendingPathComponent("Cancellation_Test.lungfishref")
+        let config = BuildConfiguration(
+            name: "Cancellation Test",
+            identifier: "cancellation.test",
+            fastaURL: fastaURL,
+            outputDirectory: outputDir,
+            source: SourceInfo(organism: "Test", assembly: "v1"),
+            compressFASTA: false
+        )
+
+        let buildStarted = expectation(description: "build started")
+        buildStarted.assertForOverFulfill = false
+
+        let task = Task { @MainActor in
+            try await builder.build(configuration: config) { step, _, _ in
+                if step == .creatingStructure {
+                    buildStarted.fulfill()
+                }
+            }
+        }
+
+        await fulfillment(of: [buildStarted], timeout: 2.0)
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            XCTFail("Expected parent cancellation to cancel detached bundle work")
+        } catch let error as BundleBuildError {
+            guard case .cancelled = error else {
+                XCTFail("Expected cancelled error, got \(error)")
+                return
+            }
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: expectedBundleURL.path))
+    }
+
+    @MainActor
+    func testFASTAIndexUsesExactCRLFByteOffsets() async throws {
+        let builder = ReferenceBundleBuilder()
+
+        let fastaURL = tempDirectory.appendingPathComponent("crlf.fa")
+        let fastaBytes = Data(">chr1\r\nACGT\r\nACGT\r\n>chr2\r\nNN\r\n".utf8)
+        try fastaBytes.write(to: fastaURL)
+
+        let outputDir = tempDirectory.appendingPathComponent("output")
+        let config = BuildConfiguration(
+            name: "CRLF Test",
+            identifier: "crlf.test",
+            fastaURL: fastaURL,
+            outputDirectory: outputDir,
+            source: SourceInfo(organism: "Test", assembly: "v1"),
+            compressFASTA: false
+        )
+
+        let bundleURL = try await builder.build(configuration: config)
+        let indexURL = bundleURL.appendingPathComponent("genome/sequence.fa.fai")
+        let index = try String(contentsOf: indexURL, encoding: .utf8)
+
+        XCTAssertEqual(index, "chr1\t8\t7\t4\t6\nchr2\t2\t26\t2\t4\n")
+    }
+
+    @MainActor
+    func testFASTAIndexUsesSamtoolsWidthForSingleLineWithoutTrailingNewline() async throws {
+        let builder = ReferenceBundleBuilder()
+
+        let fastaURL = tempDirectory.appendingPathComponent("single-line.fa")
+        try Data(">chr1\nACGT".utf8).write(to: fastaURL)
+
+        let outputDir = tempDirectory.appendingPathComponent("output")
+        let config = BuildConfiguration(
+            name: "Single Line Test",
+            identifier: "single-line.test",
+            fastaURL: fastaURL,
+            outputDirectory: outputDir,
+            source: SourceInfo(organism: "Test", assembly: "v1"),
+            compressFASTA: false
+        )
+
+        let bundleURL = try await builder.build(configuration: config)
+        let indexURL = bundleURL.appendingPathComponent("genome/sequence.fa.fai")
+        let index = try String(contentsOf: indexURL, encoding: .utf8)
+
+        XCTAssertEqual(index, "chr1\t4\t6\t4\t5\n")
+    }
+
+    @MainActor
+    func testFASTAIndexRejectsInconsistentInternalLineWidths() async throws {
+        let builder = ReferenceBundleBuilder()
+
+        let fastaURL = tempDirectory.appendingPathComponent("ragged.fa")
+        try Data(">chr1\nACGT\nAC\nACGT\n".utf8).write(to: fastaURL)
+
+        let outputDir = tempDirectory.appendingPathComponent("output")
+        let expectedBundleURL = outputDir.appendingPathComponent("Ragged_Test.lungfishref")
+        let config = BuildConfiguration(
+            name: "Ragged Test",
+            identifier: "ragged.test",
+            fastaURL: fastaURL,
+            outputDirectory: outputDir,
+            source: SourceInfo(organism: "Test", assembly: "v1"),
+            compressFASTA: false
+        )
+
+        do {
+            _ = try await builder.build(configuration: config)
+            XCTFail("Expected ragged internal FASTA line to be rejected")
+        } catch let error as BundleBuildError {
+            guard case .invalidFASTAFormat(let message) = error else {
+                XCTFail("Expected invalidFASTAFormat, got \(error)")
+                return
+            }
+            XCTAssertTrue(message.contains("Inconsistent sequence line"))
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: expectedBundleURL.path))
+    }
+
+    @MainActor
+    func testFASTAIndexRejectsMixedInternalNewlineWidths() async throws {
+        let builder = ReferenceBundleBuilder()
+
+        let fastaURL = tempDirectory.appendingPathComponent("mixed-newlines.fa")
+        try Data(">chr1\r\nACGT\r\nACGT\nACGT\r\n".utf8).write(to: fastaURL)
+
+        let outputDir = tempDirectory.appendingPathComponent("output")
+        let expectedBundleURL = outputDir.appendingPathComponent("Mixed_Newlines_Test.lungfishref")
+        let config = BuildConfiguration(
+            name: "Mixed Newlines Test",
+            identifier: "mixed-newlines.test",
+            fastaURL: fastaURL,
+            outputDirectory: outputDir,
+            source: SourceInfo(organism: "Test", assembly: "v1"),
+            compressFASTA: false
+        )
+
+        do {
+            _ = try await builder.build(configuration: config)
+            XCTFail("Expected mixed internal newline widths to be rejected")
+        } catch let error as BundleBuildError {
+            guard case .invalidFASTAFormat(let message) = error else {
+                XCTFail("Expected invalidFASTAFormat, got \(error)")
+                return
+            }
+            XCTAssertTrue(message.contains("Inconsistent sequence line"))
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: expectedBundleURL.path))
+    }
+
+    @MainActor
+    func testFASTAIndexRejectsBlankLineBeforeMoreSequence() async throws {
+        let builder = ReferenceBundleBuilder()
+
+        let fastaURL = tempDirectory.appendingPathComponent("blank-before-sequence.fa")
+        try Data(">chr1\nACGT\n\nACGT\n".utf8).write(to: fastaURL)
+
+        let outputDir = tempDirectory.appendingPathComponent("output")
+        let expectedBundleURL = outputDir.appendingPathComponent("Blank_Sequence_Test.lungfishref")
+        let config = BuildConfiguration(
+            name: "Blank Sequence Test",
+            identifier: "blank-sequence.test",
+            fastaURL: fastaURL,
+            outputDirectory: outputDir,
+            source: SourceInfo(organism: "Test", assembly: "v1"),
+            compressFASTA: false
+        )
+
+        do {
+            _ = try await builder.build(configuration: config)
+            XCTFail("Expected blank line before more sequence to be rejected")
+        } catch let error as BundleBuildError {
+            guard case .invalidFASTAFormat(let message) = error else {
+                XCTFail("Expected invalidFASTAFormat, got \(error)")
+                return
+            }
+            XCTAssertTrue(message.contains("Blank FASTA line"))
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: expectedBundleURL.path))
+    }
+
+    @MainActor
+    func testFASTAIndexRejectsWhitespaceOnlyLineBeforeMoreSequence() async throws {
+        let builder = ReferenceBundleBuilder()
+
+        let fastaURL = tempDirectory.appendingPathComponent("whitespace-before-sequence.fa")
+        try Data(">chr1\nACGT\n \t \nACGT\n".utf8).write(to: fastaURL)
+
+        let outputDir = tempDirectory.appendingPathComponent("output")
+        let expectedBundleURL = outputDir.appendingPathComponent("Whitespace_Sequence_Test.lungfishref")
+        let config = BuildConfiguration(
+            name: "Whitespace Sequence Test",
+            identifier: "whitespace-sequence.test",
+            fastaURL: fastaURL,
+            outputDirectory: outputDir,
+            source: SourceInfo(organism: "Test", assembly: "v1"),
+            compressFASTA: false
+        )
+
+        do {
+            _ = try await builder.build(configuration: config)
+            XCTFail("Expected whitespace-only line before more sequence to be rejected")
+        } catch let error as BundleBuildError {
+            guard case .invalidFASTAFormat(let message) = error else {
+                XCTFail("Expected invalidFASTAFormat, got \(error)")
+                return
+            }
+            XCTAssertTrue(message.contains("Blank FASTA line"))
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: expectedBundleURL.path))
+    }
+
+    @MainActor
+    func testFASTAIndexAllowsBlankLinesAtRecordBoundaries() async throws {
+        let builder = ReferenceBundleBuilder()
+
+        let fastaURL = tempDirectory.appendingPathComponent("boundary-blanks.fa")
+        try Data("\n>chr1\nACGT\n\n>chr2\nNN\n\n".utf8).write(to: fastaURL)
+
+        let outputDir = tempDirectory.appendingPathComponent("output")
+        let config = BuildConfiguration(
+            name: "Boundary Blanks Test",
+            identifier: "boundary-blanks.test",
+            fastaURL: fastaURL,
+            outputDirectory: outputDir,
+            source: SourceInfo(organism: "Test", assembly: "v1"),
+            compressFASTA: false
+        )
+
+        let bundleURL = try await builder.build(configuration: config)
+        let indexURL = bundleURL.appendingPathComponent("genome/sequence.fa.fai")
+        let index = try String(contentsOf: indexURL, encoding: .utf8)
+
+        XCTAssertEqual(index, "chr1\t4\t7\t4\t5\nchr2\t2\t19\t2\t3\n")
+    }
+
+    @MainActor
+    func testFASTAIndexRejectsFinalLineWiderThanIndexedLineWidth() async throws {
+        let builder = ReferenceBundleBuilder()
+
+        let fastaURL = tempDirectory.appendingPathComponent("wide-final.fa")
+        try Data(">chr1\nACGT\nACGT\r\n".utf8).write(to: fastaURL)
+
+        let outputDir = tempDirectory.appendingPathComponent("output")
+        let expectedBundleURL = outputDir.appendingPathComponent("Wide_Final_Test.lungfishref")
+        let config = BuildConfiguration(
+            name: "Wide Final Test",
+            identifier: "wide-final.test",
+            fastaURL: fastaURL,
+            outputDirectory: outputDir,
+            source: SourceInfo(organism: "Test", assembly: "v1"),
+            compressFASTA: false
+        )
+
+        do {
+            _ = try await builder.build(configuration: config)
+            XCTFail("Expected final line wider than indexed width to be rejected")
+        } catch let error as BundleBuildError {
+            guard case .invalidFASTAFormat(let message) = error else {
+                XCTFail("Expected invalidFASTAFormat, got \(error)")
+                return
+            }
+            XCTAssertTrue(message.contains("Final sequence line"))
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: expectedBundleURL.path))
+    }
+
+    @MainActor
+    func testFASTAIndexRejectsHeaderOnlyRecords() async throws {
+        let builder = ReferenceBundleBuilder()
+
+        let fastaURL = tempDirectory.appendingPathComponent("empty-record.fa")
+        try Data(">chr1\n>chr2\nNN\n".utf8).write(to: fastaURL)
+
+        let outputDir = tempDirectory.appendingPathComponent("output")
+        let expectedBundleURL = outputDir.appendingPathComponent("Empty_Record_Test.lungfishref")
+        let config = BuildConfiguration(
+            name: "Empty Record Test",
+            identifier: "empty-record.test",
+            fastaURL: fastaURL,
+            outputDirectory: outputDir,
+            source: SourceInfo(organism: "Test", assembly: "v1"),
+            compressFASTA: false
+        )
+
+        do {
+            _ = try await builder.build(configuration: config)
+            XCTFail("Expected header-only FASTA record to be rejected")
+        } catch let error as BundleBuildError {
+            guard case .invalidFASTAFormat(let message) = error else {
+                XCTFail("Expected invalidFASTAFormat, got \(error)")
+                return
+            }
+            XCTAssertTrue(message.contains("no sequence"))
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: expectedBundleURL.path))
+    }
+
+    @MainActor
+    func testFASTAIndexRejectsCROnlyLineEndings() async throws {
+        let builder = ReferenceBundleBuilder()
+
+        let fastaURL = tempDirectory.appendingPathComponent("cr-only.fa")
+        try Data(">chr1\rACGT\r".utf8).write(to: fastaURL)
+
+        let outputDir = tempDirectory.appendingPathComponent("output")
+        let expectedBundleURL = outputDir.appendingPathComponent("CR_Only_Test.lungfishref")
+        let config = BuildConfiguration(
+            name: "CR Only Test",
+            identifier: "cr-only.test",
+            fastaURL: fastaURL,
+            outputDirectory: outputDir,
+            source: SourceInfo(organism: "Test", assembly: "v1"),
+            compressFASTA: false
+        )
+
+        do {
+            _ = try await builder.build(configuration: config)
+            XCTFail("Expected CR-only FASTA line endings to be rejected")
+        } catch let error as BundleBuildError {
+            guard case .invalidFASTAFormat(let message) = error else {
+                XCTFail("Expected invalidFASTAFormat, got \(error)")
+                return
+            }
+            XCTAssertTrue(message.contains("CR-only"))
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: expectedBundleURL.path))
+    }
+
+    @MainActor
     func testBuildCancellation() async throws {
         let builder = ReferenceBundleBuilder()
 

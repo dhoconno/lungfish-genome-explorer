@@ -397,6 +397,10 @@ public final class ReferenceBundleBuilder: ObservableObject {
         configuration: BuildConfiguration,
         progressHandler: (@Sendable (BuildStep, Double, String) -> Void)? = nil
     ) async throws -> URL {
+        guard !Task.isCancelled else {
+            throw BundleBuildError.cancelled
+        }
+
         isBuilding = true
         progress = 0.0
         errors = []
@@ -427,7 +431,11 @@ public final class ReferenceBundleBuilder: ObservableObject {
         currentBuildTask = task
 
         do {
-            let builtBundleURL = try await task.value
+            let builtBundleURL = try await withTaskCancellationHandler {
+                try await task.value
+            } onCancel: {
+                task.cancel()
+            }
             logger.info("Bundle build complete: \(builtBundleURL.path)")
             return builtBundleURL
         } catch {
@@ -471,6 +479,8 @@ private struct ReferenceBundleBuildExecutor: Sendable {
         var didCreateBundle = false
 
         do {
+            try checkCancellation()
+
             try await executeStep(.validating, progressHandler: progressHandler) {
                 try validateInputs(configuration)
             }
@@ -757,14 +767,13 @@ private struct ReferenceBundleBuildExecutor: Sendable {
     private func parseFASTAForChromosomes(_ fastaURL: URL) throws -> [ChromosomeInfo] {
         logger.info("Parsing FASTA for chromosome information")
 
-        let fileURL = fastaURL
         let ext = fastaURL.pathExtension.lowercased()
 
         if ext == "gz" {
             logger.warning("Gzipped FASTA support requires decompression")
         }
 
-        guard let fileHandle = FileHandle(forReadingAtPath: fileURL.path) else {
+        guard let fileHandle = FileHandle(forReadingAtPath: fastaURL.path) else {
             throw BundleBuildError.inputFileNotReadable(fastaURL)
         }
         defer { try? fileHandle.close() }
@@ -772,62 +781,236 @@ private struct ReferenceBundleBuildExecutor: Sendable {
         var chromosomes: [ChromosomeInfo] = []
         var currentChromName: String?
         var currentLength: Int64 = 0
-        var lineBasesFirst: Int?
-        var lineWidthFirst: Int?
+        var expectedLineBases: Int?
+        var expectedLineWidth: Int?
         var sequenceStartOffset: Int64 = 0
+        var pendingSequenceLine: FASTASequenceLineMetrics?
+        var sawBlankLineInCurrentRecord = false
 
-        let data = fileHandle.readDataToEndOfFile()
-        guard let content = String(data: data, encoding: .utf8) else {
-            throw BundleBuildError.invalidFASTAFormat("Cannot read file as UTF-8")
+        var lineKind: FASTALineKind = .undecided
+        var headerBytes: [UInt8] = []
+        var sequenceLineBases = 0
+        var lineByteCount = 0
+        var lineStartOffset: Int64 = 0
+        var byteOffset: Int64 = 0
+        var pendingCarriageReturn = false
+
+        func resetLine() {
+            lineKind = .undecided
+            headerBytes.removeAll(keepingCapacity: true)
+            sequenceLineBases = 0
+            lineByteCount = 0
         }
 
-        var byteOffset: Int64 = 0
-        let lines = content.components(separatedBy: .newlines)
-
-        for line in lines {
-            let lineLength = line.utf8.count
-
-            if line.hasPrefix(">") {
-                if let chromName = currentChromName {
-                    let chromInfo = ChromosomeInfo(
-                        name: chromName,
-                        length: currentLength,
-                        offset: sequenceStartOffset,
-                        lineBases: lineBasesFirst ?? 50,
-                        lineWidth: (lineWidthFirst ?? 50) + 1
-                    )
-                    chromosomes.append(chromInfo)
-                }
-
-                let headerLine = String(line.dropFirst())
-                currentChromName = headerLine.split(separator: " ").first.map(String.init) ?? headerLine
-                currentLength = 0
-                lineBasesFirst = nil
-                lineWidthFirst = nil
-                sequenceStartOffset = byteOffset + Int64(lineLength) + 1
-            } else if !line.isEmpty {
-                let basesInLine = line.filter { !$0.isWhitespace }.count
-                currentLength += Int64(basesInLine)
-
-                if lineBasesFirst == nil && basesInLine > 0 {
-                    lineBasesFirst = basesInLine
-                    lineWidthFirst = lineLength
-                }
+        func validateNonTerminalSequenceLine(
+            _ metrics: FASTASequenceLineMetrics,
+            contigName: String
+        ) throws {
+            guard let expectedLineBases, let expectedLineWidth else {
+                return
             }
 
-            byteOffset += Int64(lineLength) + 1
+            if metrics.bases != expectedLineBases || metrics.width != expectedLineWidth {
+                throw BundleBuildError.invalidFASTAFormat(
+                    "Inconsistent sequence line in \(contigName): expected \(expectedLineBases) bases and \(expectedLineWidth) bytes for non-final lines, found \(metrics.bases) bases and \(metrics.width) bytes"
+                )
+            }
         }
 
-        if let chromName = currentChromName {
+        func validateFinalSequenceLine(
+            _ metrics: FASTASequenceLineMetrics,
+            contigName: String
+        ) throws {
+            guard let expectedLineBases, let expectedLineWidth else {
+                return
+            }
+
+            if metrics.bases > expectedLineBases {
+                throw BundleBuildError.invalidFASTAFormat(
+                    "Final sequence line in \(contigName) has \(metrics.bases) bases, exceeding the expected \(expectedLineBases)"
+                )
+            }
+
+            if metrics.width > expectedLineWidth {
+                throw BundleBuildError.invalidFASTAFormat(
+                    "Final sequence line in \(contigName) has \(metrics.width) bytes, exceeding the expected \(expectedLineWidth)"
+                )
+            }
+        }
+
+        func appendCurrentChromosome() throws {
+            guard let chromName = currentChromName else {
+                return
+            }
+
+            guard let lineBases = expectedLineBases,
+                  let lineWidth = expectedLineWidth,
+                  currentLength > 0,
+                  let pendingSequenceLine else {
+                throw BundleBuildError.invalidFASTAFormat("FASTA record \(chromName) contains no sequence")
+            }
+
+            try validateFinalSequenceLine(pendingSequenceLine, contigName: chromName)
+
             let chromInfo = ChromosomeInfo(
                 name: chromName,
                 length: currentLength,
                 offset: sequenceStartOffset,
-                lineBases: lineBasesFirst ?? 50,
-                lineWidth: (lineWidthFirst ?? 50) + 1
+                lineBases: lineBases,
+                lineWidth: lineWidth
             )
             chromosomes.append(chromInfo)
         }
+
+        func processLine(newlineByteCount: Int) throws {
+            defer {
+                resetLine()
+            }
+
+            switch lineKind {
+            case .undecided:
+                if currentChromName != nil {
+                    sawBlankLineInCurrentRecord = true
+                }
+                return
+
+            case .header:
+                try appendCurrentChromosome()
+
+                let headerData = Data(headerBytes)
+                guard let headerLine = String(data: headerData, encoding: .utf8) else {
+                    throw BundleBuildError.invalidFASTAFormat("Cannot read header as UTF-8")
+                }
+
+                let identifier = headerLine
+                    .split(whereSeparator: { $0 == " " || $0 == "\t" })
+                    .first
+                    .map(String.init)
+                guard let identifier, !identifier.isEmpty else {
+                    throw BundleBuildError.invalidFASTAFormat("FASTA header is missing a sequence name")
+                }
+
+                currentChromName = identifier
+                currentLength = 0
+                expectedLineBases = nil
+                expectedLineWidth = nil
+                pendingSequenceLine = nil
+                sawBlankLineInCurrentRecord = false
+                sequenceStartOffset = lineStartOffset + Int64(lineByteCount + newlineByteCount)
+
+            case .sequence:
+                guard sequenceLineBases > 0 else {
+                    if currentChromName != nil {
+                        sawBlankLineInCurrentRecord = true
+                    }
+                    return
+                }
+
+                guard let chromName = currentChromName else {
+                    throw BundleBuildError.invalidFASTAFormat("Sequence data found before the first FASTA header")
+                }
+
+                guard !sawBlankLineInCurrentRecord else {
+                    throw BundleBuildError.invalidFASTAFormat(
+                        "Blank FASTA line in \(chromName) appears before more sequence data"
+                    )
+                }
+
+                let lineWidthForIndex = lineByteCount + max(newlineByteCount, 1)
+                let lineWidthOnDisk = lineByteCount + newlineByteCount
+
+                if let expectedLineBases {
+                    if let pendingSequenceLine {
+                        try validateNonTerminalSequenceLine(
+                            pendingSequenceLine,
+                            contigName: chromName
+                        )
+                    }
+
+                    if sequenceLineBases > expectedLineBases {
+                        throw BundleBuildError.invalidFASTAFormat(
+                            "Sequence line in \(chromName) has \(sequenceLineBases) bases, exceeding the expected \(expectedLineBases)"
+                        )
+                    }
+                } else {
+                    expectedLineBases = sequenceLineBases
+                    expectedLineWidth = lineWidthForIndex
+                }
+
+                currentLength += Int64(sequenceLineBases)
+                pendingSequenceLine = FASTASequenceLineMetrics(
+                    bases: sequenceLineBases,
+                    width: lineWidthOnDisk
+                )
+            }
+        }
+
+        func appendLineByte(_ byte: UInt8) {
+            switch lineKind {
+            case .undecided:
+                lineKind = byte == UInt8(ascii: ">") ? .header : .sequence
+                if lineKind == .sequence && !Self.isFASTASequenceWhitespace(byte) {
+                    sequenceLineBases += 1
+                }
+
+            case .header:
+                headerBytes.append(byte)
+
+            case .sequence:
+                if !Self.isFASTASequenceWhitespace(byte) {
+                    sequenceLineBases += 1
+                }
+            }
+
+            lineByteCount += 1
+        }
+
+        while true {
+            try checkCancellation()
+
+            let data = fileHandle.readData(ofLength: 64 * 1024)
+            if data.isEmpty {
+                break
+            }
+
+            for byte in data {
+                byteOffset += 1
+
+                if pendingCarriageReturn {
+                    if byte == UInt8(ascii: "\n") {
+                        try processLine(newlineByteCount: 2)
+                        lineStartOffset = byteOffset
+                        pendingCarriageReturn = false
+                        continue
+                    }
+
+                    throw BundleBuildError.invalidFASTAFormat(
+                        "CR-only FASTA line endings are not supported; use LF or CRLF"
+                    )
+                }
+
+                if byte == UInt8(ascii: "\r") {
+                    pendingCarriageReturn = true
+                } else if byte == UInt8(ascii: "\n") {
+                    try processLine(newlineByteCount: 1)
+                    lineStartOffset = byteOffset
+                } else {
+                    appendLineByte(byte)
+                }
+            }
+        }
+
+        if pendingCarriageReturn {
+            throw BundleBuildError.invalidFASTAFormat(
+                "CR-only FASTA line endings are not supported; use LF or CRLF"
+            )
+        }
+
+        if lineKind != .undecided {
+            try processLine(newlineByteCount: 0)
+        }
+
+        try appendCurrentChromosome()
 
         if chromosomes.isEmpty {
             throw BundleBuildError.invalidFASTAFormat("No sequences found in FASTA file")
@@ -836,6 +1019,26 @@ private struct ReferenceBundleBuildExecutor: Sendable {
         logger.info("Found \(chromosomes.count) sequences in FASTA")
 
         return chromosomes
+    }
+
+    private enum FASTALineKind {
+        case undecided
+        case header
+        case sequence
+    }
+
+    private struct FASTASequenceLineMetrics {
+        let bases: Int
+        let width: Int
+    }
+
+    private static func isFASTASequenceWhitespace(_ byte: UInt8) -> Bool {
+        switch byte {
+        case UInt8(ascii: " "), UInt8(ascii: "\t"), 0x0B, 0x0C:
+            return true
+        default:
+            return false
+        }
     }
 
     private func createFASTAIndex(chromosomes: [ChromosomeInfo], indexURL: URL) throws {
