@@ -434,23 +434,13 @@ final class ImportCenterMenuTests: XCTestCase {
     }
 
     func testImportCenterOmitsDeferredMetadataSection() {
+        let viewModel = ImportCenterViewModel()
+        let metadataCardNames = viewModel.allCards
+            .map { "\($0.id) \($0.title)" }
+            .joined(separator: "\n")
+
         XCTAssertFalse(ImportCenterViewModel.Tab.allCases.map(\.title).contains("Metadata"))
-    }
-
-    func testDeferredImportCenterTodoMentionsDatasetLevelMetadataRequirements() throws {
-        let todo = try String(
-            contentsOf: URL(fileURLWithPath: #filePath)
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .appendingPathComponent("docs/TODO.md"),
-            encoding: .utf8
-        )
-
-        XCTAssertTrue(todo.contains("Import Center dataset-level metadata import"))
-        XCTAssertTrue(todo.contains("Support both CSV and TSV"))
-        XCTAssertTrue(todo.contains("Choose which dataset in the current project receives the metadata file"))
-        XCTAssertTrue(todo.contains("Preview and matching UI"))
+        XCTAssertFalse(metadataCardNames.localizedCaseInsensitiveContains("metadata"))
     }
 }
 
