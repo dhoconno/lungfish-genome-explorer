@@ -2470,12 +2470,17 @@ private func nvdAuxiliaryProvenanceSteps(
                 publishedRoot: publishedRoot
             )
         })
+        let durableReplayArgv = nvdDurableReplayArgv(
+            for: step,
+            stagingRoot: stagingRoot,
+            publishedRoot: publishedRoot
+        )
         return ProvenanceStep(
             toolName: step.toolName,
             toolVersion: step.toolVersion,
             argv: step.argv,
-            durableReplayArgv: step.argv,
-            reproducibleCommand: step.reproducibleCommand,
+            durableReplayArgv: durableReplayArgv,
+            reproducibleCommand: durableReplayArgv.map(metagenomicsShellEscape).joined(separator: " "),
             inputs: inputs,
             outputs: outputs,
             exitStatus: step.exitStatus,
@@ -2485,6 +2490,38 @@ private func nvdAuxiliaryProvenanceSteps(
             completedAt: step.completedAt
         )
     }
+}
+
+private func nvdDurableReplayArgv(
+    for step: NvdAuxiliaryStep,
+    stagingRoot: URL,
+    publishedRoot: URL
+) -> [String] {
+    step.argv.map {
+        nvdRewritePublishedPathReferences(in: $0, stagingRoot: stagingRoot, publishedRoot: publishedRoot)
+    }
+}
+
+private func nvdRewritePublishedPathReferences(
+    in value: String,
+    stagingRoot: URL,
+    publishedRoot: URL
+) -> String {
+    var rewritten = value
+    for (sourcePath, publishedPath) in nvdPublishedRootReplacements(
+        stagingRoot: stagingRoot,
+        publishedRoot: publishedRoot
+    ).sorted(by: { $0.source.count > $1.source.count }) {
+        rewritten = rewritten.replacingOccurrences(of: sourcePath, with: publishedPath)
+    }
+    return rewritten
+}
+
+private func nvdPublishedRootReplacements(
+    stagingRoot: URL,
+    publishedRoot: URL
+) -> [(source: String, published: String)] {
+    nvdPathCandidates(for: stagingRoot).map { (source: $0, published: publishedRoot.path) }
 }
 
 private func nvdReportedDescriptor(
@@ -2514,6 +2551,22 @@ private func nvdPublishedURL(for url: URL, stagingRoot: URL, publishedRoot: URL)
     let relativePath = String(path.dropFirst(stagingPath.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
     guard !relativePath.isEmpty else { return publishedRoot }
     return publishedRoot.appendingPathComponent(relativePath)
+}
+
+private func nvdPathCandidates(for url: URL) -> Set<String> {
+    var candidates = Set([
+        url.path,
+        url.standardizedFileURL.path,
+        url.resolvingSymlinksInPath().path,
+    ])
+    for candidate in candidates {
+        if candidate.hasPrefix("/var/") {
+            candidates.insert("/private" + candidate)
+        } else if candidate.hasPrefix("/private/var/") {
+            candidates.insert(String(candidate.dropFirst("/private".count)))
+        }
+    }
+    return candidates
 }
 
 private func metagenomicsExternalToolVersion(executablePath: String) -> String {

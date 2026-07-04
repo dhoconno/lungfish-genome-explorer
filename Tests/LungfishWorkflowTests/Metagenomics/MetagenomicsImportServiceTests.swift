@@ -385,9 +385,17 @@ struct MetagenomicsImportServiceTests {
         #expect(samtoolsSteps.contains { $0.argv.first == "/bin/sh" && $0.reproducibleCommand.contains("markdup") })
         #expect(samtoolsSteps.contains { $0.argv.contains("view") && $0.argv.contains("-c") })
         #expect(samtoolsSteps.flatMap(\.outputs).contains { $0.path.hasSuffix("hits.sqlite") })
+        #expect(samtoolsSteps.flatMap(\.inputs).allSatisfy { descriptor in
+            descriptor.path.contains(result.resultDirectory.path)
+                && !descriptor.path.contains(".lungfish-nvd-import-")
+        })
         #expect(samtoolsSteps.flatMap(\.outputs).allSatisfy { descriptor in
             descriptor.path.contains(result.resultDirectory.path)
                 && !descriptor.path.contains(".lungfish-nvd-import-")
+        })
+        #expect(samtoolsSteps.allSatisfy { step in
+            step.durableReplayArgv?.allSatisfy { !$0.contains(".lungfish-nvd-import-") } == true
+                && !step.reproducibleCommand.contains(".lungfish-nvd-import-")
         })
     }
 
