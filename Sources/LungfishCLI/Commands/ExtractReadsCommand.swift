@@ -628,12 +628,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         // testingRawArgs hook so per-sample grouping reflects the test args
         // rather than xctest's CommandLine.arguments. In RELEASE builds, the
         // helper falls back to CommandLine.arguments.
-        #if DEBUG
-        let effectiveArgs = testingRawArgs
-        #else
-        let effectiveArgs: [String]? = nil
-        #endif
-        let selectors = buildClassifierSelectors(rawArgs: effectiveArgs)
+        let selectors = buildClassifierSelectors(rawArgs: effectiveClassifierRawArguments())
         let options = makeExtractionOptions()
 
         print(formatter.header("Classifier Extraction (\(tool.displayName))"))
@@ -728,18 +723,9 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         var selectors: [ClassifierRowSelector] = []
         var current: ClassifierRowSelector?
 
-        /// Splits a token like `--sample=A` into ("--sample", "A"), or
-        /// `--sample` into ("--sample", nil).
-        func split(_ token: String) -> (key: String, inlineValue: String?) {
-            if let eq = token.firstIndex(of: "=") {
-                return (String(token[..<eq]), String(token[token.index(after: eq)...]))
-            }
-            return (token, nil)
-        }
-
         var i = 0
         while i < argv.count {
-            let (key, inlineValue) = split(argv[i])
+            let (key, inlineValue) = splitClassifierArgumentToken(argv[i])
 
             // Resolve the flag's value: inline (`--sample=A`) takes precedence,
             // otherwise read the next argv token (`--sample A`). If neither is
@@ -796,6 +782,55 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         return selectors
     }
 
+    /// Returns the classifier selection flags in their raw grouping order so
+    /// provenance replay preserves the same sample/accession/taxon scopes that
+    /// execution used.
+    func classifierSelectionReplayArguments(rawArgs: [String]? = nil) -> [String] {
+        let argv: [String] = rawArgs ?? Array(CommandLine.arguments.dropFirst())
+        var replay: [String] = []
+
+        var i = 0
+        while i < argv.count {
+            let token = argv[i]
+            let (key, inlineValue) = splitClassifierArgumentToken(token)
+
+            switch key {
+            case "--sample", "--accession", "--taxon":
+                if inlineValue != nil {
+                    replay.append(token)
+                    i += 1
+                    continue
+                }
+                if i + 1 < argv.count {
+                    replay += [key, argv[i + 1]]
+                    i += 2
+                    continue
+                }
+            default:
+                break
+            }
+
+            i += 1
+        }
+
+        return replay
+    }
+
+    private func splitClassifierArgumentToken(_ token: String) -> (key: String, inlineValue: String?) {
+        if let eq = token.firstIndex(of: "=") {
+            return (String(token[..<eq]), String(token[token.index(after: eq)...]))
+        }
+        return (token, nil)
+    }
+
+    private func effectiveClassifierRawArguments() -> [String]? {
+        #if DEBUG
+        return testingRawArgs
+        #else
+        return nil
+        #endif
+    }
+
     // MARK: - Helpers
 
     private var strategyLabel: String {
@@ -832,7 +867,25 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
     }
 
     private func strategyParameterValues() -> [String: ParameterValue] {
-        strategyParameters.mapValues(ParameterValue.string)
+        var values = strategyParameters.mapValues(ParameterValue.string)
+        if byClassifier {
+            let rawArgs = effectiveClassifierRawArguments()
+            values["selectionArgv"] = .array(
+                classifierSelectionReplayArguments(rawArgs: rawArgs).map { .string($0) }
+            )
+            values["selections"] = .array(
+                buildClassifierSelectors(rawArgs: rawArgs).map(parameterValue(for:))
+            )
+        }
+        return values
+    }
+
+    private func parameterValue(for selector: ClassifierRowSelector) -> ParameterValue {
+        .dictionary([
+            "sample": selector.sampleId.map(ParameterValue.string) ?? .null,
+            "accessions": .array(selector.accessions.map { .string($0) }),
+            "taxIds": .array(selector.taxIds.map { .integer($0) })
+        ])
     }
 
     private func provenanceInputRecords() -> [FileRecord] {
@@ -877,7 +930,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         return provenanceRecords(for: resultURL, role: .input)
     }
 
-    private func provenanceCommand(outputURL: URL) -> [String] {
+    func provenanceCommand(outputURL: URL) -> [String] {
         var command = ["lungfish", "extract", "reads"]
         if byId {
             command.append("--by-id")
@@ -929,15 +982,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
             if let classifierResult {
                 command += ["--result", classifierResult]
             }
-            for sample in classifierSamples {
-                command += ["--sample", sample]
-            }
-            for accession in classifierAccessionsRaw {
-                command += ["--accession", accession]
-            }
-            for taxon in classifierTaxonsRaw {
-                command += ["--taxon", taxon]
-            }
+            command += classifierSelectionReplayArguments(rawArgs: effectiveClassifierRawArguments())
             command += ["--read-format", classifierFormat]
             if includeUnmappedMates {
                 command.append("--include-unmapped-mates")

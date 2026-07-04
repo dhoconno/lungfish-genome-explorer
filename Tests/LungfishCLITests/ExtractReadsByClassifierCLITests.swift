@@ -405,6 +405,39 @@ final class ExtractReadsByClassifierCLITests: XCTestCase {
         XCTAssertEqual(selectors[1].accessions, ["NC_003"])
     }
 
+    func testProvenanceCommand_byClassifier_preservesRawSelectionGrouping() throws {
+        let outputURL = URL(fileURLWithPath: "/tmp/out.fastq")
+        let argv = [
+            "--by-classifier",
+            "--tool", "esviritu",
+            "--result", "/tmp/fake.sqlite",
+            "--sample", "A",
+            "--accession=NC_001",
+            "--sample=B",
+            "--accession", "NC_002",
+            "-o", outputURL.path,
+        ]
+        var cmd = try ExtractReadsSubcommand.parse(argv)
+        cmd.testingRawArgs = argv
+        let replay = cmd.provenanceCommand(outputURL: outputURL)
+        let selectionStart = try XCTUnwrap(replay.firstIndex { $0 == "--sample" || $0.hasPrefix("--sample=") })
+        let selectionEnd = try XCTUnwrap(replay.firstIndex(of: "--read-format"))
+        XCTAssertEqual(
+            Array(replay[selectionStart..<selectionEnd]),
+            ["--sample", "A", "--accession=NC_001", "--sample=B", "--accession", "NC_002"]
+        )
+
+        let replaySelectors = cmd.buildClassifierSelectors(rawArgs: replay)
+        XCTAssertEqual(replaySelectors.count, 2)
+        XCTAssertEqual(replaySelectors[0].sampleId, "A")
+        XCTAssertEqual(replaySelectors[0].accessions, ["NC_001"])
+        XCTAssertEqual(replaySelectors[1].sampleId, "B")
+        XCTAssertEqual(replaySelectors[1].accessions, ["NC_002"])
+
+        let selectionArgv = cmd.classifierSelectionReplayArguments(rawArgs: argv)
+        XCTAssertEqual(selectionArgv, ["--sample", "A", "--accession=NC_001", "--sample=B", "--accession", "NC_002"])
+    }
+
     // MARK: - makeExtractionOptions flow-through
     //
     // Pins that CLI flags (--read-format, --include-unmapped-mates) are
