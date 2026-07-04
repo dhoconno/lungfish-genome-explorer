@@ -171,6 +171,87 @@ reheader`, not alignment payloads). No MainActor-dispatch violations.
   is an unsynchronized mutable global -> genuine data-race surface under strict concurrency.
   Pre-existing accepted risk; deserves a separate tracked fix, not a behavior-preserving edit.
 
+## Fourth big-file tier (PluginPackStatusService/DatabaseRegistry/ProvenanceEnvelope/SequenceAnnotationTrackWorkflow/ClassifierReadResolver) — ZERO safe applies
+
+All 5 audited clean: every apparent cleanup is a failure-path, a public/test-pinned
+surface, a Codable/provenance contract, or read-resolution logic. No invariant violations
+(no persisted SAM, no GCD->MainActor, no dropped op-log).
+
+### More TRAPS caught (do NOT touch)
+- PluginPackStatusService: protocol-extension default vs concrete actor override
+  (`status(forPackID:)`, `visibleStatuses(...)`) — identical bodies but the concrete
+  override is intentional (static resolution on the concrete type; test doubles rely on the
+  protocol requirement). Keep both.
+- ProvenanceEnvelope: `ProvenanceVersion.required` and `ProvenanceName.required` are
+  byte-identical but are distinct semantic namespaces referenced cross-file. Do NOT merge.
+- ClassifierReadResolver: 4 never-thrown error cases (`kraken2OutputMissing`,
+  `kraken2TreeMissing`, `destinationNotWritable`, `fastaConversionFailed`) — but
+  `ClassifierExtractionError` is PUBLIC and switched exhaustively by consumers -> removing
+  cases is an API break, NOT behavior-preserving. Keep.
+- DatabaseRegistry `downloadExitCode` dead `let 0`: threaded into provenance writes ->
+  schema-adjacent, defer.
+- SequenceAnnotationTrackWorkflow `restoreFiles` inline dup (~411-420): in a rollback
+  failure path -> defer.
+
+### Deferred SPLITS (all >1000L, same-module extension moves)
+- PluginPackStatusService (1145L): Models out / +SmokeTest.
+- DatabaseRegistry (1144L): Models / Installers / ManagedDatabaseDownload.
+- ProvenanceEnvelope (1070L): per-Codable-type files (SAFEST split kind — whole type incl.
+  CodingKeys moves together, zero behavior change; but low priority, schema-sensitive).
+- SequenceAnnotationTrackWorkflow (1062L): +Provenance / +ORF (pure-compute core) / Models.
+- ClassifierReadResolver (1029L): split ONLY non-resolution parts (Error enum, LineReader);
+  KEEP the extraction pipeline together (resolveBAMURL/resolveKraken2SourceFASTQs are the
+  materialization-adjacent virtual-FASTQ logic — untouchable).
+
+## Phase 3 status assessment (after ~25 largest files audited)
+
+The LungfishWorkflow layer is ALREADY high-quality at the statement level. Across every
+big-file audit the pattern held: a few small provably-safe dead-code/access applies + large
+DEFERRED file splits. Applied so far (3 committed batches, all green): 4 dead-code removals,
+2 dead-code removals + 1 identical-branch collapse, 1 access-tighten + 1 dead pair removal =
+9 items, ~150 lines net removed. The remaining high-value work is entirely FILE SPLITS,
+which are deferred by design (each is a large relocation needing per-seam private->internal
+promotion across provenance/Codable/materialization-critical types, warranting its own
+reviewed pass — exactly what the defer doc catalogs for the downstream LLM).
+
+Remaining ~247 smaller Workflow files (<1000L): given the strong statement-level-clean
+signal from the 25 largest (the most complex) files, these are swept in clustered
+coverage-audit batches (by directory) rather than solo, applying only provably-safe
+dead-code/dedup that survives grep + the trap-checks above.
+
+## Mid-size tier sweep (28 files, 500-950L, 3 clustered coverage audits) — 2 applies, rest clean
+
+Reinforces the statement-level-clean finding: only 2 of 28 files had a safe apply.
+
+### Applied (fourth Workflow batch)
+- `ONTFluidigmAmpliconMaterializer` (~759, ~913): dead `gzipCompress` static + dead
+  `SampleAccumulator.orderedSequences()` (grep-verified zero callers; real compression goes
+  through `CountedFASTQMaterializer.write(compress:)`). KEPT the public `.compressionFailed`
+  case (public API, switched in errorDescription — removing it is not allowed).
+- `TaxonomyExtractionPipeline` (~494/627/722): dead closed chain
+  `filterFASTQ`->`filterGzippedFASTQ`->`extractReadId` (~216 lines; superseded by the
+  seqkit/ReadExtractionService route). Live extraction path untouched -> which reads get
+  extracted is unchanged.
+
+### More TRAPS (do NOT touch) discovered in the sweep
+- Two shadowing free functions: `MAFFTAlignmentPipeline.msaShellEscape` and
+  `AIHaplotypingEvidenceRegistry.lexicographicallyPrecedes` (the latter shadows the stdlib
+  Sequence method with DIFFERENT semantics — element-wise then by count). Do NOT "simplify".
+- Orient test-pins: `vsearchArgumentsForTesting` (PUBLIC, consumed by a LungfishCLITests
+  module — cannot internalize despite the name), `parseOrientResults` (internal, @testable).
+- `GATKCommandBuilder.jointGenotypingCommands` `.auto` arm is a latent infinite-recursion
+  bomb, currently UNREACHABLE (resolver never returns `.auto`). Left untouched; flagged.
+- Public-but-uncalled symbols across the tier (`SnakemakeRunner.minimumVersion`,
+  `ReadExtractionService.samtoolsRegion`, `OrientResult.totalCount`, several unused-but-
+  public error cases + `WorkflowGraphError.connectionNotFound`/`.emptyGraph`): NOT removable
+  (public API surface / exhaustive-switch consumers).
+- `GeneiousImportCollectionService.decodedFASTAURLs` always-empty but provenance-wired.
+- Amplicon/Sample materializer twin namespaces + cross-file `relativePath`/`appendUnique`/
+  `format`/`shellEscape` duplicates: distinct types, NOT cross-file-dedup-able.
+- Two files (`MSAReferenceBundleBuilder`, `AIHaplotypingEvidenceRegistry`) have an
+  `import LungfishCore` with no qualified use, but symbols may resolve transitively -> import
+  removal not provable without a compile -> deferred.
+
 ## Deferred items (later batches)
 
 _(populated per batch as uncertain changes are reverted)_
