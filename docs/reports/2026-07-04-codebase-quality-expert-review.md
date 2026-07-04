@@ -39,8 +39,9 @@ and behavior-preserving simplifications are useful and appropriate.
   annotation metadata that no longer fabricates zero feature counts, Markdup and scrub-human
   explicit-vs-resolved provenance options, extract-contigs manifest-based bundle payload
   provenance, callback-hop cleanup in Kit/App, FASTQ stale UI-state cleanup, GATK `.auto`
-  recursion removal, VariantDatabase no-op scaffold pruning, and VCF parser hardening for invalid
-  quality fields plus empty FORMAT/sample genotype fields.
+  recursion removal, VariantDatabase no-op scaffold pruning, VCF parser hardening for invalid
+  quality fields plus empty FORMAT/sample genotype fields, and GFF3/GTF parser hardening for
+  invalid score/phase fields.
 
 ## Still Deferred
 

@@ -263,13 +263,13 @@ public final class GFF3Reader: Sendable {
         }
 
         // Score (may be ".")
-        let score: Double? = fields[5] == "." ? nil : Double(fields[5])
+        let score = try parseScore(fields[5], lineNumber: lineNumber)
 
         // Strand
         let strand = parseStrand(fields[6])
 
         // Phase (may be ".")
-        let phase: Int? = fields[7] == "." ? nil : Int(fields[7])
+        let phase = try parsePhase(fields[7], lineNumber: lineNumber)
 
         // Attributes
         let attributes = parseAttributes(fields[8])
@@ -285,6 +285,22 @@ public final class GFF3Reader: Sendable {
             phase: phase,
             attributes: attributes
         )
+    }
+
+    private func parseScore(_ value: String, lineNumber: Int) throws -> Double? {
+        guard value != "." else { return nil }
+        guard let score = Double(value), score.isFinite else {
+            throw GFF3Error.invalidScore(line: lineNumber, value: value)
+        }
+        return score
+    }
+
+    private func parsePhase(_ value: String, lineNumber: Int) throws -> Int? {
+        guard value != "." else { return nil }
+        guard let phase = Int(value), (0...2).contains(phase) else {
+            throw GFF3Error.invalidPhase(line: lineNumber, value: value)
+        }
+        return phase
     }
 
     private func parseStrand(_ value: String) -> Strand {
@@ -368,6 +384,12 @@ public enum GFF3Error: Error, LocalizedError, Sendable {
     /// Start coordinate is greater than end
     case invalidCoordinateRange(line: Int, start: Int, end: Int)
 
+    /// Score field is not "." or a finite floating-point value
+    case invalidScore(line: Int, value: String)
+
+    /// Phase field is not "." or one of 0, 1, or 2
+    case invalidPhase(line: Int, value: String)
+
     /// Parent feature not found
     case parentNotFound(line: Int, parentID: String)
 
@@ -379,6 +401,10 @@ public enum GFF3Error: Error, LocalizedError, Sendable {
             return "GFF3 line \(line): invalid \(field) coordinate '\(value)'"
         case .invalidCoordinateRange(let line, let start, let end):
             return "GFF3 line \(line): start (\(start)) > end (\(end))"
+        case .invalidScore(let line, let value):
+            return "GFF3 line \(line): invalid score '\(value)'"
+        case .invalidPhase(let line, let value):
+            return "GFF3 line \(line): invalid phase '\(value)'"
         case .parentNotFound(let line, let parentID):
             return "GFF3 line \(line): parent '\(parentID)' not found"
         }

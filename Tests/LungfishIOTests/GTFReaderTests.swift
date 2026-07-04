@@ -545,6 +545,75 @@ final class GTFReaderTests: XCTestCase {
         }
     }
 
+    func testInvalidScoreThrows() async throws {
+        let gtf = """
+        chr1\ttest\tgene\t1\t100\tbadscore\t+\t.\tgene_id "g1";
+        """
+        let url = try createTempFile(content: gtf)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let reader = GTFReader(url: url)
+
+        do {
+            _ = try await reader.readAll()
+            XCTFail("Expected GTFError to be thrown")
+        } catch let error as GTFError {
+            switch error {
+            case .invalidScore(let line, let value):
+                XCTAssertEqual(line, 1)
+                XCTAssertEqual(value, "badscore")
+            default:
+                XCTFail("Wrong error type: \(error)")
+            }
+        }
+    }
+
+    func testInvalidPhaseThrows() async throws {
+        let gtf = """
+        chr1\ttest\tCDS\t1\t100\t.\t+\tbadphase\tgene_id "g1";
+        """
+        let url = try createTempFile(content: gtf)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let reader = GTFReader(url: url)
+
+        do {
+            _ = try await reader.readAll()
+            XCTFail("Expected GTFError to be thrown")
+        } catch let error as GTFError {
+            switch error {
+            case .invalidPhase(let line, let value):
+                XCTAssertEqual(line, 1)
+                XCTAssertEqual(value, "badphase")
+            default:
+                XCTFail("Wrong error type: \(error)")
+            }
+        }
+    }
+
+    func testOutOfRangePhaseThrows() async throws {
+        let gtf = """
+        chr1\ttest\tCDS\t1\t100\t.\t+\t3\tgene_id "g1";
+        """
+        let url = try createTempFile(content: gtf)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let reader = GTFReader(url: url)
+
+        do {
+            _ = try await reader.readAll()
+            XCTFail("Expected GTFError to be thrown")
+        } catch let error as GTFError {
+            switch error {
+            case .invalidPhase(let line, let value):
+                XCTAssertEqual(line, 1)
+                XCTAssertEqual(value, "3")
+            default:
+                XCTFail("Wrong error type: \(error)")
+            }
+        }
+    }
+
     func testInvalidCoordinateRangeCanBeDisabled() async throws {
         let gtf = """
         chr1\ttest\tgene\t500\t100\t.\t+\t.\tgene_id "g1";

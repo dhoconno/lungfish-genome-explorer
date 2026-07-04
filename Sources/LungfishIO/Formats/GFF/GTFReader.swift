@@ -411,9 +411,9 @@ public final class GTFReader: Sendable {
             throw GTFError.invalidCoordinateRange(line: lineNumber, start: start, end: end)
         }
 
-        let score: Double? = fields[5] == "." ? nil : Double(fields[5])
+        let score = try parseScore(fields[5], lineNumber: lineNumber)
         let strand = parseStrand(fields[6])
-        let phase: Int? = fields[7] == "." ? nil : Int(fields[7])
+        let phase = try parsePhase(fields[7], lineNumber: lineNumber)
         let attributes = parseGTFAttributes(fields[8])
 
         return GTFFeature(
@@ -477,6 +477,24 @@ public final class GTFReader: Sendable {
         return attributes
     }
 
+    /// Parses a score field. GTF uses "." for missing score.
+    private static func parseScore(_ value: String, lineNumber: Int) throws -> Double? {
+        guard value != "." else { return nil }
+        guard let score = Double(value), score.isFinite else {
+            throw GTFError.invalidScore(line: lineNumber, value: value)
+        }
+        return score
+    }
+
+    /// Parses a phase field. GTF uses "." for no phase and otherwise requires 0, 1, or 2.
+    private static func parsePhase(_ value: String, lineNumber: Int) throws -> Int? {
+        guard value != "." else { return nil }
+        guard let phase = Int(value), (0...2).contains(phase) else {
+            throw GTFError.invalidPhase(line: lineNumber, value: value)
+        }
+        return phase
+    }
+
     /// Parses a strand character to the Strand enum.
     private static func parseStrand(_ value: String) -> Strand {
         switch value {
@@ -501,6 +519,12 @@ public enum GTFError: Error, LocalizedError, Sendable {
     /// Start coordinate is greater than end
     case invalidCoordinateRange(line: Int, start: Int, end: Int)
 
+    /// Score field is not "." or a finite floating-point value
+    case invalidScore(line: Int, value: String)
+
+    /// Phase field is not "." or one of 0, 1, or 2
+    case invalidPhase(line: Int, value: String)
+
     public var errorDescription: String? {
         switch self {
         case .invalidLineFormat(let line, let expected, let got):
@@ -509,6 +533,10 @@ public enum GTFError: Error, LocalizedError, Sendable {
             return "GTF line \(line): invalid \(field) coordinate '\(value)'"
         case .invalidCoordinateRange(let line, let start, let end):
             return "GTF line \(line): start (\(start)) > end (\(end))"
+        case .invalidScore(let line, let value):
+            return "GTF line \(line): invalid score '\(value)'"
+        case .invalidPhase(let line, let value):
+            return "GTF line \(line): invalid phase '\(value)'"
         }
     }
 }
