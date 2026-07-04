@@ -38,6 +38,21 @@ final class ReferenceBundleBuilderTests: XCTestCase {
         XCTAssertEqual(BuildStep.complete.rawValue, "Complete")
     }
 
+    func testObservableBuilderDispatchesBundleWorkOffMainActor() throws {
+        let sourceURL = try repoRoot()
+            .appendingPathComponent("Sources/LungfishCore/Bundles/ReferenceBundleBuilder.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(
+            source.contains("Task.detached"),
+            "ReferenceBundleBuilder must keep UI-observable state on MainActor while dispatching file parsing/copy/index work off-main."
+        )
+        XCTAssertTrue(
+            source.contains("ReferenceBundleBuildExecutor"),
+            "Bundle file operations should live in a non-MainActor executor instead of private MainActor methods."
+        )
+    }
+
     // MARK: - BuildConfiguration Tests
 
     func testBuildConfigurationCreation() {
@@ -375,6 +390,39 @@ final class ReferenceBundleBuilderTests: XCTestCase {
     }
 
     @MainActor
+    func testCoreBuilderRejectsProvenanceConfigurationWithoutCreatingBundle() async throws {
+        let builder = ReferenceBundleBuilder()
+
+        let fastaURL = tempDirectory.appendingPathComponent("test.fa")
+        try ">chr1\nATCG\n".write(to: fastaURL, atomically: true, encoding: .utf8)
+
+        let outputDir = tempDirectory.appendingPathComponent("output")
+        let expectedBundleURL = outputDir.appendingPathComponent("Provenance_Test.lungfishref")
+        let config = BuildConfiguration(
+            name: "Provenance Test",
+            identifier: "provenance.test",
+            fastaURL: fastaURL,
+            outputDirectory: outputDir,
+            source: SourceInfo(organism: "Test", assembly: "v1"),
+            compressFASTA: false,
+            provenanceWorkflowName: "test provenance"
+        )
+
+        do {
+            _ = try await builder.build(configuration: config)
+            XCTFail("Expected Core builder to reject provenance-bearing configurations")
+        } catch let error as BundleBuildError {
+            guard case .unsupportedProvenanceConfiguration(let reason) = error else {
+                XCTFail("Expected unsupportedProvenanceConfiguration, got \(error)")
+                return
+            }
+            XCTAssertTrue(reason.contains("cannot write provenance"))
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: expectedBundleURL.path))
+    }
+
+    @MainActor
     func testBuildCancellation() async throws {
         let builder = ReferenceBundleBuilder()
 
@@ -672,4 +720,16 @@ private final class BuildProgressCollector: @unchecked Sendable {
         defer { lock.unlock() }
         _values.append((step, progress, message))
     }
+}
+
+private func repoRoot() throws -> URL {
+    var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+    let fileManager = FileManager.default
+    for _ in 0..<10 {
+        if fileManager.fileExists(atPath: directory.appendingPathComponent("Package.swift").path) {
+            return directory
+        }
+        directory = directory.deletingLastPathComponent()
+    }
+    throw XCTSkip("Could not locate Package.swift above \(#filePath)")
 }

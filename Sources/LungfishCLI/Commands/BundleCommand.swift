@@ -458,13 +458,18 @@ struct BundleCreateSubcommand: AsyncParsableCommand {
             }
         }
 
-        try await writeCreateProvenance(
-            configuration: config,
-            bundleURL: bundleURL,
-            bundleIdentifier: bundleIdentifier,
-            startedAt: runStartedAt,
-            compress: compress
-        )
+        do {
+            try await writeCreateProvenance(
+                configuration: config,
+                bundleURL: bundleURL,
+                bundleIdentifier: bundleIdentifier,
+                startedAt: runStartedAt,
+                compress: compress
+            )
+        } catch {
+            try? FileManager.default.removeItem(at: bundleURL)
+            throw error
+        }
 
         if globalOptions.outputFormat == .text {
             print() // Newline after progress
@@ -530,15 +535,35 @@ struct BundleCreateSubcommand: AsyncParsableCommand {
         guard let enumerator = FileManager.default.enumerator(
             at: bundleURL,
             includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
+            options: []
         ) else { return [] }
+
+        let rootProvenancePath = bundleURL
+            .appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+            .standardizedFileURL
+            .path
+        let provenanceDirectoryPrefix = bundleURL
+            .appendingPathComponent("provenance", isDirectory: true)
+            .standardizedFileURL
+            .path + "/"
 
         var records: [FileRecord] = []
         for case let url as URL in enumerator {
-            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
+            let standardized = url.standardizedFileURL
+            guard standardized.path != rootProvenancePath,
+                  !standardized.path.hasPrefix(provenanceDirectoryPrefix),
+                  !standardized.lastPathComponent.hasSuffix(".lungfish-provenance.json")
+            else {
                 continue
             }
-            records.append(ProvenanceRecorder.fileRecord(url: url, format: fileFormat(for: url), role: .output))
+            guard (try? standardized.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
+                continue
+            }
+            records.append(ProvenanceRecorder.fileRecord(
+                url: standardized,
+                format: fileFormat(for: standardized),
+                role: .output
+            ))
         }
         return records.sorted { $0.path < $1.path }
     }

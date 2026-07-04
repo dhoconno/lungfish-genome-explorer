@@ -56,6 +56,9 @@ final class BundleCreateProvenanceTests: XCTestCase {
                 && $0.sha256 != nil
                 && $0.sizeBytes != nil
         })
+        XCTAssertFalse(run.allOutputFiles.contains {
+            $0.path.contains("/provenance/") || $0.path.hasSuffix(".lungfish-provenance.json")
+        })
         XCTAssertTrue(run.steps[0].command.contains("--identifier"))
     }
 }

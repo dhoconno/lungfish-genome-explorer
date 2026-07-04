@@ -63,6 +63,12 @@ changes that reduce future ambiguity across the codebase.
   in that path.
 - Made project lock acquisition use exclusive file creation so racing CLI lock attempts cannot
   both overwrite the same lock file.
+- Moved Core reference-bundle file work behind a non-main executor while keeping
+  the observable builder as the main-actor progress adapter; the Core fallback now rejects
+  provenance-bearing configurations instead of silently ignoring them.
+- Hardened Core-fallback reference bundle CLI wrappers: `extract contigs --bundle` and
+  `bundle create` remove created bundles if final provenance cannot be written, and their
+  output records exclude stale provenance sidecars while including final bundle payloads.
 - Embedded script/file splits remained deferred because the reviewed same-batch wins were in
   provenance/output correctness rather than large mechanical relocation.
 

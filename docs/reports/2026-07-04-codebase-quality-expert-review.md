@@ -98,6 +98,11 @@ and behavior-preserving simplifications are useful and appropriate.
   EsViritu, and Kraken2 SQLite database builds, including replay argv, resolved options,
   checksummed source reports/retained inputs, final SQLite outputs, and retained relocated or
   compacted classifier payloads.
+- 2026-07-04 follow-up: Core `ReferenceBundleBuilder` now dispatches bundle copy/index/manifest
+  work to a non-main executor while keeping observable progress on the main actor. The Core
+  fallback rejects provenance-bearing configurations, and CLI wrappers using fallback bundle
+  creation now fail closed on final provenance write failures while excluding stale provenance
+  sidecars from output records.
 
 ## Still Deferred
 

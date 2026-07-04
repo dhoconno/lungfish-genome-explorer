@@ -82,12 +82,22 @@ public struct BuildConfiguration: Sendable {
     public let metadata: [MetadataGroup]?
 
     /// Human-readable workflow/tool name for bundle-level provenance.
+    ///
+    /// Consumed by `NativeBundleBuilder`. The Core fallback `ReferenceBundleBuilder`
+    /// cannot write provenance because canonical provenance lives in LungfishWorkflow,
+    /// so it rejects configurations that set any provenance field.
     public let provenanceWorkflowName: String?
 
     /// Exact argv to store in bundle-level provenance when the builder is called from a CLI workflow.
+    ///
+    /// Consumed by `NativeBundleBuilder`; Core fallback callers must write provenance
+    /// in their owning CLI/workflow layer.
     public let provenanceCommand: [String]?
 
     /// User-visible input files to record in provenance, replacing temporary staged inputs when needed.
+    ///
+    /// Consumed by `NativeBundleBuilder`; Core fallback callers must write provenance
+    /// in their owning CLI/workflow layer.
     public let provenanceInputFiles: [URL]?
 
     /// Creates a new build configuration.
@@ -269,6 +279,9 @@ public enum BundleBuildError: Error, LocalizedError, Sendable {
     /// Bundle validation failed.
     case validationFailed([String])
 
+    /// Provenance configuration was supplied to a builder that cannot write provenance.
+    case unsupportedProvenanceConfiguration(String)
+
     /// Container runtime not available.
     case containerRuntimeNotAvailable
 
@@ -304,6 +317,8 @@ public enum BundleBuildError: Error, LocalizedError, Sendable {
             return "Manifest generation failed: \(reason)"
         case .validationFailed(let errors):
             return "Bundle validation failed:\n" + errors.joined(separator: "\n")
+        case .unsupportedProvenanceConfiguration(let reason):
+            return "Unsupported provenance configuration: \(reason)"
         case .containerRuntimeNotAvailable:
             return "Container runtime is not available. Requires macOS 26+ on Apple Silicon."
         case .missingTools(let tools):
@@ -337,6 +352,8 @@ public enum BundleBuildError: Error, LocalizedError, Sendable {
             return "This is an internal error. Please report it."
         case .validationFailed:
             return "Review the validation errors and fix any issues."
+        case .unsupportedProvenanceConfiguration:
+            return "Use NativeBundleBuilder or write CLI/workflow provenance around the Core fallback build."
         case .containerRuntimeNotAvailable:
             return "Update to macOS 26 or later on an Apple Silicon Mac."
         case .missingTools:
@@ -368,7 +385,7 @@ public final class ReferenceBundleBuilder: ObservableObject {
         category: "ReferenceBundleBuilder"
     )
 
-    private var isCancelled: Bool = false
+    private var currentBuildTask: Task<URL, Error>?
 
     // MARK: - Initialization
 
@@ -381,11 +398,13 @@ public final class ReferenceBundleBuilder: ObservableObject {
         progressHandler: (@Sendable (BuildStep, Double, String) -> Void)? = nil
     ) async throws -> URL {
         isBuilding = true
-        isCancelled = false
         progress = 0.0
         errors = []
 
-        defer { isBuilding = false }
+        defer {
+            isBuilding = false
+            currentBuildTask = nil
+        }
 
         logger.info("Starting bundle build: \(configuration.name)")
 
@@ -394,17 +413,72 @@ public final class ReferenceBundleBuilder: ObservableObject {
             .replacingOccurrences(of: "/", with: "-")
         let bundleURL = configuration.outputDirectory
             .appendingPathComponent("\(bundleName).lungfishref")
+        let executor = ReferenceBundleBuildExecutor(
+            configuration: configuration,
+            bundleURL: bundleURL
+        )
+        let task = Task.detached(priority: .userInitiated) { [weak self, progressHandler] in
+            try await executor.build { step, progress, message in
+                await MainActor.run {
+                    self?.updateProgress(step, progress, message, progressHandler)
+                }
+            }
+        }
+        currentBuildTask = task
+
+        do {
+            let builtBundleURL = try await task.value
+            logger.info("Bundle build complete: \(builtBundleURL.path)")
+            return builtBundleURL
+        } catch {
+            logger.error("Bundle build failed: \(error.localizedDescription)")
+            throw error
+        }
+    }
+
+    public func cancel() {
+        currentBuildTask?.cancel()
+        logger.info("Build cancellation requested")
+    }
+
+    // MARK: - Private Methods
+
+    private func updateProgress(
+        _ step: BuildStep,
+        _ progress: Double,
+        _ message: String,
+        _ handler: (@Sendable (BuildStep, Double, String) -> Void)?
+    ) {
+        self.currentStep = step
+        self.progress = progress
+        self.statusMessage = message
+        handler?(step, progress, message)
+    }
+}
+
+private struct ReferenceBundleBuildExecutor: Sendable {
+    typealias ProgressReporter = @Sendable (BuildStep, Double, String) async -> Void
+
+    let configuration: BuildConfiguration
+    let bundleURL: URL
+
+    private let logger = Logger(
+        subsystem: LogSubsystem.core,
+        category: "ReferenceBundleBuildExecutor"
+    )
+
+    func build(progressHandler: @escaping ProgressReporter) async throws -> URL {
         var didCreateBundle = false
 
         do {
             try await executeStep(.validating, progressHandler: progressHandler) {
-                try self.validateInputs(configuration)
+                try validateInputs(configuration)
             }
 
             try checkCancellation()
 
             try await executeStep(.creatingStructure, progressHandler: progressHandler) {
-                try self.createBundleStructure(at: bundleURL)
+                try createBundleStructure(at: bundleURL)
             }
             didCreateBundle = true
 
@@ -461,12 +535,10 @@ public final class ReferenceBundleBuilder: ObservableObject {
             try checkCancellation()
 
             try await executeStep(.validatingBundle, progressHandler: progressHandler) {
-                try self.validateBundle(at: bundleURL)
+                try validateBundle(at: bundleURL)
             }
 
-            updateProgress(.complete, 1.0, "Bundle created successfully", progressHandler)
-
-            logger.info("Bundle build complete: \(bundleURL.path)")
+            await updateProgress(.complete, 1.0, "Bundle created successfully", progressHandler)
 
             return bundleURL
 
@@ -475,44 +547,33 @@ public final class ReferenceBundleBuilder: ObservableObject {
                 try? FileManager.default.removeItem(at: bundleURL)
             }
 
-            logger.error("Bundle build failed: \(error.localizedDescription)")
             throw error
         }
     }
 
-    public func cancel() {
-        isCancelled = true
-        logger.info("Build cancellation requested")
-    }
-
-    // MARK: - Private Methods
-
     private func checkCancellation() throws {
-        if isCancelled {
+        if Task.isCancelled {
             throw BundleBuildError.cancelled
         }
     }
 
     private func executeStep(
         _ step: BuildStep,
-        progressHandler: (@Sendable (BuildStep, Double, String) -> Void)?,
+        progressHandler: ProgressReporter,
         operation: () throws -> Void
     ) async throws {
-        updateProgress(step, calculateProgress(for: step, subProgress: 0.0), step.rawValue, progressHandler)
+        await updateProgress(step, calculateProgress(for: step, subProgress: 0.0), step.rawValue, progressHandler)
         try operation()
-        updateProgress(step, calculateProgress(for: step, subProgress: 1.0), step.rawValue, progressHandler)
+        await updateProgress(step, calculateProgress(for: step, subProgress: 1.0), step.rawValue, progressHandler)
     }
 
     private func updateProgress(
         _ step: BuildStep,
         _ progress: Double,
         _ message: String,
-        _ handler: (@Sendable (BuildStep, Double, String) -> Void)?
-    ) {
-        self.currentStep = step
-        self.progress = progress
-        self.statusMessage = message
-        handler?(step, progress, message)
+        _ handler: ProgressReporter
+    ) async {
+        await handler(step, progress, message)
     }
 
     private func calculateProgress(for step: BuildStep, subProgress: Double) -> Double {
@@ -539,6 +600,14 @@ public final class ReferenceBundleBuilder: ObservableObject {
 
         guard fileManager.isReadableFile(atPath: configuration.fastaURL.path) else {
             throw BundleBuildError.inputFileNotReadable(configuration.fastaURL)
+        }
+
+        if configuration.provenanceWorkflowName != nil ||
+            configuration.provenanceCommand != nil ||
+            configuration.provenanceInputFiles != nil {
+            throw BundleBuildError.unsupportedProvenanceConfiguration(
+                "ReferenceBundleBuilder cannot write provenance; use NativeBundleBuilder or wrap the Core build in CLI/workflow provenance."
+            )
         }
 
         if configuration.compressFASTA {
@@ -627,7 +696,7 @@ public final class ReferenceBundleBuilder: ObservableObject {
     private func processFASTA(
         configuration: BuildConfiguration,
         bundleURL: URL,
-        progressHandler: (@Sendable (BuildStep, Double, String) -> Void)?
+        progressHandler: ProgressReporter
     ) async throws -> GenomeInfo {
         logger.info("Processing FASTA file")
 
@@ -636,7 +705,7 @@ public final class ReferenceBundleBuilder: ObservableObject {
         let destinationFASTA: URL
 
         if configuration.compressFASTA {
-            updateProgress(
+            await updateProgress(
                 .compressingFASTA,
                 calculateProgress(for: .compressingFASTA, subProgress: 0.0),
                 "Compressing FASTA with bgzip...",
@@ -651,7 +720,7 @@ public final class ReferenceBundleBuilder: ObservableObject {
             try FileManager.default.copyItem(at: configuration.fastaURL, to: destinationFASTA)
         }
 
-        updateProgress(
+        await updateProgress(
             .indexingFASTA,
             calculateProgress(for: .indexingFASTA, subProgress: 0.0),
             "Creating FASTA index...",
@@ -663,7 +732,7 @@ public final class ReferenceBundleBuilder: ObservableObject {
         let indexURL = URL(fileURLWithPath: destinationFASTA.path + ".fai")
         try createFASTAIndex(chromosomes: chromosomes, indexURL: indexURL)
 
-        updateProgress(
+        await updateProgress(
             .indexingFASTA,
             calculateProgress(for: .indexingFASTA, subProgress: 1.0),
             "FASTA indexing complete",
@@ -785,7 +854,7 @@ public final class ReferenceBundleBuilder: ObservableObject {
         configuration: BuildConfiguration,
         bundleURL: URL,
         chromosomeSizes: [(String, Int64)],
-        progressHandler: (@Sendable (BuildStep, Double, String) -> Void)?
+        progressHandler: ProgressReporter
     ) async throws -> [AnnotationTrackInfo] {
         guard !configuration.annotationFiles.isEmpty else {
             return []
@@ -793,7 +862,7 @@ public final class ReferenceBundleBuilder: ObservableObject {
 
         logger.info("Processing \(configuration.annotationFiles.count) annotation files")
 
-        updateProgress(
+        await updateProgress(
             .convertingAnnotations,
             calculateProgress(for: .convertingAnnotations, subProgress: 0.0),
             "Converting annotations...",
@@ -805,7 +874,7 @@ public final class ReferenceBundleBuilder: ObservableObject {
 
         for (index, input) in configuration.annotationFiles.enumerated() {
             let subProgress = Double(index) / Double(configuration.annotationFiles.count)
-            updateProgress(
+            await updateProgress(
                 .convertingAnnotations,
                 calculateProgress(for: .convertingAnnotations, subProgress: subProgress),
                 "Converting \(input.name)...",
@@ -831,7 +900,7 @@ public final class ReferenceBundleBuilder: ObservableObject {
             annotationInfos.append(trackInfo)
         }
 
-        updateProgress(
+        await updateProgress(
             .convertingAnnotations,
             calculateProgress(for: .convertingAnnotations, subProgress: 1.0),
             "Annotation conversion complete",
@@ -880,7 +949,7 @@ public final class ReferenceBundleBuilder: ObservableObject {
     private func processVariants(
         configuration: BuildConfiguration,
         bundleURL: URL,
-        progressHandler: (@Sendable (BuildStep, Double, String) -> Void)?
+        progressHandler: ProgressReporter
     ) async throws -> [VariantTrackInfo] {
         guard !configuration.variantFiles.isEmpty else {
             return []
@@ -888,7 +957,7 @@ public final class ReferenceBundleBuilder: ObservableObject {
 
         logger.info("Processing \(configuration.variantFiles.count) variant files")
 
-        updateProgress(
+        await updateProgress(
             .convertingVariants,
             calculateProgress(for: .convertingVariants, subProgress: 0.0),
             "Converting variants...",
@@ -900,7 +969,7 @@ public final class ReferenceBundleBuilder: ObservableObject {
 
         for (index, input) in configuration.variantFiles.enumerated() {
             let subProgress = Double(index) / Double(configuration.variantFiles.count)
-            updateProgress(
+            await updateProgress(
                 .convertingVariants,
                 calculateProgress(for: .convertingVariants, subProgress: subProgress),
                 "Converting \(input.name)...",
@@ -944,7 +1013,7 @@ public final class ReferenceBundleBuilder: ObservableObject {
             variantInfos.append(trackInfo)
         }
 
-        updateProgress(
+        await updateProgress(
             .convertingVariants,
             calculateProgress(for: .convertingVariants, subProgress: 1.0),
             "Variant conversion complete",
@@ -957,7 +1026,7 @@ public final class ReferenceBundleBuilder: ObservableObject {
     private func processSignalTracks(
         configuration: BuildConfiguration,
         bundleURL: URL,
-        progressHandler: (@Sendable (BuildStep, Double, String) -> Void)?
+        progressHandler: ProgressReporter
     ) async throws -> [SignalTrackInfo] {
         guard !configuration.signalFiles.isEmpty else {
             return []

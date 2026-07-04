@@ -44,6 +44,11 @@ original refactor was constrained to behavior-preserving edits:
   accepts only uncompressed FASTA for copy/index builds, preserves annotation
   source extensions, copies only already-indexed BCF+CSI inputs, and points
   compressed/converted scientific outputs to `NativeBundleBuilder`/CLI tooling.
+- `ReferenceBundleBuilder` now keeps its observable progress state on the main
+  actor while dispatching bundle file work through a non-main executor. The Core
+  fallback also rejects provenance-bearing configurations instead of silently
+  ignoring fields that only `NativeBundleBuilder` can consume, and CLI fallback
+  bundle wrappers fail closed if final provenance cannot be written.
 - `SRAService.downloadFASTQFromENA` now uses the shared `HTTPClient.download`
   contract so URLSession can stream ENA FASTQ payloads to temporary files before
   atomic publication; tests assert the download path does not fall back to
@@ -79,10 +84,11 @@ original refactor was constrained to behavior-preserving edits:
   `testBuildStepProgressWeights` asserts. Kept `.complete = 0.05` with a corrected
   comment. No further action.
 
-- **F9 — full-genome parse + file copy run on `@MainActor` (medium).** Blocks the
-  UI for the whole build; per project rules long pipelines should be off-main
-  with a thin `@MainActor` progress model. Deferred (significant restructuring,
-  not behavior-preserving).
+- **RESOLVED F9 — Core bundle work no longer runs on the main actor.**
+  `ReferenceBundleBuilder` is now a thin `@MainActor` progress adapter over a
+  non-main `ReferenceBundleBuildExecutor`; tests pin that structure. Core also
+  rejects provenance-bearing build configurations so fallback callers must write
+  provenance explicitly in their owning workflow/CLI layer.
 
 ## SRAService.swift (remaining escalations)
 
