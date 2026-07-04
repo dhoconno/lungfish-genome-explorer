@@ -1075,6 +1075,12 @@ extension AppDelegate {
                 try FileManager.default.createDirectory(at: variantsDir, withIntermediateDirectories: true)
 
                 let variantCount: Int
+                var helperInvocations: [VCFHelperInvocation] = []
+
+                func record(_ run: VCFHelperRunResult) -> Int {
+                    helperInvocations.append(run.invocation)
+                    return run.variantCount
+                }
 
                 // Check if there's a resumable incomplete import from a previous crash.
                 let detectedImportState = VariantDatabase.importState(at: dbURL)
@@ -1089,7 +1095,7 @@ extension AppDelegate {
                     debugLog("performVCFImport: Creating variant database at \(dbURL.lastPathComponent) via helper")
 
                     do {
-                        var importedCount = try Self.runVCFImportViaHelper(
+                        var importedCount = try record(Self.runVCFImportViaHelper(
                             vcfURL: vcfURL,
                             outputDBURL: dbURL,
                             sourceFile: vcfURL.lastPathComponent,
@@ -1103,14 +1109,14 @@ extension AppDelegate {
                                     OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
                                 }
                             }
-                        )
+                        ))
 
                         // Staged ultra-low-memory imports intentionally return after insert
                         // phase with import_state=indexing so indexing runs in a fresh process.
                         if VariantDatabase.importState(at: dbURL) == "indexing" {
                             debugLog("performVCFImport: Insert phase complete, launching phase-2 index build helper")
                             let resumeStartedAt = Date()
-                            importedCount = try Self.runVCFResumeViaHelper(
+                            importedCount = try record(Self.runVCFResumeViaHelper(
                                 outputDBURL: dbURL,
                                 shouldCancel: isCancelled,
                                 progressHandler: { progress, message in
@@ -1121,7 +1127,7 @@ extension AppDelegate {
                                         OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
                                     }
                                 }
-                            )
+                            ))
                             debugLog("performVCFImport: Phase-2 index build complete with \(importedCount) variants")
                         }
 
@@ -1133,7 +1139,7 @@ extension AppDelegate {
                            importState == "indexing" {
                             debugLog("performVCFImport: Helper failed during indexing, auto-resuming index creation...")
                             let resumeStartedAt = Date()
-                            let resumedCount = try Self.runVCFResumeViaHelper(
+                            let resumedCount = try record(Self.runVCFResumeViaHelper(
                                 outputDBURL: dbURL,
                                 shouldCancel: isCancelled,
                                 progressHandler: { progress, message in
@@ -1144,7 +1150,7 @@ extension AppDelegate {
                                         OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
                                     }
                                 }
-                            )
+                            ))
                             debugLog("performVCFImport: Auto-resume complete with \(resumedCount) variants")
                             return resumedCount
                         }
@@ -1154,7 +1160,7 @@ extension AppDelegate {
 
                 if detectedImportState == "indexing" {
                     debugLog("performVCFImport: Found interrupted indexing phase, resuming via helper")
-                    variantCount = try Self.runVCFResumeViaHelper(
+                    variantCount = try record(Self.runVCFResumeViaHelper(
                         outputDBURL: dbURL,
                         shouldCancel: isCancelled,
                         progressHandler: { progress, message in
@@ -1165,7 +1171,7 @@ extension AppDelegate {
                                 OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
                             }
                         }
-                    )
+                    ))
                 } else if detectedImportState == "inserting" {
                     // Partial row ingest cannot be resumed safely without replaying the VCF.
                     debugLog("performVCFImport: Found interrupted inserting phase, restarting full import from source VCF")
@@ -1177,7 +1183,7 @@ extension AppDelegate {
                     variantCount = importedDB.totalCount()
 
                     let materializeStartedAt = Date()
-                    try Self.runVCFMaterializeViaHelper(
+                    _ = try record(Self.runVCFMaterializeViaHelper(
                         outputDBURL: dbURL,
                         shouldCancel: isCancelled,
                         progressHandler: { progress, message in
@@ -1188,7 +1194,7 @@ extension AppDelegate {
                                 OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
                             }
                         }
-                    )
+                    ))
                     debugLog("performVCFImport: Materialization resume complete")
                 } else if dbExists, detectedImportState == nil,
                           VariantDatabase.hasVariantsTable(at: dbURL) {
@@ -1229,7 +1235,7 @@ extension AppDelegate {
                 if rwDB.variantInfoSkipped {
                     debugLog("performVCFImport: Variant info was skipped — launching materialization helper")
                     let materializeStartedAt = Date()
-                    try Self.runVCFMaterializeViaHelper(
+                    _ = try record(Self.runVCFMaterializeViaHelper(
                         outputDBURL: dbURL,
                         shouldCancel: isCancelled,
                         progressHandler: { progress, message in
@@ -1242,7 +1248,7 @@ extension AppDelegate {
                                 OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
                             }
                         }
-                    )
+                    ))
                     debugLog("performVCFImport: Materialization complete")
                 }
 
@@ -1285,6 +1291,35 @@ extension AppDelegate {
                 } else {
                     baseManifest = currentManifest
                 }
+
+                let provenanceRelativePath = "variants/\(trackId).lungfish-provenance.json"
+                let provenanceURL = bundleURL.appendingPathComponent(provenanceRelativePath)
+                let createdAt = ISO8601DateFormatter().string(from: Date())
+                try rwDB.setMetadataValues([
+                    "workflow_provenance_path": provenanceRelativePath,
+                    "artifact_database_path": "variants/\(dbFilename)",
+                    "source_vcf_path": vcfURL.path,
+                    "source_vcf_name": vcfURL.lastPathComponent,
+                    "import_profile": selectedImportProfile.rawValue,
+                    "created_at": createdAt,
+                ])
+
+                try Self.writeVCFImportProvenance(
+                    vcfURL: vcfURL,
+                    bundleURL: bundleURL,
+                    dbURL: dbURL,
+                    provenanceURL: provenanceURL,
+                    manifest: baseManifest,
+                    trackId: trackId,
+                    trackName: trackInfo.name,
+                    dbRelativePath: "variants/\(dbFilename)",
+                    provenanceRelativePath: provenanceRelativePath,
+                    importProfile: selectedImportProfile,
+                    variantCount: variantCount,
+                    helperInvocations: helperInvocations,
+                    startedAt: importStartedAt,
+                    completedAt: Date()
+                )
 
                 let updatedManifest = baseManifest.addingVariantTrack(trackInfo)
                 try updatedManifest.save(to: bundleURL)
@@ -1363,6 +1398,23 @@ extension AppDelegate {
         }
     }
 
+    private struct VCFHelperInvocation: Sendable {
+        let argv: [String]
+        let exitStatus: Int32
+        let stderr: String
+        let startedAt: Date
+        let completedAt: Date
+
+        var wallTimeSeconds: TimeInterval {
+            completedAt.timeIntervalSince(startedAt)
+        }
+    }
+
+    private struct VCFHelperRunResult: Sendable {
+        let variantCount: Int
+        let invocation: VCFHelperInvocation
+    }
+
     private nonisolated static func signalName(forTerminationStatus status: Int32) -> String? {
         switch status {
         case 9:
@@ -1391,7 +1443,7 @@ extension AppDelegate {
         importProfile: VCFImportProfile,
         shouldCancel: @escaping @Sendable () -> Bool,
         progressHandler: @escaping @Sendable (Double, String) -> Void
-    ) throws -> Int {
+    ) throws -> VCFHelperRunResult {
         guard let executablePath = CommandLine.arguments.first, !executablePath.isEmpty else {
             throw VariantDatabaseError.createFailed("Could not locate application executable for helper import")
         }
@@ -1403,7 +1455,7 @@ extension AppDelegate {
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executablePath)
-        process.arguments = [
+        let processArguments = [
             "--vcf-import-helper",
             "--vcf-path", vcfURL.path,
             "--output-db-path", outputDBURL.path,
@@ -1411,6 +1463,8 @@ extension AppDelegate {
             "--import-profile", importProfile.rawValue,
             "--debug-log-path", debugLogURL.path,
         ]
+        process.arguments = processArguments
+        let fullArgv = [executablePath] + processArguments
         debugLog(
             "runVCFImportViaHelper: launch helper=\(executablePath) vcf=\(vcfURL.lastPathComponent) db=\(outputDBURL.lastPathComponent) profile=\(importProfile.rawValue) debugLog=\(debugLogURL.path)"
         )
@@ -1504,6 +1558,7 @@ extension AppDelegate {
             }
         }
 
+        let startedAt = Date()
         try process.run()
 
         while process.isRunning {
@@ -1514,6 +1569,7 @@ extension AppDelegate {
             Thread.sleep(forTimeInterval: 0.1)
         }
         process.waitUntilExit()
+        let completedAt = Date()
         debugLog(
             "runVCFImportViaHelper: process-exit status=\(process.terminationStatus) reason=\(process.terminationReason == .uncaughtSignal ? "signal" : "exit")"
         )
@@ -1536,12 +1592,20 @@ extension AppDelegate {
             throw VariantDatabaseError.cancelled
         }
 
+        let stderrMessage = stderrState.withLock { data -> String in
+            String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        }
+        let invocation = VCFHelperInvocation(
+            argv: fullArgv,
+            exitStatus: process.terminationStatus,
+            stderr: stderrMessage,
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+
         guard process.terminationStatus == 0 else {
             let helperError = parseState.withLock { $0.helperError }
-            let stderrMessage = stderrState.withLock { data -> String in
-                String(data: data, encoding: .utf8)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            }
             let signalSuffix: String
             if process.terminationReason == .uncaughtSignal {
                 let signalName = signalName(forTerminationStatus: process.terminationStatus)
@@ -1557,11 +1621,11 @@ extension AppDelegate {
         }
 
         if let variantCount = parseState.withLock({ $0.variantCount }) {
-            return variantCount
+            return VCFHelperRunResult(variantCount: variantCount, invocation: invocation)
         }
 
         let importedDB = try VariantDatabase(url: outputDBURL)
-        return importedDB.totalCount()
+        return VCFHelperRunResult(variantCount: importedDB.totalCount(), invocation: invocation)
     }
 
     /// Launch the helper process in `--vcf-resume-helper` mode to finish an
@@ -1570,17 +1634,19 @@ extension AppDelegate {
         outputDBURL: URL,
         shouldCancel: @escaping @Sendable () -> Bool,
         progressHandler: @escaping @Sendable (Double, String) -> Void
-    ) throws -> Int {
+    ) throws -> VCFHelperRunResult {
         guard let executablePath = CommandLine.arguments.first, !executablePath.isEmpty else {
             throw VariantDatabaseError.createFailed("Could not locate application executable for helper resume")
         }
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executablePath)
-        process.arguments = [
+        let processArguments = [
             "--vcf-resume-helper",
             "--output-db-path", outputDBURL.path,
         ]
+        process.arguments = processArguments
+        let fullArgv = [executablePath] + processArguments
         debugLog("runVCFResumeViaHelper: launch helper=\(executablePath) db=\(outputDBURL.lastPathComponent)")
 
         let stdoutPipe = Pipe()
@@ -1595,6 +1661,7 @@ extension AppDelegate {
             var wasCancelled = false
         }
         let parseState = OSAllocatedUnfairLock(initialState: HelperParseState())
+        let stderrState = OSAllocatedUnfairLock(initialState: Data())
 
         let handleEventLine: @Sendable (Data) -> Void = { line in
             guard !line.isEmpty else { return }
@@ -1649,12 +1716,19 @@ extension AppDelegate {
         }
 
         let stdoutHandle = stdoutPipe.fileHandleForReading
+        let stderrHandle = stderrPipe.fileHandleForReading
         stdoutHandle.readabilityHandler = { handle in
             let data = handle.availableData
             guard !data.isEmpty else { return }
             consumeStdoutData(data)
         }
+        stderrHandle.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty else { return }
+            stderrState.withLock { $0.append(data) }
+        }
 
+        let startedAt = Date()
         try process.run()
 
         while process.isRunning {
@@ -1665,12 +1739,15 @@ extension AppDelegate {
             Thread.sleep(forTimeInterval: 0.1)
         }
         process.waitUntilExit()
+        let completedAt = Date()
         debugLog(
             "runVCFResumeViaHelper: process-exit status=\(process.terminationStatus) reason=\(process.terminationReason == .uncaughtSignal ? "signal" : "exit")"
         )
 
         stdoutHandle.readabilityHandler = nil
+        stderrHandle.readabilityHandler = nil
         consumeStdoutData(stdoutHandle.readDataToEndOfFile())
+        stderrState.withLock { $0.append(stderrHandle.readDataToEndOfFile()) }
 
         if let trailing = parseState.withLock({ state -> Data? in
             guard !state.stdoutBuffer.isEmpty else { return nil }
@@ -1686,19 +1763,33 @@ extension AppDelegate {
             throw VariantDatabaseError.cancelled
         }
 
+        let stderrMessage = stderrState.withLock { data -> String in
+            String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        }
+        let invocation = VCFHelperInvocation(
+            argv: fullArgv,
+            exitStatus: process.terminationStatus,
+            stderr: stderrMessage,
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+
         guard process.terminationStatus == 0 else {
             let helperError = parseState.withLock { $0.helperError }
-            let message = helperError ?? "VCF resume helper exited with status \(process.terminationStatus)"
+            let message = helperError ?? (stderrMessage.isEmpty
+                ? "VCF resume helper exited with status \(process.terminationStatus)"
+                : stderrMessage)
             debugLog("runVCFResumeViaHelper: failure '\(String(message.prefix(320)))'")
             throw VariantDatabaseError.createFailed(message)
         }
 
         if let variantCount = parseState.withLock({ $0.variantCount }) {
-            return variantCount
+            return VCFHelperRunResult(variantCount: variantCount, invocation: invocation)
         }
 
         let resumedDB = try VariantDatabase(url: outputDBURL)
-        return resumedDB.totalCount()
+        return VCFHelperRunResult(variantCount: resumedDB.totalCount(), invocation: invocation)
     }
 
     /// Launch the helper process in `--vcf-materialize-helper` mode to populate
@@ -1709,17 +1800,19 @@ extension AppDelegate {
         outputDBURL: URL,
         shouldCancel: @escaping @Sendable () -> Bool,
         progressHandler: @escaping @Sendable (Double, String) -> Void
-    ) throws -> Int {
+    ) throws -> VCFHelperRunResult {
         guard let executablePath = CommandLine.arguments.first, !executablePath.isEmpty else {
             throw VariantDatabaseError.createFailed("Could not locate application executable for helper materialize")
         }
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executablePath)
-        process.arguments = [
+        let processArguments = [
             "--vcf-materialize-helper",
             "--output-db-path", outputDBURL.path,
         ]
+        process.arguments = processArguments
+        let fullArgv = [executablePath] + processArguments
         debugLog("runVCFMaterializeViaHelper: launch helper=\(executablePath) db=\(outputDBURL.lastPathComponent)")
 
         let stdoutPipe = Pipe()
@@ -1734,6 +1827,7 @@ extension AppDelegate {
             var wasCancelled = false
         }
         let parseState = OSAllocatedUnfairLock(initialState: HelperParseState())
+        let stderrState = OSAllocatedUnfairLock(initialState: Data())
 
         let handleEventLine: @Sendable (Data) -> Void = { line in
             guard !line.isEmpty else { return }
@@ -1788,12 +1882,19 @@ extension AppDelegate {
         }
 
         let stdoutHandle = stdoutPipe.fileHandleForReading
+        let stderrHandle = stderrPipe.fileHandleForReading
         stdoutHandle.readabilityHandler = { handle in
             let data = handle.availableData
             guard !data.isEmpty else { return }
             consumeStdoutData(data)
         }
+        stderrHandle.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty else { return }
+            stderrState.withLock { $0.append(data) }
+        }
 
+        let startedAt = Date()
         try process.run()
 
         while process.isRunning {
@@ -1804,12 +1905,15 @@ extension AppDelegate {
             Thread.sleep(forTimeInterval: 0.1)
         }
         process.waitUntilExit()
+        let completedAt = Date()
         debugLog(
             "runVCFMaterializeViaHelper: process-exit status=\(process.terminationStatus) reason=\(process.terminationReason == .uncaughtSignal ? "signal" : "exit")"
         )
 
         stdoutHandle.readabilityHandler = nil
+        stderrHandle.readabilityHandler = nil
         consumeStdoutData(stdoutHandle.readDataToEndOfFile())
+        stderrState.withLock { $0.append(stderrHandle.readDataToEndOfFile()) }
 
         if let trailing = parseState.withLock({ state -> Data? in
             guard !state.stdoutBuffer.isEmpty else { return nil }
@@ -1825,14 +1929,157 @@ extension AppDelegate {
             throw VariantDatabaseError.cancelled
         }
 
+        let stderrMessage = stderrState.withLock { data -> String in
+            String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        }
+        let invocation = VCFHelperInvocation(
+            argv: fullArgv,
+            exitStatus: process.terminationStatus,
+            stderr: stderrMessage,
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+
         guard process.terminationStatus == 0 else {
             let helperError = parseState.withLock { $0.helperError }
-            let message = helperError ?? "VCF materialize helper exited with status \(process.terminationStatus)"
+            let message = helperError ?? (stderrMessage.isEmpty
+                ? "VCF materialize helper exited with status \(process.terminationStatus)"
+                : stderrMessage)
             debugLog("runVCFMaterializeViaHelper: failure '\(String(message.prefix(320)))'")
             throw VariantDatabaseError.createFailed(message)
         }
 
-        return parseState.withLock { $0.variantCount } ?? 0
+        let variantCount = parseState.withLock { $0.variantCount } ?? {
+            (try? VariantDatabase(url: outputDBURL).totalCount()) ?? 0
+        }()
+        return VCFHelperRunResult(variantCount: variantCount, invocation: invocation)
+    }
+
+    private nonisolated static func writeVCFImportProvenance(
+        vcfURL: URL,
+        bundleURL: URL,
+        dbURL: URL,
+        provenanceURL: URL,
+        manifest: BundleManifest,
+        trackId: String,
+        trackName: String,
+        dbRelativePath: String,
+        provenanceRelativePath: String,
+        importProfile: VCFImportProfile,
+        variantCount: Int,
+        helperInvocations: [VCFHelperInvocation],
+        startedAt: Date,
+        completedAt: Date
+    ) throws {
+        let appVersion = WorkflowRun.currentAppVersion
+        let argv = vcfImportProvenanceArgv(
+            vcfURL: vcfURL,
+            bundleURL: bundleURL,
+            importProfile: importProfile
+        )
+        let input = try ProvenanceFileDescriptor.file(
+            url: vcfURL,
+            format: fileFormat(forVariantURL: vcfURL),
+            role: .input
+        )
+        let dbOutput = try ProvenanceFileDescriptor.file(url: dbURL, format: .unknown, role: .output)
+        let dbInput = dbOutput.withRole(.input)
+        let helperSteps = helperInvocations.map { invocation in
+            let isInitialImport = invocation.argv.contains("--vcf-import-helper")
+            return ProvenanceStep(
+                toolName: "Lungfish.app",
+                toolVersion: appVersion,
+                argv: invocation.argv,
+                inputs: isInitialImport ? [input] : [dbInput],
+                outputs: [dbOutput],
+                exitStatus: Int(invocation.exitStatus),
+                wallTimeSeconds: invocation.wallTimeSeconds,
+                stderr: nonEmptyProvenanceText(invocation.stderr),
+                startedAt: invocation.startedAt,
+                completedAt: invocation.completedAt
+            )
+        }
+        let finalizeStep = ProvenanceStep(
+            toolName: "Lungfish.app",
+            toolVersion: appVersion,
+            argv: argv + ["--finalize-database", dbURL.path],
+            inputs: [input, dbInput],
+            outputs: [dbOutput],
+            exitStatus: 0,
+            wallTimeSeconds: nil,
+            stderr: nil
+        )
+        let envelope = ProvenanceEnvelope(
+            createdAt: startedAt,
+            workflowName: "lungfish app vcf import",
+            workflowVersion: appVersion,
+            toolName: "Lungfish.app",
+            toolVersion: appVersion,
+            argv: argv,
+            durableReplayArgv: argv,
+            options: ProvenanceOptions(
+                explicit: [
+                    "vcfPath": .file(vcfURL),
+                    "bundlePath": .file(bundleURL),
+                    "importProfile": .string(importProfile.rawValue),
+                ],
+                defaults: [
+                    "trackName": .string(vcfURL.deletingPathExtension().lastPathComponent),
+                    "outputDirectory": .string("variants"),
+                ],
+                resolvedDefaults: [
+                    "trackId": .string(trackId),
+                    "trackName": .string(trackName),
+                    "variantCount": .integer(variantCount),
+                    "databasePath": .string(dbRelativePath),
+                    "workflowProvenancePath": .string(provenanceRelativePath),
+                    "referenceBundleIdentifier": .string(manifest.identifier),
+                    "referenceBundleName": .string(manifest.name),
+                    "legacyBCFManifestFieldsAreSentinels": .boolean(true),
+                ]
+            ),
+            runtimeIdentity: ProvenanceRuntimeIdentity(),
+            files: [input, dbOutput],
+            output: dbOutput,
+            outputs: [dbOutput],
+            steps: helperSteps + [finalizeStep],
+            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            exitStatus: 0,
+            stderr: nonEmptyProvenanceText(helperInvocations.map(\.stderr).filter { !$0.isEmpty }.joined(separator: "\n"))
+        )
+        try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: provenanceURL)
+    }
+
+    private nonisolated static func vcfImportProvenanceArgv(
+        vcfURL: URL,
+        bundleURL: URL,
+        importProfile: VCFImportProfile
+    ) -> [String] {
+        let executableName = URL(fileURLWithPath: ProvenanceRuntimeIdentity.currentExecutablePath).lastPathComponent
+        return [
+            executableName,
+            "--vcf-import-helper",
+            "--vcf-path",
+            vcfURL.path,
+            "--bundle-path",
+            bundleURL.path,
+            "--import-profile",
+            importProfile.rawValue,
+        ]
+    }
+
+    private nonisolated static func fileFormat(forVariantURL url: URL) -> FileFormat {
+        let lowercasedPath = url.path.lowercased()
+        if lowercasedPath.hasSuffix(".bcf") || lowercasedPath.hasSuffix(".bcf.gz") {
+            return .bcf
+        }
+        return .vcf
+    }
+
+    private nonisolated static func nonEmptyProvenanceText(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : value
     }
 
     private nonisolated static func estimatedRemainingText(progress: Double, startedAt: Date) -> String {

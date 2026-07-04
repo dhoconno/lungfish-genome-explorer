@@ -228,6 +228,27 @@ final class OperationRoutingTests: XCTestCase {
         )
     }
 
+    func testVCFImportWritesCanonicalProvenanceBeforeManifestUpdate() throws {
+        let source = combinedAppDelegateSource()
+        let body = try sourceFunctionBody(
+            named: "internal func performVCFImport",
+            endingBefore: "private func selectedVCFImportProfile",
+            in: source
+        )
+
+        XCTAssertTrue(body.contains("try rwDB.setMetadataValues("))
+        XCTAssertTrue(body.contains("\"workflow_provenance_path\": provenanceRelativePath"))
+        XCTAssertTrue(source.contains("ProvenanceWriter(signingProvider: nil).write("))
+
+        let provenanceRange = try XCTUnwrap(body.range(of: "try Self.writeVCFImportProvenance("))
+        let manifestRange = try XCTUnwrap(body.range(of: "try updatedManifest.save(to: bundleURL)"))
+        XCTAssertLessThan(
+            provenanceRange.lowerBound,
+            manifestRange.lowerBound,
+            "VCF import must write canonical provenance before publishing the track in the bundle manifest."
+        )
+    }
+
     func testProjectSampleMetadataImportUsesOriginWindowScope() throws {
         let projectURL = URL(fileURLWithPath: "/tmp/project.lungfish", isDirectory: true)
         let scope = WindowStateScope()
