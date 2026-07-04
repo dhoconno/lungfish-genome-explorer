@@ -159,6 +159,55 @@ final class ENAServiceTests: XCTestCase {
         XCTAssertEqual(requests.count, 1)
     }
 
+    // MARK: - Batch Lookup Tests
+
+    func testSearchReadsBatchPropagatesCancellation() async throws {
+        await mockClient.register(pattern: "filereport", response: .cancelled)
+
+        do {
+            _ = try await service.searchReadsBatch(
+                accessions: ["SRR_CANCELLED"],
+                concurrency: 1,
+                progress: { _, _ in }
+            )
+            XCTFail("Expected cancellation to propagate")
+        } catch let error as URLError where error.code == .cancelled {
+            // Expected
+        } catch {
+            XCTFail("Expected URLError.cancelled, got \(error)")
+        }
+    }
+
+    func testSearchReadsBatchSkipsIndividualNonCancellationFailures() async throws {
+        let successfulResponse: [[String: Any]] = [
+            [
+                "run_accession": "ERR_OK",
+                "library_layout": "SINGLE"
+            ]
+        ]
+        await mockClient.registerSequence(
+            pattern: "filereport",
+            responses: [
+                .error(statusCode: 500, message: "temporary ENA error"),
+                .json(successfulResponse)
+            ]
+        )
+
+        let progressRecorder = ProgressRecorder()
+        let records = try await service.searchReadsBatch(
+            accessions: ["ERR_FAILS", "ERR_OK"],
+            concurrency: 1,
+            progress: { completed, total in
+                progressRecorder.append(completed: completed, total: total)
+            }
+        )
+
+        let progressEvents = progressRecorder.events
+        XCTAssertEqual(records.map(\.runAccession), ["ERR_OK"])
+        XCTAssertEqual(progressEvents.map(\.0), [1, 2])
+        XCTAssertTrue(progressEvents.allSatisfy { $0.1 == 2 })
+    }
+
     // MARK: - Error Handling Tests
 
     func testHandles404Error() async throws {
@@ -214,5 +263,22 @@ final class ENAServiceTests: XCTestCase {
         }
         let actualCount = await mockClient.requests.count
         XCTFail("Timed out waiting for \(expectedCount) recorded request(s); saw \(actualCount)", file: file, line: line)
+    }
+}
+
+private final class ProgressRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedEvents: [(Int, Int)] = []
+
+    var events: [(Int, Int)] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedEvents
+    }
+
+    func append(completed: Int, total: Int) {
+        lock.lock()
+        defer { lock.unlock() }
+        storedEvents.append((completed, total))
     }
 }

@@ -315,10 +315,14 @@ public actor ENAService: DatabaseService {
                 let accession = accessions[i]
                 let index = i
                 group.addTask {
+                    try Task.checkCancellation()
                     do {
                         let records = try await self.searchReads(term: accession, limit: 100)
                         return (index, records)
                     } catch {
+                        if Self.isCancellation(error) {
+                            throw error
+                        }
                         return (index, [])
                     }
                 }
@@ -336,10 +340,14 @@ public actor ENAService: DatabaseService {
                     let accession = accessions[launched]
                     let nextIndex = launched
                     group.addTask {
+                        try Task.checkCancellation()
                         do {
                             let records = try await self.searchReads(term: accession, limit: 100)
                             return (nextIndex, records)
                         } catch {
+                            if Self.isCancellation(error) {
+                                throw error
+                            }
                             return (nextIndex, [])
                         }
                     }
@@ -362,6 +370,20 @@ public actor ENAService: DatabaseService {
     }
 
     // MARK: - Private Methods
+
+    private nonisolated static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError {
+            return true
+        }
+        if let urlError = error as? URLError {
+            return urlError.code == .cancelled
+        }
+        if let databaseError = error as? DatabaseServiceError,
+           case .cancelled = databaseError {
+            return true
+        }
+        return false
+    }
 
     private func makeRequest(url: URL) async throws -> Data {
         // Rate limiting

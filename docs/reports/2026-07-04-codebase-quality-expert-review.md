@@ -50,6 +50,8 @@ and behavior-preserving simplifications are useful and appropriate.
 - 2026-07-04 follow-up: NCBI genome/annotation/report HEAD probes now use the injected
   `HTTPClient`, keeping tests deterministic and preserving cancellation semantics for optional
   lookups.
+- 2026-07-04 follow-up: ENA batch read lookup now rethrows cancellation from child tasks while
+  preserving the intended per-accession failure tolerance for ordinary lookup failures.
 
 ## Still Deferred
 

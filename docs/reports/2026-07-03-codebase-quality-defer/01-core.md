@@ -229,9 +229,6 @@ original refactor was constrained to behavior-preserving edits:
   OpenAI `gpt-5.5`, Gemini `gemini-2.5-flash`.
 
 ### Network services (ENA / Pathoplexus / SRA parser)
-- ENA `fetchBatch` AsyncThrowingStream lacks `onTermination` cancellation +
-  `Task.checkCancellation()` (F6) — same gap as NCBIService; Pathoplexus has the
-  correct pattern. Fix all three together (cross-file). Defer.
 - ENA date parsing omits `en_US_POSIX` locale (F10) — Pathoplexus sets it.
   Strictly-more-correct but a behavior change under exotic locales. Defer (pair
   with the DateFormatter caching that WAS applied).
