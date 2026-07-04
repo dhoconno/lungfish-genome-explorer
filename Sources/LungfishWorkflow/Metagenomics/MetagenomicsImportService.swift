@@ -925,7 +925,17 @@ public enum MetagenomicsImportService {
         // Copy per-sample BAMs into the final bundle's bams/ directory.
         let finalBamsDir = resultDirectory.appendingPathComponent("bams", isDirectory: true)
         try ensureDirectoryExists(finalBamsDir)
-        var bamStageOutputRelocations: [String: URL] = [:]
+        // Per-sample staging databases are merged and deleted. Provenance reports
+        // the durable bundle database as their final bundle representative while
+        // replay stays anchored to the public import command below.
+        var naoMgsStageArtifactRelocations: [String: URL] = [:]
+        for stageInput in stageInputs {
+            recordNaoMgsStageArtifactRelocation(
+                from: stageInput.databaseURL,
+                to: hitsDBURL,
+                in: &naoMgsStageArtifactRelocations
+            )
+        }
         var copiedBAMCount = 0
         for stageInput in stageInputs {
             let stageBamsDir = stageInput.databaseURL.deletingLastPathComponent()
@@ -936,7 +946,7 @@ public enum MetagenomicsImportService {
                     let dst = finalBamsDir.appendingPathComponent(src.lastPathComponent)
                     try? fm.removeItem(at: dst)
                     try fm.copyItem(at: src, to: dst)
-                    recordNaoMgsOutputRelocation(from: src, to: dst, in: &bamStageOutputRelocations)
+                    recordNaoMgsStageArtifactRelocation(from: src, to: dst, in: &naoMgsStageArtifactRelocations)
                     if src.pathExtension.lowercased() == "bam" {
                         copiedBAMCount += 1
                     }
@@ -1072,20 +1082,28 @@ public enum MetagenomicsImportService {
         // ── Phase 6: Clean up staging artifacts ─────────────────────────
         try? fm.removeItem(at: stagingRoot)
 
+        let explicitProvenanceOptions: [String: ParameterValue] = [
+            "input": .file(inputURL),
+            "sampleName": sampleName.map(ParameterValue.string) ?? .null,
+            "preferredName": preferredName.map(ParameterValue.string) ?? .null,
+            "outputRoot": .file(outputDirectory),
+            "minIdentity": .number(minIdentity),
+            "fetchReferences": .boolean(fetchReferences),
+        ]
+        let materializationReplayArgv = provenanceCommand ?? defaultMetagenomicsImportCommand(
+            kind: .naomgs,
+            sourceURLs: [inputURL] + virusHitsFiles,
+            resultDirectory: resultDirectory,
+            explicitOptions: explicitProvenanceOptions
+        )
+
         do {
             try writeMetagenomicsImportProvenance(
                 kind: .naomgs,
                 sourceURLs: [inputURL] + virusHitsFiles,
                 resultDirectory: resultDirectory,
                 command: provenanceCommand,
-                explicitOptions: [
-                    "input": .file(inputURL),
-                    "sampleName": sampleName.map(ParameterValue.string) ?? .null,
-                    "preferredName": preferredName.map(ParameterValue.string) ?? .null,
-                    "outputRoot": .file(outputDirectory),
-                    "minIdentity": .number(minIdentity),
-                    "fetchReferences": .boolean(fetchReferences),
-                ],
+                explicitOptions: explicitProvenanceOptions,
                 resolvedDefaults: [
                     "outputDirectory": .file(resultDirectory),
                     "sampleName": .string(normalizedSampleName),
@@ -1100,7 +1118,8 @@ public enum MetagenomicsImportService {
                 additionalSteps: try naoMgsMaterializationProvenanceSteps(
                     from: materializationSteps,
                     sourceURLs: [inputURL] + virusHitsFiles,
-                    relocatedOutputs: bamStageOutputRelocations
+                    relocatedArtifacts: naoMgsStageArtifactRelocations,
+                    materializationReplayArgv: materializationReplayArgv
                 )
             )
         } catch {
@@ -1548,37 +1567,41 @@ private func writeMetagenomicsImportProvenance(
 private func naoMgsMaterializationProvenanceSteps(
     from materializationSteps: [NaoMgsBamMaterializationStep],
     sourceURLs: [URL],
-    relocatedOutputs: [String: URL]
+    relocatedArtifacts: [String: URL],
+    materializationReplayArgv: [String]
 ) throws -> [ProvenanceStep] {
     guard !materializationSteps.isEmpty else { return [] }
     let sourceInputDescriptors = try metagenomicsInputDescriptors(for: sourceURLs)
     return try materializationSteps.map { step in
-        let inputDescriptors: [ProvenanceFileDescriptor]
-        if step.toolName == "lungfish nao-mgs materialize-bam" {
-            inputDescriptors = sourceInputDescriptors
-        } else {
-            let directInputs = try uniqueProvenanceDescriptors(step.inputURLs.compactMap { inputURL in
-                try naoMgsRelocatedDescriptor(
-                    for: inputURL,
-                    role: .input,
-                    relocatedOutputs: relocatedOutputs
-                )
-            })
-            inputDescriptors = directInputs.isEmpty ? sourceInputDescriptors : directInputs
-        }
+        let directInputs = try uniqueProvenanceDescriptors(step.inputURLs.compactMap { inputURL in
+            try naoMgsRelocatedDescriptor(
+                for: inputURL,
+                role: .input,
+                relocatedArtifacts: relocatedArtifacts
+            )
+        })
+        let inputDescriptors = directInputs.isEmpty ? sourceInputDescriptors : directInputs
         let outputDescriptors = try uniqueProvenanceDescriptors(step.outputURLs.compactMap { outputURL in
             try naoMgsRelocatedDescriptor(
                 for: outputURL,
-                role: metagenomicsOutputRole(for: relocatedNaoMgsOutputURL(for: outputURL, relocatedOutputs: relocatedOutputs)),
-                relocatedOutputs: relocatedOutputs
+                role: metagenomicsOutputRole(for: relocatedNaoMgsArtifactURL(
+                    for: outputURL,
+                    relocatedArtifacts: relocatedArtifacts
+                )),
+                relocatedArtifacts: relocatedArtifacts
             )
         })
+        let durableReplayArgv = naoMgsMaterializationDurableReplayArgv(
+            for: step,
+            relocatedArtifacts: relocatedArtifacts,
+            materializationReplayArgv: materializationReplayArgv
+        )
         return ProvenanceStep(
             toolName: step.toolName,
             toolVersion: step.toolVersion,
             argv: step.argv,
-            durableReplayArgv: step.argv,
-            reproducibleCommand: step.reproducibleCommand,
+            durableReplayArgv: durableReplayArgv,
+            reproducibleCommand: durableReplayArgv.map(metagenomicsShellEscape).joined(separator: " "),
             inputs: inputDescriptors,
             outputs: outputDescriptors,
             exitStatus: step.exitStatus,
@@ -1593,9 +1616,9 @@ private func naoMgsMaterializationProvenanceSteps(
 private func naoMgsRelocatedDescriptor(
     for url: URL,
     role: FileRole,
-    relocatedOutputs: [String: URL]
+    relocatedArtifacts: [String: URL]
 ) throws -> ProvenanceFileDescriptor? {
-    let finalURL = relocatedNaoMgsOutputURL(for: url, relocatedOutputs: relocatedOutputs)
+    let finalURL = relocatedNaoMgsArtifactURL(for: url, relocatedArtifacts: relocatedArtifacts)
     guard FileManager.default.fileExists(atPath: finalURL.path) else { return nil }
     return try ProvenanceFileDescriptor.file(
         url: finalURL,
@@ -1605,19 +1628,43 @@ private func naoMgsRelocatedDescriptor(
     )
 }
 
-private func recordNaoMgsOutputRelocation(from sourceURL: URL, to destinationURL: URL, in relocations: inout [String: URL]) {
+private func recordNaoMgsStageArtifactRelocation(from sourceURL: URL, to destinationURL: URL, in relocations: inout [String: URL]) {
     for path in naoMgsPathCandidates(for: sourceURL) {
         relocations[path] = destinationURL
     }
 }
 
-private func relocatedNaoMgsOutputURL(for outputURL: URL, relocatedOutputs: [String: URL]) -> URL {
-    for path in naoMgsPathCandidates(for: outputURL) {
-        if let relocated = relocatedOutputs[path] {
+private func relocatedNaoMgsArtifactURL(for url: URL, relocatedArtifacts: [String: URL]) -> URL {
+    for path in naoMgsPathCandidates(for: url) {
+        if let relocated = relocatedArtifacts[path] {
             return relocated
         }
     }
-    return outputURL
+    return url
+}
+
+private func naoMgsMaterializationDurableReplayArgv(
+    for step: NaoMgsBamMaterializationStep,
+    relocatedArtifacts: [String: URL],
+    materializationReplayArgv: [String]
+) -> [String] {
+    if step.toolName == "lungfish nao-mgs materialize-bam" {
+        return materializationReplayArgv
+    }
+    return step.argv.map {
+        naoMgsRewriteRelocatedPathReferences(in: $0, relocatedArtifacts: relocatedArtifacts)
+    }
+}
+
+private func naoMgsRewriteRelocatedPathReferences(
+    in value: String,
+    relocatedArtifacts: [String: URL]
+) -> String {
+    var rewritten = value
+    for (sourcePath, finalURL) in relocatedArtifacts.sorted(by: { $0.key.count > $1.key.count }) {
+        rewritten = rewritten.replacingOccurrences(of: sourcePath, with: finalURL.path)
+    }
+    return rewritten
 }
 
 private func naoMgsPathCandidates(for url: URL) -> Set<String> {

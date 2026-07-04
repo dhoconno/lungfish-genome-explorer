@@ -235,8 +235,25 @@ struct MetagenomicsImportServiceTests {
             #expect(!materializationSteps.isEmpty)
             #expect(materializationSteps.contains { step in
                 step.inputs.contains { descriptor in
-                    descriptor.path == sourceFile.path
+                    descriptor.path == bundle.appendingPathComponent("hits.sqlite").path
+                        && descriptor.path.contains(result.resultDirectory.path)
+                        && !descriptor.path.contains(".naomgs-import-staging")
                 }
+            })
+            #expect(materializationSteps.allSatisfy { step in
+                !step.inputs.contains { descriptor in
+                    descriptor.path == sourceFile.path
+                        || descriptor.path.contains(".naomgs-import-staging")
+                }
+            })
+            #expect(materializationSteps.contains { step in
+                guard let durableReplayArgv = step.durableReplayArgv else { return false }
+                return durableReplayArgv.prefix(3).elementsEqual(["lungfish-cli", "import", "nao-mgs"])
+                    && durableReplayArgv.contains(sourceFile.path)
+                    && !durableReplayArgv.contains { $0.contains(".naomgs-import-staging") }
+            })
+            #expect(materializationSteps.allSatisfy { step in
+                !step.reproducibleCommand.contains(".naomgs-import-staging")
             })
             let samtoolsSteps = provenance.steps.filter { $0.toolName == "samtools" }
             #expect(!samtoolsSteps.isEmpty)
@@ -251,6 +268,10 @@ struct MetagenomicsImportServiceTests {
                         && descriptor.path.contains("/bams/")
                         && !descriptor.path.contains(".naomgs-import-staging")
                 }
+            })
+            #expect(samtoolsSteps.allSatisfy { step in
+                step.durableReplayArgv?.allSatisfy { !$0.contains(".naomgs-import-staging") } == true
+                    && !step.reproducibleCommand.contains(".naomgs-import-staging")
             })
             #expect(samtoolsSteps.allSatisfy { $0.exitStatus != nil })
         }
