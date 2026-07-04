@@ -25,8 +25,8 @@ lead_approved: false
 
 !!! note "Newer workflow area"
     MHC genotyping is a newer part of Lungfish than the alignment and variant
-    workflows. No Mauritian cynomolgus macaque MHC example dataset ships with
-    this manual yet, so every genotype, allele-target ID, and read count you
+    workflows. This manual does not yet bundle a Mauritian cynomolgus macaque
+    MHC example dataset, so every genotype, allele-target ID, and read count you
     see here is drawn from the reference definition set purely to illustrate
     the shape of a result. Read the numbers as representative, not as output
     you can reproduce from a bundled fixture.
@@ -39,11 +39,11 @@ library of known allele sequences. An amplicon is a short stretch of DNA copied
 from one defined region by PCR. The reads arrive as FASTQ files (the standard
 text format holding sequencing reads and their quality scores), and the library
 they are matched against is a FASTA file (a plain-text file listing each
-sequence). The MHC (major histocompatibility complex) is the dense cluster of
-immune-system genes that a genotyping assay is trying to characterise. The
-worked organism throughout this chapter is the Mauritian cynomolgus macaque,
-abbreviated MCM, because its MHC region is unusually well catalogued and its
-haplotypes are named and stable.
+sequence). Behind the acronym, the MHC (major histocompatibility complex) is
+the dense cluster of immune-system genes that a genotyping assay is trying to
+characterise. Throughout this chapter the worked organism is the Mauritian
+cynomolgus macaque, abbreviated MCM, because its MHC region is unusually well
+catalogued and its haplotypes are named and stable.
 
 The genotyping workflows live together in the Workflow Library, alongside the
 short-amplicon miSeq route, which expects reads from a MiSeq (an Illumina
@@ -52,16 +52,16 @@ expects long reads.
 
 <!-- planned: workflow-library-genotyping -->
 
-The important difference from ordinary variant calling is the question the
-assay asks. Ordinary variant calling lines your reads up against one reference
+What sets it apart from ordinary variant calling is the question the assay
+asks. Ordinary variant calling lines your reads up against one reference
 genome and lists every position where the sample differs from it. That list is
 a VCF (a variant-call file recording positions where a sample differs from a
-reference). Amplicon MHC genotyping asks something else entirely. It does not
-hunt for per-position differences against a single reference. Instead, for each
-of the hundreds of known MHC allele sequences held in a curated library, it
-asks one plain question: is this allele present in this animal, and how many
-reads support it? The result is a presence-and-support matrix across an allele
-library, not a list of coordinate differences.
+reference). Amplicon MHC genotyping asks something else entirely. Instead of
+hunting for per-position differences against a single reference, it works
+allele by allele. For each of the hundreds of known MHC allele sequences held
+in a curated library, it asks one plain question: is this allele present in
+this animal, and how many reads support it? The result is a presence-and-support
+matrix across an allele library, not a list of coordinate differences.
 
 So what should you do with this? The one habit to carry into every later
 chapter is to keep the allele-versus-family distinction straight from the
@@ -76,8 +76,8 @@ This chapter builds the vocabulary the rest of the section leans on. You will
 come away able to say what a genotyping run consumes and produces, to tell an
 individual allele apart from a named M-family haplotype, and to judge which
 parts of a result Lungfish settles on its own versus which it hands back for a
-person to curate. It also lays out how to choose between the miSeq and ONT
-routes before you commit reads to either.
+person to curate. Beyond the vocabulary, it lays out how to choose between the
+miSeq and ONT routes before you commit reads to either.
 
 ## Alleles versus haplotypes
 
@@ -106,7 +106,7 @@ top of those matches. Throughout these chapters, "allele target" always means
 one reference sequence in the library, and "allele" on its own means a sequence
 actually observed in an animal.
 
-The illustrative block below shows one allele target and the family it helps
+Below, an illustrative block shows one allele target and the family it helps
 define. The M1 family is spread across the six loci in the MCM miSeq definition
 set, so a run does not "see" M1 as a single thing. It sees the individual
 allele targets and assembles the family from them.
@@ -129,8 +129,9 @@ M1 across the six MCM miSeq loci (illustrative):
 Because of that founder history, MCM M-families are usually intact: the same
 family tends to hold together across neighbouring loci, and Lungfish prefers to
 keep a family intact when the evidence allows, since an intact pattern is the
-common biological case. It does not force an intact pattern over strong direct
-evidence to the contrary. When a locus carries an allele target that clearly
+common biological case. That preference has a limit, though: strong direct
+evidence to the contrary is never overridden to force a tidy pattern. When a
+locus carries an allele target that clearly
 belongs to a different family, that evidence stays visible and the locus is
 marked discordant or unresolved rather than smoothed into a tidy family call.
 
@@ -144,8 +145,8 @@ labelled H1 and H2. Two slots is not an arbitrary number: an animal inherits at
 most two MHC haplotypes, one from each parent, so at any locus there are at most
 two families to show.
 
-It is tempting to read H1 as the family from one parent and H2 as the family
-from the other. Resist that. H1 and H2 are report positions, nothing more.
+Reading H1 as the family from one parent and H2 as the family from the other is
+tempting. Resist that. H1 and H2 are report positions, nothing more.
 Lungfish reorders them freely to keep the same M-family aligned down a column of
 loci, so a slot carries no parental origin, and an unresolved slot is written as
 `?`.

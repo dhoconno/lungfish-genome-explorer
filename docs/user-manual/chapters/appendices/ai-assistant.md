@@ -28,18 +28,18 @@ lead_approved: false
 The AI Assistant is a chat panel inside Lungfish that answers questions
 about the dataset you have open. Instead of hunting through menus, you can
 type a plain question like "what is in this bundle?" or "what does this
-dialog mean?" and get an answer written against your current data. The panel
-reads the state of the active viewer (the loaded bundle, the organism, the
-region you are viewing, and the rows selected in the variant or sample
-tables) so its answers refer to what is actually in front of you.
+dialog mean?" and get an answer written against your current data. Behind the
+scenes it reads the state of the active viewer (the loaded bundle, the
+organism, the region you are viewing, and the rows selected in the variant or
+sample tables), so its answers refer to what is actually in front of you.
 
-The assistant is a bring-your-own-key feature: it does not include a model,
+This is a bring-your-own-key feature: the assistant does not include a model,
 and Lungfish does not run one for you. You connect your own account with an
 external AI provider by entering an API key, and requests go to that
-provider under your key. The panel is provider-neutral and works with any of
-the supported providers. This panel is still changing release to release, so
-what it answers well today may shift. The bottom line: treat it as an
-assistant for interpreting and navigating your data, not as a source of
+provider under your key. Any supported provider works, and the panel stays
+neutral about which one you pick. This panel is still changing release to
+release, so what it answers well today may shift. The bottom line: treat it
+as an assistant for interpreting and navigating your data, not as a source of
 record.
 
 <!-- planned: ai-assistant-panel -->
@@ -73,15 +73,15 @@ in place.
 ### Step 1. Open the AI Assistant panel
 
 Choose **View > AI Assistant**. The panel opens as a floating window beside
-your main window and stays visible while you work. It opens with a short
-welcome message and a set of suggested questions drawn from whatever is
+your main window and stays visible while you work. A short welcome message
+greets you, along with a set of suggested questions drawn from whatever is
 currently loaded, so you can click one to get started instead of typing.
 
 ### Step 2. Ask a question about the active dataset
 
-Type a question into the field at the bottom and press Return. The panel
-shows a thinking indicator while your provider responds, then displays the
-answer, which you can copy with the button on the reply. Good questions are
+Type a question into the field at the bottom and press Return. A thinking
+indicator appears while your provider responds; the answer follows, and you
+can copy it with the button on the reply. Good questions are
 grounded in your data: "summarize this bundle", "what genes are in my
 current view?", "explain what this taxonomy result is telling me", or "which
 workflow should I use to call variants here?". Because the assistant sees
@@ -91,21 +91,23 @@ before answering.
 
 ## What the assistant can and cannot do
 
-The assistant can interpret and explain, and it can look things up in your
-loaded data. It reads the active viewer state, searches your genome data for
-genes and variants, reports variant statistics and gene details, moves the
-browser view to a gene or region you ask about, and searches PubMed for
-related literature. It is well suited to explaining a result, a dialog, or
-an unfamiliar term, and to suggesting which workflow fits your question.
+On the can-do side, the assistant interprets and explains, and it looks
+things up in your loaded data. Within a single request it reads the active
+viewer state, searches your genome data for genes and variants, reports
+variant statistics and gene details, moves the browser view to a gene or
+region you ask about, and searches PubMed for related literature. Where it
+helps most is explaining a result, a dialog, or an unfamiliar term, and
+suggesting which workflow fits your question.
 
-The assistant cannot change your data or your project. It is not a
+What it cannot do is change your data or your project. This is not a
 data-modifying agent: it does not edit files, run analysis workflows or
 classifiers, import or delete bundles, or make changes on your behalf beyond
-moving the view. Its lookups are read-only, and because it changes nothing,
-its answers are not written into your project's provenance record, which
-tracks the tools and parameters that produced your data. Treat its output as
+moving the view. Its lookups are read-only. Because it changes nothing, its
+answers are not written into your project's provenance record, which tracks
+the tools and parameters that produced your data. Treat its output as
 guidance to check, not as a result to cite. When a question needs data that
-is not loaded, or when it is uncertain, a well-behaved answer will say so.
+is not loaded, or the assistant is uncertain, a well-behaved answer will say
+so.
 
 ## Next
 

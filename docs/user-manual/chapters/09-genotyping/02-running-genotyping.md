@@ -32,11 +32,11 @@ lead_approved: false
 ---
 
 !!! note "Newer workflow area"
-    MHC genotyping is one of the newer corners of Lungfish. No MCM MHC example
-    dataset ships with this manual yet, so the paths, sample counts, and read
-    counts in the steps below stand in for a real run rather than describing one
-    you can download. They show the shape of a run, not a fixture you can
-    reproduce step for step.
+    MHC genotyping is one of the newer corners of Lungfish. A real MCM MHC
+    dataset has not been added to this manual yet, so the paths, sample counts,
+    and read counts in the steps below stand in for a real run rather than
+    describing one you can download. They show the shape of a run, not a fixture
+    you can reproduce step for step.
 
 ## What it is
 
@@ -83,11 +83,11 @@ line.
 
 ## Choosing a genotyping workflow
 
-The route depends on the sequencing platform and, for ONT, on how the reads
-reach Lungfish. The biological reason to care is read length: short reads are
-matched directly to allele targets, allowing for the odd indel (a small
-insertion or deletion), while long reads are first collapsed into per-cluster
-consensus sequences so that sequencing error does not fragment a single allele
+Which route you use depends on the sequencing platform and, for ONT, on how the
+reads reach Lungfish. The biological reason to care is read length. Short reads
+are matched directly to allele targets, allowing for the odd indel (a small
+insertion or deletion). Long reads are first collapsed into per-cluster
+consensus sequences, so that sequencing error does not fragment a single allele
 into many near-duplicate matches.
 
 | If your data is | Use | Why |
@@ -103,9 +103,9 @@ data, then finish with Step 5, which is shared.
 
 ### Step 1. Open the Workflow Library and pick a genotyping workflow
 
-Open your project, then open the Workflow Library from the toolbar. In the
-genotyping group you will see the miSeq amplicon, ONT, and full-length ONT MHC
-genotyping workflows. Click the one that matches your data from the table above.
+Open your project, then open the Workflow Library from the toolbar. You will see
+the miSeq amplicon, ONT, and full-length ONT MHC genotyping workflows grouped
+together under genotyping. Click the one that matches your data from the table above.
 A configuration sheet opens where you choose inputs and the reference bundle.
 
 <!-- planned: genotyping-workflow-config -->
@@ -151,8 +151,8 @@ noisy long read were matched on its own, one true allele would scatter into many
 near-miss matches. Clustering collapses reads into a small number of consensus
 sequences first, and those consensus sequences are what get genotyped.
 
-In the full-length ONT sheet, choose your per-sample ONT FASTQ inputs and the
-MHC reference bundle. The workflow clusters each sample with Savont by default,
+Open the full-length ONT sheet, then choose your per-sample ONT FASTQ inputs and
+the MHC reference bundle. The workflow clusters each sample with Savont by default,
 using a quality-value cutoff and a minimum cluster size to keep only
 well-supported consensus sequences. As an alternative upstream path, you can
 cluster PacBio HiFi or ONT reads with pbAA first and feed the passed consensus
@@ -166,7 +166,7 @@ message names which sample started and how many reads it carried.
 
 ### Step 5. Track the run and open the genotype result bundle
 
-Every route reports into the Operations Panel, the running log of background
+All three routes report into the Operations Panel, the running log of background
 work. A genotyping run shows its stages there: staging inputs, mapping or
 clustering, genotyping, and writing the report. When the row turns green, the
 genotype result bundle appears in the sidebar under your project.
@@ -180,9 +180,9 @@ the message.
 
 ## Command-line parity
 
-Every route runs headless (from the command line, with no graphical window) with
-the same inputs, which is the reliable way to put a genotyping run in a script or
-a pipeline. Build the MHC reference bundle once, then call the route that matches
+Each of the three routes runs headless (from the command line, with no graphical
+window) with the same inputs, which is the reliable way to put a genotyping run
+in a script or a pipeline. Build the MHC reference bundle once, then call the route that matches
 your data. The block below reproduces the procedure above.
 
 ```bash
@@ -236,7 +236,7 @@ something about the input, not failing silently. Thin read support across the
 board usually means the reads did not cover the panel, so check that the
 reference bundle matches the wet-lab panel you actually ran. A sample where
 nearly every M-family has substantial support across many loci is the pattern
-the overcall guard is designed to catch, and it points to a mixed or
+the overcall guard is designed to catch. That points to a mixed or
 cross-contaminated input rather than a rich genotype. The next chapter shows how
 to read those signals in the dashboard.
 

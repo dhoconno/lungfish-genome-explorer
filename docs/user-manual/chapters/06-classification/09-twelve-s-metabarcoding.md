@@ -33,11 +33,11 @@ lead_approved: false
 ## What it is
 
 12S metabarcoding identifies which vertebrate species are present in a
-mixed sample. The 12S rRNA gene sits in the mitochondrial genome, and a
-short slice of it (roughly 100 to 200 bases) can be copied by PCR using
-primers that bind conserved sites shared across vertebrates. The copied
-slice is an amplicon, meaning a defined stretch of DNA amplified from a
-known pair of primer sites. Because the interior of that slice differs
+mixed sample. The 12S rRNA gene sits in the mitochondrial genome. A short
+slice of it (roughly 100 to 200 bases) can be copied by PCR using primers
+that bind conserved sites shared across vertebrates. The copied slice is an
+amplicon, meaning a defined stretch of DNA amplified from a known pair of
+primer sites. Because the interior of that slice differs
 from species to species while the primer sites stay constant, reading the
 amplicon tells you which animal the DNA came from. Metabarcoding is the
 practice of amplifying and sequencing one marker gene across a whole mixed

@@ -31,15 +31,15 @@ lead_approved: false
 
 !!! note "Newer workflow area"
     MHC genotyping arrived in Lungfish after the alignment and variant tools.
-    No MCM MHC example dataset ships with this manual yet, so the sample names,
-    allele-target IDs, read counts, and calls shown here are invented to
+    This manual still lacks a bundled MCM MHC example dataset, so the sample
+    names, allele-target IDs, read counts, and calls shown here are invented to
     demonstrate how the dashboard reads, not cells you can match one for one.
 
 ## What it is
 
 The genotype comparison viewport is the dashboard where you read a genotype
-result bundle. It is a comparison surface, not a genome view. It does not draw a
-coordinate axis. Instead it lays out allele-target rows against sample columns
+result bundle. Think of it as a comparison surface, not a genome view. There is
+no coordinate axis. Instead it lays out allele-target rows against sample columns
 and layers the M-family calls on top.
 
 <!-- planned: genotype-matrix-overview -->
@@ -68,9 +68,9 @@ fires, and to step in yourself with a manual override or an annotation.
 
 ## The genotype comparison matrix
 
-The matrix is the raw evidence layer. Each row is an allele target from the
-reference library, written with its identifier and source label such as
-`0068[MHC-A1]`. Each column is a sample. A filled cell means that sample showed
+Everything else builds on the matrix, the raw evidence layer. Each row is an
+allele target from the reference library, written with its identifier and source
+label such as `0068[MHC-A1]`. Each column is a sample. A filled cell means that sample showed
 that allele target, and the cell carries the retained read count behind it.
 Reading a column top to bottom tells you every allele target a sample produced.
 Reading a row left to right tells you which samples share an allele target.
@@ -94,8 +94,8 @@ M-family name or a `?` when the slot is unresolved.
 <!-- planned: genotype-haplotype-tape -->
 
 Each locus gets two slots because an animal inherits at most two MHC haplotypes,
-one from each parent. It is natural to expect H1 to be the family from one
-parent and H2 the family from the other, but that is not what they are. The two
+one from each parent. Expecting H1 to be the family from one parent and H2 the
+family from the other is natural, but that is not what they are. The two
 slots are report positions, nothing more. Lungfish reorders H1 and H2 freely to
 keep the same M-family aligned down a column of loci, because an intact family is
 the common case, so a slot carries no parental origin. A `?` is not a failure: it
@@ -105,7 +105,7 @@ targets into focus in the matrix and the call-evidence panel.
 
 ## The cohort summary
 
-The cohort summary is the triage layer for a multi-sample run. It tallies the
+For a multi-sample run, the cohort summary is the triage layer. It tallies the
 run rather than any single sample: how many samples fell below the read-support
 threshold, how many carry errors, how the quality-control statuses are
 distributed, and how many analyst annotations exist. Each tally names its samples

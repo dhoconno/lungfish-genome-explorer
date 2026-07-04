@@ -35,10 +35,10 @@ lead_approved: false
 ---
 
 !!! note "Newer workflow area"
-    MHC genotyping is a newer part of Lungfish, and no MCM MHC example dataset
-    ships with this manual yet. The definition IDs, target lists, and export
-    paths below are illustrative, meant to show how the editors and exporters
-    behave rather than to be reproduced file for file.
+    MHC genotyping is a newer part of Lungfish, and a bundled MCM MHC example
+    dataset is not part of this manual yet. The definition IDs, target lists, and
+    export paths below are illustrative, meant to show how the editors and
+    exporters behave rather than to be reproduced file for file.
 
 !!! note "Who this chapter is for"
     This chapter is written for the analyst who maintains the calling rules and
@@ -72,8 +72,8 @@ produce as a draft you sign off on, never as a call in its own right.
 ## What you will learn
 
 By the time you finish, editing a named haplotype definition from its marker
-columns should feel routine, you will know exactly what AI Discovery and AI
-Refinement do and, just as important, what they leave untouched, and you will be
+columns should feel routine. You will know exactly what AI Discovery and AI
+Refinement do and, just as important, what they leave untouched. You will also be
 able to send a reviewed bundle out as XLSX, CSV, TSV, a samples-across pivot
 workbook, or LabKey-ready CSV.
 
@@ -160,8 +160,8 @@ annotations. The headless equivalents are `lungfish genotype export-xlsx`,
 
 When results feed a LabKey server, export the LabKey-ready CSV set rather than a
 single workbook. It writes several long-format CSV files, one row per fact (each
-row records one small fact: one sample, one allele, one count), the shape a
-database loads most easily, with stable headers and standard escaping so an
+row records one small fact: one sample, one allele, one count). That long shape is
+what a database loads most easily, with stable headers and standard escaping so an
 ingestion step can load them directly. The set covers the final post-override
 haplotype calls, the per-sample per-allele read counts, the analyst overrides,
 the audit trail, and the saved cohorts.
