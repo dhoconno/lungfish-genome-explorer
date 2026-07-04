@@ -155,6 +155,9 @@ DEFERRED:
   calculateZoomPercent, dead performReverseComplement island) across WorkflowOperationsDialog,
   MainSplitViewController+FASTQImport, EnhancedCoordinateRulerView, SequenceViewerView+Interaction.
   Scoped-green (3152/0 + 159/0). Pass A (71 big files) audit COMPLETE.
+- `a6f7e84a` — batch 3: 1 item (dead `convenience init(selectedDestination:)` in
+  DatabaseSearchDialogState). Scoped-green (3152/0 + 159/0). Pass B (all ~338 smaller files,
+  directory-by-directory) audit COMPLETE — coverage ledger totals 409/409 audited.
 
 ## Deferred items
 
