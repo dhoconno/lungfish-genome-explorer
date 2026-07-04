@@ -48,18 +48,8 @@ extension MainSplitViewController {
                 return
             }
 
-            // Wrap naked file into a bundle in place (no ingestion — it may already be ingested)
-            let fm = FileManager.default
             do {
-                try fm.createDirectory(at: bundleURL, withIntermediateDirectories: true)
-                let destURL = bundleURL.appendingPathComponent(url.lastPathComponent)
-                try fm.moveItem(at: url, to: destURL)
-                // Move sidecar too if it exists
-                let sidecarName = url.lastPathComponent + ".lungfish-meta.json"
-                let sidecarURL = parentDir.appendingPathComponent(sidecarName)
-                if fm.fileExists(atPath: sidecarURL.path) {
-                    try fm.moveItem(at: sidecarURL, to: bundleURL.appendingPathComponent(sidecarName))
-                }
+                _ = try FASTQAutoBundleWorkflow.wrapNakedFASTQ(sourceURL: url, bundleURL: bundleURL)
                 mainSplitLogger.info("displayGenomicsFile: Auto-bundled naked FASTQ \(url.lastPathComponent) → \(bundleURL.lastPathComponent)")
                 sidebarController.requestReloadFromFilesystem()
                 loadFASTQDatasetInBackground(sourceURL: bundleURL)
