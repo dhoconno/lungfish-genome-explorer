@@ -43,6 +43,13 @@ enum ViewerFilePanelFactory {
         return panel
     }
 
+    static func fastqContaminantReferencePanel() -> NSOpenPanel {
+        let panel = MappingWorkflowFilePanelFactory.referenceFASTAPanel(
+            message: "Select a contaminant reference FASTA for filtering"
+        )
+        return panel
+    }
+
     static func fastqMetadataImportPanel(prompt: String) -> NSOpenPanel {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.commaSeparatedText, .tabSeparatedText, .plainText]

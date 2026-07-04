@@ -286,6 +286,9 @@ public final class FASTQDatasetViewController: NSViewController {
     private let qualityTrimModePopup = NSPopUpButton()
     private let adapterModePopup = NSPopUpButton()
     private let contaminantModePopup = NSPopUpButton()
+    private let contaminantReferenceBrowseButton = NSButton(title: "Browse\u{2026}", target: nil, action: nil)
+    private let contaminantReferenceLabel = NSTextField(labelWithString: "No reference selected")
+    private var contaminantReferenceURL: URL?
     private let mergeStrictnessPopup = NSPopUpButton()
     private let primerSourcePopup = NSPopUpButton()
     private let interleaveDirectionPopup = NSPopUpButton()
@@ -695,6 +698,16 @@ public final class FASTQDatasetViewController: NSViewController {
         qualityTrimModePopup.addItems(withTitles: ["Cut Right (3')", "Cut Front (5')", "Cut Tail", "Cut Both"])
         adapterModePopup.addItems(withTitles: ["Auto-Detect", "Specify Sequence"])
         contaminantModePopup.addItems(withTitles: ["PhiX Spike-in", "Custom Reference"])
+        contaminantReferenceBrowseButton.translatesAutoresizingMaskIntoConstraints = false
+        contaminantReferenceBrowseButton.bezelStyle = .rounded
+        contaminantReferenceBrowseButton.controlSize = .small
+        contaminantReferenceBrowseButton.target = self
+        contaminantReferenceBrowseButton.action = #selector(contaminantReferenceBrowseClicked(_:))
+        contaminantReferenceLabel.translatesAutoresizingMaskIntoConstraints = false
+        contaminantReferenceLabel.font = .systemFont(ofSize: 11)
+        contaminantReferenceLabel.textColor = .secondaryLabelColor
+        contaminantReferenceLabel.lineBreakMode = .byTruncatingMiddle
+        contaminantReferenceLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         mergeStrictnessPopup.addItems(withTitles: ["Normal", "Strict"])
         primerSourcePopup.addItems(withTitles: ["Literal Sequence", "Reference FASTA"])
         interleaveDirectionPopup.addItems(withTitles: ["Interleave (R1+R2 → one)", "Deinterleave (one → R1+R2)"])
@@ -983,6 +996,9 @@ public final class FASTQDatasetViewController: NSViewController {
             parameterBar.addArrangedSubview(fieldOneInput)
             parameterBar.addArrangedSubview(fieldTwoLabel)
             parameterBar.addArrangedSubview(fieldTwoInput)
+            parameterBar.addArrangedSubview(contaminantReferenceBrowseButton)
+            parameterBar.addArrangedSubview(contaminantReferenceLabel)
+            updateContaminantReferenceControls()
 
         case .pairedEndMerge:
             fieldOneLabel.stringValue = "Min Overlap:"
@@ -1792,12 +1808,37 @@ public final class FASTQDatasetViewController: NSViewController {
 
 
     @objc private func parameterPopupChanged(_ sender: NSPopUpButton) {
+        if sender === contaminantModePopup {
+            updateContaminantReferenceControls()
+            updateRunButtonState()
+        }
         updatePreview()
     }
 
 
     @objc private func parameterCheckboxChanged(_ sender: NSButton) {
         updatePreview()
+    }
+
+    private func updateContaminantReferenceControls() {
+        let usesCustomReference = contaminantModePopup.indexOfSelectedItem == 1
+        contaminantReferenceBrowseButton.isHidden = !usesCustomReference
+        contaminantReferenceLabel.isHidden = !usesCustomReference
+        contaminantReferenceLabel.stringValue = contaminantReferenceURL?.lastPathComponent ?? "No reference selected"
+        contaminantReferenceLabel.textColor = contaminantReferenceURL == nil ? .secondaryLabelColor : .labelColor
+    }
+
+    @objc private func contaminantReferenceBrowseClicked(_ sender: NSButton) {
+        let panel = ViewerFilePanelFactory.fastqContaminantReferencePanel()
+        guard let window = self.view.window ?? NSApp.mainWindow else { return }
+
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard let self, response == .OK, let url = panel.url else { return }
+            self.contaminantReferenceURL = url.standardizedFileURL
+            self.updateContaminantReferenceControls()
+            self.updateRunButtonState()
+            self.updatePreview()
+        }
     }
 
     /// Programmatically triggers the current operation run. Called after scout "Proceed".
@@ -2337,11 +2378,23 @@ public final class FASTQDatasetViewController: NSViewController {
                 setStatus("Mismatch tolerance must be 0-3.", isError: true)
                 return nil
             }
-            if contaminantModePopup.indexOfSelectedItem == 1 {
-                setStatus("Custom reference mode requires a file picker (not yet implemented). Use PhiX mode.", isError: true)
-                return nil
+            let mode: FASTQContaminantFilterMode = contaminantModePopup.indexOfSelectedItem == 1 ? .custom : .phix
+            let referencePath: String?
+            if mode == .custom {
+                guard let contaminantReferenceURL else {
+                    setStatus("Select a contaminant reference FASTA before running custom contaminant filtering.", isError: true)
+                    return nil
+                }
+                referencePath = contaminantReferenceURL.path
+            } else {
+                referencePath = nil
             }
-            return .contaminantFilter(mode: .phix, referenceFasta: nil, kmerSize: kmerSize, hammingDistance: hammingDist)
+            return .contaminantFilter(
+                mode: mode,
+                referenceFasta: referencePath,
+                kmerSize: kmerSize,
+                hammingDistance: hammingDist
+            )
 
         case .pairedEndMerge:
             let minOverlap = Int(fieldOneInput.stringValue) ?? 12
@@ -2549,6 +2602,9 @@ public final class FASTQDatasetViewController: NSViewController {
             runButton.title = "Run"
         case .humanReadScrub:
             runButton.isEnabled = true
+            runButton.title = "Run"
+        case .contaminantFilter:
+            runButton.isEnabled = contaminantModePopup.indexOfSelectedItem != 1 || contaminantReferenceURL != nil
             runButton.title = "Run"
         case .orient:
             runButton.isEnabled = orientReferenceURL != nil
@@ -2802,3 +2858,22 @@ extension FASTQDatasetViewController: NSSplitViewDelegate {
         false
     }
 }
+
+#if DEBUG
+extension FASTQDatasetViewController {
+    func testingSelectContaminantFilter(
+        mode: FASTQContaminantFilterMode,
+        referenceURL: URL? = nil
+    ) -> (request: FASTQDerivativeRequest?, isRunEnabled: Bool) {
+        _ = view
+        selectedOperation = .contaminantFilter
+        updateParameterBar()
+        contaminantModePopup.selectItem(at: mode == .custom ? 1 : 0)
+        contaminantReferenceURL = referenceURL?.standardizedFileURL
+        updateContaminantReferenceControls()
+        updateRunButtonState()
+
+        return (buildOperationRequest(), runButton.isEnabled)
+    }
+}
+#endif
