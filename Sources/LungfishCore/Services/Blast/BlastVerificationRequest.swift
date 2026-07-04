@@ -312,6 +312,9 @@ public enum BlastServiceError: Error, LocalizedError, Sendable {
     /// No sequences were provided for verification.
     case noSequences
 
+    /// A local BLAST input file could not be read completely.
+    case inputReadFailed(message: String)
+
     /// Rate limit: must wait before submitting another request.
     case rateLimitExceeded(retryAfter: TimeInterval)
 
@@ -340,6 +343,8 @@ public enum BlastServiceError: Error, LocalizedError, Sendable {
             return "Failed to parse BLAST results: \(message)"
         case .noSequences:
             return "No sequences provided for BLAST verification"
+        case .inputReadFailed(let message):
+            return "BLAST input read failed: \(message)"
         case .rateLimitExceeded(let retryAfter):
             return "NCBI rate limit exceeded. Retry after \(Int(retryAfter)) seconds."
         case .httpError(let statusCode, let body):

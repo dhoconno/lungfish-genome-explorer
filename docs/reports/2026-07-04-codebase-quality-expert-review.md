@@ -59,6 +59,8 @@ and behavior-preserving simplifications are useful and appropriate.
 - 2026-07-04 follow-up: BLAST URL API submissions now use strict
   `application/x-www-form-urlencoded` escaping so read IDs and extra parameters cannot inject
   additional form fields.
+- 2026-07-04 follow-up: BLAST read extraction now fails closed on nonzero gzip exits instead of
+  accepting partial FASTQ/Kraken output as successful verification input.
 
 ## Still Deferred
 

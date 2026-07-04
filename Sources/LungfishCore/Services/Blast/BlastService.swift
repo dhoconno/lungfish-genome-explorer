@@ -213,23 +213,27 @@ public actor BlastService {
         let isGzip = classificationOutputURL.pathExtension.lowercased() == "gz"
         let fileHandle: FileHandle
         let gzipProcess: Process?
+        let gzipStderr: Pipe?
 
         if isGzip {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
             process.arguments = ["-dc", classificationOutputURL.path]
             let stdout = Pipe()
+            let stderr = Pipe()
             process.standardOutput = stdout
-            process.standardError = FileHandle.nullDevice
+            process.standardError = stderr
             try process.run()
             fileHandle = stdout.fileHandleForReading
             gzipProcess = process
+            gzipStderr = stderr
         } else {
             guard let handle = FileHandle(forReadingAtPath: classificationOutputURL.path) else {
                 throw BlastServiceError.noSequences
             }
             fileHandle = handle
             gzipProcess = nil
+            gzipStderr = nil
         }
 
         var matchingReadIds = Set<String>()
@@ -277,7 +281,11 @@ public actor BlastService {
         if let gzipProcess {
             gzipProcess.waitUntilExit()
             guard gzipProcess.terminationStatus == 0 else {
-                throw BlastServiceError.noSequences
+                throw Self.gzipFailure(
+                    path: classificationOutputURL.path,
+                    status: gzipProcess.terminationStatus,
+                    stderr: gzipStderr
+                )
             }
         }
 
@@ -461,11 +469,21 @@ public actor BlastService {
         let maxAttempts = isGzip ? 2 : 1  // Retry only for gzip (subprocess can fail)
 
         for attempt in 1...maxAttempts {
-            let sequences = try extractMatchingSequencesOnce(
-                from: sourceURL,
-                matchingReadIds: matchingReadIds,
-                isGzip: isGzip
-            )
+            let sequences: [(id: String, sequence: String)]
+            do {
+                sequences = try extractMatchingSequencesOnce(
+                    from: sourceURL,
+                    matchingReadIds: matchingReadIds,
+                    isGzip: isGzip
+                )
+            } catch {
+                if isGzip, attempt < maxAttempts {
+                    logger.warning("extractMatchingSequences: gzip attempt \(attempt, privacy: .public) failed: \(error.localizedDescription, privacy: .public); retrying...")
+                    Thread.sleep(forTimeInterval: 0.5)
+                    continue
+                }
+                throw error
+            }
 
             if !sequences.isEmpty || !isGzip {
                 return sequences
@@ -491,14 +509,16 @@ public actor BlastService {
         var allSequences: [(id: String, sequence: String)] = []
         let handle: FileHandle?
         var gzipProcess: Process?
+        var gzipStderr: Pipe?
 
         if isGzip {
             let proc = Process()
             proc.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
             proc.arguments = ["-dc", sourceURL.path]
             let pipe = Pipe()
+            let stderr = Pipe()
             proc.standardOutput = pipe
-            proc.standardError = FileHandle.nullDevice
+            proc.standardError = stderr
             do {
                 try proc.run()
             } catch {
@@ -507,9 +527,11 @@ public actor BlastService {
             }
             handle = pipe.fileHandleForReading
             gzipProcess = proc
+            gzipStderr = stderr
         } else {
             handle = FileHandle(forReadingAtPath: sourceURL.path)
             gzipProcess = nil
+            gzipStderr = nil
         }
 
         if let handle {
@@ -566,6 +588,13 @@ public actor BlastService {
                 proc.waitUntilExit()
                 let status = proc.terminationStatus
                 logger.info("extractMatchingSequences: gzip exited with status \(status, privacy: .public), read \(chunksRead, privacy: .public) chunks (\(totalBytesRead, privacy: .public) bytes), \(totalRecords, privacy: .public) FASTQ records, \(utf8Failures, privacy: .public) UTF8 failures, \(allSequences.count, privacy: .public) matched")
+                guard status == 0 else {
+                    throw Self.gzipFailure(
+                        path: sourceURL.path,
+                        status: status,
+                        stderr: gzipStderr
+                    )
+                }
             } else {
                 logger.info("extractMatchingSequences: read \(chunksRead, privacy: .public) chunks (\(totalBytesRead, privacy: .public) bytes), \(totalRecords, privacy: .public) FASTQ records, \(allSequences.count, privacy: .public) matched")
             }
@@ -1353,6 +1382,21 @@ public actor BlastService {
         }
 
         return body[valueRange].trimmingCharacters(in: .whitespaces)
+    }
+
+    private nonisolated static func gzipFailure(
+        path: String,
+        status: Int32,
+        stderr: Pipe?
+    ) -> BlastServiceError {
+        let stderrText = stderr
+            .flatMap { String(data: $0.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) }?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        var message = "gzip decompression failed for \(path) with exit status \(status)"
+        if let stderrText, !stderrText.isEmpty {
+            message += ": \(stderrText)"
+        }
+        return .inputReadFailed(message: message)
     }
 
     /// Form-encodes a list of key-value pairs.

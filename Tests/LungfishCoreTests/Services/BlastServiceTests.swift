@@ -1244,6 +1244,7 @@ final class BlastServiceTests: XCTestCase {
             .jobFailed(rid: "DEF456", message: "Search expired"),
             .resultParsingFailed(message: "Invalid JSON"),
             .noSequences,
+            .inputReadFailed(message: "gzip decompression failed"),
             .rateLimitExceeded(retryAfter: 30),
             .httpError(statusCode: 503, body: "Service Unavailable"),
             .networkFailed(message: "The network connection was lost"),
@@ -1708,5 +1709,44 @@ final class BlastBuildRequestTests: XCTestCase {
         )
 
         XCTAssertEqual(request.sequences.count, 5, "Should extract all 5 reads from gzipped FASTQ")
+    }
+
+    func testCorruptGzipFASTQExtractionThrowsInsteadOfReturningPartialReads() async throws {
+        let rawURL = tempDir.appendingPathComponent("reads.fastq")
+        try "@read_0\nATGCATGC\n+\nIIIIIIII\n"
+            .write(to: rawURL, atomically: true, encoding: .utf8)
+
+        let gzipProc = Process()
+        gzipProc.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+        gzipProc.arguments = ["-c", rawURL.path]
+        let outPipe = Pipe()
+        gzipProc.standardOutput = outPipe
+        try gzipProc.run()
+        let compressed = outPipe.fileHandleForReading.readDataToEndOfFile()
+        gzipProc.waitUntilExit()
+        XCTAssertEqual(gzipProc.terminationStatus, 0)
+        XCTAssertGreaterThan(compressed.count, 8)
+
+        let gzURL = tempDir.appendingPathComponent("reads.fastq.gz")
+        try Data(compressed.dropLast(8)).write(to: gzURL)
+
+        do {
+            _ = try await service.buildVerificationRequestFromReadIds(
+                taxonName: "E. coli",
+                taxId: 562,
+                matchingReadIds: ["read_0"],
+                sourceURL: gzURL,
+                readCount: 20
+            )
+            XCTFail("Expected corrupt gzip input to fail instead of returning partial reads")
+        } catch let error as BlastServiceError {
+            if case .noSequences = error {
+                XCTFail("Corrupt gzip should report decompression failure, not look like an empty match set")
+            }
+            XCTAssertTrue(
+                error.localizedDescription.localizedCaseInsensitiveContains("gzip"),
+                "Expected gzip/decompression error, got \(error.localizedDescription)"
+            )
+        }
     }
 }
