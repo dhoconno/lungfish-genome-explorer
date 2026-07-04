@@ -2543,6 +2543,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         batchFlatTableView.onRowSelected = { [weak self] row in
             guard let self else { return }
             self.actionBar.updateInfoText("1 row selected")
+            self.actionBar.setBlastEnabled(true)
             self.actionBar.setExtractEnabled(true)
             self.hideMultiSelectionPlaceholder()
             self.selectedBatchSampleId = row.sample
@@ -2574,6 +2575,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         batchFlatTableView.onMultipleRowsSelected = { [weak self] rows in
             guard let self else { return }
             self.actionBar.updateInfoText("\(rows.count) rows selected")
+            self.actionBar.setBlastEnabled(false, reason: "Select a single row to use BLAST Verify")
             self.actionBar.setExtractEnabled(true)
             self.showMultiSelectionPlaceholder(count: rows.count)
             self.selectedBatchSampleId = nil
@@ -2588,6 +2590,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         batchFlatTableView.onSelectionCleared = { [weak self] in
             guard let self else { return }
             self.actionBar.updateInfoText("Select an organism to view details")
+            self.actionBar.setBlastEnabled(false, reason: "Select a row to use BLAST Verify")
             self.hideMultiSelectionPlaceholder()
             self.selectedBatchSampleId = nil
             self.selectedBatchOrganismName = nil
@@ -2830,6 +2833,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         batchFlatTableView.onRowSelected = { [weak self] row in
             guard let self else { return }
             self.actionBar.updateInfoText("1 row selected")
+            self.actionBar.setBlastEnabled(true)
             self.actionBar.setExtractEnabled(true)
             self.hideMultiSelectionPlaceholder()
             self.selectedBatchSampleId = row.sample
@@ -2862,6 +2866,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         batchFlatTableView.onMultipleRowsSelected = { [weak self] rows in
             guard let self else { return }
             self.actionBar.updateInfoText("\(rows.count) rows selected")
+            self.actionBar.setBlastEnabled(false, reason: "Select a single row to use BLAST Verify")
             self.actionBar.setExtractEnabled(true)
             self.showMultiSelectionPlaceholder(count: rows.count)
             self.selectedBatchSampleId = nil
@@ -2875,6 +2880,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         batchFlatTableView.onSelectionCleared = { [weak self] in
             guard let self else { return }
             self.actionBar.updateInfoText("Select an organism to view details")
+            self.actionBar.setBlastEnabled(false, reason: "Select a row to use BLAST Verify")
             self.hideMultiSelectionPlaceholder()
             self.selectedBatchSampleId = nil
             self.selectedBatchOrganismName = nil
@@ -3027,17 +3033,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
         // Table BLAST request -> forward to host with BAM context
         organismTableView.onBlastRequested = { [weak self] row, readCount in
-            guard let self else { return }
-            let organism = TaxTriageOrganism(
-                name: row.organism,
-                score: row.tassScore,
-                reads: row.reads,
-                coverage: row.coverage,
-                taxId: row.taxId,
-                rank: row.rank
-            )
-            let rowAccessions = self.accessions(for: row)
-            self.onBlastVerification?(organism, readCount, rowAccessions, self.bamURL, self.bamIndexURL)
+            self?.requestBlastVerification(for: row, readCount: readCount)
         }
 
         // Action bar Extract FASTQ -> route to the unified extraction dialog.
@@ -3057,31 +3053,12 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
         // Batch flat table BLAST verify -> forward to host with BAM context.
         batchFlatTableView.onBlastVerifyRequested = { [weak self] metric, readCount in
-            guard let self else { return }
-            let organism = TaxTriageOrganism(
-                name: metric.organism,
-                score: metric.tassScore,
-                reads: metric.reads,
-                coverage: metric.coverageBreadth,
-                taxId: metric.taxId,
-                rank: metric.rank
-            )
-            let rowAccessions = self.accessions(for: metric)
-            let sampleId = metric.sample
-            let bamURL = sampleId.flatMap { self.bamFilesBySample[$0] } ?? self.bamURL
-            let bamIndexURL: URL?
-            if let bamURL {
-                bamIndexURL = resolveBamIndex(for: bamURL, allOutputFiles: self.taxTriageResult?.allOutputFiles ?? [])
-            } else {
-                bamIndexURL = self.bamIndexURL
-            }
-            self.onBlastVerification?(organism, readCount, rowAccessions, bamURL, bamIndexURL)
+            self?.requestBlastVerification(for: metric, readCount: readCount)
         }
 
-        // Action bar BLAST verify (TaxTriage triggers BLAST via table context menu)
-        actionBar.onBlastVerify = {
-            // TaxTriage BLAST is triggered via the table context menu per-organism;
-            // the action bar button is intentionally a no-op placeholder
+        // Action bar BLAST verify -> run the selected row with the default all-reads count.
+        actionBar.onBlastVerify = { [weak self] in
+            self?.requestBlastVerificationForCurrentSelection()
         }
 
         // Action bar export
@@ -3109,6 +3086,64 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         recomputeUniqueReadsButton.target = self
         recomputeUniqueReadsButton.action = #selector(recomputeUniqueReadsTapped)
         actionBar.addCustomButton(recomputeUniqueReadsButton)
+    }
+
+    private func requestBlastVerification(for row: TaxTriageTableRow, readCount: Int) {
+        let organism = TaxTriageOrganism(
+            name: row.organism,
+            score: row.tassScore,
+            reads: row.reads,
+            coverage: row.coverage,
+            taxId: row.taxId,
+            rank: row.rank
+        )
+        let rowAccessions = accessions(for: row)
+        onBlastVerification?(organism, readCount, rowAccessions, bamURL, bamIndexURL)
+    }
+
+    private func requestBlastVerification(for metric: TaxTriageMetric, readCount: Int) {
+        let organism = TaxTriageOrganism(
+            name: metric.organism,
+            score: metric.tassScore,
+            reads: metric.reads,
+            coverage: metric.coverageBreadth,
+            taxId: metric.taxId,
+            rank: metric.rank
+        )
+        let rowAccessions = accessions(for: metric)
+        let sampleId = metric.sample
+        let metricBamURL = sampleId.flatMap { bamFilesBySample[$0] } ?? bamURL
+        let metricBamIndexURL: URL?
+        if let metricBamURL {
+            metricBamIndexURL = resolveBamIndex(
+                for: metricBamURL,
+                allOutputFiles: taxTriageResult?.allOutputFiles ?? []
+            )
+        } else {
+            metricBamIndexURL = bamIndexURL
+        }
+        onBlastVerification?(organism, readCount, rowAccessions, metricBamURL, metricBamIndexURL)
+    }
+
+    private func requestBlastVerificationForCurrentSelection() {
+        let flatSelection = batchFlatTableView.selectedMetrics()
+        if batchFlatTableView.isHidden == false, flatSelection.count == 1, let metric = flatSelection.first {
+            requestBlastVerification(for: metric, readCount: defaultBlastReadCount(for: metric))
+            return
+        }
+
+        let organismRows = organismTableView.selectedTableRows()
+        if organismTableView.isHidden == false, organismRows.count == 1, let row = organismRows.first {
+            requestBlastVerification(for: row, readCount: row.uniqueReads ?? row.reads)
+            return
+        }
+
+        actionBar.setBlastEnabled(false, reason: "Select a single row to use BLAST Verify")
+    }
+
+    private func defaultBlastReadCount(for metric: TaxTriageMetric) -> Int {
+        let sampleKey = metric.sample ?? ""
+        return batchFlatTableView.totalReadsByKey["\(sampleKey)\t\(metric.organism)"] ?? metric.reads
     }
 
     // MARK: - Recompute Unique Reads

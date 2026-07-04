@@ -64,6 +64,9 @@ and behavior-preserving simplifications are useful and appropriate.
 - 2026-07-04 follow-up: Sample metadata CSV/TSV import now rejects rows whose column count differs
   from the header before scanning or persisting metadata, avoiding silent misalignment in scientific
   import workflows.
+- 2026-07-04 follow-up: TaxTriage's bottom action-bar BLAST Verify button is no longer a deceptive
+  no-op; single-row selections now enable it and route through the same selected-row verification
+  context used by row-level BLAST actions.
 
 ## Still Deferred
 
