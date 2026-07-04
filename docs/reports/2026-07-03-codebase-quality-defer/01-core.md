@@ -43,6 +43,14 @@ original refactor was constrained to behavior-preserving edits:
   accepts only uncompressed FASTA for copy/index builds, preserves annotation
   source extensions, copies only already-indexed BCF+CSI inputs, and points
   compressed/converted scientific outputs to `NativeBundleBuilder`/CLI tooling.
+- `SRAService.downloadFASTQFromENA` now uses the shared `HTTPClient.download`
+  contract so URLSession can stream ENA FASTQ payloads to temporary files before
+  atomic publication; tests assert the download path does not fall back to
+  response-buffer writes.
+- `SRAService.runCommand` now drains stdout/stderr concurrently while SRA Toolkit
+  subprocesses run, avoiding pipe-buffer deadlocks on verbose tools.
+- `SRAService` now reuses POSIX/UTC run-info date formatters and accepts both
+  timestamp and date-only NCBI run-info dates.
 
 ## ProjectStore.swift (remaining escalations)
 
@@ -73,22 +81,8 @@ original refactor was constrained to behavior-preserving edits:
   with a thin `@MainActor` progress model. Deferred (significant restructuring,
   not behavior-preserving).
 
-## SRAService.swift (escalations — behavior-changing / cross-file, NOT applied)
+## SRAService.swift (remaining escalations)
 
-- **F1 — ENA download buffers whole FASTQ.gz into memory (high).**
-  `downloadFASTQFromENA` uses `httpClient.data(for:)` then writes to disk;
-  multi-GB files risk OOM and give no mid-download progress. The binding rule is
-  `downloadTask + continuation`, copy in `didFinishDownloadingTo`. Deferred:
-  requires extending the shared `HTTPClient` contract (cross-file) and changes
-  memory/progress behavior.
-- **F10 — `runCommand` pipe-deadlock hazard (medium).** `waitUntilExit()` before
-  draining pipes can deadlock if fasterq-dump/prefetch writes > pipe buffer to
-  stderr before exit. Suggestion: drain pipes concurrently / via
-  `terminationHandler`. Deferred (correctness change, real-tool-only path).
-- **F7 — `parseDate` builds a `DateFormatter` per row + no POSIX locale (low).**
-  Suggestion: hoist a `static let` POSIX formatter. Deferred with the CSV work;
-  adding `en_US_POSIX` is strictly-more-correct but is a behavior change on
-  non-POSIX locales.
 - **F8 — `totalCount` is the returned-page count, not the ESearch corpus
   `<Count>` (medium).** Misleads "N results" UIs. Fixing needs `ncbiService.esearch`
   to return the corpus count (cross-file). Deferred; doc-note only for now.

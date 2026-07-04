@@ -33,9 +33,47 @@ final class SRAServiceTests: XCTestCase {
 
         XCTAssertEqual(results.runs.count, 1)
         XCTAssertEqual(results.runs.first?.accession, "SRR11140748")
+        XCTAssertNotNil(results.runs.first?.releaseDate)
 
         let requests = await efetchClient.requests
         XCTAssertEqual(requests.count, 2, "Expected one retry for transient run-info fetch failure")
+    }
+
+    func testDownloadFASTQFromENAUsesHTTPClientDownload() async throws {
+        let outputDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sra-ena-download-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: outputDirectory) }
+
+        let client = DownloadRecordingHTTPClient()
+        let service = SRAService(
+            ncbiService: NCBIService(httpClient: client),
+            httpClient: client
+        )
+
+        let urls = try await service.downloadFASTQFromENA(
+            accession: "SRR123456",
+            outputDir: outputDirectory
+        )
+
+        XCTAssertEqual(urls.map(\.lastPathComponent), ["SRR123456.fastq.gz"])
+        let downloadedURL = try XCTUnwrap(urls.first)
+        XCTAssertEqual(
+            try String(contentsOf: downloadedURL, encoding: .utf8),
+            "@SRR123456\nACGT\n+\nIIII\n"
+        )
+
+        let dataRequests = await client.dataRequestURLs
+        XCTAssertEqual(dataRequests.count, 1)
+        let dataRequestURL = try XCTUnwrap(dataRequests.first)
+        XCTAssertTrue(dataRequestURL.absoluteString.contains("portal/api/filereport"))
+
+        let downloadRequests = await client.downloadRequestURLs
+        XCTAssertEqual(downloadRequests.count, 1)
+        let downloadRequestURL = try XCTUnwrap(downloadRequests.first)
+        XCTAssertEqual(
+            downloadRequestURL.absoluteString,
+            "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR123/SRR123456/SRR123456.fastq.gz"
+        )
     }
 }
 
@@ -72,5 +110,48 @@ private actor SequencedHTTPClient: HTTPClient {
         )!
 
         return (response.data, httpResponse)
+    }
+}
+
+private actor DownloadRecordingHTTPClient: HTTPClient {
+    private(set) var dataRequestURLs: [URL] = []
+    private(set) var downloadRequestURLs: [URL] = []
+
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        let url = request.url ?? URL(string: "https://example.invalid")!
+        dataRequestURLs.append(url)
+
+        let payload: [[String: Any]] = [
+            [
+                "run_accession": "SRR123456",
+                "experiment_accession": "SRX123456",
+                "sample_accession": "SRS123456",
+                "study_accession": "SRP123456",
+                "library_layout": "SINGLE",
+                "fastq_ftp": "ftp.sra.ebi.ac.uk/vol1/fastq/SRR123/SRR123456/SRR123456.fastq.gz",
+                "fastq_bytes": "26",
+            ]
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        return (data, httpResponse(url: url, statusCode: 200))
+    }
+
+    func download(for request: URLRequest) async throws -> (URL, URLResponse) {
+        let url = request.url ?? URL(string: "https://example.invalid")!
+        downloadRequestURLs.append(url)
+
+        let temporaryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sra-download-client-\(UUID().uuidString)")
+        try "@SRR123456\nACGT\n+\nIIII\n".write(to: temporaryURL, atomically: true, encoding: .utf8)
+        return (temporaryURL, httpResponse(url: url, statusCode: 200))
+    }
+
+    private func httpResponse(url: URL, statusCode: Int) -> HTTPURLResponse {
+        HTTPURLResponse(
+            url: url,
+            statusCode: statusCode,
+            httpVersion: "HTTP/1.1",
+            headerFields: nil
+        )!
     }
 }

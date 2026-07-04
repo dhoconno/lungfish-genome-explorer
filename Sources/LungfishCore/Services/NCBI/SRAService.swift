@@ -85,6 +85,7 @@ public actor SRAService {
     private let ncbiService: NCBIService
     private let httpClient: HTTPClient
     private let homeDirectoryProvider: @Sendable () -> URL
+    private let runInfoDateFormatters = SRAService.makeRunInfoDateFormatters()
 
     /// Closure type used to inject custom download strategies (primarily for tests).
     public typealias DownloadStrategy = @Sendable (_ accession: String, _ outputDir: URL?) async throws -> [URL]
@@ -335,9 +336,36 @@ public actor SRAService {
 
     private func parseDate(_ dateStr: String?) -> Date? {
         guard let str = dateStr, !str.isEmpty else { return nil }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        return formatter.date(from: str)
+        for formatter in runInfoDateFormatters {
+            if let date = formatter.date(from: str) {
+                return date
+            }
+        }
+        return nil
+    }
+
+    private static func makeRunInfoDateFormatters() -> [DateFormatter] {
+        ["yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd"].map { format in
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = TimeZone(secondsFromGMT: 0)
+            formatter.dateFormat = format
+            return formatter
+        }
+    }
+
+    private static func publishDownloadedFile(from temporaryURL: URL, to destinationURL: URL) throws {
+        let fileManager = FileManager.default
+        defer { try? fileManager.removeItem(at: temporaryURL) }
+        try fileManager.createDirectory(
+            at: destinationURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        if fileManager.fileExists(atPath: destinationURL.path) {
+            _ = try fileManager.replaceItemAt(destinationURL, withItemAt: temporaryURL)
+        } else {
+            try fileManager.moveItem(at: temporaryURL, to: destinationURL)
+        }
     }
 
     // MARK: - Download
@@ -543,14 +571,15 @@ public actor SRAService {
                 request.timeoutInterval = 600
 
                 let downloadStartedAt = Date()
-                let (data, response) = try await httpClient.data(for: request)
+                let (temporaryURL, response) = try await httpClient.download(for: request)
                 let downloadCompletedAt = Date()
                 guard let httpResponse = response as? HTTPURLResponse,
                       (200...299).contains(httpResponse.statusCode) else {
+                    try? FileManager.default.removeItem(at: temporaryURL)
                     continue
                 }
 
-                try data.write(to: localPath)
+                try Self.publishDownloadedFile(from: temporaryURL, to: localPath)
                 downloadedFiles.append(localPath)
                 trace?(
                     FASTQDownloadStepTrace(
@@ -721,6 +750,24 @@ public actor SRAService {
         let exitCode: Int32
     }
 
+    private final class PipeDataBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var storage = Data()
+
+        func set(_ data: Data) {
+            lock.lock()
+            storage = data
+            lock.unlock()
+        }
+
+        func stringValue() -> String {
+            lock.lock()
+            let data = storage
+            lock.unlock()
+            return String(data: data, encoding: .utf8) ?? ""
+        }
+    }
+
     private func runCommand(_ path: String, arguments: [String]) async throws -> CommandResult {
         return try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global().async {
@@ -735,14 +782,27 @@ public actor SRAService {
 
                 do {
                     try process.run()
-                    process.waitUntilExit()
+                    let stdoutData = PipeDataBox()
+                    let stderrData = PipeDataBox()
+                    let readGroup = DispatchGroup()
 
-                    let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-                    let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                    readGroup.enter()
+                    DispatchQueue.global(qos: .utility).async {
+                        stdoutData.set(stdoutPipe.fileHandleForReading.readDataToEndOfFile())
+                        readGroup.leave()
+                    }
+                    readGroup.enter()
+                    DispatchQueue.global(qos: .utility).async {
+                        stderrData.set(stderrPipe.fileHandleForReading.readDataToEndOfFile())
+                        readGroup.leave()
+                    }
+
+                    process.waitUntilExit()
+                    readGroup.wait()
 
                     let result = CommandResult(
-                        stdout: String(data: stdoutData, encoding: .utf8) ?? "",
-                        stderr: String(data: stderrData, encoding: .utf8) ?? "",
+                        stdout: stdoutData.stringValue(),
+                        stderr: stderrData.stringValue(),
                         exitCode: process.terminationStatus
                     )
 
