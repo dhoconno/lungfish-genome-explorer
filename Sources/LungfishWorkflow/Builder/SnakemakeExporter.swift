@@ -6,12 +6,16 @@ import Foundation
 
 // MARK: - SnakemakeExporter
 
-/// Exports a workflow graph to Snakemake format.
+/// Exports the legacy runnable subset of a workflow graph to Snakemake format.
 ///
-/// Generates a complete Snakefile with:
+/// Generates a Snakefile for supported legacy workflow nodes with:
 /// - Configuration section
 /// - Rule definitions for each node
 /// - Input/output dependencies
+///
+/// Native Workflow Builder FASTQ operations are executed by
+/// `WorkflowBuilderNativeRunner` and are intentionally rejected here instead of
+/// being rendered as incomplete placeholder rules.
 ///
 /// ## Example
 /// ```swift
@@ -86,7 +90,7 @@ public struct SnakemakeExporter: Sendable {
             throw SnakemakeExportError.cycleDetected
         }
 
-        if let unsupported = orderedNodes.first(where: { $0.type.isBuilderNativeFASTQNode }) {
+        if let unsupported = orderedNodes.first(where: { !Self.supportsExporting($0.type) }) {
             throw SnakemakeExportError.unsupportedNodeType(unsupported.type)
         }
 
@@ -222,6 +226,34 @@ public struct SnakemakeExporter: Sendable {
     }
 
     // MARK: - Rule Generation
+
+    private static let supportedInputNodeTypes: Set<WorkflowNodeType> = [
+        .sampleInput,
+        .fastqInput,
+        .fastaInput,
+        .bamInput,
+        .sampleSheet,
+    ]
+
+    private static let supportedProcessNodeTypes: Set<WorkflowNodeType> = [
+        .qualityControl,
+        .trimming,
+        .alignment,
+        .variantCalling,
+        .quantification,
+        .assembly,
+        .report,
+        .export,
+    ]
+
+    private static func supportsExporting(_ type: WorkflowNodeType) -> Bool {
+        switch type.category {
+        case .input:
+            return supportedInputNodeTypes.contains(type)
+        default:
+            return supportedProcessNodeTypes.contains(type)
+        }
+    }
 
     private func generateRule(node: WorkflowNode, graph: WorkflowGraph) throws -> String {
         var rule = ""
@@ -467,7 +499,7 @@ public struct SnakemakeExporter: Sendable {
 
             """
         default:
-            return "        # TODO: Add script for \(node.type.displayName)\n"
+            throw SnakemakeExportError.unsupportedNodeType(node.type)
         }
     }
 
