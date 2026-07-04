@@ -42,6 +42,8 @@ and behavior-preserving simplifications are useful and appropriate.
   recursion removal, VariantDatabase no-op scaffold pruning, VCF parser hardening for invalid
   quality fields plus empty FORMAT/sample genotype fields, and GFF3/GTF parser hardening for
   invalid score/phase fields.
+- 2026-07-04 follow-up: `ProcessManager.runAndWait` now propagates Swift task cancellation to the
+  spawned native process tree and throws `CancellationError` after cancellation.
 
 ## Still Deferred
 

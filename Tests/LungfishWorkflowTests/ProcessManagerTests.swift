@@ -52,6 +52,64 @@ final class ProcessManagerTests: XCTestCase {
         XCTAssertTrue(childExited, "Terminating a workflow process must terminate descendant tool processes")
     }
 
+    func testRunAndWaitCancellationTerminatesProcessTree() async throws {
+        let tempDir = try makeTemporaryDirectory()
+        let rootPIDFile = tempDir.appendingPathComponent("root.pid")
+        let childPIDFile = tempDir.appendingPathComponent("child.pid")
+        let scriptURL = tempDir.appendingPathComponent("workflow-run-and-wait.sh")
+        let script = """
+        #!/bin/sh
+        echo $$ > "$LUNGFISH_TEST_ROOT_PID_FILE"
+        /bin/sh -c 'trap "" TERM HUP INT; echo $$ > "$LUNGFISH_TEST_CHILD_PID_FILE"; while true; do sleep 1; done' &
+        while true; do sleep 1; done
+        """
+        try script.write(to: scriptURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
+
+        let task = Task {
+            try await ProcessManager.shared.runAndWait(
+                executable: scriptURL,
+                arguments: [],
+                workingDirectory: tempDir,
+                environment: [
+                    "LUNGFISH_TEST_ROOT_PID_FILE": rootPIDFile.path,
+                    "LUNGFISH_TEST_CHILD_PID_FILE": childPIDFile.path
+                ]
+            )
+        }
+
+        let rootPID = try await waitForPIDFile(rootPIDFile)
+        let childPID = try await waitForPIDFile(childPIDFile)
+        addTeardownBlock {
+            ProcessTreeTerminator.terminate(rootPID: rootPID, gracePeriod: 0)
+            ProcessTreeTerminator.terminate(rootPID: childPID, gracePeriod: 0)
+        }
+
+        XCTAssertTrue(Self.isProcessRunning(pid: rootPID))
+        XCTAssertTrue(Self.isProcessRunning(pid: childPID))
+
+        task.cancel()
+
+        let rootExited = await Self.waitUntilProcessExits(pid: rootPID, timeout: 2.0)
+        let childExited = await Self.waitUntilProcessExits(pid: childPID, timeout: 2.0)
+        if !rootExited || !childExited {
+            ProcessTreeTerminator.terminate(rootPID: rootPID, gracePeriod: 0)
+            ProcessTreeTerminator.terminate(rootPID: childPID, gracePeriod: 0)
+        }
+
+        XCTAssertTrue(rootExited, "Cancelling runAndWait must terminate the root process")
+        XCTAssertTrue(childExited, "Cancelling runAndWait must terminate descendant tool processes")
+
+        do {
+            _ = try await task.value
+            XCTFail("Expected runAndWait to throw CancellationError")
+        } catch is CancellationError {
+            // Expected
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("ProcessManagerTests-\(UUID().uuidString)", isDirectory: true)

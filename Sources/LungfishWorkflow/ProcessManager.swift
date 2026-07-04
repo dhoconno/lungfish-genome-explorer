@@ -511,6 +511,46 @@ public actor ProcessManager: ProcessManaging {
     }
 }
 
+private final class RunAndWaitCancellationState: @unchecked Sendable {
+    private let lock = NSLock()
+    private let manager: ProcessManager
+    private var handleID: UUID?
+    private var cancellationRequested = false
+
+    init(manager: ProcessManager) {
+        self.manager = manager
+    }
+
+    func store(handleID: UUID) {
+        let shouldTerminate: Bool
+        lock.lock()
+        self.handleID = handleID
+        shouldTerminate = cancellationRequested
+        lock.unlock()
+
+        if shouldTerminate {
+            terminate(handleID: handleID)
+        }
+    }
+
+    func cancel() {
+        let id: UUID?
+        lock.lock()
+        cancellationRequested = true
+        id = handleID
+        lock.unlock()
+
+        guard let id else { return }
+        terminate(handleID: id)
+    }
+
+    private func terminate(handleID: UUID) {
+        Task {
+            await manager.terminate(id: handleID)
+        }
+    }
+}
+
 // MARK: - ProcessHandle Extensions
 
 extension ProcessHandle {
@@ -565,23 +605,34 @@ extension ProcessManager {
         workingDirectory: URL,
         environment: [String: String]? = nil
     ) async throws -> (exitCode: Int32, stdout: String, stderr: String) {
-        let handle = try await spawn(
-            executable: executable,
-            arguments: arguments,
-            workingDirectory: workingDirectory,
-            environment: environment
-        )
+        let cancellationState = RunAndWaitCancellationState(manager: self)
 
-        // Collect output in parallel
-        async let stdoutTask = handle.collectStdout()
-        async let stderrTask = handle.collectStderr()
-        async let exitCodeTask = handle.waitForExit()
+        return try await withTaskCancellationHandler {
+            try Task.checkCancellation()
 
-        let stdout = await stdoutTask
-        let stderr = await stderrTask
-        let exitCode = await exitCodeTask
+            let handle = try await spawn(
+                executable: executable,
+                arguments: arguments,
+                workingDirectory: workingDirectory,
+                environment: environment
+            )
+            cancellationState.store(handleID: handle.id)
+            try Task.checkCancellation()
 
-        return (exitCode, stdout, stderr)
+            // Collect output in parallel
+            async let stdoutTask = handle.collectStdout()
+            async let stderrTask = handle.collectStderr()
+            async let exitCodeTask = handle.waitForExit()
+
+            let stdout = await stdoutTask
+            let stderr = await stderrTask
+            let exitCode = await exitCodeTask
+
+            try Task.checkCancellation()
+            return (exitCode, stdout, stderr)
+        } onCancel: {
+            cancellationState.cancel()
+        }
     }
 
     /// Checks if an executable is available in PATH.
