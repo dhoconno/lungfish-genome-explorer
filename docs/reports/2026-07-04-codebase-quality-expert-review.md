@@ -73,6 +73,10 @@ and behavior-preserving simplifications are useful and appropriate.
 - 2026-07-04 follow-up: `ProcessManager` stdout/stderr streams now buffer partial pipe reads into
   logical lines, so line-oriented progress parsers and `runAndWait` output collection no longer see
   arbitrary chunk boundaries as separate lines.
+- 2026-07-04 follow-up: `CLIVariantCallingRunner` now guards stdout/stderr buffering across
+  asynchronous readability callbacks, waits for process exit without blocking the actor executor,
+  and cancels the full native process tree while surfacing `CancellationError` for user-initiated
+  cancellation.
 
 ## Still Deferred
 
