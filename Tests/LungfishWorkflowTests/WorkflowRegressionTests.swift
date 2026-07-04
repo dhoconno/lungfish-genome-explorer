@@ -1509,6 +1509,21 @@ final class NativeBundleBuilderRegressionTests: XCTestCase {
         XCTAssertTrue(info.description.contains("managed tools are unavailable"))
         XCTAssertTrue(info.description.contains("micromamba bootstrap"))
     }
+
+    func testSignalTrackProcessingDoesNotCopyNonBigWigInputsAsBigWig() throws {
+        let packageRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = packageRoot
+            .appendingPathComponent("Sources/LungfishWorkflow/Native/NativeBundleBuilder.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("NativeBundleBuilder requires an existing BigWig signal track"))
+        XCTAssertFalse(source.contains("else if ext == \"bedgraph\""))
+        XCTAssertFalse(source.contains("else if ext == \"bg\""))
+        XCTAssertFalse(source.contains("bedGraphToBigWig` - bedGraph to BigWig conversion"))
+    }
 }
 
 // MARK: - Architecture Tests

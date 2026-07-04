@@ -163,6 +163,10 @@ final class ScientificCLIProvenanceCoverageTests: XCTestCase {
         XCTAssertEqual(readsEnvelope.output?.path, extractedReadsActualURL.path)
         XCTAssertTrue(readsEnvelope.files.contains { $0.path == idsURL.path && $0.checksumSHA256 != nil })
         XCTAssertTrue(readsEnvelope.files.contains { $0.path == readsURL.path && $0.checksumSHA256 != nil })
+        XCTAssertEqual(readsEnvelope.options.defaults["keepReadPairs"]?.booleanValue, true)
+        XCTAssertEqual(readsEnvelope.options.defaults["excludeUnmapped"]?.booleanValue, false)
+        XCTAssertEqual(readsEnvelope.options.resolvedDefaults["keepReadPairs"]?.booleanValue, true)
+        XCTAssertEqual(readsEnvelope.options.resolvedDefaults["excludeUnmapped"]?.booleanValue, false)
 
         let contigsURL = root.appendingPathComponent("contigs.fa")
         let contigSequence = try Sequence(name: "contig1", alphabet: .dna, bases: "ATGCGT")
@@ -186,6 +190,10 @@ final class ScientificCLIProvenanceCoverageTests: XCTestCase {
         XCTAssertEqual(contigEnvelope.workflowName, "lungfish extract contigs")
         XCTAssertEqual(contigEnvelope.output?.path, extractedContigURL.path)
         XCTAssertTrue(contigEnvelope.files.contains { $0.path == contigsURL.path && $0.checksumSHA256 != nil })
+        XCTAssertEqual(contigEnvelope.options.defaults["lineWidth"]?.integerValue, 60)
+        XCTAssertEqual(contigEnvelope.options.defaults["bundle"]?.booleanValue, false)
+        XCTAssertEqual(contigEnvelope.options.resolvedDefaults["lineWidth"]?.integerValue, 60)
+        XCTAssertEqual(contigEnvelope.options.resolvedDefaults["bundle"]?.booleanValue, false)
     }
 
     func testExtractBundleCommandsRecordFinalStoredPayloads() async throws {
@@ -257,9 +265,9 @@ final class ScientificCLIProvenanceCoverageTests: XCTestCase {
             try FileManager.default.contentsOfDirectory(at: referenceFolderURL, includingPropertiesForKeys: nil)
                 .first { $0.pathExtension == "lungfishref" }
         )
-        let referencePayloadURL = referenceBundleURL
-            .appendingPathComponent("genome", isDirectory: true)
-            .appendingPathComponent("sequence.fa.gz")
+        let referenceManifest = try BundleManifest.load(from: referenceBundleURL)
+        let referenceGenome = try XCTUnwrap(referenceManifest.genome)
+        let referencePayloadURL = referenceBundleURL.appendingPathComponent(referenceGenome.path)
         let referencePayloadPath = referencePayloadURL.standardizedFileURL.path
         let contigBundleEnvelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: referenceBundleURL))
         XCTAssertEqual(contigBundleEnvelope.workflowName, "lungfish extract contigs")

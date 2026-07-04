@@ -290,10 +290,6 @@ extension VariantDatabase {
             }
         }
 
-        if !supersededFilters.qualitySuperseded {
-            // Quality filter not handled by token JOIN
-        }
-
         if !conditions.isEmpty {
             sql += " WHERE " + conditions.joined(separator: " AND ")
         }
@@ -313,15 +309,13 @@ extension VariantDatabase {
     /// Tracks which WHERE clauses are superseded by pre-materialized token JOINs.
     struct SupersededFilters {
         var typesSuperseded = false
-        var qualitySuperseded = false
-        var filterColumnSuperseded = false
         var supersededInfoKeys: Set<String> = []
 
         mutating func add(_ tokenName: String) {
             switch tokenName {
-            case "passOnly": filterColumnSuperseded = true
+            case "passOnly", "qualityGE30":
+                break
             case "snv", "indel": typesSuperseded = true
-            case "qualityGE30": qualitySuperseded = true
             case "depthGE10": supersededInfoKeys.insert("DP")
             case "rareVariant":
                 for key in ["AF", "af", "gnomAD_AF", "ExAC_AF", "1000G_AF", "MAX_AF", "gnomADe_AF", "gnomADg_AF"] {

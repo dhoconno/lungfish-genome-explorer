@@ -23,6 +23,19 @@ final class FASTQMetadataSectionViewModelTests: XCTestCase {
         }
     }
 
+    func testCustomFieldsSectionDoesNotUseAlwaysTrueCondition() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = root
+            .appendingPathComponent("Sources/LungfishApp/Views/Inspector/Sections/FASTQMetadataSection.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertFalse(source.contains("|| true"))
+        XCTAssertTrue(source.contains("DisclosureGroup(\"Custom Fields\")"))
+    }
+
     func testLoadFromBundleWithMetadata() throws {
         let bundleDir = tmpDir.appendingPathComponent("TestSample.lungfishfastq")
         try FileManager.default.createDirectory(at: bundleDir, withIntermediateDirectories: true)

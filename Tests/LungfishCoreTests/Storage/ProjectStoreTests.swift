@@ -60,6 +60,39 @@ final class ProjectStoreTests: XCTestCase {
         XCTAssertEqual(retrieved?.metadata?["strain"], "K-12")
     }
 
+    func testStoreSequenceRollsBackWhenCurrentStateInsertFails() throws {
+        try withRawDatabase { db in
+            XCTAssertEqual(
+                sqlite3_exec(
+                    db,
+                    """
+                    CREATE TRIGGER fail_current_state_insert
+                    BEFORE INSERT ON current_state
+                    BEGIN
+                        SELECT RAISE(ABORT, 'forced current_state insert failure');
+                    END;
+                    """,
+                    nil,
+                    nil,
+                    nil
+                ),
+                SQLITE_OK
+            )
+        }
+
+        XCTAssertThrowsError(
+            try store.storeSequence(name: "partial_sequence", content: "ATCG")
+        )
+
+        XCTAssertEqual(
+            try rawScalarInt(
+                "SELECT COUNT(*) FROM sequences WHERE name = ?",
+                parameters: ["partial_sequence"]
+            ),
+            0
+        )
+    }
+
     func testListSequences() throws {
         try store.storeSequence(name: "seq1", content: "ATCG")
         try store.storeSequence(name: "seq2", content: "GCTA")
@@ -98,6 +131,50 @@ final class ProjectStoreTests: XCTestCase {
         XCTAssertEqual(history.count, 1)
         XCTAssertEqual(history[0].message, "Added GGG insertion")
         XCTAssertEqual(history[0].author, "Test")
+    }
+
+    func testRecordVersionRollsBackWhenCurrentStateUpdateFails() throws {
+        let sequenceId = try store.storeSequence(
+            name: "versioned_rollback",
+            content: "ATCG"
+        )
+
+        try withRawDatabase { db in
+            XCTAssertEqual(
+                sqlite3_exec(
+                    db,
+                    """
+                    CREATE TRIGGER fail_current_state_update
+                    BEFORE UPDATE ON current_state
+                    BEGIN
+                        SELECT RAISE(ABORT, 'forced current_state update failure');
+                    END;
+                    """,
+                    nil,
+                    nil,
+                    nil
+                ),
+                SQLITE_OK
+            )
+        }
+
+        let diff = SequenceDiff.compute(from: "ATCG", to: "ATGG")
+        XCTAssertThrowsError(
+            try store.recordVersion(
+                sequenceId: sequenceId,
+                diff: diff,
+                newContentHash: "rolled-back"
+            )
+        )
+
+        XCTAssertEqual(
+            try rawScalarInt(
+                "SELECT COUNT(*) FROM versions WHERE sequence_id = ?",
+                parameters: [sequenceId.uuidString]
+            ),
+            0
+        )
+        XCTAssertEqual(try store.getCurrentVersionIndex(for: sequenceId), 0)
     }
 
     func testMultipleVersions() throws {
@@ -161,6 +238,21 @@ final class ProjectStoreTests: XCTestCase {
 
         let v2 = try store.reconstructSequence(id: sequenceId, atVersion: 2)
         XCTAssertEqual(v2, "AABBCC")
+    }
+
+    func testReconstructSequenceRejectsNegativeVersionIndex() throws {
+        let sequenceId = try store.storeSequence(
+            name: "negative_reconstruct",
+            content: "AAAA"
+        )
+
+        XCTAssertThrowsError(try store.reconstructSequence(id: sequenceId, atVersion: -1)) { error in
+            guard case ProjectStoreError.invalidVersionIndex(let index) = error else {
+                XCTFail("Expected invalidVersionIndex, got \(error)")
+                return
+            }
+            XCTAssertEqual(index, -1)
+        }
     }
 
     func testCheckoutVersion() throws {
@@ -399,6 +491,29 @@ final class ProjectStoreTests: XCTestCase {
 
         defer { sqlite3_close_v2(db) }
         try body(db)
+    }
+
+    private func rawScalarInt(_ sql: String, parameters: [String] = []) throws -> Int {
+        var result = 0
+        try withRawDatabase { db in
+            var stmt: OpaquePointer?
+            XCTAssertEqual(sqlite3_prepare_v2(db, sql, -1, &stmt, nil), SQLITE_OK)
+            defer { sqlite3_finalize(stmt) }
+
+            for (index, parameter) in parameters.enumerated() {
+                sqlite3_bind_text(
+                    stmt,
+                    Int32(index + 1),
+                    parameter,
+                    -1,
+                    unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+                )
+            }
+
+            XCTAssertEqual(sqlite3_step(stmt), SQLITE_ROW)
+            result = Int(sqlite3_column_int(stmt, 0))
+        }
+        return result
     }
 
     private func sqliteDate(_ string: String) -> Date {

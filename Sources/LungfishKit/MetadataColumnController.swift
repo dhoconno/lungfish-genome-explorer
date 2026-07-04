@@ -217,8 +217,10 @@ public final class MetadataColumnController {
             object: table,
             queue: nil
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.syncDisabledColumnsFromWidths()
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.syncDisabledColumnsFromWidths()
+                }
             }
         }
     }

@@ -31,6 +31,7 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
         let root = repositoryRoot()
         let scannedPaths = [
             "Sources/LungfishApp/App/AppDelegate.swift",
+            "Sources/LungfishApp/Services/ONTImportOperationCoordinator.swift",
             "Sources/LungfishApp/Services/ViralReconWorkflowExecutionService.swift",
             "Sources/LungfishApp/Views/Assembly/AssemblyConfigurationViewModel.swift",
             "Sources/LungfishApp/Views/Inspector/InspectorViewController.swift",
@@ -39,6 +40,7 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
             "Sources/LungfishApp/Views/WorkflowBuilder/WorkflowBuilderViewController.swift",
             "Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift",
             "Sources/LungfishApp/Views/Viewer/ViewerViewController.swift",
+            "Sources/LungfishKit/MetadataColumnController.swift",
             "Sources/LungfishNaoMgsUI/NaoMgsResultViewController.swift",
             "Sources/LungfishKit/MiniBAMViewController.swift",
         ]

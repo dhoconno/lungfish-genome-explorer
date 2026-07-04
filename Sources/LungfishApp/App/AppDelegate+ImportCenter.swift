@@ -1246,7 +1246,9 @@ extension AppDelegate {
                     debugLog("performVCFImport: Materialization complete")
                 }
 
-                // Create VariantTrackInfo
+                // `databasePath` is authoritative for VCF imports. The BCF
+                // fields are legacy manifest compatibility sentinels and must
+                // not be interpreted as generated BCF/CSI artifacts.
                 let trackInfo = VariantTrackInfo(
                     id: trackId,
                     name: vcfURL.deletingPathExtension().lastPathComponent,

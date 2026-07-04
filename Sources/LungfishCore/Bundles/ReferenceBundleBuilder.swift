@@ -67,7 +67,11 @@ public struct BuildConfiguration: Sendable {
     /// Source metadata.
     public let source: SourceInfo
 
-    /// Whether to compress the FASTA file (default: true).
+    /// Whether to compress the FASTA file with bgzip (default: true).
+    ///
+    /// `ReferenceBundleBuilder` is the Core fallback builder and cannot perform
+    /// bgzip, BCF/CSI, or BigWig conversions itself. Use `NativeBundleBuilder`
+    /// for compressed or converted scientific outputs.
     public let compressFASTA: Bool
 
     /// Optional categorized metadata groups for flexible, source-specific metadata storage.
@@ -253,6 +257,9 @@ public enum BundleBuildError: Error, LocalizedError, Sendable {
     /// Variant conversion failed.
     case variantConversionFailed(String, String)
 
+    /// Signal track conversion failed.
+    case signalConversionFailed(String, String)
+
     /// Manifest generation failed.
     case manifestGenerationFailed(String)
 
@@ -286,6 +293,8 @@ public enum BundleBuildError: Error, LocalizedError, Sendable {
             return "Annotation conversion failed for '\(file)': \(reason)"
         case .variantConversionFailed(let file, let reason):
             return "Variant conversion failed for '\(file)': \(reason)"
+        case .signalConversionFailed(let file, let reason):
+            return "Signal conversion failed for '\(file)': \(reason)"
         case .manifestGenerationFailed(let reason):
             return "Manifest generation failed: \(reason)"
         case .validationFailed(let errors):
@@ -314,7 +323,9 @@ public enum BundleBuildError: Error, LocalizedError, Sendable {
         case .annotationConversionFailed:
             return "Verify the annotation file format is correct (GFF3, GTF, or BED)."
         case .variantConversionFailed:
-            return "Verify the VCF file is properly formatted."
+            return "Provide an indexed BCF or use NativeBundleBuilder/CLI bundle creation with bcftools available."
+        case .signalConversionFailed:
+            return "Provide a BigWig file or use NativeBundleBuilder/CLI bundle creation with bedGraph conversion tools available."
         case .manifestGenerationFailed:
             return "This is an internal error. Please report it."
         case .validationFailed:
@@ -521,6 +532,12 @@ public final class ReferenceBundleBuilder: ObservableObject {
             throw BundleBuildError.inputFileNotReadable(configuration.fastaURL)
         }
 
+        if configuration.compressFASTA {
+            throw BundleBuildError.compressionFailed(
+                "ReferenceBundleBuilder cannot bgzip-compress FASTA. Use NativeBundleBuilder or CLI bundle creation with bgzip available."
+            )
+        }
+
         for annotation in configuration.annotationFiles {
             guard fileManager.fileExists(atPath: annotation.url.path) else {
                 throw BundleBuildError.inputFileNotFound(annotation.url)
@@ -537,6 +554,19 @@ public final class ReferenceBundleBuilder: ObservableObject {
             guard fileManager.isReadableFile(atPath: variant.url.path) else {
                 throw BundleBuildError.inputFileNotReadable(variant.url)
             }
+            guard VariantConverter.InputFormat.detect(from: variant.url) == .bcf else {
+                throw BundleBuildError.variantConversionFailed(
+                    variant.name,
+                    "ReferenceBundleBuilder cannot convert VCF to BCF. Use NativeBundleBuilder or CLI bundle creation with bcftools available."
+                )
+            }
+            let indexURL = bcfIndexURL(for: variant.url)
+            guard fileManager.fileExists(atPath: indexURL.path) else {
+                throw BundleBuildError.variantConversionFailed(
+                    variant.name,
+                    "Missing CSI index next to BCF input: \(indexURL.lastPathComponent)"
+                )
+            }
         }
 
         for signal in configuration.signalFiles {
@@ -545,6 +575,12 @@ public final class ReferenceBundleBuilder: ObservableObject {
             }
             guard fileManager.isReadableFile(atPath: signal.url.path) else {
                 throw BundleBuildError.inputFileNotReadable(signal.url)
+            }
+            guard isBigWig(signal.url) else {
+                throw BundleBuildError.signalConversionFailed(
+                    signal.name,
+                    "ReferenceBundleBuilder cannot convert \(signal.url.pathExtension) to BigWig. Use NativeBundleBuilder or CLI bundle creation with bedGraph conversion tools available."
+                )
             }
         }
 
@@ -598,19 +634,8 @@ public final class ReferenceBundleBuilder: ObservableObject {
                 progressHandler
             )
 
-            destinationFASTA = genomeDir.appendingPathComponent("\(fastaFilename).gz")
-
-            try copyAndOptionallyCompress(
-                from: configuration.fastaURL,
-                to: destinationFASTA,
-                compress: true
-            )
-
-            updateProgress(
-                .compressingFASTA,
-                calculateProgress(for: .compressingFASTA, subProgress: 1.0),
-                "FASTA compression complete",
-                progressHandler
+            throw BundleBuildError.compressionFailed(
+                "ReferenceBundleBuilder cannot bgzip-compress FASTA. Use NativeBundleBuilder or CLI bundle creation with bgzip available."
             )
         } else {
             destinationFASTA = genomeDir.appendingPathComponent(fastaFilename)
@@ -747,15 +772,6 @@ public final class ReferenceBundleBuilder: ObservableObject {
         try indexContent.write(to: indexURL, atomically: true, encoding: .utf8)
     }
 
-    private func copyAndOptionallyCompress(from source: URL, to destination: URL, compress: Bool) throws {
-        if compress {
-            try FileManager.default.copyItem(at: source, to: destination)
-            logger.warning("Using simple copy instead of bgzip compression (container not available)")
-        } else {
-            try FileManager.default.copyItem(at: source, to: destination)
-        }
-    }
-
     private func processAnnotations(
         configuration: BuildConfiguration,
         bundleURL: URL,
@@ -787,13 +803,13 @@ public final class ReferenceBundleBuilder: ObservableObject {
                 progressHandler
             )
 
-            let filename = "\(input.id).bb"
+            let filename = annotationOutputFilename(for: input)
             let outputPath = "annotations/\(filename)"
             let outputURL = annotationsDir.appendingPathComponent(filename)
 
             try FileManager.default.copyItem(at: input.url, to: outputURL)
 
-            let featureCount = try countFeaturesInFile(input.url)
+            let featureCount = countFeaturesInFile(input.url)
 
             let trackInfo = AnnotationTrackInfo(
                 id: input.id,
@@ -816,15 +832,15 @@ public final class ReferenceBundleBuilder: ObservableObject {
         return annotationInfos
     }
 
-    private func countFeaturesInFile(_ url: URL) throws -> Int {
+    private func countFeaturesInFile(_ url: URL) -> Int? {
         countNonCommentLines(in: url)
     }
 
     /// Counts non-empty, non-comment (`#`-prefixed) lines in a text file.
-    /// Returns 0 if the file cannot be read as UTF-8.
-    private func countNonCommentLines(in url: URL) -> Int {
+    /// Returns nil if the file cannot be read as UTF-8, such as a gzipped annotation file.
+    private func countNonCommentLines(in url: URL) -> Int? {
         guard let content = try? String(contentsOf: url, encoding: .utf8) else {
-            return 0
+            return nil
         }
 
         return content.components(separatedBy: .newlines)
@@ -832,9 +848,13 @@ public final class ReferenceBundleBuilder: ObservableObject {
             .count
     }
 
-    private func annotationDescription(for input: AnnotationInput, featureCount: Int) -> String? {
+    private func annotationDescription(for input: AnnotationInput, featureCount: Int?) -> String? {
         if let description = input.description {
             return description
+        }
+
+        guard let featureCount else {
+            return nil
         }
 
         var detectionURL = input.url
@@ -878,6 +898,21 @@ public final class ReferenceBundleBuilder: ObservableObject {
                 progressHandler
             )
 
+            guard VariantConverter.InputFormat.detect(from: input.url) == .bcf else {
+                throw BundleBuildError.variantConversionFailed(
+                    input.name,
+                    "ReferenceBundleBuilder cannot convert VCF to BCF. Use NativeBundleBuilder or CLI bundle creation with bcftools available."
+                )
+            }
+
+            let sourceIndexURL = bcfIndexURL(for: input.url)
+            guard FileManager.default.fileExists(atPath: sourceIndexURL.path) else {
+                throw BundleBuildError.variantConversionFailed(
+                    input.name,
+                    "Missing CSI index next to BCF input: \(sourceIndexURL.lastPathComponent)"
+                )
+            }
+
             let filename = "\(input.id).bcf"
             let indexFilename = "\(input.id).bcf.csi"
             let outputPath = "variants/\(filename)"
@@ -886,10 +921,7 @@ public final class ReferenceBundleBuilder: ObservableObject {
             let indexURL = variantsDir.appendingPathComponent(indexFilename)
 
             try FileManager.default.copyItem(at: input.url, to: outputURL)
-
-            try Data().write(to: indexURL)
-
-            let variantCount = try countVariantsInVCF(input.url)
+            try FileManager.default.copyItem(at: sourceIndexURL, to: indexURL)
 
             let trackInfo = VariantTrackInfo(
                 id: input.id,
@@ -898,7 +930,7 @@ public final class ReferenceBundleBuilder: ObservableObject {
                 path: outputPath,
                 indexPath: indexPath,
                 variantType: input.variantType,
-                variantCount: variantCount
+                variantCount: nil
             )
             variantInfos.append(trackInfo)
         }
@@ -911,10 +943,6 @@ public final class ReferenceBundleBuilder: ObservableObject {
         )
 
         return variantInfos
-    }
-
-    private func countVariantsInVCF(_ url: URL) throws -> Int {
-        countNonCommentLines(in: url)
     }
 
     private func processSignalTracks(
@@ -932,6 +960,13 @@ public final class ReferenceBundleBuilder: ObservableObject {
         let tracksDir = bundleURL.appendingPathComponent("tracks")
 
         for input in configuration.signalFiles {
+            guard isBigWig(input.url) else {
+                throw BundleBuildError.signalConversionFailed(
+                    input.name,
+                    "ReferenceBundleBuilder cannot convert \(input.url.pathExtension) to BigWig. Use NativeBundleBuilder or CLI bundle creation with bedGraph conversion tools available."
+                )
+            }
+
             let filename = "\(input.id).bw"
             let outputPath = "tracks/\(filename)"
             let outputURL = tracksDir.appendingPathComponent(filename)
@@ -949,6 +984,30 @@ public final class ReferenceBundleBuilder: ObservableObject {
         }
 
         return signalInfos
+    }
+
+    private func annotationOutputFilename(for input: AnnotationInput) -> String {
+        let lowercasedName = input.url.lastPathComponent.lowercased()
+        let knownSuffixes = [
+            "gff3.gz", "gff.gz", "gtf.gz", "bed.gz",
+            "gff3", "gff", "gtf", "bed", "gbff", "gbk", "bb"
+        ]
+
+        if let suffix = knownSuffixes.first(where: { lowercasedName.hasSuffix(".\($0)") }) {
+            return "\(input.id).\(suffix)"
+        }
+
+        let ext = input.url.pathExtension
+        return ext.isEmpty ? input.id : "\(input.id).\(ext)"
+    }
+
+    private func bcfIndexURL(for bcfURL: URL) -> URL {
+        URL(fileURLWithPath: bcfURL.path + ".csi")
+    }
+
+    private func isBigWig(_ url: URL) -> Bool {
+        let ext = url.pathExtension.lowercased()
+        return ext == "bw" || ext == "bigwig"
     }
 
     private func validateBundle(at bundleURL: URL) throws {

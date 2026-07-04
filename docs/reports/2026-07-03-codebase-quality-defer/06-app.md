@@ -37,7 +37,8 @@ here (never leave a half-applied batch).
 
 ## Coverage ledger (the anti-selectivity proof — every one of 409 files accounted for)
 
-Columns: files total / audited / applied-count / clean-count / deferred-count.
+Columns: files total / audited / applied-count / clean-count / deferred-count. This ledger is
+the original Phase 6 audit snapshot; 2026-07-04 hardening additions are listed below it.
 `audited` MUST equal `total` for every row before the module-boundary green-bar.
 `applied + clean + deferred` for a row equals `audited` (a file can be in only one bucket;
 a file with an applied edit AND a deferred split counts under applied, noted separately).
@@ -86,11 +87,9 @@ per-file line here.)
 APPLIED (Pass A batch 1 — committed 08317789, scoped-green 3152/0 + 159/0):
 - `Views/Viewer/AnnotationTableDrawerView+Genotypes.swift`: remove dead file-private
   `genotypeLogger` (line 18) — grep-verified zero reads in module + Tests/.
-- `Views/Viewer/FASTQDatasetViewController.swift`: remove dead private `saveExpansionState()`
-  (~347-354) — grep-verified zero callers in module + Tests/. NOTE: this is the WRITE half of
-  an expansion-state persistence pair; the READ half (`loadExpansionState` at ~341) still runs,
-  so state is loaded-but-never-saved (pre-existing latent no-op persistence). Removing the
-  unused writer is behavior-preserving. Flagged below for maintainer.
+- `Views/Viewer/FASTQDatasetViewController.swift`: original pass removed dead
+  `saveExpansionState()`. The 2026-07-04 hardening pass removed the remaining inert accordion
+  load/state path and simplified the operation sidebar to fixed operation rows.
 
 APPLIED (Pass A batch 2 — committed 93b6b0c3):
 - `Views/WorkflowOperations/WorkflowOperationsDialog.swift`: remove dead `@State private var
@@ -119,10 +118,10 @@ REJECTED candidates (audited, proven NOT safe — recorded so a future pass does
   AppDelegate+ImportCenter, ~13 sites): a parameter `foo: T? = nil` has a DEFAULT VALUE;
   removing `= nil` forces every caller to pass the arg = API/behavior/compile change. NOT
   behavior-preserving. Rejected wholesale.
-- FASTQMetadataSection.swift:595 `if !customKeys.isEmpty || true {` — an auditor proposed
-  dropping `|| true`. REJECTED: the `|| true` makes the Custom Fields DisclosureGroup ALWAYS
-  show; removing it makes it conditional on non-empty customKeys = a BEHAVIOR CHANGE (out of
-  scope). FLAGGED for maintainer instead (below) — likely a stale always-show override.
+- FASTQMetadataSection.swift formerly used `if !customKeys.isEmpty || true {` to force the
+  Custom Fields section visible. The hardening pass made that behavior explicit with an
+  unconditional `DisclosureGroup`, removing the deceptive always-true condition without changing
+  the visible UI.
 - InspectorViewController+MetadataImport `assemblyContextRows`/`assemblyArtifactRows`: an
   auditor briefly considered these dead but self-corrected — they are reached via the public
   updateAssemblyDocument() API path. Kept.
@@ -202,17 +201,12 @@ Pass A big files (catalogued from the solo audits):
   MenuActions 879 / SequenceMenu 845) — already concern-split extensions on AppDelegate; @objc
   menu actions are NSMenu-dispatched, keep reachable. Materialization in +ImportCenter untouchable.
 
-### Flagged (pre-existing rule violations / unwired-UI islands — NOT fixed in this pass)
+### Flagged (pre-existing rule violations / unwired-UI islands)
 
-- `FASTQDatasetViewController` — latent no-op persistence: `loadExpansionState` reads
-  `expandedCategories` from UserDefaults at init, but the writer (`saveExpansionState`, now
-  removed as dead) was never called, so expansion state was loaded-but-never-persisted. Removing
-  the dead writer is behavior-preserving; WIRING a save call would be a behavior CHANGE (out of
-  scope). Maintainer decision: either wire persistence or drop the load too.
-- `FASTQMetadataSection.swift:595` — `if !customKeys.isEmpty || true {` unconditionally shows
-  the Custom Fields section (the `|| true` defeats the isEmpty guard). If intentional, delete the
-  dead `!customKeys.isEmpty ||` clause for clarity; if a bug, drop `|| true` to hide the section
-  when empty. Either way it is a BEHAVIOR decision -> maintainer, not a behavior-preserving edit.
+- RESOLVED: `FASTQDatasetViewController` no longer carries loaded-but-never-saved accordion
+  state for the operation sidebar.
+- RESOLVED: `FASTQMetadataSection` no longer uses an always-true conditional to show Custom
+  Fields; unconditional visibility is now represented directly.
 - `FASTQMetadataDrawerView` — dead pair: `public func tableViewSelectionDidChange(_:)` (no-op
   break-only body) + its only reader `isSuppressingDelegateCallbacks` (never written). Left in
   place (public protocol-shaped surface); a maintainer pass could remove both.
@@ -227,14 +221,10 @@ Pass A big files (catalogued from the solo audits):
   it to `Task { @MainActor }` (that would be the forbidden hop and a concurrency-timing change).
 - DEFERRED dedup (SequenceViewerView+Interaction): `annotationAtPoint` vs `annotationRectAtPoint`
   share coordinate-calculation logic, but merging is a geometry refactor -> DEFER (drawing math).
-- PRE-EXISTING forbidden GCD->MainActor hop (FLAGGED, NOT fixed — fixing changes concurrency
-  timing = behavior change, out of scope): `Services/ONTImportOperationCoordinator.swift:87` —
-  a progress callback (invoked from the ONTImportWorkflow non-MainActor execution context) uses
-  `Task { @MainActor in operationCenter.update(...) }`. The correct form per project rules is
-  `DispatchQueue.main.async { MainActor.assumeIsolated { operationCenter.update(...) } }` (see the
-  contrasting comment in MaterializationPipeline.swift:59). Deserves a separate tracked concurrency
-  fix. (All OTHER `Task { @MainActor }` in App are on already-@MainActor types = legitimate
-  same-actor tasks, NOT this hop.)
+- RESOLVED: `Services/ONTImportOperationCoordinator.swift` progress callbacks now dispatch to
+  the main queue and use `MainActor.assumeIsolated` instead of the forbidden progress-callback
+  `Task { @MainActor ... }` hop. All OTHER `Task { @MainActor }` in App remain legitimate
+  same-actor tasks on already-@MainActor types.
 - NON-ISSUE (auditors flagged as violations, verified legitimate — NOT touched):
   `AssemblyConfigurationViewController.swift:74` (type is `@MainActor`, line 39) and
   `WorkflowLibraryViewModel.swift:270` (type is `@MainActor @Observable`, and it uses a proper
@@ -249,11 +239,14 @@ Pass A big files (catalogued from the solo audits):
 - PASS B: all ~338 remaining files, directory-by-directory coverage sweeps (Services 86, App 42,
   Views/Viewer 75, Views/Inspector 38, Views/Metagenomics 32, and every other directory).
 
-Applied: 3 committed batches, **9 provably-safe items** (all grep-verified zero-caller +
-compiler-verified dead + scoped-green), ~55 source lines net removed:
+Original Phase 6 applied scope: 3 committed batches, **9 provably-safe items** (all
+grep-verified zero-caller + compiler-verified dead + scoped-green), ~55 source lines net
+removed. The 2026-07-04 hardening additions are listed alongside those batches:
 - batch 1 (`08317789`): dead `genotypeLogger`; dead `saveExpansionState`; dead
   `twelveSReferenceFASTAURL` + `defaultONTGenotypingAnalysisName`; 2 identical-branch IIFE
   collapses (AppDelegate+Classification batchRoot).
+- 2026-07-04 hardening pass: removed remaining FASTQ operation sidebar accordion state, made
+  Custom Fields visibility explicit, and fixed the ONT import progress callback hop.
 - batch 2 (`93b6b0c3`): dead `@State` pair (WorkflowOperationsDialog); duplicate doc comment
   (MainSplitViewController+FASTQImport); dead `calculateZoomPercent` (EnhancedCoordinateRulerView);
   dead `performReverseComplement` island (SequenceViewerView+Interaction).
@@ -265,8 +258,9 @@ large remaining value is in DEFERRED file SPLITS (catalogued above; each its own
 VERIFY-EVERY-CLAIM caught several auditor misfires (recorded under REJECTED above) that were NOT
 behavior-preserving and were correctly NOT applied: `= nil` parameter-default removals (remove a
 default = API break); cross-type "duplicate" methods (`isGap`, `colorForCategory` — different
-types, removing breaks `Self.` resolution); the `|| true` condition edit (behavior change);
-mislabeled correct concurrency patterns. This is the reason each apply is grep-verified before an
+types, removing breaks `Self.` resolution); stale UI state and callback-hop candidates were
+handled in the later hardening pass once behavior-change scope was explicitly broadened. This is
+the reason each apply is grep-verified before an
 implementer runs.
 
 Module-boundary green-bar: recorded in results.md (full suite --skip ONT + ONT in isolation).

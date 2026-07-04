@@ -17,6 +17,10 @@ import os.log
 /// ## Container Usage
 ///
 /// BCF conversion requires bcftools, which runs via the container plugin system.
+/// This Core type can analyze and validate VCFs, but it fails closed for BCF
+/// conversion unless a real native-tool-backed implementation is wired in by a
+/// higher layer. It must never write copied VCF data under a `.bcf` name or emit
+/// placeholder indexes.
 ///
 /// ## Usage
 ///
@@ -161,26 +165,12 @@ public final class VariantConverter: Sendable {
         // Read and parse VCF to count variants and validate
         let stats = try await analyzeVCF(from: sourceURL)
 
-        progress?(0.5, "Converting \(stats.variantCount) variants to BCF...")
+        progress?(0.5, "Validated \(stats.variantCount) variants; BCF conversion requires bcftools...")
 
-        // For now, we copy the VCF as a placeholder until bcftools container is integrated
-        // In production, this would use NativeToolRunner to run bcftools
-        try await convertVCFToBCFPlaceholder(
-            from: sourceURL,
-            to: outputURL,
-            options: options
+        throw VariantConversionError.bcfConversionFailed(
+            "Native bcftools-backed conversion is not available in LungfishCore. " +
+            "Route this operation through a workflow or CLI native-tool runner so the output BCF and CSI are real."
         )
-
-        progress?(0.8, "Creating index...")
-
-        // Create placeholder index file
-        let indexURL = outputURL.appendingPathExtension("csi")
-        try await createIndexPlaceholder(for: outputURL, indexURL: indexURL)
-
-        progress?(1.0, "BCF conversion complete")
-        logger.info("Created BCF file: \(outputURL.lastPathComponent) with \(stats.variantCount) variants")
-
-        return outputURL
     }
 
     /// Analyzes a VCF file and returns statistics.
@@ -334,46 +324,6 @@ public final class VariantConverter: Sendable {
         return issues
     }
 
-    // MARK: - Private Helpers
-
-    private func convertVCFToBCFPlaceholder(
-        from sourceURL: URL,
-        to outputURL: URL,
-        options: ConversionOptions
-    ) async throws {
-        // This is a placeholder implementation
-        // In production, this would use bcftools via NativeToolRunner:
-        // bcftools view -Ob -o output.bcf input.vcf
-        //
-        // For now, we simply copy the file to demonstrate the pipeline
-
-        // Create a simple BCF-like header and copy variant data
-        var output = Data()
-
-        // BCF magic number (placeholder - real BCF has specific binary format)
-        let header = "##BCF_PLACEHOLDER\n"
-        output.append(Data(header.utf8))
-
-        // Copy VCF content
-        let vcfData = try Data(contentsOf: sourceURL)
-        output.append(vcfData)
-
-        try output.write(to: outputURL)
-    }
-
-    private func createIndexPlaceholder(
-        for bcfURL: URL,
-        indexURL: URL
-    ) async throws {
-        // This is a placeholder implementation
-        // In production, this would use bcftools via NativeToolRunner:
-        // bcftools index output.bcf
-        //
-        // For now, create an empty index file
-
-        let placeholder = "# BCF index placeholder\n# Real index would be created by bcftools index\n"
-        try placeholder.write(to: indexURL, atomically: true, encoding: .utf8)
-    }
 }
 
 // MARK: - VCFValidationIssue

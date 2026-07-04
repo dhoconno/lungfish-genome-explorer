@@ -592,40 +592,38 @@ public struct FASTQMetadataSection: View {
             .filter { !templateKeys.contains($0) }
             .sorted()
 
-        if !customKeys.isEmpty || true {
-            DisclosureGroup("Custom Fields") {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(customKeys, id: \.self) { key in
-                        HStack {
-                            Text(key).font(.caption).foregroundStyle(.secondary)
-                                .frame(width: 90, alignment: .trailing)
-                            TextField("", text: Binding(
-                                get: { viewModel.metadata?.customFields[key] ?? "" },
-                                set: { viewModel.metadata?.customFields[key] = $0; viewModel.scheduleAutosave() }
-                            ))
-                            .textFieldStyle(.roundedBorder).controlSize(.small)
-                            Button { viewModel.removeCustomField(key) } label: {
-                                Image(systemName: "minus.circle")
-                                    .foregroundStyle(Color.lungfishDangerFallback)
-                            }
-                            .buttonStyle(.plain).controlSize(.small)
-                        }
-                    }
+        DisclosureGroup("Custom Fields") {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(customKeys, id: \.self) { key in
                     HStack {
-                        TextField("Key", text: $viewModel.newCustomKey)
-                            .textFieldStyle(.roundedBorder).controlSize(.small).frame(width: 90)
-                        TextField("Value", text: $viewModel.newCustomValue)
-                            .textFieldStyle(.roundedBorder).controlSize(.small)
-                        Button { viewModel.addCustomField() } label: {
-                            Image(systemName: "plus.circle")
+                        Text(key).font(.caption).foregroundStyle(.secondary)
+                            .frame(width: 90, alignment: .trailing)
+                        TextField("", text: Binding(
+                            get: { viewModel.metadata?.customFields[key] ?? "" },
+                            set: { viewModel.metadata?.customFields[key] = $0; viewModel.scheduleAutosave() }
+                        ))
+                        .textFieldStyle(.roundedBorder).controlSize(.small)
+                        Button { viewModel.removeCustomField(key) } label: {
+                            Image(systemName: "minus.circle")
+                                .foregroundStyle(Color.lungfishDangerFallback)
                         }
                         .buttonStyle(.plain).controlSize(.small)
-                        .disabled(viewModel.newCustomKey.isEmpty)
                     }
                 }
+                HStack {
+                    TextField("Key", text: $viewModel.newCustomKey)
+                        .textFieldStyle(.roundedBorder).controlSize(.small).frame(width: 90)
+                    TextField("Value", text: $viewModel.newCustomValue)
+                        .textFieldStyle(.roundedBorder).controlSize(.small)
+                    Button { viewModel.addCustomField() } label: {
+                        Image(systemName: "plus.circle")
+                    }
+                    .buttonStyle(.plain).controlSize(.small)
+                    .disabled(viewModel.newCustomKey.isEmpty)
+                }
             }
-            .font(.caption)
         }
+        .font(.caption)
     }
 
     // MARK: - Binding Helpers

@@ -248,8 +248,16 @@ Reinforces the statement-level-clean finding: only 2 of 28 files had a safe appl
   Sequence method with DIFFERENT semantics — element-wise then by count). Do NOT "simplify".
 - Orient test-pins: `vsearchArgumentsForTesting` (PUBLIC, consumed by a LungfishCLITests
   module — cannot internalize despite the name), `parseOrientResults` (internal, @testable).
-- `GATKCommandBuilder.jointGenotypingCommands` `.auto` arm is a latent infinite-recursion
-  bomb, currently UNREACHABLE (resolver never returns `.auto`). Left untouched; flagged.
+- RESOLVED: `GATKCommandBuilder.jointGenotypingCommands` `.auto` now asserts because the
+  resolver should never return it, then falls back to concrete CombineGVCFs commands instead of
+  recursively calling itself.
+- RESOLVED: `NativeBundleBuilder` no longer falls back to copying a VCF and creating an empty
+  CSI when native BCF conversion fails or `bcftools` is unavailable. The workflow now fails closed
+  with a clear request for a real indexed BCF/CSI pair instead of producing misleading scientific
+  artifacts.
+- RESOLVED: `NativeBundleBuilder` no longer copies bedGraph or unknown signal inputs to `.bw`
+  filenames. Until bedGraph-to-BigWig conversion has complete native-tool provenance, non-BigWig
+  signal inputs fail closed instead of fabricating BigWig tracks.
 - Public-but-uncalled symbols across the tier (`SnakemakeRunner.minimumVersion`,
   `ReadExtractionService.samtoolsRegion`, `OrientResult.totalCount`, several unused-but-
   public error cases + `WorkflowGraphError.connectionNotFound`/`.emptyGraph`): NOT removable
@@ -293,7 +301,7 @@ only 2 of 185 small files had a provably-safe apply.
   `GeneiousImportCollectionService.decodedFASTAURLs`, `AssemblyProvenance.advancedOptions`).
 - Defensive exhaustive `.sam` switch case in `PreparedAlignmentAttachmentService`
   (unreachable because `validateSupportedFormat` rejects `.sam` first — NEVER-SAM upheld).
-- `GATKCommandBuilder.jointGenotypingCommands` `.auto` recursion bomb (unreachable).
+- RESOLVED: `GATKCommandBuilder.jointGenotypingCommands` `.auto` recursion bomb.
 - `IVarCodonMerger` `_ = positions` deliberate placeholder ("retained for future codon-
   position annotation") — not removed.
 

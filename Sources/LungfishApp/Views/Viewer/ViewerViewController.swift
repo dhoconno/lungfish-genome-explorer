@@ -402,8 +402,6 @@ public class ViewerViewController: NSViewController {
     public override func viewDidLayout() {
         super.viewDidLayout()
 
-        // wantsLayer and masksToBounds are set once in loadView(); no need to repeat here.
-
         // Update reference frame width immediately (needed for correct rendering)
         if let frame = referenceFrame, viewerView.bounds.width > 0 {
             frame.pixelWidth = Int(viewerView.bounds.width)
@@ -2823,7 +2821,6 @@ public class ViewerViewController: NSViewController {
         // Log view hierarchy state BEFORE changes
         logger.debug("displayPDFPreview: Parent view bounds: \(NSStringFromRect(self.view.bounds), privacy: .public)")
         logger.debug("displayPDFPreview: Parent view frame: \(NSStringFromRect(self.view.frame), privacy: .public)")
-        logger.debug("displayPDFPreview: Parent wantsLayer: \(self.view.wantsLayer)")
         logger.debug("displayPDFPreview: Subview count before: \(self.view.subviews.count)")
         for (index, subview) in self.view.subviews.enumerated() {
             logger.debug("displayPDFPreview: Subview[\(index)]: \(type(of: subview)) hidden=\(subview.isHidden) frame=\(NSStringFromRect(subview.frame), privacy: .public)")
@@ -2847,7 +2844,6 @@ public class ViewerViewController: NSViewController {
             }
         }
 
-        // Create PDF view - DON'T set wantsLayer, let PDFKit manage its own rendering
         let pdfDisplayView = PDFView()
         pdfDisplayView.translatesAutoresizingMaskIntoConstraints = false
 
@@ -2882,8 +2878,6 @@ public class ViewerViewController: NSViewController {
         // Log bounds AFTER layout
         logger.debug("displayPDFPreview: PDFView bounds after layout: \(NSStringFromRect(pdfDisplayView.bounds), privacy: .public)")
         logger.debug("displayPDFPreview: PDFView frame after layout: \(NSStringFromRect(pdfDisplayView.frame), privacy: .public)")
-        logger.debug("displayPDFPreview: PDFView wantsLayer: \(pdfDisplayView.wantsLayer)")
-        logger.debug("displayPDFPreview: PDFView layer: \(String(describing: pdfDisplayView.layer))")
 
         // Verify document is still attached
         if let doc = pdfDisplayView.document {

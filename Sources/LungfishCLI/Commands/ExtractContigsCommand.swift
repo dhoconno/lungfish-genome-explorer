@@ -336,7 +336,7 @@ struct ExtractContigsSubcommand: AsyncParsableCommand {
                 downloadDate: Date(),
                 notes: "Derived from \(source.sourceName)"
             ),
-            compressFASTA: true,
+            compressFASTA: false,
             metadata: metadata
         )
 

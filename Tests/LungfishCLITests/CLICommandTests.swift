@@ -1695,6 +1695,61 @@ final class FastqCommandTests: XCTestCase {
         )
     }
 
+    func testScrubHumanProvenanceOptionMapsSeparateExplicitDefaultsAndResolvedValues() {
+        let inputURL = URL(fileURLWithPath: "/data/reads.fastq")
+        let outputURL = URL(fileURLWithPath: "/out/scrubbed.fastq.gz")
+        let databaseURL = URL(fileURLWithPath: "/db/deacon-panhuman")
+
+        let defaultsOnly = FastqScrubHumanSubcommand.provenanceOptionMaps(
+            inputURL: inputURL,
+            outputURL: outputURL,
+            databaseID: "human-scrubber",
+            resolvedDatabaseID: "deacon-panhuman",
+            databasePath: databaseURL,
+            removeReadsCompatibilityFlag: false,
+            force: false,
+            compress: false,
+            resolvedCompressOutput: true,
+            threads: 12
+        )
+
+        XCTAssertEqual(defaultsOnly.explicit["input"]?.fileValue, inputURL)
+        XCTAssertEqual(defaultsOnly.explicit["output"]?.fileValue, outputURL)
+        XCTAssertEqual(defaultsOnly.explicit["databaseID"]?.stringValue, "human-scrubber")
+        XCTAssertNil(defaultsOnly.explicit["force"])
+        XCTAssertNil(defaultsOnly.explicit["compress"])
+        XCTAssertNil(defaultsOnly.explicit["removeReadsCompatibilityFlag"])
+        XCTAssertNil(defaultsOnly.explicit["resolvedDatabaseID"])
+        XCTAssertNil(defaultsOnly.explicit["databasePath"])
+        XCTAssertNil(defaultsOnly.explicit["threads"])
+        XCTAssertEqual(defaultsOnly.defaults["force"]?.booleanValue, false)
+        XCTAssertEqual(defaultsOnly.defaults["compress"]?.booleanValue, false)
+        XCTAssertEqual(defaultsOnly.resolved["resolvedDatabaseID"]?.stringValue, "deacon-panhuman")
+        XCTAssertEqual(defaultsOnly.resolved["databasePath"]?.fileValue, databaseURL)
+        XCTAssertEqual(defaultsOnly.resolved["resolvedCompressOutput"]?.booleanValue, true)
+        XCTAssertEqual(defaultsOnly.resolved["threads"]?.integerValue, 12)
+        XCTAssertEqual(defaultsOnly.resolved["force"]?.booleanValue, false)
+        XCTAssertEqual(defaultsOnly.resolved["compress"]?.booleanValue, false)
+
+        let explicitFlags = FastqScrubHumanSubcommand.provenanceOptionMaps(
+            inputURL: inputURL,
+            outputURL: outputURL,
+            databaseID: "deacon-panhuman",
+            resolvedDatabaseID: "deacon-panhuman",
+            databasePath: databaseURL,
+            removeReadsCompatibilityFlag: true,
+            force: true,
+            compress: true,
+            resolvedCompressOutput: true,
+            threads: 4
+        )
+
+        XCTAssertEqual(explicitFlags.explicit["removeReadsCompatibilityFlag"]?.booleanValue, true)
+        XCTAssertEqual(explicitFlags.explicit["force"]?.booleanValue, true)
+        XCTAssertEqual(explicitFlags.explicit["compress"]?.booleanValue, true)
+        XCTAssertEqual(explicitFlags.resolved["threads"]?.integerValue, 4)
+    }
+
     // MARK: - Interleave Argument Parsing
 
     /// Verifies that interleave parses in1 and in2 options.

@@ -174,7 +174,7 @@ final class VariantConverterTests: XCTestCase {
 
     // MARK: - BCF Conversion Tests
 
-    func testConvertVCFToBCF() async throws {
+    func testConvertVCFToBCFFailsClosedWithoutNativeConverter() async throws {
         let vcfContent = """
         ##fileformat=VCFv4.2
         #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
@@ -187,20 +187,26 @@ final class VariantConverterTests: XCTestCase {
         let outputURL = tempDirectory.appendingPathComponent("output.bcf")
         let converter = VariantConverter()
 
-        let result = try await converter.convertToBCF(
-            from: vcfURL,
-            output: outputURL
-        )
+        do {
+            _ = try await converter.convertToBCF(
+                from: vcfURL,
+                output: outputURL
+            )
+            XCTFail("Expected BCF conversion to fail closed without native bcftools support")
+        } catch let error as VariantConversionError {
+            guard case .bcfConversionFailed(let reason) = error else {
+                XCTFail("Expected bcfConversionFailed, got \(error)")
+                return
+            }
+            XCTAssertTrue(reason.contains("bcftools"))
+            XCTAssertTrue(reason.contains("output BCF and CSI are real"))
+        }
 
-        XCTAssertEqual(result, outputURL)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: outputURL.path))
-
-        // Check index was created
-        let indexURL = outputURL.appendingPathExtension("csi")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: indexURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.appendingPathExtension("csi").path))
     }
 
-    func testConvertVCFToBCFWithProgress() async throws {
+    func testConvertVCFToBCFReportsProgressBeforeFailingClosed() async throws {
         let vcfContent = """
         ##fileformat=VCFv4.2
         #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
@@ -214,17 +220,26 @@ final class VariantConverterTests: XCTestCase {
 
         let progressCollector = ProgressCollector()
 
-        _ = try await converter.convertToBCF(
-            from: vcfURL,
-            output: outputURL,
-            progress: { progress, message in
-                progressCollector.append(progress: progress, message: message)
+        do {
+            _ = try await converter.convertToBCF(
+                from: vcfURL,
+                output: outputURL,
+                progress: { progress, message in
+                    progressCollector.append(progress: progress, message: message)
+                }
+            )
+            XCTFail("Expected BCF conversion to fail closed without native bcftools support")
+        } catch let error as VariantConversionError {
+            guard case .bcfConversionFailed = error else {
+                XCTFail("Expected bcfConversionFailed, got \(error)")
+                return
             }
-        )
+        }
 
         let progressValues = progressCollector.values
         XCTAssertFalse(progressValues.isEmpty)
-        XCTAssertEqual(progressValues.last?.0, 1.0)
+        XCTAssertEqual(progressValues.map(\.0), [0.1, 0.3, 0.5])
+        XCTAssertEqual(progressValues.last?.1, "Validated 1 variants; BCF conversion requires bcftools...")
     }
 
     // MARK: - Error Tests

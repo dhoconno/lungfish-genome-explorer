@@ -15,7 +15,6 @@ import LungfishIO
 /// - `bgzip` - FASTA compression (from htslib)
 /// - `samtools faidx` - FASTA indexing
 /// - `bcftools` - VCF to BCF conversion
-/// - `bedGraphToBigWig` - bedGraph to BigWig conversion (UCSC)
 ///
 /// Only the micromamba bootstrap remains bundled; the actual build tools are
 /// resolved from app bundle search paths or managed environments.
@@ -254,17 +253,6 @@ public final class NativeBundleBuilder: ObservableObject {
 
         if !configuration.variantFiles.isEmpty {
             tools.insert(.bcftools)
-        }
-
-        if !configuration.signalFiles.isEmpty {
-            // Check if any need conversion
-            for signal in configuration.signalFiles {
-                let ext = signal.url.pathExtension.lowercased()
-                if ext == "bedgraph" || ext == "bg" {
-                    tools.insert(.bedGraphToBigWig)
-                    break
-                }
-            }
         }
 
         return tools
@@ -805,15 +793,16 @@ public final class NativeBundleBuilder: ObservableObject {
 
                 if !result.isSuccess {
                     logger.warning("bcftools conversion failed for \(input.name): \(result.stderr)")
-                    // Copy VCF as fallback
-                    try FileManager.default.copyItem(at: input.url, to: outputURL)
-                    try Data().write(to: variantsDir.appendingPathComponent("\(input.id).bcf.csi"))
+                    throw BundleBuildError.variantConversionFailed(
+                        input.name,
+                        "bcftools failed to create a real BCF/CSI pair: \(result.stderr)"
+                    )
                 }
             } else {
-                // No bcftools available, copy VCF
-                logger.info("bcftools not available, copying VCF for \(input.name)")
-                try FileManager.default.copyItem(at: input.url, to: outputURL)
-                try Data().write(to: variantsDir.appendingPathComponent("\(input.id).bcf.csi"))
+                throw BundleBuildError.variantConversionFailed(
+                    input.name,
+                    "bcftools is required to create a real BCF/CSI pair"
+                )
             }
 
             let variantCount = try countVariantsInVCF(input.url)
@@ -867,20 +856,18 @@ public final class NativeBundleBuilder: ObservableObject {
         let tracksDir = bundleURL.appendingPathComponent("tracks")
 
         for input in configuration.signalFiles {
+            let ext = input.url.pathExtension.lowercased()
+            guard ext == "bw" || ext == "bigwig" else {
+                throw BundleBuildError.signalConversionFailed(
+                    input.name,
+                    "NativeBundleBuilder requires an existing BigWig signal track. \(input.url.lastPathComponent) is not converted to .bw because bedGraph-to-BigWig conversion is not provenance-recorded in this builder."
+                )
+            }
+
             let outputPath = "tracks/\(input.id).bw"
             let outputURL = tracksDir.appendingPathComponent("\(input.id).bw")
 
-            // Check if input is already BigWig
-            let ext = input.url.pathExtension.lowercased()
-            if ext == "bw" || ext == "bigwig" {
-                try FileManager.default.copyItem(at: input.url, to: outputURL)
-            } else if ext == "bedgraph" || ext == "bg" {
-                // Try to convert using native tool
-                // Note: Would need chrom.sizes file, skip for now
-                try FileManager.default.copyItem(at: input.url, to: outputURL)
-            } else {
-                try FileManager.default.copyItem(at: input.url, to: outputURL)
-            }
+            try FileManager.default.copyItem(at: input.url, to: outputURL)
 
             let trackInfo = SignalTrackInfo(
                 id: input.id,

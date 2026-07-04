@@ -416,7 +416,8 @@ public enum GATKCommandBuilder {
     public static func jointGenotypingCommands(_ config: GATKJointGenotypingConfiguration) -> [GATKCommand] {
         switch resolvedJointGenotypingStrategy(sampleCount: config.inputGVCFURLs.count, requested: config.strategy) {
         case .auto:
-            return jointGenotypingCommands(config)
+            assertionFailure("resolvedJointGenotypingStrategy must not return .auto")
+            return combineGVCFsCommands(config)
         case .combineGVCFs:
             return combineGVCFsCommands(config)
         case .genomicsDB:

@@ -84,8 +84,10 @@ public final class ONTImportOperationCoordinator {
                     threads: concurrency
                 )
             ) { [operationCenter, opID] fraction, message in
-                Task { @MainActor in
-                    operationCenter.update(id: opID, progress: fraction, detail: message)
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        operationCenter.update(id: opID, progress: fraction, detail: message)
+                    }
                 }
             }
 

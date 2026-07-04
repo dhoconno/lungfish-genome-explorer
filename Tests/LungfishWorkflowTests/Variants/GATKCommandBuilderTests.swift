@@ -37,6 +37,32 @@ final class GATKCommandBuilderTests: XCTestCase {
         )
     }
 
+    func testJointGenotypingAutoStrategyBuildsConcreteCommands() throws {
+        let combineConfig = GATKJointGenotypingConfiguration(
+            referenceFASTAURL: root.appendingPathComponent("reference.fa"),
+            inputGVCFURLs: (1...2).map { root.appendingPathComponent("s\($0).g.vcf.gz") },
+            outputVCFURL: root.appendingPathComponent("cohort.vcf.gz"),
+            intermediateURL: root.appendingPathComponent("cohort.combined.g.vcf.gz"),
+            strategy: .auto
+        )
+        let genomicsDBConfig = GATKJointGenotypingConfiguration(
+            referenceFASTAURL: root.appendingPathComponent("reference.fa"),
+            inputGVCFURLs: (1...51).map { root.appendingPathComponent("s\($0).g.vcf.gz") },
+            outputVCFURL: root.appendingPathComponent("cohort.vcf.gz"),
+            intermediateURL: root.appendingPathComponent("cohort-gendb"),
+            strategy: .auto
+        )
+
+        XCTAssertEqual(
+            GATKCommandBuilder.jointGenotypingCommands(combineConfig).map(\.arguments.first),
+            ["CombineGVCFs", "GenotypeGVCFs"]
+        )
+        XCTAssertEqual(
+            GATKCommandBuilder.jointGenotypingCommands(genomicsDBConfig).map(\.arguments.first),
+            ["GenomicsDBImport", "GenotypeGVCFs"]
+        )
+    }
+
     func testBuildsCombineGVCFsJointGenotypingCommands() throws {
         let config = GATKJointGenotypingConfiguration(
             referenceFASTAURL: root.appendingPathComponent("reference.fa"),

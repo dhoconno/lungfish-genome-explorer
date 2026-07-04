@@ -17,43 +17,46 @@ reverted public API shrinkage that was too risky for a foundational module:
 Regression tests now source-scan these declarations so future behavior-preserving refactors do
 not accidentally demote them again.
 
-## ProjectStore.swift (escalations — behavior-changing, NOT applied)
+## 2026-07-04 maintainability-hardening updates
 
-- **F1 — non-atomic multi-statement writes (high severity).** `recordVersion`
-  (INSERT version + UPDATE current_state + UPDATE sequences) and `storeSequence`
-  run multiple statements with no transaction; a mid-sequence failure leaves the
-  DB half-updated. Suggestion: a `withTransaction` helper (BEGIN IMMEDIATE /
-  COMMIT / ROLLBACK-on-throw). Deferred because it changes failure-path behavior
-  (rollback vs partial) — a durability fix, not a refactor.
+The follow-up review implemented several items that were deferred only because the
+original refactor was constrained to behavior-preserving edits:
+
+- `ProjectStore.storeSequence` and `recordVersion` now run their multi-statement
+  writes inside SQLite transactions; tests force mid-write failures and verify
+  rollback.
+- `ProjectStore.bindParameter` now throws for unsupported parameter types instead
+  of silently binding NULL.
+- `ProjectStore.reconstructSequence` now rejects negative version indexes with
+  `invalidVersionIndex` instead of trapping on a negative range.
+- `ProjectFile.saveMetadata` now writes `metadata.json` atomically.
+- `VariantColorTheme.init(name:)` now preserves the caller-provided name.
+- `SRAAccessionParser.parseCSV` now uses the same comma/tab/space/newline
+  delimiter semantics as `parseAccessionList`.
+- `VariantConverter.convertToBCF` and `ReferenceBundleBuilder` fail closed rather
+  than writing fake BCF/CSI, BigWig, BigBed, or bgzip outputs. The Core builder
+  accepts only uncompressed FASTA for copy/index builds, preserves annotation
+  source extensions, copies only already-indexed BCF+CSI inputs, and points
+  compressed/converted scientific outputs to `NativeBundleBuilder`/CLI tooling.
+
+## ProjectStore.swift (remaining escalations)
+
 - **F4 — force-unwraps on DB-derived reads (medium).** `UUID(uuidString:)!` and
   blob-pointer force-unwraps crash on a corrupted `.project.db`. Suggestion:
   guard + throw `queryError`. Deferred: turns crash-on-corruption into a thrown
   error (failure-path behavior change).
-- **F6 — `bindParameter` default binds NULL for unknown types (medium).** Silent
-  write corruption for unsupported bind types. Suggestion: throw
-  `serializationError` in the default case. Deferred (behavior change on a
-  currently-unreachable path).
 - **F8 — access-control demotion of checkpoint/setMetadata/getMetadata (medium
   conf).** Appear test-only; could be `internal`. Deferred pending a cross-module
   grep confirming no leaf/App caller.
-- **F11 — `reconstructSequence` negative-index trap (low).** A negative
-  `versionIndex` would trap on `0..<negative`. Suggestion: guard `>= 0` and
-  align clamp/throw semantics with `checkoutVersion`. Deferred (likely
-  unreachable; still a hardening change).
 
-## ReferenceBundleBuilder.swift (escalations — correctness, NOT applied)
+## ReferenceBundleBuilder.swift
 
-- **MAJOR FLAG — builder appears to be a stub, not a real conversion pipeline.**
-  Audit reports that `.gz`/`.bcf`/`.bb`/`.bw` outputs are plain `copyItem` with a
-  renamed extension (no bgzip/bcftools/bigBed conversion), `.bcf.csi` indexes are
-  written as ZERO-BYTE files (`Data().write`), the `.fai` is hand-authored from a
-  full-file UTF-8 read, and gzipped/CRLF/non-UTF8 FASTA input produces a wrong or
-  corrupt index. The manifest advertises these as real BCF/BigBed/BigWig with
-  index paths that are empty or absent. This needs OWNER/downstream-LLM
-  adjudication: is this builder the production path, or is real conversion done
-  elsewhere (conda samtools/bcftools pipeline)? If production, it is a
-  correctness problem (empty `.csi` is worse than no index; wrong `.fai` offsets
-  break random FASTA access). NOT touched by the refactor. Findings F2/F3/F4/F5.
+- **RESOLVED — Core fallback builder no longer fabricates converted scientific
+  formats.** It fails closed for bgzip compression, VCF-to-BCF conversion, and
+  non-BigWig signal conversion. Annotation inputs keep their source extension
+  rather than being renamed to `.bb`. Variant inputs must already be `.bcf` with
+  an adjacent `.bcf.csi`; otherwise callers must use the native workflow/CLI
+  path that can run the real tools and write provenance.
 - **F12 — progress-weight sum: audit premise was WRONG (resolved, no change).**
   The audit claimed the `BuildStep` weights sum to 1.05 and `.complete`'s 0.05 is
   unused. Zeroing it was attempted and REVERTED: the other 8 weights sum to 0.95
@@ -248,11 +251,12 @@ not accidentally demote them again.
   but spans ENA + PathoplexusModels (2 files); left for a decode-helper pass.
 
 ### Bundles/Converters
-- VariantConverter `convertToBCF` is a STUB (writes `##BCF_PLACEHOLDER` text +
-  text "index", not real BCF); several `VariantConversionError` /
-  `AnnotationConversionError` cases + `duplicateVariant` never constructed
-  (DEAD-03). Same stub concern as ReferenceBundleBuilder. Owner/downstream
-  adjudication.
+- VariantConverter `convertToBCF` no longer writes `##BCF_PLACEHOLDER` text or a
+  text index. It validates/analyzes input and then fails closed with a clear
+  bcftools/native-tool message until a real converter is wired in.
+- ReferenceBundleBuilder keeps gzipped annotation payloads as copied source files but no longer
+  treats unreadable gzip bytes as `0` features or emits a misleading "No annotations found"
+  description. Unknown compressed feature counts are recorded as absent in the manifest.
 - AnnotationConverter `ConversionOptions.mergeOverlapping` is a public option
   never consulted — silent no-op contract (CLARITY-04). Document-or-implement
   decision. Defer.
@@ -267,9 +271,7 @@ not accidentally demote them again.
   in 12 non-Core files across App/IO/Workflow/CLI; ManagedStorageLocation in 4;
   ProjectLockManager in App+CLI). Demoting would break downstream builds. Correctly
   keep them `public`. (Recorded so this is not re-attempted.)
-- **F3 — ProjectFile.saveMetadata writes metadata.json without `.atomic` (medium).**
-  Sibling files use `.atomic`; a crash mid-write can truncate metadata.json.
-  Durability/failure-path change — defer. Suggestion: `write(to:options:[.atomic])`.
+- **RESOLVED F3 — ProjectFile.saveMetadata writes metadata.json atomically.**
 - **F5/F6 — ProjectLock corrupt-lock throw + acquisition TOCTOU race (medium).**
   `writeLock` overwrites unconditionally (no O_EXCL), so two processes racing to
   acquire can both win. Real fix changes lock semantics; needs concurrency tests.
@@ -290,11 +292,7 @@ reverse-complement quality double-wrap), SequenceAppearance F14 (doc 50->20pt),
 AlignedRead F5 (doc param-order), ProjectFile F1 (delete orphan comment).
 
 ### Deferred / leave-alone:
-- **VariantColorTheme.init(name:) is BROKEN (medium).** `public init(name:)` does
-  `self = .modern` and never assigns `self.name = name`, so it silently returns
-  the Modern theme regardless of the name argument, contradicting its own comment.
-  Zero callers found. Deferred: it's a `public` init — decide delete vs fix
-  (`self.name = name`). Genuine latent bug for the downstream LLM.
+- **RESOLVED — VariantColorTheme.init(name:) preserves the supplied name.**
 - Sequence 2-bit packing, AlignedRead CIGAR walk (`forEachAlignedBase`/`insertions`
   with the I-P-I merge), SequenceExtractor coordinate/flank/RC/CDS math, EditableSequence
   /EditOperation undo-redo invariants — all correctness-sensitive, LEAVE ALONE.
@@ -311,9 +309,8 @@ AlignedRead F5 (doc param-order), ProjectFile F1 (delete orphan comment).
   the protocol `@MainActor`. Defer with a compile.
 - `AIProviderHelpers`: 10 generically-named free functions at module scope (F9)
   — namespacing under a caseless enum is a wide cross-file rename. Defer.
-- `SRAAccessionParser.parseCSV` splits only on newlines while `parseAccessionList`
-  also splits on comma/space/tab (F12) — a comma-separated CSV row is dropped.
-  Behavioral question (is one-accession-per-line intended?); confirm via test. Defer.
+- **RESOLVED F12 — `SRAAccessionParser.parseCSV` delegates to accession-list
+  delimiter semantics after removing an optional one-column header.**
 - TempFileManager scans `/` on launch (TCC-fragile, best-effort) and may double-scan
   /tmp vs /private/tmp (F1/F2); RuntimeResourceLocator repeats a `0..<12` hop cap
   (F11) — trivial, deferred.

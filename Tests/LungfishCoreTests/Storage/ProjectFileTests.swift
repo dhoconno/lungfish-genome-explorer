@@ -365,6 +365,18 @@ final class ProjectFileTests: XCTestCase {
         XCTAssertEqual(reloaded.getCustomMetadata(key: "key1"), "value1")
     }
 
+    func testProjectMetadataWritesAreAtomic() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = root.appendingPathComponent("Sources/LungfishCore/Storage/ProjectFile.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("data.write(to: metadataURL, options: .atomic)"))
+    }
+
     func testDirtyFlag() throws {
         let projectURL = tempDirectory.appendingPathComponent("DirtyTest.lungfish")
         let project = try ProjectFile.create(at: projectURL, name: "Dirty Test")

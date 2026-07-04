@@ -332,24 +332,26 @@ public final class ProjectStore {
         let contentHash = computeHash(content)
         let metadataJSON = try metadata.map { try JSONEncoder().encode($0) }
 
-        try execute("""
-            INSERT INTO sequences (id, name, original_content, content_hash, alphabet, length, metadata)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, parameters: [
-            id.uuidString,
-            name,
-            content.data(using: .utf8)!,
-            contentHash,
-            alphabet,
-            content.count,
-            metadataJSON as Any
-        ])
+        try withTransaction {
+            try execute("""
+                INSERT INTO sequences (id, name, original_content, content_hash, alphabet, length, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, parameters: [
+                id.uuidString,
+                name,
+                content.data(using: .utf8)!,
+                contentHash,
+                alphabet,
+                content.count,
+                metadataJSON as Any
+            ])
 
-        // Initialize current state
-        try execute("""
-            INSERT INTO current_state (sequence_id, version_hash, version_index)
-            VALUES (?, NULL, 0)
-        """, parameters: [id.uuidString])
+            // Initialize current state
+            try execute("""
+                INSERT INTO current_state (sequence_id, version_hash, version_index)
+                VALUES (?, NULL, 0)
+            """, parameters: [id.uuidString])
+        }
 
         Self.logger.info("Stored sequence '\(name, privacy: .public)' with ID \(id.uuidString)")
         return id
@@ -419,55 +421,57 @@ public final class ProjectStore {
         message: String? = nil,
         author: String? = nil
     ) throws -> UUID {
-        // Get current version hash and count
-        var parentHash: String?
-        var currentVersionCount: Int = 0
-        try query("""
-            SELECT version_hash, version_index FROM current_state WHERE sequence_id = ?
-        """, parameters: [sequenceId.uuidString]) { stmt in
-            if sqlite3_column_type(stmt, 0) != SQLITE_NULL {
-                parentHash = String(cString: sqlite3_column_text(stmt, 0))
-            }
-            currentVersionCount = Int(sqlite3_column_int(stmt, 1))
-        }
-
-        // The new version number is currentVersionCount + 1 (0 is original, 1 is first edit, etc.)
-        let newVersionNumber = currentVersionCount + 1
-
         // Encode diff
         let diffData = try JSONEncoder().encode(diff)
 
-        // Insert version
-        let versionId = UUID()
-        try execute("""
-            INSERT INTO versions (id, sequence_id, version_number, parent_hash, content_hash, diff_data, message, author)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, parameters: [
-            versionId.uuidString,
-            sequenceId.uuidString,
-            newVersionNumber,
-            parentHash as Any,
-            newContentHash,
-            diffData,
-            message as Any,
-            author as Any
-        ])
+        return try withTransaction {
+            // Get current version hash and count
+            var parentHash: String?
+            var currentVersionCount: Int = 0
+            try query("""
+                SELECT version_hash, version_index FROM current_state WHERE sequence_id = ?
+            """, parameters: [sequenceId.uuidString]) { stmt in
+                if sqlite3_column_type(stmt, 0) != SQLITE_NULL {
+                    parentHash = String(cString: sqlite3_column_text(stmt, 0))
+                }
+                currentVersionCount = Int(sqlite3_column_int(stmt, 1))
+            }
 
-        // Update current state
-        let versionIndex = newVersionNumber
-        try execute("""
-            UPDATE current_state
-            SET version_hash = ?, version_index = ?
-            WHERE sequence_id = ?
-        """, parameters: [newContentHash, versionIndex, sequenceId.uuidString])
+            // The new version number is currentVersionCount + 1 (0 is original, 1 is first edit, etc.)
+            let newVersionNumber = currentVersionCount + 1
 
-        // Update sequence modified timestamp
-        try execute("""
-            UPDATE sequences SET modified_at = datetime('now') WHERE id = ?
-        """, parameters: [sequenceId.uuidString])
+            // Insert version
+            let versionId = UUID()
+            try execute("""
+                INSERT INTO versions (id, sequence_id, version_number, parent_hash, content_hash, diff_data, message, author)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, parameters: [
+                versionId.uuidString,
+                sequenceId.uuidString,
+                newVersionNumber,
+                parentHash as Any,
+                newContentHash,
+                diffData,
+                message as Any,
+                author as Any
+            ])
 
-        Self.logger.info("Recorded version \(versionIndex) for sequence \(sequenceId.uuidString)")
-        return versionId
+            // Update current state
+            let versionIndex = newVersionNumber
+            try execute("""
+                UPDATE current_state
+                SET version_hash = ?, version_index = ?
+                WHERE sequence_id = ?
+            """, parameters: [newContentHash, versionIndex, sequenceId.uuidString])
+
+            // Update sequence modified timestamp
+            try execute("""
+                UPDATE sequences SET modified_at = datetime('now') WHERE id = ?
+            """, parameters: [sequenceId.uuidString])
+
+            Self.logger.info("Recorded version \(versionIndex) for sequence \(sequenceId.uuidString)")
+            return versionId
+        }
     }
 
     /// Gets the version history for a sequence.
@@ -500,6 +504,10 @@ public final class ProjectStore {
 
     /// Reconstructs the sequence content at a specific version.
     public func reconstructSequence(id: UUID, atVersion versionIndex: Int) throws -> String {
+        guard versionIndex >= 0 else {
+            throw ProjectStoreError.invalidVersionIndex(index: versionIndex)
+        }
+
         // Get original content
         guard let stored = try getSequence(id: id) else {
             throw ProjectStoreError.sequenceNotFound(id: id)
@@ -886,6 +894,22 @@ public final class ProjectStore {
         }
     }
 
+    private func withTransaction<T>(_ body: () throws -> T) throws -> T {
+        try execute("BEGIN IMMEDIATE")
+        do {
+            let result = try body()
+            try execute("COMMIT")
+            return result
+        } catch {
+            do {
+                try execute("ROLLBACK")
+            } catch {
+                Self.logger.warning("Rollback failed after transaction error: \(error.localizedDescription, privacy: .public)")
+            }
+            throw error
+        }
+    }
+
     /// The SQLite transient-destructor sentinel: tells SQLite to copy the bound bytes immediately.
     private static let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
@@ -912,7 +936,9 @@ public final class ProjectStore {
                 try bindParameter(stmt, at: index, value: unwrapped)
             }
         default:
-            sqlite3_bind_null(stmt, index)
+            throw ProjectStoreError.serializationError(
+                message: "Unsupported SQLite bind parameter type: \(type(of: value))"
+            )
         }
     }
 }

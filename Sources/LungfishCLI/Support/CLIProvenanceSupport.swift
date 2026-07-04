@@ -6,6 +6,23 @@ enum CLIProvenanceSupport {
         ["micromamba", "run", "-n", environment, toolName] + arguments
     }
 
+    static func resolvedOptions(
+        explicit: [String: ParameterValue],
+        defaults: [String: ParameterValue],
+        resolved: [String: ParameterValue]? = nil
+    ) -> [String: ParameterValue] {
+        var merged = defaults
+        for (key, value) in explicit {
+            merged[key] = value
+        }
+        if let resolved {
+            for (key, value) in resolved {
+                merged[key] = value
+            }
+        }
+        return merged
+    }
+
     static func detectCondaToolVersion(
         toolName: String,
         environment: String,
@@ -85,7 +102,11 @@ enum CLIProvenanceSupport {
             toolVersion: toolVersion
         )
         .argv(command)
-        .options(explicit: parameters, defaults: defaults, resolved: resolved ?? parameters)
+        .options(
+            explicit: parameters,
+            defaults: defaults,
+            resolved: resolvedOptions(explicit: parameters, defaults: defaults, resolved: resolved)
+        )
         .runtime(ProvenanceRuntimeIdentity())
         .step(step)
         .complete(

@@ -16,7 +16,7 @@ and behavior-preserving simplifications are useful and appropriate.
 - Deferred large file splits remain deferred unless they were already landed in the branch.
 - Public command/GUI surfaces that are user-facing remain protected from caller-count-only removal.
 - Provenance-sensitive helper pairs such as Markdup explicit-vs-resolved option builders remain
-  deferred rather than deduped.
+  separate rather than being deduped into a misleading shared map.
 
 ## Corrections Applied
 
@@ -32,13 +32,21 @@ and behavior-preserving simplifications are useful and appropriate.
 - Removed the trailing blank line at EOF in `NaoMgsResultViewController.swift`.
 - Updated stale results/defer docs that still said items were pending, in progress, or clean when
   the final reviewed state was more nuanced.
+- Follow-up hardening implemented several previously deferred ambiguity reducers:
+  ProjectStore transactions and negative-index guards, ProjectFile atomic metadata writes,
+  fail-closed Core BCF/reference-bundle conversion stubs, fail-closed NativeBundleBuilder VCF
+  conversion behavior, fail-closed NativeBundleBuilder non-BigWig signal handling, gzipped
+  annotation metadata that no longer fabricates zero feature counts, Markdup and scrub-human
+  explicit-vs-resolved provenance options, extract-contigs manifest-based bundle payload
+  provenance, callback-hop cleanup in Kit/App, FASTQ stale UI-state cleanup, GATK `.auto`
+  recursion removal, and VariantDatabase no-op scaffold pruning.
 
 ## Still Deferred
 
 - Large structural splits that require access-promotion choices or selector/protocol reachability
   review.
-- Pre-existing concurrency follow-ups such as `Task { @MainActor }` from notification/progress
-  contexts.
+- Additional concurrency follow-ups only where a real forbidden notification/progress hop remains
+  after the 2026-07-04 hardening pass.
 - Public API removals without an owner decision or out-of-tree compatibility check.
-- Scientific correctness or provenance behavior changes that need dedicated tests beyond a
-  simplification refactor.
+- Scientific correctness or provenance behavior changes that still need native-tool integration
+  or tests beyond this hardening pass.

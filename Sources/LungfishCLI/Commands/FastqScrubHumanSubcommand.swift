@@ -174,25 +174,22 @@ struct FastqScrubHumanSubcommand: AsyncParsableCommand {
         if output.compress {
             cliArguments.append("--compress")
         }
-        let parameters: [String: ParameterValue] = [
-            "input": .file(inputURL),
-            "output": .file(outputURL),
-            "databaseID": .string(databaseID),
-            "resolvedDatabaseID": .string(resolvedDatabaseID),
-            "databasePath": .file(dbPath),
-            "removeReadsCompatibilityFlag": .boolean(compatibilityRemoveReads),
-            "force": .boolean(output.force),
-            "compress": .boolean(output.compress),
-            "resolvedCompressOutput": .boolean(shouldCompressOutput),
-            "threads": .integer(threads)
-        ]
+        let options = Self.provenanceOptionMaps(
+            inputURL: inputURL,
+            outputURL: outputURL,
+            databaseID: databaseID,
+            resolvedDatabaseID: resolvedDatabaseID,
+            databasePath: dbPath,
+            removeReadsCompatibilityFlag: compatibilityRemoveReads,
+            force: output.force,
+            compress: output.compress,
+            resolvedCompressOutput: shouldCompressOutput,
+            threads: threads
+        )
         try await recordProvenance(
-            parameters: parameters,
-            defaults: [
-                "removeReadsCompatibilityFlag": .boolean(false),
-                "force": .boolean(false),
-                "compress": .boolean(false)
-            ],
+            explicitOptions: options.explicit,
+            defaultOptions: options.defaults,
+            resolvedOptions: options.resolved,
             command: ["lungfish", "fastq"] + cliArguments,
             inputURL: inputURL,
             outputURL: outputURL,
@@ -204,8 +201,9 @@ struct FastqScrubHumanSubcommand: AsyncParsableCommand {
     }
 
     private func recordProvenance(
-        parameters: [String: ParameterValue],
-        defaults: [String: ParameterValue],
+        explicitOptions: [String: ParameterValue],
+        defaultOptions: [String: ParameterValue],
+        resolvedOptions: [String: ParameterValue],
         command: [String],
         inputURL: URL,
         outputURL: URL,
@@ -245,7 +243,11 @@ struct FastqScrubHumanSubcommand: AsyncParsableCommand {
             toolName: "lungfish fastq scrub-human",
             toolVersion: WorkflowRun.currentAppVersion,
             argv: command,
-            options: ProvenanceOptions(explicit: parameters, defaults: defaults, resolvedDefaults: parameters),
+            options: ProvenanceOptions(
+                explicit: explicitOptions,
+                defaults: defaultOptions,
+                resolvedDefaults: resolvedOptions
+            ),
             runtimeIdentity: ProvenanceRuntimeIdentity(),
             files: Self.deduplicated(files),
             output: output,
@@ -262,12 +264,74 @@ struct FastqScrubHumanSubcommand: AsyncParsableCommand {
 }
 
 extension FastqScrubHumanSubcommand {
+    struct ProvenanceOptionMaps {
+        let explicit: [String: ParameterValue]
+        let defaults: [String: ParameterValue]
+        let resolved: [String: ParameterValue]
+    }
+
     static func canonicalHumanReadRemovalDatabaseID(for requestedID: String) -> String {
         let canonical = DatabaseRegistry.canonicalDatabaseID(for: requestedID)
         if canonical == HumanScrubberDatabaseInstaller.databaseID {
             return DeaconPanhumanDatabaseInstaller.databaseID
         }
         return canonical
+    }
+
+    static func provenanceOptionMaps(
+        inputURL: URL,
+        outputURL: URL,
+        databaseID: String,
+        resolvedDatabaseID: String,
+        databasePath: URL,
+        removeReadsCompatibilityFlag: Bool,
+        force: Bool,
+        compress: Bool,
+        resolvedCompressOutput: Bool,
+        threads: Int
+    ) -> ProvenanceOptionMaps {
+        var explicit: [String: ParameterValue] = [
+            "input": .file(inputURL),
+            "output": .file(outputURL),
+            "databaseID": .string(databaseID)
+        ]
+        if removeReadsCompatibilityFlag {
+            explicit["removeReadsCompatibilityFlag"] = .boolean(true)
+        }
+        if force {
+            explicit["force"] = .boolean(true)
+        }
+        if compress {
+            explicit["compress"] = .boolean(true)
+        }
+
+        let defaults: [String: ParameterValue] = [
+            "removeReadsCompatibilityFlag": .boolean(false),
+            "force": .boolean(false),
+            "compress": .boolean(false)
+        ]
+        let effective: [String: ParameterValue] = [
+            "input": .file(inputURL),
+            "output": .file(outputURL),
+            "databaseID": .string(databaseID),
+            "resolvedDatabaseID": .string(resolvedDatabaseID),
+            "databasePath": .file(databasePath),
+            "removeReadsCompatibilityFlag": .boolean(removeReadsCompatibilityFlag),
+            "force": .boolean(force),
+            "compress": .boolean(compress),
+            "resolvedCompressOutput": .boolean(resolvedCompressOutput),
+            "threads": .integer(threads)
+        ]
+
+        return ProvenanceOptionMaps(
+            explicit: explicit,
+            defaults: defaults,
+            resolved: CLIProvenanceSupport.resolvedOptions(
+                explicit: explicit,
+                defaults: defaults,
+                resolved: effective
+            )
+        )
     }
 }
 

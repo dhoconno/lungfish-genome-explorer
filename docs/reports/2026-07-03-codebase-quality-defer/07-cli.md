@@ -43,7 +43,8 @@ protocol entry points — NOT dead.
 
 ## Coverage ledger (every one of 90 files accounted for)
 
-Columns: files total / audited / applied / clean / deferred.
+Columns: files total / audited / applied / clean / deferred. This ledger is the original Phase 7
+audit snapshot; expert-review cleanup and 2026-07-04 hardening additions are listed below it.
 
 | Directory | total | audited | applied | clean | deferred |
 |---|---|---|---|---|---|
@@ -69,12 +70,16 @@ APPLIED (CLI batch 1 plus 2026-07-04 expert-review cleanup):
   `FastqQualityTrimSubcommand.run()`. Provenance wall time is recorded from `startedAt` by
   `recordFASTQNativeToolProvenance`, so this local value was a no-op.
 
-DEFERRED (audited, low-value / subtle — NOT applied):
-- `Commands/MarkdupCommand.swift:742` `provenanceExplicitOptions(for:)`: currently a byte-identical
-  wrapper over `provenanceResolvedOptions(for:)`, but the explicit-vs-resolved distinction is a
-  PROVENANCE-SCHEMA concept (explicit = user-set options vs resolved = incl. defaults). The two
-  names may be intentionally distinct even though the bodies coincide today -> deferred (provenance
-  semantics, not a safe mechanical dedup).
+RESOLVED in the 2026-07-04 hardening pass:
+- `Commands/MarkdupCommand.swift` now records explicit options separately from resolved defaults
+  instead of emitting a byte-identical explicit/resolved option map. `CLIProvenanceSupport`
+  centralizes default/explicit/resolved option merging, and CLI provenance tests pin the behavior.
+- `Commands/ExtractContigsCommand.swift` now builds the Core reference-bundle path with an honest
+  uncompressed FASTA payload when native bgzip compression is not being used. Provenance coverage
+  reads the manifest path instead of assuming every contig bundle stores `genome/sequence.fa.gz`.
+- `Commands/FastqScrubHumanSubcommand.swift` now records required user inputs and only supplied
+  flags as explicit options, while resolved database IDs, database paths, compression behavior, and
+  thread counts live in resolved options.
 
 REJECTED candidates (audited, proven NOT safe — a future pass must not re-propose):
 - GenotypeAIHaplotypingSubcommand "8 dead statics" (resolveFormat/loadJSONCalls/loadDelimitedCalls/
@@ -100,7 +105,8 @@ REJECTED candidates (audited, proven NOT safe — a future pass must not re-prop
 = 90; every directory row audited == total). 15 big files (>=800L) solo + 8 infra
 (root/Options/Output/Support) + 68 Commands in 4 directory-sweep chunks. Applied: 1 committed
 batch plus expert-review cleanup, **3 provably-safe dead-private-function removals** and one
-no-op wall-time cleanup. The layer is statement-level
+no-op wall-time cleanup. The 2026-07-04 hardening pass added CLI provenance option merging and
+Markdup explicit-vs-resolved option separation. The layer is statement-level
 clean (same pattern as all prior modules); value beyond the 2 removals is in DEFERRED file splits
 (the big command files — same-module extension seams, catalogued below).
 

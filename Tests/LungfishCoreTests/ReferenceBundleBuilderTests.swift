@@ -245,7 +245,7 @@ final class ReferenceBundleBuilderTests: XCTestCase {
     }
 
     @MainActor
-    func testBuildWithValidFASTA() async throws {
+    func testBuildWithValidUncompressedFASTA() async throws {
         let builder = ReferenceBundleBuilder()
 
         // Create a test FASTA file
@@ -268,7 +268,7 @@ final class ReferenceBundleBuilderTests: XCTestCase {
             fastaURL: fastaURL,
             outputDirectory: outputDir,
             source: SourceInfo(organism: "Test organism", assembly: "TestAssembly"),
-            compressFASTA: true
+            compressFASTA: false
         )
 
         let progressCollector = BuildProgressCollector()
@@ -298,6 +298,36 @@ final class ReferenceBundleBuilderTests: XCTestCase {
             XCTAssertEqual(lastUpdate.1, 1.0, accuracy: 0.01)
         } else {
             XCTFail("No progress updates received")
+        }
+    }
+
+    @MainActor
+    func testCoreBuilderRejectsCompressedFASTAWithoutNativeBgzip() async throws {
+        let builder = ReferenceBundleBuilder()
+
+        let fastaURL = tempDirectory.appendingPathComponent("test.fa")
+        try ">chr1\nATCG\n".write(to: fastaURL, atomically: true, encoding: .utf8)
+
+        let outputDir = tempDirectory.appendingPathComponent("output")
+        let config = BuildConfiguration(
+            name: "Compressed Test",
+            identifier: "compressed.test",
+            fastaURL: fastaURL,
+            outputDirectory: outputDir,
+            source: SourceInfo(organism: "Test", assembly: "v1"),
+            compressFASTA: true
+        )
+
+        do {
+            _ = try await builder.build(configuration: config)
+            XCTFail("Expected Core builder to reject bgzip compression without native tools")
+        } catch let error as BundleBuildError {
+            guard case .compressionFailed(let reason) = error else {
+                XCTFail("Expected compressionFailed, got \(error)")
+                return
+            }
+            XCTAssertTrue(reason.contains("NativeBundleBuilder"))
+            XCTAssertTrue(reason.contains("bgzip"))
         }
     }
 
@@ -371,8 +401,8 @@ final class ReferenceBundleBuilderTests: XCTestCase {
         let annotationsDir = bundleURL.appendingPathComponent("annotations")
         XCTAssertTrue(FileManager.default.fileExists(atPath: annotationsDir.path))
 
-        // Verify annotation file exists (as .bb placeholder)
-        let annotationFile = annotationsDir.appendingPathComponent("genes.bb")
+        // Verify annotation file keeps its source format instead of pretending to be BigBed.
+        let annotationFile = annotationsDir.appendingPathComponent("genes.gff3")
         XCTAssertTrue(FileManager.default.fileExists(atPath: annotationFile.path))
     }
 
@@ -409,7 +439,39 @@ final class ReferenceBundleBuilderTests: XCTestCase {
     }
 
     @MainActor
-    func testBuildWithVariants() async throws {
+    func testBuildWithGzippedAnnotationDoesNotFabricateFeatureCountOrDescription() async throws {
+        let builder = ReferenceBundleBuilder()
+
+        let fastaURL = tempDirectory.appendingPathComponent("test.fa")
+        try ">chr1\nATCG\n".write(to: fastaURL, atomically: true, encoding: .utf8)
+
+        let gffURL = tempDirectory.appendingPathComponent("genes.gff3.gz")
+        try Data([0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00]).write(to: gffURL)
+
+        let outputDir = tempDirectory.appendingPathComponent("output")
+        let config = BuildConfiguration(
+            name: "Compressed Annotation Test",
+            identifier: "compressed.annotation.test",
+            fastaURL: fastaURL,
+            annotationFiles: [
+                AnnotationInput(url: gffURL, name: "Compressed annotations", annotationType: .gene)
+            ],
+            outputDirectory: outputDir,
+            source: SourceInfo(organism: "Test", assembly: "v1"),
+            compressFASTA: false
+        )
+
+        let bundleURL = try await builder.build(configuration: config)
+        let manifest = try BundleManifest.load(from: bundleURL)
+        let track = try XCTUnwrap(manifest.annotations.first)
+
+        XCTAssertNil(track.featureCount)
+        XCTAssertNil(track.description)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent(track.path).path))
+    }
+
+    @MainActor
+    func testBuildWithVariantsRequiresIndexedBCF() async throws {
         let builder = ReferenceBundleBuilder()
 
         // Create test files
@@ -438,18 +500,50 @@ final class ReferenceBundleBuilderTests: XCTestCase {
             compressFASTA: false
         )
 
+        do {
+            _ = try await builder.build(configuration: config)
+            XCTFail("Expected Core builder to reject VCF-to-BCF conversion without native tools")
+        } catch let error as BundleBuildError {
+            guard case .variantConversionFailed(let file, let reason) = error else {
+                XCTFail("Expected variantConversionFailed, got \(error)")
+                return
+            }
+            XCTAssertEqual(file, "SNPs")
+            XCTAssertTrue(reason.contains("cannot convert VCF to BCF"))
+            XCTAssertTrue(reason.contains("NativeBundleBuilder"))
+        }
+    }
+
+    @MainActor
+    func testBuildWithIndexedBCFCopiesBCFAndCSI() async throws {
+        let builder = ReferenceBundleBuilder()
+
+        let fastaURL = tempDirectory.appendingPathComponent("test.fa")
+        try ">chr1\nATCG".write(to: fastaURL, atomically: true, encoding: .utf8)
+
+        let bcfURL = tempDirectory.appendingPathComponent("variants.bcf")
+        try Data([0x42, 0x43, 0x46, 0x02, 0x02]).write(to: bcfURL)
+        let csiURL = URL(fileURLWithPath: bcfURL.path + ".csi")
+        try Data([0x43, 0x53, 0x49, 0x01]).write(to: csiURL)
+
+        let outputDir = tempDirectory.appendingPathComponent("output")
+        let config = BuildConfiguration(
+            name: "Test",
+            identifier: "test",
+            fastaURL: fastaURL,
+            variantFiles: [
+                VariantInput(url: bcfURL, name: "SNPs", variantType: .snp)
+            ],
+            outputDirectory: outputDir,
+            source: SourceInfo(organism: "Test", assembly: "v1"),
+            compressFASTA: false
+        )
+
         let bundleURL = try await builder.build(configuration: config)
 
-        // Verify variants directory was created
-        let variantsDir = bundleURL.appendingPathComponent("variants")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: variantsDir.path))
-
-        // Verify BCF file exists
-        let bcfFile = variantsDir.appendingPathComponent("variants.bcf")
+        let bcfFile = bundleURL.appendingPathComponent("variants/variants.bcf")
+        let indexFile = bundleURL.appendingPathComponent("variants/variants.bcf.csi")
         XCTAssertTrue(FileManager.default.fileExists(atPath: bcfFile.path))
-
-        // Verify index exists
-        let indexFile = variantsDir.appendingPathComponent("variants.bcf.csi")
         XCTAssertTrue(FileManager.default.fileExists(atPath: indexFile.path))
     }
 

@@ -432,6 +432,7 @@ final class FASTQDashboardTests: XCTestCase {
 
         XCTAssertEqual(controller.numberOfRows(in: sidebar), FASTQOperationCategoryID.allCases.count)
         XCTAssertFalse(controller.tableView(sidebar, isGroupRow: 0))
+        XCTAssertEqual(controller.tableView(sidebar, heightOfRow: 0), 24)
 
         let nameColumn = sidebar.tableColumns.first { $0.identifier.rawValue == "name" }
         let firstRowView = controller.tableView(sidebar, viewFor: nameColumn, row: 0)
@@ -446,6 +447,22 @@ final class FASTQDashboardTests: XCTestCase {
         )
 
         XCTAssertEqual(launchedCategory, .qcReporting)
+    }
+
+    func testFASTQDatasetSidebarDoesNotCarryLegacyAccordionState() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = root
+            .appendingPathComponent("Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertFalse(source.contains("legacyOperationSections"))
+        XCTAssertFalse(source.contains("FASTQOperationSidebarExpansion"))
+        XCTAssertFalse(source.contains("expandedCategories"))
+        XCTAssertFalse(source.contains("operationKindForRow"))
+        XCTAssertFalse(source.contains("toggleCategory"))
     }
 
     func testFASTQDatasetViewControllerLaunchPathRemovesDrawerFirstOperationsFlow() throws {

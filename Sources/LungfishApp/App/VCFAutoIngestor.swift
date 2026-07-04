@@ -233,12 +233,15 @@ public enum VCFAutoIngestor {
             ? "Imported from \(firstImportURL.lastPathComponent)"
             : "Merged from \(fileCount) VCF files"
 
+        // `databasePath` is authoritative for auto-ingested VCF bundles. The
+        // BCF fields are legacy manifest compatibility sentinels and must not be
+        // interpreted as generated BCF/CSI artifacts.
         let variantTrack = VariantTrackInfo(
             id: "vcf-\(firstImportURL.deletingPathExtension().lastPathComponent)",
             name: trackName,
             description: trackDescription,
-            path: "variants/variants.bcf",  // placeholder — SQLite-only track
-            indexPath: "variants/variants.bcf.csi",  // placeholder
+            path: "variants/variants.bcf",
+            indexPath: "variants/variants.bcf.csi",
             databasePath: "variants/\(dbFilename)",
             variantType: .mixed,
             variantCount: totalVariantCount,

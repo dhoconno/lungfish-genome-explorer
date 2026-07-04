@@ -36,14 +36,10 @@ synchronize/split-view-delegate). Applies are small; value is in deferred splits
 - `MiniBAMViewController.depthPoints` dead write-only property + its reset in clear()
   (grep-verified never read; private).
 
-### FLAGGED UPWARD — pre-existing rule violation (deferred, NOT introduced by this pass)
-- `MetadataColumnController.swift:220-222`: inside the `columnResizeObserver` NotificationCenter
-  block, `Task { @MainActor [weak self] in self?.syncDisabledColumnsFromWidths() }` — this IS
-  the forbidden GCD/notification-context -> MainActor hop pattern. The project-correct form is
-  `DispatchQueue.main.async { [weak self] in MainActor.assumeIsolated { ... } }`
-  (columnDidResizeNotification posts on main, so assumeIsolated is valid). DEFERRED because the
-  fix is a concurrency BEHAVIOR change (Task yields to a later runloop turn vs assumeIsolated
-  runs synchronously) — NOT behavior-preserving. Downstream: fix in a concurrency-scoped pass.
+### RESOLVED — pre-existing callback-hop violation
+- `MetadataColumnController.swift`: the `columnResizeObserver` NotificationCenter block now uses
+  `DispatchQueue.main.async { [weak self] in MainActor.assumeIsolated { ... } }` instead of the
+  forbidden notification-context `Task { @MainActor ... }` hop.
 
 ### Concurrency patterns VERIFIED CORRECT (do NOT "fix" — they are not violations)
 - `BatchTableView.swift:446` `Task { @MainActor [weak self] in }` — SAME-actor structured
@@ -111,9 +107,8 @@ tighten, 2 redundant-syntax, 2 dead-code removals). Kernel is clean (no Lungfish
 macOS-26-compliant, concurrency patterns correct). All substantial value is in the DEFERRED
 splits (BlastResultsDrawerTab 1946L, MiniBAMViewController 1871L, BatchTableView 974L,
 LungfishHelpContent 1007L — each catalogued with seams + promotion lists + the `@objc`/
-source-string test constraints). ONE pre-existing rule violation flagged for a downstream
-concurrency-scoped fix: MetadataColumnController.swift:220 `Task { @MainActor }` from a
-notification block.
+source-string test constraints). The previously flagged MetadataColumnController callback hop is
+now resolved.
 
 ## Deferred items
 

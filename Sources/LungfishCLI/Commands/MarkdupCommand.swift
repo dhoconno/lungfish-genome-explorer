@@ -740,7 +740,25 @@ struct MarkdupCommand: AsyncParsableCommand {
     }
 
     private static func provenanceExplicitOptions(for input: ExecutionInput) -> [String: ParameterValue] {
-        provenanceResolvedOptions(for: input)
+        var options: [String: ParameterValue] = [
+            "path": .string(input.path),
+        ]
+        if input.force {
+            options["force"] = .boolean(true)
+        }
+        if input.sortThreads != 4 {
+            options["sortThreads"] = .integer(input.sortThreads)
+        }
+        if input.quiet {
+            options["quiet"] = .boolean(true)
+        }
+        if input.outputFormat != .text {
+            options["outputFormat"] = .string(input.outputFormat.rawValue)
+        }
+        if let deduplicatedBundlePath = input.deduplicatedBundlePath {
+            options["deduplicatedBundle"] = .string(deduplicatedBundlePath)
+        }
+        return options
     }
 
     private static func detectSamtoolsVersion(samtoolsPath: String) async -> String {
