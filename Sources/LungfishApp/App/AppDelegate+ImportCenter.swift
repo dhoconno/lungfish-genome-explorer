@@ -961,7 +961,7 @@ extension AppDelegate {
                     }
                     self.showAlert(
                         title: "Metadata Imported",
-                        message: "Updated \(totalUpdated.formatted()) sample metadata values across \(updatedTracks) variant track(s).",
+                        message: "Updated \(totalUpdated.formatted()) sample metadata row(s) across \(updatedTracks) variant track(s).",
                         presentingWindow: targetController?.window ?? presentingWindow
                     )
                 }

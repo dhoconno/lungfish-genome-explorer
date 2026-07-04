@@ -92,10 +92,12 @@ extension ImportCommand {
         @OptionGroup var globalOptions: GlobalOptions
 
         func run() async throws {
+            let startedAt = Date()
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
             let fileManager = FileManager.default
             let inputURL = URL(fileURLWithPath: inputPath)
             let bundleURL = URL(fileURLWithPath: bundlePath)
+            let manifestURL = bundleURL.appendingPathComponent(BundleManifest.filename)
 
             guard fileManager.fileExists(atPath: inputURL.path) else {
                 print(formatter.error("Metadata file not found: \(inputPath)"))
@@ -108,8 +110,12 @@ extension ImportCommand {
             }
 
             let manifest = try BundleManifest.load(from: bundleURL)
-            guard !manifest.variants.isEmpty else {
-                print(formatter.error("This bundle has no variant tracks to apply metadata to."))
+            let databaseURLs = manifest.variants.compactMap { track -> URL? in
+                guard let databasePath = track.databasePath else { return nil }
+                return bundleURL.appendingPathComponent(databasePath)
+            }
+            guard !databaseURLs.isEmpty else {
+                print(formatter.error("This bundle has no variant databases to apply metadata to."))
                 throw CLIExitCode.inputError.exitCode
             }
 
@@ -124,38 +130,353 @@ extension ImportCommand {
                 throw CLIExitCode.formatError.exitCode
             }
 
-            var totalUpdated = 0
-            var updatedTracks = 0
+            let inputRecords = sampleMetadataInputRecords(
+                inputURL: inputURL,
+                metadataFormat: format,
+                manifestURL: manifestURL,
+                databaseURLs: databaseURLs
+            )
+            let rollbackSnapshot = try createSampleMetadataRollbackSnapshot(
+                bundleURL: bundleURL,
+                databaseURLs: databaseURLs
+            )
+            defer { removeRollbackBackup(rollbackSnapshot) }
 
-            for track in manifest.variants {
-                guard let databasePath = track.databasePath else { continue }
-                let databaseURL = bundleURL.appendingPathComponent(databasePath)
-                let database = try VariantDatabase(url: databaseURL, readWrite: true)
-                totalUpdated += try database.importSampleMetadata(from: inputURL, format: format)
-                updatedTracks += 1
+            do {
+                var totalUpdated = 0
+                var updatedTracks = 0
+
+                for databaseURL in databaseURLs {
+                    let database = try VariantDatabase(url: databaseURL, readWrite: true)
+                    totalUpdated += try database.importSampleMetadata(from: inputURL, format: format)
+                    updatedTracks += 1
+                }
+
+                let outputRecords = sampleMetadataOutputRecords(databaseURLs: databaseURLs)
+                try await CLIProvenanceSupport.recordSingleStepRun(
+                    name: "lungfish import sample-metadata",
+                    parameters: sampleMetadataProvenanceParameters(
+                        inputURL: inputURL,
+                        bundleURL: bundleURL,
+                        metadataFormat: format
+                    ),
+                    defaults: sampleMetadataProvenanceDefaults(),
+                    resolved: sampleMetadataProvenanceResolved(
+                        inputURL: inputURL,
+                        bundleURL: bundleURL,
+                        metadataFormat: format,
+                        updatedTracks: updatedTracks,
+                        sampleRowsUpdated: totalUpdated,
+                        databaseURLs: databaseURLs
+                    ),
+                    toolName: "lungfish import sample-metadata",
+                    toolVersion: "lungfish-cli \(LungfishCLI.configuration.version)",
+                    command: sampleMetadataProvenanceCommand(inputURL: inputURL, bundleURL: bundleURL),
+                    inputs: inputRecords,
+                    outputs: outputRecords,
+                    exitCode: 0,
+                    wallTime: Date().timeIntervalSince(startedAt),
+                    stderr: nil,
+                    status: .completed,
+                    outputDirectory: bundleURL
+                )
+
+                if globalOptions.outputFormat == .json {
+                    let handler = JSONOutputHandler()
+                    handler.writeData([
+                        "bundle": bundlePath,
+                        "provenance": bundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename).path,
+                        "sampleRowsUpdated": "\(totalUpdated)",
+                        "tracksUpdated": "\(updatedTracks)",
+                        "status": "ok",
+                    ], label: nil)
+                    return
+                }
+
+                if !globalOptions.quiet {
+                    print(formatter.success(
+                        "Imported sample metadata into \(updatedTracks) variant track(s); updated \(totalUpdated) sample row(s)."
+                    ))
+                }
+            } catch {
+                do {
+                    try restoreSampleMetadataRollbackSnapshot(rollbackSnapshot)
+                } catch let rollbackError {
+                    throw SampleMetadataRollbackFailure(
+                        operationError: error,
+                        rollbackError: rollbackError
+                    )
+                }
+                throw error
+            }
+        }
+
+        private func sampleMetadataInputRecords(
+            inputURL: URL,
+            metadataFormat: MetadataFormat,
+            manifestURL: URL,
+            databaseURLs: [URL]
+        ) -> [FileRecord] {
+            [
+                ProvenanceRecorder.fileRecord(
+                    url: inputURL,
+                    format: fileFormat(forMetadataFormat: metadataFormat),
+                    role: .input
+                ),
+                ProvenanceRecorder.fileRecord(url: manifestURL, format: .json, role: .input)
+            ] + databaseURLs.map {
+                ProvenanceRecorder.fileRecord(url: $0, format: .unknown, role: .input)
+            }
+        }
+
+        private func sampleMetadataOutputRecords(databaseURLs: [URL]) -> [FileRecord] {
+            databaseURLs.map {
+                ProvenanceRecorder.fileRecord(url: $0, format: .unknown, role: .output)
+            }
+        }
+
+        private func sampleMetadataProvenanceCommand(inputURL: URL, bundleURL: URL) -> [String] {
+            [
+                "lungfish",
+                "import",
+                "sample-metadata",
+                inputURL.path,
+                "--bundle",
+                bundleURL.path
+            ] + replayableGlobalArguments()
+        }
+
+        private func sampleMetadataProvenanceParameters(
+            inputURL: URL,
+            bundleURL: URL,
+            metadataFormat: MetadataFormat
+        ) -> [String: ParameterValue] {
+            var parameters: [String: ParameterValue] = [
+                "inputFile": .file(inputURL),
+                "bundle": .file(bundleURL),
+                "metadataFormat": .string(metadataFormat.rawValue)
+            ]
+            parameters.merge(globalExplicitOptions()) { _, explicit in explicit }
+            return parameters
+        }
+
+        private func sampleMetadataProvenanceDefaults() -> [String: ParameterValue] {
+            [
+                "metadataFormat": .string("inferred-from-extension"),
+                "outputFormat": .string(OutputFormat.text.rawValue),
+                "quiet": .boolean(false),
+                "verbosity": .integer(0),
+                "progress": .boolean(false),
+                "noProgress": .boolean(false),
+                "debug": .boolean(false),
+                "logFile": .null,
+                "noColor": .boolean(false),
+                "threads": .null
+            ]
+        }
+
+        private func sampleMetadataProvenanceResolved(
+            inputURL: URL,
+            bundleURL: URL,
+            metadataFormat: MetadataFormat,
+            updatedTracks: Int,
+            sampleRowsUpdated: Int,
+            databaseURLs: [URL]
+        ) -> [String: ParameterValue] {
+            [
+                "inputFile": .file(inputURL),
+                "bundle": .file(bundleURL),
+                "metadataFormat": .string(metadataFormat.rawValue),
+                "outputFormat": .string(globalOptions.outputFormat.rawValue),
+                "quiet": .boolean(globalOptions.quiet),
+                "verbosity": .integer(globalOptions.verbosity),
+                "progress": .boolean(globalOptions.showProgress),
+                "noProgress": .boolean(globalOptions.noProgress),
+                "debug": .boolean(globalOptions.debug),
+                "logFile": globalOptions.logFile.map { .file(URL(fileURLWithPath: $0)) } ?? .null,
+                "noColor": .boolean(globalOptions.noColor),
+                "threads": globalOptions.threads.map(ParameterValue.integer) ?? .integer(globalOptions.effectiveThreads),
+                "useColors": .boolean(globalOptions.useColors),
+                "shouldShowProgress": .boolean(globalOptions.shouldShowProgress),
+                "tracksUpdated": .integer(updatedTracks),
+                "sampleRowsUpdated": .integer(sampleRowsUpdated),
+                "variantDatabaseCount": .integer(databaseURLs.count),
+                "variantDatabases": .array(databaseURLs.map { .file($0) })
+            ]
+        }
+
+        private func fileFormat(forMetadataFormat format: MetadataFormat) -> FileFormat {
+            switch format {
+            case .csv, .tsv:
+                return .text
+            case .excel:
+                return .unknown
+            }
+        }
+
+        private func replayableGlobalArguments() -> [String] {
+            var argv: [String] = []
+            if globalOptions.outputFormat != .text {
+                argv += ["--format", globalOptions.outputFormat.rawValue]
+            }
+            if globalOptions.verbosity > 0 {
+                argv += Array(repeating: "--verbose", count: globalOptions.verbosity)
+            }
+            if globalOptions.quiet {
+                argv.append("--quiet")
+            }
+            if globalOptions.showProgress {
+                argv.append("--progress")
+            }
+            if globalOptions.noProgress {
+                argv.append("--no-progress")
+            }
+            if globalOptions.debug {
+                argv.append("--debug")
+            }
+            if let logFile = globalOptions.logFile {
+                argv += ["--log-file", logFile]
+            }
+            if globalOptions.noColor {
+                argv.append("--no-color")
+            }
+            if let threads = globalOptions.threads {
+                argv += ["--threads", String(threads)]
+            }
+            return argv
+        }
+
+        private func globalExplicitOptions() -> [String: ParameterValue] {
+            var explicit: [String: ParameterValue] = [:]
+            if globalOptions.outputFormat != .text {
+                explicit["outputFormat"] = .string(globalOptions.outputFormat.rawValue)
+            }
+            if globalOptions.verbosity > 0 {
+                explicit["verbosity"] = .integer(globalOptions.verbosity)
+            }
+            if globalOptions.quiet {
+                explicit["quiet"] = .boolean(true)
+            }
+            if globalOptions.showProgress {
+                explicit["progress"] = .boolean(true)
+            }
+            if globalOptions.noProgress {
+                explicit["noProgress"] = .boolean(true)
+            }
+            if globalOptions.debug {
+                explicit["debug"] = .boolean(true)
+            }
+            if let logFile = globalOptions.logFile {
+                explicit["logFile"] = .file(URL(fileURLWithPath: logFile))
+            }
+            if globalOptions.noColor {
+                explicit["noColor"] = .boolean(true)
+            }
+            if let threads = globalOptions.threads {
+                explicit["threads"] = .integer(threads)
+            }
+            return explicit
+        }
+
+        private struct RollbackSnapshot {
+            let backupDirectory: URL
+            let artifacts: [ArtifactSnapshot]
+        }
+
+        private struct ArtifactSnapshot {
+            let originalURL: URL
+            let backupURL: URL?
+        }
+
+        private struct SampleMetadataRollbackFailure: LocalizedError {
+            let operationError: Error
+            let rollbackError: Error
+
+            var errorDescription: String? {
+                """
+                Sample metadata import failed and rollback also failed. Original error: \(operationError.localizedDescription). Rollback error: \(rollbackError.localizedDescription)
+                """
+            }
+        }
+
+        private func createSampleMetadataRollbackSnapshot(
+            bundleURL: URL,
+            databaseURLs: [URL]
+        ) throws -> RollbackSnapshot {
+            let fileManager = FileManager.default
+            let backupDirectory = fileManager.temporaryDirectory
+                .appendingPathComponent("lungfish-sample-metadata-rollback-\(UUID().uuidString)", isDirectory: true)
+            try fileManager.createDirectory(at: backupDirectory, withIntermediateDirectories: true)
+
+            let artifacts = try rollbackArtifactURLs(bundleURL: bundleURL, databaseURLs: databaseURLs)
+                .enumerated()
+                .map { index, originalURL -> ArtifactSnapshot in
+                    let standardizedURL = originalURL.standardizedFileURL
+                    var isDirectory: ObjCBool = false
+                    guard fileManager.fileExists(atPath: standardizedURL.path, isDirectory: &isDirectory) else {
+                        return ArtifactSnapshot(originalURL: standardizedURL, backupURL: nil)
+                    }
+
+                    let backupURL = backupDirectory.appendingPathComponent("artifact-\(index)")
+                    try fileManager.copyItem(at: standardizedURL, to: backupURL)
+                    return ArtifactSnapshot(originalURL: standardizedURL, backupURL: backupURL)
+                }
+
+            return RollbackSnapshot(backupDirectory: backupDirectory, artifacts: artifacts)
+        }
+
+        private func restoreSampleMetadataRollbackSnapshot(_ snapshot: RollbackSnapshot) throws {
+            let fileManager = FileManager.default
+            for artifact in snapshot.artifacts.reversed() {
+                if fileManager.fileExists(atPath: artifact.originalURL.path) {
+                    try fileManager.removeItem(at: artifact.originalURL)
+                }
+                guard let backupURL = artifact.backupURL else { continue }
+                try fileManager.createDirectory(
+                    at: artifact.originalURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try fileManager.copyItem(at: backupURL, to: artifact.originalURL)
+            }
+        }
+
+        private func removeRollbackBackup(_ snapshot: RollbackSnapshot) {
+            try? FileManager.default.removeItem(at: snapshot.backupDirectory)
+        }
+
+        private func rollbackArtifactURLs(bundleURL: URL, databaseURLs: [URL]) -> [URL] {
+            var urls: [URL] = []
+            var seen = Set<String>()
+            func append(_ url: URL) {
+                let standardizedURL = url.standardizedFileURL
+                guard seen.insert(standardizedURL.path).inserted else { return }
+                urls.append(standardizedURL)
+            }
+            func appendProvenanceSidecar(_ sidecarURL: URL) {
+                append(sidecarURL)
+                append(ProvenanceSigningConfiguration.signatureURL(for: sidecarURL))
+                append(ProvenanceSigningConfiguration.publicKeyURL(for: sidecarURL))
             }
 
-            guard updatedTracks > 0 else {
-                print(formatter.error("No writable variant databases were found in the bundle."))
-                throw CLIExitCode.outputError.exitCode
-            }
+            appendProvenanceSidecar(bundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename))
+            append(bundleURL.appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true))
 
-            if globalOptions.outputFormat == .json {
-                let handler = JSONOutputHandler()
-                handler.writeData([
-                    "bundle": bundlePath,
-                    "tracksUpdated": "\(updatedTracks)",
-                    "sampleValuesUpdated": "\(totalUpdated)",
-                    "status": "ok",
-                ], label: nil)
-                return
+            for databaseURL in databaseURLs {
+                for sqliteArtifact in sqliteArtifactURLs(for: databaseURL) {
+                    append(sqliteArtifact)
+                }
+                appendProvenanceSidecar(ProvenanceRecorder.fileSidecarURL(for: databaseURL))
             }
+            return urls
+        }
 
-            if !globalOptions.quiet {
-                print(formatter.success(
-                    "Imported sample metadata into \(updatedTracks) variant track(s); updated \(totalUpdated) sample metadata value(s)."
-                ))
-            }
+        private func sqliteArtifactURLs(for databaseURL: URL) -> [URL] {
+            [
+                databaseURL,
+                URL(fileURLWithPath: databaseURL.path + "-wal"),
+                URL(fileURLWithPath: databaseURL.path + "-shm"),
+                URL(fileURLWithPath: databaseURL.path + "-journal")
+            ]
         }
     }
 

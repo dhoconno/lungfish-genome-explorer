@@ -40,6 +40,8 @@ final class ImportCommandMetadataTests: XCTestCase {
         test,B.1.1.7,confirmed
         """.write(to: metadataURL, atomically: true, encoding: .utf8)
 
+        let dbURL = bundleURL.appendingPathComponent("variants.db")
+        let preImportChecksum = try XCTUnwrap(ProvenanceRecorder.sha256(of: dbURL))
         let command = try ImportCommand.SampleMetadataSubcommand.parse([
             metadataURL.path,
             "--bundle",
@@ -48,11 +50,95 @@ final class ImportCommandMetadataTests: XCTestCase {
         ])
         try await command.run()
 
-        let dbURL = bundleURL.appendingPathComponent("variants.db")
         let database = try VariantDatabase(url: dbURL)
         let metadata = database.sampleMetadata(name: "test")
         XCTAssertEqual(metadata["lineage"], "B.1.1.7")
         XCTAssertEqual(metadata["status"], "confirmed")
+
+        let provenanceURL = bundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        let provenance = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: provenanceURL)
+        )
+        XCTAssertEqual(provenance.workflowName, "lungfish import sample-metadata")
+        XCTAssertTrue(provenance.argv.contains("sample-metadata"))
+        XCTAssertTrue(provenance.argv.contains("--quiet"))
+        XCTAssertEqual(provenance.options.explicit["inputFile"], .file(metadataURL))
+        XCTAssertEqual(provenance.options.explicit["bundle"], .file(bundleURL))
+        XCTAssertEqual(provenance.options.explicit["metadataFormat"], .string("csv"))
+        XCTAssertEqual(provenance.options.resolvedDefaults["metadataFormat"], .string("csv"))
+        XCTAssertEqual(provenance.options.resolvedDefaults["tracksUpdated"], .integer(1))
+        XCTAssertEqual(provenance.options.resolvedDefaults["sampleRowsUpdated"], .integer(1))
+        XCTAssertEqual(provenance.options.resolvedDefaults["variantDatabaseCount"], .integer(1))
+        XCTAssertTrue(provenance.files.contains {
+            $0.path == metadataURL.path && $0.role == .input && $0.checksumSHA256 != nil && $0.fileSize != nil
+        })
+        XCTAssertTrue(provenance.files.contains {
+            $0.path == bundleURL.appendingPathComponent(BundleManifest.filename).path
+                && $0.role == .input
+                && $0.checksumSHA256 != nil
+                && $0.fileSize != nil
+        })
+
+        let importStep = try XCTUnwrap(provenance.steps.first)
+        let databaseInput = try XCTUnwrap(importStep.inputs.first {
+            $0.path == dbURL.path && $0.role == .input
+        })
+        XCTAssertEqual(databaseInput.checksumSHA256, preImportChecksum)
+
+        let databaseOutput = try XCTUnwrap(provenance.outputs.first {
+            $0.path == dbURL.path && $0.role == .output
+        })
+        XCTAssertNotNil(databaseOutput.checksumSHA256)
+        XCTAssertNotEqual(databaseOutput.checksumSHA256, preImportChecksum)
+
+        let bundleSidecarURL = try XCTUnwrap(ProvenanceWriter.bundleOutputSidecarURL(for: dbURL, inBundle: bundleURL))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bundleSidecarURL.path))
+        let focusedSidecar = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: bundleSidecarURL)
+        )
+        XCTAssertEqual(focusedSidecar.output?.path, dbURL.path)
+    }
+
+    func testSampleMetadataSubcommandRollsBackWhenProvenanceLayoutFails() async throws {
+        let bundleURL = try makeVariantBundle()
+        let dbURL = bundleURL.appendingPathComponent("variants.db")
+        let preImportChecksum = try XCTUnwrap(ProvenanceRecorder.sha256(of: dbURL))
+        let blockedProvenanceURL = bundleURL.appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName)
+        try "blocked".write(to: blockedProvenanceURL, atomically: true, encoding: .utf8)
+
+        let metadataURL = tempDir.appendingPathComponent("rollback-metadata.csv")
+        try """
+        sample_name,lineage,status
+        test,B.1.1.7,confirmed
+        """.write(to: metadataURL, atomically: true, encoding: .utf8)
+
+        let command = try ImportCommand.SampleMetadataSubcommand.parse([
+            metadataURL.path,
+            "--bundle",
+            bundleURL.path,
+            "--quiet",
+        ])
+
+        do {
+            try await command.run()
+            XCTFail("Expected provenance layout failure")
+        } catch {
+            // Expected: the regular provenance path blocks bundle layout creation.
+        }
+
+        XCTAssertEqual(ProvenanceRecorder.sha256(of: dbURL), preImportChecksum)
+        let database = try VariantDatabase(url: dbURL)
+        let metadata = database.sampleMetadata(name: "test")
+        XCTAssertNil(metadata["lineage"])
+        XCTAssertNil(metadata["status"])
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: bundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename).path
+            )
+        )
+        XCTAssertEqual(try String(contentsOf: blockedProvenanceURL, encoding: .utf8), "blocked")
     }
 
     func testMetadataSubcommandImportsIntoTwelveSBundleAndWritesProvenance() throws {
