@@ -617,27 +617,6 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
         )
     }
 
-    private func saveProvenance(
-        inputURL: URL,
-        outputURL: URL,
-        argv: [String],
-        fastpArguments: [String],
-        exitCode: Int32,
-        wallTime: TimeInterval,
-        stderr: String?
-    ) throws {
-        let run = makeProvenanceRun(
-            inputURL: inputURL,
-            outputURL: outputURL,
-            argv: argv,
-            fastpArguments: fastpArguments,
-            exitCode: exitCode,
-            wallTime: wallTime,
-            stderr: stderr
-        )
-        try writeWorkflowRun(run, to: outputURL.deletingLastPathComponent())
-    }
-
     private func makeProvenanceRun(
         inputURL: URL,
         outputURL: URL,

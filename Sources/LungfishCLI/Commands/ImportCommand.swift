@@ -1738,26 +1738,6 @@ private func formatBases(_ bases: Int64) -> String {
         }
     }
 
-/// Scans a directory for files matching the given extensions.
-private func scanForFiles(in directory: URL, extensions: [String]) -> [URL] {
-    let fm = FileManager.default
-    guard let contents = try? fm.contentsOfDirectory(
-        at: directory,
-        includingPropertiesForKeys: [.isRegularFileKey],
-        options: [.skipsHiddenFiles]
-    ) else { return [] }
-
-    let lowercasedExts = Set(extensions.map { $0.lowercased() })
-    return contents.filter { url in
-        var ext = url.pathExtension.lowercased()
-        // Handle double extensions like .tsv.gz.
-        if ext == "gz" {
-            ext = url.deletingPathExtension().pathExtension.lowercased()
-        }
-        return lowercasedExts.contains(ext) || lowercasedExts.contains(url.pathExtension.lowercased())
-    }.sorted { $0.lastPathComponent < $1.lastPathComponent }
-}
-
 /// Recursively scans a directory and returns regular files sorted by path.
 private func scanRegularFilesRecursively(in directory: URL) -> [URL] {
     let fm = FileManager.default
