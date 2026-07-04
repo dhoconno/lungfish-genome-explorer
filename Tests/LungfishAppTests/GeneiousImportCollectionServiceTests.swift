@@ -65,6 +65,14 @@ final class GeneiousImportCollectionServiceTests: XCTestCase {
         XCTAssertFalse(provenance.steps.flatMap(\.command).contains("--collection"))
         XCTAssertFalse(provenance.steps.flatMap(\.command).contains("--geneious-source"))
 
+        let canonicalProvenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: result.provenanceURL))
+        XCTAssertEqual(canonicalProvenance.output?.path, result.collectionURL.path)
+        XCTAssertNotNil(canonicalProvenance.output?.checksumSHA256)
+        XCTAssertNotNil(canonicalProvenance.output?.fileSize)
+        XCTAssertTrue(canonicalProvenance.outputs.contains {
+            $0.path == result.collectionURL.path && $0.checksumSHA256 != nil && $0.fileSize != nil
+        })
+
         let bundleURL = try XCTUnwrap(result.nativeBundleURLs.first)
         let bundleProvenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: bundleURL))
         XCTAssertEqual(bundleProvenance.workflowName, "Geneious Import")

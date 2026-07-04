@@ -6,6 +6,23 @@ public typealias ApplicationExportReferenceImporter = @Sendable (URL, URL, Strin
 public typealias ApplicationExportMSAImporter = @Sendable (URL, URL) throws -> URL
 public typealias ApplicationExportTreeImporter = @Sendable (URL, URL) throws -> URL
 
+public enum ApplicationExportImportCollectionError: LocalizedError, Sendable, Equatable {
+    case nativeBundleImportsFailed(
+        kind: ApplicationExportKind,
+        failures: [String],
+        collectionURL: URL,
+        provenanceURL: URL
+    )
+
+    public var errorDescription: String? {
+        switch self {
+        case .nativeBundleImportsFailed(let kind, let failures, let collectionURL, _):
+            let summary = failures.joined(separator: " ")
+            return "\(kind.displayName) import did not complete all required native bundle imports in \(collectionURL.path). \(summary)"
+        }
+    }
+}
+
 public struct ApplicationExportImportCollectionService: Sendable {
     public static let `default` = ApplicationExportImportCollectionService()
 
@@ -111,6 +128,7 @@ public struct ApplicationExportImportCollectionService: Sendable {
 
         var nativeBundleURLs: [URL] = []
         var preservedArtifactURLs: [URL] = []
+        var nativeImportFailures: [String] = []
         var warnings = scannedInventory.warnings
         var processedItems: [ApplicationExportImportItem] = []
 
@@ -148,7 +166,11 @@ public struct ApplicationExportImportCollectionService: Sendable {
                     nativeBundleURLs.append(importedURL)
                     destination = relativePath(from: collectionURL, to: importedURL)
                 } catch {
-                    appendUnique("\(item.sourceRelativePath) could not be parsed as a native MSA bundle: \(error.localizedDescription)", to: &warnings)
+                    let failure = "\(item.sourceRelativePath) could not be parsed as a native MSA bundle: \(error.localizedDescription)"
+                    appendUnique(failure, to: &warnings)
+                    if kind.importsNativeBundlesOnly {
+                        appendUnique(failure, to: &nativeImportFailures)
+                    }
                 }
             } else if item.kind == .phylogeneticTree {
                 let preferredName = Self.sanitizedBaseName(
@@ -164,7 +186,11 @@ public struct ApplicationExportImportCollectionService: Sendable {
                     nativeBundleURLs.append(importedURL)
                     destination = relativePath(from: collectionURL, to: importedURL)
                 } catch {
-                    appendUnique("\(item.sourceRelativePath) could not be parsed as a native tree bundle: \(error.localizedDescription)", to: &warnings)
+                    let failure = "\(item.sourceRelativePath) could not be parsed as a native tree bundle: \(error.localizedDescription)"
+                    appendUnique(failure, to: &warnings)
+                    if kind.importsNativeBundlesOnly {
+                        appendUnique(failure, to: &nativeImportFailures)
+                    }
                 }
             } else if effectivePreserveUnsupportedArtifacts {
                 let artifactURL = artifactsURL.appendingPathComponent(item.sourceRelativePath)
@@ -211,7 +237,6 @@ public struct ApplicationExportImportCollectionService: Sendable {
             collectionURL: collectionURL,
             inventoryURL: inventoryURL,
             reportURL: reportURL,
-            provenanceURL: provenanceURL,
             rawSourceOutputs: sourceCopyOutputs,
             preservedArtifactURLs: preservedArtifactURLs,
             nativeBundleURLs: nativeBundleURLs,
@@ -221,9 +246,19 @@ public struct ApplicationExportImportCollectionService: Sendable {
             applicationKind: kind,
             sourceKind: scannedInventory.sourceKind,
             tempRunURL: tempRunURL,
+            importFailures: nativeImportFailures,
             startedAt: startedAt
         )
-        try writeJSON(provenance, to: provenanceURL)
+        try writeProvenance(provenance, to: provenanceURL)
+
+        if kind.importsNativeBundlesOnly, !nativeImportFailures.isEmpty {
+            throw ApplicationExportImportCollectionError.nativeBundleImportsFailed(
+                kind: kind,
+                failures: nativeImportFailures,
+                collectionURL: collectionURL,
+                provenanceURL: provenanceURL
+            )
+        }
 
         progress?(1.0, "\(kind.displayName) import complete.")
         return ApplicationExportImportResult(
@@ -379,7 +414,6 @@ public struct ApplicationExportImportCollectionService: Sendable {
         collectionURL: URL,
         inventoryURL: URL,
         reportURL: URL,
-        provenanceURL: URL,
         rawSourceOutputs: [URL],
         preservedArtifactURLs: [URL],
         nativeBundleURLs: [URL],
@@ -389,25 +423,35 @@ public struct ApplicationExportImportCollectionService: Sendable {
         applicationKind: ApplicationExportKind,
         sourceKind: ApplicationExportImportSourceKind,
         tempRunURL: URL,
+        importFailures: [String] = [],
         startedAt: Date
     ) -> WorkflowRun {
         let scanStarted = startedAt
         let preserveStarted = Date()
         let referenceStarted = Date()
         let completedAt = Date()
-        let sourceRecord = ProvenanceRecorder.fileRecord(url: sourceURL, format: .unknown, role: .input)
-        let inventoryRecord = ProvenanceRecorder.fileRecord(url: inventoryURL, format: .json, role: .output)
-        let reportRecord = ProvenanceRecorder.fileRecord(url: reportURL, format: .text, role: .report)
-        let provenanceRecord = FileRecord(path: provenanceURL.path, sha256: nil, sizeBytes: nil, format: .json, role: .output)
-        let rawSourceRecords = rawSourceOutputs.map { ProvenanceRecorder.fileRecord(url: $0, format: .unknown, role: .output) }
-        let artifactRecords = preservedArtifactURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .unknown, role: .output) }
-        let bundleRecords = nativeBundleURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .unknown, role: .output) }
+        let sourceRecord = ProvenanceRecorder.fileOrDirectoryRecord(url: sourceURL, format: .unknown, role: .input)
+        let inventoryRecord = ProvenanceRecorder.fileOrDirectoryRecord(url: inventoryURL, format: .json, role: .output)
+        let reportRecord = ProvenanceRecorder.fileOrDirectoryRecord(url: reportURL, format: .text, role: .report)
+        let collectionRecord = ProvenanceRecorder.fileOrDirectoryRecord(url: collectionURL, format: .unknown, role: .output)
+        let rawSourceRecords = rawSourceOutputs.map {
+            ProvenanceRecorder.fileOrDirectoryRecord(url: $0, format: .unknown, role: .output)
+        }
+        let artifactRecords = preservedArtifactURLs.map {
+            ProvenanceRecorder.fileOrDirectoryRecord(url: $0, format: .unknown, role: .output)
+        }
+        let bundleRecords = nativeBundleURLs.map {
+            ProvenanceRecorder.fileOrDirectoryRecord(url: $0, format: .unknown, role: .output)
+        }
         let replayCommand = Self.replayCommand(
             sourceURL: sourceURL,
             projectURL: projectURL,
             kind: applicationKind,
             options: options
         )
+        let didFail = !importFailures.isEmpty
+        let finalExitCode: Int32 = didFail ? 1 : 0
+        let failureStderr = didFail ? importFailures.joined(separator: "\n") : nil
 
         let scanStep = StepExecution(
             toolName: "Application Export Import",
@@ -454,9 +498,10 @@ public struct ApplicationExportImportCollectionService: Sendable {
             toolVersion: WorkflowRun.currentAppVersion,
             command: replayCommand,
             inputs: [sourceRecord],
-            outputs: bundleRecords + [provenanceRecord],
-            exitCode: 0,
+            outputs: [collectionRecord] + bundleRecords,
+            exitCode: finalExitCode,
             wallTime: completedAt.timeIntervalSince(referenceStarted),
+            stderr: failureStderr,
             dependsOn: [preserveStep.id],
             startTime: referenceStarted,
             endTime: completedAt
@@ -466,7 +511,7 @@ public struct ApplicationExportImportCollectionService: Sendable {
             name: "Application Export Import",
             startTime: startedAt,
             endTime: completedAt,
-            status: .completed,
+            status: didFail ? .failed : .completed,
             steps: [scanStep, preserveStep, referenceStep],
             parameters: Self.provenanceOptions(
                 sourceURL: sourceURL,
@@ -550,6 +595,10 @@ public struct ApplicationExportImportCollectionService: Sendable {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(value)
         try data.write(to: url, options: .atomic)
+    }
+
+    private func writeProvenance(_ provenance: WorkflowRun, to url: URL) throws {
+        try ProvenanceWriter(signingProvider: nil).write(provenance.canonicalEnvelope(), toSidecar: url)
     }
 
     private func appendUnique(_ value: String, to values: inout [String]) {
