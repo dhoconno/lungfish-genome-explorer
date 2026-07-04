@@ -482,6 +482,52 @@ final class FASTQBatchImporterTests: XCTestCase {
                 atPath: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename).path
             )
         )
+        let bundleFASTQURL = bundleURL.appendingPathComponent("Sample.fastq.gz")
+        let provenanceData = try Data(
+            contentsOf: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        )
+        let envelope = try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: provenanceData)
+        let legacyRun = try ProvenanceJSON.decoder.decode(WorkflowRun.self, from: provenanceData)
+        XCTAssertEqual(legacyRun.name, "lungfish import fastq")
+        XCTAssertEqual(legacyRun.status, .completed)
+        XCTAssertEqual(envelope.workflowName, "lungfish import fastq")
+        XCTAssertEqual(envelope.toolName, "lungfish import fastq")
+        XCTAssertEqual(envelope.exitStatus, 0)
+        XCTAssertEqual(
+            envelope.options.defaults["platform"],
+            .string(LungfishWorkflow.SequencingPlatform.illumina.rawValue)
+        )
+        XCTAssertEqual(envelope.options.defaults["threads"], .integer(4))
+        XCTAssertEqual(envelope.options.defaults["optimizeStorage"], .boolean(true))
+        XCTAssertEqual(envelope.options.resolvedDefaults["threads"], .integer(1))
+        XCTAssertEqual(envelope.options.resolvedDefaults["qualityBinning"], .string(QualityBinningScheme.none.rawValue))
+        XCTAssertEqual(envelope.options.resolvedDefaults["optimizeStorage"], .boolean(false))
+        XCTAssertEqual(envelope.options.resolvedDefaults["primaryFASTQ"], .file(bundleFASTQURL))
+        XCTAssertTrue(envelope.steps.contains { $0.toolName == "lungfish import fastq" })
+        XCTAssertTrue(envelope.outputs.contains {
+            $0.path == bundleFASTQURL.path && $0.checksumSHA256 != nil && $0.fileSize != nil
+        })
+        XCTAssertFalse(
+            envelope.outputs.contains { $0.path.contains("/.tmp/") },
+            "Final provenance output records should point at bundle payloads, not temp workspace files"
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: bundleURL
+                    .appendingPathComponent("provenance", isDirectory: true)
+                    .appendingPathComponent(ProvenanceWriter.bundleRollupFilename)
+                    .path
+            )
+        )
+        let focusedSidecarURL = try XCTUnwrap(
+            ProvenanceWriter.bundleOutputSidecarURL(for: bundleFASTQURL, inBundle: bundleURL)
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: focusedSidecarURL.path))
+        let focusedEnvelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: focusedSidecarURL)
+        )
+        XCTAssertEqual(focusedEnvelope.output?.path, bundleFASTQURL.path)
     }
 
     func testRunBatchImportFailsPairedOnlyRecipeBeforeStartingStepsForSingleEndSample() async throws {

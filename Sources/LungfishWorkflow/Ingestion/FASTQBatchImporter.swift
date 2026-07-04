@@ -942,8 +942,6 @@ public enum FASTQBatchImporter {
         }
         let metadataURL = FASTQMetadataStore.metadataURL(for: bundleFASTQURL)
         let csvMetadataURL = FASTQBundleCSVMetadata.metadataURL(in: bundleURL)
-        let provenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
-
         var steps: [StepExecution] = []
         steps.append(contentsOf: recipeProvenanceSteps(
             recipeStepResults: recipeStepResults,
@@ -989,21 +987,53 @@ public enum FASTQBatchImporter {
             endTime: statsCompletedAt
         ))
 
-        let run = WorkflowRun(
-            name: "lungfish import fastq",
-            startTime: steps.map(\.startTime).min() ?? Date(),
-            endTime: Date(),
-            status: .completed,
-            appVersion: WorkflowRun.currentAppVersion,
-            hostOS: WorkflowRun.currentHostOS,
-            steps: steps,
-            parameters: provenanceParameters(pair: pair, config: config, bundleURL: bundleURL)
+        let completedAt = Date()
+        let command = reproducibleImportCommand(pair: pair, config: config)
+        var builder = ProvenanceRunBuilder(
+            workflowName: "lungfish import fastq",
+            workflowVersion: WorkflowRun.currentAppVersion,
+            toolName: "lungfish import fastq",
+            toolVersion: WorkflowRun.currentAppVersion
         )
+        .argv(command)
+        .durableReplayArgv(command)
+        .options(
+            explicit: provenanceParameters(pair: pair, config: config, bundleURL: bundleURL),
+            defaults: provenanceDefaultParameters(config: config),
+            resolved: provenanceResolvedParameters(
+                pair: pair,
+                config: config,
+                bundleURL: bundleURL,
+                bundleFASTQURL: bundleFASTQURL,
+                metadataURL: metadataURL,
+                csvMetadataURL: csvMetadataURL,
+                ingestionResult: ingestionResult
+            )
+        )
+        .runtime(ProvenanceRuntimeIdentity())
+        for inputURL in originalInputURLs {
+            builder = try builder.input(inputURL, format: .fastq, role: .input)
+        }
+        if let sampleSheetURL = pair.sampleSheetURL {
+            builder = try builder.input(sampleSheetURL, format: .text, role: .input)
+        }
+        builder = try builder
+            .output(bundleFASTQURL, format: .fastq, role: .output)
+            .output(metadataURL, format: .json, role: .output)
+        if FileManager.default.fileExists(atPath: csvMetadataURL.path) {
+            builder = try builder.output(csvMetadataURL, format: .text, role: .output)
+        }
+        for step in steps {
+            builder = builder.step(ProvenanceStep(stepExecution: step))
+        }
 
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(run).write(to: provenanceURL, options: .atomic)
+        let envelope = try builder.complete(
+            exitStatus: 0,
+            stderr: statsError,
+            startedAt: steps.map(\.startTime).min() ?? completedAt,
+            endedAt: completedAt
+        )
+        try ProvenanceWriter().write(envelope, to: bundleURL)
     }
 
     private static func recipeProvenanceSteps(
@@ -1093,6 +1123,50 @@ public enum FASTQBatchImporter {
             "threads": .integer(config.threads),
             "forceReimport": .boolean(config.forceReimport),
         ]
+    }
+
+    private static func provenanceDefaultParameters(config: ImportConfig) -> [String: ParameterValue] {
+        [
+            "platform": .string(LungfishWorkflow.SequencingPlatform.illumina.rawValue),
+            "recipe": .string("none"),
+            "qualityBinning": .string(
+                (config.newRecipe?.qualityBinning ?? config.platform.defaultQualityBinning).rawValue
+            ),
+            "optimizeStorage": .boolean(config.platform.defaultOptimizeStorage),
+            "compressionLevel": .string(config.platform.defaultCompressionLevel.rawValue),
+            "threads": .integer(4),
+            "forceReimport": .boolean(false),
+            "r2": .null,
+            "sampleSheet": .null,
+            "sampleSheetMetadata": .null,
+        ]
+    }
+
+    private static func provenanceResolvedParameters(
+        pair: SamplePair,
+        config: ImportConfig,
+        bundleURL: URL,
+        bundleFASTQURL: URL,
+        metadataURL: URL,
+        csvMetadataURL: URL,
+        ingestionResult: FASTQIngestionResult
+    ) -> [String: ParameterValue] {
+        var parameters = provenanceParameters(pair: pair, config: config, bundleURL: bundleURL)
+        parameters["primaryFASTQ"] = .file(bundleFASTQURL)
+        parameters["metadataJSON"] = .file(metadataURL)
+        parameters["metadataCSV"] = FileManager.default.fileExists(atPath: csvMetadataURL.path)
+            ? .file(csvMetadataURL)
+            : .null
+        parameters["pairedEndInput"] = .boolean(pair.r2 != nil)
+        parameters["outputPairingMode"] = .string(ingestionResult.pairingMode.rawValue)
+        parameters["wasClumpified"] = .boolean(ingestionResult.wasClumpified)
+        parameters["originalFilenames"] = .array(ingestionResult.originalFilenames.map { .string($0) })
+        parameters["originalSizeBytes"] = .integer(Int(ingestionResult.originalSizeBytes))
+        parameters["finalSizeBytes"] = .integer(Int(ingestionResult.finalSizeBytes))
+        parameters["processingTool"] = ingestionResult.processingTool.map(ParameterValue.string) ?? .null
+        parameters["processingToolVersion"] = ingestionResult.processingToolVersion.map(ParameterValue.string) ?? .null
+        parameters["processingCommandLine"] = ingestionResult.processingCommandLine.map(ParameterValue.string) ?? .null
+        return parameters
     }
 
     private static func reproducibleImportCommand(pair: SamplePair, config: ImportConfig) -> [String] {
