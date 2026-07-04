@@ -493,6 +493,33 @@ final class FASTQSampleMetadataLegacyTests: XCTestCase {
         XCTAssertEqual(restored.sampleRole, .positiveControl)
         XCTAssertEqual(restored.customFields["extra"], "value")
     }
+
+    func testBundleCSVSaveLoadPreservesQuotedNewlinesAndQuotes() throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FASTQBundleCSVMetadataRoundTrip_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let metadata = FASTQBundleCSVMetadata(
+            headers: ["sample_name", "geo_loc_name", "notes"],
+            rows: [[
+                "Sample, A",
+                "USA:Georgia:Atlanta, GA",
+                "Line 1\nLine 2 with \"quoted\" text",
+            ]]
+        )
+
+        try FASTQBundleCSVMetadata.save(metadata, to: tmpDir)
+
+        let loaded = try XCTUnwrap(FASTQBundleCSVMetadata.load(from: tmpDir))
+        XCTAssertEqual(loaded.headers, metadata.headers)
+        XCTAssertEqual(loaded.rows, metadata.rows)
+
+        let restored = FASTQSampleMetadata(from: loaded, fallbackName: "Fallback")
+        XCTAssertEqual(restored.sampleName, "Sample, A")
+        XCTAssertEqual(restored.geoLocName, "USA:Georgia:Atlanta, GA")
+        XCTAssertEqual(restored.notes, "Line 1\nLine 2 with \"quoted\" text")
+    }
 }
 
 // MARK: - Multi-Sample CSV Tests

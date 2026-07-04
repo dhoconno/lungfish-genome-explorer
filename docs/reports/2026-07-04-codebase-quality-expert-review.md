@@ -67,6 +67,9 @@ and behavior-preserving simplifications are useful and appropriate.
 - 2026-07-04 follow-up: TaxTriage's bottom action-bar BLAST Verify button is no longer a deceptive
   no-op; single-row selections now enable it and route through the same selected-row verification
   context used by row-level BLAST actions.
+- 2026-07-04 follow-up: FASTQ bundle `metadata.csv` parsing now reads the quoted commas, escaped
+  quotes, and embedded newlines that the serializer already writes, so per-bundle sample metadata
+  round-trips without silently splitting records.
 
 ## Still Deferred
 
