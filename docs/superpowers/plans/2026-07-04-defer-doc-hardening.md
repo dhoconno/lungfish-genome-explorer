@@ -157,6 +157,8 @@ changes that reduce future ambiguity across the codebase.
 - Retired the stale GenotypeOutline `handleClick` follow-up after verifying the materialized
   row-recognizer test covers the current identifier-bearing click target, and marked the July 2
   GUI performance plan/audit as historical rather than an active unchecked backlog.
+- Wired `AssemblyContigDetailPane` quick-copy fields to the controller's injected pasteboard so
+  detail metrics behave consistently with summary-strip and contig-table scalar copy actions.
 
 ## Verification
 

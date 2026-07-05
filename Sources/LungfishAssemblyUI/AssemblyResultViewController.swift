@@ -412,6 +412,7 @@ public final class AssemblyResultViewController: NSViewController {
         currentResult = result
         summaryStrip.configure(result: result, pasteboard: scalarPasteboard)
         contigTableView.scalarPasteboard = scalarPasteboard
+        detailPane.configureQuickCopy(pasteboard: scalarPasteboard)
 
         if result.outcome == .completedWithNoContigs {
             catalog = nil

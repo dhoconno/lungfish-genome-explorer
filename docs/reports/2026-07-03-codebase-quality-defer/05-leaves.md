@@ -103,7 +103,8 @@ dead `currentSelectedSampleIDForActions`, dead `paddedContainer` + single-arg ca
 - RESOLVED 2026-07-05: `AssemblyContigDetailPane` is now wired from
   `AssemblyResultViewController.showSelection`, including single-selection FASTA
   previews, multi-selection summaries, empty state hiding, and stale-selection
-  generation guards.
+  generation guards. A follow-up wires its quick-copy fields to the same
+  injected pasteboard as the summary strip and contig table.
 - RESOLVED 2026-07-05: the unused `NaoMgsDetailPaneView` subtree was removed from
   `NaoMgsChartViews.swift` (`CoveragePlotView`, `EditDistanceHistogramView`,
   `FragmentLengthDistributionView`, `AccessionListView`, `AccessionRow`, and

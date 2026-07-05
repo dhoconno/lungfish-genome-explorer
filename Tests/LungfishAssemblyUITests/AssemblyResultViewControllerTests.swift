@@ -334,6 +334,22 @@ final class AssemblyResultViewControllerTests: XCTestCase {
         XCTAssertEqual(pasteboard.lastString, "AACCGGTT")
     }
 
+    func testCommandCopyUsesVisibleDetailValues() async throws {
+        let pasteboard = RecordingPasteboard()
+        let vc = AssemblyResultViewController()
+        _ = vc.view
+        try await vc.configureForTesting(result: makeAssemblyResult(), scalarPasteboard: pasteboard)
+
+        try await vc.testSelectContig(named: "contig_7")
+        await waitUntil {
+            !vc.testDetailContainer.isHidden &&
+                vc.testDetailPane.currentHeaderText == "contig_7 annotated header"
+        }
+
+        vc.testCopyVisibleDetailValue(identifier: "assembly-result-detail-length")
+        XCTAssertEqual(pasteboard.lastString, "8 bp")
+    }
+
     func testCommandClickOnVisibleTableCellCopiesScalarValue() async throws {
         let pasteboard = RecordingPasteboard()
         let vc = AssemblyResultViewController()
