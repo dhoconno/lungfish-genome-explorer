@@ -122,6 +122,12 @@ non-op-pipeline layers, NOT OperationCenter violations).
   a successful scientific workflow result after durable result/provenance sidecars are missing.
 - RESOLVED 2026-07-04: `ONTBarcodeDemuxGenotypingPipeline` heredoc extraction is complete;
   the moved script payloads were byte-verified and covered by `ONTBarcodeDemuxGenotypingPipelineTests`.
+- RESOLVED 2026-07-05: `DatabaseRegistry` managed installs now write durable install
+  provenance for `human-scrubber`, `deacon-panhuman`, and `deacon-ribokmers`, and fail
+  closed by removing final payloads and override state if the provenance sidecar cannot be
+  written. `HumanScrubberDatabaseTests` cover deterministic URLSession/Deacon stubs and
+  provenance-write failure cleanup; a source policy test prevents success-capable installer
+  paths from discarding install-provenance failures.
 - `TaxTriagePipeline.swift` (1598L): 4-way actor-extension split, NO promotions (actor
   extensions keep `private` in-module... but across files `private` doesn't span — so any
   cross-file helper needs `internal`; verify per-seam). Test-pinned internals stay internal.
@@ -208,8 +214,9 @@ surface, a Codable/provenance contract, or read-resolution logic. No invariant v
   `kraken2TreeMissing`, `destinationNotWritable`, `fastaConversionFailed`) — but
   `ClassifierExtractionError` is PUBLIC and switched exhaustively by consumers -> removing
   cases is an API break, NOT behavior-preserving. Keep.
-- DatabaseRegistry `downloadExitCode` dead `let 0`: threaded into provenance writes ->
-  schema-adjacent, defer.
+- DatabaseRegistry `downloadExitCode` literal `0` records URLSession download success in
+  managed-install provenance. Keep it unless replacing that download step with a richer
+  status model.
 - SequenceAnnotationTrackWorkflow `restoreFiles` inline dup (~411-420): in a rollback
   failure path -> defer.
 

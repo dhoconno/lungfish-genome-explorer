@@ -53,4 +53,42 @@ final class ProvenanceFailurePolicySourceTests: XCTestCase {
             )
         }
     }
+
+    func testManagedDatabaseInstallersWriteSuccessProvenanceAndFailClosed() throws {
+        let root = try repoRoot()
+        let text = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishWorkflow/Databases/DatabaseRegistry.swift"),
+            encoding: .utf8
+        )
+        let installerMethods = [
+            "installChecksummedManagedDatabase",
+            "installDeaconManagedDatabase",
+            "installDeaconRibokmersDatabase",
+        ]
+
+        for method in installerMethods {
+            let source = sourceSlice(in: text, from: "private func \(method)", to: "\n    private func ")
+            XCTAssertTrue(
+                source.contains("writeManagedDatabaseInstallProvenance("),
+                "\(method) must write durable managed database install provenance before reporting success"
+            )
+            XCTAssertFalse(
+                source.contains("try? writeManagedDatabaseInstallProvenance("),
+                "\(method) must not discard managed database install provenance write failures"
+            )
+        }
+
+        XCTAssertFalse(
+            text.contains("try? writeDeaconRibokmersInstallProvenance("),
+            "Managed database install provenance failures must not be warning-only for any success-capable install path"
+        )
+    }
+
+    private func sourceSlice(in source: String, from startMarker: String, to endMarker: String) -> String {
+        guard let startRange = source.range(of: startMarker),
+              let endRange = source.range(of: endMarker, range: startRange.upperBound..<source.endIndex) else {
+            return ""
+        }
+        return String(source[startRange.lowerBound..<endRange.lowerBound])
+    }
 }

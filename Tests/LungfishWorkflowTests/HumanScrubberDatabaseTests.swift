@@ -5,19 +5,27 @@
 import XCTest
 @testable import LungfishWorkflow
 import LungfishIO
+import CryptoKit
 
 final class HumanScrubberDatabaseTests: XCTestCase {
 
     private var tempDir: URL!
+    private let managedDatabaseOverrideKeys = [
+        "database.human-scrubber.overrideFilename",
+        "database.deacon-panhuman.overrideFilename",
+        "database.deacon-ribokmers.overrideFilename",
+    ]
 
     override func setUp() async throws {
         try await super.setUp()
         tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("human-scrubber-tests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        clearManagedDatabaseOverrideDefaults()
     }
 
     override func tearDown() async throws {
+        clearManagedDatabaseOverrideDefaults()
         if let tempDir {
             try? FileManager.default.removeItem(at: tempDir)
         }
@@ -169,6 +177,300 @@ final class HumanScrubberDatabaseTests: XCTestCase {
         XCTAssertTrue(result.errors.first?.error.contains("required before running human-read scrubbing") == true)
     }
 
+    func testHumanScrubberInstallWritesManagedDatabaseProvenance() async throws {
+        let bundledRoot = try bundledDatabasesRoot()
+        let userRoot = tempDir.appendingPathComponent("user-databases", isDirectory: true)
+        let downloadDirectory = tempDir.appendingPathComponent("downloads", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadDirectory, withIntermediateDirectories: true)
+        let payload = Data("human-scrubber-payload\n".utf8)
+        let expectedMD5 = Self.md5Hex(payload)
+        let downloader: ManagedDatabaseDownloader = { url, progress in
+            let outputURL = downloadDirectory
+                .appendingPathComponent("\(UUID().uuidString)-\(url.lastPathComponent)")
+            let data = url.lastPathComponent.hasSuffix(".md5")
+                ? Data("\(expectedMD5)  human_filter.db.20250916v2\n".utf8)
+                : payload
+            try data.write(to: outputURL)
+            progress(1.0, Int64(data.count), Int64(data.count))
+            return ManagedDatabaseDownloadResult(fileURL: outputURL, wallTime: 0.125)
+        }
+        let registry = DatabaseRegistry(
+            bundledDatabasesRoot: bundledRoot,
+            userDatabasesRoot: userRoot,
+            managedDatabaseDownloader: downloader
+        )
+
+        let installed = try await registry.installManagedDatabase("human-scrubber", reinstall: true)
+
+        XCTAssertEqual(try Data(contentsOf: installed), payload)
+        let provenanceURL = installed.deletingLastPathComponent()
+            .appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let run = try decodeWorkflowRun(at: provenanceURL)
+        XCTAssertEqual(run.name, "Human Read Scrubber Database managed database install")
+        XCTAssertEqual(run.status, .completed)
+        XCTAssertEqual(run.parameters["workflow"]?.stringValue, "managed-database-install")
+        XCTAssertEqual(run.parameters["databaseID"]?.stringValue, "human-scrubber")
+        XCTAssertEqual(run.parameters["expectedMD5"]?.stringValue, expectedMD5)
+        XCTAssertEqual(run.parameters["actualMD5"]?.stringValue, expectedMD5)
+        XCTAssertEqual(run.steps.map(\.toolName), ["URLSession", "URLSession", "CryptoKit"])
+        XCTAssertEqual(run.steps.first?.outputs.first?.path, installed.path)
+        XCTAssertEqual(run.steps.first?.outputs.first?.sizeBytes, UInt64(payload.count))
+        XCTAssertEqual(UserDefaults.standard.string(forKey: "database.human-scrubber.overrideFilename"), installed.lastPathComponent)
+    }
+
+    func testDeaconPanhumanInstallWritesManagedDatabaseProvenance() async throws {
+        let bundledRoot = try bundledDatabasesRoot()
+        let userRoot = tempDir.appendingPathComponent("user-databases", isDirectory: true)
+        let indexPayload = Data("deacon-index\n".utf8)
+        let toolRunner: ManagedDatabaseToolRunner = { name, arguments, environment, _, stderrHandler in
+            if arguments.starts(with: ["index", "fetch"]), let outputPath = arguments.last {
+                try indexPayload.write(to: URL(fileURLWithPath: outputPath))
+                stderrHandler?("Fetching panhuman")
+            }
+            return ManagedDatabaseToolResult(
+                stdout: "ok",
+                stderr: "",
+                exitCode: 0,
+                wallTime: 0.25
+            )
+        }
+        let registry = DatabaseRegistry(
+            bundledDatabasesRoot: bundledRoot,
+            userDatabasesRoot: userRoot,
+            managedDatabaseToolRunner: toolRunner
+        )
+
+        let installed = try await registry.installManagedDatabase("deacon-panhuman", reinstall: true)
+
+        XCTAssertEqual(try Data(contentsOf: installed), indexPayload)
+        let provenanceURL = installed.deletingLastPathComponent()
+            .appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let run = try decodeWorkflowRun(at: provenanceURL)
+        XCTAssertEqual(run.name, "Human Read Removal Data managed database install")
+        XCTAssertEqual(run.status, .completed)
+        XCTAssertEqual(run.parameters["databaseID"]?.stringValue, "deacon-panhuman")
+        XCTAssertEqual(run.parameters["condaEnvironment"]?.stringValue, "deacon")
+        XCTAssertEqual(run.steps.map(\.toolName), ["deacon", "deacon"])
+        XCTAssertEqual(run.steps.first?.outputs.first?.path, installed.path)
+        XCTAssertEqual(run.steps.first?.durableReplayArgv?.suffix(2), ["-o", installed.path])
+        XCTAssertEqual(run.steps.first?.outputs.first?.sizeBytes, UInt64(indexPayload.count))
+    }
+
+    func testDeaconRibokmersInstallWritesDurableReplayProvenance() async throws {
+        let bundledRoot = try bundledDatabasesRoot()
+        let userRoot = tempDir.appendingPathComponent("user-databases", isDirectory: true)
+        let downloadDirectory = tempDir.appendingPathComponent("downloads", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadDirectory, withIntermediateDirectories: true)
+        let referencePayload = Data(">ribo\nACGT\n".utf8)
+        let indexPayload = Data("ribokmers-index\n".utf8)
+        let downloader: ManagedDatabaseDownloader = { url, progress in
+            let outputURL = downloadDirectory
+                .appendingPathComponent("\(UUID().uuidString)-\(url.lastPathComponent)")
+            try referencePayload.write(to: outputURL)
+            progress(1.0, Int64(referencePayload.count), Int64(referencePayload.count))
+            return ManagedDatabaseDownloadResult(fileURL: outputURL, wallTime: 0.125)
+        }
+        let toolRunner: ManagedDatabaseToolRunner = { _, arguments, _, _, _ in
+            if arguments.starts(with: ["index", "build"]),
+               let outputFlagIndex = arguments.firstIndex(of: "-o"),
+               arguments.indices.contains(outputFlagIndex + 1) {
+                try indexPayload.write(to: URL(fileURLWithPath: arguments[outputFlagIndex + 1]))
+            }
+            return ManagedDatabaseToolResult(
+                stdout: "ok",
+                stderr: "",
+                exitCode: 0,
+                wallTime: 0.25
+            )
+        }
+        let registry = DatabaseRegistry(
+            bundledDatabasesRoot: bundledRoot,
+            userDatabasesRoot: userRoot,
+            managedDatabaseDownloader: downloader,
+            managedDatabaseToolRunner: toolRunner
+        )
+
+        let installed = try await registry.installManagedDatabase("deacon-ribokmers", reinstall: true)
+
+        XCTAssertEqual(try Data(contentsOf: installed), indexPayload)
+        let provenanceURL = installed.deletingLastPathComponent()
+            .appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let run = try decodeWorkflowRun(at: provenanceURL)
+        XCTAssertEqual(run.name, "Ribosomal RNA Removal Data managed database install")
+        XCTAssertEqual(run.status, .completed)
+        XCTAssertEqual(run.parameters["databaseID"]?.stringValue, "deacon-ribokmers")
+        XCTAssertEqual(run.steps.map(\.toolName), ["URLSession", "deacon", "deacon"])
+        let buildStep = try XCTUnwrap(run.steps.first { $0.command.contains("build") })
+        XCTAssertEqual(buildStep.outputs.first?.path, installed.path)
+        XCTAssertEqual(buildStep.durableReplayArgv?.contains(installed.path), true)
+        XCTAssertEqual(buildStep.durableReplayArgv?.contains { $0.hasSuffix(".partial") }, false)
+    }
+
+    func testManagedDatabaseInstallRemovesFinalPayloadWhenProvenanceWriteFails() async throws {
+        let bundledRoot = try bundledDatabasesRoot()
+        let userRoot = tempDir.appendingPathComponent("user-databases", isDirectory: true)
+        let downloadDirectory = tempDir.appendingPathComponent("downloads", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadDirectory, withIntermediateDirectories: true)
+        let payload = Data("human-scrubber-payload\n".utf8)
+        let expectedMD5 = Self.md5Hex(payload)
+        let downloader: ManagedDatabaseDownloader = { url, progress in
+            let outputURL = downloadDirectory
+                .appendingPathComponent("\(UUID().uuidString)-\(url.lastPathComponent)")
+            let data = url.lastPathComponent.hasSuffix(".md5")
+                ? Data("\(expectedMD5)  human_filter.db.20250916v2\n".utf8)
+                : payload
+            try data.write(to: outputURL)
+            progress(1.0, Int64(data.count), Int64(data.count))
+            return ManagedDatabaseDownloadResult(fileURL: outputURL, wallTime: 0.125)
+        }
+        let provenanceWriter: ManagedDatabaseProvenanceWriter = { _, _ in
+            throw TestProvenanceError.forcedFailure
+        }
+        let registry = DatabaseRegistry(
+            bundledDatabasesRoot: bundledRoot,
+            userDatabasesRoot: userRoot,
+            managedDatabaseDownloader: downloader,
+            managedDatabaseProvenanceWriter: provenanceWriter
+        )
+
+        do {
+            _ = try await registry.installManagedDatabase("human-scrubber", reinstall: true)
+            XCTFail("Expected provenance write failure to fail the install")
+        } catch let error as HumanScrubberDatabaseError {
+            guard case .installationFailed(let databaseID, _, let reason) = error else {
+                XCTFail("Unexpected error: \(error)")
+                return
+            }
+            XCTAssertEqual(databaseID, "human-scrubber")
+            XCTAssertTrue(reason.contains("managed database install provenance"))
+            XCTAssertTrue(reason.contains("forcedFailure"))
+        }
+
+        let installDirectory = userRoot.appendingPathComponent("human-scrubber", isDirectory: true)
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: installDirectory.appendingPathComponent("human_filter.db.20250916v2").path
+            )
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: installDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename).path
+            )
+        )
+        XCTAssertNil(UserDefaults.standard.string(forKey: "database.human-scrubber.overrideFilename"))
+    }
+
+    func testRibokmersInstallRemovesReferenceAndIndexWhenProvenanceWriteFails() async throws {
+        let bundledRoot = try bundledDatabasesRoot()
+        let userRoot = tempDir.appendingPathComponent("user-databases", isDirectory: true)
+        let downloadDirectory = tempDir.appendingPathComponent("downloads", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadDirectory, withIntermediateDirectories: true)
+        let referencePayload = Data(">ribo\nACGT\n".utf8)
+        let indexPayload = Data("ribokmers-index\n".utf8)
+        let downloader: ManagedDatabaseDownloader = { url, progress in
+            let outputURL = downloadDirectory
+                .appendingPathComponent("\(UUID().uuidString)-\(url.lastPathComponent)")
+            try referencePayload.write(to: outputURL)
+            progress(1.0, Int64(referencePayload.count), Int64(referencePayload.count))
+            return ManagedDatabaseDownloadResult(fileURL: outputURL, wallTime: 0.125)
+        }
+        let toolRunner: ManagedDatabaseToolRunner = { _, arguments, _, _, _ in
+            if arguments.starts(with: ["index", "build"]),
+               let outputFlagIndex = arguments.firstIndex(of: "-o"),
+               arguments.indices.contains(outputFlagIndex + 1) {
+                try indexPayload.write(to: URL(fileURLWithPath: arguments[outputFlagIndex + 1]))
+            }
+            return ManagedDatabaseToolResult(
+                stdout: "ok",
+                stderr: "",
+                exitCode: 0,
+                wallTime: 0.25
+            )
+        }
+        let provenanceWriter: ManagedDatabaseProvenanceWriter = { _, _ in
+            throw TestProvenanceError.forcedFailure
+        }
+        let registry = DatabaseRegistry(
+            bundledDatabasesRoot: bundledRoot,
+            userDatabasesRoot: userRoot,
+            managedDatabaseDownloader: downloader,
+            managedDatabaseToolRunner: toolRunner,
+            managedDatabaseProvenanceWriter: provenanceWriter
+        )
+
+        do {
+            _ = try await registry.installManagedDatabase("deacon-ribokmers", reinstall: true)
+            XCTFail("Expected provenance write failure to fail the install")
+        } catch let error as HumanScrubberDatabaseError {
+            guard case .installationFailed(let databaseID, _, let reason) = error else {
+                XCTFail("Unexpected error: \(error)")
+                return
+            }
+            XCTAssertEqual(databaseID, "deacon-ribokmers")
+            XCTAssertTrue(reason.contains("managed database install provenance"))
+        }
+
+        let installDirectory = userRoot.appendingPathComponent("deacon-ribokmers", isDirectory: true)
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: installDirectory.appendingPathComponent("ribokmers.k31w15.idx").path
+            )
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: installDirectory.appendingPathComponent("ribokmers.fa.gz").path
+            )
+        )
+        XCTAssertNil(UserDefaults.standard.string(forKey: "database.deacon-ribokmers.overrideFilename"))
+        let resolvedPath = await registry.effectiveDatabasePath(for: "deacon-ribokmers")
+        XCTAssertNil(resolvedPath)
+    }
+
+    func testRibokmersInstallRemovesReferenceWhenCancelledAfterDownload() async throws {
+        let bundledRoot = try bundledDatabasesRoot()
+        let userRoot = tempDir.appendingPathComponent("user-databases", isDirectory: true)
+        let downloadDirectory = tempDir.appendingPathComponent("downloads", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadDirectory, withIntermediateDirectories: true)
+        let referencePayload = Data(">ribo\nACGT\n".utf8)
+        let downloader: ManagedDatabaseDownloader = { url, progress in
+            let outputURL = downloadDirectory
+                .appendingPathComponent("\(UUID().uuidString)-\(url.lastPathComponent)")
+            try referencePayload.write(to: outputURL)
+            progress(1.0, Int64(referencePayload.count), Int64(referencePayload.count))
+            return ManagedDatabaseDownloadResult(fileURL: outputURL, wallTime: 0.125)
+        }
+        let toolRunner: ManagedDatabaseToolRunner = { _, _, _, _, _ in
+            throw CancellationError()
+        }
+        let registry = DatabaseRegistry(
+            bundledDatabasesRoot: bundledRoot,
+            userDatabasesRoot: userRoot,
+            managedDatabaseDownloader: downloader,
+            managedDatabaseToolRunner: toolRunner
+        )
+
+        do {
+            _ = try await registry.installManagedDatabase("deacon-ribokmers", reinstall: true)
+            XCTFail("Expected cancellation to fail the install")
+        } catch let error as HumanScrubberDatabaseError {
+            guard case .installationCancelled(let databaseID, _) = error else {
+                XCTFail("Unexpected error: \(error)")
+                return
+            }
+            XCTAssertEqual(databaseID, "deacon-ribokmers")
+        }
+
+        let installDirectory = userRoot.appendingPathComponent("deacon-ribokmers", isDirectory: true)
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: installDirectory.appendingPathComponent("ribokmers.fa.gz").path
+            )
+        )
+        XCTAssertNil(UserDefaults.standard.string(forKey: "database.deacon-ribokmers.overrideFilename"))
+        let resolvedPath = await registry.effectiveDatabasePath(for: "deacon-ribokmers")
+        XCTAssertNil(resolvedPath)
+    }
+
     private func makeFASTQFile(at url: URL) throws {
         let content = """
         @read1
@@ -185,7 +487,7 @@ final class HumanScrubberDatabaseTests: XCTestCase {
 
     private func bundledDatabasesRoot() throws -> URL {
         let root = tempDir.appendingPathComponent("bundled-databases", isDirectory: true)
-        for databaseID in ["human-scrubber", "deacon-panhuman"] {
+        for databaseID in ["human-scrubber", "deacon-panhuman", "deacon-ribokmers"] {
             let databaseDir = root.appendingPathComponent(databaseID, isDirectory: true)
             try FileManager.default.createDirectory(at: databaseDir, withIntermediateDirectories: true)
             try FileManager.default.copyItem(
@@ -206,5 +508,25 @@ final class HumanScrubberDatabaseTests: XCTestCase {
             return candidate
         }
         throw XCTSkip("Bundled manifest not found at \(candidate.path)")
+    }
+
+    private func decodeWorkflowRun(at url: URL) throws -> WorkflowRun {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(WorkflowRun.self, from: Data(contentsOf: url))
+    }
+
+    private func clearManagedDatabaseOverrideDefaults() {
+        for key in managedDatabaseOverrideKeys {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+    }
+
+    private static func md5Hex(_ data: Data) -> String {
+        Insecure.MD5.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private enum TestProvenanceError: Error {
+        case forcedFailure
     }
 }
