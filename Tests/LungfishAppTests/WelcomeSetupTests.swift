@@ -254,6 +254,51 @@ private final class InstallingWelcomePackStatusProvider: @unchecked Sendable, Pl
     }
 }
 
+private final class LateProgressWelcomePackStatusProvider: @unchecked Sendable, PluginPackStatusProviding {
+    private let missingStatus: PluginPackStatus
+    private let readyStatus: PluginPackStatus
+    private let lock = NSLock()
+    private var installed = false
+    private var progressHandler: (@Sendable (PluginPackInstallProgress) -> Void)?
+
+    init(missingStatus: PluginPackStatus, readyStatus: PluginPackStatus) {
+        self.missingStatus = missingStatus
+        self.readyStatus = readyStatus
+    }
+
+    func visibleStatuses() async -> [PluginPackStatus] {
+        [lock.withLock { installed } ? readyStatus : missingStatus]
+    }
+
+    func status(for pack: PluginPack) async -> PluginPackStatus {
+        lock.withLock { installed } ? readyStatus : missingStatus
+    }
+
+    func invalidateVisibleStatusesCache() async {}
+
+    func install(
+        pack: PluginPack,
+        reinstall: Bool,
+        progress: (@Sendable (PluginPackInstallProgress) -> Void)?
+    ) async throws {
+        lock.withLock {
+            installed = true
+            progressHandler = progress
+        }
+    }
+
+    func emitLateProgress() {
+        let progress = lock.withLock { progressHandler }
+        progress?(PluginPackInstallProgress(
+            requirementID: "late-tool",
+            requirementDisplayName: "Late Tool",
+            overallFraction: 0.25,
+            itemFraction: 0.25,
+            message: "Late progress"
+        ))
+    }
+}
+
 private final class SequencedRequiredStatusProvider: @unchecked Sendable, PluginPackStatusProviding {
     private let initialStatus: PluginPackStatus
     private let refreshedStatus: PluginPackStatus
@@ -885,6 +930,51 @@ final class WelcomeSetupTests: XCTestCase {
         }
 
         XCTAssertEqual(viewModel.requiredSetupStatus?.state, .ready)
+    }
+
+    func testInstallRequiredSetupIgnoresProgressAfterCompletion() async {
+        let missing = PluginPackStatus(
+            pack: .requiredSetupPack,
+            state: .needsInstall,
+            toolStatuses: [],
+            failureMessage: nil
+        )
+        let ready = PluginPackStatus(
+            pack: .requiredSetupPack,
+            state: .ready,
+            toolStatuses: [],
+            failureMessage: nil
+        )
+        let provider = LateProgressWelcomePackStatusProvider(
+            missingStatus: missing,
+            readyStatus: ready
+        )
+        let viewModel = WelcomeViewModel(
+            statusProvider: provider,
+            notificationCenter: NotificationCenter()
+        )
+
+        await viewModel.refreshSetup()
+        XCTAssertEqual(viewModel.requiredSetupStatus?.state, .needsInstall)
+
+        viewModel.installRequiredSetup()
+        for _ in 0..<20 where viewModel.isInstallingRequiredSetup || viewModel.requiredSetupStatus?.state != .ready {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(viewModel.requiredSetupStatus?.state, .ready)
+        XCTAssertNil(viewModel.requiredSetupProgress)
+        XCTAssertNil(viewModel.requiredSetupProgressMessage)
+        XCTAssertNil(viewModel.requiredSetupActiveItemID)
+        XCTAssertEqual(viewModel.requiredSetupItemProgress, [:])
+
+        provider.emitLateProgress()
+        try? await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertNil(viewModel.requiredSetupProgress)
+        XCTAssertNil(viewModel.requiredSetupProgressMessage)
+        XCTAssertNil(viewModel.requiredSetupActiveItemID)
+        XCTAssertEqual(viewModel.requiredSetupItemProgress, [:])
     }
 
     func testInstallRequiredSetupRefreshesRequiredStatusWhenOptionalRefreshIsInFlight() async {

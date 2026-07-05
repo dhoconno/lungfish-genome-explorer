@@ -168,6 +168,8 @@ changes that reduce future ambiguity across the codebase.
   their provenance sidecar cannot be published.
 - Made legacy ProjectStore database migration move SQLite WAL/SHM companions with
   `project.db` so hidden `.project.db` migration does not leave stale sidecar files behind.
+- Guarded Welcome required-setup install state with a generation token so late progress callbacks
+  from a completed or superseded install cannot repopulate cleared setup progress UI.
 
 ## Verification
 

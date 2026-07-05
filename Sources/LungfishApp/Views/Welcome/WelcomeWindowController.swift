@@ -173,6 +173,7 @@ final class WelcomeViewModel: ObservableObject {
     private var setupRefreshTask: Task<Void, Never>?
     private var scheduledSetupRefreshTask: Task<Void, Never>?
     private var scheduledSetupRefreshGeneration = 0
+    private var requiredSetupInstallGeneration = 0
     private var pendingSetupInvalidation = false
 
     var onCreateProject: ((URL) -> Void)?
@@ -379,7 +380,11 @@ final class WelcomeViewModel: ObservableObject {
     }
 
     func installRequiredSetup() {
-        guard let pack = requiredSetupStatus?.pack else { return }
+        guard let requiredSetupStatus, !isInstallingRequiredSetup else { return }
+        let pack = requiredSetupStatus.pack
+        let shouldReinstall = requiredSetupStatus.shouldReinstall
+        requiredSetupInstallGeneration += 1
+        let installGeneration = requiredSetupInstallGeneration
         isInstallingRequiredSetup = true
         setupErrorMessage = nil
         requiredSetupProgress = 0
@@ -390,30 +395,39 @@ final class WelcomeViewModel: ObservableObject {
 
         Task {
             defer {
-                isInstallingRequiredSetup = false
-                requiredSetupActiveItemID = nil
+                if requiredSetupInstallGeneration == installGeneration {
+                    isInstallingRequiredSetup = false
+                    requiredSetupActiveItemID = nil
+                }
             }
             do {
                 try await statusProvider.install(
                     pack: pack,
-                    reinstall: requiredSetupStatus?.shouldReinstall == true,
+                    reinstall: shouldReinstall,
                     progress: { [weak self] event in
-                        Task { @MainActor in
-                            self?.requiredSetupProgress = min(max(event.overallFraction, 0), 1)
-                            self?.requiredSetupProgressMessage = event.message
-                            self?.requiredSetupActiveItemID = event.requirementID
+                        Task { @MainActor [weak self] in
+                            guard let self,
+                                  self.requiredSetupInstallGeneration == installGeneration,
+                                  self.isInstallingRequiredSetup else {
+                                return
+                            }
+                            self.requiredSetupProgress = min(max(event.overallFraction, 0), 1)
+                            self.requiredSetupProgressMessage = event.message
+                            self.requiredSetupActiveItemID = event.requirementID
                             if let requirementID = event.requirementID {
-                                self?.requiredSetupItemProgress[requirementID] = min(max(event.itemFraction, 0), 1)
+                                self.requiredSetupItemProgress[requirementID] = min(max(event.itemFraction, 0), 1)
                             }
                         }
                     }
                 )
                 await refreshRequiredSetupStatus()
+                guard requiredSetupInstallGeneration == installGeneration else { return }
                 requiredSetupItemProgress = [:]
                 requiredSetupProgress = nil
                 requiredSetupProgressMessage = nil
                 notificationCenter.post(name: .managedResourcesDidChange, object: self)
             } catch {
+                guard requiredSetupInstallGeneration == installGeneration else { return }
                 setupErrorMessage = error.localizedDescription
             }
         }
