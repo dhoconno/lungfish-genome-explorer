@@ -191,6 +191,142 @@ final class FetchNCBIProvenanceTests: XCTestCase {
         XCTAssertEqual(run.steps.first?.outputs.first?.sizeBytes, 17)
     }
 
+    func testNCBISaveToRefusesToReplaceExistingDirectory() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FetchNCBIProvenanceDirectoryTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        let outputURL = tempDir.appendingPathComponent("Existing.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
+        try "manifest\n".write(
+            to: outputURL.appendingPathComponent("manifest.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let command = try NCBISubcommand.parse([
+            "MN908947.3",
+            "--fetch-format", "fasta",
+            "--save-to", outputURL.path,
+        ])
+
+        XCTAssertThrowsError(
+            try command.writeNCBIFetchOutputWithProvenance(
+                content: ">MN908947.3\nACGT\n",
+                outputURL: outputURL,
+                startedAt: Date(timeIntervalSince1970: 1_700_000_000),
+                completedAt: Date(timeIntervalSince1970: 1_700_000_002)
+            )
+        )
+
+        var isDirectory: ObjCBool = false
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outputURL.path, isDirectory: &isDirectory))
+        XCTAssertTrue(isDirectory.boolValue)
+        XCTAssertEqual(
+            try String(contentsOf: outputURL.appendingPathComponent("manifest.json"), encoding: .utf8),
+            "manifest\n"
+        )
+        XCTAssertFalse(FileManager.default.fileExists(atPath: NCBISubcommand.provenanceSidecarURL(for: outputURL).path))
+    }
+
+    func testENAFastaSaveToWritesOutputAndFileSpecificWorkflowProvenance() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FetchENAProvenanceOutputTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        let outputURL = tempDir.appendingPathComponent("AB123456.fasta")
+        let content = ">AB123456\nATGC\n"
+        let command = try ENAFastaSubcommand.parse([
+            "AB123456",
+            "--save-to", outputURL.path,
+            "--format", "json",
+        ])
+
+        try command.writeENAFastaOutputWithProvenance(
+            content: content,
+            outputURL: outputURL,
+            startedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            completedAt: Date(timeIntervalSince1970: 1_700_000_003)
+        )
+
+        XCTAssertEqual(try String(contentsOf: outputURL, encoding: .utf8), content)
+        let provenanceURL = ENAFastaSubcommand.provenanceSidecarURL(for: outputURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: provenanceURL.path))
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let run = try decoder.decode(WorkflowRun.self, from: try Data(contentsOf: provenanceURL))
+
+        XCTAssertEqual(run.name, "ena-fasta-fetch")
+        XCTAssertEqual(run.status, .completed)
+        XCTAssertEqual(run.parameters["accession"]?.stringValue, "AB123456")
+        XCTAssertEqual(run.parameters["saveTo"]?.stringValue, outputURL.path)
+        XCTAssertEqual(run.parameters["endpoint"]?.stringValue, "https://www.ebi.ac.uk/ena/browser/api/fasta")
+        XCTAssertEqual(run.parameters["containerRuntime"]?.stringValue, "none")
+        XCTAssertEqual(run.parameters["condaEnvironment"]?.stringValue, "none")
+
+        let step = try XCTUnwrap(run.steps.first)
+        XCTAssertEqual(step.toolName, "ena-fetch-fasta")
+        XCTAssertEqual(step.exitCode, 0)
+        XCTAssertEqual(step.wallTime, 3)
+        XCTAssertTrue(step.command.contains("--save-to"))
+        XCTAssertTrue(step.command.contains(outputURL.path))
+        XCTAssertEqual(step.inputs.first?.path, "ena://fasta/AB123456")
+        XCTAssertEqual(step.inputs.first?.format, .fasta)
+        XCTAssertNotNil(step.inputs.first?.sha256)
+        XCTAssertEqual(step.inputs.first?.sha256, step.outputs.first?.sha256)
+        XCTAssertEqual(step.inputs.first?.sizeBytes, UInt64(Data(content.utf8).count))
+        XCTAssertEqual(step.outputs.first?.path, outputURL.path)
+        XCTAssertEqual(step.outputs.first?.format, .fasta)
+        XCTAssertNotNil(step.outputs.first?.sha256)
+        XCTAssertEqual(step.outputs.first?.sizeBytes, UInt64(Data(content.utf8).count))
+        XCTAssertFalse(
+            String(decoding: try Data(contentsOf: provenanceURL), as: UTF8.self).contains(".tmp"),
+            "Saved-file provenance should reference durable output paths, not temporary publish files"
+        )
+    }
+
+    func testENAFastaSaveToRefusesToReplaceExistingDirectory() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FetchENAProvenanceDirectoryTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        let outputURL = tempDir.appendingPathComponent("Existing.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
+        try "manifest\n".write(
+            to: outputURL.appendingPathComponent("manifest.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let command = try ENAFastaSubcommand.parse(["AB123456", "--save-to", outputURL.path])
+
+        XCTAssertThrowsError(
+            try command.writeENAFastaOutputWithProvenance(
+                content: ">AB123456\nATGC\n",
+                outputURL: outputURL,
+                startedAt: Date(timeIntervalSince1970: 1_700_000_000),
+                completedAt: Date(timeIntervalSince1970: 1_700_000_003)
+            )
+        )
+
+        var isDirectory: ObjCBool = false
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outputURL.path, isDirectory: &isDirectory))
+        XCTAssertTrue(isDirectory.boolValue)
+        XCTAssertEqual(
+            try String(contentsOf: outputURL.appendingPathComponent("manifest.json"), encoding: .utf8),
+            "manifest\n"
+        )
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ENAFastaSubcommand.provenanceSidecarURL(for: outputURL).path))
+    }
+
     func testSaveToWritesFileSpecificWorkflowProvenance() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("FetchNCBIProvenanceTests-\(UUID().uuidString)", isDirectory: true)

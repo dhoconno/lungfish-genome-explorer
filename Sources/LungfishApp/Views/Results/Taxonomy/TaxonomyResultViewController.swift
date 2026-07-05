@@ -34,6 +34,7 @@ import LungfishKit
 private enum TaxonomyExportError: LocalizedError {
     case unsupportedFormat(ResultExportFormat)
     case noData
+    case noSourceInputs
 
     var errorDescription: String? {
         switch self {
@@ -41,6 +42,8 @@ private enum TaxonomyExportError: LocalizedError {
             return "Export format '\(fmt.rawValue)' is not supported for this result type."
         case .noData:
             return "No result data is loaded; cannot export."
+        case .noSourceInputs:
+            return "Cannot export classification results because no durable source result files are available for provenance."
         }
     }
 }
@@ -81,6 +84,8 @@ extension TaxonomyViewController: ResultViewportController {
             throw TaxonomyExportError.noData
         }
 
+        let startedAt = Date()
+        let sourceURLs = try taxonomyExportSourceURLs()
         let content: String
         switch format {
         case .csv:
@@ -91,9 +96,82 @@ extension TaxonomyViewController: ResultViewportController {
             throw TaxonomyExportError.unsupportedFormat(format)
         }
 
-        try content.write(to: url, atomically: true, encoding: .utf8)
+        try ScientificFileExportProvenance.writeAtomically(.init(
+            workflowName: "lungfish app taxonomy result export",
+            sourceURLs: sourceURLs,
+            outputURL: url,
+            outputFormat: .text,
+            argv: taxonomyExportArgv(format: format, outputURL: url, sourceURLs: sourceURLs),
+            explicitOptions: [
+                "sourcePaths": .array(sourceURLs.map { .file($0) }),
+                "outputPath": .file(url),
+                "outputFormat": .string(format.rawValue),
+            ],
+            resolved: [
+                "rowCount": .integer(tree.allNodes().count),
+                "totalReads": .integer(tree.totalReads),
+            ],
+            startedAt: startedAt
+        )) { tempURL in
+            try content.write(to: tempURL, atomically: true, encoding: .utf8)
+        }
     }
 
     /// The human-readable name shown in menus and export dialogs.
     public static var resultTypeName: String { "Classification" }
+
+    private func taxonomyExportSourceURLs() throws -> [URL] {
+        guard let result = classificationResult else {
+            throw TaxonomyExportError.noSourceInputs
+        }
+        var candidates = [result.reportURL, result.outputURL]
+        if let brackenURL = result.brackenURL {
+            candidates.append(brackenURL)
+        }
+        for requiredURL in candidates {
+            guard FileManager.default.fileExists(atPath: requiredURL.path) else {
+                throw TaxonomyExportError.noSourceInputs
+            }
+        }
+        if FileManager.default.fileExists(atPath: result.config.databasePath.path) {
+            candidates.append(result.config.databasePath)
+        }
+        let configuredInputs = result.config.originalInputFiles ?? result.config.inputFiles
+        candidates.append(contentsOf: configuredInputs)
+        let sourceURLs = uniqueExistingURLs(candidates)
+        guard !sourceURLs.isEmpty else {
+            throw TaxonomyExportError.noSourceInputs
+        }
+        return sourceURLs
+    }
+
+    private func taxonomyExportArgv(
+        format: ResultExportFormat,
+        outputURL: URL,
+        sourceURLs: [URL]
+    ) -> [String] {
+        var argv = [
+            "Lungfish.app",
+            "export-taxonomy-results",
+            "--format", format.rawValue,
+            "--output", outputURL.path,
+        ]
+        for sourceURL in sourceURLs {
+            argv.append(contentsOf: ["--source", sourceURL.path])
+        }
+        return argv
+    }
+
+    private func uniqueExistingURLs(_ urls: [URL]) -> [URL] {
+        var seen = Set<String>()
+        return urls.compactMap { url in
+            let standardized = url.standardizedFileURL
+            guard FileManager.default.fileExists(atPath: standardized.path),
+                  seen.insert(standardized.path).inserted
+            else {
+                return nil
+            }
+            return standardized
+        }
+    }
 }

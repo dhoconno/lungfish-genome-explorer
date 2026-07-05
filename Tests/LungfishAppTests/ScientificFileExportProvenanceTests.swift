@@ -81,6 +81,98 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
         XCTAssertEqual(input.fileSize, 11)
     }
 
+    func testWriteAtomicallyPublishesFinalOutputAndSidecarDescriptors() throws {
+        let sourceURL = tempDir.appendingPathComponent("source.tsv")
+        let outputURL = tempDir.appendingPathComponent("export.tsv")
+        try "name\tcount\nalpha\t1\n".write(to: sourceURL, atomically: true, encoding: .utf8)
+        try "old\n".write(to: outputURL, atomically: true, encoding: .utf8)
+        try "old provenance\n".write(
+            to: ProvenanceRecorder.fileSidecarURL(for: outputURL),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let sidecarURL = try ScientificFileExportProvenance.writeAtomically(.init(
+            workflowName: "lungfish app atomic export",
+            sourceURLs: [sourceURL],
+            outputURL: outputURL,
+            outputFormat: .text,
+            argv: ["Lungfish.app", "atomic-export", "--output", outputURL.path],
+            startedAt: Date()
+        )) { tempURL in
+            try "name\tcount\nalpha\t1\n".write(to: tempURL, atomically: true, encoding: .utf8)
+        }
+
+        XCTAssertEqual(sidecarURL, ProvenanceRecorder.fileSidecarURL(for: outputURL))
+        XCTAssertEqual(try String(contentsOf: outputURL, encoding: .utf8), "name\tcount\nalpha\t1\n")
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL))
+        XCTAssertEqual(envelope.output?.path, outputURL.path)
+        XCTAssertEqual(envelope.output?.format, .text)
+        XCTAssertEqual(envelope.output?.fileSize, UInt64(Data("name\tcount\nalpha\t1\n".utf8).count))
+        XCTAssertFalse(envelope.output?.path.contains(".export.tmp") ?? true)
+        XCTAssertTrue(envelope.files.contains { $0.path == sourceURL.path && $0.role == .input })
+    }
+
+    func testWriteAtomicallyKeepsExistingOutputWhenPayloadWriteFails() throws {
+        let sourceURL = tempDir.appendingPathComponent("source.tsv")
+        let outputURL = tempDir.appendingPathComponent("export.tsv")
+        let sidecarURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
+        try "source\n".write(to: sourceURL, atomically: true, encoding: .utf8)
+        try "old\n".write(to: outputURL, atomically: true, encoding: .utf8)
+        try "old provenance\n".write(to: sidecarURL, atomically: true, encoding: .utf8)
+
+        XCTAssertThrowsError(
+            try ScientificFileExportProvenance.writeAtomically(.init(
+                workflowName: "lungfish app atomic export",
+                sourceURLs: [sourceURL],
+                outputURL: outputURL,
+                outputFormat: .text,
+                argv: ["Lungfish.app", "atomic-export", "--output", outputURL.path],
+                startedAt: Date()
+            )) { tempURL in
+                try "new\n".write(to: tempURL, atomically: true, encoding: .utf8)
+                throw CocoaError(.fileWriteUnknown)
+            }
+        )
+
+        XCTAssertEqual(try String(contentsOf: outputURL, encoding: .utf8), "old\n")
+        XCTAssertEqual(try String(contentsOf: sidecarURL, encoding: .utf8), "old provenance\n")
+    }
+
+    func testWriteAtomicallyRefusesToReplaceExistingDirectory() throws {
+        let sourceURL = tempDir.appendingPathComponent("source.tsv")
+        let outputURL = tempDir.appendingPathComponent("Existing.lungfishref", isDirectory: true)
+        try "source\n".write(to: sourceURL, atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
+        try "manifest\n".write(
+            to: outputURL.appendingPathComponent("manifest.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        XCTAssertThrowsError(
+            try ScientificFileExportProvenance.writeAtomically(.init(
+                workflowName: "lungfish app atomic export",
+                sourceURLs: [sourceURL],
+                outputURL: outputURL,
+                outputFormat: .text,
+                argv: ["Lungfish.app", "atomic-export", "--output", outputURL.path],
+                startedAt: Date()
+            )) { tempURL in
+                try "new\n".write(to: tempURL, atomically: true, encoding: .utf8)
+            }
+        )
+
+        var isDirectory: ObjCBool = false
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outputURL.path, isDirectory: &isDirectory))
+        XCTAssertTrue(isDirectory.boolValue)
+        XCTAssertEqual(
+            try String(contentsOf: outputURL.appendingPathComponent("manifest.json"), encoding: .utf8),
+            "manifest\n"
+        )
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: outputURL).path))
+    }
+
     @MainActor
     func testSequenceContextMenuFASTAExportWritesScientificProvenanceSidecar() throws {
         let sourceURL = tempDir.appendingPathComponent("source.lungfishref", isDirectory: true)
@@ -220,6 +312,9 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
         let files = [
             ("Sources/LungfishApp/Views/Viewer/SequenceViewerView+Drawing.swift", "lungfish app sequence fasta export"),
             ("Sources/LungfishApp/Views/Results/Reference/ReferenceBundleViewportController.swift", "lungfish app mapping result export"),
+            ("Sources/LungfishApp/Views/Results/Taxonomy/TaxonomyResultViewController.swift", "lungfish app taxonomy result export"),
+            ("Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView+Export.swift", "lungfish app annotation table export"),
+            ("Sources/LungfishApp/Views/Viewer/FASTQMetadataDrawerView.swift", "lungfish app fastq metadata export"),
             ("Sources/LungfishPhylogeneticsUI/PhylogeneticTreeViewController.swift", "lungfish app phylogenetic subtree export"),
             ("Sources/LungfishNaoMgsUI/NaoMgsResultViewController.swift", "lungfish app naomgs summary export"),
             ("Sources/LungfishNvdUI/NvdResultViewController.swift", "lungfish app nvd contigs export"),
@@ -231,7 +326,11 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
 
         for (path, workflowName) in files {
             let source = try String(contentsOf: root.appendingPathComponent(path), encoding: .utf8)
-            XCTAssertTrue(source.contains("ScientificFileExportProvenance.write(.init("), path)
+            XCTAssertTrue(
+                source.contains("ScientificFileExportProvenance.write(.init(")
+                    || source.contains("ScientificFileExportProvenance.writeAtomically(.init("),
+                path
+            )
             XCTAssertTrue(source.contains(#"workflowName: "\#(workflowName)""#), path)
         }
 
@@ -241,6 +340,27 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
         )
         XCTAssertFalse(taxTriageSource.contains("try? csv.write(to:"))
         XCTAssertFalse(taxTriageSource.contains("try? report.write(to:"))
+
+        let taxonomySource = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Results/Taxonomy/TaxonomyResultViewController.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(taxonomySource.contains("taxonomyExportSourceURLs"))
+        XCTAssertTrue(taxonomySource.contains("taxonomyExportArgv"))
+
+        let annotationExportSource = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView+Export.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(annotationExportSource.contains("tableExportSourceURLs"))
+        XCTAssertTrue(annotationExportSource.contains("sourceDatabasePaths"))
+
+        let fastqMetadataSource = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Viewer/FASTQMetadataDrawerView.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(fastqMetadataSource.contains("fastqMetadataExportSourceURLs"))
+        XCTAssertTrue(fastqMetadataSource.contains("assignmentCount"))
     }
 
     private func repositoryRoot() -> URL {
