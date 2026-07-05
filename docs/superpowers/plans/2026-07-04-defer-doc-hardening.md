@@ -78,6 +78,8 @@ changes that reduce future ambiguity across the codebase.
   `VariantDatabase+CreateFromVCF.swift`, leaving bookmark CRUD in the bookmark extension.
 - Removed stale defer wording that still listed `TwelveSAmpliconResultBundle`'s
   models-vs-IO split as pending after the split had already landed.
+- Split `MiniPileupView` out of `MiniBAMViewController.swift` into a dedicated LungfishKit
+  renderer file while preserving the pinned `loadTask = Task.detached` source-string location.
 
 ## Verification
 

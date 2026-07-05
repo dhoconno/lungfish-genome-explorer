@@ -1,6 +1,6 @@
 # LungfishKit — Deferred Items (Phase 4)
 
-Module: `Sources/LungfishKit/**` (47 files, ~11K LOC). Shared UI/infra kernel.
+Module: `Sources/LungfishKit/**` (48 files, ~11.2K LOC). Shared UI/infra kernel.
 Protocol: audit -> apply (behavior-preserving only) -> build + scoped tests
 (`--filter LungfishKitTests`) -> independent adversarial review -> revert-on-uncertainty
 -> commit.
@@ -19,9 +19,10 @@ Kit-specific binding invariants (never violate / refactor away):
 - NEVER write the literal `Task {` immediately followed by `@MainActor`.
 
 Big files (audit solo, largest first): BlastResultsDrawerTab (1946),
-MiniBAMViewController (1870), LungfishHelpContent (1007), BatchTableView (974),
-OperationCenter (731), MetadataColumnController (512). Clusters: the BLAST drawer cluster,
-split-pane infra, pickers, small view components.
+LungfishHelpContent (1007), MiniBAMViewController (1013 after the MiniPileupView split),
+BatchTableView (974), MiniPileupView (861), OperationCenter (731),
+MetadataColumnController (512). Clusters: the BLAST drawer cluster, split-pane infra, pickers,
+small view components.
 
 ## Big-file audits (6 largest) — findings
 
@@ -41,6 +42,13 @@ synchronize/split-view-delegate). Applies are small; value is in deferred splits
   `DispatchQueue.main.async { [weak self] in MainActor.assumeIsolated { ... } }` instead of the
   forbidden notification-context `Task { @MainActor ... }` hop.
 
+### RESOLVED — MiniBAM first-cut split
+- `MiniBAMViewController.swift` now owns controller setup, loading, scroll lifecycle, context-menu
+  wiring, and status updates only.
+- `MiniPileupView.swift` owns the internal `@MainActor` renderer, read packing, reference-base
+  inference, drawing, hit testing, and its test hooks. The moved implementation body is
+  byte-identical to the original section; only the new file header/imports were added.
+
 ### Concurrency patterns VERIFIED CORRECT (do NOT "fix" — they are not violations)
 - `BatchTableView.swift:446` `Task { @MainActor [weak self] in }` — SAME-actor structured
   concurrency on an already-@MainActor class (debounce), not a GCD hop. Correct.
@@ -54,8 +62,7 @@ synchronize/split-view-delegate). Applies are small; value is in deferred splits
 - `BlastResultsDrawerTab.swift` (1946L): +Model / +Setup / +Menus / +Export / +OutlineView.
   Needs private->internal promotion of `hiddenColumnsDefaultsKey`, the column-id
   `NSUserInterfaceItemIdentifier` statics, `outlineItems`, sort state, cell factories.
-- `MiniBAMViewController.swift` (1871L): SAFEST first cut = extract `MiniPileupView`
-  (~850L, already internal, no VC-private promotion). Intra-VC split needs promoting VC
+- `MiniBAMViewController.swift` (1013L): remaining intra-VC split needs promoting VC
   drawing/scroll state + must preserve the `loadTask = Task.detached` source-string test.
 - `BatchTableView.swift` (974L): +Filter / +Selection — but ALL `@objc`/protocol-conformance
   methods MUST stay on the class header (a generic class can't have `@objc` in an extension;
@@ -72,8 +79,8 @@ synchronize/split-view-delegate). Applies are small; value is in deferred splits
 
 ### Verified NOT dead / NOT tightenable (traps)
 - BatchTableView `testSearchField`/`testTableView`/`formatReadCount` (test + leaf consumers).
-- MiniBAMViewController `testing*`/`DisplayReadStats`/`MiniPileupView`/`inferReferenceBases`
-  etc. all @testable-pinned.
+- MiniBAMViewController `testing*`/`DisplayReadStats`, plus MiniPileupView
+  `testing*`/`inferReferenceBases`, are @testable-pinned.
 - `blastVerdictDanger` intentionally duplicates `NSColor.lungfishDanger` RGB to keep the
   kernel free of app-level deps (documented).
 
@@ -102,13 +109,13 @@ synchronize/split-view-delegate). Applies are small; value is in deferred splits
 
 ## Phase 4 (LungfishKit) — audit COMPLETE
 
-47/47 files audited. Applied: 5 provably-safe items across 2 committed batches (1 access
-tighten, 2 redundant-syntax, 2 dead-code removals). Kernel is clean (no LungfishApp refs,
-macOS-26-compliant, concurrency patterns correct). All substantial value is in the DEFERRED
-splits (BlastResultsDrawerTab 1946L, MiniBAMViewController 1871L, BatchTableView 974L,
-LungfishHelpContent 1007L — each catalogued with seams + promotion lists + the `@objc`/
-source-string test constraints). The previously flagged MetadataColumnController callback hop is
-now resolved.
+48/48 files audited. Applied: 5 provably-safe items across 2 committed batches (1 access
+tighten, 2 redundant-syntax, 2 dead-code removals), plus the reviewed MiniBAM first-cut split.
+Kernel is clean (no LungfishApp refs, macOS-26-compliant, concurrency patterns correct). Remaining
+substantial value is in the DEFERRED splits (BlastResultsDrawerTab 1946L, BatchTableView 974L,
+LungfishHelpContent 1007L, and the riskier intra-VC MiniBAM continuation — each catalogued with
+seams + promotion lists + the `@objc`/source-string test constraints). The previously flagged
+MetadataColumnController callback hop is now resolved.
 
 ## Deferred items
 
