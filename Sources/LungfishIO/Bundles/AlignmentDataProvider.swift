@@ -100,6 +100,8 @@ public final class AlignmentDataProvider: @unchecked Sendable {
     /// Path to the reference FASTA (needed for CRAM only).
     public let referenceFastaPath: String?
 
+    private let samtoolsPathOverride: String?
+
     // MARK: - Initialization
 
     /// Creates a provider for the given alignment file.
@@ -119,6 +121,21 @@ public final class AlignmentDataProvider: @unchecked Sendable {
         self.indexPath = indexPath
         self.format = format
         self.referenceFastaPath = referenceFastaPath
+        self.samtoolsPathOverride = nil
+    }
+
+    init(
+        alignmentPath: String,
+        indexPath: String,
+        format: AlignmentFormat = .bam,
+        referenceFastaPath: String? = nil,
+        samtoolsPath: String?
+    ) {
+        self.alignmentPath = alignmentPath
+        self.indexPath = indexPath
+        self.format = format
+        self.referenceFastaPath = referenceFastaPath
+        self.samtoolsPathOverride = samtoolsPath
     }
 
     // MARK: - Fetch Reads
@@ -577,90 +594,84 @@ public final class AlignmentDataProvider: @unchecked Sendable {
     private func runSamtools(arguments: [String], timeout: TimeInterval = 60) async throws -> (exitCode: Int32, stdout: String, stderr: String) {
         let samtoolsPath = try findSamtools()
 
-        return try await withCheckedThrowingContinuation { continuation in
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: samtoolsPath)
-            process.arguments = arguments
+        return try await Task.detached(priority: .userInitiated) {
+            try Self.runSamtoolsProcess(
+                samtoolsPath: samtoolsPath,
+                arguments: arguments,
+                timeout: timeout
+            )
+        }.value
+    }
 
-            let stdoutPipe = Pipe()
-            let stderrPipe = Pipe()
-            process.standardOutput = stdoutPipe
-            process.standardError = stderrPipe
+    static func runSamtoolsProcess(
+        samtoolsPath: String,
+        arguments: [String],
+        timeout: TimeInterval
+    ) throws -> (exitCode: Int32, stdout: String, stderr: String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: samtoolsPath)
+        process.arguments = arguments
 
-            do {
-                try process.run()
-            } catch {
-                continuation.resume(throwing: AlignmentFetchError.samtoolsNotFound)
-                return
-            }
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
 
-            // Read stdout and stderr CONCURRENTLY to prevent pipe deadlock.
-            // If we read sequentially, filling one pipe's buffer (64 KB) blocks
-            // the child process, which prevents it from writing to the other pipe,
-            // which prevents us from finishing our read — classic deadlock.
-            let stdoutBuffer = PipeReadBuffer()
-            let stderrBuffer = PipeReadBuffer()
-            let group = DispatchGroup()
-
-            // Guard against double-resume: only the first path to set this resumes the continuation.
-            // The timeout path and the normal completion path race; an unfair lock ensures exactly one wins.
-            var resumed = false
-            let lock = NSLock()
-
-            group.enter()
-            DispatchQueue.global(qos: .userInitiated).async {
-                var data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-                // Truncate if excessively large to prevent memory exhaustion
-                if data.count > AlignmentDataProvider.maxStdoutSize {
-                    data = data.prefix(AlignmentDataProvider.maxStdoutSize)
-                }
-                stdoutBuffer.store(data)
-                group.leave()
-            }
-
-            group.enter()
-            DispatchQueue.global(qos: .userInitiated).async {
-                stderrBuffer.store(stderrPipe.fileHandleForReading.readDataToEndOfFile())
-                group.leave()
-            }
-
-            // Timeout: if the process doesn't finish, terminate it
-            let timeoutResult = group.wait(timeout: .now() + timeout)
-            if timeoutResult == .timedOut {
-                process.terminate()
-                // Close pipe read ends to unblock the GCD reader blocks
-                stdoutPipe.fileHandleForReading.closeFile()
-                stderrPipe.fileHandleForReading.closeFile()
-                // Wait for GCD blocks to complete (they will now return quickly since pipes are closed)
-                _ = group.wait(timeout: .now() + 5)
-
-                lock.lock()
-                let shouldResume = !resumed
-                resumed = true
-                lock.unlock()
-                if shouldResume {
-                    continuation.resume(throwing: AlignmentFetchError.timeout)
-                }
-                return
-            }
-
-            process.waitUntilExit()
-
-            let stdout = String(data: stdoutBuffer.load(), encoding: .utf8) ?? ""
-            let stderr = String(data: stderrBuffer.load(), encoding: .utf8) ?? ""
-
-            lock.lock()
-            let shouldResume = !resumed
-            resumed = true
-            lock.unlock()
-            if shouldResume {
-                continuation.resume(returning: (process.terminationStatus, stdout, stderr))
-            }
+        do {
+            try process.run()
+        } catch {
+            throw AlignmentFetchError.samtoolsNotFound
         }
+
+        // Read stdout and stderr CONCURRENTLY to prevent pipe deadlock.
+        // If we read sequentially, filling one pipe's buffer (64 KB) blocks
+        // the child process, which prevents it from writing to the other pipe,
+        // which prevents us from finishing our read — classic deadlock.
+        let stdoutBuffer = PipeReadBuffer()
+        let stderrBuffer = PipeReadBuffer()
+        let group = DispatchGroup()
+
+        group.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            var data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+            // Truncate if excessively large to prevent memory exhaustion
+            if data.count > AlignmentDataProvider.maxStdoutSize {
+                data = data.prefix(AlignmentDataProvider.maxStdoutSize)
+            }
+            stdoutBuffer.store(data)
+            group.leave()
+        }
+
+        group.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            stderrBuffer.store(stderrPipe.fileHandleForReading.readDataToEndOfFile())
+            group.leave()
+        }
+
+        // Timeout: if the process doesn't finish, terminate it.
+        let timeoutResult = group.wait(timeout: .now() + timeout)
+        if timeoutResult == .timedOut {
+            process.terminate()
+            // Close pipe read ends to unblock the GCD reader blocks
+            stdoutPipe.fileHandleForReading.closeFile()
+            stderrPipe.fileHandleForReading.closeFile()
+            // Wait for GCD blocks to complete (they will now return quickly since pipes are closed)
+            _ = group.wait(timeout: .now() + 5)
+            throw AlignmentFetchError.timeout
+        }
+
+        process.waitUntilExit()
+
+        let stdout = String(data: stdoutBuffer.load(), encoding: .utf8) ?? ""
+        let stderr = String(data: stderrBuffer.load(), encoding: .utf8) ?? ""
+        return (process.terminationStatus, stdout, stderr)
     }
 
     /// Finds the samtools binary from standard locations.
     private func findSamtools() throws -> String {
+        if let samtoolsPathOverride {
+            return samtoolsPathOverride
+        }
         guard let samtoolsPath = SamtoolsLocator.locate(searchPath: nil) else {
             throw AlignmentFetchError.samtoolsNotFound
         }

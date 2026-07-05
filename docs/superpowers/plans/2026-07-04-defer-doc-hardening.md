@@ -88,6 +88,8 @@ changes that reduce future ambiguity across the codebase.
   helper, with public matcher/locus coverage for numeric-prefix normalization.
 - Collapsed `NvdDatabase`'s duplicated read-side migration blocks and repeated BLAST-hit
   SELECT projection, with legacy-schema coverage for the post-release columns.
+- Moved `AlignmentDataProvider` samtools process waits off the caller executor by delegating
+  the blocking process lifecycle to a detached worker, with behavioral fake-samtools coverage.
 
 ## Verification
 

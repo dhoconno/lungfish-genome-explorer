@@ -61,6 +61,96 @@ final class AlignmentDataProviderTests: XCTestCase {
         XCTAssertEqual(sendableCheck(), "/data/sample.bam")
     }
 
+    @MainActor
+    func testRunSamtoolsProcessWorkIsDetachedFromCallerExecutor() async throws {
+        let tempDir = try makeTemporaryDirectory(prefix: "alignment-detached-samtools")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let samtoolsURL = try makeFakeSamtools(
+            in: tempDir,
+            script: """
+            #!/bin/sh
+            if [ "$1" = "idxstats" ]; then
+                sleep 1
+                echo "chr1\t100\t2\t0"
+                echo "fake stderr from idxstats" >&2
+                exit 0
+            fi
+            echo "unexpected command: $*" >&2
+            exit 9
+            """
+        )
+        let provider = AlignmentDataProvider(
+            alignmentPath: "/tmp/fake.bam",
+            indexPath: "/tmp/fake.bam.bai",
+            samtoolsPath: samtoolsURL.path
+        )
+
+        let start = Date()
+        let task = Task { try await provider.fetchIdxstats() }
+        await Task.yield()
+
+        XCTAssertLessThan(
+            Date().timeIntervalSince(start),
+            0.5,
+            "Calling fetchIdxstats from MainActor must suspend quickly while samtools runs elsewhere"
+        )
+        let output = try await task.value
+        XCTAssertEqual(output, "chr1\t100\t2\t0\n")
+    }
+
+    func testRunSamtoolsPreservesFailureStderr() async throws {
+        let tempDir = try makeTemporaryDirectory(prefix: "alignment-failing-samtools")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let samtoolsURL = try makeFakeSamtools(
+            in: tempDir,
+            script: """
+            #!/bin/sh
+            echo "idxstats exploded" >&2
+            exit 7
+            """
+        )
+        let provider = AlignmentDataProvider(
+            alignmentPath: "/tmp/fake.bam",
+            indexPath: "/tmp/fake.bam.bai",
+            samtoolsPath: samtoolsURL.path
+        )
+
+        do {
+            _ = try await provider.fetchIdxstats()
+            XCTFail("Expected samtools failure")
+        } catch AlignmentFetchError.samtoolsFailed(let message) {
+            XCTAssertTrue(message.contains("idxstats exploded"))
+        } catch {
+            XCTFail("Expected AlignmentFetchError.samtoolsFailed, got \(error)")
+        }
+    }
+
+    func testRunSamtoolsProcessTimeoutIsPreserved() throws {
+        let tempDir = try makeTemporaryDirectory(prefix: "alignment-timeout-samtools")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let samtoolsURL = try makeFakeSamtools(
+            in: tempDir,
+            script: """
+            #!/bin/sh
+            sleep 5
+            echo "late output"
+            """
+        )
+
+        do {
+            _ = try AlignmentDataProvider.runSamtoolsProcess(
+                samtoolsPath: samtoolsURL.path,
+                arguments: ["idxstats", "/tmp/fake.bam"],
+                timeout: 0.1
+            )
+            XCTFail("Expected timeout")
+        } catch AlignmentFetchError.timeout {
+            // Expected.
+        } catch {
+            XCTFail("Expected AlignmentFetchError.timeout, got \(error)")
+        }
+    }
+
     // MARK: - Invalid Region Handling
 
     func testFetchReadsInvalidEmptyChromosome() async {
@@ -419,5 +509,19 @@ final class AlignmentDataProviderTests: XCTestCase {
 
         // Should handle gracefully — only valid lines counted
         XCTAssertEqual(db.totalMappedReads(), 3000)
+    }
+
+    private func makeTemporaryDirectory(prefix: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private func makeFakeSamtools(in directory: URL, script: String) throws -> URL {
+        let url = directory.appendingPathComponent("samtools")
+        try script.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+        return url
     }
 }
