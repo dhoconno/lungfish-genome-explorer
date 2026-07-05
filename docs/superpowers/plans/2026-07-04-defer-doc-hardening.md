@@ -154,6 +154,9 @@ changes that reduce future ambiguity across the codebase.
 - Made newly constructed canonical `ProvenanceRuntimeIdentity` values include the current
   OS user by default, closing the remaining new-sidecar user-attribution gap while preserving
   decode compatibility for historical sidecars that lack a user field.
+- Retired the stale GenotypeOutline `handleClick` follow-up after verifying the materialized
+  row-recognizer test covers the current identifier-bearing click target, and marked the July 2
+  GUI performance plan/audit as historical rather than an active unchecked backlog.
 
 ## Verification
 
