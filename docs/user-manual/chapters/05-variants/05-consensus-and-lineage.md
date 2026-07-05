@@ -8,7 +8,7 @@ task: Produce a consensus FASTA from reads or an alignment and hand it to extern
 tags: [variants, consensus, lineage, pangolin, nextclade, freyja, viralrecon]
 tools: [ivar, bcftools, samtools, freyja]
 entry_points:
-  - "Tools > FASTQ/FASTA Operations > Viral Recon (consensus caller)"
+  - "Tools > FASTQ/FASTA Operations > Mapping… > Viral Recon tool row"
   - "CLI: lungfish msa consensus"
   - "Inspector consensus mode on an alignment track"
 shots: []
@@ -78,7 +78,7 @@ If you do not know which to pick, `0.75` is the safe default for a clinical isol
 
 The Viral Recon wizard runs the nf-core/viralrecon pipeline end to end and is the only path that takes reads all the way to a consensus FASTA inside Lungfish.
 
-1. Choose `Tools > FASTQ/FASTA Operations`, then select `Viral Recon` in the tool sidebar. The wizard appears in the dialog.
+1. Choose `Tools > FASTQ/FASTA Operations > Mapping…`, then select the `Viral Recon` tool row in the Mapping category. The wizard appears in the dialog.
 2. Set the platform, the reference, and the primer scheme to match your run, exactly as you would for mapping.
 3. In the wizard's caller row, set `Variants` to your variant caller and set `Consensus` to `iVar` or `bcftools`. The `Consensus` picker is what produces the consensus FASTA; the threshold biology in the table above applies here. <!-- planned: viralrecon-consensus-picker -->
 4. Choose the executor and click to run. The pipeline maps, calls variants, and builds a per-sample consensus FASTA as one of its outputs.

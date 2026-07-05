@@ -140,6 +140,8 @@ pigz 2.8, SRA Tools 3.4.1, UCSC bedGraphToBigWig 482, pysam 0.24.0, openpyxl
 
 ### G. keyboard-shortcuts.md
 
+> Superseded shortcut note: this section predates the July 2026 shortcut restoration. Current code and active manual text use `Cmd-Shift-G` for Find Previous and `Cmd-Option-G` for Sequence > Go to Gene.
+
 | Check | Status | Evidence (MainMenu.swift) |
 |---|---|---|
 | Sidebar = Cmd-Ctrl-S (was Cmd-Shift-S) | LANDED | Line 425 comment "Control-Command-S per macOS standard"; 431 `keyEquivalent: "s"`; 433 `[.command, .control]`. Chapter:46 "Cmd-Ctrl-S" and the "Memorizing chords" para:129 now says "The Sidebar is the exception: it toggles with `Cmd-Ctrl-S`, using Control rather than Shift." Correct. |
