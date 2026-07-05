@@ -924,6 +924,7 @@ extension SidebarViewController: NSMenuDelegate {
         do {
             try FileManager.default.moveItem(at: url, to: newURL)
             rehydrateScientificProvenance(from: url, to: newURL)
+            rewriteAnalysisManifestReferencesIfNeeded(from: url, to: newURL)
             sidebarLogger.info("performRename: Renamed to '\(newFilename, privacy: .public)'")
             // Immediately refresh sidebar for instant feedback
             requestReloadFromFilesystem()
@@ -1201,6 +1202,7 @@ extension SidebarViewController: NSMenuDelegate {
                 }
                 try FileManager.default.moveItem(at: sourceURL, to: finalURL)
                 rehydrateScientificProvenance(from: sourceURL, to: finalURL)
+                rewriteAnalysisManifestReferencesIfNeeded(from: sourceURL, to: finalURL)
                 sidebarLogger.info("contextMenuMoveToFolder: Moved '\(item.title, privacy: .public)' to '\(finalURL.lastPathComponent, privacy: .public)'")
             } catch {
                 sidebarLogger.error("contextMenuMoveToFolder: Failed to move '\(item.title, privacy: .public)' - \(error.localizedDescription, privacy: .public)")

@@ -967,6 +967,7 @@ extension SidebarViewController: NSOutlineViewDataSource {
             do {
                 try FileManager.default.moveItem(at: sourceURL, to: destURL)
                 rehydrateScientificProvenance(from: sourceURL, to: destURL)
+                rewriteAnalysisManifestReferencesIfNeeded(from: sourceURL, to: destURL)
                 movedCount += 1
                 sidebarLogger.info("moveItems: File moved from \(sourceURL.path, privacy: .public) to \(destURL.path, privacy: .public)")
             } catch {

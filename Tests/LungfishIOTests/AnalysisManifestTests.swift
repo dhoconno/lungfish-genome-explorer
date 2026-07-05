@@ -200,6 +200,108 @@ final class AnalysisManifestTests: XCTestCase {
         XCTAssertEqual(manifest.analyses, [firstEntry, secondEntry])
     }
 
+    func testRewriteAnalysisDirectoryReferencesUpdatesMovedAnalysisEntry() throws {
+        let analysesDir = try AnalysesFolder.url(for: projectDir)
+        let oldRun = analysesDir
+            .appendingPathComponent("Reviewed", isDirectory: true)
+            .appendingPathComponent("minimap2-2026-01-15T10-00-00", isDirectory: true)
+        let newRun = analysesDir
+            .appendingPathComponent("Archived", isDirectory: true)
+            .appendingPathComponent("minimap2-2026-01-15T10-00-00", isDirectory: true)
+        try FileManager.default.createDirectory(at: oldRun, withIntermediateDirectories: true)
+
+        let entry = AnalysisManifestEntry(
+            tool: "minimap2",
+            analysisDirectoryName: "Reviewed/minimap2-2026-01-15T10-00-00",
+            displayName: "Reviewed Mapping",
+            summary: "moved"
+        )
+        try AnalysisManifestStore.recordAnalysis(entry, bundleURL: bundleDir)
+        try FileManager.default.createDirectory(
+            at: newRun.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.moveItem(at: oldRun, to: newRun)
+
+        XCTAssertEqual(
+            try AnalysisManifestStore.rewriteAnalysisDirectoryReferences(
+                projectURL: projectDir,
+                oldAnalysisURL: oldRun,
+                newAnalysisURL: newRun
+            ),
+            1
+        )
+
+        let manifest = AnalysisManifestStore.load(bundleURL: bundleDir, projectURL: projectDir)
+        XCTAssertEqual(manifest.analyses.map(\.analysisDirectoryName), [
+            "Archived/minimap2-2026-01-15T10-00-00",
+        ])
+    }
+
+    func testRewriteAnalysisDirectoryReferencesUpdatesMovedGroupEntries() throws {
+        let analysesDir = try AnalysesFolder.url(for: projectDir)
+        let oldGroup = analysesDir.appendingPathComponent("Reviewed", isDirectory: true)
+        let newGroup = analysesDir
+            .appendingPathComponent("Archive", isDirectory: true)
+            .appendingPathComponent("Reviewed", isDirectory: true)
+        let retainedGroup = analysesDir.appendingPathComponent("Retained", isDirectory: true)
+        for run in ["minimap2-2026-01-15T10-00-00", "kraken2-2026-01-15T11-00-00"] {
+            try FileManager.default.createDirectory(
+                at: oldGroup.appendingPathComponent(run, isDirectory: true),
+                withIntermediateDirectories: true
+            )
+        }
+        try FileManager.default.createDirectory(
+            at: retainedGroup.appendingPathComponent("esviritu-2026-01-15T12-00-00", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+
+        let entries = [
+            AnalysisManifestEntry(
+                tool: "minimap2",
+                analysisDirectoryName: "Reviewed/minimap2-2026-01-15T10-00-00",
+                displayName: "Mapping",
+                summary: "first"
+            ),
+            AnalysisManifestEntry(
+                tool: "kraken2",
+                analysisDirectoryName: "Reviewed/kraken2-2026-01-15T11-00-00",
+                displayName: "Classification",
+                summary: "second"
+            ),
+            AnalysisManifestEntry(
+                tool: "esviritu",
+                analysisDirectoryName: "Retained/esviritu-2026-01-15T12-00-00",
+                displayName: "Retained",
+                summary: "untouched"
+            ),
+        ]
+        for entry in entries {
+            try AnalysisManifestStore.recordAnalysis(entry, bundleURL: bundleDir)
+        }
+        try FileManager.default.createDirectory(
+            at: newGroup.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.moveItem(at: oldGroup, to: newGroup)
+
+        XCTAssertEqual(
+            try AnalysisManifestStore.rewriteAnalysisDirectoryReferences(
+                projectURL: projectDir,
+                oldAnalysisURL: oldGroup,
+                newAnalysisURL: newGroup
+            ),
+            2
+        )
+
+        let manifest = AnalysisManifestStore.load(bundleURL: bundleDir, projectURL: projectDir)
+        XCTAssertEqual(manifest.analyses.map(\.analysisDirectoryName), [
+            "Archive/Reviewed/minimap2-2026-01-15T10-00-00",
+            "Archive/Reviewed/kraken2-2026-01-15T11-00-00",
+            "Retained/esviritu-2026-01-15T12-00-00",
+        ])
+    }
+
     func testParametersRoundTrip() throws {
         let analysesDir = try AnalysesFolder.url(for: projectDir)
         try FileManager.default.createDirectory(

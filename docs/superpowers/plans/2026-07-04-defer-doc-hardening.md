@@ -194,6 +194,9 @@ changes that reduce future ambiguity across the codebase.
 - Made new app-written analysis manifest entries store exact `Analyses/`-relative paths, so
   grouped analyses and duplicate run basenames remain unambiguous while legacy basename entries
   still resolve by compatibility search.
+- Made sidebar analysis rename/move operations rewrite matching bundle manifest references for
+  moved analysis directories or grouping folders, preserving Inspector history after users
+  reorganize `Analyses/`.
 - Made direct phylogenetic tree imports write canonical envelope-compatible provenance fields
   (`createdAt`, `workflowName`, durable replay argv, runtime identity, file descriptors, and
   steps) while preserving the legacy tree-import payload keys.
