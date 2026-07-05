@@ -34,9 +34,6 @@ extension ViewerViewController {
             return
         }
 
-        // This method is already `@MainActor`-isolated, so a plain `Task`
-        // inherits main-actor isolation. The explicit annotation here was the
-        // banned background-to-main-actor Task literal with no behavioral effect.
         Task { [weak self] in
             do {
                 let payload = try await controller.buildConsensusExportPayload()

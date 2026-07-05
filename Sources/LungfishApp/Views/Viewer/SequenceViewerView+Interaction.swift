@@ -1675,6 +1675,17 @@ extension SequenceViewerView {
         updateSelectionStatus()
     }
 
+    func clearUserColumnSelection() {
+        guard isUserColumnSelection else { return }
+        selectionRange = nil
+        selectionStartBase = nil
+        isSelecting = false
+        isUserColumnSelection = false
+        columnDragStartBase = nil
+        setNeedsDisplay(bounds)
+        updateSelectionStatus()
+    }
+
     /// Copies the selected sequence to the clipboard
     public func copySelectionToClipboard() {
         guard let seq = sequence else {

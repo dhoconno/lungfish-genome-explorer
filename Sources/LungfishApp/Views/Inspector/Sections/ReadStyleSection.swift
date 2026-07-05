@@ -2377,6 +2377,7 @@ public struct AnalysisSection: View {
                     viewModel.onExtractConsensusRequested?()
                 }
                 .disabled(!viewModel.hasAlignmentTracks)
+                .help("Exports consensus for the selected bases when present; otherwise exports the visible viewport.")
             }
         }
     }

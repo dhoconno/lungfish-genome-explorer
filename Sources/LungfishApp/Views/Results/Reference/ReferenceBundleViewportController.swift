@@ -728,7 +728,7 @@ public class ReferenceBundleViewportController: NSViewController {
     }
 
     func buildConsensusExportPayload() async throws -> (records: [String], suggestedName: String) {
-        let request = try buildConsensusExportRequest()
+        let request = try buildInspectorConsensusExportRequest()
         let consensus = try await embeddedViewerController.fetchMappingConsensusSequence(request)
         let record = ">\(request.recordName)\n\(consensus)\n"
         return ([record], request.suggestedName)
@@ -762,6 +762,17 @@ public class ReferenceBundleViewportController: NSViewController {
             )
         }
         return try buildConsensusExportRequest(explicitRegion: region)
+    }
+
+    func buildInspectorConsensusExportRequest() throws -> MappingConsensusExportRequest {
+        guard let viewer = embeddedViewerController.viewerView else {
+            return try buildVisibleViewportConsensusExportRequest()
+        }
+        if viewer.isUserColumnSelection,
+           viewer.selectionRange?.isEmpty == false {
+            return try buildSelectedRegionConsensusExportRequest()
+        }
+        return try buildVisibleViewportConsensusExportRequest()
     }
 
     private func buildConsensusExportRequest(
@@ -1246,6 +1257,15 @@ extension ReferenceBundleViewportController {
 
     func testBuildConsensusExportRequest() throws -> MappingConsensusExportRequest {
         try buildConsensusExportRequest()
+    }
+
+    func testBuildInspectorConsensusExportRequest() throws -> MappingConsensusExportRequest {
+        try buildInspectorConsensusExportRequest()
+    }
+
+    func testSetEmbeddedSelectionRange(_ range: Range<Int>, isUserColumnSelection: Bool = true) {
+        embeddedViewerController.viewerView.selectionRange = range
+        embeddedViewerController.viewerView.isUserColumnSelection = isUserColumnSelection
     }
 
     func testSetEmbeddedReadDisplaySettings(minMapQ: Int, consensusMinMapQ: Int) {

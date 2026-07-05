@@ -361,6 +361,108 @@ final class MappingResultViewControllerTests: XCTestCase {
         XCTAssertEqual(request.minMapQ, 27)
     }
 
+    func testInspectorConsensusExportUsesVisibleViewportScope() throws {
+        let vc = MappingResultViewController()
+        _ = vc.view
+
+        vc.configureForTesting(result: makeMappingResult(viewerBundleURL: try makeReferenceBundleWithAnnotationDatabase()))
+
+        let request = try vc.testBuildInspectorConsensusExportRequest()
+
+        XCTAssertEqual(request.chromosome, "chr1")
+        XCTAssertEqual(request.start, 0)
+        XCTAssertEqual(request.end, 100)
+        XCTAssertEqual(request.recordName, "example chr1:1-100 visible consensus")
+        XCTAssertEqual(request.suggestedName, "example-chr1-1-100-visible-consensus")
+    }
+
+    func testInspectorConsensusExportPrefersUserSelectedRegion() throws {
+        let vc = MappingResultViewController()
+        _ = vc.view
+
+        vc.configureForTesting(result: makeMappingResult(viewerBundleURL: try makeReferenceBundleWithAnnotationDatabase()))
+        vc.testSetEmbeddedSelectionRange(10..<40)
+
+        let request = try vc.testBuildInspectorConsensusExportRequest()
+
+        XCTAssertEqual(request.chromosome, "chr1")
+        XCTAssertEqual(request.start, 10)
+        XCTAssertEqual(request.end, 40)
+        XCTAssertEqual(request.recordName, "example chr1:11-40 selection consensus")
+        XCTAssertEqual(request.suggestedName, "example-chr1-11-40-selection-consensus")
+    }
+
+    func testInspectorConsensusExportIgnoresNonUserViewportSelectionState() throws {
+        let vc = MappingResultViewController()
+        _ = vc.view
+
+        vc.configureForTesting(result: makeMappingResult(viewerBundleURL: try makeReferenceBundleWithAnnotationDatabase()))
+        vc.testSetEmbeddedSelectionRange(10..<40, isUserColumnSelection: false)
+
+        let request = try vc.testBuildInspectorConsensusExportRequest()
+
+        XCTAssertEqual(request.chromosome, "chr1")
+        XCTAssertEqual(request.start, 0)
+        XCTAssertEqual(request.end, 100)
+        XCTAssertEqual(request.suggestedName, "example-chr1-1-100-visible-consensus")
+    }
+
+    func testChangingMappingContigsClearsStaleUserSelectedRegionBeforeConsensusExport() throws {
+        let vc = MappingResultViewController()
+        _ = vc.view
+
+        let result = MappingResult(
+            mapper: .minimap2,
+            modeID: MappingMode.defaultShortRead.id,
+            sourceReferenceBundleURL: nil,
+            viewerBundleURL: try makeReferenceBundleWithAlignmentTracks(),
+            bamURL: URL(fileURLWithPath: "/tmp/example.sorted.bam"),
+            baiURL: URL(fileURLWithPath: "/tmp/example.sorted.bam.bai"),
+            totalReads: 200,
+            mappedReads: 198,
+            unmappedReads: 2,
+            wallClockSeconds: 1.5,
+            contigs: [
+                MappingContigSummary(
+                    contigName: "alpha",
+                    contigLength: 100,
+                    mappedReads: 120,
+                    mappedReadPercent: 60,
+                    meanDepth: 10,
+                    coverageBreadth: 90,
+                    medianMAPQ: 60,
+                    meanIdentity: 99
+                ),
+                MappingContigSummary(
+                    contigName: "gamma",
+                    contigLength: 100,
+                    mappedReads: 80,
+                    mappedReadPercent: 40,
+                    meanDepth: 8,
+                    coverageBreadth: 85,
+                    medianMAPQ: 55,
+                    meanIdentity: 98
+                ),
+            ]
+        )
+
+        vc.configureForTesting(result: result)
+        vc.testSelectContig(named: "alpha")
+        vc.testSetEmbeddedSelectionRange(10..<40)
+        XCTAssertEqual(
+            try vc.testBuildInspectorConsensusExportRequest().suggestedName,
+            "example-alpha-11-40-selection-consensus"
+        )
+
+        vc.testSelectContig(named: "gamma")
+        let request = try vc.testBuildInspectorConsensusExportRequest()
+
+        XCTAssertEqual(request.chromosome, "gamma")
+        XCTAssertEqual(request.start, 0)
+        XCTAssertEqual(request.end, 100)
+        XCTAssertEqual(request.suggestedName, "example-gamma-1-100-visible-consensus")
+    }
+
     func testLiveResizeDelegatePreservesUserMovedVerticalDivider() {
         UserDefaults.standard.set(
             MappingPanelLayout.listLeading.rawValue,

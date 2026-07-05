@@ -554,6 +554,7 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         if let currentChrom = referenceFrame?.chromosome, currentChrom != chromosome {
             viewerView.hideTranslation()
             viewerView.invalidateAlignmentFetchState()
+            viewerView.clearUserColumnSelection()
         }
 
         let effectiveWidth = max(800, Int(viewerView.bounds.width))
