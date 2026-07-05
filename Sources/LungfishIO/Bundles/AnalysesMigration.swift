@@ -33,17 +33,9 @@ public enum AnalysesMigration {
         let fm = FileManager.default
         var totalMigrated = 0
 
-        // 1. Find all .lungfishfastq bundles as direct children of projectURL
-        let projectContents = try fm.contentsOfDirectory(
-            at: projectURL,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        )
-
-        let bundles = projectContents.filter {
-            $0.pathExtension.lowercased() == "lungfishfastq" &&
-            (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-        }
+        // 1. Find all .lungfishfastq bundles in project folders without
+        // descending into any Lungfish bundle payload.
+        let bundles = try fastqBundleURLs(in: projectURL, fileManager: fm)
 
         for bundleURL in bundles {
             let derivativesURL = bundleURL.appendingPathComponent("derivatives", isDirectory: true)
@@ -164,6 +156,35 @@ public enum AnalysesMigration {
             }
         }
         return nil
+    }
+
+    private static func fastqBundleURLs(in projectURL: URL, fileManager: FileManager) throws -> [URL] {
+        let resourceKeys: Set<URLResourceKey> = [.isDirectoryKey]
+        guard let enumerator = fileManager.enumerator(
+            at: projectURL,
+            includingPropertiesForKeys: Array(resourceKeys),
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        var bundles: [URL] = []
+        for case let url as URL in enumerator {
+            guard (try? url.resourceValues(forKeys: resourceKeys).isDirectory) == true else {
+                continue
+            }
+
+            if url.pathExtension.lowercased() == "lungfishfastq" {
+                bundles.append(url)
+                enumerator.skipDescendants()
+                continue
+            }
+
+            if url.pathExtension.lowercased().hasPrefix("lungfish") {
+                enumerator.skipDescendants()
+            }
+        }
+        return bundles.sorted { $0.path < $1.path }
     }
 
     private struct MigrationDestination {

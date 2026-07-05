@@ -63,6 +63,28 @@ final class AnalysesMigrationTests: XCTestCase {
         XCTAssertEqual(analyses.first?.tool, "kraken2")
     }
 
+    func testMigrateFindsFASTQBundlesInsideProjectFolders() throws {
+        let bundleDir = tempDir
+            .appendingPathComponent("Samples", isDirectory: true)
+            .appendingPathComponent("sample.lungfishfastq", isDirectory: true)
+        let derivDir = bundleDir.appendingPathComponent("derivatives")
+            .appendingPathComponent("classification-nested")
+        try FileManager.default.createDirectory(at: derivDir, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(
+            at: TestAnalysisFixtures.kraken2Result.appendingPathComponent("classification-result.json"),
+            to: derivDir.appendingPathComponent("classification-result.json")
+        )
+
+        let migrated = try AnalysesMigration.migrateProject(at: tempDir)
+
+        XCTAssertEqual(migrated, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: derivDir.path))
+        let analyses = try AnalysesFolder.listAnalyses(in: tempDir)
+        XCTAssertEqual(analyses.first?.tool, "kraken2")
+        let manifest = AnalysisManifestStore.load(bundleURL: bundleDir, projectURL: tempDir)
+        XCTAssertEqual(manifest.analyses.count, 1)
+    }
+
     func testMigrateDoesNotMoveFASTQDerivatives() throws {
         let bundleDir = tempDir.appendingPathComponent("sample.lungfishfastq")
         let fastqDeriv = bundleDir.appendingPathComponent("derivatives")

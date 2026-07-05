@@ -200,6 +200,9 @@ changes that reduce future ambiguity across the codebase.
 - Made mapping/reference source resolvers identify the nearest real analysis ancestor instead
   of the first folder below `Analyses/`, so grouped analysis outputs navigate to the run root
   and can recover canonical source bundles from nested mapping sidecars.
+- Made legacy analysis migration recursively discover `.lungfishfastq` bundles in project
+  folders while skipping Lungfish bundle payloads, so nested sample folders no longer strand
+  old `derivatives/` analysis results.
 - Made direct phylogenetic tree imports write canonical envelope-compatible provenance fields
   (`createdAt`, `workflowName`, durable replay argv, runtime identity, file descriptors, and
   steps) while preserving the legacy tree-import payload keys.
