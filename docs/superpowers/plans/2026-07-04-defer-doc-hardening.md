@@ -170,6 +170,8 @@ changes that reduce future ambiguity across the codebase.
   `project.db` so hidden `.project.db` migration does not leave stale sidecar files behind.
 - Guarded Welcome required-setup install state with a generation token so late progress callbacks
   from a completed or superseded install cannot repopulate cleared setup progress UI.
+- Wired NVD import cancellation through the shared import-dialog action contract so Cancel
+  invalidates pending preview validation, cancels the scan task, and prevents stale scan updates.
 
 ## Verification
 
