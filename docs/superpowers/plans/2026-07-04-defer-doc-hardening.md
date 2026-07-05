@@ -72,6 +72,8 @@ changes that reduce future ambiguity across the codebase.
 - Extracted `ONTBarcodeDemuxGenotypingPipeline`'s embedded Python payloads into a dedicated
   scripts extension while preserving the public script-writer APIs and byte-identical script
   contents.
+- Split `ONTDirectoryImporter`'s public header parser and import model declarations into
+  dedicated files while leaving scan/import/gzip behavior unchanged.
 
 ## Verification
 
