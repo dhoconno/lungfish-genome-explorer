@@ -28,4 +28,60 @@ final class ManagedStorageLocationTests: XCTestCase {
 
         XCTAssertEqual(result, .invalid(.nestedInsideProject))
     }
+
+    func testValidationRejectsNonFileURLAsUnsupportedFilesystem() throws {
+        let remote = try XCTUnwrap(URL(string: "smb://example.invalid/Lungfish"))
+
+        XCTAssertEqual(
+            ManagedStorageLocation.validateSelection(remote),
+            .invalid(.unsupportedFilesystem)
+        )
+    }
+
+    func testValidationRejectsFileWhereDirectoryIsExpected() throws {
+        let root = try temporaryDirectory()
+        let fileURL = root.appendingPathComponent("managed-storage")
+        try Data("not a directory".utf8).write(to: fileURL)
+
+        XCTAssertEqual(
+            ManagedStorageLocation.validateSelection(fileURL),
+            .invalid(.unreachable)
+        )
+    }
+
+    func testValidationAcceptsCreatableDirectoryUnderWritableParent() throws {
+        let root = try temporaryDirectory()
+        let creatable = root
+            .appendingPathComponent("nested", isDirectory: true)
+            .appendingPathComponent("managed-storage", isDirectory: true)
+
+        XCTAssertEqual(ManagedStorageLocation.validateSelection(creatable), .valid)
+    }
+
+    func testValidationRejectsCreatableDirectoryUnderUnwritableParent() throws {
+        let root = try temporaryDirectory()
+        let lockedParent = root.appendingPathComponent("locked", isDirectory: true)
+        try FileManager.default.createDirectory(at: lockedParent, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: lockedParent.path)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: lockedParent.path)
+        }
+
+        let creatable = lockedParent.appendingPathComponent("managed-storage", isDirectory: true)
+
+        XCTAssertEqual(
+            ManagedStorageLocation.validateSelection(creatable),
+            .invalid(.notWritable)
+        )
+    }
+
+    private func temporaryDirectory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ManagedStorageLocationTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: url)
+        }
+        return url
+    }
 }
