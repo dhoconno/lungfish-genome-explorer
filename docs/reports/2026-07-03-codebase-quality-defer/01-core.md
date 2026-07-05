@@ -201,9 +201,9 @@ original refactor was constrained to behavior-preserving edits:
 - VersionHistory uses legacy `ObservableObject`/`@Published` in an otherwise
   `@Observable` codebase (F6). Migration changes view-update timing — not
   behavior-preserving. Defer to a deliberate observation-migration pass.
-- `VersionHistory.fromJSON` swallows checkout failure with `try?` (F7), leaving
-  index/sequence inconsistent on corrupt history. Changing to `try` alters the
-  throwing contract. Defer (needs a test decision).
+- RESOLVED: `VersionHistory.fromJSON` now replays exported diffs with throwing
+  error handling and rejects invalid current-version indexes, failed diff replay,
+  content-hash mismatches, and parent-hash mismatches as `corruptedHistory`.
 - Leave-alone (correctness-critical): codon tables + U→T normalization, diff
   apply/inverse round-trip, `genomicRangesForCodon` strand mapping, SHA-256 hex.
 
@@ -252,9 +252,11 @@ original refactor was constrained to behavior-preserving edits:
 - ReferenceBundleBuilder keeps gzipped annotation payloads as copied source files but no longer
   treats unreadable gzip bytes as `0` features or emits a misleading "No annotations found"
   description. Unknown compressed feature counts are recorded as absent in the manifest.
-- AnnotationConverter `ConversionOptions.mergeOverlapping` is a public option
-  never consulted — silent no-op contract (CLARITY-04). Document-or-implement
-  decision. Defer.
+- RESOLVED 2026-07-05: AnnotationConverter `ConversionOptions.mergeOverlapping`
+  now conservatively merges overlapping or touching intervals that share the same
+  chromosome, name, strand, item color, feature type, and retained feature
+  attributes. Coverage pins both the default no-merge behavior and the explicit
+  merge behavior so the public option no longer behaves as a silent no-op.
 
 ## Storage cluster (ProjectFile/ProjectLock/Keychain/ManagedStorage*)
 
