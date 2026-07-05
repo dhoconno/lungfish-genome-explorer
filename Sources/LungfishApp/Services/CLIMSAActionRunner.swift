@@ -1,6 +1,7 @@
 import Foundation
 import LungfishCore
 import LungfishKit
+import LungfishWorkflow
 import os.log
 
 private let msaActionRunnerLogger = Logger(
@@ -50,7 +51,7 @@ actor CLIMSAActionRunner {
     }
 
     private let cliURLOverride: URL?
-    private var process: Process?
+    private let cancellationHandle = NativeProcessCancellationHandle()
 
     init(cliURLOverride: URL? = nil) {
         self.cliURLOverride = cliURLOverride
@@ -121,7 +122,7 @@ actor CLIMSAActionRunner {
         let stderrPipe = Pipe()
         proc.standardOutput = stdoutPipe
         proc.standardError = stderrPipe
-        process = proc
+        cancellationHandle.store(proc)
 
         final class StreamState: @unchecked Sendable {
             var stdoutBuffer = Data()
@@ -246,11 +247,12 @@ actor CLIMSAActionRunner {
 
         do {
             try proc.run()
+            cancellationHandle.terminateIfRequested()
         } catch {
             stdoutHandle.readabilityHandler = nil
             stderrHandle.readabilityHandler = nil
             drainStreamHandlers()
-            process = nil
+            cancellationHandle.clear(proc)
             await failOperation(opID, detail: error.localizedDescription)
             throw RunError.launchFailed(error.localizedDescription)
         }
@@ -269,7 +271,7 @@ actor CLIMSAActionRunner {
         }) {
             handleLine(trailing)
         }
-        process = nil
+        cancellationHandle.clear(proc)
 
         let snapshot = state.withLock { current in
             (
@@ -323,9 +325,8 @@ actor CLIMSAActionRunner {
         )
     }
 
-    func cancel() {
-        guard let process, process.isRunning else { return }
-        process.terminate()
+    nonisolated func cancel() {
+        cancellationHandle.terminateProcessTree(gracePeriod: 0)
     }
 
     @MainActor

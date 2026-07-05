@@ -1706,9 +1706,7 @@ public class ViewerViewController: NSViewController {
             )
             let runner = CLIMSAActionRunner()
             OperationCenter.shared.setCancelCallback(for: opID) {
-                Task {
-                    await runner.cancel()
-                }
+                runner.cancel()
             }
 
             Task.detached {
@@ -1796,9 +1794,7 @@ public class ViewerViewController: NSViewController {
         )
         let runner = CLIMSAActionRunner()
         OperationCenter.shared.setCancelCallback(for: opID) {
-            Task {
-                await runner.cancel()
-            }
+            runner.cancel()
         }
 
         // `runner` is an actor, so `runner.run` executes off the main actor
@@ -1922,9 +1918,7 @@ public class ViewerViewController: NSViewController {
             )
             let runner = CLITreeInferenceRunner()
             OperationCenter.shared.setCancelCallback(for: opID) {
-                Task {
-                    await runner.cancel()
-                }
+                runner.cancel()
             }
 
             Task.detached {
@@ -2012,9 +2006,7 @@ public class ViewerViewController: NSViewController {
             )
             let runner = CLITreeTransformRunner()
             OperationCenter.shared.setCancelCallback(for: opID) {
-                Task {
-                    await runner.cancel()
-                }
+                runner.cancel()
             }
 
             Task.detached {
