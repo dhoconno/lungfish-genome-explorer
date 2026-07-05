@@ -166,6 +166,8 @@ changes that reduce future ambiguity across the codebase.
 - Made standalone MSA file outputs fail closed: `lungfish msa export`, `consensus`
   FASTA, `extract` FASTA, and `distance` matrix outputs are restored or removed if
   their provenance sidecar cannot be published.
+- Made legacy ProjectStore database migration move SQLite WAL/SHM companions with
+  `project.db` so hidden `.project.db` migration does not leave stale sidecar files behind.
 
 ## Verification
 

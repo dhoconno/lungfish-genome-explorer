@@ -122,10 +122,13 @@ public final class ProjectStore {
         let legacyDBPath = url.appendingPathComponent("project.db")
         let hiddenDBPath = url.appendingPathComponent(".project.db")
         
-        if FileManager.default.fileExists(atPath: legacyDBPath.path) &&
+        if FileManager.default.fileExists(atPath: legacyDBPath.path),
            !FileManager.default.fileExists(atPath: hiddenDBPath.path) {
             do {
-                try FileManager.default.moveItem(at: legacyDBPath, to: hiddenDBPath)
+                try Self.migrateLegacyDatabaseWithCompanions(
+                    legacyDBURL: legacyDBPath,
+                    hiddenDBURL: hiddenDBPath
+                )
                 Self.logger.info("ProjectStore: Migrated project.db to .project.db")
             } catch {
                 Self.logger.warning("ProjectStore: Failed to migrate database: \(error.localizedDescription, privacy: .public)")
@@ -169,6 +172,50 @@ public final class ProjectStore {
         try initializeSchema()
 
         Self.logger.info("Opened project store at \(url.path, privacy: .public)")
+    }
+
+    private static func migrateLegacyDatabaseWithCompanions(
+        legacyDBURL: URL,
+        hiddenDBURL: URL,
+        fileManager: FileManager = .default
+    ) throws {
+        var movedPairs: [(source: URL, destination: URL)] = []
+        do {
+            let pairs = sqliteDatabaseMigrationPairs(legacyDBURL: legacyDBURL, hiddenDBURL: hiddenDBURL)
+            for pair in pairs where fileManager.fileExists(atPath: pair.source.path) {
+                if fileManager.fileExists(atPath: pair.destination.path) {
+                    try fileManager.removeItem(at: pair.destination)
+                }
+                try fileManager.moveItem(at: pair.source, to: pair.destination)
+                movedPairs.append(pair)
+            }
+        } catch {
+            for pair in movedPairs.reversed() where fileManager.fileExists(atPath: pair.destination.path) {
+                if fileManager.fileExists(atPath: pair.source.path) {
+                    try? fileManager.removeItem(at: pair.destination)
+                } else {
+                    try? fileManager.moveItem(at: pair.destination, to: pair.source)
+                }
+            }
+            throw error
+        }
+    }
+
+    private static func sqliteDatabaseMigrationPairs(
+        legacyDBURL: URL,
+        hiddenDBURL: URL
+    ) -> [(source: URL, destination: URL)] {
+        [(legacyDBURL, hiddenDBURL)]
+            + ["wal", "shm"].map { suffix in
+                (
+                    sqliteCompanionURL(for: legacyDBURL, suffix: suffix),
+                    sqliteCompanionURL(for: hiddenDBURL, suffix: suffix)
+                )
+            }
+    }
+
+    private static func sqliteCompanionURL(for dbURL: URL, suffix: String) -> URL {
+        URL(fileURLWithPath: "\(dbURL.path)-\(suffix)")
     }
 
     deinit {

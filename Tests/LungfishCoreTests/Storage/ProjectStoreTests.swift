@@ -60,6 +60,29 @@ final class ProjectStoreTests: XCTestCase {
         XCTAssertEqual(retrieved?.metadata?["strain"], "K-12")
     }
 
+    func testLegacyDatabaseMigrationMovesSQLiteCompanionFiles() throws {
+        let legacyDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LungfishLegacyProject-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: legacyDirectory) }
+        try FileManager.default.createDirectory(at: legacyDirectory, withIntermediateDirectories: true)
+
+        let legacyDBURL = legacyDirectory.appendingPathComponent("project.db")
+        try createLegacyProjectDatabase(at: legacyDBURL)
+        let legacyWALURL = sqliteCompanionURL(for: legacyDBURL, suffix: "wal")
+        let legacySHMURL = sqliteCompanionURL(for: legacyDBURL, suffix: "shm")
+        try Data("stale wal".utf8).write(to: legacyWALURL)
+        try Data("stale shm".utf8).write(to: legacySHMURL)
+
+        let migratedStore = try ProjectStore(at: legacyDirectory)
+        defer { _ = migratedStore }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacyDBURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacyWALURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacySHMURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: legacyDirectory.appendingPathComponent(".project.db").path))
+        XCTAssertEqual(try migratedStore.getMetadata(key: "legacy"), "metadata")
+    }
+
     func testStoreSequenceRollsBackWhenCurrentStateInsertFails() throws {
         try withRawDatabase { db in
             XCTAssertEqual(
@@ -622,6 +645,46 @@ final class ProjectStoreTests: XCTestCase {
         try withRawDatabase { db in
             XCTAssertEqual(sqlite3_exec(db, sql, nil, nil, nil), SQLITE_OK)
         }
+    }
+
+    private func createLegacyProjectDatabase(at dbURL: URL) throws {
+        var db: OpaquePointer?
+        let result = sqlite3_open_v2(
+            dbURL.path,
+            &db,
+            SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX,
+            nil
+        )
+
+        guard result == SQLITE_OK, let db else {
+            let message = db.map { String(cString: sqlite3_errmsg($0)) } ?? "Unknown SQLite error"
+            throw NSError(domain: "ProjectStoreTests", code: Int(result), userInfo: [
+                NSLocalizedDescriptionKey: message,
+            ])
+        }
+        defer { sqlite3_close_v2(db) }
+
+        XCTAssertEqual(
+            sqlite3_exec(
+                db,
+                """
+                CREATE TABLE project_metadata (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                );
+                INSERT INTO project_metadata (key, value) VALUES ('legacy', 'metadata');
+                PRAGMA user_version = 1;
+                """,
+                nil,
+                nil,
+                nil
+            ),
+            SQLITE_OK
+        )
+    }
+
+    private func sqliteCompanionURL(for dbURL: URL, suffix: String) -> URL {
+        URL(fileURLWithPath: "\(dbURL.path)-\(suffix)")
     }
 
     private func rawScalarInt(_ sql: String, parameters: [String] = []) throws -> Int {
