@@ -138,6 +138,68 @@ final class AnalysisManifestTests: XCTestCase {
         XCTAssertEqual(manifest.analyses, [entry])
     }
 
+    func testAnalysisDirectoryPathUsesAnalysesRelativePath() throws {
+        let analysesDir = try AnalysesFolder.url(for: projectDir)
+        let directDir = analysesDir.appendingPathComponent(
+            "minimap2-2026-01-15T10-00-00",
+            isDirectory: true
+        )
+        let groupedDir = analysesDir
+            .appendingPathComponent("Reviewed", isDirectory: true)
+            .appendingPathComponent("minimap2-2026-01-15T10-00-00", isDirectory: true)
+        try FileManager.default.createDirectory(at: directDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: groupedDir, withIntermediateDirectories: true)
+
+        XCTAssertEqual(
+            AnalysisManifestStore.analysisDirectoryPath(for: directDir, projectURL: projectDir),
+            "minimap2-2026-01-15T10-00-00"
+        )
+        XCTAssertEqual(
+            AnalysisManifestStore.analysisDirectoryPath(for: groupedDir, projectURL: projectDir),
+            "Reviewed/minimap2-2026-01-15T10-00-00"
+        )
+        XCTAssertNil(AnalysisManifestStore.analysisDirectoryPath(for: bundleDir, projectURL: projectDir))
+    }
+
+    func testResolveAnalysisDirectoryPreservesDuplicateGroupedBasenames() throws {
+        let analysesDir = try AnalysesFolder.url(for: projectDir)
+        let runName = "minimap2-2026-01-15T10-00-00"
+        let firstRun = analysesDir
+            .appendingPathComponent("Reviewed", isDirectory: true)
+            .appendingPathComponent(runName, isDirectory: true)
+        let secondRun = analysesDir
+            .appendingPathComponent("Archived", isDirectory: true)
+            .appendingPathComponent(runName, isDirectory: true)
+        try FileManager.default.createDirectory(at: firstRun, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: secondRun, withIntermediateDirectories: true)
+
+        let firstEntry = AnalysisManifestEntry(
+            tool: "minimap2",
+            analysisDirectoryName: "Reviewed/\(runName)",
+            displayName: "Reviewed Mapping",
+            summary: "first"
+        )
+        let secondEntry = AnalysisManifestEntry(
+            tool: "minimap2",
+            analysisDirectoryName: "Archived/\(runName)",
+            displayName: "Archived Mapping",
+            summary: "second"
+        )
+
+        XCTAssertEqual(
+            AnalysisManifestStore.resolveAnalysisDirectory(for: firstEntry, projectURL: projectDir)?.path,
+            firstRun.path
+        )
+        XCTAssertEqual(
+            AnalysisManifestStore.resolveAnalysisDirectory(for: secondEntry, projectURL: projectDir)?.path,
+            secondRun.path
+        )
+
+        var manifest = AnalysisManifest(analyses: [firstEntry, secondEntry])
+        XCTAssertEqual(AnalysisManifestStore.pruneStaleEntries(manifest: &manifest, projectURL: projectDir), 0)
+        XCTAssertEqual(manifest.analyses, [firstEntry, secondEntry])
+    }
+
     func testParametersRoundTrip() throws {
         let analysesDir = try AnalysesFolder.url(for: projectDir)
         try FileManager.default.createDirectory(

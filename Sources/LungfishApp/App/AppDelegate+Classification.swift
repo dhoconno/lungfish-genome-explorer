@@ -376,7 +376,10 @@ extension AppDelegate {
                         if let bundleURL = Self.findSourceBundle(for: capturedConfig.originalInputFiles ?? capturedConfig.inputFiles) {
                             let entry = AnalysisManifestEntry(
                                 tool: "kraken2",
-                                analysisDirectoryName: capturedConfig.outputDirectory.lastPathComponent,
+                                analysisDirectoryName: Self.analysisManifestDirectoryName(
+                                    for: capturedConfig.outputDirectory,
+                                    projectURL: routeContext?.projectURL
+                                ),
                                 displayName: "Kraken2 Classification",
                                 parameters: capturedConfig.summaryParameters(),
                                 summary: "\(readCount) reads, \(classifiedCount) classified",
@@ -644,7 +647,10 @@ extension AppDelegate {
                         if let bundleURL = Self.findSourceBundle(for: capturedConfig.inputFiles) {
                             let entry = AnalysisManifestEntry(
                                 tool: "esviritu",
-                                analysisDirectoryName: capturedConfig.outputDirectory.lastPathComponent,
+                                analysisDirectoryName: Self.analysisManifestDirectoryName(
+                                    for: capturedConfig.outputDirectory,
+                                    projectURL: routeContext?.projectURL
+                                ),
                                 displayName: "EsViritu Detection",
                                 parameters: capturedConfig.summaryParameters(),
                                 summary: "\(capturedResult.detections.count) viruses detected in \(capturedResult.detectedFamilyCount) families",
@@ -1031,7 +1037,10 @@ extension AppDelegate {
                             let tree = entry.result.tree
                             let manifestEntry = AnalysisManifestEntry(
                                 tool: "kraken2",
-                                analysisDirectoryName: batchRoot.lastPathComponent,
+                                analysisDirectoryName: Self.analysisManifestDirectoryName(
+                                    for: batchRoot,
+                                    projectURL: projectURL
+                                ),
                                 displayName: "Kraken2 Batch",
                                 parameters: entry.config.summaryParameters(),
                                 summary: "\(tree.totalReads) reads, \(tree.classifiedReads) classified",
@@ -1337,7 +1346,10 @@ extension AppDelegate {
                         if let bundleURL {
                             let manifestEntry = AnalysisManifestEntry(
                                 tool: "esviritu",
-                                analysisDirectoryName: batchRoot.lastPathComponent,
+                                analysisDirectoryName: Self.analysisManifestDirectoryName(
+                                    for: batchRoot,
+                                    projectURL: projectURL
+                                ),
                                 displayName: "EsViritu Batch",
                                 parameters: entry.config.summaryParameters(),
                                 summary: "\(entry.ioResult.detections.count) viruses in \(entry.ioResult.detectedFamilyCount) families",
@@ -1544,7 +1556,10 @@ extension AppDelegate {
                             if let bundleURL = Self.findSourceBundle(for: [sample.fastq1] + (sample.fastq2.map { [$0] } ?? [])) {
                                 let entry = AnalysisManifestEntry(
                                     tool: "taxtriage",
-                                    analysisDirectoryName: capturedConfig.outputDirectory.lastPathComponent,
+                                    analysisDirectoryName: Self.analysisManifestDirectoryName(
+                                        for: capturedConfig.outputDirectory,
+                                        projectURL: routeContext?.projectURL
+                                    ),
                                     displayName: "TaxTriage Classification",
                                     parameters: capturedConfig.summaryParameters(),
                                     summary: capturedResult.summary,

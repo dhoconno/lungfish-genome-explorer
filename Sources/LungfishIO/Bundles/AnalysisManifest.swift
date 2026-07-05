@@ -220,6 +220,34 @@ public enum AnalysisManifestStore {
         return matches.sorted { $0.path < $1.path }.first
     }
 
+    /// Returns the manifest path for an analysis directory relative to `projectURL/Analyses/`.
+    ///
+    /// Direct children produce their basename. Grouped/nested analysis directories preserve
+    /// their group components, for example `Reviewed/minimap2-2026-01-15T10-00-00`.
+    public static func analysisDirectoryPath(for analysisDirectoryURL: URL, projectURL: URL) -> String? {
+        let analysesBase = projectURL
+            .appendingPathComponent(AnalysesFolder.directoryName, isDirectory: true)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        let analysisURL = analysisDirectoryURL
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        let baseComponents = analysesBase.pathComponents
+        let analysisComponents = analysisURL.pathComponents
+
+        guard analysisComponents.count > baseComponents.count,
+              Array(analysisComponents.prefix(baseComponents.count)) == baseComponents else {
+            return nil
+        }
+
+        let relativeComponents = Array(analysisComponents.dropFirst(baseComponents.count))
+        guard !relativeComponents.isEmpty,
+              !relativeComponents.contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }) else {
+            return nil
+        }
+        return relativeComponents.joined(separator: "/")
+    }
+
     /// Removes entries whose analysis directory is absent from `Analyses/`.
     ///
     /// - Returns: The number of entries removed.

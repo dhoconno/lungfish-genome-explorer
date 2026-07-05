@@ -638,7 +638,10 @@ extension AppDelegate {
                     if let bundleURL = Self.findSourceBundle(for: capturedConfig.inputFiles) {
                         let entry = AnalysisManifestEntry(
                             tool: "minimap2",
-                            analysisDirectoryName: capturedConfig.outputDirectory.lastPathComponent,
+                            analysisDirectoryName: Self.analysisManifestDirectoryName(
+                                for: capturedConfig.outputDirectory,
+                                projectURL: routeContext?.projectURL
+                            ),
                             displayName: "Minimap2 Alignment",
                             parameters: capturedConfig.summaryParameters(),
                             summary: "\(result.mappedReads)/\(result.totalReads) reads mapped",
@@ -881,7 +884,10 @@ extension AppDelegate {
                     if let bundleURL = Self.findSourceBundle(for: capturedRequest.inputFASTQURLs) {
                         let entry = AnalysisManifestEntry(
                             tool: capturedRequest.tool.rawValue,
-                            analysisDirectoryName: capturedRequest.outputDirectory.lastPathComponent,
+                            analysisDirectoryName: Self.analysisManifestDirectoryName(
+                                for: capturedRequest.outputDirectory,
+                                projectURL: routeContext?.projectURL ?? capturedRequest.projectURL
+                            ),
                             displayName: "\(capturedRequest.tool.displayName) Mapping",
                             parameters: capturedRequest.summaryParameters(),
                             summary: "\(finalResult.mappedReads)/\(finalResult.totalReads) reads mapped",
@@ -986,7 +992,10 @@ extension AppDelegate {
         if let bundleURL = Self.findSourceBundle(for: request.inputFASTQURLs) {
             let entry = AnalysisManifestEntry(
                 tool: request.tool.rawValue,
-                analysisDirectoryName: outputDirectory.lastPathComponent,
+                analysisDirectoryName: Self.analysisManifestDirectoryName(
+                    for: outputDirectory,
+                    projectURL: request.projectURL
+                ),
                 displayName: "\(request.tool.displayName) Mapping",
                 parameters: request.summaryParameters(),
                 summary: "Deterministic UI test mapping",
