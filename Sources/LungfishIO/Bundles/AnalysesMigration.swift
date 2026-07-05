@@ -138,20 +138,20 @@ public enum AnalysesMigration {
     }
 
     /// Best-effort timestamp extraction from known legacy analysis sidecars.
-    private nonisolated(unsafe) static let iso8601Formatter = ISO8601DateFormatter()
-
     private static func extractTimestamp(from analysisDir: URL) -> Date? {
         let sidecarNames = [
             "esviritu-result.json",
             "classification-result.json",
             "taxtriage-result.json",
+            "manifest.json",
         ]
+        let iso8601Formatter = ISO8601DateFormatter()
         for name in sidecarNames {
             let sidecarURL = analysisDir.appendingPathComponent(name)
             guard let data = try? Data(contentsOf: sidecarURL) else { continue }
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let savedAtString = json["savedAt"] as? String,
-               let date = iso8601Formatter.date(from: savedAtString) {
+               let timestamp = (json["savedAt"] ?? json["importDate"]) as? String,
+               let date = iso8601Formatter.date(from: timestamp) {
                 return date
             }
         }

@@ -206,6 +206,60 @@ final class AnalysesMigrationTests: XCTestCase {
         XCTAssertTrue(dirName.hasPrefix("esviritu-2026-01-15T"), "Expected timestamp from sidecar, got \(dirName)")
     }
 
+    func testMigrateTimestampExtractedFromNaoMgsManifest() throws {
+        let bundleDir = tempDir.appendingPathComponent("sample.lungfishfastq")
+        let derivDir = bundleDir.appendingPathComponent("derivatives")
+            .appendingPathComponent("naomgs-legacy")
+        try FileManager.default.createDirectory(at: derivDir, withIntermediateDirectories: true)
+        try """
+        {
+          "formatVersion": "1.0",
+          "sampleName": "sample",
+          "importDate": "2026-02-16T11:12:13Z",
+          "sourceFilePath": "/tmp/virus_hits_final.tsv.gz",
+          "hitCount": 2,
+          "taxonCount": 1,
+          "fetchedAccessions": []
+        }
+        """.write(to: derivDir.appendingPathComponent("manifest.json"), atomically: true, encoding: .utf8)
+
+        try AnalysesMigration.migrateProject(at: tempDir)
+
+        let analyses = try AnalysesFolder.listAnalyses(in: tempDir)
+        let dirName = try XCTUnwrap(analyses.first?.url.lastPathComponent)
+        let importDate = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-02-16T11:12:13Z"))
+        let expectedName = "naomgs-\(AnalysesFolder.formatTimestamp(importDate))"
+        XCTAssertTrue(dirName.hasPrefix(expectedName), "Expected importDate from manifest, got \(dirName)")
+    }
+
+    func testMigrateTimestampExtractedFromNvdManifest() throws {
+        let bundleDir = tempDir.appendingPathComponent("sample.lungfishfastq")
+        let derivDir = bundleDir.appendingPathComponent("derivatives")
+            .appendingPathComponent("nvd-legacy")
+        try FileManager.default.createDirectory(at: derivDir, withIntermediateDirectories: true)
+        try """
+        {
+          "formatVersion": "1.0",
+          "experiment": "100",
+          "importDate": "2026-03-17T12:13:14Z",
+          "sampleCount": 1,
+          "contigCount": 2,
+          "hitCount": 3,
+          "sourceDirectoryPath": "/tmp/nvd",
+          "samples": [],
+          "cachedTopContigs": []
+        }
+        """.write(to: derivDir.appendingPathComponent("manifest.json"), atomically: true, encoding: .utf8)
+
+        try AnalysesMigration.migrateProject(at: tempDir)
+
+        let analyses = try AnalysesFolder.listAnalyses(in: tempDir)
+        let dirName = try XCTUnwrap(analyses.first?.url.lastPathComponent)
+        let importDate = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-03-17T12:13:14Z"))
+        let expectedName = "nvd-\(AnalysesFolder.formatTimestamp(importDate))"
+        XCTAssertTrue(dirName.hasPrefix(expectedName), "Expected importDate from manifest, got \(dirName)")
+    }
+
     func testMigrateIgnoresNonBundles() throws {
         // A plain directory (not .lungfishfastq) with analysis derivatives should be ignored
         let plainDir = tempDir.appendingPathComponent("notabundle")
