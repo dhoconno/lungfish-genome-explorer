@@ -2328,19 +2328,30 @@ private func nativeToolProvenanceStep(
                 knownSampleIds: knownSampleIds
             )
 
-            // Persist to bundle (pass original CSV data for storage)
-            try store.persist(originalData: csvData, to: bundleURL)
-            try writeProvenance(
-                store: store,
-                inputURL: inputURL,
-                bundleURL: bundleURL,
-                metadataURL: bundleURL.appendingPathComponent("metadata/sample_metadata.tsv"),
-                sampleColumnIndex: bestColumn.index,
-                sampleColumnName: bestColumn.name,
-                knownSampleCount: knownSampleIds.count,
-                totalMetadataRows: scanResult.totalRows,
-                startedAt: startedAt
+            let metadataURL = bundleURL.appendingPathComponent("metadata/sample_metadata.tsv")
+            let snapshot = try ProvenancePublicationSnapshot(
+                urls: sampleMetadataPublicationArtifacts(bundleURL: bundleURL, metadataURL: metadataURL),
+                backupNamePrefix: "lungfish-import-metadata"
             )
+            defer { snapshot.discard() }
+            do {
+                // Persist to bundle (pass original CSV data for storage)
+                try store.persist(originalData: csvData, to: bundleURL)
+                try writeProvenance(
+                    store: store,
+                    inputURL: inputURL,
+                    bundleURL: bundleURL,
+                    metadataURL: metadataURL,
+                    sampleColumnIndex: bestColumn.index,
+                    sampleColumnName: bestColumn.name,
+                    knownSampleCount: knownSampleIds.count,
+                    totalMetadataRows: scanResult.totalRows,
+                    startedAt: startedAt
+                )
+            } catch {
+                try snapshot.restore()
+                throw error
+            }
 
             print(formatter.header("Metadata Import"))
             print("")
@@ -2359,6 +2370,12 @@ private func nativeToolProvenanceStep(
             } else {
                 print(formatter.warning("No sample IDs matched — metadata stored but not linked"))
             }
+        }
+
+        private func sampleMetadataPublicationArtifacts(bundleURL: URL, metadataURL: URL) -> [URL] {
+            let metadataDirectory = metadataURL.deletingLastPathComponent()
+            return [metadataDirectory]
+                + ProvenancePublicationArtifacts.bundleRootArtifacts(for: bundleURL)
         }
 
         private func writeProvenance(

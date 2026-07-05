@@ -190,19 +190,32 @@ struct MetadataSetSubcommand: AsyncParsableCommand {
         // Set the field
         meta.setValue(value, forCSVHeader: field)
 
-        // Save back
-        let legacyCSV = meta.toLegacyCSV()
-        try FASTQBundleCSVMetadata.save(legacyCSV, to: bundleURL)
-
-        try await MetadataProvenanceSupport.recordMetadataSet(
-            bundleURL: bundleURL,
-            field: field,
-            value: value,
-            globalOptions: globalOptions,
-            inputs: inputRecords,
-            outputURL: metadataURL,
-            startedAt: startedAt
+        let snapshot = try ProvenancePublicationSnapshot(
+            urls: MetadataProvenanceSupport.metadataSetPublicationArtifacts(
+                bundleURL: bundleURL,
+                metadataURL: metadataURL
+            ),
+            backupNamePrefix: "lungfish-metadata-set"
         )
+        defer { snapshot.discard() }
+        do {
+            // Save back
+            let legacyCSV = meta.toLegacyCSV()
+            try FASTQBundleCSVMetadata.save(legacyCSV, to: bundleURL)
+
+            try await MetadataProvenanceSupport.recordMetadataSet(
+                bundleURL: bundleURL,
+                field: field,
+                value: value,
+                globalOptions: globalOptions,
+                inputs: inputRecords,
+                outputURL: metadataURL,
+                startedAt: startedAt
+            )
+        } catch {
+            try snapshot.restore()
+            throw error
+        }
 
         if globalOptions.outputFormat == .text && !globalOptions.quiet {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
@@ -269,21 +282,35 @@ struct MetadataImportSubcommand: AsyncParsableCommand {
             throw CLIError.conversionFailed(reason: "Failed to parse CSV file: \(csvPath)")
         }
 
-        // Save
-        if syncBundles {
-            try FASTQFolderMetadata.saveWithPerBundleSync(folderMeta, to: folderURL)
-        } else {
-            try FASTQFolderMetadata.save(folderMeta, to: folderURL)
-        }
-
-        try await MetadataProvenanceSupport.recordMetadataImport(
-            folderURL: folderURL,
-            csvURL: csvURL,
-            folderMeta: folderMeta,
-            syncBundles: syncBundles,
-            globalOptions: globalOptions,
-            startedAt: startedAt
+        let snapshot = try ProvenancePublicationSnapshot(
+            urls: MetadataProvenanceSupport.metadataImportPublicationArtifacts(
+                folderURL: folderURL,
+                folderMeta: folderMeta,
+                syncBundles: syncBundles
+            ),
+            backupNamePrefix: "lungfish-metadata-import"
         )
+        defer { snapshot.discard() }
+        do {
+            // Save
+            if syncBundles {
+                try FASTQFolderMetadata.saveWithPerBundleSync(folderMeta, to: folderURL)
+            } else {
+                try FASTQFolderMetadata.save(folderMeta, to: folderURL)
+            }
+
+            try await MetadataProvenanceSupport.recordMetadataImport(
+                folderURL: folderURL,
+                csvURL: csvURL,
+                folderMeta: folderMeta,
+                syncBundles: syncBundles,
+                globalOptions: globalOptions,
+                startedAt: startedAt
+            )
+        } catch {
+            try snapshot.restore()
+            throw error
+        }
 
         if globalOptions.outputFormat == .text && !globalOptions.quiet {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
@@ -477,6 +504,36 @@ private enum MetadataProvenanceSupport {
         return []
     }
 
+    static func metadataSetPublicationArtifacts(bundleURL: URL, metadataURL: URL) -> [URL] {
+        [metadataURL]
+            + ProvenancePublicationArtifacts.bundleRootArtifacts(for: bundleURL)
+            + ProvenancePublicationArtifacts.fileSidecarArtifacts(for: metadataURL)
+    }
+
+    static func metadataImportPublicationArtifacts(
+        folderURL: URL,
+        folderMeta: FASTQFolderMetadata,
+        syncBundles: Bool
+    ) -> [URL] {
+        let outputURLs = metadataImportOutputURLs(
+            folderURL: folderURL,
+            folderMeta: folderMeta,
+            syncBundles: syncBundles,
+            requireExistingPayload: false
+        )
+        var artifacts = outputURLs
+            + ProvenancePublicationArtifacts.bundleRootArtifacts(for: folderURL)
+        for outputURL in outputURLs {
+            artifacts += ProvenancePublicationArtifacts.fileSidecarArtifacts(for: outputURL)
+        }
+        if syncBundles {
+            for bundleURL in syncedBundleURLs(folderURL: folderURL, folderMeta: folderMeta) {
+                artifacts += ProvenancePublicationArtifacts.bundleRootArtifacts(for: bundleURL)
+            }
+        }
+        return artifacts
+    }
+
     static func recordMetadataSet(
         bundleURL: URL,
         field: String,
@@ -576,22 +633,45 @@ private enum MetadataProvenanceSupport {
         folderMeta: FASTQFolderMetadata,
         syncBundles: Bool
     ) -> [FileRecord] {
-        var outputURLs = [FASTQFolderMetadata.metadataURL(in: folderURL)]
-        if syncBundles {
-            outputURLs += folderMeta.sampleOrder.compactMap { sampleName in
-                let bundleName = sampleName.hasSuffix(".lungfishfastq")
-                    ? sampleName
-                    : "\(sampleName).lungfishfastq"
-                let bundleURL = folderURL.appendingPathComponent(bundleName)
-                let metadataURL = FASTQBundleCSVMetadata.metadataURL(in: bundleURL)
-                guard FileManager.default.fileExists(atPath: metadataURL.path) else {
-                    return nil
-                }
-                return metadataURL
-            }
-        }
+        let outputURLs = metadataImportOutputURLs(
+            folderURL: folderURL,
+            folderMeta: folderMeta,
+            syncBundles: syncBundles,
+            requireExistingPayload: true
+        )
         return outputURLs.map {
             ProvenanceRecorder.fileRecord(url: $0, format: .text, role: .output)
+        }
+    }
+
+    private static func metadataImportOutputURLs(
+        folderURL: URL,
+        folderMeta: FASTQFolderMetadata,
+        syncBundles: Bool,
+        requireExistingPayload: Bool
+    ) -> [URL] {
+        var outputURLs = [FASTQFolderMetadata.metadataURL(in: folderURL)]
+        guard syncBundles else { return outputURLs }
+        outputURLs += syncedBundleURLs(folderURL: folderURL, folderMeta: folderMeta).compactMap { bundleURL in
+            let metadataURL = FASTQBundleCSVMetadata.metadataURL(in: bundleURL)
+            guard !requireExistingPayload || FileManager.default.fileExists(atPath: metadataURL.path) else {
+                return nil
+            }
+            return metadataURL
+        }
+        return outputURLs
+    }
+
+    private static func syncedBundleURLs(folderURL: URL, folderMeta: FASTQFolderMetadata) -> [URL] {
+        folderMeta.sampleOrder.compactMap { sampleName in
+            let bundleName = sampleName.hasSuffix(".lungfishfastq")
+                ? sampleName
+                : "\(sampleName).lungfishfastq"
+            let bundleURL = folderURL.appendingPathComponent(bundleName)
+            guard FileManager.default.fileExists(atPath: bundleURL.path) else {
+                return nil
+            }
+            return bundleURL
         }
     }
 

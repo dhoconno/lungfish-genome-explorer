@@ -82,22 +82,32 @@ struct SampleMetadataBundleImportService {
             builder = try builder.input(contextURL, format: format(for: contextURL), role: .input)
         }
 
-        try store.persist(originalData: data, to: bundleURL)
-        builder = try builder.output(metadataURL, format: .text, role: .output)
-
-        let envelope = try builder.complete(
-            exitStatus: 0,
-            startedAt: startedAt,
-            endedAt: Date()
+        let snapshot = try ProvenancePublicationSnapshot(
+            urls: sampleMetadataPublicationArtifacts(bundleURL: bundleURL, metadataURL: metadataURL),
+            backupNamePrefix: "lungfish-sample-metadata-import"
         )
-        let provenanceURL = try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
-        store.wireAutosave(bundleURL: bundleURL)
+        defer { snapshot.discard() }
+        do {
+            try store.persist(originalData: data, to: bundleURL)
+            builder = try builder.output(metadataURL, format: .text, role: .output)
 
-        return SampleMetadataBundleImportResult(
-            store: store,
-            metadataURL: metadataURL,
-            provenanceURL: provenanceURL
-        )
+            let envelope = try builder.complete(
+                exitStatus: 0,
+                startedAt: startedAt,
+                endedAt: Date()
+            )
+            let provenanceURL = try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
+            store.wireAutosave(bundleURL: bundleURL)
+
+            return SampleMetadataBundleImportResult(
+                store: store,
+                metadataURL: metadataURL,
+                provenanceURL: provenanceURL
+            )
+        } catch {
+            try snapshot.restore()
+            throw error
+        }
     }
 
     private func format(for url: URL) -> FileFormat {
@@ -109,5 +119,11 @@ struct SampleMetadataBundleImportService {
         default:
             return .text
         }
+    }
+
+    private func sampleMetadataPublicationArtifacts(bundleURL: URL, metadataURL: URL) -> [URL] {
+        let metadataDirectory = metadataURL.deletingLastPathComponent()
+        return [metadataDirectory]
+            + ProvenancePublicationArtifacts.bundleRootArtifacts(for: bundleURL)
     }
 }

@@ -178,6 +178,39 @@ final class ImportCommandMetadataTests: XCTestCase {
         })
     }
 
+    func testMetadataSubcommandRollsBackWhenProvenanceLayoutFails() throws {
+        let bundleURL = try makeTwelveSBundle()
+        let blockedProvenanceDirectory = bundleURL.appendingPathComponent(
+            ProvenanceWriter.bundleProvenanceDirectoryName,
+            isDirectory: true
+        )
+        try "blocked".write(to: blockedProvenanceDirectory, atomically: true, encoding: .utf8)
+
+        let metadataURL = tempDir.appendingPathComponent("rollback-twelve-s-metadata.csv")
+        try """
+        sample,site,cohort
+        SampleA,Hilo,batch-1
+        """.write(to: metadataURL, atomically: true, encoding: .utf8)
+
+        let command = try MetadataSubcommand.parse([
+            metadataURL.path,
+            "--bundle",
+            bundleURL.path,
+            "--quiet",
+        ])
+
+        XCTAssertThrowsError(try command.run())
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent("metadata").path),
+            "Imported metadata must not survive if provenance publication fails."
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename).path)
+        )
+        XCTAssertEqual(try String(contentsOf: blockedProvenanceDirectory, encoding: .utf8), "blocked")
+    }
+
     func testVCFSubcommandRejectsVCFv3BeforeCopying() async throws {
         let vcfURL = tempDir.appendingPathComponent("legacy.vcf")
         try """

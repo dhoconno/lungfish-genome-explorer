@@ -159,6 +159,10 @@ changes that reduce future ambiguity across the codebase.
   GUI performance plan/audit as historical rather than an active unchecked backlog.
 - Wired `AssemblyContigDetailPane` quick-copy fields to the controller's injected pasteboard so
   detail metrics behave consistently with summary-strip and contig-table scalar copy actions.
+- Added provenance-publication rollback snapshots for plain metadata payloads: GUI sample
+  metadata imports, `lungfish import metadata`, `lungfish metadata set`, and
+  `lungfish metadata import --sync-bundles` now restore or remove metadata files if root,
+  file, or bundle provenance publication fails.
 
 ## Verification
 
