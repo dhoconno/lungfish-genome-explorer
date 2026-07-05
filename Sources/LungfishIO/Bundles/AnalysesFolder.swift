@@ -206,6 +206,32 @@ public enum AnalysesFolder {
         return parseDirectoryName(directoryURL.lastPathComponent, url: directoryURL)
     }
 
+    /// Returns the nearest ancestor of `url` that is recognized as an analysis directory.
+    ///
+    /// This supports user-created grouping folders under `Analyses/` by walking upward
+    /// until a directory has analysis metadata, a recognized analysis name, or legacy
+    /// sidecar signatures.
+    public static func enclosingAnalysisDirectory(for url: URL, projectURL: URL) -> URL? {
+        let analysesURL = projectURL
+            .appendingPathComponent(directoryName, isDirectory: true)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        let analysesComponents = analysesURL.pathComponents
+        var current = url.standardizedFileURL.resolvingSymlinksInPath()
+        guard current.pathComponents.count > analysesComponents.count,
+              current.pathComponents.starts(with: analysesComponents) else {
+            return nil
+        }
+
+        while current.pathComponents.count > analysesComponents.count {
+            if let info = analysisInfo(for: current) {
+                return info.url.standardizedFileURL
+            }
+            current = current.deletingLastPathComponent().standardizedFileURL.resolvingSymlinksInPath()
+        }
+        return nil
+    }
+
     private static func collectAnalyses(in directoryURL: URL, into results: inout [AnalysisDirectoryInfo]) throws {
         let contents = try FileManager.default.contentsOfDirectory(
             at: directoryURL,

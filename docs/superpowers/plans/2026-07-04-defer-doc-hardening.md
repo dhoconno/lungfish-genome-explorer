@@ -197,6 +197,9 @@ changes that reduce future ambiguity across the codebase.
 - Made sidebar analysis rename/move operations rewrite matching bundle manifest references for
   moved analysis directories or grouping folders, preserving Inspector history after users
   reorganize `Analyses/`.
+- Made mapping/reference source resolvers identify the nearest real analysis ancestor instead
+  of the first folder below `Analyses/`, so grouped analysis outputs navigate to the run root
+  and can recover canonical source bundles from nested mapping sidecars.
 - Made direct phylogenetic tree imports write canonical envelope-compatible provenance fields
   (`createdAt`, `workflowName`, durable replay argv, runtime identity, file descriptors, and
   steps) while preserving the legacy tree-import payload keys.
