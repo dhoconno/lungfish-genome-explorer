@@ -27,6 +27,47 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
         )
     }
 
+    func testProductionKitAndLeafSourcesAvoidExplicitLayerBacking() throws {
+        let root = repositoryRoot()
+        let scannedSourceRoots = [
+            "Sources/LungfishKit",
+            "Sources/LungfishAlignmentUI",
+            "Sources/LungfishAssemblyUI",
+            "Sources/LungfishEsVirituUI",
+            "Sources/LungfishGenotypeUI",
+            "Sources/LungfishNaoMgsUI",
+            "Sources/LungfishNvdUI",
+            "Sources/LungfishPhylogeneticsUI",
+            "Sources/LungfishTaxTriageUI",
+            "Sources/LungfishTwelveSUI",
+        ]
+        var violations: [String] = []
+
+        for sourceRoot in scannedSourceRoots {
+            let swiftFiles = try swiftSourceFiles(
+                under: root.appendingPathComponent(sourceRoot, isDirectory: true)
+            )
+            for file in swiftFiles {
+                let source = try String(contentsOf: file, encoding: .utf8)
+                let lines = source.components(separatedBy: .newlines)
+                let path = relativePath(file, root: root)
+                for index in lines.indices {
+                    let trimmed = lines[index].trimmingCharacters(in: .whitespaces)
+                    guard trimmed.contains("wantsLayer"), !isCommentLine(trimmed) else {
+                        continue
+                    }
+                    violations.append("\(path):\(index + 1)")
+                }
+            }
+        }
+
+        XCTAssertTrue(
+            violations.isEmpty,
+            "Production Kit and leaf UI code must use draw-backed NSView rendering instead of explicit wantsLayer toggles:\n"
+                + violations.joined(separator: "\n")
+        )
+    }
+
     func testTargetedAppKitCallbacksAvoidUnsafeMainActorTaskHops() throws {
         let root = repositoryRoot()
         let scannedPaths = [
@@ -274,5 +315,11 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
     private func relativePath(_ url: URL, root: URL) -> String {
         let rootPath = root.path.hasSuffix("/") ? root.path : root.path + "/"
         return url.path.hasPrefix(rootPath) ? String(url.path.dropFirst(rootPath.count)) : url.path
+    }
+
+    private func isCommentLine(_ trimmedLine: String) -> Bool {
+        trimmedLine.hasPrefix("//")
+            || trimmedLine.hasPrefix("/*")
+            || trimmedLine.hasPrefix("*")
     }
 }

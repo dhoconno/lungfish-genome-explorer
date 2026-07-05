@@ -911,7 +911,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
         for accessionSummary in displayedAccessions {
             let card = NSView()
-            // All views are layer-backed by default on macOS 26 — no wantsLayer needed.
+            // Decorative chrome only; do not opt this view into layer backing with wantsLayer.
             card.layer?.cornerRadius = 6
             card.layer?.borderWidth = 1
             card.layer?.borderColor = NSColor.separatorColor.cgColor
