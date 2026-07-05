@@ -110,6 +110,36 @@ final class AnalysesMigrationTests: XCTestCase {
         XCTAssertEqual(manifest.analyses.count, 2)
     }
 
+    func testMigrateResultsWithSameToolAndTimestampUsesUniqueDestinations() throws {
+        let bundleDir = tempDir.appendingPathComponent("sample.lungfishfastq")
+        let firstDir = bundleDir.appendingPathComponent("derivatives/esviritu-aaa")
+        let secondDir = bundleDir.appendingPathComponent("derivatives/esviritu-bbb")
+        for dir in [firstDir, secondDir] {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try FileManager.default.copyItem(
+                at: TestAnalysisFixtures.esvirituResult.appendingPathComponent("esviritu-result.json"),
+                to: dir.appendingPathComponent("esviritu-result.json")
+            )
+        }
+
+        let migrated = try AnalysesMigration.migrateProject(at: tempDir)
+
+        XCTAssertEqual(migrated, 2)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: firstDir.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: secondDir.path))
+
+        let analyses = try AnalysesFolder.listAnalyses(in: tempDir)
+        let analysisNames = Set(analyses.map { $0.url.lastPathComponent })
+        XCTAssertEqual(analysisNames.count, 2)
+        let savedAt = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-01-15T10:00:00Z"))
+        let expectedBaseName = "esviritu-\(AnalysesFolder.formatTimestamp(savedAt))"
+        XCTAssertTrue(analysisNames.contains(expectedBaseName))
+        XCTAssertTrue(analysisNames.contains("\(expectedBaseName)-2"))
+
+        let manifest = AnalysisManifestStore.load(bundleURL: bundleDir, projectURL: tempDir)
+        XCTAssertEqual(Set(manifest.analyses.map(\.analysisDirectoryName)), analysisNames)
+    }
+
     func testMigrateRollsBackWhenManifestRecordFails() throws {
         let bundleDir = tempDir.appendingPathComponent("sample.lungfishfastq")
         let corruptManifestURL = bundleDir.appendingPathComponent(AnalysisManifest.filename)

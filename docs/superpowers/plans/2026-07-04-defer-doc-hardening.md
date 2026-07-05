@@ -182,6 +182,9 @@ changes that reduce future ambiguity across the codebase.
   use the matching bundle path as the next save target.
 - Limited the Workflow Builder palette to node types marked as native FASTQ-runner supported,
   so beta users are not offered normal runnable nodes that the compiler rejects.
+- Made legacy analysis migration allocate deterministic suffixed `Analyses/` destinations for
+  same-tool/same-timestamp collisions and write metadata sidecars before bundle manifest
+  recording so migrated directories remain discoverable.
 
 ## Verification
 

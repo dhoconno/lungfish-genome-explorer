@@ -88,22 +88,20 @@ public enum AnalysesMigration {
 
                 // 5. Determine destination: Analyses/{tool}-{timestamp}/
                 let analysesDir = try AnalysesFolder.url(for: projectURL)
-                let destName = "\(tool)-\(timestamp)"
-                let destURL = analysesDir.appendingPathComponent(destName, isDirectory: true)
-
-                // Skip if destination already exists (idempotent)
-                if fm.fileExists(atPath: destURL.path) {
-                    logger.info("Migration: skipping \(name), destination \(destName) already exists")
-                    continue
-                }
 
                 // 6. Move directory to Analyses/{tool}-{timestamp}/
                 // Wrapped in do/catch so one failed migration does not abort the rest.
+                let moved: MigrationDestination
                 do {
-                    try fm.moveItem(at: candidateURL, to: destURL)
-                    logger.info("Migration: moved \(name) -> Analyses/\(destName)")
+                    moved = try moveAnalysisDirectory(
+                        at: candidateURL,
+                        toUniqueDestinationNamed: "\(tool)-\(timestamp)",
+                        in: analysesDir,
+                        fileManager: fm
+                    )
+                    logger.info("Migration: moved \(name) -> Analyses/\(moved.name)")
                 } catch {
-                    logger.error("Migration: failed to move \(name) -> Analyses/\(destName): \(error.localizedDescription, privacy: .public)")
+                    logger.error("Migration: failed to move \(name) into Analyses/: \(error.localizedDescription, privacy: .public)")
                     continue
                 }
 
@@ -111,10 +109,14 @@ public enum AnalysesMigration {
                 // If this fails, roll the move back so discovery state and bundle-owned
                 // history cannot diverge.
                 do {
+                    try AnalysesFolder.writeAnalysisMetadata(
+                        AnalysesFolder.AnalysisMetadata(tool: tool, isBatch: false, created: date),
+                        to: moved.url
+                    )
                     let entry = AnalysisManifestEntry(
                         tool: tool,
                         timestamp: date,
-                        analysisDirectoryName: destName,
+                        analysisDirectoryName: moved.name,
                         displayName: AnalysesFolder.displayName(for: tool),
                         summary: "Migrated from derivatives/\(name)"
                     )
@@ -122,10 +124,10 @@ public enum AnalysesMigration {
                 } catch {
                     do {
                         if !fm.fileExists(atPath: candidateURL.path) {
-                            try fm.moveItem(at: destURL, to: candidateURL)
+                            try fm.moveItem(at: moved.url, to: candidateURL)
                         }
                     } catch {
-                        logger.error("Migration: failed to roll back \(destName) after manifest-record failure: \(error.localizedDescription, privacy: .public)")
+                        logger.error("Migration: failed to roll back \(moved.name) after manifest-record failure: \(error.localizedDescription, privacy: .public)")
                     }
                     logger.error("Migration: refused \(name) because manifest recording failed: \(error.localizedDescription, privacy: .public)")
                     throw error
@@ -162,5 +164,43 @@ public enum AnalysesMigration {
             }
         }
         return nil
+    }
+
+    private struct MigrationDestination {
+        let name: String
+        let url: URL
+    }
+
+    private static func moveAnalysisDirectory(
+        at sourceURL: URL,
+        toUniqueDestinationNamed baseName: String,
+        in analysesDir: URL,
+        fileManager: FileManager
+    ) throws -> MigrationDestination {
+        for attempt in 0..<1_000 {
+            let name = attempt == 0 ? baseName : "\(baseName)-\(attempt + 1)"
+            let destinationURL = analysesDir.appendingPathComponent(name, isDirectory: true)
+            if fileManager.fileExists(atPath: destinationURL.path) {
+                continue
+            }
+
+            do {
+                try fileManager.moveItem(at: sourceURL, to: destinationURL)
+                return MigrationDestination(name: name, url: destinationURL)
+            } catch {
+                if fileManager.fileExists(atPath: destinationURL.path) {
+                    continue
+                }
+                throw error
+            }
+        }
+
+        throw CocoaError(
+            .fileWriteFileExists,
+            userInfo: [
+                NSFilePathErrorKey: analysesDir.appendingPathComponent(baseName, isDirectory: true).path,
+                NSLocalizedDescriptionKey: "Could not create a unique migrated analysis directory for \(baseName)"
+            ]
+        )
     }
 }
