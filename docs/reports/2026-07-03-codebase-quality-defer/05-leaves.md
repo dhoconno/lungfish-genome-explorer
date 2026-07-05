@@ -115,10 +115,9 @@ a judgment call for the maintainer, not a behavior-preserving edit:
   `computeCoverage`/`editDistanceDistribution`/`fragmentLengthDistribution`/
   `pairStatusDistribution` fed ONLY this dead pane (but are public leaf API -> not removable
   per the leaf rule).
-- `TaxTriageConfidenceView` class (TaxTriageConfidenceView.swift): NEVER instantiated
-  (no `TaxTriageConfidenceView(` anywhere); its whole instance body (`metrics`,`maxVisible`,
-  `draw`,`drawPlaceholder`, private instance `confidenceColor`) is dead. Only the sibling
-  `static confidenceColor(for:)` is live (used by `TaxTriageConfidenceCellView`).
+- RESOLVED 2026-07-05: `TaxTriageConfidenceView` was never instantiated, so the dead
+  standalone chart class was removed. The live confidence-column cell now owns the file and
+  uses a small `TaxTriageConfidencePalette` helper for the shared TASS score thresholds.
 
 ### DEFER notes
 - `TaxTriageBatchOverviewView.formatReadCount` (~599) duplicates the LungfishKit shared
@@ -138,7 +137,7 @@ statement-clean (test-pinned/windowing). All leaf-clean (no LungfishApp refs). G
 styling now uses draw-backed views instead of explicit `wantsLayer` toggles, with a source
 regression covering Kit and leaf UI modules. Concurrency is correct for the audited changes.
 Value beyond the dead-code removal is in DEFERRED per-VC splits (all >1000L VCs, same-module
-extensions, no promotions) + the 3 flagged unwired-UI islands for maintainer review.
+extensions, no promotions) + the 2 remaining flagged unwired-UI islands for maintainer review.
 
 ## Deferred items
 

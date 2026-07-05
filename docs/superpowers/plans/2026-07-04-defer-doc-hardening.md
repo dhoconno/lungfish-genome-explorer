@@ -97,6 +97,9 @@ changes that reduce future ambiguity across the codebase.
   cross-module grep confirmed no production caller outside LungfishCore.
 - Removed `FASTQMetadataDrawerView`'s dead no-op table-selection delegate stub and its
   never-written suppression flag after verifying selection changes had no implemented behavior.
+- Removed the unused standalone `TaxTriageConfidenceView` chart, kept the live compact
+  confidence cell with tested shared TASS thresholds, and corrected stale manual/review docs that
+  described the removed chart as the result viewport.
 
 ## Verification
 

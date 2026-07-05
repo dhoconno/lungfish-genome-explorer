@@ -4216,7 +4216,7 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
         scoreCol.minWidth = 60
         scoreCol.maxWidth = 120
         scoreCol.sortDescriptorPrototype = NSSortDescriptor(key: "tassScore", ascending: false)
-        scoreCol.headerToolTip = "Taxonomic Assignment Specificity Score: >=0.95 high confidence, 0.80-0.95 moderate, <0.80 low confidence"
+        scoreCol.headerToolTip = "Taxonomic Assignment Specificity Score: >=0.80 high confidence, 0.40-0.80 medium confidence, <0.40 low confidence"
         tableView.addTableColumn(scoreCol)
 
         // Reads column
@@ -4558,12 +4558,12 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
 
         case ColumnID.tassScore:
             let tassCell = makeLabelCell(text: String(format: "%.3f", item.tassScore), monospaced: true)
-            if item.tassScore >= 0.95 {
-                tassCell.toolTip = "High confidence (>=0.95): strong taxonomic signal"
-            } else if item.tassScore >= 0.80 {
-                tassCell.toolTip = "Moderate confidence (0.80-0.95): likely true positive, verify with BLAST"
+            if item.tassScore >= 0.80 {
+                tassCell.toolTip = "High confidence (>=0.80): strong taxonomic signal"
+            } else if item.tassScore >= 0.40 {
+                tassCell.toolTip = "Medium confidence (0.40-0.80): likely true positive, verify with BLAST"
             } else {
-                tassCell.toolTip = "Low confidence (<0.80): weak signal, may be noise or contamination"
+                tassCell.toolTip = "Low confidence (<0.40): weak signal, may be noise or contamination"
             }
             return tassCell
 

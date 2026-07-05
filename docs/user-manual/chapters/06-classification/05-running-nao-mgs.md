@@ -66,7 +66,7 @@ below places it in context.
 |---|---|---|---|
 | Kraken2 | Yes, in the run wizard | Per-taxon read count | Sunburst plus table |
 | EsViritu | Yes, in the run wizard | Per-virus coverage | Table plus sparkline |
-| TaxTriage | Yes, in the run wizard | TASS confidence per organism | Confidence chart |
+| TaxTriage | Yes, in the run wizard | TASS confidence per organism | Result table with confidence bar |
 | NAO-MGS | No, import only | Per-taxon virus-hit counts | Detail pane plus taxon table |
 
 The load-bearing distinction is the first column. Because NAO-MGS is imported,
