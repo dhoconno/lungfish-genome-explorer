@@ -99,7 +99,7 @@ Verification](06-blast-verification.md).
 
 ## What you will learn
 
-By the end of this chapter you will be able to install a Kraken2 database,
+Work through this chapter and you will be able to install a Kraken2 database,
 run the wizard with Kraken2 selected, set the Sensitivity preset, navigate
 the resulting taxonomy viewport, drill into a taxon by clicking the
 sunburst, and extract reads assigned to a specific taxon as a new FASTQ
@@ -187,7 +187,7 @@ Double-click the new bundle. The taxonomy viewport opens.
 
 <!-- planned: kraken2-taxonomy-viewport -->
 
-The sunburst on the left is centred on the root of the tree of life. The
+The sunburst on the left is centred on the root of the tree of life. Its
 largest wedge is **Riboviria**, the realm that holds RNA viruses. Inside
 Riboviria, the dominant child wedge is **Orthornavirae**, and inside that,
 **Pisuviricota**, **Pisoniviricetes**, **Nidovirales**, **Coronaviridae**,
@@ -198,7 +198,7 @@ read count, and percentage of total classified reads.
 
 Click the **Coronaviridae** wedge. The sunburst re-centres on
 Coronaviridae and the breadcrumb bar at the top of the viewport updates
-to read `root > Riboviria > ... > Coronaviridae`. The table filters
+to read `root > Riboviria > ... > Coronaviridae`. Its table filters
 to taxa under Coronaviridae. You can now see the per-genus breakdown
 inside the family.
 
@@ -224,13 +224,13 @@ A Kraken2 result tells you what k-mers in your reads matched what
 references in the database, summarised as a per-taxon read count. Read it
 in three passes.
 
-The first pass is the dominant signal. Look at the largest wedge in the
+Start with the dominant signal. Look at the largest wedge in the
 sunburst at the rank you care about: for a viral sample, that is usually
 genus or family. If one wedge dwarfs the rest, the sample probably
 contains that organism. For SRR36291587, Coronaviridae dominates: the
 sample is a SARS-CoV-2 sequencing run and the result is consistent.
 
-The second pass is the long tail. Sort the table by descending read count
+Next, scan the long tail. Sort the table by descending read count
 and scroll past the top hit. Low-abundance hits are usually one of three
 things: genuine minor taxa in a mixed sample, mis-classifications driven
 by k-mers shared between unrelated organisms, or contamination from the
@@ -238,7 +238,7 @@ laboratory or the database itself (human reads in a microbiome database,
 for example). A handful of reads against an unrelated taxon is often
 noise. A few thousand reads is worth investigating.
 
-The third pass is the unclassified bin. The table's top row is usually
+Finally, weigh the unclassified bin. The table's top row is usually
 **unclassified**: reads with no database hit at the configured
 confidence. A high unclassified fraction means either the sample is host
 or contaminant heavy (typical for wastewater) or the organism is absent

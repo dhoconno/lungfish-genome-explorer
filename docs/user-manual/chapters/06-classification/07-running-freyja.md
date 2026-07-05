@@ -46,10 +46,10 @@ first to capture the command before you add `--execute`.
 
 ## What you will learn
 
-By the end of this chapter you will be able to install the
-`wastewater-surveillance` pack, assemble the variant and depth inputs Freyja
-needs, write a reproducible `freyja demix` command plan, run it with
-`--execute`, and cite the provenance sidecar in a methods section.
+The tasks ahead are installing the
+`wastewater-surveillance` pack, assembling the variant and depth inputs Freyja
+needs, writing a reproducible `freyja demix` command plan, running it with
+`--execute`, and citing the provenance sidecar in a methods section.
 
 ## Inputs
 

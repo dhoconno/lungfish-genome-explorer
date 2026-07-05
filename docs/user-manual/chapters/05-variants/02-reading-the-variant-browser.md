@@ -29,17 +29,17 @@ lead_approved: false
 
 ## What it is
 
-The variant browser is the main surface in Lungfish for reading, sorting, and exporting variants. It opens when you click a variant track in the sidebar, and it occupies the full viewport area of the project window. The browser combines a coordinate-aware view of the genome with a tabular view of every row in the underlying VCF, so you can jump between "where on the genome is this variant" and "what does this variant say" without leaving the chapter.
+The variant browser is the main surface in Lungfish for reading, sorting, and exporting variants. Click a variant track in the sidebar and it opens, filling the full viewport area of the project window. The browser combines a coordinate-aware view of the genome with a tabular view of every row in the underlying VCF, so you can jump between "where on the genome is this variant" and "what does this variant say" without leaving the chapter.
 
-The browser has three regions stacked vertically. The top region is a genome track that draws each variant as a tick at its reference position. The middle region is a reference panel that shows the bases under the cursor and updates as you navigate. The bottom region is a sortable variant table that lists every VCF row, one row per variant, with the standard VCF columns plus a `Source` column that records which source file each row came from. When a reference bundle carries more than one variant track, the browser loads all of them into this one table at once, and the `Source` column is how you tell them apart. A filter bar above the table accepts both chip-style presets and free-text smart-filter queries.
+The browser has three regions stacked vertically. At the top, a genome track draws each variant as a tick at its reference position. Below it, a reference panel shows the bases under the cursor and updates as you navigate. At the bottom sits a sortable variant table that lists every VCF row, one row per variant, with the standard VCF columns plus a `Source` column that records which source file each row came from. When a reference bundle carries more than one variant track, the browser loads all of them into this one table at once, and the `Source` column is how you tell them apart. A filter bar above the table accepts both chip-style presets and free-text smart-filter queries.
 
 <!-- planned: variant-browser-overview -->
 
-The browser does not modify the underlying VCF. Sorts, filters, and selections are display state. To write a filtered subset back to disk, use the CLI command `lungfish variants query` with a `--filter` expression and an `--output` path; the in-app table is read-only. So what should you do with this? Treat the browser as a read-only lens onto the VCF: filter aggressively to find the rows you care about, and run `variants query` when you are ready to hand a subset to a downstream tool.
+The browser does not modify the underlying VCF. Sorts, filters, and selections are display state. To write a filtered subset back to disk, use the CLI command `lungfish variants query` with a `--filter` expression and an `--output` path; the in-app table is read-only. Treat the browser as a read-only lens onto the VCF: filter aggressively to find the rows you care about, and run `variants query` when you are ready to hand a subset to a downstream tool.
 
 ## What you will learn
 
-By the end of this chapter you will be able to navigate to a specific position in the variant browser, sort the table by any column, filter to PASS-only rows, read the INFO and FORMAT payloads in the Inspector for any selected row, and read two variant tracks side by side when a bundle carries more than one.
+This chapter leaves you able to navigate to a specific position in the variant browser, sort the table by any column, filter to PASS-only rows, read the INFO and FORMAT payloads in the Inspector for any selected row, and read two variant tracks side by side when a bundle carries more than one.
 
 ## The variant table columns
 
@@ -80,11 +80,11 @@ The variant table is a standard macOS table, so it carries the system keyboard a
 
 ### Step 3. Read a row in the Inspector
 
-Click any row in the table. Three things happen at once. The genome track centres on that variant's position. The reference panel scrolls so that the cursor sits on the variant's reference base. The Inspector on the right fills with the per-row detail: every `INFO` field from the VCF, every `FORMAT` field for every sample, and any annotation context Lungfish can attach (gene name, codon, amino-acid consequence) when a GFF is present on the reference bundle.
+Click any row in the table. Three things happen at once. The genome track centres on that variant's position, the reference panel scrolls so that the cursor sits on the variant's reference base, and the Inspector on the right fills with the per-row detail: every `INFO` field from the VCF, every `FORMAT` field for every sample, and any annotation context Lungfish can attach (gene name, codon, amino-acid consequence) when a GFF is present on the reference bundle.
 
 <!-- planned: variant-browser-inspector -->
 
-The Inspector is the canonical place to read a single variant. The table is dense and optimised for scanning; the Inspector is sparse and optimised for reading. Once the table has keyboard focus, the up and down arrow keys move the selection row to row, and the genome track, reference panel, and Inspector follow the focused row just as they do on a click.
+The Inspector is the canonical place to read a single variant. Where the table is dense and optimised for scanning, the Inspector is sparse and optimised for reading. Once the table has keyboard focus, the up and down arrow keys move the selection row to row, and the genome track, reference panel, and Inspector follow the focused row just as they do on a click.
 
 ### Step 4. Filter the table
 
@@ -146,7 +146,7 @@ Two more signals help when those three are not enough. `Quality` flags rows the 
 
 ## Interpretation
 
-A well-behaved variant browser session looks like this. The genome track shows ticks distributed across the reference rather than clustered at one end. The PASS-row count is in the expected range for your sample (roughly 80 for the SRR36291587 fixture, as an illustrative figure rather than a guaranteed output; species-specific for other organisms). The high-confidence rows you spot-check carry an allele frequency near `1.0` and a depth consistent with your expected sequencing depth. The Inspector fills with a populated annotation block, not an empty one.
+A well-behaved variant browser session looks like this. The genome track shows ticks distributed across the reference rather than clustered at one end. The PASS-row count is in the expected range for your sample (roughly 80 for the SRR36291587 fixture, as an illustrative figure rather than a guaranteed output; species-specific for other organisms). High-confidence rows you spot-check carry an allele frequency near `1.0` and a depth consistent with your expected sequencing depth. And the Inspector fills with a populated annotation block, not an empty one.
 
 A pathological session usually shows one of three things. Zero PASS rows almost always means the reference is wrong or the alignment failed; reopen the alignment track and check coverage before re-calling. A flood of low-frequency rows (hundreds, mostly below `0.1`) means the minimum allele frequency is too low for the noise level; raise it in the variant calling dialog and re-run. An empty annotation block means the GFF was not attached to the reference bundle; rebuild the bundle with the GFF and the codon-level fields will appear.
 

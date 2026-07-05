@@ -57,11 +57,11 @@ extract.
 
 ## What you will learn
 
-By the end of this chapter you will be able to select one or more contigs
-from an assembly, derive a new reference bundle from them, use that bundle
-as the target for downstream mapping or variant calling, recognise when an
-extraction is appropriate against when you want to keep the full assembly,
-and understand the naming convention Lungfish uses for derived bundles.
+Once you have read this chapter, you can select one or more contigs from an
+assembly, derive a new reference bundle from them, use that bundle as the
+target for downstream mapping or variant calling, judge when an extraction
+is appropriate against when you want to keep the full assembly, and
+understand the naming convention Lungfish uses for derived bundles.
 
 ## When to extract, when to keep the full assembly
 
@@ -187,9 +187,9 @@ against an external reference such as MN908947.3.
 A successful extraction is uneventful by design. The new bundle appears in
 the sidebar, the operation logs a single line in the Operations Panel
 showing the source assembly, the selected contig identifiers, and the new
-bundle UUID, and you can open the bundle immediately. The extraction runs
-quickly and there is little tool output to read, because the only work is
-subsetting and indexing the contigs you chose.
+bundle UUID, and you can open the bundle immediately. Because the only work
+is subsetting and indexing the contigs you chose, the run is quick and
+there is little tool output to read.
 
 The signal that an extraction was the wrong move is downstream rather than
 in the operation itself. If your mapped read coverage against the extracted

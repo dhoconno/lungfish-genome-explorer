@@ -65,10 +65,10 @@ Orient Reads if your downstream step expects consistent strand.
 
 ## What you will learn
 
-By the end of this chapter you will be able to import a multi-barcode ONT run,
-recognize the resulting bundles as one per barcode, record per-barcode sample
-metadata, run Orient Reads against a reference, and feed the oriented bundle
-into mapping or assembly workflows that expect consistent strand.
+This chapter gets you to the point of importing a multi-barcode ONT run,
+recognizing the resulting bundles as one per barcode, recording per-barcode
+sample metadata, running Orient Reads against a reference, and feeding the
+oriented bundle into mapping or assembly workflows that expect consistent strand.
 
 ## How ONT compares to Illumina
 
@@ -252,7 +252,7 @@ you want to split on a second, internal barcode. Lungfish demultiplexes from the
 command line and from `Tools > FASTQ/FASTA Operations > Demultiplexing` in the
 app.
 
-So what should you do with this? Reach for demultiplexing only when the
+In practice, reach for demultiplexing only when the
 per-barcode split you need is missing or wrong. If MinKNOW already produced the
 right barcode folders, import those directly instead.
 

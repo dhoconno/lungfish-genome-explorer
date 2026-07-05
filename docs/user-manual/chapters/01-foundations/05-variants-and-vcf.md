@@ -29,13 +29,13 @@ A [VCF](../../GLOSSARY.md#vcf) (Variant Call Format) file is the standard tab-se
 
 This chapter walks through the eight standard VCF columns, the per-sample payload that follows them, the [FILTER](../../GLOSSARY.md#filter) flags LGE's variant callers attach, and one interpretation point that catches almost every reader: in a single-organism viral sample, allele frequency is the fraction of reads supporting the alternate base. It is not, as it would be in a diploid germline VCF or a cohort joint-call, the fraction of chromosome copies (or sampled individuals) carrying the variant. By the end you should be able to look at a VCF row and read it the way the variant caller intended.
 
-So what should you do with this? Read it once before the variants part of the manual. Every later chapter assumes you can name the columns and interpret allele frequency in a haploid context.
+The practical takeaway: read this once before the variants part of the manual. Every later chapter assumes you can name the columns and interpret allele frequency in a haploid context.
 
 One caveat about VCF field semantics that the chapter returns to in detail. The meaning of `AF`, `GT`, `QUAL`, and `FILTER` is set by the VCF header for each file, not by the format itself. The conventions in this chapter describe LGE's viral haploid output. When you open a human germline VCF from GATK, a joint-called cohort VCF, or a pooled-sample wastewater VCF, the same field names can carry different semantics and the file's own header is the authoritative source.
 
 ## What you will learn
 
-By the end of this chapter you will be able to read a VCF row and name what every column means; interpret allele frequency in a viral context (the fraction of reads supporting a particular variant); recognise a confident call from its combination of `PASS` filter, sufficient depth, and an allele frequency that is genuinely supported by the reads (which in a viral sample may be anywhere from a few percent to 100 percent and still be authentic); recognise the `INFO` and `FORMAT` payloads that carry per-row and per-sample detail; and find the same row in LGE's variant browser by clicking through to the table view.
+When you finish here, you will be able to read a VCF row and name what every column means; interpret allele frequency in a viral context (the fraction of reads supporting a particular variant); recognise a confident call from its combination of `PASS` filter, sufficient depth, and an allele frequency that is genuinely supported by the reads (which in a viral sample may be anywhere from a few percent to 100 percent and still be authentic); recognise the `INFO` and `FORMAT` payloads that carry per-row and per-sample detail; and find the same row in LGE's variant browser by clicking through to the table view.
 
 ## What a VCF file looks like
 

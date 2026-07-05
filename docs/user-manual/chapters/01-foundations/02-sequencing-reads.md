@@ -31,11 +31,11 @@ This chapter introduces three ideas. First, the four-line FASTQ record and what 
 
 A typical SARS-CoV-2 amplicon Illumina run produces roughly 100,000 to 1 million read pairs, each about 150 bases long, with per-base quality scores mostly above Q30 in the bulk of the read. The example fixture used in [Calling Variants from Amplicon Reads](../05-variants/01-calling-variants-from-amplicons.md) has 86,281 read pairs.
 
-So what should you do with this? Recognise FASTQ when you see it, keep paired files together, and use per-base quality as one signal alongside depth, mapping quality, and strand balance when judging a variant.
+In practice, recognise FASTQ when you see it, keep paired files together, and use per-base quality as one signal alongside depth, mapping quality, and strand balance when judging a variant.
 
 ## What you will learn
 
-By the end of this chapter you will be able to recognize a FASTQ file by its four-line record structure, understand why paired files travel together and need to be paired by suffix convention (`_1`/`_2` or `_R1`/`_R2`), read a Phred quality score (Q20 = 1% error rate, Q30 = 0.1% error rate), and explain why Illumina and Oxford Nanopore reads are not interchangeable inputs to the same tools.
+Work through this chapter and you will be able to recognize a FASTQ file by its four-line record structure, explain why paired files travel together and need to be paired by suffix convention (`_1`/`_2` or `_R1`/`_R2`), read a Phred quality score (Q20 = 1% error rate, Q30 = 0.1% error rate), and say why Illumina and Oxford Nanopore reads are not interchangeable inputs to the same tools.
 
 ## The four-line FASTQ record
 

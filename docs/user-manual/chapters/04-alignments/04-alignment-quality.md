@@ -43,7 +43,7 @@ The practical takeaway: before calling variants, open the alignment in the Inspe
 
 ## What you will learn
 
-By the end of this chapter you will be able to read mean and minimum coverage from the Inspector, identify under-covered regions in the BAM viewport, decide whether to mark duplicates for your workflow, run `lungfish markdup` (in place) and `lungfish bam filter` (to a new track) when needed, and recognize when an alignment is too poor for reliable variant calling and the reads need re-trimming or re-mapping.
+Work through this chapter and you will be able to read mean and minimum coverage from the Inspector, identify under-covered regions in the BAM viewport, decide whether to mark duplicates for your workflow, run `lungfish markdup` (in place) and `lungfish bam filter` (to a new track) when needed, and recognize when an alignment is too poor for reliable variant calling and the reads need re-trimming or re-mapping.
 
 ## Procedure
 

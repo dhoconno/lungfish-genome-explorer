@@ -28,17 +28,17 @@ lead_approved: false
 
 ## What it is
 
-Oxford Nanopore reads have a different error profile than Illumina. Per-base accuracy on a modern R10.4.1 flow cell sits around Q15 to Q20 for simplex reads (roughly 1 to 3 percent error per base) and reaches Q30 or higher for duplex reads, which is comparable to Illumina. The errors are not random: they cluster near homopolymer runs and certain k-mers that the basecaller has trouble resolving. The shape of those errors changes with each release of the basecaller and with each pore chemistry.
+Oxford Nanopore reads have a different error profile than Illumina. Per-base accuracy on a modern R10.4.1 flow cell sits around Q15 to Q20 for simplex reads (roughly 1 to 3 percent error per base) and reaches Q30 or higher for duplex reads, which is comparable to Illumina. The errors are not random. They cluster near homopolymer runs and certain k-mers that the basecaller has trouble resolving, and their shape changes with each release of the basecaller and with each pore chemistry.
 
 Generic variant callers struggle with this. iVar and LoFreq both assume Illumina-grade per-base quality scores, and on raw ONT data they will either flag every homopolymer as a variant or miss real low-frequency variants in the noise. The right caller for ONT data is one that has learned the basecaller's error profile. In Lungfish, the ONT-specific choices are **Medaka** and **Clair3**, both model-backed callers keyed to specific basecaller versions and pore chemistries.
 
 The catch is that the model has to match. A Medaka model trained against Dorado v4.2.0 simplex output will give silently worse results on reads basecalled by Guppy v6, and vice versa. Before you call variants you need to know which basecaller produced the FASTQ.
 
-So what should you do with this? Confirm the basecaller version that produced your ONT reads, type the matching Medaka model string or Clair3 model path into the Variant Calling dialog's model field, and treat any "unknown" answer as a flag to stop and investigate before calling variants.
+The practical takeaway: confirm the basecaller version that produced your ONT reads, type the matching Medaka model string or Clair3 model path into the Variant Calling dialog's model field, and treat any "unknown" answer as a flag to stop and investigate before calling variants.
 
 ## What you will learn
 
-By the end of this chapter you will know which Medaka or Clair3 model to pick for a given ONT run, how to drive the Variant Calling dialog with an ONT caller selected, and how to read the resulting VCF. You will also know what to do when the basecaller version is missing from the run metadata.
+Expect to come away knowing which Medaka or Clair3 model to pick for a given ONT run, how to drive the Variant Calling dialog with an ONT caller selected, and how to read the resulting VCF. You will also learn what to do when the basecaller version is missing from the run metadata.
 
 ## A note on fixture status
 

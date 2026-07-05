@@ -67,9 +67,9 @@ projects do not need assembly at all.
 
 ## What you will learn
 
-By the end of this chapter you will be able to decide whether to assemble
-or to map against a reference, choose the right assembler for your data
-type, run the Assembly wizard, and find the resulting assembly bundle in
+This chapter walks you through deciding whether to assemble or to map
+against a reference, choosing the right assembler for your data type,
+running the Assembly wizard, and finding the resulting assembly bundle in
 the project.
 
 ## The five assemblers at a glance

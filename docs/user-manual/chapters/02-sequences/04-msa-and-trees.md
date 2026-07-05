@@ -37,13 +37,13 @@ Lungfish runs MAFFT under `Tools > FASTQ/FASTA Operations > Multiple Sequence Al
 
 This chapter is more advanced than the rest of Part II because it assumes you already have a reason to align: comparing related viral isolates, tracing transmission, or designing diagnostic primers across variants. MAFFT and IQ-TREE are well-documented academic standards, and this chapter teaches the Lungfish workflow around them, not the algorithm internals.
 
-So what should you do with this? When you have a handful of related FASTAs and a question about how they relate, build the MSA first, look at conservation, then infer a tree only if topology genuinely matters for the question.
+In practice, when you have a handful of related FASTAs and a question about how they relate, build the MSA first, look at conservation, then infer a tree only if topology genuinely matters for the question.
 
 ![Three short sequences before and after gap insertion so homologous bases share columns](../../assets/illustrations-imagegen/02-sequences/04-msa-and-trees/msa-column-homology.png)
 
 ## What you will learn
 
-By the end of this chapter you will assemble a set of related sequences into a single FASTA, run MAFFT to align them, read the alignment in the MSA viewport, run IQ-TREE on that alignment to infer a maximum-likelihood phylogeny, read the tree in the tree viewport, and export a Newick file for use in external tools.
+You will start with a set of related sequences, assemble them into a single FASTA, run MAFFT to align them, read the alignment in the MSA viewport, run IQ-TREE on that alignment to infer a maximum-likelihood phylogeny, read the tree in the tree viewport, and export a Newick file for use in external tools.
 
 ## Why MAFFT
 
@@ -73,7 +73,7 @@ MAFFT typically finishes in under a minute on this input size. The new bundle ap
 
 ## Interpretation: reading the MSA viewport
 
-The MSA viewport has three regions. The row picker on the left lists every input sequence in alignment order, with a checkbox to hide any row from the column ruler's conservation calculation. The main pane is the alignment grid, with one row per sequence and one column per alignment position; bases use the standard four-color nucleotide palette and gaps render as light dashes on the Cream background. The column ruler across the top shows two tracks: a 1-based column index and a conservation track whose height at each column is the fraction of non-gap rows that share the modal base.
+The MSA viewport has three regions. On the left, the row picker lists every input sequence in alignment order, with a checkbox to hide any row from the column ruler's conservation calculation. The main pane is the alignment grid, with one row per sequence and one column per alignment position; bases use the standard four-color nucleotide palette and gaps render as light dashes on the Cream background. The column ruler across the top shows two tracks: a 1-based column index and a conservation track whose height at each column is the fraction of non-gap rows that share the modal base.
 
 Three patterns are worth looking for. First, blocks where every row agrees: these are conserved regions, useful as primer-design targets. Second, columns where one or two rows disagree: these are lineage-defining substitutions, the signal phylogenetic inference will lean on. Third, ragged stretches of gaps: these are insertion/deletion events, often clustered at recombination breakpoints or in repetitive regions where the aligner is uncertain.
 

@@ -71,8 +71,8 @@ When you force `genomicsdb`, pass a workspace directory path to
 advanced annotations or confidence settings that are not first-class Lungfish
 options.
 
-So what should you do with this? Preview to confirm which strategy `auto`
-picks for your cohort size, then re-run with `--execute` (or pin the strategy
+The practical takeaway: preview to confirm which strategy `auto` picks for
+your cohort size, then re-run with `--execute` (or pin the strategy
 explicitly) to write the cohort VCF.
 
 ## Provenance

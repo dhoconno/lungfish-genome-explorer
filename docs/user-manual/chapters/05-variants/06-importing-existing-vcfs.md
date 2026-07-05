@@ -37,7 +37,7 @@ The practical takeaway: drop your external VCF into the Import Center, confirm t
 
 ## What you will learn
 
-By the end of this chapter you will be able to import a plain VCF or a bgzipped+tabix-indexed VCF, recognise when reference inference picked the right bundle, force a different bundle if inference was wrong, and read the imported VCF in the variant browser.
+After this chapter you can import a plain VCF or a bgzipped+tabix-indexed VCF, recognise when reference inference picked the right bundle, force a different bundle if inference was wrong, and read the imported VCF in the variant browser.
 
 ## Accepted formats
 

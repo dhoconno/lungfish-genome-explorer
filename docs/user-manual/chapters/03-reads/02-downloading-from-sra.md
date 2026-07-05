@@ -58,7 +58,7 @@ browser download cannot.
 
 ## What you will learn
 
-By the end of this chapter you will be able to download a single SRA run by
+This chapter shows you how to download a single SRA run by
 accession, search SRA by free-text query, recognize when Lungfish has
 fallen back from ENA to the SRA Toolkit by reading the Operations Panel
 provenance disclosure, and locate the resulting FASTQs in the project's

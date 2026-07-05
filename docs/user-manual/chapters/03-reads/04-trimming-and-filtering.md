@@ -43,7 +43,7 @@ The combined fastp Adapter + Quality Trim operation does adapter detection, adap
 
 ## What you will learn
 
-By the end of this chapter you will be able to choose the right trim operation for the QC pattern you saw in the previous chapter, run the combined fastp adapter plus quality cleanup with sensible defaults, run FASTQ-level primer trimming when appropriate, hard-trim a fixed number of bases with Trim Fixed Bases, run a length filter to drop reads that became too short, and chain separate trims only when the protocol calls for it.
+You will come away able to choose the right trim operation for the QC pattern you saw in the previous chapter, run the combined fastp adapter plus quality cleanup with sensible defaults, run FASTQ-level primer trimming when appropriate, hard-trim a fixed number of bases with Trim Fixed Bases, run a length filter to drop reads that became too short, and chain separate trims only when the protocol calls for it.
 
 ## Procedure
 

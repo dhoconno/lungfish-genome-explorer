@@ -55,7 +55,7 @@ verdict.
 
 ## What you will learn
 
-By the end of this chapter you will be able to launch BLAST Verify from a
+Once you finish, you will be able to launch BLAST Verify from a
 classifier viewport, choose how many reads to submit, read the verdict and
 verification rate in the results drawer, and run the same verification from
 the command line.

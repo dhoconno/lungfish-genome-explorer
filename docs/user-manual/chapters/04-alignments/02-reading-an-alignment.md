@@ -69,12 +69,12 @@ you are looking for things that should not be there.
 
 ## What you will learn
 
-By the end of this chapter you will be able to navigate a BAM viewport by
-position with the keyboard, read the strand-split coverage histogram to find
-low-coverage regions, identify soft-clipped read ends, recognize forward
-versus reverse strand reads (and the non-colour cues for them), switch the
-read colour channel, read aggregate alignment stats from the Inspector, and
-launch a downstream operation from the Inspector's Analysis section.
+Here you will learn to navigate a BAM viewport by position with the keyboard,
+read the strand-split coverage histogram to find low-coverage regions,
+identify soft-clipped read ends, recognize forward versus reverse strand reads
+(and the non-colour cues for them), switch the read colour channel, read
+aggregate alignment stats from the Inspector, and launch a downstream
+operation from the Inspector's Analysis section.
 
 ## Procedure
 

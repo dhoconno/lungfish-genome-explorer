@@ -52,9 +52,9 @@ read it here rather than parsing the TSV by hand.
 
 ## What you will learn
 
-By the end of this chapter you will be able to import NAO-MGS results from the
-Import Center or the command line, read the taxon table and its coverage
-sparkline, and verify a candidate hit with BLAST.
+The skills here are importing NAO-MGS results from the Import Center or the
+command line, reading the taxon table and its coverage sparkline, and verifying
+a candidate hit with BLAST.
 
 ## How NAO-MGS fits next to the runnable classifiers
 

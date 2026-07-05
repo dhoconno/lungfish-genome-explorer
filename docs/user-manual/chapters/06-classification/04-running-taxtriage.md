@@ -53,14 +53,14 @@ is heavier to set up and to run than a single Kraken2 pass (see the next
 section), so for research-grade survey work where you want every candidate
 organism on the table, prefer Kraken2.
 
-So what should you do with this chapter? Read the setup section first,
-because TaxTriage has a prerequisite the other classifiers do not, then read
-the TASS-score section, then follow the worked walkthrough end to end on a
-small batch before you trust the output on real clinical material.
+The practical order: read the setup section first, because TaxTriage has a
+prerequisite the other classifiers do not, then the TASS-score section, then
+follow the worked walkthrough end to end on a small batch before you trust the
+output on real clinical material.
 
 ## What you will learn
 
-By the end of this chapter you will be able to verify the TaxTriage runtime
+Expect to come out of this chapter able to verify the TaxTriage runtime
 prerequisites, install its database, run the wizard with TaxTriage selected,
 read the TASS confidence chart, compare samples in the batch overview, and
 use the batch exporter to write a cross-sample matrix.
@@ -83,8 +83,8 @@ by bar weight and the numeric value, not by color, so they remain legible
 without relying on a red-amber-green scheme.
 
 The point of the score is not to give you a calibrated probability that the
-organism is really there. It is to give you a stable, repeatable sort order so
-that reviewers triage the same way every time. Treat it as a triage ranking,
+organism is really there. Instead, it gives you a stable, repeatable sort order
+so that reviewers triage the same way every time. Treat it as a triage ranking,
 not a diagnostic.
 
 ## Set up the runtime first: Nextflow and a container

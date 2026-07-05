@@ -50,14 +50,13 @@ keyed by taxon, the NVD viewport is keyed by contig: you are reading "this
 assembled sequence best matches that virus, and here is how good the match is,"
 which is the right framing when the interesting cases are the imperfect matches.
 
-So what should you do with this? When an NVD run finishes, import its output
-into your project and read the contigs whose best hit is partial or low-identity
-first, because those are the candidate novel or divergent viruses the pipeline
-exists to surface.
+In practice, when an NVD run finishes, import its output into your project and
+read the contigs whose best hit is partial or low-identity first: those are the
+candidate novel or divergent viruses the pipeline exists to surface.
 
 ## What you will learn
 
-By the end of this chapter you will be able to import NVD results from the
+You will come away able to import NVD results from the
 Import Center or the command line, read the contig-keyed viewport and its
 secondary hits, group results by sample or by taxon, and verify a contig with
 BLAST.

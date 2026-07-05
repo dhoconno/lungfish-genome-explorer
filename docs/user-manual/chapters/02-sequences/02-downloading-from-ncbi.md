@@ -33,11 +33,11 @@ NCBI hosts public reference sequences for every well-studied organism, identifie
 
 For variant-calling workflows you usually want both the sequence and the feature annotations. The most direct path for an annotated record is to leave the "Include GFF3 Annotations" toggle on: Lungfish builds the bundle with the sequence plus a bundle-owned annotation track converted from the record's `gene`, `CDS`, and `mat_peptide` features. This matters because some callers (iVar in particular) need annotations to translate nucleotide changes into amino-acid changes; without bundled annotations, the AA columns in your VCF will be empty.
 
-So what should you do with this? Download an annotated record once with annotations included, and reuse the resulting `.lungfishref` for every downstream operation in the project.
+In practice, download an annotated record once with annotations included, and reuse the resulting `.lungfishref` for every downstream operation in the project.
 
 ## What you will learn
 
-By the end of this chapter you will be able to download a sequence by accession in the GUI, choose the Mode and the annotation toggle that match what your workflow needs, find the bundle in the project, and reproduce the same download from the command line for scripted setup.
+This chapter walks you through downloading a sequence by accession in the GUI, choosing the Mode and the annotation toggle that match what your workflow needs, finding the bundle in the project, and reproducing the same download from the command line for scripted setup.
 
 ## Accession types: which Mode handles which record
 

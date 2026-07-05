@@ -61,12 +61,12 @@ belong in the Import Center, not the Builder. Result-viewport tools (tree
 re-rooting, taxonomy read extraction, BLAST verification) act on already-loaded
 data inside a viewport and are not workflow steps.
 
-So what should you do with this? If you run the same FASTQ-cleanup steps on
-more than two bundles, stop running them by hand and build the workflow once.
+If you run the same FASTQ-cleanup steps on more than two bundles, stop running
+them by hand and build the workflow once.
 
 ## What you will learn
 
-By the end of this chapter you will know how to open the Workflow Builder,
+This chapter shows how to open the Workflow Builder,
 read the palette by its real categories, drag the five FASTQ-preprocessing
 nodes onto the canvas, connect them into a linear chain, configure per-node
 parameters, save the workflow as a project asset, version and diff it, and run

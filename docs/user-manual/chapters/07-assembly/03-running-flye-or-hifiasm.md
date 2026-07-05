@@ -56,11 +56,10 @@ options are few.
 
 ## What you will learn
 
-By the end of this chapter you will be able to choose between Flye
-(Nanopore) and Hifiasm (PacBio HiFi), run either through the Assembly
-wizard, recognize that long-read assemblies produce fewer contigs than
-short-read assemblies for the same organism, and inspect the resulting
-bundle.
+This chapter covers how to choose between Flye (Nanopore) and Hifiasm
+(PacBio HiFi), run either through the Assembly wizard, recognize that
+long-read assemblies produce fewer contigs than short-read assemblies for
+the same organism, and inspect the resulting bundle.
 
 ## Procedure
 

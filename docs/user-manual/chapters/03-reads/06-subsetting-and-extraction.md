@@ -164,7 +164,7 @@ quicker tool.
 
 ## What you will learn
 
-By the end of this chapter you will be able to subsample a bundle to a
+After this chapter you can subsample a bundle to a
 target read count for fast pipeline testing, normalize two samples to a
 comparable depth, extract reads by a header query, extract reads containing a
 specific sequence motif, select reads that carry an adapter or barcode with

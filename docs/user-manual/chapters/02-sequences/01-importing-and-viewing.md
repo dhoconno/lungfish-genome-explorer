@@ -167,7 +167,7 @@ to for variant annotation.
 
 The viewport renders the genome on a single horizontal axis. Three panes
 stack vertically. The **position ruler** at the top reports base-pair
-coordinates. The **base track** below it shows the actual letters when
+coordinates. Below it, the **base track** shows the actual letters when
 zoomed in far enough, and a coverage-style density rendering when zoomed
 out. The **annotation track**, present only when the bundle carries
 features, draws genes and CDS regions as labelled blocks.
@@ -207,7 +207,7 @@ frame is the starting offset the triplets are counted from. There are six of
 them: three on the forward strand (`+1`, `+2`, `+3`) and three on the
 reverse-complement strand (`-1`, `-2`, `-3`).
 
-So what should you do with this? Translate in the frame and code that match your
+The practical takeaway: translate in the frame and code that match your
 sequence to read the protein, or scan all six frames when you do not yet know
 which frame is coding.
 

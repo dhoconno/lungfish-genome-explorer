@@ -34,7 +34,7 @@ The GUI lives next to the mappers. There is no "Workflows" menu in Lungfish. You
 
 This is a workflow-level path, not a replacement for the mapping and primer-trimming chapters. Use the wizard when you already know the protocol is SARS-CoV-2 amplicon and want a reproducible end-to-end run. Use the individual Lungfish mapping, primer trim, and variant calling dialogs when you want to inspect or tune each step before proceeding.
 
-So what should you do with this? If your run is SARS-CoV-2 amplicon and you want consensus plus variants in one pass, open the wizard, set the reference and a primer scheme, pick an executor, and run.
+In practice, if your run is SARS-CoV-2 amplicon and you want consensus plus variants in one pass, open the wizard, set the reference and a primer scheme, pick an executor, and run.
 
 For release-level tool versions and the current supported workflow pin, see [Tool Versions](../appendices/tool-versions.md#appendix-tool-versions). For citations, see [Tool Bibliography](../appendices/bibliography.md#appendix-bibliography).
 

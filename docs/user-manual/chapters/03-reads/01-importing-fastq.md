@@ -44,7 +44,7 @@ Import is the first deliberate, recorded step of your analysis. Every later comm
 
 ## What you will learn
 
-By the end of this chapter you will be able to import a single FASTQ, import a paired-end pair and verify it was paired, import many FASTQs at once with batch import, find imported FASTQs in the sidebar, view per-file QC sparklines in the FASTQ viewport, and edit per-sample metadata in the Inspector.
+Work through this chapter and you will be able to import a single FASTQ, import a paired-end pair and verify it was paired, import many FASTQs at once with batch import, find imported FASTQs in the sidebar, view per-file QC sparklines in the FASTQ viewport, and edit per-sample metadata in the Inspector.
 
 ## Pairing conventions Lungfish recognizes
 

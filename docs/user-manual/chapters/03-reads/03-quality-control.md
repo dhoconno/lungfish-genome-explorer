@@ -45,16 +45,16 @@ of charts and a structured report.
 
 Reading the charts is mostly pattern recognition. A clean Illumina run
 holds Phred scores above Q30 across most of the read length and dips at
-the 3' end. A clean run shows a tight length distribution at the expected
-read length, often 150 bp for paired-end Illumina. A clean run shows GC
-content matching the source organism. Departures from these patterns
+the 3' end. Its length distribution is a tight cluster at the expected
+read length, often 150 bp for paired-end Illumina. GC content matches the
+source organism. Departures from these patterns
 suggest adapter contamination, a tired flow cell (the consumable chip that
 holds the sequencing lanes), or a sample mix-up. Run `Refresh QC Summary` on
 every new bundle, and read it before you commit compute to aligning it.
 
 ## What you will learn
 
-By the end of this chapter you will be able to run a QC summary on a
+Once you have read this chapter, you can run a QC summary on a
 FASTQ bundle, read the per-base quality chart and identify low-quality
 regions, read the length distribution and identify truncated reads, read
 the GC content and identify contamination, and decide whether a bundle is

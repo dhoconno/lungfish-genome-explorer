@@ -38,7 +38,7 @@ So what should you do with this? Leave SPAdes on the default Isolate profile for
 
 ## What you will learn
 
-By the end of this chapter you will be able to run SPAdes (or MEGAHIT or SKESA) against a FASTQ bundle, select the right profile for your sample, navigate the assembly result viewport, read the contig list and identify the longest contig as the target genome, and script the same run from the CLI.
+Here you will learn to run SPAdes (or MEGAHIT or SKESA) against a FASTQ bundle, select the right profile for your sample, navigate the assembly result viewport, read the contig list and identify the longest contig as the target genome, and script the same run from the CLI.
 
 ## SPAdes profiles
 

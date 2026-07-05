@@ -63,7 +63,7 @@ sample.
 
 ## What you will learn
 
-By the end of this chapter you will be able to install the EsViritu
+Here you will learn to install the EsViritu
 database, run the wizard with EsViritu selected, read the EsViritu result
 viewport's coverage sparklines, and inspect the underlying mini-BAM to
 verify a hit.

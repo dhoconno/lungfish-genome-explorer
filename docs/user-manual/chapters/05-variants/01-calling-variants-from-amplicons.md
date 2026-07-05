@@ -33,15 +33,15 @@ lead_approved: false
 
 ## What it is
 
-By the end of this chapter you will have a Lungfish project that contains a SARS-CoV-2 reference genome, the matching gene annotations, an alignment of public sequencing reads against that reference, and a list of every position where those reads disagree with the reference. The list of disagreements is a VCF (Variant Call Format) file, opened in Lungfish's variant browser, with biological context attached to every row.
+Work through this chapter and you will end up with a Lungfish project holding four things: a SARS-CoV-2 reference genome, the matching gene annotations, an alignment of public sequencing reads against that reference, and a list of every position where those reads disagree with the reference. The list of disagreements is a VCF (Variant Call Format) file, opened in Lungfish's variant browser, with biological context attached to every row.
 
-The example uses two real public accession numbers. The reference is `MN908947.3`, the original Wuhan-Hu-1 isolate from December 2019, 29,903 bases long. The reads are run `SRR36291587` from the NCBI Sequence Read Archive, an amplicon-sequenced clinical sample of an Omicron-lineage SARS-CoV-2 isolate. Total wall time on a recent Apple Silicon Mac is about five minutes, most of it the read download.
+The example uses two real public accession numbers. The reference is `MN908947.3`, the original Wuhan-Hu-1 isolate from December 2019, 29,903 bases long. For reads, we use run `SRR36291587` from the NCBI Sequence Read Archive, an amplicon-sequenced clinical sample of an Omicron-lineage SARS-CoV-2 isolate. Total wall time on a recent Apple Silicon Mac is about five minutes, most of it the read download.
 
 ## Why this matters for SARS-CoV-2
 
 A SARS-CoV-2 variant call set answers concrete biological questions. Which mutations does this isolate carry? Are any of them known immune-escape mutations in the spike receptor-binding domain? Which Pango lineage does this isolate belong to? Are there minority variants that suggest a mixed infection, a transmission bottleneck, or an emerging sublineage? Each of these questions starts with the table of disagreements you produce in this chapter.
 
-The same procedure works for influenza, RSV, HIV, monkeypox, and any other virus with a public reference genome. The biology of each pathogen is different, but the file types, tools, and Lungfish workflow are the same. The chapter teaches the workflow on SARS-CoV-2 because the reference and reads are public, the protocol is well documented, and the resulting variants connect to widely-known lineage names.
+The same procedure works for influenza, RSV, HIV, monkeypox, and any other virus with a public reference genome. The biology of each pathogen is different, but the file types, tools, and Lungfish workflow are the same. Why SARS-CoV-2? The reference and reads are public, the protocol is well documented, and the resulting variants connect to widely-known lineage names.
 
 This part of the manual is deliberately viral. Human germline workflows use
 GATK, diploid genotype assumptions, known-sites resources, and cohort-scale

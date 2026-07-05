@@ -35,7 +35,7 @@ So what should you do with this? Read the rest of this chapter once, slowly, and
 
 ## What you will learn
 
-By the end of this chapter you will be able to read a position like `MN908947.3:23403` and know that it names a base on the SARS-CoV-2 reference, that the position is 1-based (the first base of the genome is position 1, not 0), and that the variant tables you encounter later use this same convention. You will also understand why two papers can describe what looks like the same biological variant with different position numbers if the labs used different references.
+Once you have worked through this chapter, a position like `MN908947.3:23403` should read plainly: it names a base on the SARS-CoV-2 reference, the position is 1-based (the first base of the genome is position 1, not 0), and the variant tables you encounter later use this same convention. You will also understand why two papers can describe what looks like the same biological variant with different position numbers if the labs used different references.
 
 ### Sample sequence versus reference sequence
 
@@ -95,7 +95,7 @@ The most common symptom of a reference mismatch is a disagreement between what y
 
 LGE addresses this in two ways. First, every reference imported into a project carries provenance metadata: the accession, the source database, the date of download, and a checksum. You can inspect this from the project sidebar at any time, and it travels with any export. Second, every variant call carries the reference accession in its record header, so a VCF you hand to a collaborator is self-describing. They will know, without asking, which coordinate system they are reading. The chapters on importing references and on calling variants come back to both of these facts in detail.
 
-So what should you do with this? When someone hands you a list of variant positions, ask which reference they were called against before you do anything else with the numbers.
+When someone hands you a list of variant positions, ask which reference they were called against before you do anything else with the numbers.
 
 ## A preview of what comes next
 

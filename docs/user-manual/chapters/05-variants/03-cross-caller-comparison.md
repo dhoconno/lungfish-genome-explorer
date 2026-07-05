@@ -37,7 +37,7 @@ The chapter walks the iVar VCF you produced in [Calling Variants from Amplicon R
 
 ## What you will learn
 
-By the end of this chapter you will be able to call LoFreq on an alignment in the same bundle, read two variant tracks together in the aggregated table, recognise the categories of cross-caller disagreement, decide which caller's call set to take into a downstream analysis, and run a defensible set intersection in external `bcftools` despite iVar's codon merging.
+Once you have finished, you can call LoFreq on an alignment in the same bundle, read two variant tracks together in the aggregated table, recognise the categories of cross-caller disagreement, decide which caller's call set to take into a downstream analysis, and run a defensible set intersection in external `bcftools` despite iVar's codon merging.
 
 ## How iVar, LoFreq, and bcftools differ
 

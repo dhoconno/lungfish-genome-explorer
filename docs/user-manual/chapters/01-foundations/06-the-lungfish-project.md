@@ -51,11 +51,11 @@ Open a project and you get a window with three persistent panes. The [sidebar](.
 
 LGE also ships a command-line interface (CLI) tool, `lungfish`, that mirrors most GUI actions. This chapter is GUI-focused. The CLI commands appear inline in later chapters wherever the GUI introduces a new operation. Most users do not need to work with the CLI directly; power users may appreciate the convenience of driving LGE data and tools without the GUI.
 
-So what should you do with this? Read this chapter once before any other UI chapter, because every later chapter assumes you can locate the sidebar, the Inspector, and the Operations Panel by name.
+Read this chapter once before any other UI chapter. Every later chapter assumes you can locate the sidebar, the Inspector, and the Operations Panel by name.
 
 ## What you will learn
 
-By the end of this chapter you will be able to create a new LGE project from the Welcome window, recognise the top-level project folders and what each one holds, locate the Inspector pane and understand that its contents change with your selection, find the Operations Panel and read a progress row, and understand that a [bundle](../../GLOSSARY.md#bundle) in LGE is a folder, not a single file. You will use these concepts in every later chapter.
+This chapter gets you comfortable creating a new LGE project from the Welcome window, recognising the top-level project folders and what each one holds, locating the Inspector pane (and grasping that its contents change with your selection), finding the Operations Panel and reading a progress row, and understanding that a [bundle](../../GLOSSARY.md#bundle) in LGE is a folder, not a single file. You will use these concepts in every later chapter.
 
 ## The Welcome window
 

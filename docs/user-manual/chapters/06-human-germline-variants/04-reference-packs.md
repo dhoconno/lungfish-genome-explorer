@@ -69,9 +69,9 @@ as separate flags. Two more `bqsr` options are worth knowing:
 `--create-output-bam-index` (default `true`) controls whether ApplyBQSR
 writes a BAM index.
 
-So what should you do with this? Build this folder once per reference genome,
-record each file's source in your own notes, and point the absolute paths at
-it from every `gatk` command.
+In practice, build this folder once per reference genome, record each file's
+source in your own notes, and point the absolute paths at it from every
+`gatk` command.
 
 ## Plugin pack
 

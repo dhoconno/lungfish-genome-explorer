@@ -35,11 +35,11 @@ The output is not a yes-or-no answer. It is a distribution. A typical run produc
 
 ![Reads file feeding a classifier box producing a taxonomy sunburst with bacteria, virus, and host outputs](../../assets/illustrations-imagegen/06-classification/01-what-is-classification/classification-question.png)
 
-So what should you do with this? Before you run anything, decide which question you are actually asking, then choose the matching tool. Lungfish runs three classifiers for you and imports the results of three more. Open the run wizard at `Tools > FASTQ/FASTA Operations > Classification…` and let it pick the right database.
+So before you run anything, decide which question you are actually asking, then choose the matching tool. Lungfish runs three classifiers for you and imports the results of three more. Open the run wizard at `Tools > FASTQ/FASTA Operations > Classification…` and let it pick the right database.
 
 ## What you will learn
 
-By the end of this chapter you will be able to articulate what read classification produces (a per-read taxonomic assignment, summarized as a table and, for Kraken2, a sunburst), tell the three runnable classifiers apart from the three import-only tools, understand when Freyja lineage demixing fits, pick the right path for your question, and find the run wizard.
+This chapter gives you enough to articulate what read classification produces (a per-read taxonomic assignment, summarized as a table and, for Kraken2, a sunburst), tell the three runnable classifiers apart from the three import-only tools, understand when Freyja lineage demixing fits, pick the right path for your question, and find the run wizard.
 
 ## Three runnable classifiers, three import-only tools
 

@@ -58,7 +58,7 @@ writing them an email.
 
 ## What you will learn
 
-By the end of this chapter you will be able to choose among the six export
+Working through this chapter, you will learn to choose among the six export
 targets depending on your destination, generate an export from a project's
 provenance, run an exported pipeline on a fresh machine, and edit the exported
 pipeline for collaborators who want to swap inputs.
@@ -107,8 +107,8 @@ produced it.
 
 ## Interpretation: what the export captures, and what it does not
 
-The export is honest about what it is. It captures what Lungfish recorded. It
-does not capture everything your operating system controls.
+The export is honest about what it is. It captures what Lungfish recorded, not
+everything your operating system controls.
 
 What the export captures, by reading the provenance records:
 

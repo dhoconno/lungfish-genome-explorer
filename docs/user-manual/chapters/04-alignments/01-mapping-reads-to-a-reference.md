@@ -55,17 +55,17 @@ three-step recipe a bioinformatician would type by hand; the other three
 mappers build an equivalent per-tool command with the same sort-and-index
 finish.
 
-So what should you do with this? When you have FASTQ reads and a reference,
-select the reads, open the Mapping dialog, pick the mapper and the preset
-that matches your sequencer, and run.
+In practice, when you have FASTQ reads and a reference, select the reads,
+open the Mapping dialog, pick the mapper and the preset that matches your
+sequencer, and run.
 
 ## What you will learn
 
-By the end of this chapter you will be able to choose the right mapper and
-preset for your data type, select reads and run the Mapping dialog with
-paired or single FASTQs, read the Input Compatibility check, watch the
-operation progress in the Operations Panel, find the resulting alignment
-track in the sidebar, and read the per-track stats in the Inspector.
+This chapter walks you through choosing the right mapper and preset for your
+data type, then selecting reads and running the Mapping dialog with paired or
+single FASTQs, reading the Input Compatibility check, watching the operation
+progress in the Operations Panel, finding the resulting alignment track in the
+sidebar, and reading the per-track stats in the Inspector.
 
 ## Choosing a mapper
 
@@ -93,7 +93,7 @@ expected error profile, whether they are paired). Pick the preset that
 matches the sequencer that produced the FASTQ, not the organism.
 
 The label you click in the GUI and the token you type on the command line
-are not the same string. The wizard shows readable names like "Short-read"
+are not the same string. In the wizard you see readable names like "Short-read"
 and "Oxford Nanopore" (drawn from the mapper's mode list); the CLI `--preset`
 flag takes short tokens like `sr` and `map-ont`. The table below pairs them
 so you can find either one.
@@ -269,9 +269,9 @@ of identical inputs produce identical recorded methods.
 
 Once the alignment track is attached, the Inspector reports four numbers
 worth checking before you call variants on it. The mapping rate is the
-fraction of input reads the mapper placed on the reference at all; for a
-viral isolate against the correct reference this is usually above 95%, and
-much lower numbers are a signal that something is off. Mean coverage is
+fraction of input reads the mapper placed on the reference at all. For a
+viral isolate against the correct reference this is usually above 95%. Much
+lower numbers signal that something is off. Mean coverage is
 the average depth across the reference; for variant calling on a viral
 genome you want at least 30x and ideally over 100x. The primary alignment
 count discounts secondary and supplementary rows so it is the cleanest

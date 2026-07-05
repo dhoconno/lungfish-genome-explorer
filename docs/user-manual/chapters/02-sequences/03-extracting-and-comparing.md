@@ -36,7 +36,7 @@ The practical takeaway: treat the `Sequence` menu as your bench-side toolkit for
 
 ## What you will learn
 
-By the end of this chapter you will be able to select a region of a sequence, extract it as a new bundle, copy a region as FASTA for pasting elsewhere, find ORFs with translated products, and use the resulting tracks to navigate the sequence.
+Here you will learn to select a region of a sequence, extract it as a new bundle, copy a region as FASTA for pasting elsewhere, find ORFs with translated products, and use the resulting tracks to navigate the sequence.
 
 ## The operations at a glance
 

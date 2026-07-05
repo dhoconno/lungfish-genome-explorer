@@ -53,9 +53,8 @@ model. Use BAM-level trim when you intend to call variants with iVar.
 Use FASTQ-level trim only when a downstream tool refuses soft-clipped
 input.
 
-So what should you do with this? If you mapped amplicon reads in the
-last chapter and you plan to call variants, run primer trim now, before
-the variant call.
+The practical takeaway: if you mapped amplicon reads in the last chapter
+and you plan to call variants, run primer trim now, before the variant call.
 
 ## Why this matters
 
@@ -209,12 +208,11 @@ not BAM-level trimming after.
 
 ## What you will learn
 
-By the end of this chapter you will be able to choose the right primer
-scheme for your protocol, run the Primer Trim dialog from the
-Inspector, read the resulting alignment track and confirm the
-soft-clipping rendered correctly in the viewport, and know that a
-primer-trimmed track is the right input for iVar variant calling and
-the wrong input for LoFreq.
+This chapter covers choosing the right primer scheme for your protocol,
+running the Primer Trim dialog from the Inspector, reading the resulting
+alignment track and confirming the soft-clipping rendered correctly in the
+viewport, and knowing that a primer-trimmed track is the right input for iVar
+variant calling and the wrong input for LoFreq.
 
 ## Next
 

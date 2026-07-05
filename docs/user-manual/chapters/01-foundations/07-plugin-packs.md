@@ -45,14 +45,14 @@ laid out on disk. The packs themselves live in a hidden directory in your
 home folder and are shared across every LGE project on the machine, so you
 install a pack once and every project sees it.
 
-So what should you do with this? When a workflow chapter says "install the
+In practice, when a workflow chapter says "install the
 `read-mapping` pack first," open the Plugin Manager, click **Install** next
 to that pack, and move on. The packs are quick to install and quick to
 verify, and you only do it once per machine.
 
 ## What you will learn
 
-By the end of this chapter you will be able to install one or more plugin
+Finish this chapter and you will be able to install one or more plugin
 packs from the Plugin Manager window, list which packs are installed,
 recognise a "missing tool" error from a workflow operation as a
 missing-pack error, and re-run the install to confirm a pack is current.

@@ -35,7 +35,7 @@ So what should you do with this? When you open a BAM in LGE, look at the coverag
 
 ## What you will learn
 
-By the end of this chapter you will be able to recognise a BAM file by its `.bam` extension and the requirement that it travel with a `.bam.bai` (or `.csi`) index, know that "coverage" and "depth" mean the same thing in this manual, read a per-position pileup as the evidence the variant caller will use, recognise a [CIGAR](../../GLOSSARY.md#cigar) string and explain what soft-clipping means for primer-trimmed reads, and understand why long-read BAMs and short-read BAMs share a file format but display very differently.
+This chapter leaves you able to recognise a BAM file by its `.bam` extension and the requirement that it travel with a `.bam.bai` (or `.csi`) index, to treat "coverage" and "depth" as the same thing in this manual, to read a per-position pileup as the evidence the variant caller will use, to recognise a [CIGAR](../../GLOSSARY.md#cigar) string and explain what soft-clipping means for primer-trimmed reads, and to understand why long-read BAMs and short-read BAMs share a file format but display very differently.
 
 ## Mapping, in one paragraph
 
@@ -68,7 +68,7 @@ QUAL      : !!!!!FFFFFFFFFFF...FFFFFF!!!!!         (Phred string)
 
 ![Annotated CIGAR string cartoon connecting soft-clipped ends, matched middle, and alignment start position](../../assets/illustrations-imagegen/01-foundations/04-alignment-files/cigar-anatomy.png)
 
-The CIGAR `5S140M5S` says: the first five bases are soft-clipped, the next 140 bases are aligned to the reference (matches or mismatches, the CIGAR does not distinguish), and the last five bases are soft-clipped. The record still occupies 150 bases of memory, but only the middle 140 contribute to anything downstream. The soft-clipped bases keep their original base calls and qualities for traceability. They are not replaced with `N`.
+The CIGAR `5S140M5S` says: the first five bases are soft-clipped, the next 140 bases are aligned to the reference (matches or mismatches, the CIGAR does not distinguish), and the last five bases are soft-clipped. In memory, the record still occupies all 150 bases, but only the middle 140 contribute to anything downstream. Those soft-clipped bases keep their original base calls and qualities for traceability. They are not replaced with `N`.
 
 ## The BAI index, and why it must travel with the BAM
 
