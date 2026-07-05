@@ -700,7 +700,14 @@ struct BundleExtractAnnotationsSubcommand: AsyncParsableCommand {
             annotationFiles: [],
             outputDirectory: outputDirectory,
             source: sourceInfo,
-            compressFASTA: true
+            compressFASTA: true,
+            provenanceWorkflowName: "lungfish bundle extract-annotations",
+            provenanceCommand: provenanceCommand(),
+            provenanceInputFiles: provenanceInputURLs(
+                sourceBundleURL: sourceBundleURL,
+                manifest: manifest,
+                track: track
+            )
         )
         let createdURL = try await NativeBundleBuilder().build(configuration: configuration)
 
@@ -713,6 +720,49 @@ struct BundleExtractAnnotationsSubcommand: AsyncParsableCommand {
             ("Extracted features", String(records.count)),
             ("Output bundle", createdURL.path),
         ]))
+    }
+
+    private func provenanceCommand() -> [String] {
+        var command = [
+            "lungfish",
+            "bundle",
+            "extract-annotations",
+            "--bundle", bundlePath,
+            "--track", trackID,
+            "--output-bundle", outputBundlePath,
+            "--feature-type", featureType,
+        ]
+        if let namePrefix {
+            command.append(contentsOf: ["--name-prefix", namePrefix])
+        }
+        if replace {
+            command.append("--replace")
+        }
+        return command
+    }
+
+    private func provenanceInputURLs(
+        sourceBundleURL: URL,
+        manifest: BundleManifest,
+        track: AnnotationTrackInfo
+    ) -> [URL] {
+        var urls = [sourceBundleURL.appendingPathComponent("manifest.json")]
+
+        if let genome = manifest.genome {
+            urls.append(sourceBundleURL.appendingPathComponent(genome.path))
+            urls.append(sourceBundleURL.appendingPathComponent(genome.indexPath))
+            if let gzipIndexPath = genome.gzipIndexPath {
+                urls.append(sourceBundleURL.appendingPathComponent(gzipIndexPath))
+            }
+        }
+
+        let databasePath = track.databasePath ?? track.path
+        urls.append(sourceBundleURL.appendingPathComponent(databasePath))
+        if track.path != databasePath {
+            urls.append(sourceBundleURL.appendingPathComponent(track.path))
+        }
+
+        return urls
     }
 
     private func writeAnnotationFASTA(records: [AnnotationDatabaseRecord], bundle: ReferenceBundle, to url: URL) async throws {

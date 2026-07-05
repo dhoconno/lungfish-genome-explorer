@@ -280,6 +280,56 @@ final class ScientificCLIProvenanceCoverageTests: XCTestCase {
         )
     }
 
+    func testBundleExtractAnnotationsRecordsDurableSourceInputs() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("scientific-annotation-extract-provenance-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let sourceBundleURL = try makeTinyReferenceBundle(in: root, sequence: "ATGAAATAA")
+        try addTinyAnnotationTrack(to: sourceBundleURL)
+        let outputBundleURL = root.appendingPathComponent("genes-only.lungfishref", isDirectory: true)
+
+        let command = try BundleExtractAnnotationsSubcommand.parse([
+            "--bundle", sourceBundleURL.path,
+            "--track", "genes",
+            "--output-bundle", outputBundleURL.path,
+            "--feature-type", "gene",
+        ])
+        try await command.run()
+
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: outputBundleURL))
+        XCTAssertEqual(envelope.workflowName, "lungfish bundle extract-annotations")
+        XCTAssertTrue(envelope.argv.contains("extract-annotations"))
+        XCTAssertTrue(envelope.argv.contains("--feature-type"))
+
+        let inputPaths = Set(envelope.steps.flatMap(\.inputs).map {
+            URL(fileURLWithPath: $0.path).standardizedFileURL.path
+        })
+        let expectedInputs = [
+            sourceBundleURL.appendingPathComponent("manifest.json"),
+            sourceBundleURL.appendingPathComponent("genome/sequence.fa"),
+            sourceBundleURL.appendingPathComponent("genome/sequence.fa.fai"),
+            sourceBundleURL.appendingPathComponent("annotations/genes.bed"),
+            sourceBundleURL.appendingPathComponent("annotations/genes.db"),
+        ].map { $0.standardizedFileURL.path }
+
+        for expectedInput in expectedInputs {
+            XCTAssertTrue(inputPaths.contains(expectedInput), "Missing durable provenance input \(expectedInput)")
+            let descriptor = envelope.steps.flatMap(\.inputs).first {
+                URL(fileURLWithPath: $0.path).standardizedFileURL.path == expectedInput
+            }
+            XCTAssertNotNil(descriptor?.checksumSHA256, "Missing checksum for \(expectedInput)")
+            XCTAssertNotNil(descriptor?.fileSize, "Missing file size for \(expectedInput)")
+        }
+        XCTAssertFalse(inputPaths.contains { $0.contains("lungfish-cli-annotation-sequences-") })
+        XCTAssertFalse(inputPaths.contains { $0.hasSuffix("annotation-sequences.fa") })
+        let encodedEnvelope = String(decoding: try JSONEncoder().encode(envelope), as: UTF8.self)
+        XCTAssertFalse(encodedEnvelope.contains("lungfish-cli-annotation-sequences-"))
+        XCTAssertFalse(encodedEnvelope.contains("annotation-sequences.fa"))
+        XCTAssertTrue(envelope.outputs.contains { $0.path.hasPrefix(outputBundleURL.path) && $0.checksumSHA256 != nil })
+    }
+
     func testDirectFileSidecarsProtectMultipleOutputsInSameDirectory() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("scientific-cli-provenance-\(UUID().uuidString)", isDirectory: true)
