@@ -132,7 +132,7 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 **N50**{#n50}. A summary statistic for a set of assembled contigs: the length such that contigs of at least that length together hold half of the assembly's total bases; a higher N50 indicates a less fragmented assembly. See also: contig, assembly bundle.
 
-**NAO-MGS**{#nao-mgs}. A wastewater metagenomic surveillance pipeline from SecureBio that runs externally and whose `virus_hits_final.tsv(.gz)` output Lungfish imports (it does not run the pipeline) through `lungfish nao-mgs import` or the Import Center, presenting one run's viral taxa in a table with a per-accession coverage sparkline. See also: coverage, BLAST.
+**NAO-MGS**{#nao-mgs}. A wastewater metagenomic surveillance pipeline from SecureBio that runs externally and whose `virus_hits_final.tsv(.gz)` output Lungfish imports (it does not run the pipeline) through `lungfish nao-mgs import` or the Import Center, presenting one run's viral taxa in a sortable table with a taxon detail pane and BLAST verification workflow. See also: BLAST.
 
 **Newick**{#newick}. A compact parenthesised text format for phylogenetic trees, with branch lengths after colons and optional support values at internal nodes; the lingua franca for moving trees between FigTree, iTOL, ete3, and Lungfish. See also: phylogram.
 

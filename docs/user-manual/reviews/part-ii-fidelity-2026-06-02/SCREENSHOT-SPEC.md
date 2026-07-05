@@ -447,7 +447,7 @@ Priority 1. Import-only; no run wizard, no time-series viewport.
 | shot id | caption (corrected) | app state + exact path | fixture/sample | crop/notes | status |
 | --- | --- | --- | --- | --- | --- |
 | nao-mgs-import-card | The Import Center card for NAO-MGS Results under Classification Results. | `Import Center…` (Cmd-Shift-I) → **Classification Results** tab → **NAO-MGS Results** card (attributed to SecureBio). The importer needs only a results location containing `virus_hits_final.tsv(.gz)` | a NAO-MGS results folder with that TSV | window or card region crop | exists-verify (`import-center-classification-results.png` shows the card grid) |
-| nao-mgs-result-viewport | The NAO-MGS taxon viewport: detail pane on the left, taxon table on the right. | After import, `NaoMgsResultViewController` is a single-import split (detail pane \| taxon table) with columns Sample, Taxon, Hits, Unique Reads, Refs, plus a per-accession coverage sparkline. NO multi-week chart | imported NAO-MGS results | window crop | NEW (Priority 1) |
+| nao-mgs-result-viewport | The NAO-MGS taxon viewport: detail pane on the left, taxon table on the right. | After import, `NaoMgsResultViewController` is a single-import split (detail pane \| taxon table) with columns Sample, Taxon, Hits, Unique Reads, Refs, plus metrics and miniBAM evidence cards when alignment data is available. NO multi-week chart and no per-accession coverage sparkline in the shipped viewport. | imported NAO-MGS results | window crop | NEW (Priority 1) |
 
 ### 06-classification/06 — BLAST Verification
 

@@ -53,8 +53,8 @@ read it here rather than parsing the TSV by hand.
 ## What you will learn
 
 By the end of this chapter you will be able to import NAO-MGS results from the
-Import Center or the command line, read the taxon table and its coverage
-sparkline, and verify a candidate hit with BLAST.
+Import Center or the command line, read the taxon table and detail pane, and
+verify a candidate hit with BLAST.
 
 ## How NAO-MGS fits next to the runnable classifiers
 
@@ -140,12 +140,11 @@ signals to the top, and read Unique Reads beside Hits: a taxon with many hits
 but few unique reads is leaning on a small number of fragments and deserves
 more scrutiny than its hit count alone suggests.
 
-Select a taxon to populate the detail pane. For an accession with alignment
-data, the pane draws a **coverage sparkline**, a small depth track across the
-reference, the same kind of plot the EsViritu viewport uses. Read it the same
-way: a track that spreads across the reference is stronger evidence than one
-that spikes on a single window, which often means an off-target or conserved
-fragment rather than the whole organism.
+Select a taxon to populate the detail pane. The pane shows the taxon's run
+context, read-count metrics, accession count, and miniBAM evidence cards for
+the top references when alignment data is available. Use those cards to inspect
+whether the supporting reads look coherent before treating the hit as a strong
+candidate.
 
 When a taxon looks like a candidate worth confirming, verify it. The viewport's
 action bar has a **BLAST Verify** button, and the verification flow selects a

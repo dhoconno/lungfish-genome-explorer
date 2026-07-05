@@ -317,9 +317,9 @@ Four facts dominate the whole section and recur per chapter:
   chart.** `NaoMgsResultViewController` is a **single-import split view: detail
   pane | taxonomy table** with columns **Sample, Taxon, Hits, Unique Reads, Refs**
   (`NaoMgsResultViewController.swift:1360-1425`) plus per-sample metadata
-  columns. The only chart is a **per-accession coverage depth sparkline**
-  (`NaoMgsChartViews.swift` `CoveragePlotView`), like EsViritu, not a multi-week
-  abundance line.
+  columns. 2026-07-05 hardening removed the unused SwiftUI coverage chart
+  subtree; the shipped viewport now uses the AppKit detail pane for metrics and
+  miniBAM evidence cards, not a per-accession coverage sparkline.
 - **Upstream attribution to "the Nucleic Acid Observatory ... `naobservatory.org`
   ... `github.com/naobservatory`"** (lines 31, 108-112). The code attributes
   NAO-MGS to **SecureBio**: "the SecureBio NAO-MGS metagenomic surveillance

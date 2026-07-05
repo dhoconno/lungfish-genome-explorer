@@ -99,22 +99,17 @@ dead `currentSelectedSampleIDForActions`, dead `paddedContainer` + single-arg ca
 - `NvdDataConverter.commonPrefix(of:)`: dead thin wrapper (everyone calls
   `ClassifierSamplePickerView.commonPrefix` directly).
 
-### FLAGGED dead-code islands (deferred to maintainer — NOT mechanical, span VC + absent App wiring)
-These are whole unwired-UI subtrees that look intentionally not-yet-wired. Removing them
-crosses the VC + the intended-but-absent App glue and could discard planned UI, so they are
-a judgment call for the maintainer, not a behavior-preserving edit:
-- `AssemblyContigDetailPane` (LungfishAssemblyUI): the pane is created + constrained by
-  `AssemblyResultViewController` but its entire population API (`showEmptyState`,
-  `showSingleSelection`, `showMultiSelection`, `showUnavailableSelectionSummary`,
-  `configureQuickCopy`) has ZERO callers; only `#if DEBUG copyValue` reads it back.
-- `NaoMgsDetailPaneView` + its whole chart subtree (`CoveragePlotView`,
-  `EditDistanceHistogramView`, `FragmentLengthDistributionView`, `AccessionListView`,
-  `AccessionRow`, `MiniSparkline`, `MetricCard`) in NaoMgsChartViews.swift — ZERO refs
-  outside the file; only `NaoMgsOverviewView` is used by the VC. The PUBLIC
-  `NaoMgsDataConverter` methods `groupByTaxon`/`groupByAccession`/`buildAccessionSummaries`/
-  `computeCoverage`/`editDistanceDistribution`/`fragmentLengthDistribution`/
-  `pairStatusDistribution` fed ONLY this dead pane (but are public leaf API -> not removable
-  per the leaf rule).
+### RESOLVED formerly flagged UI islands
+- RESOLVED 2026-07-05: `AssemblyContigDetailPane` is now wired from
+  `AssemblyResultViewController.showSelection`, including single-selection FASTA
+  previews, multi-selection summaries, empty state hiding, and stale-selection
+  generation guards.
+- RESOLVED 2026-07-05: the unused `NaoMgsDetailPaneView` subtree was removed from
+  `NaoMgsChartViews.swift` (`CoveragePlotView`, `EditDistanceHistogramView`,
+  `FragmentLengthDistributionView`, `AccessionListView`, `AccessionRow`, and
+  `MiniSparkline`). The file now contains only the live `NaoMgsOverviewView` and
+  its private metric/bar helpers; active manual text no longer promises that
+  removed chart.
 - RESOLVED 2026-07-05: `TaxTriageConfidenceView` was never instantiated, so the dead
   standalone chart class was removed. The live confidence-column cell now owns the file and
   uses a small `TaxTriageConfidencePalette` helper for the shared TASS score thresholds.
@@ -136,8 +131,9 @@ overloads, write-only fields). GenotypeResultViewController + GenotypeComparison
 statement-clean (test-pinned/windowing). All leaf-clean (no LungfishApp refs). Genotype matrix
 styling now uses draw-backed views instead of explicit `wantsLayer` toggles, with a source
 regression covering Kit and leaf UI modules. Concurrency is correct for the audited changes.
-Value beyond the dead-code removal is in DEFERRED per-VC splits (all >1000L VCs, same-module
-extensions, no promotions) + the 2 remaining flagged unwired-UI islands for maintainer review.
+2026-07-05 hardening resolved the two formerly flagged unwired-UI islands. Remaining value
+beyond the dead-code removal is in DEFERRED per-VC splits (all >1000L VCs, same-module
+extensions, no promotions).
 
 ## Deferred items
 
