@@ -76,6 +76,8 @@ changes that reduce future ambiguity across the codebase.
   dedicated files while leaving scan/import/gzip behavior unchanged.
 - Moved the VCF `createFromVCF` pipeline out of `VariantDatabase+Bookmarks.swift` into
   `VariantDatabase+CreateFromVCF.swift`, leaving bookmark CRUD in the bookmark extension.
+- Removed stale defer wording that still listed `TwelveSAmpliconResultBundle`'s
+  models-vs-IO split as pending after the split had already landed.
 
 ## Verification
 
