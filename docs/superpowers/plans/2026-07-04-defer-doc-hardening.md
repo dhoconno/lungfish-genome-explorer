@@ -191,6 +191,9 @@ changes that reduce future ambiguity across the codebase.
 - Made direct phylogenetic tree imports write canonical envelope-compatible provenance fields
   (`createdAt`, `workflowName`, durable replay argv, runtime identity, file descriptors, and
   steps) while preserving the legacy tree-import payload keys.
+- Made MSA annotation edits fail closed by snapshotting annotation JSON, SQLite, edit provenance,
+  manifest, and SQLite companions, then restoring them if any late provenance or manifest
+  publication step fails.
 
 ## Verification
 

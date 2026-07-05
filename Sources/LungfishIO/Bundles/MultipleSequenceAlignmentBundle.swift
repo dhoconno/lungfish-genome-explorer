@@ -681,6 +681,15 @@ public struct MultipleSequenceAlignmentBundle: Sendable {
         let annotationsSQLiteURL = url.appendingPathComponent(Self.annotationSQLiteRelativePath)
         let editProvenanceURL = url.appendingPathComponent("metadata/annotation-edit-provenance.json")
         let manifestURL = url.appendingPathComponent("manifest.json")
+        let publicationSnapshot = try FilePublicationSnapshot.capture(urls: [
+            annotationsURL,
+            annotationsSQLiteURL,
+            URL(fileURLWithPath: annotationsSQLiteURL.path + "-wal"),
+            URL(fileURLWithPath: annotationsSQLiteURL.path + "-shm"),
+            URL(fileURLWithPath: annotationsSQLiteURL.path + "-journal"),
+            editProvenanceURL,
+            manifestURL,
+        ])
 
         let sourceAnnotations = store.sourceAnnotations.sorted(by: Self.annotationRecordOrder)
         let projectedAnnotations = store.projectedAnnotations.sorted(by: Self.annotationRecordOrder)
@@ -689,60 +698,119 @@ public struct MultipleSequenceAlignmentBundle: Sendable {
             sourceAnnotations: sourceAnnotations,
             projectedAnnotations: projectedAnnotations
         )
-        try Self.encode(normalizedStore, to: annotationsURL)
-        try Self.writeAnnotationSQLiteStore(normalizedStore, to: annotationsSQLiteURL)
+        do {
+            try Self.encode(normalizedStore, to: annotationsURL)
+            try Self.writeAnnotationSQLiteStore(normalizedStore, to: annotationsSQLiteURL)
 
-        let provenance = AnnotationEditProvenance(
-            schemaVersion: 1,
-            workflowName: workflowName,
-            toolName: toolName,
-            toolVersion: Self.toolVersion,
-            argv: argv,
-            reproducibleCommand: Self.shellCommand(from: argv),
-            editDescription: editDescription,
-            bundlePath: url.path,
-            input: try Self.fileRecord(for: url),
-            output: try Self.fileRecord(for: annotationsSQLiteURL),
-            files: [
-                "metadata/annotations.json": try Self.fileRecord(for: annotationsURL),
-                Self.annotationSQLiteRelativePath: try Self.fileRecord(for: annotationsSQLiteURL),
-            ],
-            exitStatus: 0,
-            wallTimeSeconds: max(0, Date().timeIntervalSince(startedAt)),
-            createdAt: Date()
-        )
-        try Self.encode(provenance, to: editProvenanceURL)
+            let provenance = AnnotationEditProvenance(
+                schemaVersion: 1,
+                workflowName: workflowName,
+                toolName: toolName,
+                toolVersion: Self.toolVersion,
+                argv: argv,
+                reproducibleCommand: Self.shellCommand(from: argv),
+                editDescription: editDescription,
+                bundlePath: url.path,
+                input: try Self.fileRecord(for: url),
+                output: try Self.fileRecord(for: annotationsSQLiteURL),
+                files: [
+                    "metadata/annotations.json": try Self.fileRecord(for: annotationsURL),
+                    Self.annotationSQLiteRelativePath: try Self.fileRecord(for: annotationsSQLiteURL),
+                ],
+                exitStatus: 0,
+                wallTimeSeconds: max(0, Date().timeIntervalSince(startedAt)),
+                createdAt: Date()
+            )
+            try Self.encode(provenance, to: editProvenanceURL)
 
-        var capabilities = Set(manifest.capabilities)
-        if !normalizedStore.allAnnotations.isEmpty {
-            capabilities.insert("annotation-retention")
-            capabilities.insert("annotation-projection")
-        } else {
-            capabilities.remove("annotation-retention")
-            capabilities.remove("annotation-projection")
-            capabilities.remove("annotation-authoring")
+            var capabilities = Set(manifest.capabilities)
+            if !normalizedStore.allAnnotations.isEmpty {
+                capabilities.insert("annotation-retention")
+                capabilities.insert("annotation-projection")
+            } else {
+                capabilities.remove("annotation-retention")
+                capabilities.remove("annotation-projection")
+                capabilities.remove("annotation-authoring")
+            }
+            if normalizedStore.sourceAnnotations.contains(where: { $0.origin == .manual }) {
+                capabilities.insert("annotation-authoring")
+            } else {
+                capabilities.remove("annotation-authoring")
+            }
+
+            var checksums = manifest.checksums
+            var fileSizes = manifest.fileSizes
+            for relativePath in [Self.annotationJSONRelativePath, Self.annotationSQLiteRelativePath, "metadata/annotation-edit-provenance.json"] {
+                let fileURL = url.appendingPathComponent(relativePath)
+                checksums[relativePath] = try Self.checksum(at: fileURL)
+                fileSizes[relativePath] = try Self.fileSize(at: fileURL)
+            }
+
+            let updatedManifest = manifest.copying(
+                capabilities: capabilities.sorted(),
+                checksums: checksums,
+                fileSizes: fileSizes
+            )
+            try Self.encode(updatedManifest, to: manifestURL)
+            return try Self.load(from: url)
+        } catch {
+            try? publicationSnapshot.restore()
+            throw error
         }
-        if normalizedStore.sourceAnnotations.contains(where: { $0.origin == .manual }) {
-            capabilities.insert("annotation-authoring")
-        } else {
-            capabilities.remove("annotation-authoring")
+    }
+
+    private struct FilePublicationSnapshot {
+        enum State {
+            case missing
+            case file(Data)
+            case directory
         }
 
-        var checksums = manifest.checksums
-        var fileSizes = manifest.fileSizes
-        for relativePath in [Self.annotationJSONRelativePath, Self.annotationSQLiteRelativePath, "metadata/annotation-edit-provenance.json"] {
-            let fileURL = url.appendingPathComponent(relativePath)
-            checksums[relativePath] = try Self.checksum(at: fileURL)
-            fileSizes[relativePath] = try Self.fileSize(at: fileURL)
+        let entries: [(url: URL, state: State)]
+
+        static func capture(urls: [URL], fileManager: FileManager = .default) throws -> FilePublicationSnapshot {
+            let entries = try urls.map { url -> (URL, State) in
+                var isDirectory: ObjCBool = false
+                guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+                    return (url, .missing)
+                }
+                if isDirectory.boolValue {
+                    return (url, .directory)
+                }
+                return (url, .file(try Data(contentsOf: url)))
+            }
+            return FilePublicationSnapshot(entries: entries)
         }
 
-        let updatedManifest = manifest.copying(
-            capabilities: capabilities.sorted(),
-            checksums: checksums,
-            fileSizes: fileSizes
-        )
-        try Self.encode(updatedManifest, to: manifestURL)
-        return try Self.load(from: url)
+        func restore(fileManager: FileManager = .default) throws {
+            for entry in entries.reversed() {
+                switch entry.state {
+                case .missing:
+                    if fileManager.fileExists(atPath: entry.url.path) {
+                        try fileManager.removeItem(at: entry.url)
+                    }
+                case .file(let data):
+                    if fileManager.fileExists(atPath: entry.url.path) {
+                        try fileManager.removeItem(at: entry.url)
+                    }
+                    try fileManager.createDirectory(
+                        at: entry.url.deletingLastPathComponent(),
+                        withIntermediateDirectories: true
+                    )
+                    try data.write(to: entry.url, options: .atomic)
+                case .directory:
+                    var isDirectory: ObjCBool = false
+                    if fileManager.fileExists(atPath: entry.url.path, isDirectory: &isDirectory) {
+                        if !isDirectory.boolValue {
+                            try fileManager.removeItem(at: entry.url)
+                            try fileManager.createDirectory(at: entry.url, withIntermediateDirectories: true)
+                        }
+                    } else {
+                        try fileManager.createDirectory(at: entry.url, withIntermediateDirectories: true)
+                    }
+                }
+            }
+        }
     }
 
     public static func projectAnnotation(

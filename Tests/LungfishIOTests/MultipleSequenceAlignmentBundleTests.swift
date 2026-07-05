@@ -439,6 +439,62 @@ final class MultipleSequenceAlignmentBundleTests: XCTestCase {
         XCTAssertFalse(provenanceText.contains("/tmp/"))
     }
 
+    func testAnnotationEditRestoresPublishedFilesWhenManifestWriteFails() throws {
+        let inputURL = try writeInput(
+            named: "rollback-annotation.fasta",
+            contents: """
+            >seqA
+            A-CG-T
+            >seqB
+            ATCGGT
+            """
+        )
+        let bundleURL = workspace.appendingPathComponent("RollbackAnnotations.lungfishmsa", isDirectory: true)
+        let bundle = try MultipleSequenceAlignmentBundle.importAlignment(from: inputURL, to: bundleURL)
+        let firstManual = try bundle.makeAnnotationFromAlignedSelection(
+            rowID: bundle.rows[0].id,
+            alignedIntervals: [AnnotationInterval(start: 2, end: 6)],
+            name: "first-feature",
+            type: "gene",
+            strand: "+",
+            qualifiers: ["created_by": ["test"]]
+        )
+        let authored = try bundle.appendingAnnotations(
+            [firstManual],
+            editDescription: "Add first annotation",
+            argv: ["lungfish-gui", "msa", "add-annotation"]
+        )
+
+        let annotationJSONURL = bundleURL.appendingPathComponent("metadata/annotations.json")
+        let annotationSQLiteURL = bundleURL.appendingPathComponent("metadata/annotations.sqlite")
+        let provenanceURL = bundleURL.appendingPathComponent("metadata/annotation-edit-provenance.json")
+        let originalAnnotationJSON = try Data(contentsOf: annotationJSONURL)
+        let originalAnnotationSQLite = try Data(contentsOf: annotationSQLiteURL)
+        let originalProvenance = try Data(contentsOf: provenanceURL)
+
+        let manifestURL = bundleURL.appendingPathComponent("manifest.json")
+        try FileManager.default.removeItem(at: manifestURL)
+        try FileManager.default.createDirectory(at: manifestURL, withIntermediateDirectories: false)
+
+        let secondManual = try authored.makeAnnotationFromAlignedSelection(
+            rowID: authored.rows[1].id,
+            alignedIntervals: [AnnotationInterval(start: 1, end: 3)],
+            name: "second-feature",
+            type: "gene",
+            strand: "+",
+            qualifiers: ["created_by": ["test"]]
+        )
+
+        XCTAssertThrowsError(try authored.appendingAnnotations(
+            [secondManual],
+            editDescription: "Add second annotation",
+            argv: ["lungfish-gui", "msa", "add-annotation"]
+        ))
+        XCTAssertEqual(try Data(contentsOf: annotationJSONURL), originalAnnotationJSON)
+        XCTAssertEqual(try Data(contentsOf: annotationSQLiteURL), originalAnnotationSQLite)
+        XCTAssertEqual(try Data(contentsOf: provenanceURL), originalProvenance)
+    }
+
     private func writeInput(named filename: String, contents: String) throws -> URL {
         let url = workspace.appendingPathComponent(filename)
         try contents.write(to: url, atomically: true, encoding: .utf8)
