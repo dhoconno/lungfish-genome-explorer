@@ -11,7 +11,13 @@ struct BundleAttachmentStoreTests {
             .appendingPathComponent("test-bundle-\(UUID().uuidString)")
         let attachDir = tmp.appendingPathComponent("attachments")
         try FileManager.default.createDirectory(at: attachDir, withIntermediateDirectories: true)
-        try "hello".write(to: attachDir.appendingPathComponent("notes.txt"), atomically: true, encoding: .utf8)
+        let notesURL = attachDir.appendingPathComponent("notes.txt")
+        try "hello".write(to: notesURL, atomically: true, encoding: .utf8)
+        try "{}".write(
+            to: BundleAttachmentFilenamePolicy.provenanceSidecarURL(forAttachmentURL: notesURL),
+            atomically: true,
+            encoding: .utf8
+        )
 
         let store = BundleAttachmentStore(bundleURL: tmp)
         store.reload()
@@ -39,13 +45,39 @@ struct BundleAttachmentStoreTests {
         try FileManager.default.removeItem(at: tmp)
     }
 
+    @Test("Attaching removes stale provenance sidecar")
+    func attachingRemovesStaleProvenanceSidecar() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test-bundle-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+
+        let sourceFile = tmp.appendingPathComponent("source.txt")
+        try "old".write(to: sourceFile, atomically: true, encoding: .utf8)
+
+        let store = BundleAttachmentStore(bundleURL: tmp)
+        let attachedURL = store.urlForAttachment("source.txt")
+        let sidecarURL = BundleAttachmentFilenamePolicy.provenanceSidecarURL(forAttachmentURL: attachedURL)
+        try FileManager.default.createDirectory(at: store.attachmentsDirectory, withIntermediateDirectories: true)
+        try "{}".write(to: sidecarURL, atomically: true, encoding: .utf8)
+
+        try "new".write(to: sourceFile, atomically: true, encoding: .utf8)
+        try store.attach(fileAt: sourceFile)
+
+        #expect(!FileManager.default.fileExists(atPath: sidecarURL.path))
+
+        try FileManager.default.removeItem(at: tmp)
+    }
+
     @Test("Remove attachment moves to trash")
     func removeAttachment() throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("test-bundle-\(UUID().uuidString)")
         let attachDir = tmp.appendingPathComponent("attachments")
         try FileManager.default.createDirectory(at: attachDir, withIntermediateDirectories: true)
-        try "hello".write(to: attachDir.appendingPathComponent("notes.txt"), atomically: true, encoding: .utf8)
+        let notesURL = attachDir.appendingPathComponent("notes.txt")
+        try "hello".write(to: notesURL, atomically: true, encoding: .utf8)
+        let sidecarURL = BundleAttachmentFilenamePolicy.provenanceSidecarURL(forAttachmentURL: notesURL)
+        try "{}".write(to: sidecarURL, atomically: true, encoding: .utf8)
 
         let store = BundleAttachmentStore(bundleURL: tmp)
         store.reload()
@@ -53,6 +85,7 @@ struct BundleAttachmentStoreTests {
 
         try store.remove(filename: "notes.txt")
         #expect(store.attachments.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: sidecarURL.path))
 
         try FileManager.default.removeItem(at: tmp)
     }

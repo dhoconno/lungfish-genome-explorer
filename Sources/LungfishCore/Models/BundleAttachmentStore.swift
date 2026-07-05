@@ -13,11 +13,13 @@ public struct BundleAttachment: Sendable {
 
 @Observable
 public final class BundleAttachmentStore: @unchecked Sendable {
+    public static let attachmentsDirectoryName = "attachments"
+
     public let bundleURL: URL
     public var attachments: [BundleAttachment] = []
 
-    private var attachmentsDir: URL {
-        bundleURL.appendingPathComponent("attachments", isDirectory: true)
+    public var attachmentsDirectory: URL {
+        bundleURL.appendingPathComponent(Self.attachmentsDirectoryName, isDirectory: true)
     }
 
     public init(bundleURL: URL) {
@@ -27,15 +29,17 @@ public final class BundleAttachmentStore: @unchecked Sendable {
 
     public func reload() {
         let fm = FileManager.default
-        guard fm.fileExists(atPath: attachmentsDir.path) else {
+        guard fm.fileExists(atPath: attachmentsDirectory.path) else {
             attachments = []
             return
         }
         let urls = (try? fm.contentsOfDirectory(
-            at: attachmentsDir,
+            at: attachmentsDirectory,
             includingPropertiesForKeys: [.fileSizeKey, .creationDateKey],
             options: [.skipsHiddenFiles]
-        )) ?? []
+        ))?.filter {
+            BundleAttachmentFilenamePolicy.isUserVisibleAttachmentFilename($0.lastPathComponent)
+        } ?? []
 
         attachments = urls.compactMap { url in
             let values = try? url.resourceValues(forKeys: [.fileSizeKey, .creationDateKey])
@@ -50,18 +54,26 @@ public final class BundleAttachmentStore: @unchecked Sendable {
 
     public func attach(fileAt sourceURL: URL) throws {
         let fm = FileManager.default
-        try fm.createDirectory(at: attachmentsDir, withIntermediateDirectories: true)
-        let dest = attachmentsDir.appendingPathComponent(sourceURL.lastPathComponent)
+        try fm.createDirectory(at: attachmentsDirectory, withIntermediateDirectories: true)
+        let dest = urlForAttachment(sourceURL.lastPathComponent)
         if fm.fileExists(atPath: dest.path) {
             try fm.removeItem(at: dest)
         }
+        try? fm.removeItem(at: BundleAttachmentFilenamePolicy.provenanceSidecarURL(forAttachmentURL: dest))
         try fm.copyItem(at: sourceURL, to: dest)
         reload()
     }
 
+    public func urlForAttachment(_ filename: String) -> URL {
+        attachmentsDirectory.appendingPathComponent(filename)
+    }
+
     public func remove(filename: String) throws {
-        let fileURL = attachmentsDir.appendingPathComponent(filename)
+        let fileURL = urlForAttachment(filename)
         try FileManager.default.trashItem(at: fileURL, resultingItemURL: nil)
+        try? FileManager.default.removeItem(
+            at: BundleAttachmentFilenamePolicy.provenanceSidecarURL(forAttachmentURL: fileURL)
+        )
         reload()
     }
 }

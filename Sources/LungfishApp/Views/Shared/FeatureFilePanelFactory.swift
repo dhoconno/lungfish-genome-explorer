@@ -41,6 +41,7 @@ enum FeatureFilePanelFactory {
         panel.allowsMultipleSelection = true
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
+        panel.message = "Attach non-scientific documents such as PDFs, images, and notes. Use import workflows for reads, references, annotations, variants, alignments, and results."
         return panel
     }
 

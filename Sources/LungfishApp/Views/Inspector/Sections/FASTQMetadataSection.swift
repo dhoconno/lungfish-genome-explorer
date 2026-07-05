@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import SwiftUI
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
@@ -34,6 +35,9 @@ public final class FASTQMetadataSectionViewModel {
 
     /// Filenames of attachments in the bundle.
     var attachmentFilenames: [String] = []
+
+    /// Most recent attachment failure shown inline in the inspector.
+    var attachmentErrorMessage: String?
 
     /// Optional persisted assembly read type for this dataset.
     var assemblyReadType: FASTQAssemblyReadType?
@@ -119,6 +123,7 @@ public final class FASTQMetadataSectionViewModel {
             readTypeTargetBundleURLs ?? [bundleURL],
             fallback: bundleURL
         )
+        attachmentErrorMessage = nil
         let sampleName = bundleURL.deletingPathExtension().lastPathComponent
 
         if let csvMeta = FASTQBundleCSVMetadata.load(from: bundleURL) {
@@ -153,6 +158,7 @@ public final class FASTQMetadataSectionViewModel {
         attachmentManager = nil
         primaryFASTQURL = nil
         attachmentFilenames = []
+        attachmentErrorMessage = nil
         autosaveWorkItem?.cancel()
     }
 
@@ -248,12 +254,13 @@ public final class FASTQMetadataSectionViewModel {
     func addAttachment(from sourceURL: URL) {
         guard let mgr = attachmentManager else { return }
         do {
-            let filename = try mgr.addAttachment(from: sourceURL)
+            let filename = try ProvenanceAwareAttachmentImporter.addAttachment(from: sourceURL, using: mgr)
             metadata?.addAttachment(filename)
             attachmentFilenames = mgr.listAttachments()
+            attachmentErrorMessage = nil
             scheduleAutosave()
         } catch {
-            // Attachment add failed
+            attachmentErrorMessage = GenericAttachmentPolicy.userFacingMessage(for: error)
         }
     }
 
@@ -577,6 +584,12 @@ public struct FASTQMetadataSection: View {
                         }
                     }
                     .controlSize(.small)
+                    if let attachmentErrorMessage = viewModel.attachmentErrorMessage {
+                        Text(attachmentErrorMessage)
+                            .font(.caption2)
+                            .foregroundStyle(Color.lungfishDangerFallback)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
             .font(.caption)

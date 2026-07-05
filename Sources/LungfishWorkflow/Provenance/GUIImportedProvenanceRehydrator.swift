@@ -6,11 +6,17 @@ import Foundation
 
 public enum GUIImportedProvenanceRehydratorError: Error, LocalizedError, Sendable, Equatable {
     case unsupportedSourceProvenance(String)
+    case sourceOutputIntegrityMissing(String)
+    case sourceOutputIntegrityMismatch(String)
 
     public var errorDescription: String? {
         switch self {
         case .unsupportedSourceProvenance(let path):
             return "Source provenance does not describe a lungfish CLI-created output: \(path)"
+        case .sourceOutputIntegrityMissing(let path):
+            return "Source provenance output is missing checksum or file size for \(path)"
+        case .sourceOutputIntegrityMismatch(let path):
+            return "Source provenance output checksum or file size does not match \(path)"
         }
     }
 }
@@ -56,6 +62,49 @@ public enum GUIImportedProvenanceRehydrator {
         )
         try ProvenanceWriter(signingProvider: nil).write(withImportStep, to: destinationRoot)
         return withImportStep
+    }
+
+    @discardableResult
+    public static func rehydrateImportedFileSidecar(
+        from sourceURL: URL,
+        to destinationURL: URL
+    ) throws -> ProvenanceEnvelope {
+        let sourceRoot = provenanceRoot(for: sourceURL)
+        let source = try loadSourceEnvelopeRecord(for: sourceURL, sourceRoot: sourceRoot)
+        guard isLungfishCLIEnvelope(source.envelope) else {
+            throw GUIImportedProvenanceRehydratorError.unsupportedSourceProvenance(sourceURL.path)
+        }
+
+        let pathMap = try fileOutputPathMap(
+            from: source.envelope,
+            sourceURL: sourceURL,
+            sourceRoot: sourceRoot,
+            destinationURL: destinationURL
+        )
+        guard !pathMap.isEmpty else {
+            throw ProvenanceRehydrationError.outputPathNotMapped(sourceURL.path)
+        }
+
+        var argumentPathMap = pathMap
+        argumentPathMap[sourceURL.standardizedFileURL.path] = destinationURL.standardizedFileURL.path
+        argumentPathMap[sourceRoot.standardizedFileURL.path] = destinationURL.deletingLastPathComponent().standardizedFileURL.path
+
+        let rehydrated = try rewriteSelectedOutputDescriptors(
+            in: source.envelope,
+            pathMap: pathMap,
+            sourceProvenancePath: source.sidecarURL.path
+        )
+        let withImportStep = try appendingGUIImportStep(
+            to: rehydrated,
+            sourceURL: sourceURL,
+            destinationURL: destinationURL
+        )
+        let rewrittenArguments = rewriteEnvelopeArguments(in: withImportStep, pathMap: argumentPathMap)
+        try ProvenanceWriter(signingProvider: nil).write(
+            rewrittenArguments,
+            toSidecar: ProvenanceRecorder.fileSidecarURL(for: destinationURL)
+        )
+        return rewrittenArguments
     }
 
     public static func finalBundleRoot(containing url: URL) -> URL? {
@@ -174,6 +223,104 @@ public enum GUIImportedProvenanceRehydrator {
         )
     }
 
+    private static func rewriteSelectedOutputDescriptors(
+        in envelope: ProvenanceEnvelope,
+        pathMap: [String: String],
+        sourceProvenancePath: String? = nil
+    ) throws -> ProvenanceEnvelope {
+        let standardizedPathMap = standardized(pathMap)
+        let replayArgv = rewriteArguments(
+            envelope.durableReplayArgv ?? envelope.argv,
+            pathMap: standardizedPathMap
+        )
+        let files = try deduplicated(
+            envelope.files.compactMap {
+                if $0.role == .output {
+                    return try rewriteOutputDescriptorIfMapped(
+                        $0,
+                        pathMap: standardizedPathMap,
+                        sourceProvenancePath: sourceProvenancePath
+                    )
+                }
+                return $0
+            }
+        )
+        let output = try envelope.output.flatMap {
+            try rewriteOutputDescriptorIfMapped(
+                $0,
+                pathMap: standardizedPathMap,
+                sourceProvenancePath: sourceProvenancePath
+            )
+        }
+        let outputs = try deduplicated(
+            envelope.outputs.compactMap {
+                try rewriteOutputDescriptorIfMapped(
+                    $0,
+                    pathMap: standardizedPathMap,
+                    sourceProvenancePath: sourceProvenancePath
+                )
+            }
+        )
+        let steps = try envelope.steps.map { step in
+            let stepReplayArgv = rewriteArguments(step.durableReplayArgv ?? step.argv, pathMap: standardizedPathMap)
+            return ProvenanceStep(
+                id: step.id,
+                toolName: step.toolName,
+                toolVersion: step.toolVersion,
+                argv: step.argv,
+                durableReplayArgv: stepReplayArgv,
+                reproducibleCommand: commandLine(
+                    from: stepReplayArgv,
+                    fallback: step.reproducibleCommand,
+                    pathMap: standardizedPathMap
+                ),
+                inputs: step.inputs,
+                outputs: try step.outputs.compactMap {
+                    try rewriteOutputDescriptorIfMapped(
+                        $0,
+                        pathMap: standardizedPathMap,
+                        sourceProvenancePath: sourceProvenancePath
+                    )
+                },
+                exitStatus: step.exitStatus,
+                wallTimeSeconds: step.wallTimeSeconds,
+                stderr: step.stderr,
+                dependsOn: step.dependsOn,
+                startedAt: step.startedAt,
+                completedAt: step.completedAt
+            )
+        }
+
+        return ProvenanceEnvelope(
+            schemaVersion: envelope.schemaVersion,
+            id: envelope.id,
+            createdAt: envelope.createdAt,
+            workflowName: envelope.workflowName,
+            workflowVersion: envelope.workflowVersion,
+            toolName: envelope.toolName,
+            toolVersion: envelope.toolVersion,
+            tool: envelope.tool,
+            argv: envelope.argv,
+            durableReplayArgv: replayArgv,
+            reproducibleCommand: commandLine(
+                from: replayArgv,
+                fallback: envelope.reproducibleCommand,
+                pathMap: standardizedPathMap
+            ),
+            options: rewriteOptions(envelope.options, pathMap: standardizedPathMap),
+            runtimeIdentity: envelope.runtimeIdentity,
+            files: files,
+            output: output,
+            outputs: outputs,
+            steps: steps,
+            wallTimeSeconds: envelope.wallTimeSeconds,
+            exitStatus: envelope.exitStatus,
+            stderr: envelope.stderr,
+            signatures: [],
+            legacyWorkflowRun: nil
+        )
+    }
+
     private static func provenanceRoot(for sourceURL: URL) -> URL {
         finalBundleRoot(containing: sourceURL) ?? sourceURL.deletingLastPathComponent().standardizedFileURL
     }
@@ -189,6 +336,24 @@ public enum GUIImportedProvenanceRehydrator {
         for sourceURL: URL,
         sourceRoot: URL
     ) throws -> ProvenanceEnvelope {
+        try loadSourceEnvelopeRecord(for: sourceURL, sourceRoot: sourceRoot).envelope
+    }
+
+    private struct SourceEnvelopeRecord {
+        let envelope: ProvenanceEnvelope
+        let sidecarURL: URL
+    }
+
+    private struct DescriptorIdentity: Hashable {
+        let path: String
+        let checksumSHA256: String?
+        let fileSize: UInt64?
+    }
+
+    private static func loadSourceEnvelopeRecord(
+        for sourceURL: URL,
+        sourceRoot: URL
+    ) throws -> SourceEnvelopeRecord {
         var candidates: [URL] = [
             ProvenanceRecorder.fileSidecarURL(for: sourceURL),
             sourceRoot.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
@@ -205,7 +370,7 @@ public enum GUIImportedProvenanceRehydrator {
             guard let envelope = try ProvenanceEnvelopeReader.load(fromSidecar: candidate) else {
                 continue
             }
-            return envelope
+            return SourceEnvelopeRecord(envelope: envelope, sidecarURL: candidate)
         }
 
         throw ProvenanceRehydrationError.missingSourceProvenance(sourceURL.path)
@@ -288,16 +453,79 @@ public enum GUIImportedProvenanceRehydrator {
         return pathMap
     }
 
-    private static func outputPaths(from envelope: ProvenanceEnvelope) -> [String] {
-        var paths: [String] = []
-        if let output = envelope.output {
-            paths.append(output.path)
+    private static func fileOutputPathMap(
+        from envelope: ProvenanceEnvelope,
+        sourceURL: URL,
+        sourceRoot: URL,
+        destinationURL: URL
+    ) throws -> [String: String] {
+        var pathMap: [String: String] = [:]
+        let sourceDescriptors = outputDescriptors(from: envelope)
+            .filter {
+                isRelevantCopiedOutputPath(
+                    $0.path,
+                    sourceURL: sourceURL,
+                    sourceRoot: sourceRoot
+                )
+            }
+        try validateFileOutputIntegrity(sourceDescriptors, sourceURL: sourceURL)
+        let destinationPath = destinationURL.standardizedFileURL.path
+        for path in sourceDescriptors.map(\.path) {
+            pathMap[path] = destinationPath
+            pathMap[URL(fileURLWithPath: path).standardizedFileURL.path] = destinationPath
         }
-        paths.append(contentsOf: envelope.outputs.map(\.path))
-        paths.append(contentsOf: envelope.steps.flatMap { $0.outputs.map(\.path) })
-        paths.append(contentsOf: envelope.files.filter { $0.role == .output }.map(\.path))
+        return pathMap
+    }
+
+    private static func outputPaths(from envelope: ProvenanceEnvelope) -> [String] {
         var seen = Set<String>()
-        return paths.filter { seen.insert($0).inserted }
+        return outputDescriptors(from: envelope)
+            .map(\.path)
+            .filter { seen.insert($0).inserted }
+    }
+
+    private static func outputDescriptors(from envelope: ProvenanceEnvelope) -> [ProvenanceFileDescriptor] {
+        var descriptors: [ProvenanceFileDescriptor] = []
+        if let output = envelope.output {
+            descriptors.append(output)
+        }
+        descriptors.append(contentsOf: envelope.outputs)
+        descriptors.append(contentsOf: envelope.steps.flatMap(\.outputs))
+        descriptors.append(contentsOf: envelope.files.filter { $0.role == .output })
+        var seen = Set<DescriptorIdentity>()
+        return descriptors.filter { descriptor in
+            let key = DescriptorIdentity(
+                path: descriptor.path,
+                checksumSHA256: descriptor.checksumSHA256,
+                fileSize: descriptor.fileSize
+            )
+            return seen.insert(key).inserted
+        }
+    }
+
+    private static func validateFileOutputIntegrity(
+        _ descriptors: [ProvenanceFileDescriptor],
+        sourceURL: URL
+    ) throws {
+        guard !descriptors.isEmpty else { return }
+        let actualChecksum = try ProvenanceFileHasher.sha256(of: sourceURL)
+        let actualFileSize = try ProvenanceFileHasher.fileSize(of: sourceURL)
+        var hasCompleteMatchingDescriptor = false
+
+        for descriptor in descriptors {
+            guard let expectedChecksum = descriptor.checksumSHA256,
+                  let expectedFileSize = descriptor.fileSize else {
+                continue
+            }
+            guard expectedChecksum == actualChecksum, expectedFileSize == actualFileSize else {
+                throw GUIImportedProvenanceRehydratorError.sourceOutputIntegrityMismatch(sourceURL.path)
+            }
+            hasCompleteMatchingDescriptor = true
+        }
+
+        guard hasCompleteMatchingDescriptor else {
+            throw GUIImportedProvenanceRehydratorError.sourceOutputIntegrityMissing(sourceURL.path)
+        }
     }
 
     private static func isRelevantCopiedOutputPath(
@@ -474,6 +702,21 @@ public enum GUIImportedProvenanceRehydrator {
         )
     }
 
+    private static func rewriteOutputDescriptorIfMapped(
+        _ descriptor: ProvenanceFileDescriptor,
+        pathMap: [String: String],
+        sourceProvenancePath: String?
+    ) throws -> ProvenanceFileDescriptor? {
+        guard mappedPath(for: descriptor.path, in: pathMap) != nil else {
+            return nil
+        }
+        return try rewriteOutputDescriptor(
+            descriptor,
+            pathMap: pathMap,
+            sourceProvenancePath: sourceProvenancePath
+        )
+    }
+
     private static func standardized(_ pathMap: [String: String]) -> [String: String] {
         var result: [String: String] = [:]
         for (source, destination) in pathMap {
@@ -550,6 +793,68 @@ public enum GUIImportedProvenanceRehydrator {
             explicit: options.explicit.mapValues { rewriteParameterValue($0, pathMap: pathMap) },
             defaults: options.defaults.mapValues { rewriteParameterValue($0, pathMap: pathMap) },
             resolvedDefaults: options.resolvedDefaults.mapValues { rewriteParameterValue($0, pathMap: pathMap) }
+        )
+    }
+
+    private static func rewriteEnvelopeArguments(
+        in envelope: ProvenanceEnvelope,
+        pathMap: [String: String]
+    ) -> ProvenanceEnvelope {
+        let standardizedPathMap = standardized(pathMap)
+        let replayArgv = rewriteArguments(
+            envelope.durableReplayArgv ?? envelope.argv,
+            pathMap: standardizedPathMap
+        )
+        let steps = envelope.steps.map { step in
+            let stepReplayArgv = rewriteArguments(step.durableReplayArgv ?? step.argv, pathMap: standardizedPathMap)
+            return ProvenanceStep(
+                id: step.id,
+                toolName: step.toolName,
+                toolVersion: step.toolVersion,
+                argv: step.argv,
+                durableReplayArgv: stepReplayArgv,
+                reproducibleCommand: commandLine(
+                    from: stepReplayArgv,
+                    fallback: step.reproducibleCommand,
+                    pathMap: standardizedPathMap
+                ),
+                inputs: step.inputs,
+                outputs: step.outputs,
+                exitStatus: step.exitStatus,
+                wallTimeSeconds: step.wallTimeSeconds,
+                stderr: step.stderr,
+                dependsOn: step.dependsOn,
+                startedAt: step.startedAt,
+                completedAt: step.completedAt
+            )
+        }
+        return ProvenanceEnvelope(
+            schemaVersion: envelope.schemaVersion,
+            id: envelope.id,
+            createdAt: envelope.createdAt,
+            workflowName: envelope.workflowName,
+            workflowVersion: envelope.workflowVersion,
+            toolName: envelope.toolName,
+            toolVersion: envelope.toolVersion,
+            tool: envelope.tool,
+            argv: envelope.argv,
+            durableReplayArgv: replayArgv,
+            reproducibleCommand: commandLine(
+                from: replayArgv,
+                fallback: envelope.reproducibleCommand,
+                pathMap: standardizedPathMap
+            ),
+            options: rewriteOptions(envelope.options, pathMap: standardizedPathMap),
+            runtimeIdentity: envelope.runtimeIdentity,
+            files: envelope.files,
+            output: envelope.output,
+            outputs: envelope.outputs,
+            steps: steps,
+            wallTimeSeconds: envelope.wallTimeSeconds,
+            exitStatus: envelope.exitStatus,
+            stderr: envelope.stderr,
+            signatures: [],
+            legacyWorkflowRun: nil
         )
     }
 

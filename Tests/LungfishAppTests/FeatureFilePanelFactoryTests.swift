@@ -39,6 +39,8 @@ final class FeatureFilePanelFactoryTests: XCTestCase {
         XCTAssertTrue(panel.canChooseFiles)
         XCTAssertFalse(panel.canChooseDirectories)
         XCTAssertTrue(panel.allowsMultipleSelection)
+        XCTAssertTrue(panel.message?.contains("non-scientific documents") == true)
+        XCTAssertTrue(panel.message?.contains("import workflows") == true)
     }
 
     func testPrimerSchemeFolderPanelSelectsSingleDirectory() {
