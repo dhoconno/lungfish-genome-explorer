@@ -631,7 +631,7 @@ public struct ProvenanceRuntimeIdentity: Codable, Sendable, Equatable {
         operatingSystemVersion: String = WorkflowRun.currentHostOS,
         architecture: String = Self.currentArchitecture,
         gitRevision: String? = nil,
-        user: String? = nil,
+        user: String? = WorkflowRun.currentUser,
         condaEnvironment: String? = nil,
         condaPrefix: String? = nil,
         pluginPack: String? = nil,
@@ -644,7 +644,8 @@ public struct ProvenanceRuntimeIdentity: Codable, Sendable, Equatable {
         self.operatingSystemVersion = ProvenanceVersion.required(operatingSystemVersion, fallback: WorkflowRun.currentHostOS)
         self.architecture = ProvenanceVersion.required(architecture, fallback: Self.currentArchitecture)
         self.gitRevision = gitRevision
-        self.user = user
+        let normalizedUser = user?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.user = normalizedUser?.isEmpty == false ? normalizedUser : nil
         self.condaEnvironment = condaEnvironment
         self.condaPrefix = condaPrefix
         self.pluginPack = pluginPack

@@ -637,6 +637,15 @@ struct ProvenanceEnvelopeTests {
         #expect((json["architecture"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
     }
 
+    @Test("fresh runtime identity includes current user")
+    func freshRuntimeIdentityIncludesCurrentUser() throws {
+        let runtimeIdentity = ProvenanceRuntimeIdentity(processIdentifier: 123)
+        let data = try ProvenanceJSON.encoder.encode(runtimeIdentity)
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        #expect(json["user"] as? String == WorkflowRun.currentUser)
+    }
+
     @Test("malformed canonical JSON missing versions rehydrates required identity fields")
     func malformedCanonicalJSONMissingVersionsRehydratesRequiredIdentityFields() throws {
         let data = Data("""

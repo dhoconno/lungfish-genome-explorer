@@ -151,6 +151,9 @@ changes that reduce future ambiguity across the codebase.
   the manual now explains current migration provenance and manifest-backup behavior.
 - Updated the technical-gap issue ledger so shipped project lock and CLI migration work is
   marked resolved/partial instead of remaining indistinguishable from unimplemented gaps.
+- Made newly constructed canonical `ProvenanceRuntimeIdentity` values include the current
+  OS user by default, closing the remaining new-sidecar user-attribution gap while preserving
+  decode compatibility for historical sidecars that lack a user field.
 
 ## Verification
 

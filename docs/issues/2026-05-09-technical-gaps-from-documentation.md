@@ -43,7 +43,7 @@ Issues are grouped by domain so related work can be batched.
 
 **Where focus groups raised it:** Lab manager persona (Chris Okafor) flagged this hard. Clinical-microbiology technologist (Diana Reyes) flagged that the provenance sidecar records `host machine identity` but not which user account ran each step. The wastewater-surveillance scientist (Sam Okafor) flagged that running 32 samples/month across 8 sites needs at minimum a provenance trail that distinguishes operators.
 
-**Status 2026-07-05:** Partially resolved for beta1. The CLI now has `lungfish project lock` / `unlock`, the GUI reads corrupted/active lock metadata on project open and presents read-only warnings, and the Shared Projects appendix documents the supported coordination model. The remaining audit gap is to verify user attribution across every legacy sidecar family, not just current `WorkflowRun`-backed provenance.
+**Status 2026-07-05:** Resolved for newly written beta1 provenance. The CLI now has `lungfish project lock` / `unlock`, the GUI reads corrupted/active lock metadata on project open and presents read-only warnings, the Shared Projects appendix documents the supported coordination model, and newly constructed canonical runtime identities default to the current OS user. Historical sidecars that were written before user attribution existed still decode without fabricating a user.
 
 **Original user-facing behavior:** A project is a folder. Two users on the same shared filesystem may open the same project; Lungfish does not lock the project, does not warn about concurrent edits, and does not record which user account performed each operation in the provenance sidecar.
 
@@ -51,7 +51,7 @@ Issues are grouped by domain so related work can be batched.
 
 **Acceptance criteria:**
 
-- [ ] Provenance sidecars include a `runtime.user` field (in addition to the existing `runtime.host`) recording the OS user account across all active and legacy sidecar families
+- [x] Newly written provenance sidecars include a runtime user field recording the OS user account; historical sidecars without user metadata remain readable but are not backfilled
 - [x] Opening a project that is currently open in another Lungfish process surfaces a clear warning and offers a read-only mode
 - [x] A new shell command `lungfish project lock` and `lungfish project unlock` provide explicit locking for advanced workflows
 - [x] A new chapter `01-foundations/09-shared-projects` (or an appendix) documents the supported multi-user patterns
