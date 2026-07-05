@@ -113,16 +113,20 @@ public final class NativeBundleBuilder: ObservableObject {
         let bundleName = configuration.name
             .replacingOccurrences(of: " ", with: "_")
             .replacingOccurrences(of: "/", with: "-")
-        let bundleURL = configuration.outputDirectory
+        let publishedBundleURL = configuration.outputDirectory
             .appendingPathComponent("\(bundleName).lungfishref")
-        var didCreateBundle = false
+        let stagingBundleURL = try makeStagingBundleURL(for: publishedBundleURL)
+        var didCreateStagingBundle = false
+        var didPublishBundle = false
         let buildStart = Date()
         let provenanceRunID = await ProvenanceRecorder.shared.beginRun(
             name: provenanceWorkflowName(for: configuration),
-            parameters: provenanceParameters(for: configuration, bundleURL: bundleURL)
+            parameters: provenanceParameters(for: configuration, bundleURL: publishedBundleURL)
         )
 
         do {
+            try prepareOutputDestination(for: publishedBundleURL)
+
             // Step 1: Validate inputs
             try await executeStep(.validating, progressHandler: progressHandler) {
                 try self.validateInputs(configuration)
@@ -142,16 +146,16 @@ public final class NativeBundleBuilder: ObservableObject {
 
             // Step 3: Create bundle structure
             try await executeStep(.creatingStructure, progressHandler: progressHandler) {
-                try self.createBundleStructure(at: bundleURL)
+                try self.createBundleStructure(at: stagingBundleURL)
             }
-            didCreateBundle = true
+            didCreateStagingBundle = true
 
             try checkCancellation()
 
             // Step 4: Process FASTA with native tools
             let genomeInfo = try await processFASTAWithNativeTools(
                 configuration: configuration,
-                bundleURL: bundleURL,
+                bundleURL: stagingBundleURL,
                 progressHandler: progressHandler
             )
 
@@ -160,7 +164,7 @@ public final class NativeBundleBuilder: ObservableObject {
             // Step 5: Convert annotations
             let annotationInfos = try await processAnnotationsWithNativeTools(
                 configuration: configuration,
-                bundleURL: bundleURL,
+                bundleURL: stagingBundleURL,
                 chromosomeSizes: genomeInfo.chromosomes.map { ($0.name, $0.length) },
                 progressHandler: progressHandler
             )
@@ -170,7 +174,7 @@ public final class NativeBundleBuilder: ObservableObject {
             // Step 6: Convert variants
             let variantInfos = try await processVariantsWithNativeTools(
                 configuration: configuration,
-                bundleURL: bundleURL,
+                bundleURL: stagingBundleURL,
                 progressHandler: progressHandler
             )
 
@@ -179,7 +183,7 @@ public final class NativeBundleBuilder: ObservableObject {
             // Step 7: Process signal tracks
             let signalInfos = try await processSignalTracks(
                 configuration: configuration,
-                bundleURL: bundleURL,
+                bundleURL: stagingBundleURL,
                 progressHandler: progressHandler
             )
 
@@ -198,33 +202,37 @@ public final class NativeBundleBuilder: ObservableObject {
                     metadata: configuration.metadata
                 )
 
-                try manifest.save(to: bundleURL)
+                try manifest.save(to: stagingBundleURL)
             }
 
             try checkCancellation()
 
             // Step 9: Validate bundle
             try await executeStep(.validatingBundle, progressHandler: progressHandler) {
-                try self.validateBundle(at: bundleURL)
+                try self.validateBundle(at: stagingBundleURL)
             }
 
             try await writeBundleProvenance(
                 configuration: configuration,
-                bundleURL: bundleURL,
+                stagingBundleURL: stagingBundleURL,
+                publishedBundleURL: publishedBundleURL,
                 runID: provenanceRunID,
                 wallTime: Date().timeIntervalSince(buildStart)
             )
 
+            try publishBundle(from: stagingBundleURL, to: publishedBundleURL)
+            didPublishBundle = true
+
             updateProgress(.complete, 1.0, "Bundle created successfully", progressHandler)
 
-            logger.info("Native bundle build complete: \(bundleURL.path)")
+            logger.info("Native bundle build complete: \(publishedBundleURL.path)")
 
-            return bundleURL
+            return publishedBundleURL
 
         } catch {
             await ProvenanceRecorder.shared.completeRun(provenanceRunID, status: isCancelled ? .cancelled : .failed)
-            if didCreateBundle, FileManager.default.fileExists(atPath: bundleURL.path) {
-                try? FileManager.default.removeItem(at: bundleURL)
+            if didCreateStagingBundle, !didPublishBundle, FileManager.default.fileExists(atPath: stagingBundleURL.path) {
+                try? FileManager.default.removeItem(at: stagingBundleURL)
             }
 
             logger.error("Native bundle build failed: \(error.localizedDescription)")
@@ -297,7 +305,8 @@ public final class NativeBundleBuilder: ObservableObject {
 
     private func writeBundleProvenance(
         configuration: BuildConfiguration,
-        bundleURL: URL,
+        stagingBundleURL: URL,
+        publishedBundleURL: URL,
         runID: UUID,
         wallTime: TimeInterval
     ) async throws {
@@ -305,10 +314,13 @@ public final class NativeBundleBuilder: ObservableObject {
         let inputRecords = provenanceInputURLs(for: configuration).map {
             ProvenanceRecorder.fileRecord(url: $0, role: .input)
         }
-        let outputRecords = try bundleOutputFileRecords(at: bundleURL)
+        let outputRecords = try bundleOutputFileRecords(
+            at: stagingBundleURL,
+            publishedBundleURL: publishedBundleURL
+        )
         let command = configuration.provenanceCommand ?? fallbackProvenanceCommand(
             for: configuration,
-            bundleURL: bundleURL
+            bundleURL: publishedBundleURL
         )
 
         await ProvenanceRecorder.shared.recordStep(
@@ -323,7 +335,11 @@ public final class NativeBundleBuilder: ObservableObject {
             stderr: nil
         )
         await ProvenanceRecorder.shared.completeRun(runID, status: .completed)
-        try await ProvenanceRecorder.shared.save(runID: runID, to: bundleURL)
+        try await ProvenanceRecorder.shared.save(
+            runID: runID,
+            to: stagingBundleURL,
+            bundleLayoutRoot: publishedBundleURL
+        )
     }
 
     private func provenanceInputURLs(for configuration: BuildConfiguration) -> [URL] {
@@ -350,10 +366,13 @@ public final class NativeBundleBuilder: ObservableObject {
         return unique
     }
 
-    private func bundleOutputFileRecords(at bundleURL: URL) throws -> [FileRecord] {
+    private func bundleOutputFileRecords(
+        at stagingBundleURL: URL,
+        publishedBundleURL: URL
+    ) throws -> [FileRecord] {
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(
-            at: bundleURL,
+            at: stagingBundleURL,
             includingPropertiesForKeys: [.isRegularFileKey],
             options: [],
             errorHandler: nil
@@ -361,7 +380,7 @@ public final class NativeBundleBuilder: ObservableObject {
             return []
         }
 
-        let provenanceURL = bundleURL
+        let provenanceURL = stagingBundleURL
             .appendingPathComponent(ProvenanceRecorder.provenanceFilename)
             .standardizedFileURL
         var outputURLs: [URL] = []
@@ -379,7 +398,49 @@ public final class NativeBundleBuilder: ObservableObject {
 
         return outputURLs
             .sorted { $0.path < $1.path }
-            .map { ProvenanceRecorder.fileRecord(url: $0, role: .output) }
+            .map {
+                publishedFileRecord(
+                    forStagedURL: $0,
+                    stagingBundleURL: stagingBundleURL,
+                    publishedBundleURL: publishedBundleURL,
+                    role: .output
+                )
+            }
+    }
+
+    private func publishedFileRecord(
+        forStagedURL stagedURL: URL,
+        stagingBundleURL: URL,
+        publishedBundleURL: URL,
+        role: FileRole
+    ) -> FileRecord {
+        let stagedRecord = ProvenanceRecorder.fileRecord(url: stagedURL, role: role)
+        let publishedURL = publishedOutputURL(
+            forStagedURL: stagedURL,
+            stagingBundleURL: stagingBundleURL,
+            publishedBundleURL: publishedBundleURL
+        )
+        return FileRecord(
+            path: publishedURL.path,
+            sha256: stagedRecord.sha256,
+            sizeBytes: stagedRecord.sizeBytes,
+            format: stagedRecord.format,
+            role: stagedRecord.role
+        )
+    }
+
+    private func publishedOutputURL(
+        forStagedURL stagedURL: URL,
+        stagingBundleURL: URL,
+        publishedBundleURL: URL
+    ) -> URL {
+        let stagingPath = stagingBundleURL.standardizedFileURL.path
+        let stagedPath = stagedURL.standardizedFileURL.path
+        guard stagedPath.hasPrefix(stagingPath + "/") else {
+            return publishedBundleURL.appendingPathComponent(stagedURL.lastPathComponent)
+        }
+        let relativePath = String(stagedPath.dropFirst(stagingPath.count + 1))
+        return publishedBundleURL.appendingPathComponent(relativePath)
     }
 
     private func fallbackProvenanceCommand(
@@ -494,6 +555,32 @@ public final class NativeBundleBuilder: ObservableObject {
         }
 
         logger.info("Bundle structure created")
+    }
+
+    private func prepareOutputDestination(for publishedBundleURL: URL) throws {
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(
+            at: publishedBundleURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        if fileManager.fileExists(atPath: publishedBundleURL.path) {
+            throw BundleBuildError.outputBundleAlreadyExists(publishedBundleURL)
+        }
+    }
+
+    private func makeStagingBundleURL(for publishedBundleURL: URL) throws -> URL {
+        let parentURL = publishedBundleURL.deletingLastPathComponent()
+        let baseName = publishedBundleURL.deletingPathExtension().lastPathComponent
+        let stagingName = ".\(baseName).building-\(UUID().uuidString)"
+        return parentURL.appendingPathComponent(stagingName, isDirectory: true)
+    }
+
+    private func publishBundle(from stagingBundleURL: URL, to publishedBundleURL: URL) throws {
+        let fileManager = FileManager.default
+        if fileManager.fileExists(atPath: publishedBundleURL.path) {
+            throw BundleBuildError.outputBundleAlreadyExists(publishedBundleURL)
+        }
+        try fileManager.moveItem(at: stagingBundleURL, to: publishedBundleURL)
     }
 
     // MARK: - FASTA Processing with Native Tools

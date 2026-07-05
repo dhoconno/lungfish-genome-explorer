@@ -197,12 +197,18 @@ public actor ProvenanceRecorder {
     /// - Parameters:
     ///   - runID: The run to save
     ///   - directory: The output directory to write the sidecar into
-    public func save(runID: UUID, to directory: URL) throws {
+    public func save(runID: UUID, to directory: URL, bundleLayoutRoot: URL? = nil) throws {
         guard let run = runs[runID] else {
             throw ProvenanceError.runNotFound(runID)
         }
         let envelope = run.canonicalEnvelope()
-        let url = try ProvenanceWriter(signingProvider: signingProvider).write(envelope, to: directory)
+        let writer = ProvenanceWriter(signingProvider: signingProvider)
+        let url: URL
+        if let bundleLayoutRoot {
+            url = try writer.write(envelope, to: directory, bundleLayoutRoot: bundleLayoutRoot)
+        } else {
+            url = try writer.write(envelope, to: directory)
+        }
         logger.info("Provenance: saved canonical run \(runID) to \(url.path)")
     }
 

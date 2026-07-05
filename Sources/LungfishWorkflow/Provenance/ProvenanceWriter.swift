@@ -43,11 +43,20 @@ public struct ProvenanceWriter: Sendable {
 
     @discardableResult
     public func write(_ envelope: ProvenanceEnvelope, to directory: URL) throws -> URL {
+        try write(envelope, to: directory, bundleLayoutRoot: directory)
+    }
+
+    @discardableResult
+    public func write(_ envelope: ProvenanceEnvelope, to directory: URL, bundleLayoutRoot: URL) throws -> URL {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let provenanceURL = directory.appendingPathComponent(Self.provenanceFilename)
         let writtenURL = try write(envelope, toSidecar: provenanceURL)
-        if Self.isBundleDirectory(directory) {
-            _ = try writeBundleProvenanceLayout(envelope, toBundleRoot: directory)
+        if Self.isBundleDirectory(bundleLayoutRoot) {
+            _ = try writeBundleProvenanceLayout(
+                envelope,
+                toBundleRoot: directory,
+                descriptorBundleRoot: bundleLayoutRoot
+            )
         }
         return writtenURL
     }
@@ -110,13 +119,26 @@ public struct ProvenanceWriter: Sendable {
         _ envelope: ProvenanceEnvelope,
         toBundleRoot bundleURL: URL
     ) throws -> [URL] {
+        try writeBundleProvenanceLayout(
+            envelope,
+            toBundleRoot: bundleURL,
+            descriptorBundleRoot: bundleURL
+        )
+    }
+
+    @discardableResult
+    public func writeBundleProvenanceLayout(
+        _ envelope: ProvenanceEnvelope,
+        toBundleRoot bundleURL: URL,
+        descriptorBundleRoot: URL
+    ) throws -> [URL] {
         let provenanceDirectory = bundleURL.appendingPathComponent(
             Self.bundleProvenanceDirectoryName,
             isDirectory: true
         )
         try FileManager.default.createDirectory(at: provenanceDirectory, withIntermediateDirectories: true)
 
-        let outputEntries = bundleOutputEntries(from: envelope, relativeTo: bundleURL)
+        let outputEntries = bundleOutputEntries(from: envelope, relativeTo: descriptorBundleRoot)
         let rollupEnvelope = outputEntries.isEmpty
             ? envelope.replacingSignatures([])
             : envelope.projectedToBundleOutputs(outputEntries.map(\.descriptor))
@@ -318,6 +340,7 @@ extension ProvenanceEnvelope {
             toolVersion: toolVersion,
             tool: tool,
             argv: argv,
+            durableReplayArgv: durableReplayArgv,
             reproducibleCommand: reproducibleCommand,
             options: options,
             runtimeIdentity: runtimeIdentity,
@@ -358,6 +381,7 @@ extension ProvenanceEnvelope {
                 toolName: step.toolName,
                 toolVersion: step.toolVersion,
                 argv: step.argv,
+                durableReplayArgv: step.durableReplayArgv,
                 reproducibleCommand: step.reproducibleCommand,
                 inputs: step.inputs,
                 outputs: step.outputs.compactMap { retainedOutputByPath[$0.path] },
@@ -381,6 +405,7 @@ extension ProvenanceEnvelope {
             toolVersion: toolVersion,
             tool: tool,
             argv: argv,
+            durableReplayArgv: durableReplayArgv,
             reproducibleCommand: reproducibleCommand,
             options: options,
             runtimeIdentity: runtimeIdentity,
@@ -412,6 +437,7 @@ extension ProvenanceEnvelope {
             toolVersion: toolVersion,
             tool: tool,
             argv: argv,
+            durableReplayArgv: durableReplayArgv,
             reproducibleCommand: reproducibleCommand,
             options: options,
             runtimeIdentity: runtimeIdentity,
@@ -435,6 +461,7 @@ private extension ProvenanceStep {
             toolName: toolName,
             toolVersion: toolVersion,
             argv: argv,
+            durableReplayArgv: durableReplayArgv,
             reproducibleCommand: reproducibleCommand,
             inputs: inputs,
             outputs: outputs,

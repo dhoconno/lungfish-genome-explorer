@@ -64,6 +64,8 @@ public enum BatchImportError: Error, LocalizedError {
     case unsupportedRecipeStep(recipe: String, step: String)
     case projectNotFound(URL)
     case recipeNotApplicable(recipe: String, sample: String, reason: String)
+    case outputBundleAlreadyExists(URL)
+    case statisticsUnavailable(String)
 
     public var errorDescription: String? {
         switch self {
@@ -79,6 +81,10 @@ public enum BatchImportError: Error, LocalizedError {
             return "No .lungfish project found at or above \(url.path)"
         case .recipeNotApplicable(let recipe, let sample, let reason):
             return "Recipe '\(recipe)' cannot be applied to sample '\(sample)': \(reason)"
+        case .outputBundleAlreadyExists(let url):
+            return "Output FASTQ bundle already exists: \(url.path)"
+        case .statisticsUnavailable(let reason):
+            return "FASTQ statistics could not be computed: \(reason)"
         }
     }
 }
@@ -147,6 +153,12 @@ public enum FASTQBatchImporter {
         public let failed: Int
         public let totalDurationSeconds: Double
         public let errors: [(sample: String, error: String)]
+    }
+
+    struct RequiredSeqkitStats: Sendable, Equatable {
+        let metadata: SeqkitStatsMetadata
+        let medianReadLength: Int
+        let n50ReadLength: Int
     }
 
     static func resolveHumanScrubberDatabasePath(
@@ -404,8 +416,104 @@ public enum FASTQBatchImporter {
     /// Returns `true` when a `.lungfishfastq` bundle already exists for `pair` in `projectDir`.
     public static func bundleExists(for pair: SamplePair, in projectDir: URL) -> Bool {
         let bundleURL = bundleOutputURL(for: pair, in: projectDir)
-        return FASTQBundle.isBundleURL(bundleURL) &&
-               FileManager.default.fileExists(atPath: bundleURL.path)
+        return isCompleteFASTQImportBundle(at: bundleURL)
+    }
+
+    private static func isCompleteFASTQImportBundle(at bundleURL: URL) -> Bool {
+        guard FASTQBundle.isBundleURL(bundleURL),
+              let fastqURL = FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL),
+              let metadata = FASTQMetadataStore.load(for: fastqURL),
+              metadata.computedStatistics != nil,
+              metadata.seqkitStats != nil,
+              ((try? ProvenanceEnvelopeReader.load(from: bundleURL)) ?? nil) != nil else {
+            return false
+        }
+
+        let rollupURL = bundleURL
+            .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
+            .appendingPathComponent(ProvenanceWriter.bundleRollupFilename)
+        guard ((try? ProvenanceEnvelopeReader.load(fromSidecar: rollupURL)) ?? nil) != nil else {
+            return false
+        }
+
+        guard let focusedSidecarURL = ProvenanceWriter.bundleOutputSidecarURL(for: fastqURL, inBundle: bundleURL),
+              let focusedEnvelope = (try? ProvenanceEnvelopeReader.load(fromSidecar: focusedSidecarURL)) ?? nil,
+              provenanceEnvelope(focusedEnvelope, matchesCurrentFASTQAt: fastqURL) else {
+            return false
+        }
+
+        return true
+    }
+
+    private static func provenanceEnvelope(_ envelope: ProvenanceEnvelope, matchesCurrentFASTQAt fastqURL: URL) -> Bool {
+        let currentPath = fastqURL.standardizedFileURL.path
+        guard let currentSize = try? ProvenanceFileHasher.fileSize(of: fastqURL),
+              let currentChecksum = try? ProvenanceFileHasher.sha256(of: fastqURL) else {
+            return false
+        }
+
+        let descriptors = envelope.files
+            + envelope.outputs
+            + envelope.steps.flatMap(\.outputs)
+            + (envelope.output.map { [$0] } ?? [])
+        return descriptors.contains { descriptor in
+            URL(fileURLWithPath: descriptor.path).standardizedFileURL.path == currentPath
+                && descriptor.role == .output
+                && descriptor.fileSize == currentSize
+                && descriptor.checksumSHA256 == currentChecksum
+        }
+    }
+
+    private static func prepareFASTQBundleParent(for bundleURL: URL) throws {
+        try FileManager.default.createDirectory(
+            at: bundleURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+    }
+
+    private static func makeStagingFASTQBundleURL(for publishedBundleURL: URL) throws -> URL {
+        let parentURL = publishedBundleURL.deletingLastPathComponent()
+        let baseName = publishedBundleURL.deletingPathExtension().lastPathComponent
+        let stagingName = ".\(baseName).building-\(UUID().uuidString)"
+        return parentURL.appendingPathComponent(stagingName, isDirectory: true)
+    }
+
+    private static func makeReplacementBackupURL(for publishedBundleURL: URL) throws -> URL {
+        let parentURL = publishedBundleURL.deletingLastPathComponent()
+        let backupName = ".\(publishedBundleURL.lastPathComponent).replacing-\(UUID().uuidString)"
+        return parentURL.appendingPathComponent(backupName, isDirectory: true)
+    }
+
+    private static func publishFASTQBundle(
+        from stagingBundleURL: URL,
+        to publishedBundleURL: URL,
+        replaceExisting: Bool
+    ) throws {
+        let fileManager = FileManager.default
+        var backupURL: URL?
+
+        if fileManager.fileExists(atPath: publishedBundleURL.path) {
+            guard replaceExisting else {
+                throw BatchImportError.outputBundleAlreadyExists(publishedBundleURL)
+            }
+            let replacementBackupURL = try makeReplacementBackupURL(for: publishedBundleURL)
+            try fileManager.moveItem(at: publishedBundleURL, to: replacementBackupURL)
+            backupURL = replacementBackupURL
+        }
+
+        do {
+            try fileManager.moveItem(at: stagingBundleURL, to: publishedBundleURL)
+            if let backupURL {
+                try? fileManager.removeItem(at: backupURL)
+            }
+        } catch {
+            if let backupURL,
+               !fileManager.fileExists(atPath: publishedBundleURL.path),
+               fileManager.fileExists(atPath: backupURL.path) {
+                try? fileManager.moveItem(at: backupURL, to: publishedBundleURL)
+            }
+            throw error
+        }
     }
 
     // MARK: - Structured Logging
@@ -744,22 +852,32 @@ public enum FASTQBatchImporter {
             ))
             printProgress("  \u{2192} \(clumpifyLabel)... done (\(Int(Date().timeIntervalSince(clumpifyStart)))s)")
 
-            let finalFASTQURL = ingestionResult.outputFile
+            let ingestionOutputURL = ingestionResult.outputFile
 
-            // Step 3: Build bundle directory
+            // Step 3: Build the bundle under a hidden sibling directory, then
+            // publish it with one same-volume rename after provenance succeeds.
             let bundleURL = bundleOutputURL(for: pair, in: config.projectDirectory)
-            try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+            try prepareFASTQBundleParent(for: bundleURL)
+            let stagingBundleURL = try makeStagingFASTQBundleURL(for: bundleURL)
+            var didPublishBundle = false
+            defer {
+                if !didPublishBundle {
+                    try? FileManager.default.removeItem(at: stagingBundleURL)
+                }
+            }
+            try FileManager.default.createDirectory(at: stagingBundleURL, withIntermediateDirectories: true)
 
             let bundleFASTQName = "\(pair.sampleName).fastq.gz"
-            let bundleFASTQURL = bundleURL.appendingPathComponent(bundleFASTQName)
-            if finalFASTQURL != bundleFASTQURL {
-                try? FileManager.default.removeItem(at: bundleFASTQURL)
-                try FileManager.default.moveItem(at: finalFASTQURL, to: bundleFASTQURL)
+            let stagingBundleFASTQURL = stagingBundleURL.appendingPathComponent(bundleFASTQName)
+            let publishedBundleFASTQURL = bundleURL.appendingPathComponent(bundleFASTQName)
+            if ingestionOutputURL != stagingBundleFASTQURL {
+                try? FileManager.default.removeItem(at: stagingBundleFASTQURL)
+                try FileManager.default.moveItem(at: ingestionOutputURL, to: stagingBundleFASTQURL)
             }
             if !pair.metadata.isEmpty {
                 var metadataPairs = pair.metadata
                 metadataPairs["sample"] = pair.sampleName
-                try FASTQBundleCSVMetadata.save(FASTQBundleCSVMetadata(keyValuePairs: metadataPairs), to: bundleURL)
+                try FASTQBundleCSVMetadata.save(FASTQBundleCSVMetadata(keyValuePairs: metadataPairs), to: stagingBundleURL)
             }
 
             // Write ingestion metadata sidecar
@@ -791,7 +909,7 @@ public enum FASTQBatchImporter {
                     stepResults: recipeStepResults
                 )
             }
-            FASTQMetadataStore.save(metadata, for: bundleFASTQURL)
+            FASTQMetadataStore.save(metadata, for: stagingBundleFASTQURL)
 
             // Write per-sample log if logDirectory is set
             if let logDir = config.logDirectory {
@@ -804,10 +922,11 @@ public enum FASTQBatchImporter {
             let statsStart = Date()
             var statsError: String?
             do {
-                try await computeAndCacheStatistics(for: bundleFASTQURL)
+                try await computeAndCacheStatistics(for: stagingBundleFASTQURL)
             } catch {
                 statsError = error.localizedDescription
-                logger.warning("Stats computation failed for \(pair.sampleName): \(error) — bundle is still valid")
+                logger.warning("Stats computation failed for \(pair.sampleName): \(error)")
+                throw error
             }
             let statsCompletedAt = Date()
             log?(.stepComplete(sample: pair.sampleName, step: statsLabel,
@@ -825,15 +944,24 @@ public enum FASTQBatchImporter {
             try await writeImportProvenance(
                 pair: pair,
                 config: config,
-                bundleURL: bundleURL,
-                bundleFASTQURL: bundleFASTQURL,
-                sourceIngestionOutputURL: finalFASTQURL,
+                stagingBundleURL: stagingBundleURL,
+                stagingBundleFASTQURL: stagingBundleFASTQURL,
+                publishedBundleURL: bundleURL,
+                publishedBundleFASTQURL: publishedBundleFASTQURL,
+                sourceIngestionOutputURL: ingestionResult.outputFile,
                 ingestionResult: ingestionResult,
                 recipeStepResults: recipeStepResults,
                 statsStartedAt: statsStart,
                 statsCompletedAt: statsCompletedAt,
                 statsError: statsError
             )
+
+            try publishFASTQBundle(
+                from: stagingBundleURL,
+                to: bundleURL,
+                replaceExisting: config.forceReimport || !isCompleteFASTQImportBundle(at: bundleURL)
+            )
+            didPublishBundle = true
 
             let finalBytes = bundleFileSize(bundleURL)
             let duration = Date().timeIntervalSince(sampleStart)
@@ -952,8 +1080,10 @@ public enum FASTQBatchImporter {
     private static func writeImportProvenance(
         pair: SamplePair,
         config: ImportConfig,
-        bundleURL: URL,
-        bundleFASTQURL: URL,
+        stagingBundleURL: URL,
+        stagingBundleFASTQURL: URL,
+        publishedBundleURL: URL,
+        publishedBundleFASTQURL: URL,
         sourceIngestionOutputURL: URL,
         ingestionResult: FASTQIngestionResult,
         recipeStepResults: [RecipeStepResult],
@@ -965,18 +1095,21 @@ public enum FASTQBatchImporter {
         let sampleSheetInput = pair.sampleSheetURL.map {
             ProvenanceRecorder.fileRecord(url: $0, format: .text, role: .input)
         }
-        let metadataURL = FASTQMetadataStore.metadataURL(for: bundleFASTQURL)
-        let csvMetadataURL = FASTQBundleCSVMetadata.metadataURL(in: bundleURL)
+        let stagingMetadataURL = FASTQMetadataStore.metadataURL(for: stagingBundleFASTQURL)
+        let stagingCSVMetadataURL = FASTQBundleCSVMetadata.metadataURL(in: stagingBundleURL)
+        let publishedMetadataURL = FASTQMetadataStore.metadataURL(for: publishedBundleFASTQURL)
+        let publishedCSVMetadataURL = FASTQBundleCSVMetadata.metadataURL(in: publishedBundleURL)
         var steps: [StepExecution] = []
         steps.append(contentsOf: recipeProvenanceSteps(
             recipeStepResults: recipeStepResults,
             originalInputURLs: originalInputURLs,
-            bundleFASTQURL: bundleFASTQURL
+            bundleFASTQURL: stagingBundleFASTQURL
         ))
         steps.append(contentsOf: rehydratedIngestionSteps(
             ingestionResult.provenanceSteps,
             sourceOutputURL: sourceIngestionOutputURL,
-            finalOutputURL: bundleFASTQURL
+            finalOutputURL: stagingBundleFASTQURL,
+            originalInputURLs: originalInputURLs
         ))
 
         let finalizedAt = Date()
@@ -987,10 +1120,10 @@ public enum FASTQBatchImporter {
             inputs: originalInputURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input) }
                 + (sampleSheetInput.map { [$0] } ?? []),
             outputs: [
-                ProvenanceRecorder.fileRecord(url: bundleFASTQURL, format: .fastq, role: .output),
-                ProvenanceRecorder.fileRecord(url: metadataURL, format: .json, role: .output),
-            ] + (FileManager.default.fileExists(atPath: csvMetadataURL.path)
-                ? [ProvenanceRecorder.fileRecord(url: csvMetadataURL, format: .text, role: .output)]
+                ProvenanceRecorder.fileRecord(url: stagingBundleFASTQURL, format: .fastq, role: .output),
+                ProvenanceRecorder.fileRecord(url: stagingMetadataURL, format: .json, role: .output),
+            ] + (FileManager.default.fileExists(atPath: stagingCSVMetadataURL.path)
+                ? [ProvenanceRecorder.fileRecord(url: stagingCSVMetadataURL, format: .text, role: .output)]
                 : []),
             exitCode: 0,
             wallTime: 0,
@@ -1002,9 +1135,9 @@ public enum FASTQBatchImporter {
         steps.append(StepExecution(
             toolName: "seqkit",
             toolVersion: await NativeToolRunner.shared.getToolVersion(.seqkit) ?? "unknown",
-            command: ["seqkit", "stats", "-a", "-T", bundleFASTQURL.path],
-            inputs: [ProvenanceRecorder.fileRecord(url: bundleFASTQURL, format: .fastq, role: .input)],
-            outputs: [ProvenanceRecorder.fileRecord(url: metadataURL, format: .json, role: .output)],
+            command: ["seqkit", "stats", "-a", "-T", stagingBundleFASTQURL.path],
+            inputs: [ProvenanceRecorder.fileRecord(url: stagingBundleFASTQURL, format: .fastq, role: .input)],
+            outputs: [ProvenanceRecorder.fileRecord(url: stagingMetadataURL, format: .json, role: .output)],
             exitCode: statsError == nil ? 0 : 1,
             wallTime: statsCompletedAt.timeIntervalSince(statsStartedAt),
             stderr: statsError,
@@ -1022,16 +1155,16 @@ public enum FASTQBatchImporter {
         )
         .argv(command)
         .durableReplayArgv(command)
-        .options(
-            explicit: provenanceParameters(pair: pair, config: config, bundleURL: bundleURL),
+            .options(
+            explicit: provenanceParameters(pair: pair, config: config, bundleURL: publishedBundleURL),
             defaults: provenanceDefaultParameters(config: config),
             resolved: provenanceResolvedParameters(
                 pair: pair,
                 config: config,
-                bundleURL: bundleURL,
-                bundleFASTQURL: bundleFASTQURL,
-                metadataURL: metadataURL,
-                csvMetadataURL: csvMetadataURL,
+                bundleURL: publishedBundleURL,
+                bundleFASTQURL: publishedBundleFASTQURL,
+                metadataURL: publishedMetadataURL,
+                csvMetadataURL: publishedCSVMetadataURL,
                 ingestionResult: ingestionResult
             )
         )
@@ -1043,10 +1176,10 @@ public enum FASTQBatchImporter {
             builder = try builder.input(sampleSheetURL, format: .text, role: .input)
         }
         builder = try builder
-            .output(bundleFASTQURL, format: .fastq, role: .output)
-            .output(metadataURL, format: .json, role: .output)
-        if FileManager.default.fileExists(atPath: csvMetadataURL.path) {
-            builder = try builder.output(csvMetadataURL, format: .text, role: .output)
+            .output(stagingBundleFASTQURL, format: .fastq, role: .output)
+            .output(stagingMetadataURL, format: .json, role: .output)
+        if FileManager.default.fileExists(atPath: stagingCSVMetadataURL.path) {
+            builder = try builder.output(stagingCSVMetadataURL, format: .text, role: .output)
         }
         for step in steps {
             builder = builder.step(ProvenanceStep(stepExecution: step))
@@ -1058,7 +1191,195 @@ public enum FASTQBatchImporter {
             startedAt: steps.map(\.startTime).min() ?? completedAt,
             endedAt: completedAt
         )
-        try ProvenanceWriter().write(envelope, to: bundleURL)
+        let finalEnvelope = rewriteStagedBundlePaths(
+            in: envelope,
+            stagingBundleURL: stagingBundleURL,
+            publishedBundleURL: publishedBundleURL
+        )
+        try ProvenanceWriter().write(
+            finalEnvelope,
+            to: stagingBundleURL,
+            bundleLayoutRoot: publishedBundleURL
+        )
+    }
+
+    private static func rewriteStagedBundlePaths(
+        in envelope: ProvenanceEnvelope,
+        stagingBundleURL: URL,
+        publishedBundleURL: URL
+    ) -> ProvenanceEnvelope {
+        let options = ProvenanceOptions(
+            explicit: envelope.options.explicit.mapValues {
+                rewriteStagedParameterValue($0, stagingBundleURL: stagingBundleURL, publishedBundleURL: publishedBundleURL)
+            },
+            defaults: envelope.options.defaults.mapValues {
+                rewriteStagedParameterValue($0, stagingBundleURL: stagingBundleURL, publishedBundleURL: publishedBundleURL)
+            },
+            resolvedDefaults: envelope.options.resolvedDefaults.mapValues {
+                rewriteStagedParameterValue($0, stagingBundleURL: stagingBundleURL, publishedBundleURL: publishedBundleURL)
+            }
+        )
+        let steps = envelope.steps.map { step in
+            let replayArgv = rewriteStagedArguments(
+                step.durableReplayArgv ?? step.argv,
+                stagingBundleURL: stagingBundleURL,
+                publishedBundleURL: publishedBundleURL
+            )
+            let replayCommand = replayArgv.map(shellEscape).joined(separator: " ")
+            return ProvenanceStep(
+                id: step.id,
+                toolName: step.toolName,
+                toolVersion: step.toolVersion,
+                githubReleaseVersion: step.githubReleaseVersion,
+                argv: step.argv,
+                durableReplayArgv: replayArgv,
+                reproducibleCommand: replayCommand,
+                inputs: step.inputs.map {
+                    rewriteStagedDescriptor($0, stagingBundleURL: stagingBundleURL, publishedBundleURL: publishedBundleURL)
+                },
+                outputs: step.outputs.map {
+                    rewriteStagedDescriptor($0, stagingBundleURL: stagingBundleURL, publishedBundleURL: publishedBundleURL)
+                },
+                exitStatus: step.exitStatus,
+                wallTimeSeconds: step.wallTimeSeconds,
+                stderr: step.stderr,
+                dependsOn: step.dependsOn,
+                startedAt: step.startedAt,
+                completedAt: step.completedAt
+            )
+        }
+
+        let durableReplayArgv = rewriteStagedArguments(
+            envelope.durableReplayArgv ?? envelope.argv,
+            stagingBundleURL: stagingBundleURL,
+            publishedBundleURL: publishedBundleURL
+        )
+        let reproducibleCommand = durableReplayArgv.map(shellEscape).joined(separator: " ")
+
+        return ProvenanceEnvelope(
+            schemaVersion: envelope.schemaVersion,
+            id: envelope.id,
+            createdAt: envelope.createdAt,
+            workflowName: envelope.workflowName,
+            workflowVersion: envelope.workflowVersion,
+            toolName: envelope.toolName,
+            toolVersion: envelope.toolVersion,
+            githubReleaseVersion: envelope.githubReleaseVersion,
+            tool: envelope.tool,
+            argv: envelope.argv,
+            durableReplayArgv: durableReplayArgv,
+            reproducibleCommand: reproducibleCommand,
+            options: options,
+            runtimeIdentity: envelope.runtimeIdentity,
+            files: envelope.files.map {
+                rewriteStagedDescriptor($0, stagingBundleURL: stagingBundleURL, publishedBundleURL: publishedBundleURL)
+            },
+            output: envelope.output.map {
+                rewriteStagedDescriptor($0, stagingBundleURL: stagingBundleURL, publishedBundleURL: publishedBundleURL)
+            },
+            outputs: envelope.outputs.map {
+                rewriteStagedDescriptor($0, stagingBundleURL: stagingBundleURL, publishedBundleURL: publishedBundleURL)
+            },
+            steps: steps,
+            wallTimeSeconds: envelope.wallTimeSeconds,
+            exitStatus: envelope.exitStatus,
+            stderr: envelope.stderr,
+            signatures: [],
+            legacyWorkflowRun: nil
+        )
+    }
+
+    private static func rewriteStagedDescriptor(
+        _ descriptor: ProvenanceFileDescriptor,
+        stagingBundleURL: URL,
+        publishedBundleURL: URL
+    ) -> ProvenanceFileDescriptor {
+        ProvenanceFileDescriptor(
+            path: rewriteStagedPath(
+                descriptor.path,
+                stagingBundleURL: stagingBundleURL,
+                publishedBundleURL: publishedBundleURL
+            ),
+            checksumSHA256: descriptor.checksumSHA256,
+            fileSize: descriptor.fileSize,
+            format: descriptor.format,
+            role: descriptor.role,
+            originPath: descriptor.originPath.map {
+                rewriteStagedPath($0, stagingBundleURL: stagingBundleURL, publishedBundleURL: publishedBundleURL)
+            },
+            sourceProvenancePath: descriptor.sourceProvenancePath.map {
+                rewriteStagedPath($0, stagingBundleURL: stagingBundleURL, publishedBundleURL: publishedBundleURL)
+            }
+        )
+    }
+
+    private static func rewriteStagedParameterValue(
+        _ value: ParameterValue,
+        stagingBundleURL: URL,
+        publishedBundleURL: URL
+    ) -> ParameterValue {
+        switch value {
+        case .file(let url):
+            let path = rewriteStagedPath(url.path, stagingBundleURL: stagingBundleURL, publishedBundleURL: publishedBundleURL)
+            return .file(URL(fileURLWithPath: path))
+        case .array(let values):
+            return .array(values.map {
+                rewriteStagedParameterValue($0, stagingBundleURL: stagingBundleURL, publishedBundleURL: publishedBundleURL)
+            })
+        case .dictionary(let values):
+            return .dictionary(values.mapValues {
+                rewriteStagedParameterValue($0, stagingBundleURL: stagingBundleURL, publishedBundleURL: publishedBundleURL)
+            })
+        default:
+            return value
+        }
+    }
+
+    private static func rewriteStagedArguments(
+        _ arguments: [String],
+        stagingBundleURL: URL,
+        publishedBundleURL: URL
+    ) -> [String] {
+        arguments.map {
+            rewriteStagedPathInArgument($0, stagingBundleURL: stagingBundleURL, publishedBundleURL: publishedBundleURL)
+        }
+    }
+
+    private static func rewriteStagedPathInArgument(
+        _ argument: String,
+        stagingBundleURL: URL,
+        publishedBundleURL: URL
+    ) -> String {
+        let exactPath = rewriteStagedPath(
+            argument,
+            stagingBundleURL: stagingBundleURL,
+            publishedBundleURL: publishedBundleURL
+        )
+        if exactPath != argument {
+            return exactPath
+        }
+
+        return argument.replacingOccurrences(
+            of: stagingBundleURL.standardizedFileURL.path,
+            with: publishedBundleURL.standardizedFileURL.path
+        )
+    }
+
+    private static func rewriteStagedPath(
+        _ path: String,
+        stagingBundleURL: URL,
+        publishedBundleURL: URL
+    ) -> String {
+        let stagingPath = stagingBundleURL.standardizedFileURL.path
+        let publishedPath = publishedBundleURL.standardizedFileURL.path
+        let standardizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
+        if standardizedPath == stagingPath {
+            return publishedPath
+        }
+        if standardizedPath.hasPrefix(stagingPath + "/") {
+            return publishedPath + String(standardizedPath.dropFirst(stagingPath.count))
+        }
+        return path
     }
 
     private static func recipeProvenanceSteps(
@@ -1096,9 +1417,20 @@ public enum FASTQBatchImporter {
     private static func rehydratedIngestionSteps(
         _ steps: [StepExecution],
         sourceOutputURL: URL,
-        finalOutputURL: URL
+        finalOutputURL: URL,
+        originalInputURLs: [URL]
     ) -> [StepExecution] {
         steps.map { step in
+            let pathMappings = durableReplayPathMappings(
+                for: step,
+                sourceOutputURL: sourceOutputURL,
+                finalOutputURL: finalOutputURL,
+                originalInputURLs: originalInputURLs
+            )
+            let durableReplayArgv = rewriteArguments(
+                step.durableReplayArgv ?? step.command,
+                using: pathMappings
+            )
             let outputs = step.outputs.map { record -> FileRecord in
                 guard URL(fileURLWithPath: record.path).standardizedFileURL == sourceOutputURL.standardizedFileURL else {
                     return record
@@ -1112,6 +1444,7 @@ public enum FASTQBatchImporter {
                 containerImage: step.containerImage,
                 containerDigest: step.containerDigest,
                 command: step.command,
+                durableReplayArgv: durableReplayArgv,
                 inputs: step.inputs,
                 outputs: outputs,
                 exitCode: step.exitCode,
@@ -1123,6 +1456,61 @@ public enum FASTQBatchImporter {
                 endTime: step.endTime
             )
         }
+    }
+
+    private static func durableReplayPathMappings(
+        for step: StepExecution,
+        sourceOutputURL: URL,
+        finalOutputURL: URL,
+        originalInputURLs: [URL]
+    ) -> [(source: URL, destination: URL)] {
+        var mappings: [(source: URL, destination: URL)] = [(sourceOutputURL, finalOutputURL)]
+        for input in step.inputs {
+            let inputURL = URL(fileURLWithPath: input.path)
+            guard let originalURL = durableOriginalInputURL(for: inputURL, originalInputURLs: originalInputURLs) else {
+                continue
+            }
+            mappings.append((inputURL, originalURL))
+        }
+        return mappings
+    }
+
+    private static func durableOriginalInputURL(for inputURL: URL, originalInputURLs: [URL]) -> URL? {
+        let standardizedInput = inputURL.standardizedFileURL
+        for originalURL in originalInputURLs {
+            let standardizedOriginal = originalURL.standardizedFileURL
+            if standardizedInput == standardizedOriginal {
+                return standardizedOriginal
+            }
+            let originalLeaf = standardizedOriginal.lastPathComponent
+            if standardizedInput.lastPathComponent == originalLeaf
+                || standardizedInput.lastPathComponent.hasSuffix("-\(originalLeaf)") {
+                return standardizedOriginal
+            }
+        }
+        return nil
+    }
+
+    private static func rewriteArguments(
+        _ arguments: [String],
+        using mappings: [(source: URL, destination: URL)]
+    ) -> [String] {
+        arguments.map { argument in
+            mappings.reduce(argument) { rewritten, mapping in
+                rewritePathInArgument(
+                    rewritten,
+                    source: mapping.source,
+                    destination: mapping.destination
+                )
+            }
+        }
+    }
+
+    private static func rewritePathInArgument(_ argument: String, source: URL, destination: URL) -> String {
+        argument.replacingOccurrences(
+            of: source.standardizedFileURL.path,
+            with: destination.standardizedFileURL.path
+        )
     }
 
     private static func provenanceParameters(
@@ -1680,38 +2068,13 @@ public enum FASTQBatchImporter {
         )
         guard seqkitResult.isSuccess else {
             logger.warning("seqkit stats failed: \(seqkitResult.stderr)")
-            return
+            throw BatchImportError.statisticsUnavailable(
+                "seqkit stats exited \(seqkitResult.exitCode): \(seqkitResult.stderr)"
+            )
         }
 
-        let lines = seqkitResult.stdout
-            .split(whereSeparator: \.isNewline)
-            .map(String.init)
-            .filter { !$0.isEmpty }
-        guard lines.count >= 2 else {
-            logger.warning("seqkit stats returned incomplete output")
-            return
-        }
-
-        let headers = lines[0].split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
-        let values = lines[1].split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
-        guard headers.count == values.count else { return }
-
-        var map: [String: String] = [:]
-        for (h, v) in zip(headers, values) { map[h] = v }
-
-        func int(_ k: String) -> Int { Int(map[k] ?? "") ?? 0 }
-        func int64(_ k: String) -> Int64 { Int64(map[k] ?? "") ?? 0 }
-        func dbl(_ k: String) -> Double { Double(map[k] ?? "") ?? 0 }
-
-        let numSeqs = int("num_seqs")
-        let sumLen = int64("sum_len")
-        let minLen = int("min_len")
-        let avgLen = dbl("avg_len")
-        let maxLen = int("max_len")
-        let q20 = dbl("Q20(%)")
-        let q30 = dbl("Q30(%)")
-        let avgQual = dbl("AvgQual")
-        let gc = dbl("GC(%)")
+        let requiredStats = try parseRequiredSeqkitStats(stdout: seqkitResult.stdout)
+        let seqkitMeta = requiredStats.metadata
 
         // 2. Sampled distributions from first 100k reads (~1-2s).
         //    Extract a subset via seqkit head, then run FASTQStatisticsCollector
@@ -1757,31 +2120,21 @@ public enum FASTQBatchImporter {
 
         // 3. Build final statistics: exact metrics from seqkit, distributions from sample.
         //    Q2 = median length, N50 reported directly by seqkit stats -a.
-        let medianLen = int("Q2")
-        let n50Len = int("N50")
-
         let statistics = FASTQDatasetStatistics(
-            readCount: numSeqs,
-            baseCount: sumLen,
-            meanReadLength: avgLen,
-            minReadLength: minLen,
-            maxReadLength: maxLen,
-            medianReadLength: medianLen,
-            n50ReadLength: n50Len,
-            meanQuality: avgQual,
-            q20Percentage: q20,
-            q30Percentage: q30,
-            gcContent: gc / 100.0,
+            readCount: seqkitMeta.numSeqs,
+            baseCount: seqkitMeta.sumLen,
+            meanReadLength: seqkitMeta.avgLen,
+            minReadLength: seqkitMeta.minLen,
+            maxReadLength: seqkitMeta.maxLen,
+            medianReadLength: requiredStats.medianReadLength,
+            n50ReadLength: requiredStats.n50ReadLength,
+            meanQuality: seqkitMeta.averageQuality,
+            q20Percentage: seqkitMeta.q20Percentage,
+            q30Percentage: seqkitMeta.q30Percentage,
+            gcContent: seqkitMeta.gcPercentage / 100.0,
             readLengthHistogram: sampledHistogram,
             qualityScoreHistogram: qualityScoreHistogram,
             perPositionQuality: perPositionQuality
-        )
-
-        let seqkitMeta = SeqkitStatsMetadata(
-            numSeqs: numSeqs, sumLen: sumLen,
-            minLen: minLen, avgLen: avgLen, maxLen: maxLen,
-            q20Percentage: q20, q30Percentage: q30,
-            averageQuality: avgQual, gcPercentage: gc
         )
 
         // 4. Cache in metadata sidecar
@@ -1790,7 +2143,80 @@ public enum FASTQBatchImporter {
         metadata.seqkitStats = seqkitMeta
         FASTQMetadataStore.save(metadata, for: fastqURL)
 
-        logger.info("Statistics cached: \(numSeqs) reads, N50=\(n50Len), Q30=\(String(format: "%.1f", q30))%, histogram bins=\(sampledHistogram.count), qPositions=\(perPositionQuality.count)")
+        logger.info("Statistics cached: \(seqkitMeta.numSeqs) reads, N50=\(requiredStats.n50ReadLength), Q30=\(String(format: "%.1f", seqkitMeta.q30Percentage))%, histogram bins=\(sampledHistogram.count), qPositions=\(perPositionQuality.count)")
+    }
+
+    static func parseRequiredSeqkitStats(stdout: String) throws -> RequiredSeqkitStats {
+        let lines = stdout
+            .split(whereSeparator: \.isNewline)
+            .map(String.init)
+            .filter { !$0.isEmpty }
+        guard lines.count >= 2 else {
+            throw BatchImportError.statisticsUnavailable("seqkit stats returned incomplete output")
+        }
+
+        let headers = lines[0]
+            .split(separator: "\t", omittingEmptySubsequences: false)
+            .map(String.init)
+        let values = lines[1]
+            .split(separator: "\t", omittingEmptySubsequences: false)
+            .map(String.init)
+        guard headers.count == values.count else {
+            throw BatchImportError.statisticsUnavailable("seqkit stats returned mismatched headers and values")
+        }
+
+        var map: [String: String] = [:]
+        for (header, value) in zip(headers, values) {
+            map[header] = value
+        }
+
+        func requiredString(_ key: String) throws -> String {
+            guard let value = map[key], !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw BatchImportError.statisticsUnavailable("seqkit stats missing required column '\(key)'")
+            }
+            return value
+        }
+
+        func int(_ key: String) throws -> Int {
+            let value = try requiredString(key)
+            guard let parsed = Int(value) else {
+                throw BatchImportError.statisticsUnavailable("seqkit stats column '\(key)' is not an integer: \(value)")
+            }
+            return parsed
+        }
+
+        func int64(_ key: String) throws -> Int64 {
+            let value = try requiredString(key)
+            guard let parsed = Int64(value) else {
+                throw BatchImportError.statisticsUnavailable("seqkit stats column '\(key)' is not an integer: \(value)")
+            }
+            return parsed
+        }
+
+        func dbl(_ key: String) throws -> Double {
+            let value = try requiredString(key)
+            guard let parsed = Double(value) else {
+                throw BatchImportError.statisticsUnavailable("seqkit stats column '\(key)' is not numeric: \(value)")
+            }
+            return parsed
+        }
+
+        let metadata = SeqkitStatsMetadata(
+            numSeqs: try int("num_seqs"),
+            sumLen: try int64("sum_len"),
+            minLen: try int("min_len"),
+            avgLen: try dbl("avg_len"),
+            maxLen: try int("max_len"),
+            q20Percentage: try dbl("Q20(%)"),
+            q30Percentage: try dbl("Q30(%)"),
+            averageQuality: try dbl("AvgQual"),
+            gcPercentage: try dbl("GC(%)")
+        )
+        return RequiredSeqkitStats(
+            metadata: metadata,
+            medianReadLength: try int("Q2"),
+            n50ReadLength: try int("N50")
+        )
     }
 
     // MARK: - Private Helpers

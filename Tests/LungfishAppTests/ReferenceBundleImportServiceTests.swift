@@ -3,8 +3,26 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import LungfishCore
 import LungfishWorkflow
 @testable import LungfishApp
+
+private final class ReferenceImportVisibilityCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [Bool] = []
+
+    func append(_ value: Bool) {
+        lock.withLock {
+            values.append(value)
+        }
+    }
+
+    var observedFinalBundleBeforeCompletion: Bool {
+        lock.withLock {
+            values.contains(true)
+        }
+    }
+}
 
 final class ReferenceBundleImportServiceTests: XCTestCase {
     @MainActor
@@ -21,13 +39,25 @@ final class ReferenceBundleImportServiceTests: XCTestCase {
 
         let sourceURL = root.appendingPathComponent("source.fa")
         try ">chr1\nACGTACGT\n".write(to: sourceURL, atomically: true, encoding: .utf8)
+        let expectedBundleURL = outputDirectory.appendingPathComponent("Imported_Ref.lungfishref", isDirectory: true)
+        let visibility = ReferenceImportVisibilityCollector()
 
         let result = try await ReferenceBundleImportService.shared.importAsReferenceBundle(
             sourceURL: sourceURL,
             outputDirectory: outputDirectory,
-            preferredBundleName: "Imported Ref"
+            preferredBundleName: "Imported Ref",
+            progressHandler: { progress, _ in
+                if progress < 1.0 {
+                    visibility.append(FileManager.default.fileExists(atPath: expectedBundleURL.path))
+                }
+            }
         )
 
+        XCTAssertEqual(result.bundleURL.standardizedFileURL, expectedBundleURL.standardizedFileURL)
+        XCTAssertFalse(
+            visibility.observedFinalBundleBeforeCompletion,
+            "Reference import should not expose the final .lungfishref path before the staged bundle is complete."
+        )
         let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: result.bundleURL))
         let expectedCommand = [
             "lungfish-app",
@@ -50,12 +80,53 @@ final class ReferenceBundleImportServiceTests: XCTestCase {
         XCTAssertTrue(provenance.outputs.contains {
             $0.path.hasPrefix(result.bundleURL.path) && $0.checksumSHA256 != nil
         })
+        XCTAssertFalse(provenance.outputs.contains { $0.path.contains(".building-") })
         XCTAssertTrue(FileManager.default.fileExists(
             atPath: result.bundleURL
                 .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
                 .appendingPathComponent(ProvenanceWriter.bundleRollupFilename)
                 .path
         ))
+    }
+
+    @MainActor
+    func testNativeBundleBuildCleansStagingAfterPostStructureFailure() async throws {
+        if let missingInfo = await NativeBundleBuilder().checkRequiredTools() {
+            throw XCTSkip("Native reference bundle tools are unavailable: \(missingInfo.description)")
+        }
+
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ReferenceBundleImportServiceTests-failure-\(UUID().uuidString)", isDirectory: true)
+        let outputDirectory = root.appendingPathComponent("References", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+
+        let sourceURL = root.appendingPathComponent("malformed.fa")
+        try "not a fasta file\n".write(to: sourceURL, atomically: true, encoding: .utf8)
+
+        let configuration = BuildConfiguration(
+            name: "Broken Ref",
+            identifier: "org.lungfish.tests.broken-ref",
+            fastaURL: sourceURL,
+            outputDirectory: outputDirectory,
+            source: SourceInfo(organism: "Broken Ref", assembly: "Broken Ref"),
+            compressFASTA: true
+        )
+
+        do {
+            _ = try await NativeBundleBuilder().build(configuration: configuration)
+            XCTFail("Malformed FASTA should fail after staging begins.")
+        } catch {
+            // Expected: malformed FASTA has no sequence headers.
+        }
+
+        let finalBundleURL = outputDirectory.appendingPathComponent("Broken_Ref.lungfishref", isDirectory: true)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: finalBundleURL.path))
+        let residualEntries = try FileManager.default.contentsOfDirectory(atPath: outputDirectory.path)
+        XCTAssertFalse(
+            residualEntries.contains { $0.contains(".building-") },
+            "Failed native bundle builds should remove hidden staging directories."
+        )
     }
 
     func testClassifiesStandaloneReferenceExtensions() {
