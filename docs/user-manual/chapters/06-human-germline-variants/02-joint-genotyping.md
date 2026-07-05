@@ -26,11 +26,11 @@ lead_approved: false
 
 ## What it is
 
-Joint genotyping turns the per-sample GVCFs from
+Joint genotyping gathers the per-sample GVCFs from
 [HaplotypeCaller](01-haplotype-caller.md) into one cohort VCF, so genotypes
-are called across the whole cohort at once rather than sample by sample. By
-default Lungfish prints the command sequence; add `--execute` to run each
-GATK step in order through the managed `gatk-core` environment and write
+are called across the whole cohort at once instead of sample by sample. By
+default Lungfish prints the command sequence. Add `--execute` and it runs each
+GATK step in order through the managed `gatk-core` environment and writes
 provenance for the multi-step run.
 
 ```bash
@@ -43,16 +43,16 @@ lungfish gatk joint-genotype \
 # add --execute to run the combine + genotype sequence
 ```
 
-With `--combine-strategy auto` (the default), Lungfish chooses `CombineGVCFs`
+With `--combine-strategy auto` (the default), Lungfish picks `CombineGVCFs`
 for cohorts of 50 samples or fewer and `GenomicsDBImport` above that
-threshold, followed by `GenotypeGVCFs`. GenomicsDB is GATK's on-disk
-multi-sample store, which scales to large cohorts better than a single
-combined GVCF. The 50-sample boundary is where `auto` switches strategies.
+threshold, then runs `GenotypeGVCFs`. GenomicsDB is GATK's on-disk
+multi-sample store, and it scales to large cohorts far better than a single
+combined GVCF. The 50-sample line is where `auto` flips between the two.
 
 You can force any of the three strategy values: `auto`, `combine-gvcfs`, or
-`genomicsdb`. Pin `combine-gvcfs` or `genomicsdb` when you want deterministic
-behaviour regardless of sample count, for example in a reproducible pipeline
-that must not flip strategies at the 50-sample boundary:
+`genomicsdb`. Pin `combine-gvcfs` or `genomicsdb` when you want the same
+behaviour no matter the sample count, say in a reproducible pipeline that must
+never flip strategies at the 50-sample boundary:
 
 ```bash
 lungfish gatk joint-genotype \
@@ -65,22 +65,21 @@ lungfish gatk joint-genotype \
   --intervals exome.interval_list
 ```
 
-When you force `genomicsdb`, pass a workspace directory path to
-`--intermediate`; when you force `combine-gvcfs`, pass a combined GVCF path.
-`--extra-args` is appended to the final `GenotypeGVCFs` command; use it for
-advanced annotations or confidence settings that are not first-class Lungfish
-options.
+Force `genomicsdb` and you pass a workspace directory path to
+`--intermediate`; force `combine-gvcfs` and you pass a combined GVCF path.
+`--extra-args` is appended to the final `GenotypeGVCFs` command, so reach for
+it when you want advanced annotations or confidence settings that are not
+first-class Lungfish options.
 
-The practical takeaway: preview to confirm which strategy `auto` picks for
-your cohort size, then re-run with `--execute` (or pin the strategy
-explicitly) to write the cohort VCF.
+The practical takeaway: preview to see which strategy `auto` picks for your
+cohort size, then re-run with `--execute` (or pin the strategy yourself) to
+write the cohort VCF.
 
 ## Provenance
 
 On `--execute`, `GATKPipelineExecutor` runs every command in the combine plus
-genotype sequence in order and writes one provenance record for the run,
+genotype sequence in order and writes one provenance record for the whole run,
 capturing each GATK command, the environment identity, inputs, outputs,
-checksums, sizes, exit status, and wall time. The CLI prints the GATK exit
-code and `Provenance: <path>` when it finishes. There is no "future"
-provenance step to wait for: execution records the cohort VCF's lineage
-today.
+checksums, sizes, exit status, and wall time. When it finishes, the CLI prints
+the GATK exit code and `Provenance: <path>`. No "future" provenance step waits
+in the wings: execution records the cohort VCF's lineage today.

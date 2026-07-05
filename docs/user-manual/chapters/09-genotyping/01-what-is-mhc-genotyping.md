@@ -45,7 +45,7 @@ characterise. Throughout this chapter the worked organism is the Mauritian
 cynomolgus macaque, abbreviated MCM, because its MHC region is unusually well
 catalogued and its haplotypes are named and stable.
 
-The genotyping workflows live together in the Workflow Library, alongside the
+The genotyping workflows live together in the Workflow Library: the
 short-amplicon miSeq route, which expects reads from a MiSeq (an Illumina
 short-read platform), and the full-length Oxford Nanopore (ONT) route, which
 expects long reads.
@@ -188,5 +188,3 @@ Continue to [Running Amplicon MHC Genotyping](02-running-genotyping.md) to
 launch a run, or skip ahead to
 [Reading the Genotype Comparison Viewport](03-reading-the-genotype-comparison.md)
 if you already have a result bundle to open.
-</content>
-</invoke>

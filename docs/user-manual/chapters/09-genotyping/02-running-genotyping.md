@@ -46,7 +46,7 @@ run statistics, and full provenance (a record of exactly which inputs, tools,
 and settings produced a result). You start every run from the Workflow Library,
 the launcher that lists the workflows Lungfish can run against your project
 data. The reads go in as FASTQ files (the standard text format holding
-sequencing reads and their quality scores) or `.lungfishfastq` bundles, and the
+sequencing reads and their quality scores) or `.lungfishfastq` bundles. The
 run compares them to an MHC allele-library reference bundle: a `.lungfishmhcref`
 package that carries the allele FASTA (a plain-text file listing each sequence)
 plus the haplotype definitions used to name families.
@@ -246,4 +246,3 @@ Continue to
 [Reading the Genotype Comparison Viewport](03-reading-the-genotype-comparison.md)
 to open the bundle you just produced and read its matrix, haplotype tape, and
 call evidence.
-</content>

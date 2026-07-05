@@ -23,9 +23,9 @@ lead_approved: false
 
 ## What it is
 
-Lungfish stores amplicon primer schemes as `.lungfishprimers` bundles in a project's `Primer Schemes/` folder. Primer trim dialogs and the Viral Recon wizard read those bundles instead of loose BED files so the coordinates, reference accession, display name, and provenance travel together.
+Lungfish keeps amplicon primer schemes as `.lungfishprimers` bundles in a project's `Primer Schemes/` folder. The Primer Trim dialogs and the Viral Recon wizard read those bundles rather than loose BED files, so the coordinates, the reference accession, the display name, and the provenance all travel as one piece.
 
-The current release ships one built-in scheme under the app resources. Its `name` is `QIASeqDIRECT-SARS2` and its `display_name` is "QIAseq Direct SARS-CoV-2 with Booster A". It declares `primer_count` 563 and `amplicon_count` 223, with canonical accession `MN908947.3` and equivalent accession `NC_045512.2`, and its `source` is `built-in`. Use those counts to confirm the bundle loaded correctly. Custom schemes are project-local and can be imported through the Import Center or the `lungfish primers import` CLI. Both paths copy the source files into a bundle, write a manifest, compute checksums and file sizes, and record reproducibility provenance.
+The current release ships a single built-in scheme in the app resources. Its `name` is `QIASeqDIRECT-SARS2` and its `display_name` is "QIAseq Direct SARS-CoV-2 with Booster A". It declares `primer_count` 563 and `amplicon_count` 223, with canonical accession `MN908947.3` and equivalent accession `NC_045512.2`, and its `source` is `built-in`. Those counts are a quick way to confirm the bundle loaded correctly. Custom schemes are project-local, and you import them through the Import Center or the `lungfish primers import` CLI. Either path copies the source files into a bundle, writes a manifest, computes checksums and file sizes, and records reproducibility provenance.
 
 ## Bundle Layout
 
@@ -41,7 +41,7 @@ MyScheme.lungfishprimers/
   .lungfish-provenance.json
 ```
 
-`primers.bed` is required. `primers.fasta` is optional because some schemes can derive primer sequences from the reference accession and BED coordinates. Attachments are for vendor PDFs, source spreadsheets, or lab notes that need to travel with the scheme.
+`primers.bed` is required. `primers.fasta` is optional, because some schemes can derive their primer sequences from the reference accession and the BED coordinates. Attachments are the place for vendor PDFs, source spreadsheets, or lab notes that need to ride along with the scheme.
 
 Manifest keys are snake_case. The manifest records:
 
@@ -60,7 +60,7 @@ Manifest keys are snake_case. The manifest records:
 | `version` | Scheme version string. |
 | `created` | Timestamp written when the bundle was authored. |
 
-`reference_accessions` is an array of objects rather than a list of strings. Each object carries an `accession` and a boolean role flag:
+`reference_accessions` is an array of objects, not a flat list of strings. Each object carries an `accession` and a boolean role flag:
 
 ```json
 "reference_accessions": [
@@ -69,22 +69,22 @@ Manifest keys are snake_case. The manifest records:
 ]
 ```
 
-The canonical accession is the one the BED coordinates are defined against; equivalent accessions let the resolver match an alignment reference that uses a different name for the same sequence.
+The canonical accession is the one the BED coordinates are defined against. The equivalent accessions let the resolver match an alignment reference that names the same sequence differently.
 
 ## BED Expectations
 
-BED coordinates are zero-based and half-open. The importer counts every non-empty, non-comment row as one primer. Column 4 should name the primer and should usually end in `_LEFT` or `_RIGHT` so Lungfish can infer amplicon counts and direction.
+BED coordinates are zero-based and half-open. The importer counts every non-empty, non-comment row as one primer. Column 4 should name the primer, and it should usually end in `_LEFT` or `_RIGHT` so Lungfish can infer amplicon counts and direction.
 
 ```text
 MN908947.3	30	54	SARS-CoV-2_1_LEFT	1	+
 MN908947.3	385	410	SARS-CoV-2_1_RIGHT	1	-
 ```
 
-The chromosome column must match the accession or sequence name in the alignment reference, or be resolvable through an equivalent accession in `manifest.json`. A scheme built against one reference and applied to a BAM mapped against a different coordinate system can trim zero primers without producing an obvious visual error.
+The chromosome column has to match the accession or sequence name in the alignment reference, or resolve through an equivalent accession in `manifest.json`. A scheme built against one reference and then applied to a BAM mapped against a different coordinate system can trim zero primers and never throw an obvious visual error.
 
 ## CLI Import Procedure
 
-Use this path when the scheme source files already live in a scripted analysis directory.
+Take this path when the scheme's source files already live in a scripted analysis directory.
 
 ```bash
 lungfish primers import \
@@ -95,13 +95,13 @@ lungfish primers import \
   --display-name "My Scheme"
 ```
 
-If `--output` is relative and `--project` is supplied, Lungfish writes the bundle under `<project>/Primer Schemes/`. Without `--project`, the relative output path is resolved from the current directory. The `.lungfishprimers` suffix is added automatically when omitted.
+If `--output` is relative and you supply `--project`, Lungfish writes the bundle under `<project>/Primer Schemes/`. Without `--project`, the relative output path resolves from the current directory. The `.lungfishprimers` suffix is added for you when you leave it off.
 
-The command writes `manifest.json`, `PROVENANCE.md`, and `.lungfish-provenance.json`. Provenance records the workflow name and version, exact argv, resolved options, input and output paths, checksums, file sizes, exit status, and wall time. Optional repeatable arguments include `--equivalent-accession <accession>` for alternate reference names and `--attachment <path>` for vendor PDFs, spreadsheets, or lab notes.
+The command writes `manifest.json`, `PROVENANCE.md`, and `.lungfish-provenance.json`. The provenance captures the workflow name and version, the exact argv, the resolved options, the input and output paths, the checksums, the file sizes, the exit status, and the wall time. Two optional arguments repeat as often as you need them: `--equivalent-accession <accession>` for alternate reference names, and `--attachment <path>` for vendor PDFs, spreadsheets, or lab notes.
 
 ## GUI Import Procedure
 
-Use this path when you have a BED file and want Lungfish to author the bundle for the active project.
+Take this path when you have a BED file and want Lungfish to author the bundle for the active project.
 
 Prepare the import:
 
@@ -127,4 +127,4 @@ lungfish bam primer-trim \
   --scheme "Primer Schemes/MyScheme.lungfishprimers"
 ```
 
-Scripted projects can check in the generated `.lungfishprimers` bundle or regenerate it from the original BED/FASTA sources with `lungfish primers import` as part of the project setup.
+A scripted project can either check the generated `.lungfishprimers` bundle into version control, or regenerate it from the original BED and FASTA sources with `lungfish primers import` as part of project setup.

@@ -203,7 +203,7 @@ than a long one.
 
 A few things tell you the run went well. The exact-match percentage in the
 summary should be high, often well above 80 percent for a clean sample
-against a matching reference; a low value means your reference is missing
+against a matching reference. A low value means your reference is missing
 species or your reads are noisy. You also want the species table dominated
 by a few rows with large read counts, rather than spread thinly across
 dozens of near-zero rows. The unresolved tail should stay small and mostly

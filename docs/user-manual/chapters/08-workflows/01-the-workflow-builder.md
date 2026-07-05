@@ -27,39 +27,38 @@ lead_approved: false
 
 ## What it is
 
-The Workflow Builder is a visual node-graph composer for chaining Lungfish
-FASTQ-preprocessing operations into reusable pipelines. Each operation that
-you would otherwise run from a recipe or a dialog (remove duplicates, trim
-adapters, scrub human reads, merge pairs, filter by length) appears as a
-draggable node on a canvas. You wire the output of one node into the input of
-the next, configure parameters per node, and run the whole graph against a
-FASTQ bundle in your project. The result is a workflow asset that lives in
-your project, carries provenance for every step, and can be run again next
-month against a different bundle without re-clicking through dialogs.
+The Workflow Builder turns a chain of Lungfish FASTQ-preprocessing steps into
+a picture you wire together by hand. Every operation you would otherwise launch
+from a recipe or a dialog becomes a draggable node on a canvas: remove
+duplicates, trim adapters, scrub human reads, merge pairs, filter by length.
+You connect the output of one node to the input of the next, set each node's
+parameters, and run the whole graph against a FASTQ bundle in your project.
+What comes back is a workflow asset. It lives in your project, carries
+provenance for every step, and runs again next month against a different bundle
+without a single dialog to re-click.
 
-Workflows are the bridge between a one-off analysis and a documented
-procedure. You learned in [Provenance and reproducibility](../01-foundations/08-provenance-and-reproducibility.md)
-that every Lungfish operation already records its inputs, parameters, tool
-versions, and outputs. A workflow takes that record and makes it executable.
-Instead of "here is what I did", the workflow file says "here is how to do
-it again". For a lab that runs the same read-cleanup procedure on every new
-run, this is the difference between writing a SOP in a Google Doc and writing
-one that actually runs.
+A workflow is the bridge between a one-off analysis and a documented procedure.
+You saw in [Provenance and reproducibility](../01-foundations/08-provenance-and-reproducibility.md)
+that every Lungfish operation records its inputs, parameters, tool versions,
+and outputs. A workflow takes that record and makes it run. "Here is what I
+did" becomes "here is how to do it again". For a lab that cleans up reads the
+same way on every run, this is the difference between an SOP written in a
+Google Doc and one that actually executes.
 
-A note on scope, because this is where the Builder is easy to over-read. The
-menu item is labelled **Workflow Builder (Experimental)** for a reason: the
-graph editor itself is general, but the only operations the native runner
-executes today are the five FASTQ-preprocessing steps listed below. The
-palette also contains generic Analysis placeholder nodes (Alignment, Variant
-Calling, Quantification, Assembly) and a few file-input nodes. Those generic
-nodes do not run inside the app. They exist so that a graph can be exported as
-Nextflow text for an external engine, and they are covered in
+A word on scope, because this is where the Builder is easy to over-read. The
+menu item reads **Workflow Builder (Experimental)** for a reason. The graph
+editor is general, but the only operations the native runner executes today are
+the five FASTQ-preprocessing steps listed below. The palette also holds generic
+Analysis placeholder nodes (Alignment, Variant Calling, Quantification,
+Assembly) and a handful of file-input nodes. Those generic nodes do not run
+inside the app. They exist so a graph can be exported as Nextflow text for an
+external engine, and they are covered in
 [Exporting as Nextflow or Snakemake](02-exporting-as-nextflow-or-snakemake.md).
-Two other families of operation are deliberately absent. Result-import paths
+Two other families of operation are missing on purpose. Result-import paths
 (NAO-MGS, NVD, CZ-ID) load classification output produced outside Lungfish and
 belong in the Import Center, not the Builder. Result-viewport tools (tree
-re-rooting, taxonomy read extraction, BLAST verification) act on already-loaded
-data inside a viewport and are not workflow steps.
+re-rooting, taxonomy read extraction, BLAST verification) act on data already
+loaded in a viewport, and they are not workflow steps.
 
 If you run the same FASTQ-cleanup steps on more than two bundles, stop running
 them by hand and build the workflow once.
@@ -84,11 +83,10 @@ in the middle, and an inspector on the right. The canvas starts empty except
 for a faint grid and two pinned nodes labelled **Sample input** and **Project
 output**. These two nodes are not draggable.
 
-One note settles how input works, so you can ignore the distinction for the
-rest of this chapter: a native FASTQ graph uses an explicit **FASTQ Bundle
-Input** node that you drag on yourself, while the pinned **Sample input** anchor
-is a legacy path that prompts for a sample at run time. The worked example uses
-the explicit node, so that is the path to follow.
+One point about input settles the rest of the chapter. A native FASTQ graph
+uses an explicit **FASTQ Bundle Input** node that you drag on yourself. The
+pinned **Sample input** anchor is a legacy path that prompts for a sample at run
+time. The worked example uses the explicit node, so that is the path to follow.
 
 <!-- planned: workflow-builder-palette -->
 
@@ -132,10 +130,10 @@ path that updates as you move either node. To remove an edge, click it once to
 select and press `Delete`. The builder refuses any connection that would
 create a cycle, so a node can never feed itself, directly or through a loop.
 
-The native FASTQ runner additionally requires a linear chain: each node feeds
-exactly one downstream node. A branching graph (one output fanning out to
-several inputs) is valid in the editor for export purposes but is rejected when
-you run it natively. Build FASTQ-preprocessing workflows as a single straight
+The native FASTQ runner adds one more rule: the chain must be linear, each node
+feeding exactly one node downstream. A branching graph, where one output fans
+out to several inputs, is valid in the editor for export but rejected when you
+run it natively. So build FASTQ-preprocessing workflows as a single straight
 line from the input node to **Project output**.
 
 ### Configure per-node parameters

@@ -23,27 +23,27 @@ lead_approved: false
 
 ## What it is
 
-This appendix covers coordinating a project that more than one person or process touches, through the `lungfish project lock`, `unlock`, and `migrate` commands. For the project-folder layout these commands operate on, see [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md); for the provenance records migration preserves, see [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md).
+This appendix is about coordinating a project that more than one person or process touches, through the `lungfish project lock`, `unlock`, and `migrate` commands. For the project-folder layout these commands operate on, see [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md). For the provenance records migration preserves, see [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md).
 
-A shared Lungfish Genome Explorer (LGE) [project](../../GLOSSARY.md#project) is still just a project folder. The difference is operational: more than one person or process can see the folder, usually through shared storage, a lab workstation, or a scripted batch workflow. That makes coordination visible. If one analyst is running a migration or a long manual repair while another analyst opens the same project, the second analyst needs a reliable signal before changing files.
+A shared Lungfish Genome Explorer (LGE) [project](../../GLOSSARY.md#project) is still just a project folder. What changes is operational: more than one person or process can now see that folder, usually across shared storage, on a lab workstation, or through a scripted batch workflow. Coordination suddenly matters. If one analyst is mid-migration or deep in a long manual repair while a second analyst opens the same project, the second needs a reliable signal before touching a single file.
 
-LGE now provides that signal through project-local lock records. The advanced CLI commands write a machine-readable file at `.lungfish/project.lock` inside the project. The GUI reads the same metadata on project open so teams get a consistent warning surface across CLI and app workflows.
+LGE supplies that signal through project-local lock records. The advanced CLI commands write a machine-readable file at `.lungfish/project.lock` inside the project, and the GUI reads the same metadata whenever it opens a project. So a team sees one consistent warning whether they came in through the CLI or the app.
 
-[Bundle](../../GLOSSARY.md#bundle) migration is also exposed through the same `project` command group. The current implementation is conservative: it scans bundles, reports the schema versions it can see, leaves bundles whose manifests are already current untouched, and refuses to rewrite unsupported legacy schemas until a real transformer exists.
+[Bundle](../../GLOSSARY.md#bundle) migration lives in the same `project` command group, and the current implementation is deliberately cautious. It scans the bundles, reports the schema versions it finds, leaves any bundle whose manifest is already current untouched, and refuses to rewrite an unsupported legacy schema until a real transformer exists for it.
 
-In practice, lock a project before any scripted maintenance, unlock it when you are done, and run `migrate` in dry-run mode first when you inherit an older project so you can see the report before anything is rewritten.
+The working rhythm is simple. Lock a project before any scripted maintenance, unlock it when you are done, and when you inherit an older project, run `migrate` in dry-run mode first so you can read the report before anything gets rewritten.
 
-A note on the executable name before the examples: the commands below invoke the CLI as `lungfish`, matching the command name the help text uses. Installed releases expose the binary on `PATH` as `lungfish`. If you are building from source, the SwiftPM product is `lungfish-cli`, so invoke `.build/debug/lungfish-cli project ...` (or the release variant) instead. The application bundle ships the same binary at `Lungfish.app/Contents/MacOS/lungfish-cli`. The two names refer to the same program.
+One note on the executable name before the examples. The commands below invoke the CLI as `lungfish`, matching the name the help text uses, and installed releases put the binary on `PATH` under exactly that name. If you build from source, the SwiftPM product is `lungfish-cli`, so you would run `.build/debug/lungfish-cli project ...` (or the release variant) instead. The application bundle ships the same binary at `Lungfish.app/Contents/MacOS/lungfish-cli`. Both names point at one program.
 
 ## Locking a project
 
-Use `lungfish project lock` before an advanced workflow that expects exclusive write access to a project:
+Run `lungfish project lock` before any advanced workflow that expects exclusive write access to a project:
 
 ```sh
 lungfish project lock ~/Projects/SARS-CoV-2.lungfish --mode exclusive
 ```
 
-The command creates `.lungfish/project.lock` using an atomic write. The record contains the tool name, LGE CLI version, project path, user, host, process id, process start time when available, current working directory, creation time, and lock mode. A typical record looks like this:
+The command creates `.lungfish/project.lock` through an atomic write. Inside, the record holds the tool name, the LGE CLI version, the project path, the user, the host, the process id, the process start time when it is available, the current working directory, the creation time, and the lock mode. A typical record looks like this:
 
 ```json
 {
@@ -61,35 +61,35 @@ The command creates `.lungfish/project.lock` using an atomic write. The record c
 }
 ```
 
-The `mode` value is intentionally a label, not a permission system. Use `exclusive` for work that should block other writers. Use a more specific label such as `maintenance` when you want other tools to show a clearer warning.
+The `mode` value is a label by design, not a permission system. Use `exclusive` for work that should block other writers. Reach for a more specific label such as `maintenance` when you want other tools to show a clearer warning.
 
-The lock file is a coordination record, not an OS-level lease. The CLI process that created the record exits as soon as `lungfish project lock` returns, so the recorded `pid` is the short-lived CLI process, not your shell or your maintenance script. Other tooling that inspects the lock will treat a local lock whose recorded process is no longer running as stale and may replace it. Practical rules:
+The lock file is a coordination record, not an OS-level lease. The CLI process that wrote it exits the instant `lungfish project lock` returns, so the recorded `pid` belongs to that short-lived CLI process, not to your shell or your maintenance script. Any other tool inspecting the lock will treat a local lock whose recorded process has died as stale, and may replace it. The practical rules:
 
 1. If a lock already exists and the recorded process is still live on this host, `lungfish project lock` refuses to replace it.
 2. If the lock points at a local process that has exited, the command treats it as stale and replaces it.
 3. Locks from another host (where this machine cannot tell whether the process is still alive) are treated as active unless you pass `--force`.
 
-So the lock signals intent to other tools, not exclusive control over the project. If you need to keep an active hold across a long manual workflow, your maintenance script (or wrapper) is responsible for re-asserting the lock or otherwise ensuring no concurrent edits happen while it runs.
+So the lock advertises intent to other tools. It does not hand you exclusive control over the project. If you need to hold that ground across a long manual workflow, your maintenance script or its wrapper is the thing responsible for re-asserting the lock, or for otherwise making sure no concurrent edits slip in while it runs.
 
 ## Unlocking a project
 
-Remove your own lock when the advanced workflow is complete:
+Remove your own lock once the advanced workflow finishes:
 
 ```sh
 lungfish project unlock ~/Projects/SARS-CoV-2.lungfish
 ```
 
-`unlock` removes a lock owned by the current process, or a stale local lock owned by the current user. If the lock belongs to another user, an active different process, or an unknown or remote host, the command refuses unless `--force` is supplied:
+`unlock` removes a lock owned by the current process, or a stale local lock owned by the current user. If the lock belongs to another user, to a different process that is still alive, or to an unknown or remote host, the command refuses unless you supply `--force`:
 
 ```sh
 lungfish project unlock ~/Projects/SARS-CoV-2.lungfish --force
 ```
 
-Use `--force` only after checking that the owner is no longer working in the project. A forced unlock removes the file; it does not stop the other process.
+Use `--force` only after you have confirmed the owner is no longer working in the project. A forced unlock deletes the file. It does not stop the other process.
 
 ## Migration reports
 
-Run `migrate` when you inherit an older project or before sharing a project with a newer LGE installation:
+Run `migrate` when you inherit an older project, or before you share a project with a newer LGE installation:
 
 ```sh
 lungfish project migrate ~/Projects/SARS-CoV-2.lungfish
@@ -101,11 +101,11 @@ For automation, request JSON:
 lungfish project migrate ~/Projects/SARS-CoV-2.lungfish --format json
 ```
 
-The current migration report lists manifest-backed Lungfish bundle directories that contain a `manifest.json`; in practice this currently covers `.lungfishref` reference bundles. FASTQ-derived bundle directories that use `analyses-manifest.json` or `derived.manifest.json` are not part of this migration scan.
+The current migration report lists manifest-backed Lungfish bundle directories, meaning those that contain a `manifest.json`. In practice that covers `.lungfishref` reference bundles today. FASTQ-derived bundle directories, which use `analyses-manifest.json` or `derived.manifest.json`, fall outside this migration scan.
 
-`1.0` reference bundles that already carry a `browser_summary` field in their manifest are reported as `current` with action `none`, and neither their `manifest.json` nor any `.lungfish-provenance.json` sidecar is rewritten. `1.0` reference manifests that are missing `browser_summary` get a schema-maintenance migration: with `--dry-run`, the report flags them as `migration-available` with action `dry-run-synthesize-browser-summary`; without `--dry-run`, LGE synthesizes the `browser_summary` field, backs up the original manifest under `.lungfish/migrations/`, and writes migration provenance describing the change.
+A `1.0` reference bundle that already carries a `browser_summary` field in its manifest is reported as `current` with action `none`, and neither its `manifest.json` nor any `.lungfish-provenance.json` sidecar is rewritten. A `1.0` reference manifest that is missing `browser_summary` gets a schema-maintenance migration instead. With `--dry-run`, the report flags it as `migration-available` with action `dry-run-synthesize-browser-summary`. Without `--dry-run`, LGE synthesizes the `browser_summary` field, backs up the original manifest under `.lungfish/migrations/`, and writes migration provenance describing the change.
 
-Unsupported legacy bundles are reported as `unsupported` with action `report-only` or `dry-run-report`. They are not renamed or changed. This is deliberate. A migration that rewrites scientific bundle data must know the old schema, copy or rewrite the payload, preserve provenance sidecars, and keep the original bundle data by moving the original to a `.v<old>` suffix before the new bundle replaces it. Until a schema-specific transformer exists, LGE reports the gap instead of pretending to migrate.
+Unsupported legacy bundles are reported as `unsupported` with action `report-only` or `dry-run-report`, and they are neither renamed nor changed. That restraint is deliberate. A migration that rewrites scientific bundle data has to know the old schema, copy or rewrite the payload, preserve the provenance sidecars, and keep the original data by moving it to a `.v<old>` suffix before the new bundle takes its place. Until a schema-specific transformer exists, LGE reports the gap rather than pretend to migrate.
 
 Use `--dry-run` when you only want the scan result:
 
@@ -115,15 +115,15 @@ lungfish project migrate ~/Projects/SARS-CoV-2.lungfish --dry-run --format json
 
 ## Provenance expectations
 
-Project locks are coordination metadata, not scientific outputs. Migration is different: when a migration actually rewrites or wraps scientific data, it must preserve existing [provenance sidecars](../../GLOSSARY.md#provenance-sidecar) and write new migration provenance describing the workflow or tool name and version, options, inputs, outputs, checksums, file sizes, runtime identity, exit status, stderr when useful, and wall time.
+Project locks are coordination metadata, not scientific outputs. Migration is a different matter. When a migration actually rewrites or wraps scientific data, it must preserve the existing [provenance sidecars](../../GLOSSARY.md#provenance-sidecar) and write fresh migration provenance of its own: the workflow or tool name and version, the options, the inputs, the outputs, the checksums, the file sizes, the runtime identity, the exit status, stderr when it is useful, and the wall time.
 
-The current no-op/report-only migration does not create new scientific outputs. It does preserve existing sidecars by leaving bundles untouched and by reporting whether a sidecar was present for each inspected bundle.
+The current no-op and report-only migration creates no new scientific outputs. It preserves the existing sidecars the easy way, by leaving bundles untouched, and it reports whether a sidecar was present for each bundle it inspected.
 
 ## Practical policy for shared labs
 
-Treat `.lungfish/project.lock` as the source of truth for advanced command-line maintenance. Before running a script that edits a project, create a lock. Before opening a project that someone else is maintaining, inspect the lock record or ask the owner. After a script succeeds or fails, unlock the project as part of cleanup.
+Treat `.lungfish/project.lock` as the source of truth for advanced command-line maintenance. Before you run a script that edits a project, create a lock. Before you open a project someone else is maintaining, inspect the lock record or ask the owner. When a script finishes, whether it succeeded or failed, unlock the project as part of cleanup.
 
-For routine GUI work, continue using the project normally. When the GUI opens a project with active or unknown lock metadata, it marks the window `Read Only`, shows a persistent project-lock banner, and blocks project-writing workflows so shared teams can rely on the same lock signal in both CLI and app sessions.
+For routine GUI work, just use the project as you always would. When the GUI opens a project that carries active or unknown lock metadata, it marks the window `Read Only`, shows a persistent project-lock banner, and blocks project-writing workflows, so a shared team leans on the same lock signal in both CLI and app sessions.
 
 ## See also
 

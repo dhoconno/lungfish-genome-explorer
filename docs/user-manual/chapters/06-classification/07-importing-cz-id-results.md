@@ -22,18 +22,18 @@ lead_approved: false
 
 ## What it is
 
-This chapter covers importing an existing CZ-ID result into Lungfish; it does not make CZ-ID a runnable option under `Tools > FASTQ/FASTA Operations > Classification`. To run a classifier on a FASTQ bundle instead, see [What Is Read Classification](01-what-is-classification.md).
+This chapter is about importing a CZ-ID result you already have. It does not turn CZ-ID into a runnable option under `Tools > FASTQ/FASTA Operations > Classification`. To run a classifier on a FASTQ bundle instead, see [What Is Read Classification](01-what-is-classification.md).
 
-CZ-ID is a hosted metagenomics platform. Lungfish does not run CZ-ID locally, submit reads to CZ-ID, or sync with a CZ-ID account. The supported path is import-only: take a CZ-ID taxon report TSV, ZIP archive, or extracted export folder that your lab already produced, convert it into Lungfish's classification result schema, and keep the upstream pipeline and database metadata with the imported result.
+CZ-ID is a hosted metagenomics platform. Lungfish does not run CZ-ID locally, submit reads to it, or sync with a CZ-ID account. The one supported path is import: take a CZ-ID taxon report TSV, ZIP archive, or extracted export folder your lab already produced, convert it into Lungfish's classification result schema, and carry the upstream pipeline and database metadata along with the imported result.
 
-The importer writes a project classification bundle at `Classifications/<sample>.lungfishtax`. It preserves NT and NR read metrics when present, writes a Kraken-compatible taxonomy report for the shared taxonomy viewer stack, writes `classification-result.json`, and writes `.lungfish-provenance.json` with the source path, SHA-256, file size, argv, tool/workflow name, CZ-ID pipeline/database metadata, output paths and sizes, exit status, and wall time.
+The importer writes a project classification bundle at `Classifications/<sample>.lungfishtax`. It keeps NT and NR read metrics when they are present, writes a Kraken-compatible taxonomy report for the shared taxonomy viewer stack, writes `classification-result.json`, and writes `.lungfish-provenance.json` recording the source path, SHA-256, file size, argv, tool/workflow name, CZ-ID pipeline and database metadata, output paths and sizes, exit status, and wall time.
 
-In practice, export the result from CZ-ID first, then bring it into your project through the Import Center (or `lungfish import cz-id`) so the upstream pipeline and database versions travel with it in provenance.
+In practice, export the result from CZ-ID first, then bring it into your project through the Import Center or `lungfish import cz-id`, so the upstream pipeline and database versions travel with it in provenance.
 
 ## Procedure
 
 1. Export a per-sample taxon report TSV from CZ-ID, or download the CZ-ID export archive.
-2. In Import Center, choose **Classification Results > CZ-ID Results**, select the TSV, ZIP archive, or extracted export folder, and import it. CZ-ID is imported, not run locally.
+2. In Import Center, choose **Classification Results > CZ-ID Results**, pick the TSV, ZIP archive, or extracted export folder, and import it. Remember: CZ-ID is imported, never run locally.
 3. For the same workflow in Terminal, run:
 
    ```bash
@@ -45,7 +45,7 @@ In practice, export the result from CZ-ID first, then bring it into your project
 4. Confirm the command creates `/path/to/project.lungfish/Classifications/Sample-CZ-001.lungfishtax` and prints the sample name, row count, CZ-ID pipeline version, and NT/NR database versions when those columns are present.
 5. Open the project sidebar under **Classifications** and select the imported `.lungfishtax` bundle to view the taxonomy result.
 
-If you have a CZ-ID metadata sidecar or a non-host FASTQ artifact that should travel with the audit trail, pass it to the importer so it is recorded in provenance:
+If you have a CZ-ID metadata sidecar or a non-host FASTQ artifact that should ride along with the audit trail, hand it to the importer so it lands in provenance:
 
 ```bash
 lungfish import cz-id /path/to/cz-id-export.zip \
@@ -61,15 +61,15 @@ For a quick look before importing, run:
 lungfish cz-id summary /path/to/cz-id-taxon-report.tsv --top 20
 ```
 
-A second CLI form exists for a standalone import outside a project. `lungfish
+A second CLI form handles a standalone import outside a project. `lungfish
 cz-id import <input> --output-dir <dir>` writes a self-contained `cz-id-<sample>`
-directory at the chosen location and takes no `--project`. Use the
-`import cz-id` form above when you want the result inside a project; use this
-`cz-id import` form when you just want a converted result on disk.
+directory wherever you point it and takes no `--project`. Reach for the
+`import cz-id` form above when you want the result inside a project. Reach for
+this `cz-id import` form when you just want a converted result on disk.
 
 ## Scope
 
-CZ-ID remains a hosted upstream analysis; Lungfish stores and views the result after export, and does not run, submit, or sync it. The scope-and-redirect at the top of this chapter has the full framing.
+CZ-ID stays a hosted upstream analysis. Lungfish stores and views the result after export, and does not run, submit, or sync it. The scope note at the top of this chapter has the full framing.
 
 ## Next
 

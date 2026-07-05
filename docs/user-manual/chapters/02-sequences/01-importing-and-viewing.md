@@ -34,29 +34,30 @@ lead_approved: false
 
 ## What it is
 
-Lungfish keeps every genome you work with inside a **reference bundle**: a
-folder with the `.lungfishref` extension that the Finder shows as a single
-icon. Importing converts a loose `.fasta` or `.gb` on your Desktop into a
-bundle in the project's `Reference Sequences/` folder. Your original file
-stays where it was; the bundle holds a copy and, where the format supports
-it, the gene and CDS annotations the file carried.
+Every genome you open in Lungfish lives inside a **reference bundle**: a
+folder carrying the `.lungfishref` extension that the Finder shows as a
+single icon. Import takes a loose `.fasta` or `.gb` sitting on your Desktop
+and turns it into one of these bundles in the project's
+`Reference Sequences/` folder. Your original file never moves. The bundle
+holds a copy, and where the format allows, the gene and CDS annotations the
+file carried.
 
-Once a bundle exists, opening it loads the genome into the **sequence
-viewport**: a position ruler along the top, the bases below it, and
-coloured blocks marking features when the source file carried them. Every
-downstream operation in Lungfish, from alignment to variant calling,
-points at a bundle rather than at a raw file.
+Open a bundle and the genome loads into the **sequence viewport**: a
+position ruler along the top, the bases beneath it, and coloured blocks
+marking features when the source file carried them. From alignment to
+variant calling, every downstream operation in Lungfish points at a bundle,
+never at a raw file.
 
-In practice, import each genome once, then point every later operation at the
-bundle rather than re-opening the loose file.
+So in practice: import each genome once, then aim every later operation at
+the bundle instead of reopening the loose file.
 
 ## Accepted formats
 
-The format you choose determines what shows up in the viewport. A FASTA
-gives you the sequence and nothing else. A GenBank gives you the sequence
-plus every feature the submitter recorded. A GFF3 (or GTF or BED) carries
-features only, with no sequence, so it is not a way to create a bundle on
-its own. You attach a GFF3 to a reference bundle that already exists.
+The format you feed in decides what the viewport shows. A FASTA gives you
+the sequence and nothing more. A GenBank gives you the sequence plus every
+feature the submitter recorded. A GFF3, GTF, or BED carries features alone,
+with no sequence at all, so it cannot create a bundle by itself. You attach
+one to a reference bundle that already exists.
 
 ![Reference bundle folder connected to FASTA, FAI, manifest, and provenance files](../../assets/illustrations-imagegen/02-sequences/01-importing-and-viewing/reference-bundle-anatomy.png)
 
@@ -67,96 +68,93 @@ its own. You attach a GFF3 to a reference bundle that already exists.
 | Annotation track | `.gff`, `.gff3`, `.gtf`, `.bed` | No | Yes | Attached to an existing reference bundle, not imported on its own. |
 | Compressed FASTA or GenBank | `.gz`, `.bgz`, `.bz2`, `.xz`, `.zst` | Yes | No | Decompressed during import. |
 
-When a GenBank record imports, Lungfish converts its features into an
-annotation track named `imported_annotations`. Later chapters refer to
-this track by that name, for example when a variant caller reads gene
-coordinates to translate nucleotide changes into amino-acid changes.
+Import a GenBank record and Lungfish converts its features into an
+annotation track named `imported_annotations`. Later chapters call it by
+that name, for instance when a variant caller reads gene coordinates to
+translate nucleotide changes into amino-acid changes.
 
-If you are pulling a record from NCBI, fetch it as GenBank. The
-annotations come along, and downstream operations like variant
-annotation and ORF translation pick them up without further setup.
+When you pull a record from NCBI, fetch it as GenBank. The annotations ride
+along, and downstream operations like variant annotation and ORF
+translation pick them up with no further setup.
 
-In short: import a FASTA or GenBank to create the bundle, and reach for
-the separate annotation-track importer only when you have a standalone
-GFF3, GTF, or BED to attach to a bundle you already made.
+In short: a FASTA or GenBank creates the bundle. Reach for the separate
+annotation-track importer only when you have a standalone GFF3, GTF, or BED
+to attach to a bundle you already built.
 
 ## Three ways to import
 
-You can import a sequence three ways. All three produce the same bundle
-on disk; pick by habit.
+Three routes lead to the same bundle on disk. Pick by habit.
 
 ### Drag-drop into the sidebar
 
-For most imports this is the fastest route. Open the project window,
-then drag the `.fasta` or `.gb` from the Finder onto the **Reference
-Sequences** folder in the sidebar. Lungfish creates the bundle, indexes
-the FASTA if needed, and selects the new bundle so it opens in the
-viewport. A GFF3 attaches to a bundle as a separate step (see the Import
-Center, above), so drag the sequence first.
+For most imports this is the quickest route. Open the project window and
+drag the `.fasta` or `.gb` from the Finder onto the **Reference
+Sequences** folder in the sidebar. Lungfish builds the bundle, indexes
+the FASTA if it needs to, and selects the new bundle so it springs open in
+the viewport. A GFF3 attaches in a separate step through the Import
+Center, described above, so drag the sequence first.
 
 ### The Import Center
 
-Reach for the Import Center when you want to see what is in a file
-before it becomes a bundle. Open it from the menu bar with
-**File > Import Center…**, or press Cmd-Shift-I. The sheet shows a drop
-zone and a format picker, and previews the file before you commit. Click
-**Import** when the preview looks right. The Operations Panel keeps a
-record of exactly what was imported. The Import Center is also where you
-attach a standalone GFF3, GTF, or BED file as an annotation track to a
-bundle that already exists.
+Reach for the Import Center when you want to see inside a file before it
+becomes a bundle. Open it from the menu bar with
+**File > Import Center…**, or press Cmd-Shift-I. The sheet offers a drop
+zone and a format picker, and previews the file before you commit. When
+the preview looks right, click **Import**. The Operations Panel records
+exactly what came in. This is also where you attach a standalone GFF3,
+GTF, or BED file as an annotation track to a bundle that already exists.
 
 ### The CLI
 
 For batch work, automated pipelines, or anything you would rather not
 click through, run the importer from a terminal with the project folder
-as the working directory:
+as your working directory:
 
 ```bash
 lungfish import fasta path/to/MN908947.3.gb
 ```
 
 The `fasta` subcommand handles FASTA, GenBank, and EMBL, plain or
-compressed. It produces the same bundle as the GUI. A `--name` flag
+compressed, and produces the same bundle as the GUI. The `--name` flag
 overrides the default bundle name, which otherwise comes from the source
-filename, and `-o`/`--output-dir` points at the target project when you
-are not already inside it.
+filename; `-o`/`--output-dir` points at the target project when you are
+not already inside it.
 
 ## Procedure: import the SARS-CoV-2 reference
 
-This walkthrough imports the SARS-CoV-2 Wuhan-Hu-1 reference (NCBI
-accession MN908947.3) from the Import Center. The plain FASTA is a
-single contig (one continuous stretch of sequence) of 29,903 bases with
+This walkthrough imports the SARS-CoV-2 Wuhan-Hu-1 reference, NCBI
+accession MN908947.3, from the Import Center. The plain FASTA is a
+single contig, one continuous stretch of sequence, 29,903 bases long with
 no annotations.
 
 1. **Open a project.** From the Lungfish welcome window, choose
-   **Open**, navigate to your project folder, and select it. The
-   project window opens with the sidebar on the left and an empty
-   viewport on the right.
+   **Open**, find your project folder, and select it. The project window
+   opens: sidebar on the left, an empty viewport on the right.
 
    <!-- planned: import-center-fasta -->
 
 2. **Open the Import Center.** From the menu bar, choose
-   **File > Import Center…** (or press Cmd-Shift-I). A sheet drops down
-   with a drop zone in the centre.
+   **File > Import Center…**, or press Cmd-Shift-I. A sheet drops down
+   with a drop zone at its centre.
 
 3. **Drop the FASTA into the drop zone.** Drag `MN908947.3.fasta` from
-   the Finder onto the drop zone. The format picker auto-detects FASTA
-   and previews the file's contents.
+   the Finder onto it. The format picker detects FASTA on its own and
+   previews the file's contents.
 
 4. **Click Import.** Lungfish creates the bundle at
    `Reference Sequences/MN908947.3.lungfishref`, builds the FASTA index,
    and logs the operation in the Operations Panel. The new bundle
-   appears in the sidebar and is selected automatically.
+   appears in the sidebar, already selected.
 
 5. **Confirm the bundle opened in the viewport.** The sequence viewport
-   now shows the position ruler at the top and the bases below it. The
-   annotation lane is empty because plain FASTA carried no features.
+   now shows the position ruler up top and the bases below. The
+   annotation lane sits empty, because plain FASTA carried no features.
 
-To see the annotated case, repeat the procedure with `MN908947.3.gb`
-(GenBank flat file). The same bundle structure is produced, but the
-annotation lane now shows the spike (`S`), nucleocapsid (`N`),
-ORF1ab, and other coding regions as orange blocks. Those features land in
-a track named `imported_annotations`, the same track later chapters point
+For the annotated case, run the procedure again with `MN908947.3.gb`, a
+GenBank flat file. You get the same bundle structure, but now the
+annotation lane fills with orange blocks: the spike (`S`), nucleocapsid
+(`N`), ORF1ab, and the other coding regions. Those features land in a
+track named `imported_annotations`, the very track later chapters point
 to for variant annotation.
 
 ## What you see in the viewport
@@ -165,51 +163,52 @@ to for variant annotation.
 
 ![Stylized sequence viewport with track viewer, sequence panel, and feature inspector panes](../../assets/illustrations-imagegen/02-sequences/01-importing-and-viewing/viewport-panes.png)
 
-The viewport renders the genome on a single horizontal axis. Three panes
-stack vertically. The **position ruler** at the top reports base-pair
-coordinates. Below it, the **base track** shows the actual letters when
-zoomed in far enough, and a coverage-style density rendering when zoomed
-out. The **annotation track**, present only when the bundle carries
-features, draws genes and CDS regions as labelled blocks.
+The viewport lays the genome along a single horizontal axis, in three
+panes stacked top to bottom. The **position ruler** at the top reports
+base-pair coordinates. Below it, the **base track** shows the actual
+letters once you zoom in far enough, and a coverage-style density
+rendering when you pull back out. The **annotation track**, present only
+when the bundle carries features, draws genes and CDS regions as labelled
+blocks.
 
-The Inspector on the right summarises the bundle: the source file,
-contig list, total length, annotation count, and any tracks attached to
-this reference (alignments, variants, classifications). Tracks become
-populated as you run downstream operations against the bundle.
+The Inspector on the right sums up the bundle: source file, contig list,
+total length, annotation count, and any tracks attached to this reference,
+be they alignments, variants, or classifications. Those tracks fill in as
+you run downstream operations against the bundle.
 
 The sidebar on the left shows the bundle as a leaf inside the
-**Reference Sequences** folder. Right-click for rename, reveal in
+**Reference Sequences** folder. Right-click it for rename, reveal in
 Finder, and move-to-trash actions.
 
 ## Navigating the sequence
 
-Three actions cover most navigation, all reached from the **Sequence**
-menu in the menu bar. **Sequence > Go to Location…** (Cmd-L) opens a
-coordinate field; type a number, press Return, and the viewport centres
-on that base. The editable position field on the ruler accepts the same
-input, with placeholder `chr:start-end`. A single number jumps to that
-base. A range like `MN908947.3:21563-25384` zooms to fit (on a
-single-contig bundle the bare range `21563-25384` resolves to it).
-**Sequence > Go to Gene…** (Cmd-Shift-G) opens a fuzzy-matched picker
-over the annotation names; on the SARS-CoV-2 reference, typing `spike`
-jumps to the `S` gene at position 21563. To centre on a feature you can
-already see, click its block in the annotation track.
+Three actions cover most navigation, all under the **Sequence** menu in
+the menu bar. **Sequence > Go to Location…** (Cmd-L) opens a coordinate
+field: type a number, press Return, and the viewport centres on that
+base. The editable position field on the ruler takes the same input, with
+placeholder `chr:start-end`. A single number jumps to one base. A range
+like `MN908947.3:21563-25384` zooms to fit, and on a single-contig bundle
+the bare range `21563-25384` resolves to it. **Sequence > Go to Gene…**
+(Cmd-Shift-G) opens a fuzzy-matched picker over the annotation names; on
+the SARS-CoV-2 reference, typing `spike` jumps straight to the `S` gene
+at position 21563. To centre on a feature already in view, click its
+block in the annotation track.
 
 ## Translating a sequence to protein
 
-Translation reads a nucleotide sequence three bases at a time and replaces each
-triplet (a codon) with the amino acid it encodes, turning DNA or RNA into the
-protein it would produce. Which amino acid a codon maps to depends on the
+Translation reads a nucleotide sequence three bases at a time and swaps each
+triplet (a codon) for the amino acid it encodes, turning DNA or RNA into the
+protein it would build. Which amino acid a codon maps to depends on the
 genetic code, so the tool lets you choose one: the standard code (table 1)
-covers most nuclear genes, and alternatives cover vertebrate mitochondria
+covers most nuclear genes, while alternatives cover vertebrate mitochondria
 (table 2), yeast mitochondria (table 3), and bacteria (table 11). A reading
-frame is the starting offset the triplets are counted from. There are six of
-them: three on the forward strand (`+1`, `+2`, `+3`) and three on the
-reverse-complement strand (`-1`, `-2`, `-3`).
+frame is the offset the triplets are counted from, and there are six: three on
+the forward strand (`+1`, `+2`, `+3`) and three on the reverse-complement
+strand (`-1`, `-2`, `-3`).
 
 The practical takeaway: translate in the frame and code that match your
 sequence to read the protein, or scan all six frames when you do not yet know
-which frame is coding.
+which one is coding.
 
 ### In the app
 
@@ -218,52 +217,51 @@ with a Mode control offering `Single Frame`, `3 Forward`, `3 Reverse`, and
 `All 6 Frames`; pick `Single Frame` to reveal a picker for one specific frame.
 Choose the genetic code under `Genetic Code`, leave `Show Stop Codons` on if you
 want stop positions marked, and click `Apply`. The translation appears as an
-overlay aligned to the bases in the viewport, and `Hide Translation` removes it
-again. The in-app tool overlays the translation for reading; it does not write a
-protein file.
+overlay aligned to the bases in the viewport, and `Hide Translation` clears it.
+The in-app tool overlays the translation for reading; it writes no protein
+file.
 
 ### From the command line
 
-To write a protein FASTA to disk, use the CLI:
+To write a protein FASTA to disk, drop to the CLI:
 
 ```bash
 lungfish translate MN908947.3.fasta --frame 1 --table 1 -o spike-protein.fasta
 ```
 
-Frames `1` to `3` are the forward strand and `4` to `6` are the reverse
+Frames `1` to `3` are the forward strand; `4` to `6` are the reverse
 complement. Omit `--frame` to translate all six. `--table` selects the genetic
 code (default 1, the standard code). Three flags shape the output:
 `--trim-to-stop` cuts each translation at its first stop codon,
 `--no-stop-asterisk` drops the `*` characters that mark stops, and
 `--longest-orf` keeps only the longest stop-free stretch per frame. The command
-writes a provenance sidecar next to the output, recording the exact options
+drops a provenance sidecar next to the output, recording the exact options
 used.
 
 ## Annotating features on a sequence
 
 An annotation is a labelled interval on the genome: a start, an end, a strand,
 and a type such as `gene` or `CDS` (the coding part of a gene). A GenBank import
-brings annotations along automatically, but you can also add your own or have
-Lungfish detect them.
+carries annotations in for you, but you can also add your own or let Lungfish
+detect them.
 
-So what should you do with this? Add an annotation by hand when you know where a
-feature sits, and auto-detect open reading frames when you want the software to
-propose candidate coding regions for you.
+So what should you do with this? Add an annotation by hand when you already know
+where a feature sits, and auto-detect open reading frames when you want the
+software to propose candidate coding regions for you.
 
 ### Adding one annotation by hand
 
-Select a region in the sequence viewport by dragging across the bases, then
-choose **Sequence > Add Annotation…**. A dialog asks for a name, a type (`gene`,
+Drag across the bases in the sequence viewport to select a region, then choose
+**Sequence > Add Annotation…**. A dialog asks for a name, a type (`gene`,
 `CDS`, `exon`, `mRNA`, `region`, and a few others), and a strand (`+`, `-`, or
 none). Click **Add**. Lungfish writes the annotation into the bundle's
-annotation track and redraws the viewport with the new labelled block. The
-annotation is saved inside the `.lungfishref` bundle, so it travels with the
-reference.
+annotation track and redraws the viewport with the new labelled block. It saves
+inside the `.lungfishref` bundle, so it travels with the reference.
 
 ### Auto-detecting open reading frames
 
-An open reading frame (ORF) is a stretch of sequence that starts with a start
-codon and runs to a stop codon without interruption, which makes it a candidate
+An open reading frame (ORF) is a stretch that begins with a start codon and
+runs to a stop codon without a break, which makes it a candidate
 protein-coding region. Choose **Sequence > Find ORFs…** on an open reference
 bundle. The dialog exposes five controls:
 
@@ -284,8 +282,8 @@ lungfish sequence annotate-orfs MN908947.3.lungfishref \
 
 ### Transferring best-match CDS annotations
 
-When you have mapped a reference's coding sequences against a new assembly,
-Lungfish can carry the best-matching CDS models across as annotations on a new
+Once you have mapped a reference's coding sequences against a new assembly,
+Lungfish can carry the best-matching CDS models across as annotations on a fresh
 bundle. This path lives under the alignment tools rather than the Sequence menu,
 because it reads a mapping result:
 
@@ -297,18 +295,18 @@ lungfish bam annotate-cds-best \
   --output-track-name "CDS (best match)"
 ```
 
-It builds a new `.lungfishref` bundle, leaving the source untouched, whose
-annotation track holds one gene and CDS model per query that aligned well
-enough. The `--min-query-cover` option sets that bar (default 0.5, meaning at
-least half of the CDS query must be covered by the alignment).
+It builds a new `.lungfishref` bundle and leaves the source untouched. The new
+bundle's annotation track holds one gene and CDS model per query that aligned
+well enough. The `--min-query-cover` option sets that bar (default 0.5, meaning
+at least half of the CDS query must be covered by the alignment).
 
 ## When import fails
 
-The error sheet names the file, the line number where parsing stopped,
-and the offending text. Two cases account for most first-time failures,
-and both are easier to recognise once you know what a valid FASTA looks
-like. A FASTA is a plain text file that begins with a header line
-starting with `>`, followed by one or more lines of nucleotide letters:
+The error sheet names the file, the line where parsing stopped, and the
+offending text. Two cases account for most first-time failures, and both
+grow obvious once you know what a valid FASTA looks like. A FASTA is a
+plain text file: a header line starting with `>`, then one or more lines
+of nucleotide letters:
 
 ```
 >MN908947.3 Severe acute respiratory syndrome coronavirus 2 isolate Wuhan-Hu-1
@@ -318,19 +316,19 @@ GTTCTCTAAACGAACTTTAAAATCTGTGTGGCTGTCACTCGGCTGCATGCTTAGTGCACT
 ```
 
 - **Header missing the `>` marker.** If the first line starts with
-  whitespace, with the sequence directly, or with anything other than
+  whitespace, with the sequence itself, or with anything other than
   `>`, Lungfish cannot tell where the record begins. Open the file in a
-  text editor, prepend `>` and an identifier, save.
+  text editor, prepend `>` and an identifier, and save.
 - **Invalid characters in the sequence.** Lungfish accepts the standard
   nucleotide letters (`A`, `C`, `G`, `T`, plus ambiguity codes like `N`)
-  and gap characters. If the file contains anything else, parsing stops.
-  The most common cause is a file that looks like a FASTA but was saved
-  from a word processor such as Microsoft Word, which adds invisible
-  formatting characters. Re-export the file as plain text from the
-  original tool, or paste the sequence into a code editor and save.
+  and gap characters. Anything else stops the parser. The usual culprit
+  is a file that looks like a FASTA but was saved from a word processor
+  such as Microsoft Word, which slips in invisible formatting characters.
+  Re-export as plain text from the original tool, or paste the sequence
+  into a code editor and save.
 
 ## Next
 
-Continue to [Downloading from NCBI](02-downloading-from-ncbi.md) to
-learn how to fetch a reference accession from NCBI directly into the
-project, with provenance recorded automatically.
+Continue to [Downloading from NCBI](02-downloading-from-ncbi.md) to fetch
+a reference accession straight from NCBI into the project, with provenance
+recorded automatically.

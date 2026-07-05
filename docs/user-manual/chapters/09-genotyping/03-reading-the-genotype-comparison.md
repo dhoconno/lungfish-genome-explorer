@@ -48,7 +48,7 @@ The dashboard has three regions, and it helps to know what each is for before
 you open one. The comparison matrix is the raw evidence: which allele targets
 each sample showed, and how strongly. Above it sits the haplotype tape, which
 collapses that evidence into the finished call, the M-family each locus resolved
-to. Off to one side, the cohort summary looks across every sample at once and
+to. Off to one side, the cohort summary scans every sample at once and
 points you toward the ones that need attention. Selecting a sample or a locus in
 one region updates the others, so you move between the raw evidence and the
 finished call without leaving the viewport.
@@ -212,4 +212,3 @@ Continue to
 [Haplotype Definitions, AI-Assisted Haplotyping, and Export](04-haplotype-definitions-and-export.md)
 to edit the named haplotypes behind these calls and to export the reviewed
 bundle.
-</content>

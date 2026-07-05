@@ -24,22 +24,20 @@ lead_approved: false
 
 This chapter covers taking a subset of reads from a bundle. For cleaning reads before analysis see [Trimming and Filtering](04-trimming-and-filtering.md) and [Decontamination](05-decontamination.md).
 
-Subsetting takes a subset of reads from a bundle. There are several reasons a
-bench scientist usually reaches for it: testing a pipeline quickly on a
-manageable slice of a large run, balancing two samples to the same depth
-before a side-by-side comparison, pulling out the specific reads whose header
-matched a classifier or aligner hit, asking whether any reads contain a
-particular sequence motif (a primer, a known variant, a probe target), and
-keeping or discarding reads that carry an adapter or barcode sequence at a
-read end.
+Subsetting pulls a subset of reads out of a bundle. Bench scientists reach for
+it for a handful of reasons: to test a pipeline fast on a manageable slice of a
+large run, to balance two samples to the same depth before a side-by-side
+comparison, to pull out the exact reads whose header matched a classifier or
+aligner hit, to ask whether any reads carry a particular sequence motif (a
+primer, a known variant, a probe target), and to keep or discard reads bearing
+an adapter or barcode at a read end.
 
-Lungfish exposes five operations for this. Choose
-`Tools > FASTQ/FASTA Operations > Search & Subsetting…` and pick the
-operation from the list inside the dialog. Two are random samplers (by
-proportion or by count), two are targeted extractors (by read header text or
-by a sequence motif), and one is a sequence-presence filter (Select Reads by
-Sequence). Each produces a new FASTQ bundle in the sidebar; the parent bundle
-is never modified.
+Lungfish offers five operations for this. Choose
+`Tools > FASTQ/FASTA Operations > Search & Subsetting…` and pick one from the
+list inside the dialog. Two are random samplers, by proportion or by count.
+Two are targeted extractors, by read header text or by a sequence motif. One
+is a sequence-presence filter, Select Reads by Sequence. Each produces a new
+FASTQ bundle in the sidebar, and the parent bundle is never touched.
 
 | Operation | Input | Output | Use it when |
 |---|---|---|---|
@@ -50,23 +48,23 @@ is never modified.
 | Select Reads by Sequence | A sequence (or FASTA) plus tolerance | Reads with (or without) the sequence at an end | You want to keep or discard reads carrying an adapter or barcode. |
 
 Subset bundles are virtual by default. Only a small preview FASTQ of about
-1000 reads lives on disk. The full FASTQ is reconstructed on demand the
-first time a downstream operation needs it. This is a deliberate tradeoff:
-many test slices of the same parent bundle stay cheap on disk, and the
-preview is enough for QC charts and the FASTQ viewport. Reach for
-subsample-by-count when you want comparable depth, subsample-by-proportion
-when you want a quick test run, and the search operations when you have a
-specific header, motif, or end-sequence in hand.
+1000 reads sits on disk. The full FASTQ is rebuilt on demand the first time a
+downstream operation needs it. The tradeoff is deliberate: many test slices of
+the same parent bundle stay cheap on disk, and the preview is enough for QC
+charts and the FASTQ viewport. Reach for subsample-by-count when you want
+comparable depth, subsample-by-proportion when you want a quick test run, and
+the search operations when you have a specific header, motif, or end-sequence
+in hand.
 
 ## Procedure
 
 All five operations share one dialog and the same four moves: select a FASTQ
 bundle in the sidebar (paired-end is supported, and pairs stay paired),
-choose `Tools > FASTQ/FASTA Operations > Search & Subsetting…`, select the
-operation from the list, set the fields the table below lists for that
-operation, then click **Run**. The new bundle appears under `Imports/`. Only
-the parameter fields differ between operations, so the table is the fastest
-way to see what each one asks for.
+choose `Tools > FASTQ/FASTA Operations > Search & Subsetting…`, pick the
+operation from the list, set the fields the table below lists for it, then
+click **Run**. The new bundle appears under `Imports/`. Only the parameter
+fields change between operations, so the table is the fastest way to see what
+each one asks for.
 
 | Operation | Fields you set | Default | Notes |
 |---|---|---|---|
@@ -76,13 +74,13 @@ way to see what each one asks for.
 | Extract Reads by Motif | `Pattern`: a DNA string (for example a primer sequence); `Use Regular Expression` toggle | regex off | Searches the read sequence, not the header. No mismatch budget and no strand option. |
 | Select Reads by Sequence | `Sequence or FASTA Path`; `Search End` picker (5' End or 3' End); `Min Overlap`; `Error Rate`; `Search Reverse Complement` toggle; `Keep Matched Reads` toggle | Min Overlap 8, Error Rate 0.1, both toggles off | Tolerant, end-anchored matching of an adapter or barcode. Turn on `Keep Matched Reads` to keep the reads that carry the sequence instead of discarding them. |
 
-There is no random-seed control on the subsample operations, so do not record
-a seed in your methods for a Lungfish subsample. If a reviewer needs the exact
-draw, archive the output bundle itself.
+The subsample operations have no random-seed control, so do not record a seed
+in your methods for a Lungfish subsample. If a reviewer needs the exact draw,
+archive the output bundle itself.
 
-Extract Reads by Motif has no mismatch budget and no strand option. When you
-need tolerant matching with an error rate and a reverse-complement search, use
-Select Reads by Sequence instead.
+Extract Reads by Motif carries no mismatch budget and no strand option. When
+you need tolerant matching, with an error rate and a reverse-complement search,
+use Select Reads by Sequence instead.
 
 The command-line forms are `lungfish fastq subsample` (with `--proportion`
 or `--count`), `lungfish fastq search-text` (Extract Reads by ID, with
@@ -97,35 +95,34 @@ where `left` is the 5' end and `right` is the 3' end the GUI picker labels.
 
 Every subset operation logs to the Operations Panel and writes a provenance
 sidecar inside the new bundle, so the parameter you set and the input
-checksum are recoverable later. The new bundle's QC charts (read length,
+checksum stay recoverable later. The new bundle's QC charts (read length,
 per-base quality, GC) reflect the subset, not the parent.
 
-A virtual bundle shows a small badge in the sidebar and reports the full
-read count in its Inspector even though only the preview is on disk. If you
-right-click and choose **Reveal in Finder**, the bundle folder will contain
-`preview.fastq` rather than the full file. This is normal. The first time
+A virtual bundle carries a small badge in the sidebar and reports the full
+read count in its Inspector, even though only the preview is on disk.
+Right-click and choose **Reveal in Finder** and the bundle folder holds
+`preview.fastq` rather than the full file. That is normal. The first time
 you run any downstream pipeline (mapping, classification, assembly) on a
 virtual bundle, Lungfish materializes the full FASTQ as the first step,
-runs the workflow, and cleans up the temporary file when the workflow ends.
-You do not need to trigger materialization manually. If you want the full
-FASTQ written out ahead of time (to pre-stage a large slice, for example),
-the command `lungfish fastq materialize <bundle> -o <out>` realizes it on
-demand.
+runs the workflow, and clears the temporary file when the workflow ends.
+You never trigger materialization by hand. If you want the full FASTQ written
+out ahead of time, to pre-stage a large slice for instance, the command
+`lungfish fastq materialize <bundle> -o <out>` realizes it on demand.
 
 An exact-motif extraction returns zero reads more often than people expect,
 because Extract Reads by Motif matches the pattern exactly on the read as
-written. If the library is unstranded (either strand of the molecule may
-appear in the read) or you expect a base or two of sequencing error, use
-Select Reads by Sequence instead: it offers an error-rate tolerance and a
+written. If the library is unstranded (either strand of the molecule may show
+up in the read) or you expect a base or two of sequencing error, use Select
+Reads by Sequence instead: it offers an error-rate tolerance and a
 reverse-complement search. Try it with `Search Reverse Complement` on and the
-default 0.1 error rate before concluding a sequence is absent.
+default 0.1 error rate before you conclude a sequence is absent.
 
 ### Worked example: normalize two samples to equal depth
 
-Suppose you have two FASTQ bundles for a comparison study: `SampleA` with
-about 1,000,000 reads and `SampleB` with about 100,000 reads. A direct
-comparison of classifier hit counts or coverage between them would be
-biased by depth. To put them on equal footing:
+Say you have two FASTQ bundles for a comparison study: `SampleA` with about
+1,000,000 reads and `SampleB` with about 100,000 reads. Compare their
+classifier hit counts or coverage head to head and depth alone will skew the
+result. To put them on equal footing:
 
 1. Select `SampleA` and run **Subsample by Count** with a target of `100000`.
 2. Leave `SampleB` as is.
@@ -134,42 +131,42 @@ biased by depth. To put them on equal footing:
 4. To make the draw reproducible for a reviewer, archive the output bundle
    itself (there is no seed to record).
 
-Subsample by Count gives you about the target number of reads (or fewer, if
-the input has fewer). Subsample by Proportion would instead draw a fraction
-of whatever the input held, which is not what you want when the two inputs
-start at different depths.
+Subsample by Count returns about the target number of reads, or fewer if the
+input holds fewer. Subsample by Proportion would instead draw a fraction of
+whatever the input held, which is not what you want when the two inputs start
+at different depths.
 
 ### Worked example: a quick test slice of an SRA run
 
 You have just downloaded `SRR36291587` and want to dry-run an assembly
 pipeline before committing to the full run. Select the bundle, choose
-**Subsample by Count**, enter `10000`, and click **Run**. Use the resulting
-virtual subset as the input to the assembly pipeline. The materialization
-step reconstructs the 10,000-read FASTQ at the start of the run; the
-assembly itself finishes in a fraction of the wall time of the full job.
-If the dry run looks right, re-run the assembly against the full bundle.
+**Subsample by Count**, enter `10000`, and click **Run**. Feed the resulting
+virtual subset to the assembly pipeline. The materialization step rebuilds the
+10,000-read FASTQ at the start of the run, and the assembly itself finishes in
+a fraction of the full job's wall time. If the dry run looks right, re-run the
+assembly against the full bundle.
 
 ### Worked example: verify primer presence
 
-You suspect a sample was prepared with the ARTIC v3 scheme but you want to
+You suspect a sample was prepared with the ARTIC v3 scheme, but you want to
 confirm before running primer trim. Pick a high-yield primer sequence from
-the scheme (for example, a left primer near the start of ORF1ab), choose
+the scheme (a left primer near the start of ORF1ab, for example), choose
 **Select Reads by Sequence**, paste the sequence, keep the default 0.1 error
 rate, tick `Search Reverse Complement`, and tick `Keep Matched Reads`. If a
-meaningful fraction of reads come back (anything above background), the
-primer is present. Repeat for a second primer if you want stronger evidence.
-For an exact, header-free spot check that a known motif appears at all (a
-variant hotspot before assembly, for instance), Extract Reads by Motif is the
-quicker tool.
+meaningful fraction of reads come back, anything above background, the primer
+is present. Repeat for a second primer if you want stronger evidence. For an
+exact, header-free spot check that a known motif appears at all, a variant
+hotspot before assembly for instance, Extract Reads by Motif is the quicker
+tool.
 
 ## What you will learn
 
 After this chapter you can subsample a bundle to a
 target read count for fast pipeline testing, normalize two samples to a
-comparable depth, extract reads by a header query, extract reads containing a
-specific sequence motif, select reads that carry an adapter or barcode with
-Select Reads by Sequence, and recognize that a virtual subset bundle does not
-have its full FASTQ on disk until a downstream operation forces materialization.
+comparable depth, extract reads by a header query, extract reads that contain a
+specific sequence motif, select reads carrying an adapter or barcode with
+Select Reads by Sequence, and recognize that a virtual subset bundle keeps its
+full FASTQ off disk until a downstream operation forces materialization.
 
 ## Next
 

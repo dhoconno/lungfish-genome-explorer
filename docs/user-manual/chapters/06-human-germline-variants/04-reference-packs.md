@@ -29,14 +29,13 @@ lead_approved: false
 ## What it is
 
 "Reference pack" is a convenience name this manual uses for the set of files
-GATK germline workflows expect on disk. It is not a Lungfish object. There is
-no `lungfish` command that installs, downloads, validates, or enforces a
-"reference pack", and no such symbol exists in the app. Think of it as a
-recommended folder layout you assemble yourself, not something you can pull
-from a server.
+GATK germline workflows expect on disk. It is not a Lungfish object. No
+`lungfish` command installs, downloads, validates, or enforces a "reference
+pack", and no such symbol lives in the app. Picture a recommended folder
+layout you assemble yourself, not something you pull from a server.
 
-GATK human germline workflows depend on more than a FASTA. A practical
-reference layout usually contains:
+GATK human germline workflows lean on more than a FASTA. A practical reference
+layout usually holds:
 
 | File | Why GATK needs it |
 |---|---|
@@ -48,10 +47,10 @@ reference layout usually contains:
 | interval list or BED | Optional targeted-capture or panel regions |
 
 Lungfish does not ship a human reference layout. Keep these files under
-explicit project or lab storage, record where each one came from, and pass
-absolute paths when you construct commands. The example below previews a BQSR
+explicit project or lab storage, note where each one came from, and pass
+absolute paths when you build commands. The example below previews a BQSR
 (base quality score recalibration: GATK's correction of systematic sequencer
-quality errors using known sites) command; add `--execute` to run it:
+quality errors using known sites) command. Add `--execute` to run it:
 
 ```bash
 lungfish gatk bqsr \
@@ -64,14 +63,12 @@ lungfish gatk bqsr \
 ```
 
 `--known-sites` is repeatable, so pass dbSNP, Mills, and any cohort resources
-as separate flags. Two more `bqsr` options are worth knowing:
-`--intervals` restricts recalibration to a region list, and
-`--create-output-bam-index` (default `true`) controls whether ApplyBQSR
-writes a BAM index.
+as separate flags. Two more `bqsr` options are worth knowing. `--intervals`
+restricts recalibration to a region list, and `--create-output-bam-index`
+(default `true`) decides whether ApplyBQSR writes a BAM index.
 
-In practice, build this folder once per reference genome, record each file's
-source in your own notes, and point the absolute paths at it from every
-`gatk` command.
+Build this folder once per reference genome, note each file's source in your
+own records, and point the absolute paths at it from every `gatk` command.
 
 ## Plugin pack
 
@@ -83,9 +80,9 @@ lungfish conda install --pack gatk-core
 ```
 
 The pack pins `bioconda::gatk4=4.6.2.0` and verifies it with `gatk --version`.
-Two facts are worth weighing before you install: the pack is flagged
-experimental, which gates it out of validated or clinical use until you have
-qualified it yourself, and the download is roughly 600 MB, which matters when
+Two facts are worth weighing before you install. The pack is flagged
+experimental, which keeps it out of validated or clinical use until you have
+qualified it yourself. And the download runs roughly 600 MB, which stings when
 students pull it over shared lab wifi.
 
 The phased GUI tool (**GATK + WhatsHap Phased**, see
@@ -99,7 +96,7 @@ lungfish conda install --pack phasing
 The `phasing` pack provides WhatsHap (`bioconda::whatshap=2.3`) and is also
 flagged experimental.
 
-Installing the pack provisions GATK; it does not run a workflow. Running a
+Installing the pack provisions GATK. It does not run a workflow. Running a
 workflow is a separate step: a `gatk` command with `--execute`, which runs
 GATK in this environment and records final-output provenance in the bundle
 (see [HaplotypeCaller](01-haplotype-caller.md)).

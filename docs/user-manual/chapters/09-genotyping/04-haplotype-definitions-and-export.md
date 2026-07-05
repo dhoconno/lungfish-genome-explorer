@@ -51,7 +51,7 @@ lead_approved: false
 A haplotype definition is the rulebook that turns observed allele targets into
 named M-family calls. It lists, for each family and each locus, the defining
 targets that support it. The genotyping run applies a definition set to your
-reads; this chapter is about editing that rulebook and getting the reviewed
+reads. This chapter is about editing that rulebook and getting the reviewed
 result out of Lungfish. Definition sets live in `.lungfishmhcref` bundles and in
 your project, and they are deterministic: the same reads and the same definition
 set produce the same calls, every time.
@@ -190,4 +190,3 @@ Return to
 to review calls before a final export, or to
 [What Is Amplicon MHC Genotyping](01-what-is-mhc-genotyping.md) for the concepts
 behind the definitions you just edited.
-</content>

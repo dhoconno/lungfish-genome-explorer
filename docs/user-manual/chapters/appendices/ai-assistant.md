@@ -80,7 +80,7 @@ currently loaded, so you can click one to get started instead of typing.
 ### Step 2. Ask a question about the active dataset
 
 Type a question into the field at the bottom and press Return. A thinking
-indicator appears while your provider responds; the answer follows, and you
+indicator appears while your provider responds. The answer follows, and you
 can copy it with the button on the reply. Good questions are
 grounded in your data: "summarize this bundle", "what genes are in my
 current view?", "explain what this taxonomy result is telling me", or "which
