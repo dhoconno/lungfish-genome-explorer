@@ -43,7 +43,7 @@ final class VariantsCommandTests: XCTestCase {
         XCTAssertTrue(vcf.contains("rs100"))
         XCTAssertTrue(vcf.contains("rs300"))
 
-        let provenanceURL = outputURL.deletingLastPathComponent().appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let run = try decoder.decode(WorkflowRun.self, from: Data(contentsOf: provenanceURL))
@@ -52,6 +52,12 @@ final class VariantsCommandTests: XCTestCase {
         XCTAssertEqual(run.steps.first?.exitCode, 0)
         XCTAssertEqual(run.steps.first?.outputs.first?.path, outputURL.path)
         XCTAssertEqual(run.parameters["sample"]?.stringValue, "NA12878")
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: outputURL.deletingLastPathComponent().appendingPathComponent(ProvenanceRecorder.provenanceFilename).path
+            ),
+            "Standalone variant exports should use a file-specific sidecar, not an ambiguous directory-level record."
+        )
     }
 
     func testQuerySubcommandFiltersWithSmartFilter() async throws {
@@ -73,20 +79,25 @@ final class VariantsCommandTests: XCTestCase {
         XCTAssertFalse(vcf.contains("rs200"))
         XCTAssertTrue(vcf.contains("rs300"))
 
-        let provenanceURL = outputURL.deletingLastPathComponent().appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let run = try decoder.decode(WorkflowRun.self, from: Data(contentsOf: provenanceURL))
         XCTAssertEqual(run.name, "lungfish variants query")
         XCTAssertEqual(run.steps.first?.toolName, "lungfish variants query")
         XCTAssertEqual(run.parameters["filter"]?.stringValue, "Sample[NA12878].GT=1/1")
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: outputURL.deletingLastPathComponent().appendingPathComponent(ProvenanceRecorder.provenanceFilename).path
+            ),
+            "Standalone variant exports should use a file-specific sidecar, not an ambiguous directory-level record."
+        )
     }
 
     func testExtractSampleDoesNotPublishVCFWhenProvenanceWriteFails() async throws {
         let bundleURL = try makeVariantBundleFixture()
         let outputURL = tempDir.appendingPathComponent("blocked-sample.vcf")
-        let provenanceURL = outputURL.deletingLastPathComponent()
-            .appendingPathComponent(ProvenanceRecorder.provenanceFilename, isDirectory: true)
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
         try FileManager.default.createDirectory(at: provenanceURL, withIntermediateDirectories: true)
         let command = try VariantsCommand.ExtractSampleSubcommand.parse([
             "extract-sample",
@@ -107,8 +118,7 @@ final class VariantsCommandTests: XCTestCase {
     func testQueryDoesNotPublishVCFWhenProvenanceWriteFails() async throws {
         let bundleURL = try makeVariantBundleFixture()
         let outputURL = tempDir.appendingPathComponent("blocked-query.vcf")
-        let provenanceURL = outputURL.deletingLastPathComponent()
-            .appendingPathComponent(ProvenanceRecorder.provenanceFilename, isDirectory: true)
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
         try FileManager.default.createDirectory(at: provenanceURL, withIntermediateDirectories: true)
         let command = try VariantsCommand.QuerySubcommand.parse([
             "query",

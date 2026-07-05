@@ -179,12 +179,12 @@ extension VariantsCommand {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let provenanceURL = outputURL.deletingLastPathComponent().appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
         try encoder.encode(run).write(to: provenanceURL, options: .atomic)
     }
 
     fileprivate static func provenanceURL(forOutputURL outputURL: URL) -> URL {
-        outputURL.deletingLastPathComponent().appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        ProvenanceRecorder.fileSidecarURL(for: outputURL)
     }
 
     fileprivate static func stagedOutputURL(for outputURL: URL) -> URL {
