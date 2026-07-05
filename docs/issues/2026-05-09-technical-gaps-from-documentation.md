@@ -879,16 +879,18 @@ This is a subset of #docs-002 (multi-user shared projects) but can ship independ
 
 ## Format-specific gaps
 
-### #docs-035: GFF3 with no annotations should still write a manifest entry
+### #docs-035: Superseded — empty GFF3 imports now fail closed
 
-**Severity:** P3
+**Severity:** Superseded by beta1 provenance hardening
 
 **Where the manual says it:** `02-sequences/02-downloading-from-ncbi.md` troubleshooting: "If you asked for GFF3 and got an XML error document, the upstream record probably does not have annotations in GFF3 form. Fall back to GenBank."
 
-**Acceptance criteria:**
+**Resolution note (2026-07-05):** Direct annotation-track import now rejects empty or malformed
+annotation inputs with `noImportableAnnotations` and removes any generated SQLite artifacts before
+returning. A zero-feature annotation database is not considered a valid scientific output because it
+can make malformed input look like an intentionally empty track.
 
-- [ ] `lungfish fetch ncbi --fetch-format gff3` returns an empty-but-valid GFF3 (just `##gff-version 3` header) when the upstream record has no annotations, and warns rather than errors
-- [ ] The bundle creation step accepts an empty GFF3 and notes "no annotations" in the manifest
+**Acceptance criteria:** closed as not planned under beta1 policy.
 
 ---
 

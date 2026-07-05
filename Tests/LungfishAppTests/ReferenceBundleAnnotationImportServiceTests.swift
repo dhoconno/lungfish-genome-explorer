@@ -188,9 +188,10 @@ final class ReferenceBundleAnnotationImportServiceTests: XCTestCase {
         XCTAssertTrue(provenance.contains(gffURL.path))
         XCTAssertTrue(provenance.contains("custom_feature.db"))
         XCTAssertTrue(provenance.contains("\"featureCount\" : 1"))
+        XCTAssertTrue(provenance.contains("\"rejectZeroFeatureTracks\" : \"true\""))
     }
 
-    func testAttachesEmptyGFFWithNoAnnotationsManifestEntry() async throws {
+    func testRejectsEmptyGFFWithoutPublishingAnnotationTrack() async throws {
         let bundleURL = try makeBundle(named: "M1")
         let gffURL = tempRoot.appendingPathComponent("empty.gff3")
         try """
@@ -199,18 +200,25 @@ final class ReferenceBundleAnnotationImportServiceTests: XCTestCase {
 
         """.write(to: gffURL, atomically: true, encoding: .utf8)
 
-        let result = try await ReferenceBundleAnnotationImportService().attachAnnotationTrack(
-            sourceURL: gffURL,
-            bundleURL: bundleURL
-        )
+        do {
+            _ = try await ReferenceBundleAnnotationImportService().attachAnnotationTrack(
+                sourceURL: gffURL,
+                bundleURL: bundleURL
+            )
+            XCTFail("Expected empty GFF import to fail closed")
+        } catch ReferenceBundleAnnotationImportError.noImportableAnnotations(let url) {
+            XCTAssertEqual(url, gffURL)
+        } catch {
+            XCTFail("Expected noImportableAnnotations, got \(error)")
+        }
 
         let manifest = try BundleManifest.load(from: bundleURL)
-        XCTAssertEqual(result.featureCount, 0)
-        XCTAssertEqual(manifest.annotations.count, 1)
-        XCTAssertEqual(manifest.annotations.first?.featureCount, 0)
-        XCTAssertEqual(manifest.annotations.first?.description, "Imported from empty.gff3 (no annotations found)")
-        XCTAssertTrue(FileManager.default.fileExists(
+        XCTAssertTrue(manifest.annotations.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(
             atPath: bundleURL.appendingPathComponent("annotations/empty.db").path
+        ))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: bundleURL.appendingPathComponent("annotations/empty-import-provenance.json").path
         ))
     }
 

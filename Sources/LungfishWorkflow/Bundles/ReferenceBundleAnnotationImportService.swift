@@ -192,15 +192,14 @@ public final class ReferenceBundleAnnotationImportService {
             throw ReferenceBundleAnnotationImportError.unsupportedFormat(sourceURL)
         }
         if featureCount == 0 {
-            annotationImportLogger.warning("Attached empty annotation track for \(sourceURL.lastPathComponent, privacy: .public); no importable annotations were found")
+            try removeAnnotationDatabaseArtifacts(at: databaseURL)
+            throw ReferenceBundleAnnotationImportError.noImportableAnnotations(sourceURL)
         }
 
         let track = AnnotationTrackInfo(
             id: trackID,
             name: trackName,
-            description: featureCount == 0
-                ? "Imported from \(sourceURL.lastPathComponent) (no annotations found)"
-                : "Imported from \(sourceURL.lastPathComponent)",
+            description: "Imported from \(sourceURL.lastPathComponent)",
             path: databasePath,
             databasePath: databasePath,
             annotationType: .custom,
@@ -233,7 +232,7 @@ public final class ReferenceBundleAnnotationImportService {
                 startedAt: startedAt
             )
         } catch {
-            try? FileManager.default.removeItem(at: databaseURL)
+            try? removeAnnotationDatabaseArtifacts(at: databaseURL)
             try? FileManager.default.removeItem(at: importProvenanceURL(bundleURL: standardizedBundleURL, trackID: trackID))
             try? originalManifest.save(to: standardizedBundleURL)
             provenanceSnapshot.restore()
@@ -390,8 +389,7 @@ public final class ReferenceBundleAnnotationImportService {
                 "trackName": track.name,
                 "format": format,
                 "importer": importerName,
-                "rejectZeroFeatureTracks": "false",
-                "emptyAnnotationManifestEntry": featureCount == 0 ? "true" : "false",
+                "rejectZeroFeatureTracks": "true",
                 "storedCoordinateSystem": "0-based half-open",
             ],
             inputPaths: inputSnapshots.map(\.path),
@@ -440,6 +438,17 @@ public final class ReferenceBundleAnnotationImportService {
 
     private func importProvenanceURL(bundleURL: URL, trackID: String) -> URL {
         bundleURL.appendingPathComponent("annotations/\(trackID)-import-provenance.json")
+    }
+
+    private func removeAnnotationDatabaseArtifacts(at databaseURL: URL) throws {
+        for url in [
+            databaseURL,
+            URL(fileURLWithPath: databaseURL.path + "-wal"),
+            URL(fileURLWithPath: databaseURL.path + "-shm"),
+        ] {
+            guard FileManager.default.fileExists(atPath: url.path) else { continue }
+            try FileManager.default.removeItem(at: url)
+        }
     }
 
     private func writeCanonicalProvenance(
@@ -504,7 +513,7 @@ public final class ReferenceBundleAnnotationImportService {
                 "format": .string(format),
             ],
             defaults: [
-                "reject_zero_feature_tracks": .boolean(false),
+                "reject_zero_feature_tracks": .boolean(true),
                 "stored_coordinate_system": .string("0-based half-open"),
             ],
             resolved: [
@@ -513,8 +522,7 @@ public final class ReferenceBundleAnnotationImportService {
                 "format": .string(format),
                 "importer": .string(importerName),
                 "feature_count": .integer(featureCount),
-                "reject_zero_feature_tracks": .boolean(false),
-                "empty_annotation_manifest_entry": .boolean(featureCount == 0),
+                "reject_zero_feature_tracks": .boolean(true),
                 "stored_coordinate_system": .string("0-based half-open"),
             ]
         )

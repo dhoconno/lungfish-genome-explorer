@@ -57,6 +57,10 @@ reviewed pass.
   moved unchanged into `ONTBarcodeDemuxGenotypingPipeline+Scripts.swift`. The public
   `writeFilterScript` and `writeReportScript` APIs stayed on the pipeline type via extension,
   reducing the main pipeline file from ~5.7K lines to ~3.4K lines without changing script bytes.
+- 2026-07-05 hardening pass: `ReferenceBundleAnnotationImportService` now rejects zero-feature
+  annotation imports as `noImportableAnnotations`, removes generated SQLite artifacts before
+  throwing, and records successful imports with `reject_zero_feature_tracks=true` provenance
+  defaults/resolved options.
 
 ### Deferred SPLITS (each its own reviewed pass — high value, needs promotions)
 - `ONTBarcodeDemuxGenotypingPipeline.swift` (now ~3.4K lines after script extraction). The
@@ -292,6 +296,9 @@ Reinforces the statement-level-clean finding: only 2 of 28 files had a safe appl
 - RESOLVED: `NativeBundleBuilder` no longer copies bedGraph or unknown signal inputs to `.bw`
   filenames. Until bedGraph-to-BigWig conversion has complete native-tool provenance, non-BigWig
   signal inputs fail closed instead of fabricating BigWig tracks.
+- RESOLVED 2026-07-05: `ReferenceBundleAnnotationImportService` no longer publishes
+  zero-feature annotation tracks for empty or malformed GFF3/BED inputs; generated database
+  artifacts are removed and the existing manifest/provenance layout is left untouched.
 - Public-but-uncalled symbols across the tier (`SnakemakeRunner.minimumVersion`,
   `ReadExtractionService.samtoolsRegion`, `OrientResult.totalCount`, several unused-but-
   public error cases + `WorkflowGraphError.connectionNotFound`/`.emptyGraph`): NOT removable

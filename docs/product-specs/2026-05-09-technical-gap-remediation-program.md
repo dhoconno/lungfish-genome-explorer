@@ -82,7 +82,8 @@ The program should produce shippable increments. A milestone is not complete whe
 **Immediate implementation:**
 
 - GenBank import extracts CDS, gene, and mat_peptide features into bundle annotation tracks (`docs-001`, P0).
-- Empty GFF3 fetch/import writes a valid manifest entry with a "no annotations" note (`docs-035`).
+- Superseded by the beta provenance policy: direct annotation-track imports now reject empty
+  or malformed GFF3/BED inputs instead of publishing zero-feature tracks (`docs-035`).
 - Custom primer scheme import from BED + FASTA works and is documented (`docs-036`).
 - Update adapter-removal vs primer-trim guidance so FASTQ-level fastp combined adapter+quality behavior matches the dialog default (`docs-037`).
 

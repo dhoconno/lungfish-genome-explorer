@@ -37,6 +37,10 @@ changes that reduce future ambiguity across the codebase.
   indexes and missing sequences before mutation, non-UTF-8 stored sequence payloads
   throw instead of decoding to empty content, and shared queries require terminal
   `SQLITE_DONE`.
+- Made direct reference-bundle annotation imports fail closed on zero-feature inputs:
+  empty or malformed GFF3/BED files now throw before publishing a manifest entry, generated
+  SQLite artifacts are removed, and successful import provenance records zero-feature
+  rejection as enabled.
 - Aligned NCBI and ENA batch fetch streams with Pathoplexus cancellation semantics
   so abandoned consumers cancel the producer task before it continues issuing
   network requests.
