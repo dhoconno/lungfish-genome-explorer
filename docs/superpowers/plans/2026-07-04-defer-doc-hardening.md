@@ -63,6 +63,9 @@ changes that reduce future ambiguity across the codebase.
   in that path.
 - Made project lock acquisition use exclusive file creation so racing CLI lock attempts cannot
   both overwrite the same lock file.
+- Made corrupted project lock metadata a typed Core read result, with CLI lock/unlock failing
+  closed by default and App read-only warnings distinguishing corrupted lock files from generic
+  read errors.
 - Moved Core reference-bundle file work behind a non-main executor while keeping
   the observable builder as the main-actor progress adapter; the Core fallback now rejects
   provenance-bearing configurations instead of silently ignoring them.

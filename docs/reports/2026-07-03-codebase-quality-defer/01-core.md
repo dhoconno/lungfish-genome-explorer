@@ -279,9 +279,12 @@ original refactor was constrained to behavior-preserving edits:
   lock attempts cannot both overwrite the same lock file; stale/forced replacement
   uses a short-lived replacement guard and rechecks the original record before
   removing it.
-- **F5 — ProjectLock corrupt-lock throw behavior (medium).** The current reader still
-  treats malformed lock JSON as a thrown read error. Defer any UX/policy change to a
-  lock-state presentation pass.
+- **RESOLVED F5 — ProjectLock corrupted-lock state is explicit.** `ProjectLockManager`
+  now exposes a typed `ProjectLockReadResult` and `ProjectLockCorruption`, while the
+  legacy optional reader still throws the typed corruption error for compatibility. CLI
+  lock/unlock fail closed on corrupted lock metadata unless `--force` is supplied, and
+  App read-only warnings name corrupted lock metadata distinctly from generic read
+  failures.
 - **F9/F10 — KeychainSecretStorage query consistency + non-UTF8 retrieve returns
   nil (low/medium).** Do NOT change keychain security semantics. Defer.
 - **RESOLVED F11 — ManagedStorageConfigStore shared replacement narrowed.** The app-wide

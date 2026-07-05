@@ -55,4 +55,20 @@ final class ProjectLockWarningPresentationTests: XCTestCase {
         XCTAssertTrue(presentation.detail.contains("lock metadata could not be read"))
         XCTAssertTrue(presentation.detail.contains("The data could not be read."))
     }
+
+    func testCorruptedLockFormatsSpecificWarning() throws {
+        let state = ProjectOpenWarningState(
+            projectURL: URL(fileURLWithPath: "/tmp/Broken.lungfish"),
+            lockRecord: nil,
+            lockStatus: .corrupted,
+            readErrorDescription: "Project lock file is corrupted: invalid JSON"
+        )
+
+        let presentation = try XCTUnwrap(ProjectLockWarningPresentation(state: state))
+
+        XCTAssertEqual(presentation.title, "Project opened read-only")
+        XCTAssertTrue(presentation.detail.contains("lock metadata is corrupted"))
+        XCTAssertTrue(presentation.detail.contains("invalid JSON"))
+        XCTAssertTrue(state.warningMessage?.contains("lock metadata is corrupted") == true)
+    }
 }

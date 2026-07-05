@@ -108,6 +108,47 @@ final class ProjectCommandTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: lockURL(for: projectURL)), originalData)
     }
 
+    func testLockRefusesCorruptedLockWithoutForceAndLeavesFileUntouched() async throws {
+        let projectURL = try makeProject()
+        let lockURL = lockURL(for: projectURL)
+        try FileManager.default.createDirectory(at: lockURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "{not-json".write(to: lockURL, atomically: true, encoding: .utf8)
+        let originalData = try Data(contentsOf: lockURL)
+
+        let command = try ProjectCommand.LockSubcommand.parse([
+            projectURL.path,
+            "--quiet",
+        ])
+
+        do {
+            try await command.run()
+            XCTFail("Expected corrupted lock to be refused")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("Project lock file is corrupted"))
+        }
+
+        XCTAssertEqual(try Data(contentsOf: lockURL), originalData)
+    }
+
+    func testLockForceReplacesCorruptedLock() async throws {
+        let projectURL = try makeProject()
+        let lockURL = lockURL(for: projectURL)
+        try FileManager.default.createDirectory(at: lockURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "{not-json".write(to: lockURL, atomically: true, encoding: .utf8)
+
+        let command = try ProjectCommand.LockSubcommand.parse([
+            projectURL.path,
+            "--mode", "maintenance",
+            "--force",
+            "--quiet",
+        ])
+        try await command.run()
+
+        let record = try loadLockRecord(from: projectURL)
+        XCTAssertEqual(record["mode"] as? String, "maintenance")
+        XCTAssertEqual(record["toolName"] as? String, "lungfish project lock")
+    }
+
     func testLockReplacesStaleLocalLock() async throws {
         let projectURL = try makeProject()
         try writeLockRecord(
@@ -243,6 +284,34 @@ final class ProjectCommandTests: XCTestCase {
         try await unlock.run()
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: lockURL(for: projectURL).path))
+    }
+
+    func testUnlockRefusesCorruptedLockUnlessForced() async throws {
+        let projectURL = try makeProject()
+        let lockURL = lockURL(for: projectURL)
+        try FileManager.default.createDirectory(at: lockURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "{not-json".write(to: lockURL, atomically: true, encoding: .utf8)
+
+        let unlock = try ProjectCommand.UnlockSubcommand.parse([
+            projectURL.path,
+            "--quiet",
+        ])
+        do {
+            try await unlock.run()
+            XCTFail("Expected unlock to refuse a corrupted lock")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("Project lock file is corrupted"))
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: lockURL.path))
+
+        let forcedUnlock = try ProjectCommand.UnlockSubcommand.parse([
+            projectURL.path,
+            "--force",
+            "--quiet",
+        ])
+        try await forcedUnlock.run()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: lockURL.path))
     }
 
     func testUnlockRefusesForeignLockUnlessForced() async throws {

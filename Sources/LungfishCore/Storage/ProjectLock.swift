@@ -9,6 +9,27 @@ public enum ProjectLockStatus: String, Codable, Sendable, Equatable {
     case active
     case stale
     case unknown
+    case corrupted
+}
+
+public struct ProjectLockCorruption: Error, LocalizedError, Sendable, Equatable {
+    public let lockURL: URL
+    public let reason: String
+
+    public init(lockURL: URL, reason: String) {
+        self.lockURL = lockURL
+        self.reason = reason
+    }
+
+    public var errorDescription: String? {
+        "Project lock file is corrupted at \(lockURL.path): \(reason)"
+    }
+}
+
+public enum ProjectLockReadResult: Sendable, Equatable {
+    case missing
+    case valid(ProjectLockRecord)
+    case corrupted(ProjectLockCorruption)
 }
 
 public struct ProjectLockRecord: Codable, Sendable, Equatable {
@@ -91,16 +112,40 @@ public struct ProjectLockManager {
     }
 
     public func readLock(at lockURL: URL) throws -> ProjectLockRecord? {
-        guard fileManager.fileExists(atPath: lockURL.path) else {
+        switch try readLockResult(at: lockURL) {
+        case .missing:
             return nil
+        case .valid(let record):
+            return record
+        case .corrupted(let corruption):
+            throw corruption
+        }
+    }
+
+    public func readLockResult(at lockURL: URL) throws -> ProjectLockReadResult {
+        guard fileManager.fileExists(atPath: lockURL.path) else {
+            return .missing
         }
 
         let data = try Data(contentsOf: lockURL)
-        return try JSONDecoder().decode(ProjectLockRecord.self, from: data)
+        do {
+            return .valid(try JSONDecoder().decode(ProjectLockRecord.self, from: data))
+        } catch {
+            return .corrupted(
+                ProjectLockCorruption(
+                    lockURL: lockURL,
+                    reason: error.localizedDescription
+                )
+            )
+        }
     }
 
     public func readLock(forProjectAt projectURL: URL) throws -> ProjectLockRecord? {
         try readLock(at: Self.lockURL(for: projectURL))
+    }
+
+    public func readLockResult(forProjectAt projectURL: URL) throws -> ProjectLockReadResult {
+        try readLockResult(at: Self.lockURL(for: projectURL))
     }
 
     public func writeLock(_ record: ProjectLockRecord, to lockURL: URL) throws {

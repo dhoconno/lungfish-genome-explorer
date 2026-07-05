@@ -45,6 +45,38 @@ final class ProjectLockTests: XCTestCase {
         XCTAssertEqual(try ProjectLockManager().readLock(at: lockURL), originalRecord)
     }
 
+    func testReadLockResultReportsCorruptedLockJSON() throws {
+        let projectURL = tempDir.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        let lockURL = ProjectLockManager.lockURL(for: projectURL)
+        try FileManager.default.createDirectory(at: lockURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "{not-json".write(to: lockURL, atomically: true, encoding: .utf8)
+
+        let result = try ProjectLockManager().readLockResult(at: lockURL)
+
+        guard case .corrupted(let corruption) = result else {
+            return XCTFail("Expected corrupted lock result, got \(result)")
+        }
+        XCTAssertEqual(corruption.lockURL, lockURL)
+        XCTAssertFalse(corruption.reason.isEmpty)
+        XCTAssertTrue(corruption.localizedDescription.contains("Project lock file is corrupted"))
+    }
+
+    func testReadLockThrowsTypedErrorForCorruptedLockJSON() throws {
+        let projectURL = tempDir.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        let lockURL = ProjectLockManager.lockURL(for: projectURL)
+        try FileManager.default.createDirectory(at: lockURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "{not-json".write(to: lockURL, atomically: true, encoding: .utf8)
+
+        XCTAssertThrowsError(try ProjectLockManager().readLock(at: lockURL)) { error in
+            guard let corruption = error as? ProjectLockCorruption else {
+                return XCTFail("Expected ProjectLockCorruption, got \(error)")
+            }
+            XCTAssertEqual(corruption.lockURL, lockURL)
+        }
+    }
+
     func testConcurrentAcquireLockAllowsOnlyOneWinner() throws {
         let projectURL = tempDir.appendingPathComponent("Project.lungfish", isDirectory: true)
         try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)

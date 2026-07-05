@@ -49,39 +49,48 @@ struct ProjectCommand: AsyncParsableCommand {
             let lockURL = ProjectLockManager.lockURL(for: projectURL)
             let manager = ProjectLockManager(fileManager: .default)
 
-            if let existing = try manager.readLock(at: lockURL) {
+            switch try manager.readLockResult(at: lockURL) {
+            case .missing:
+                break
+            case .corrupted(let corruption):
+                guard force else {
+                    throw ProjectCommandError.corruptedLock(lockURL: lockURL, reason: corruption.reason)
+                }
+                let replacementLockURL = try ProjectCommand.acquireReplacementLock(
+                    manager: manager,
+                    projectURL: projectURL,
+                    lockURL: lockURL,
+                    force: force
+                )
+                defer { try? manager.removeLockIfPresent(at: replacementLockURL) }
+                switch try manager.readLockResult(at: lockURL) {
+                case .missing:
+                    break
+                case .corrupted:
+                    try manager.removeLockIfPresent(at: lockURL)
+                case .valid(let latest):
+                    throw ProjectCommandError.alreadyLocked(lockURL: lockURL, record: latest)
+                }
+            case .valid(let existing):
                 let status = manager.status(of: existing)
                 if (status == .active || status == .unknown) && !force {
                     throw ProjectCommandError.alreadyLocked(lockURL: lockURL, record: existing)
                 }
 
-                let replacementLockURL = ProjectLockManager.replacementLockURL(forLockAt: lockURL)
-                let replacementRecord = ProjectLockRecord.current(
+                let replacementLockURL = try ProjectCommand.acquireReplacementLock(
+                    manager: manager,
                     projectURL: projectURL,
-                    mode: "lock-replacement",
-                    toolName: "lungfish project lock",
-                    appVersion: ProjectCommandMetadata.appVersion
+                    lockURL: lockURL,
+                    force: force
                 )
-                var replacementAcquired = try manager.acquireLock(replacementRecord, to: replacementLockURL)
-                if !replacementAcquired,
-                   let competingReplacement = try manager.readLock(at: replacementLockURL),
-                   manager.status(of: competingReplacement) == .stale,
-                   force || manager.canRemoveWithoutForce(competingReplacement) {
-                    try manager.removeLockIfPresent(at: replacementLockURL)
-                    replacementAcquired = try manager.acquireLock(replacementRecord, to: replacementLockURL)
-                }
-                guard replacementAcquired else {
-                    if let competingReplacement = try manager.readLock(at: replacementLockURL) {
-                        throw ProjectCommandError.lockReplacementInProgress(
-                            lockURL: replacementLockURL,
-                            record: competingReplacement
-                        )
-                    }
-                    throw ProjectCommandError.lockAcquisitionFailed(lockURL: replacementLockURL)
-                }
                 defer { try? manager.removeLockIfPresent(at: replacementLockURL) }
 
-                if let latest = try manager.readLock(at: lockURL) {
+                switch try manager.readLockResult(at: lockURL) {
+                case .missing:
+                    break
+                case .corrupted(let corruption):
+                    throw ProjectCommandError.corruptedLock(lockURL: lockURL, reason: corruption.reason)
+                case .valid(let latest):
                     guard latest == existing else {
                         throw ProjectCommandError.alreadyLocked(lockURL: lockURL, record: latest)
                     }
@@ -96,7 +105,12 @@ struct ProjectCommand: AsyncParsableCommand {
                 appVersion: ProjectCommandMetadata.appVersion
             )
             guard try manager.acquireLock(record, to: lockURL) else {
-                if let competingRecord = try manager.readLock(at: lockURL) {
+                switch try manager.readLockResult(at: lockURL) {
+                case .missing:
+                    break
+                case .corrupted(let corruption):
+                    throw ProjectCommandError.corruptedLock(lockURL: lockURL, reason: corruption.reason)
+                case .valid(let competingRecord):
                     throw ProjectCommandError.alreadyLocked(lockURL: lockURL, record: competingRecord)
                 }
                 throw ProjectCommandError.lockAcquisitionFailed(lockURL: lockURL)
@@ -137,7 +151,20 @@ struct ProjectCommand: AsyncParsableCommand {
             let lockURL = ProjectLockManager.lockURL(for: projectURL)
             let manager = ProjectLockManager(fileManager: .default)
 
-            guard let record = try manager.readLock(at: lockURL) else {
+            let readResult = try manager.readLockResult(at: lockURL)
+            guard case .valid(let record) = readResult else {
+                if case .corrupted(let corruption) = readResult {
+                    guard force else {
+                        throw ProjectCommandError.corruptedLock(lockURL: lockURL, reason: corruption.reason)
+                    }
+                    try manager.removeLockIfPresent(at: lockURL)
+                    try ProjectCommand.writeUnlockOutput(
+                        projectURL: projectURL,
+                        lockURL: lockURL,
+                        globalOptions: globalOptions
+                    )
+                    return
+                }
                 if !globalOptions.quiet {
                     print("No project lock found: \(lockURL.path)")
                 }
@@ -148,16 +175,70 @@ struct ProjectCommand: AsyncParsableCommand {
                 throw ProjectCommandError.foreignLock(lockURL: lockURL, record: record)
             }
 
-            try FileManager.default.removeItem(at: lockURL)
+            try manager.removeLockIfPresent(at: lockURL)
+            try ProjectCommand.writeUnlockOutput(
+                projectURL: projectURL,
+                lockURL: lockURL,
+                globalOptions: globalOptions
+            )
+        }
+    }
 
-            if globalOptions.outputFormat == .json {
-                if !globalOptions.quiet {
-                    JSONOutputHandler().writeData(ProjectUnlockOutput(lockFile: lockURL.path, removed: true), label: nil)
+    private static func acquireReplacementLock(
+        manager: ProjectLockManager,
+        projectURL: URL,
+        lockURL: URL,
+        force: Bool
+    ) throws -> URL {
+        let replacementLockURL = ProjectLockManager.replacementLockURL(forLockAt: lockURL)
+        let replacementRecord = ProjectLockRecord.current(
+            projectURL: projectURL,
+            mode: "lock-replacement",
+            toolName: "lungfish project lock",
+            appVersion: ProjectCommandMetadata.appVersion
+        )
+        var replacementAcquired = try manager.acquireLock(replacementRecord, to: replacementLockURL)
+        if !replacementAcquired {
+            switch try manager.readLockResult(at: replacementLockURL) {
+            case .missing:
+                break
+            case .corrupted(let corruption):
+                guard force else {
+                    throw ProjectCommandError.corruptedLock(lockURL: replacementLockURL, reason: corruption.reason)
                 }
-            } else if !globalOptions.quiet {
-                print("Unlocked project: \(projectURL.path)")
-                print("Removed lock file: \(lockURL.path)")
+                try manager.removeLockIfPresent(at: replacementLockURL)
+                replacementAcquired = try manager.acquireLock(replacementRecord, to: replacementLockURL)
+            case .valid(let competingReplacement):
+                if manager.status(of: competingReplacement) == .stale,
+                   force || manager.canRemoveWithoutForce(competingReplacement) {
+                    try manager.removeLockIfPresent(at: replacementLockURL)
+                    replacementAcquired = try manager.acquireLock(replacementRecord, to: replacementLockURL)
+                } else {
+                    throw ProjectCommandError.lockReplacementInProgress(
+                        lockURL: replacementLockURL,
+                        record: competingReplacement
+                    )
+                }
             }
+        }
+        guard replacementAcquired else {
+            throw ProjectCommandError.lockAcquisitionFailed(lockURL: replacementLockURL)
+        }
+        return replacementLockURL
+    }
+
+    private static func writeUnlockOutput(
+        projectURL: URL,
+        lockURL: URL,
+        globalOptions: GlobalOptions
+    ) throws {
+        if globalOptions.outputFormat == .json {
+            if !globalOptions.quiet {
+                JSONOutputHandler().writeData(ProjectUnlockOutput(lockFile: lockURL.path, removed: true), label: nil)
+            }
+        } else if !globalOptions.quiet {
+            print("Unlocked project: \(projectURL.path)")
+            print("Removed lock file: \(lockURL.path)")
         }
     }
 
@@ -557,6 +638,7 @@ private enum ProjectCommandError: Error, LocalizedError {
     case foreignLock(lockURL: URL, record: ProjectLockRecord)
     case lockReplacementInProgress(lockURL: URL, record: ProjectLockRecord)
     case lockAcquisitionFailed(lockURL: URL)
+    case corruptedLock(lockURL: URL, reason: String)
 
     var errorDescription: String? {
         switch self {
@@ -570,6 +652,8 @@ private enum ProjectCommandError: Error, LocalizedError {
             return "Project lock replacement is already in progress at \(lockURL.path) by \(record.user)@\(record.host) pid \(record.pid)."
         case .lockAcquisitionFailed(let lockURL):
             return "Could not acquire project lock at \(lockURL.path); retry after checking the lock file."
+        case .corruptedLock(let lockURL, let reason):
+            return "Project lock file is corrupted at \(lockURL.path): \(reason). Inspect the lock file or pass --force only after confirming no active writer is using the project."
         }
     }
 }

@@ -12,7 +12,7 @@ public struct ProjectOpenWarningState: Sendable, Equatable {
     public let readErrorDescription: String?
 
     public var isReadOnlyRecommended: Bool {
-        lockStatus == .active || lockStatus == .unknown || readErrorDescription != nil
+        lockStatus == .active || lockStatus == .unknown || lockStatus == .corrupted || readErrorDescription != nil
     }
 
     public var warningMessage: String? {
@@ -23,6 +23,9 @@ public struct ProjectOpenWarningState: Sendable, Equatable {
         }
 
         if let readErrorDescription {
+            if lockStatus == .corrupted {
+                return "Project should be opened read-only because its lock metadata is corrupted: \(readErrorDescription)"
+            }
             return "Project should be opened read-only because its lock metadata could not be read: \(readErrorDescription)"
         }
 
@@ -44,7 +47,16 @@ public struct ProjectOpenWarningState: Sendable, Equatable {
     ) -> ProjectOpenWarningState {
         let standardizedProjectURL = projectURL.standardizedFileURL
         do {
-            guard let record = try lockManager.readLock(forProjectAt: standardizedProjectURL) else {
+            let readResult = try lockManager.readLockResult(forProjectAt: standardizedProjectURL)
+            guard case .valid(let record) = readResult else {
+                if case .corrupted(let corruption) = readResult {
+                    return ProjectOpenWarningState(
+                        projectURL: standardizedProjectURL,
+                        lockRecord: nil,
+                        lockStatus: .corrupted,
+                        readErrorDescription: corruption.localizedDescription
+                    )
+                }
                 return .unlocked(projectURL: standardizedProjectURL)
             }
 
