@@ -43,16 +43,18 @@ Issues are grouped by domain so related work can be batched.
 
 **Where focus groups raised it:** Lab manager persona (Chris Okafor) flagged this hard. Clinical-microbiology technologist (Diana Reyes) flagged that the provenance sidecar records `host machine identity` but not which user account ran each step. The wastewater-surveillance scientist (Sam Okafor) flagged that running 32 samples/month across 8 sites needs at minimum a provenance trail that distinguishes operators.
 
-**The user-facing behavior:** A project is a folder. Two users on the same shared filesystem may open the same project; Lungfish does not lock the project, does not warn about concurrent edits, and does not record which user account performed each operation in the provenance sidecar.
+**Status 2026-07-05:** Partially resolved for beta1. The CLI now has `lungfish project lock` / `unlock`, the GUI reads corrupted/active lock metadata on project open and presents read-only warnings, and the Shared Projects appendix documents the supported coordination model. The remaining audit gap is to verify user attribution across every legacy sidecar family, not just current `WorkflowRun`-backed provenance.
+
+**Original user-facing behavior:** A project is a folder. Two users on the same shared filesystem may open the same project; Lungfish does not lock the project, does not warn about concurrent edits, and does not record which user account performed each operation in the provenance sidecar.
 
 **What the docs need:** A multi-user-projects chapter, plus per-user attribution in every provenance sidecar so an audit trail can answer "who did this." The current chapter on provenance acknowledges the gap implicitly.
 
 **Acceptance criteria:**
 
-- [ ] Provenance sidecars include a `runtime.user` field (in addition to the existing `runtime.host`) recording the OS user account
-- [ ] Opening a project that is currently open in another Lungfish process surfaces a clear warning and offers a read-only mode
-- [ ] A new shell command `lungfish project lock` and `lungfish project unlock` provide explicit locking for advanced workflows
-- [ ] A new chapter `01-foundations/09-shared-projects` (or an appendix) documents the supported multi-user patterns
+- [ ] Provenance sidecars include a `runtime.user` field (in addition to the existing `runtime.host`) recording the OS user account across all active and legacy sidecar families
+- [x] Opening a project that is currently open in another Lungfish process surfaces a clear warning and offers a read-only mode
+- [x] A new shell command `lungfish project lock` and `lungfish project unlock` provide explicit locking for advanced workflows
+- [x] A new chapter `01-foundations/09-shared-projects` (or an appendix) documents the supported multi-user patterns
 
 **Out of scope:** Real-time multi-user editing (Google-Docs-style co-presence). Read/write attribution is enough.
 
@@ -64,14 +66,16 @@ Issues are grouped by domain so related work can be batched.
 
 **Where the manual says it:** `appendices/troubleshooting.md` "Migrating from older Lungfish versions" section: "If you need to migrate an old project: open the project in the latest Lungfish, run `Project > Migrate Bundles to Current Version` from the menu (when available), or re-create the bundles from their source FASTAs by re-importing."
 
-**The user-facing behavior:** Bundle formats are versioned. Older projects open in current Lungfish but cannot be written to. The "when available" parenthetical in the troubleshooting prose is a placeholder for a feature that does not exist yet.
+**Status 2026-07-05:** CLI migration is implemented and documented. `lungfish project migrate` scans manifest-backed bundles, reports unsupported schemas without rewriting them, and performs the current reference-manifest browser-summary maintenance migration with a manifest backup plus durable migration provenance. The GUI menu item remains unimplemented and is no longer advertised in the manual.
+
+**Original user-facing behavior:** Bundle formats are versioned. Older projects open in current Lungfish but cannot be written to. The "when available" parenthetical in the troubleshooting prose is a placeholder for a feature that does not exist yet.
 
 **Acceptance criteria:**
 
 - [ ] `Project > Migrate Bundles to Current Version` menu item exists and migrates every bundle in a project to the current schema version
-- [ ] CLI equivalent: `lungfish project migrate <path>`
-- [ ] Migration is non-destructive (originals are renamed `<bundle>.lungfishref.v<old>` rather than deleted)
-- [ ] Provenance is preserved through migration
+- [x] CLI equivalent: `lungfish project migrate <path>`
+- [x] Current schema-maintenance migration is non-destructive: it backs up the original manifest under `.lungfish/migrations/`, rewrites only supported manifests, and leaves unsupported bundles unchanged
+- [x] Provenance is preserved through migration; supported rewrites add a new migration provenance record before publishing the changed manifest
 
 **Out of scope:** Migrating across major bundle-format incompatibilities that require re-running tools. That stays a manual re-import.
 

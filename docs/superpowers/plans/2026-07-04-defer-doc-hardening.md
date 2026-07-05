@@ -143,6 +143,14 @@ changes that reduce future ambiguity across the codebase.
   the final output checksum, and only then publish the VCF.
 - Made completed managed GATK executions remove newly-created declared outputs if final
   provenance persistence fails.
+- Replaced Plugin Manager storage/progress callback-context `Task { @MainActor }` hops with
+  the established main-queue `MainActor.assumeIsolated` bridge, and source-guarded the pattern.
+- Replaced stale `MainSplitViewController+*.swift` split-extension headers with file-specific
+  responsibilities and source-guarded against the monolithic header returning.
+- Removed stale user-manual migration guidance that told users to copy provenance by hand;
+  the manual now explains current migration provenance and manifest-backup behavior.
+- Updated the technical-gap issue ledger so shipped project lock and CLI migration work is
+  marked resolved/partial instead of remaining indistinguishable from unimplemented gaps.
 
 ## Verification
 
