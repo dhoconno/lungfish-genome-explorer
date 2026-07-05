@@ -7,9 +7,9 @@ import AppKit
 /// A centered placeholder view shown in the viewport when a classifier result
 /// directory exists but the corresponding SQLite database has not yet been built.
 ///
-/// Displays an icon, title, subtitle, and an optional retry button.
-/// Call ``configure(tool:)`` to show the "building" state, or ``showError(_:)``
-/// to show an error state with the retry button visible.
+/// The owning view controller starts the background `lungfish build-db` fallback
+/// when showing this view. Call ``showBuilding(tool:)`` while that process is
+/// active, then call ``showError(_:)`` if the fallback fails.
 @MainActor
 final class DatabaseBuildPlaceholderView: NSView {
 
@@ -97,23 +97,6 @@ final class DatabaseBuildPlaceholderView: NSView {
             stackView.centerYAnchor.constraint(equalTo: centerYAnchor),
             stackView.widthAnchor.constraint(lessThanOrEqualToConstant: 400),
         ])
-    }
-
-    /// Configures the view for the "database not yet built" state.
-    ///
-    /// Shows the tool name, a brief explanation, and the CLI command the user
-    /// can run to build the database manually.
-    ///
-    /// - Parameter tool: Human-readable tool name (e.g. "TaxTriage").
-    func configure(tool: String, resultURL: URL) {
-        let dirName = resultURL.lastPathComponent
-        let cliTool = tool.lowercased()
-        titleLabel.stringValue = "No database found for \(tool) results"
-        subtitleLabel.stringValue =
-            "Run the following command in Terminal to build the database, then re-select this result:\n\n" +
-            "lungfish build-db \(cliTool) \"\(dirName)\""
-        retryButton.isHidden = true
-        spinner.stopAnimation(nil)
     }
 
     /// Configures the view for the "building in progress" state.
