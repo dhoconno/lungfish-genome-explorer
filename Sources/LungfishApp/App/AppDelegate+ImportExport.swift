@@ -1,4 +1,4 @@
-// AppDelegate+ImportExport.swift - Extracted from AppDelegate.swift (pure mechanical split, no behavior change)
+// AppDelegate+ImportExport.swift - App delegate import/export actions
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -421,21 +421,26 @@ extension AppDelegate {
             at: outputURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        try removeExistingItemIfNeeded(at: outputURL)
 
         if isDerived {
-            try await FASTQDerivativeService.shared.exportMaterializedFASTQ(
-                fromDerivedBundle: bundleURL,
-                to: outputURL,
-                progress: progress
-            )
-            try writeFASTQExportProvenance(
+            try await writeFASTQExportAtomically(
                 sourceBundleURL: bundleURL,
                 inputFASTQURLs: [],
                 outputURL: outputURL,
                 isDerived: true,
                 startedAt: startedAt
-            )
+            ) { stagedOutputURL in
+                try await FASTQDerivativeService.shared.exportMaterializedFASTQ(
+                    fromDerivedBundle: bundleURL,
+                    to: stagedOutputURL,
+                    progress: { message in
+                        if !message.hasPrefix("Export complete:") {
+                            progress?(message)
+                        }
+                    }
+                )
+            }
+            progress?("Export complete: \(outputURL.lastPathComponent)")
             return
         }
 
@@ -446,28 +451,30 @@ extension AppDelegate {
 
         if fastqURLs.count == 1 {
             progress?("Copying \(fastqURLs[0].lastPathComponent)...")
-            try FileManager.default.copyItem(at: fastqURLs[0], to: outputURL)
-            progress?("Export complete: \(outputURL.lastPathComponent)")
-            try writeFASTQExportProvenance(
+            try await writeFASTQExportAtomically(
                 sourceBundleURL: bundleURL,
                 inputFASTQURLs: fastqURLs,
                 outputURL: outputURL,
                 isDerived: false,
                 startedAt: startedAt
-            )
+            ) { stagedOutputURL in
+                try FileManager.default.copyItem(at: fastqURLs[0], to: stagedOutputURL)
+            }
+            progress?("Export complete: \(outputURL.lastPathComponent)")
             return
         }
 
         progress?("Exporting \(fastqURLs.count) FASTQ chunks...")
-        try await concatenateFASTQChunks(fastqURLs, to: outputURL)
-        progress?("Export complete: \(outputURL.lastPathComponent)")
-        try writeFASTQExportProvenance(
+        try await writeFASTQExportAtomically(
             sourceBundleURL: bundleURL,
             inputFASTQURLs: fastqURLs,
             outputURL: outputURL,
             isDerived: false,
             startedAt: startedAt
-        )
+        ) { stagedOutputURL in
+            try await concatenateFASTQChunks(fastqURLs, to: stagedOutputURL)
+        }
+        progress?("Export complete: \(outputURL.lastPathComponent)")
     }
 
     nonisolated private static func concatenateFASTQChunks(_ inputURLs: [URL], to outputURL: URL) async throws {
@@ -539,20 +546,116 @@ extension AppDelegate {
         }
     }
 
-    nonisolated private static func removeExistingItemIfNeeded(at url: URL) throws {
-        if FileManager.default.fileExists(atPath: url.path) {
-            try FileManager.default.removeItem(at: url)
-        }
-    }
-
-    nonisolated private static func writeFASTQExportProvenance(
+    nonisolated private static func writeFASTQExportAtomically(
         sourceBundleURL: URL,
         inputFASTQURLs: [URL],
         outputURL: URL,
         isDerived: Bool,
-        startedAt: Date
-    ) throws {
-        let completedAt = Date()
+        startedAt: Date,
+        writeOutput: (URL) async throws -> Void
+    ) async throws {
+        let fileManager = FileManager.default
+        guard !isExistingDirectory(outputURL, fileManager: fileManager) else {
+            throw CocoaError(.fileWriteFileExists)
+        }
+
+        let outputDirectoryURL = outputURL.deletingLastPathComponent()
+        try fileManager.createDirectory(at: outputDirectoryURL, withIntermediateDirectories: true)
+
+        let token = UUID().uuidString
+        let tempOutputURL = temporaryFASTQExportPayloadURL(for: outputURL, token: token)
+        let tempSidecarURL = outputDirectoryURL
+            .appendingPathComponent(".\(outputURL.lastPathComponent).\(token).lungfish-provenance.tmp")
+        let finalSidecarURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
+        let backupOutputURL = outputDirectoryURL
+            .appendingPathComponent(".\(outputURL.lastPathComponent).\(token).backup")
+        let backupSidecarURL = outputDirectoryURL
+            .appendingPathComponent(".\(finalSidecarURL.lastPathComponent).\(token).backup")
+        var outputBackedUp = false
+        var sidecarBackedUp = false
+        var outputInstalled = false
+
+        do {
+            try await writeOutput(tempOutputURL)
+            let tempRecord = ProvenanceRecorder.fileRecord(
+                url: tempOutputURL,
+                format: .fastq,
+                role: .output
+            )
+            let outputRecord = FileRecord(
+                path: outputURL.standardizedFileURL.path,
+                sha256: tempRecord.sha256,
+                sizeBytes: tempRecord.sizeBytes,
+                format: tempRecord.format,
+                role: tempRecord.role
+            )
+            let envelope = makeFASTQExportProvenanceEnvelope(
+                sourceBundleURL: sourceBundleURL,
+                inputFASTQURLs: inputFASTQURLs,
+                outputURL: outputURL,
+                outputRecord: outputRecord,
+                isDerived: isDerived,
+                startedAt: startedAt,
+                completedAt: Date()
+            )
+            try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: tempSidecarURL)
+
+            if fileManager.fileExists(atPath: outputURL.path) {
+                try fileManager.moveItem(at: outputURL, to: backupOutputURL)
+                outputBackedUp = true
+            }
+            if fileManager.fileExists(atPath: finalSidecarURL.path) {
+                try fileManager.moveItem(at: finalSidecarURL, to: backupSidecarURL)
+                sidecarBackedUp = true
+            }
+
+            try fileManager.moveItem(at: tempOutputURL, to: outputURL)
+            outputInstalled = true
+            try fileManager.moveItem(at: tempSidecarURL, to: finalSidecarURL)
+
+            try? fileManager.removeItem(at: backupOutputURL)
+            try? fileManager.removeItem(at: backupSidecarURL)
+        } catch {
+            if outputInstalled {
+                try? fileManager.removeItem(at: outputURL)
+            }
+            if outputBackedUp {
+                try? fileManager.moveItem(at: backupOutputURL, to: outputURL)
+            }
+            if sidecarBackedUp {
+                try? fileManager.moveItem(at: backupSidecarURL, to: finalSidecarURL)
+            }
+            try? fileManager.removeItem(at: tempOutputURL)
+            try? fileManager.removeItem(at: tempSidecarURL)
+            throw error
+        }
+    }
+
+    nonisolated private static func temporaryFASTQExportPayloadURL(for outputURL: URL, token: String) -> URL {
+        let outputDirectoryURL = outputURL.deletingLastPathComponent()
+        let pathExtension = outputURL.pathExtension
+        let baseName = pathExtension.isEmpty
+            ? outputURL.lastPathComponent
+            : outputURL.deletingPathExtension().lastPathComponent
+        let hiddenName = ".\(baseName).\(token).export"
+        let hiddenURL = outputDirectoryURL.appendingPathComponent(hiddenName)
+        return pathExtension.isEmpty ? hiddenURL : hiddenURL.appendingPathExtension(pathExtension)
+    }
+
+    nonisolated private static func isExistingDirectory(_ url: URL, fileManager: FileManager) -> Bool {
+        var isDirectory: ObjCBool = false
+        return fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+
+    nonisolated private static func makeFASTQExportProvenanceEnvelope(
+        sourceBundleURL: URL,
+        inputFASTQURLs: [URL],
+        outputURL: URL,
+        outputRecord: FileRecord,
+        isDerived: Bool,
+        startedAt: Date,
+        completedAt: Date
+    ) -> ProvenanceEnvelope {
         var inputRecords: [FileRecord]
         if inputFASTQURLs.isEmpty {
             inputRecords = [ProvenanceRecorder.fileRecord(url: sourceBundleURL, format: .unknown, role: .input)]
@@ -571,7 +674,6 @@ extension AppDelegate {
             inputRecords.append(ProvenanceRecorder.fileRecord(url: derivedManifestURL, format: .json, role: .input))
         }
 
-        let outputRecord = ProvenanceRecorder.fileRecord(url: outputURL, format: .fastq, role: .output)
         var argv = [
             "Lungfish Genome Explorer",
             "export-fastq",
@@ -611,10 +713,7 @@ extension AppDelegate {
                 "outputGzipCompressed": .boolean(outputURL.isGzipCompressed),
             ]
         )
-        try ProvenanceWriter(signingProvider: nil).write(
-            run.canonicalEnvelope(),
-            toSidecar: ProvenanceRecorder.fileSidecarURL(for: outputURL)
-        )
+        return run.canonicalEnvelope()
     }
 
     // MARK: - Project-Level Metadata Export/Import
