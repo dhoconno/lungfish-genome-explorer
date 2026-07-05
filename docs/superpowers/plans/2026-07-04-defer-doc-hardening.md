@@ -163,6 +163,9 @@ changes that reduce future ambiguity across the codebase.
   metadata imports, `lungfish import metadata`, `lungfish metadata set`, and
   `lungfish metadata import --sync-bundles` now restore or remove metadata files if root,
   file, or bundle provenance publication fails.
+- Made standalone MSA file outputs fail closed: `lungfish msa export`, `consensus`
+  FASTA, `extract` FASTA, and `distance` matrix outputs are restored or removed if
+  their provenance sidecar cannot be published.
 
 ## Verification
 

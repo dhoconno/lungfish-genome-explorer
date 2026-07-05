@@ -579,45 +579,55 @@ extension MSACommand {
                 }
 
                 emitter.emitProgress(actionID: actionID, progress: 0.55, message: "Writing \(outputFormat) alignment.")
-                try FileManager.default.createDirectory(
-                    at: outputURL.deletingLastPathComponent(),
-                    withIntermediateDirectories: true
-                )
                 let output = try formatAlignment(records: outputRecords, outputFormat: outputFormat)
-                try Data(output.utf8).write(to: outputURL, options: .atomic)
-
-                emitter.emitProgress(actionID: actionID, progress: 0.82, message: "Writing export provenance.")
-                let argv = canonicalExportArgv(bundleURL: bundleURL, outputURL: outputURL)
                 let provenanceURL = outputURL.appendingPathExtension("lungfish-provenance.json")
-                let provenance = try MSAFileExportProvenance(
-                    actionID: actionID,
-                    argv: argv,
-                    reproducibleCommand: shellCommand(argv),
-                    inputBundle: .init(
-                        path: bundleURL.path,
-                        checksumSHA256: bundleDigest(from: bundle.manifest),
-                        fileSize: bundle.manifest.fileSizes.values.reduce(0, +)
-                    ),
-                    inputAlignmentFile: fileRecord(at: fastaURL),
-                    outputFile: fileRecord(at: outputURL),
-                    options: .init(
-                        outputFormat: outputFormat,
-                        rows: rows,
-                        columns: columns,
-                        selectedRowCount: selectedRecords.count,
-                        selectedColumnCount: selectedRecords.first?.sequence.count ?? 0,
-                        outputKind: nil,
-                        name: nil,
-                        threshold: nil,
-                        gapPolicy: nil,
-                        distanceModel: nil,
-                        sequenceLayout: sequenceLayout
-                    ),
-                    exitStatus: 0,
-                    wallTimeSeconds: max(0, Date().timeIntervalSince(startedAt)),
-                    warnings: warnings
+                let snapshot = try msaStandaloneFilePublicationSnapshot(
+                    for: outputURL,
+                    backupNamePrefix: "lungfish-msa-export"
                 )
-                try writeJSON(provenance, to: provenanceURL)
+                defer { snapshot.discard() }
+                do {
+                    try FileManager.default.createDirectory(
+                        at: outputURL.deletingLastPathComponent(),
+                        withIntermediateDirectories: true
+                    )
+                    try Data(output.utf8).write(to: outputURL, options: .atomic)
+
+                    emitter.emitProgress(actionID: actionID, progress: 0.82, message: "Writing export provenance.")
+                    let argv = canonicalExportArgv(bundleURL: bundleURL, outputURL: outputURL)
+                    let provenance = try MSAFileExportProvenance(
+                        actionID: actionID,
+                        argv: argv,
+                        reproducibleCommand: shellCommand(argv),
+                        inputBundle: .init(
+                            path: bundleURL.path,
+                            checksumSHA256: bundleDigest(from: bundle.manifest),
+                            fileSize: bundle.manifest.fileSizes.values.reduce(0, +)
+                        ),
+                        inputAlignmentFile: fileRecord(at: fastaURL),
+                        outputFile: fileRecord(at: outputURL),
+                        options: .init(
+                            outputFormat: outputFormat,
+                            rows: rows,
+                            columns: columns,
+                            selectedRowCount: selectedRecords.count,
+                            selectedColumnCount: selectedRecords.first?.sequence.count ?? 0,
+                            outputKind: nil,
+                            name: nil,
+                            threshold: nil,
+                            gapPolicy: nil,
+                            distanceModel: nil,
+                            sequenceLayout: sequenceLayout
+                        ),
+                        exitStatus: 0,
+                        wallTimeSeconds: max(0, Date().timeIntervalSince(startedAt)),
+                        warnings: warnings
+                    )
+                    try writeJSON(provenance, to: provenanceURL)
+                } catch {
+                    try snapshot.restore()
+                    throw error
+                }
 
                 emitter.emitComplete(actionID: actionID, output: outputURL.path, warningCount: warnings.count)
                 if globalOptions.outputFormat != .json && !globalOptions.quiet {
@@ -756,42 +766,52 @@ extension MSACommand {
 
                 switch outputKind {
                 case "fasta":
-                    try FileManager.default.createDirectory(at: outputURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-                    try Data(formatFASTA(records: [AlignedFASTARecord(name: recordName, sequence: consensus)]).utf8)
-                        .write(to: outputURL, options: .atomic)
-
-                    emitter.emitProgress(actionID: actionID, progress: 0.82, message: "Writing consensus provenance.")
-                    try writeJSON(
-                        try MSAFileExportProvenance(
-                            workflowName: "multiple-sequence-alignment-consensus",
-                            actionID: actionID,
-                            toolName: "lungfish msa consensus",
-                            argv: argv,
-                            reproducibleCommand: shellCommand(argv),
-                            inputBundle: .init(
-                                path: bundleURL.path,
-                                checksumSHA256: bundleDigest(from: bundle.manifest),
-                                fileSize: bundle.manifest.fileSizes.values.reduce(0, +)
-                            ),
-                            inputAlignmentFile: fileRecord(at: fastaURL),
-                            outputFile: fileRecord(at: outputURL),
-                            options: .init(
-                                outputFormat: "fasta",
-                                rows: rows,
-                                columns: nil,
-                                selectedRowCount: records.count,
-                                selectedColumnCount: consensus.count,
-                                outputKind: "fasta",
-                                name: recordName,
-                                threshold: threshold,
-                                gapPolicy: gapPolicy,
-                                distanceModel: nil
-                            ),
-                            exitStatus: 0,
-                            wallTimeSeconds: max(0, Date().timeIntervalSince(startedAt))
-                        ),
-                        to: outputURL.appendingPathExtension("lungfish-provenance.json")
+                    let snapshot = try msaStandaloneFilePublicationSnapshot(
+                        for: outputURL,
+                        backupNamePrefix: "lungfish-msa-consensus"
                     )
+                    defer { snapshot.discard() }
+                    do {
+                        try FileManager.default.createDirectory(at: outputURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                        try Data(formatFASTA(records: [AlignedFASTARecord(name: recordName, sequence: consensus)]).utf8)
+                            .write(to: outputURL, options: .atomic)
+
+                        emitter.emitProgress(actionID: actionID, progress: 0.82, message: "Writing consensus provenance.")
+                        try writeJSON(
+                            try MSAFileExportProvenance(
+                                workflowName: "multiple-sequence-alignment-consensus",
+                                actionID: actionID,
+                                toolName: "lungfish msa consensus",
+                                argv: argv,
+                                reproducibleCommand: shellCommand(argv),
+                                inputBundle: .init(
+                                    path: bundleURL.path,
+                                    checksumSHA256: bundleDigest(from: bundle.manifest),
+                                    fileSize: bundle.manifest.fileSizes.values.reduce(0, +)
+                                ),
+                                inputAlignmentFile: fileRecord(at: fastaURL),
+                                outputFile: fileRecord(at: outputURL),
+                                options: .init(
+                                    outputFormat: "fasta",
+                                    rows: rows,
+                                    columns: nil,
+                                    selectedRowCount: records.count,
+                                    selectedColumnCount: consensus.count,
+                                    outputKind: "fasta",
+                                    name: recordName,
+                                    threshold: threshold,
+                                    gapPolicy: gapPolicy,
+                                    distanceModel: nil
+                                ),
+                                exitStatus: 0,
+                                wallTimeSeconds: max(0, Date().timeIntervalSince(startedAt))
+                            ),
+                            to: outputURL.appendingPathExtension("lungfish-provenance.json")
+                        )
+                    } catch {
+                        try snapshot.restore()
+                        throw error
+                    }
                 case "reference":
                     emitter.emitProgress(actionID: actionID, progress: 0.82, message: "Writing consensus .lungfishref bundle.")
                     _ = try MSAReferenceBundleBuilder.buildConsensus(
@@ -934,41 +954,51 @@ extension MSACommand {
                 switch outputKind {
                 case "fasta":
                     emitter.emitProgress(actionID: actionID, progress: 0.55, message: "Writing extracted FASTA.")
-                    try FileManager.default.createDirectory(at: outputURL.deletingLastPathComponent(), withIntermediateDirectories: true)
                     let outputRecords = ungappedRecords(selectedRecords)
-                    try Data(formatFASTA(records: outputRecords).utf8).write(to: outputURL, options: .atomic)
-                    try writeJSON(
-                        try MSAFileExportProvenance(
-                            workflowName: "multiple-sequence-alignment-extract",
-                            actionID: actionID,
-                            toolName: "lungfish msa extract",
-                            argv: argv,
-                            reproducibleCommand: shellCommand(argv),
-                            inputBundle: .init(
-                                path: bundleURL.path,
-                                checksumSHA256: bundleDigest(from: bundle.manifest),
-                                fileSize: bundle.manifest.fileSizes.values.reduce(0, +)
-                            ),
-                            inputAlignmentFile: fileRecord(at: fastaURL),
-                            outputFile: fileRecord(at: outputURL),
-                            options: .init(
-                                outputFormat: "fasta",
-                                rows: rows,
-                                columns: columns,
-                                selectedRowCount: selectedRecords.count,
-                                selectedColumnCount: selectedRecords.first?.sequence.count ?? 0,
-                                outputKind: outputKind,
-                                name: name,
-                                threshold: nil,
-                                gapPolicy: nil,
-                                distanceModel: nil,
-                                sequenceLayout: "ungapped"
-                            ),
-                            exitStatus: 0,
-                            wallTimeSeconds: max(0, Date().timeIntervalSince(startedAt))
-                        ),
-                        to: outputURL.appendingPathExtension("lungfish-provenance.json")
+                    let snapshot = try msaStandaloneFilePublicationSnapshot(
+                        for: outputURL,
+                        backupNamePrefix: "lungfish-msa-extract"
                     )
+                    defer { snapshot.discard() }
+                    do {
+                        try FileManager.default.createDirectory(at: outputURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                        try Data(formatFASTA(records: outputRecords).utf8).write(to: outputURL, options: .atomic)
+                        try writeJSON(
+                            try MSAFileExportProvenance(
+                                workflowName: "multiple-sequence-alignment-extract",
+                                actionID: actionID,
+                                toolName: "lungfish msa extract",
+                                argv: argv,
+                                reproducibleCommand: shellCommand(argv),
+                                inputBundle: .init(
+                                    path: bundleURL.path,
+                                    checksumSHA256: bundleDigest(from: bundle.manifest),
+                                    fileSize: bundle.manifest.fileSizes.values.reduce(0, +)
+                                ),
+                                inputAlignmentFile: fileRecord(at: fastaURL),
+                                outputFile: fileRecord(at: outputURL),
+                                options: .init(
+                                    outputFormat: "fasta",
+                                    rows: rows,
+                                    columns: columns,
+                                    selectedRowCount: selectedRecords.count,
+                                    selectedColumnCount: selectedRecords.first?.sequence.count ?? 0,
+                                    outputKind: outputKind,
+                                    name: name,
+                                    threshold: nil,
+                                    gapPolicy: nil,
+                                    distanceModel: nil,
+                                    sequenceLayout: "ungapped"
+                                ),
+                                exitStatus: 0,
+                                wallTimeSeconds: max(0, Date().timeIntervalSince(startedAt))
+                            ),
+                            to: outputURL.appendingPathExtension("lungfish-provenance.json")
+                        )
+                    } catch {
+                        try snapshot.restore()
+                        throw error
+                    }
                 case "msa":
                     emitter.emitProgress(actionID: actionID, progress: 0.55, message: "Writing derived .lungfishmsa bundle.")
                     let stagingURL = try writeStagedAlignmentInput(
@@ -1704,45 +1734,55 @@ extension MSACommand {
 
                 emitter.emitProgress(actionID: actionID, progress: 0.55, message: "Computing pairwise \(model) matrix.")
                 let output = try formatDistanceMatrix(records: records, model: model)
-                try FileManager.default.createDirectory(
-                    at: outputURL.deletingLastPathComponent(),
-                    withIntermediateDirectories: true
-                )
-                try Data(output.utf8).write(to: outputURL, options: .atomic)
-
-                emitter.emitProgress(actionID: actionID, progress: 0.82, message: "Writing distance-matrix provenance.")
                 let argv = canonicalDistanceArgv(bundleURL: bundleURL, outputURL: outputURL)
-                try writeJSON(
-                    try MSAFileExportProvenance(
-                        workflowName: "multiple-sequence-alignment-distance-matrix",
-                        actionID: actionID,
-                        toolName: "lungfish msa distance",
-                        argv: argv,
-                        reproducibleCommand: shellCommand(argv),
-                        inputBundle: .init(
-                            path: bundleURL.path,
-                            checksumSHA256: bundleDigest(from: bundle.manifest),
-                            fileSize: bundle.manifest.fileSizes.values.reduce(0, +)
-                        ),
-                        inputAlignmentFile: fileRecord(at: fastaURL),
-                        outputFile: fileRecord(at: outputURL),
-                        options: .init(
-                            outputFormat: "tsv",
-                            rows: rows,
-                            columns: columns,
-                            selectedRowCount: records.count,
-                            selectedColumnCount: records.first?.sequence.count ?? 0,
-                            outputKind: "distance-matrix",
-                            name: nil,
-                            threshold: nil,
-                            gapPolicy: "pairwise-delete",
-                            distanceModel: model
-                        ),
-                        exitStatus: 0,
-                        wallTimeSeconds: max(0, Date().timeIntervalSince(startedAt))
-                    ),
-                    to: outputURL.appendingPathExtension("lungfish-provenance.json")
+                let snapshot = try msaStandaloneFilePublicationSnapshot(
+                    for: outputURL,
+                    backupNamePrefix: "lungfish-msa-distance"
                 )
+                defer { snapshot.discard() }
+                do {
+                    try FileManager.default.createDirectory(
+                        at: outputURL.deletingLastPathComponent(),
+                        withIntermediateDirectories: true
+                    )
+                    try Data(output.utf8).write(to: outputURL, options: .atomic)
+
+                    emitter.emitProgress(actionID: actionID, progress: 0.82, message: "Writing distance-matrix provenance.")
+                    try writeJSON(
+                        try MSAFileExportProvenance(
+                            workflowName: "multiple-sequence-alignment-distance-matrix",
+                            actionID: actionID,
+                            toolName: "lungfish msa distance",
+                            argv: argv,
+                            reproducibleCommand: shellCommand(argv),
+                            inputBundle: .init(
+                                path: bundleURL.path,
+                                checksumSHA256: bundleDigest(from: bundle.manifest),
+                                fileSize: bundle.manifest.fileSizes.values.reduce(0, +)
+                            ),
+                            inputAlignmentFile: fileRecord(at: fastaURL),
+                            outputFile: fileRecord(at: outputURL),
+                            options: .init(
+                                outputFormat: "tsv",
+                                rows: rows,
+                                columns: columns,
+                                selectedRowCount: records.count,
+                                selectedColumnCount: records.first?.sequence.count ?? 0,
+                                outputKind: "distance-matrix",
+                                name: nil,
+                                threshold: nil,
+                                gapPolicy: "pairwise-delete",
+                                distanceModel: model
+                            ),
+                            exitStatus: 0,
+                            wallTimeSeconds: max(0, Date().timeIntervalSince(startedAt))
+                        ),
+                        to: outputURL.appendingPathExtension("lungfish-provenance.json")
+                    )
+                } catch {
+                    try snapshot.restore()
+                    throw error
+                }
 
                 emitter.emitComplete(actionID: actionID, output: outputURL.path, warningCount: 0)
                 if globalOptions.outputFormat != .json && !globalOptions.quiet {
@@ -2889,6 +2929,17 @@ private func fileRecord(at url: URL) throws -> MSAFileExportProvenance.FileRecor
         path: url.path,
         checksumSHA256: MultipleSequenceAlignmentBundle.sha256Hex(for: data),
         fileSize: size
+    )
+}
+
+private func msaStandaloneFilePublicationSnapshot(
+    for outputURL: URL,
+    backupNamePrefix: String
+) throws -> ProvenancePublicationSnapshot {
+    let sidecarURL = outputURL.appendingPathExtension("lungfish-provenance.json")
+    return try ProvenancePublicationSnapshot(
+        urls: [outputURL] + ProvenancePublicationArtifacts.sidecarArtifacts(for: sidecarURL),
+        backupNamePrefix: backupNamePrefix
     )
 }
 
