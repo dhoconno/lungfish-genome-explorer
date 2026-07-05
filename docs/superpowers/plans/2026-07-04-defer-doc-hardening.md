@@ -188,6 +188,9 @@ changes that reduce future ambiguity across the codebase.
 - Made analysis manifest pruning and Inspector analysis navigation use a shared resolver that
   preserves grouped `Analyses/` entries instead of treating recursively discoverable analyses
   as stale.
+- Made direct phylogenetic tree imports write canonical envelope-compatible provenance fields
+  (`createdAt`, `workflowName`, durable replay argv, runtime identity, file descriptors, and
+  steps) while preserving the legacy tree-import payload keys.
 
 ## Verification
 
