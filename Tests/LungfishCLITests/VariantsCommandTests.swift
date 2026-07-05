@@ -82,6 +82,50 @@ final class VariantsCommandTests: XCTestCase {
         XCTAssertEqual(run.parameters["filter"]?.stringValue, "Sample[NA12878].GT=1/1")
     }
 
+    func testExtractSampleDoesNotPublishVCFWhenProvenanceWriteFails() async throws {
+        let bundleURL = try makeVariantBundleFixture()
+        let outputURL = tempDir.appendingPathComponent("blocked-sample.vcf")
+        let provenanceURL = outputURL.deletingLastPathComponent()
+            .appendingPathComponent(ProvenanceRecorder.provenanceFilename, isDirectory: true)
+        try FileManager.default.createDirectory(at: provenanceURL, withIntermediateDirectories: true)
+        let command = try VariantsCommand.ExtractSampleSubcommand.parse([
+            "extract-sample",
+            bundleURL.path,
+            "--sample", "NA12878",
+            "--output", outputURL.path,
+            "--quiet",
+        ])
+
+        await XCTAssertThrowsErrorAsync(try await command.executeForTesting())
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: outputURL.path),
+            "A final sample VCF must not be published when provenance cannot be written."
+        )
+    }
+
+    func testQueryDoesNotPublishVCFWhenProvenanceWriteFails() async throws {
+        let bundleURL = try makeVariantBundleFixture()
+        let outputURL = tempDir.appendingPathComponent("blocked-query.vcf")
+        let provenanceURL = outputURL.deletingLastPathComponent()
+            .appendingPathComponent(ProvenanceRecorder.provenanceFilename, isDirectory: true)
+        try FileManager.default.createDirectory(at: provenanceURL, withIntermediateDirectories: true)
+        let command = try VariantsCommand.QuerySubcommand.parse([
+            "query",
+            bundleURL.path,
+            "--filter", "Sample[NA12878].GT=1/1",
+            "--output", outputURL.path,
+            "--quiet",
+        ])
+
+        await XCTAssertThrowsErrorAsync(try await command.executeForTesting())
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: outputURL.path),
+            "A final query VCF must not be published when provenance cannot be written."
+        )
+    }
+
     func testCallSubcommandParsesBundleAlignmentAndCaller() throws {
         let command = try VariantsCommand.CallSubcommand.parse([
             "call",

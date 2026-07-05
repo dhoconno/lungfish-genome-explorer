@@ -139,6 +139,9 @@ non-op-pipeline layers, NOT OperationCenter violations).
   written. `HumanScrubberDatabaseTests` cover deterministic URLSession/Deacon stubs and
   provenance-write failure cleanup; a source policy test prevents success-capable installer
   paths from discarding install-provenance failures.
+- RESOLVED 2026-07-05: `GATKPipelineExecutor` now removes newly-created declared outputs
+  when a completed managed GATK run cannot persist final provenance, preventing successful
+  GATK artifacts from being left without a sidecar.
 - RESOLVED 2026-07-05: `EsVirituPipeline` now treats `esviritu-result.json` as a required
   result artifact. Sidecar write failure marks the run failed when possible and throws a typed
   pipeline error; successful runs record both the final EsViritu output files and a Lungfish

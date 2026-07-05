@@ -35,7 +35,7 @@ The browser has three regions stacked vertically. The top region is a genome tra
 
 <!-- planned: variant-browser-overview -->
 
-The browser does not modify the underlying VCF. Sorts, filters, and selections are display state. To write a filtered subset back to disk, use the CLI command `lungfish variants query` with a `--filter` expression and an `--output` path; the in-app table is read-only. So what should you do with this? Treat the browser as a read-only lens onto the VCF: filter aggressively to find the rows you care about, and run `variants query` when you are ready to hand a subset to a downstream tool.
+The browser does not modify the underlying VCF. Sorts, filters, and selections are display state. To write a filtered subset back to disk, use the CLI command `lungfish variants query` with a `--filter` expression and an `--output` path; the in-app table is read-only. The CLI writes a provenance sidecar beside the exported VCF and fails without publishing a new VCF if that sidecar cannot be saved. So what should you do with this? Treat the browser as a read-only lens onto the VCF: filter aggressively to find the rows you care about, and run `variants query` when you are ready to hand a subset to a downstream tool.
 
 ## What you will learn
 

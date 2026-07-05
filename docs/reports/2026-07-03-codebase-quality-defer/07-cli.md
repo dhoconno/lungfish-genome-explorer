@@ -96,6 +96,9 @@ RESOLVED in the 2026-07-04 hardening pass:
   completed scientific workflow executions without focused final-output provenance. The
   `run-headless` alias now captures and forwards workflow-run flags so CI users can satisfy the
   same provenance contract through the quiet entry point.
+- `Commands/VariantsCommand.swift` now stages `variants extract-sample` and `variants query`
+  VCF exports, writes provenance with the final output checksum first, and only then publishes
+  the final VCF. If sidecar persistence fails, no new exported VCF is left behind.
 
 REJECTED candidates (audited, proven NOT safe — a future pass must not re-propose):
 - GenotypeAIHaplotypingSubcommand "8 dead statics" (resolveFormat/loadJSONCalls/loadDelimitedCalls/

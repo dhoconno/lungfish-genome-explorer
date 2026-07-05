@@ -285,6 +285,40 @@ final class GATKPipelineExecutorTests: XCTestCase {
         XCTAssertNil(provenance.steps.first?.outputs.first?.sizeBytes)
     }
 
+    func testRemovesNewOutputsWhenCompletedRunCannotWriteProvenance() async throws {
+        let reference = try write("reference.fa", contents: ">chr1\nACGT\n")
+        let bam = try write("sample.bam", contents: "bam-bytes")
+        let output = tempDir.appendingPathComponent("sample.g.vcf.gz")
+        let blockedProvenanceURL = tempDir
+            .appendingPathComponent(ProvenanceRecorder.provenanceFilename, isDirectory: true)
+        try FileManager.default.createDirectory(at: blockedProvenanceURL, withIntermediateDirectories: true)
+        let config = GATKHaplotypeCallerConfiguration(
+            referenceFASTAURL: reference,
+            inputBAMURL: bam,
+            outputVCFURL: output
+        )
+        let runner = RecordingGATKCommandRunner { _ in
+            try Data("gvcf-bytes".utf8).write(to: output)
+            return GATKCommandExecutionResult(exitCode: 0, stdout: "ok", stderr: "", wallTime: 0.5)
+        }
+        let executor = GATKPipelineExecutor(runner: runner)
+        let request = GATKPipelineExecutionRequest.haplotypeCaller(
+            configuration: config,
+            toolVersion: "4.6.2.0"
+        )
+
+        do {
+            _ = try await executor.run(request)
+            XCTFail("Expected provenance write failure to throw.")
+        } catch {
+        }
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: output.path),
+            "Newly-created GATK outputs must be removed when final provenance cannot be written."
+        )
+    }
+
     func testProcessRunnerCapturesVerboseStdoutAndStderrWithoutRealGATK() async throws {
         let runner = ProcessGATKCommandRunner()
 

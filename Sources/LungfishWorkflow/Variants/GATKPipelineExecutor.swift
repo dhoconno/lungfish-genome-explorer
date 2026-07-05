@@ -690,6 +690,7 @@ public struct GATKPipelineExecutor<Runner: GATKCommandRunning> {
 
     public func run(_ request: GATKPipelineExecutionRequest) async throws -> GATKPipelineExecutionResult {
         try fileManager.createDirectory(at: request.outputDirectory, withIntermediateDirectories: true)
+        let preexistingOutputPaths = preexistingOutputPaths(for: request)
         let startedAt = dateProvider()
         var executedCommands: [GATKExecutedCommand] = []
         for command in request.commands {
@@ -697,13 +698,19 @@ public struct GATKPipelineExecutor<Runner: GATKCommandRunning> {
             executedCommands.append(GATKExecutedCommand(command: command, result: commandResult))
             guard commandResult.isSuccess else {
                 let completedAt = dateProvider()
-                let provenanceURL = try writeProvenance(
-                    request: request,
-                    executedCommands: executedCommands,
-                    startedAt: startedAt,
-                    completedAt: completedAt,
-                    status: .failed
-                )
+                let provenanceURL: URL
+                do {
+                    provenanceURL = try writeProvenance(
+                        request: request,
+                        executedCommands: executedCommands,
+                        startedAt: startedAt,
+                        completedAt: completedAt,
+                        status: .failed
+                    )
+                } catch {
+                    removeNewOutputs(for: request, preexistingOutputPaths: preexistingOutputPaths)
+                    throw error
+                }
                 throw GATKPipelineExecutionError.commandFailed(
                     exitCode: commandResult.exitCode,
                     provenanceURL: provenanceURL
@@ -711,19 +718,47 @@ public struct GATKPipelineExecutor<Runner: GATKCommandRunning> {
             }
         }
         let completedAt = dateProvider()
-        let provenanceURL = try writeProvenance(
-            request: request,
-            executedCommands: executedCommands,
-            startedAt: startedAt,
-            completedAt: completedAt,
-            status: .completed
-        )
+        let provenanceURL: URL
+        do {
+            provenanceURL = try writeProvenance(
+                request: request,
+                executedCommands: executedCommands,
+                startedAt: startedAt,
+                completedAt: completedAt,
+                status: .completed
+            )
+        } catch {
+            removeNewOutputs(for: request, preexistingOutputPaths: preexistingOutputPaths)
+            throw error
+        }
         return GATKPipelineExecutionResult(
             exitCode: executedCommands.last?.result.exitCode ?? 0,
             stdout: executedCommands.map(\.result.stdout).filter { !$0.isEmpty }.joined(separator: "\n"),
             stderr: executedCommands.map(\.result.stderr).filter { !$0.isEmpty }.joined(separator: "\n"),
             provenanceURL: provenanceURL
         )
+    }
+
+    private func preexistingOutputPaths(for request: GATKPipelineExecutionRequest) -> Set<String> {
+        Set(
+            request.outputs
+                .map { $0.url.standardizedFileURL.path }
+                .filter { fileManager.fileExists(atPath: $0) }
+        )
+    }
+
+    private func removeNewOutputs(
+        for request: GATKPipelineExecutionRequest,
+        preexistingOutputPaths: Set<String>
+    ) {
+        for output in request.outputs {
+            let path = output.url.standardizedFileURL.path
+            guard !preexistingOutputPaths.contains(path),
+                  fileManager.fileExists(atPath: path) else {
+                continue
+            }
+            try? fileManager.removeItem(at: output.url)
+        }
     }
 
     private func writeProvenance(

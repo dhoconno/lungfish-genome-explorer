@@ -1,4 +1,5 @@
 import ArgumentParser
+import CryptoKit
 import Foundation
 import LungfishCore
 import LungfishIO
@@ -143,6 +144,7 @@ extension VariantsCommand {
         bundleURL: URL,
         databaseURL: URL,
         outputURL: URL,
+        outputRecord: FileRecord? = nil,
         parameters: [String: ParameterValue],
         startedAt: Date,
         completedAt: Date
@@ -156,7 +158,7 @@ extension VariantsCommand {
                 ProvenanceRecorder.fileRecord(url: databaseURL, role: .input),
             ],
             outputs: [
-                ProvenanceRecorder.fileRecord(url: outputURL, format: .vcf, role: .output),
+                outputRecord ?? ProvenanceRecorder.fileRecord(url: outputURL, format: .vcf, role: .output),
             ],
             exitCode: 0,
             wallTime: completedAt.timeIntervalSince(startedAt),
@@ -179,6 +181,97 @@ extension VariantsCommand {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let provenanceURL = outputURL.deletingLastPathComponent().appendingPathComponent(ProvenanceRecorder.provenanceFilename)
         try encoder.encode(run).write(to: provenanceURL, options: .atomic)
+    }
+
+    fileprivate static func provenanceURL(forOutputURL outputURL: URL) -> URL {
+        outputURL.deletingLastPathComponent().appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+    }
+
+    fileprivate static func stagedOutputURL(for outputURL: URL) -> URL {
+        outputURL.deletingLastPathComponent()
+            .appendingPathComponent(".\(outputURL.lastPathComponent).\(UUID().uuidString).staged")
+    }
+
+    fileprivate static func fileRecord(
+        finalURL: URL,
+        dataURL: URL,
+        format: FileFormat,
+        role: FileRole
+    ) throws -> FileRecord {
+        let data = try Data(contentsOf: dataURL)
+        let checksum = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        return FileRecord(
+            path: finalURL.path,
+            sha256: checksum,
+            sizeBytes: UInt64(data.count),
+            format: format,
+            role: role
+        )
+    }
+
+    fileprivate static func publishOutputWithProvenance(
+        outputURL: URL,
+        format: FileFormat,
+        writeOutputToStaging: (URL) throws -> Void,
+        writeProvenanceForOutput: (FileRecord) throws -> Void
+    ) throws {
+        let stagedOutputURL = stagedOutputURL(for: outputURL)
+        let provenanceURL = provenanceURL(forOutputURL: outputURL)
+        let provenanceSnapshot = provenanceSnapshot(at: provenanceURL)
+        var provenanceWasPublished = false
+        do {
+            try writeOutputToStaging(stagedOutputURL)
+            let outputRecord = try fileRecord(
+                finalURL: outputURL,
+                dataURL: stagedOutputURL,
+                format: format,
+                role: .output
+            )
+            try writeProvenanceForOutput(outputRecord)
+            provenanceWasPublished = true
+            try publish(stagedURL: stagedOutputURL, to: outputURL)
+        } catch {
+            try? FileManager.default.removeItem(at: stagedOutputURL)
+            if provenanceWasPublished {
+                restoreProvenance(provenanceSnapshot, at: provenanceURL)
+            }
+            throw error
+        }
+    }
+
+    fileprivate static func publish(stagedURL: URL, to finalURL: URL) throws {
+        if FileManager.default.fileExists(atPath: finalURL.path) {
+            _ = try FileManager.default.replaceItemAt(
+                finalURL,
+                withItemAt: stagedURL,
+                backupItemName: nil,
+                options: []
+            )
+        } else {
+            try FileManager.default.moveItem(at: stagedURL, to: finalURL)
+        }
+    }
+
+    fileprivate static func restoreProvenance(_ snapshot: ProvenanceSidecarSnapshot, at url: URL) {
+        switch snapshot {
+        case .absent:
+            try? FileManager.default.removeItem(at: url)
+        case .data(let data):
+            try? data.write(to: url, options: .atomic)
+        case .nonFile:
+            break
+        }
+    }
+
+    fileprivate static func provenanceSnapshot(at url: URL) -> ProvenanceSidecarSnapshot {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            return .absent
+        }
+        guard !isDirectory.boolValue, let data = try? Data(contentsOf: url) else {
+            return .nonFile
+        }
+        return .data(data)
     }
 
     static func writeCommandPlanProvenance(
@@ -432,27 +525,36 @@ extension VariantsCommand {
                 throw ValidationError("Sample '\(sampleName)' was not found in \(bundleURL.path).")
             }
             let records = opened.db.queryForTable(sampleNames: [sampleName], limit: Int.max)
-            try opened.db.writeVCF(records: records, sampleNames: [sampleName], to: outputURL)
-            let completedAt = Date()
-            try VariantsCommand.writeProvenance(
-                workflowName: "lungfish variants extract-sample",
-                command: commandArgv(bundlePath: bundlePath, sampleName: sampleName, outputPath: outputPath),
-                bundleURL: bundleURL,
-                databaseURL: opened.databaseURL,
+            try VariantsCommand.publishOutputWithProvenance(
                 outputURL: outputURL,
-                parameters: [
-                    "bundlePath": .string(bundleURL.path),
-                    "variantTrackID": .string(opened.track.id),
-                    "databasePath": .string(opened.databaseURL.path),
-                    "sample": .string(sampleName),
-                    "outputPath": .string(outputURL.path),
-                    "quiet": .boolean(globalOptions.quiet),
-                    "outputFormat": .string(globalOptions.outputFormat.rawValue),
-                    "containerRuntime": .string("none"),
-                    "condaEnvironment": .string("none"),
-                ],
-                startedAt: startedAt,
-                completedAt: completedAt
+                format: .vcf,
+                writeOutputToStaging: { stagedOutputURL in
+                    try opened.db.writeVCF(records: records, sampleNames: [sampleName], to: stagedOutputURL)
+                },
+                writeProvenanceForOutput: { outputRecord in
+                    let completedAt = Date()
+                    try VariantsCommand.writeProvenance(
+                        workflowName: "lungfish variants extract-sample",
+                        command: commandArgv(bundlePath: bundlePath, sampleName: sampleName, outputPath: outputPath),
+                        bundleURL: bundleURL,
+                        databaseURL: opened.databaseURL,
+                        outputURL: outputURL,
+                        outputRecord: outputRecord,
+                        parameters: [
+                            "bundlePath": .string(bundleURL.path),
+                            "variantTrackID": .string(opened.track.id),
+                            "databasePath": .string(opened.databaseURL.path),
+                            "sample": .string(sampleName),
+                            "outputPath": .string(outputURL.path),
+                            "quiet": .boolean(globalOptions.quiet),
+                            "outputFormat": .string(globalOptions.outputFormat.rawValue),
+                            "containerRuntime": .string("none"),
+                            "condaEnvironment": .string("none"),
+                        ],
+                        startedAt: startedAt,
+                        completedAt: completedAt
+                    )
+                }
             )
         }
 
@@ -516,28 +618,37 @@ extension VariantsCommand {
             )
             let opened = try VariantsCommand.openDefaultVariantDatabase(bundleURL: bundleURL)
             let records = try opened.db.query(smartFilter: filterText, limit: limit)
-            try opened.db.writeVCF(records: records, sampleNames: [], to: outputURL)
-            let completedAt = Date()
-            try VariantsCommand.writeProvenance(
-                workflowName: "lungfish variants query",
-                command: commandArgv(bundlePath: bundlePath, filterText: filterText, outputPath: outputPath),
-                bundleURL: bundleURL,
-                databaseURL: opened.databaseURL,
+            try VariantsCommand.publishOutputWithProvenance(
                 outputURL: outputURL,
-                parameters: [
-                    "bundlePath": .string(bundleURL.path),
-                    "variantTrackID": .string(opened.track.id),
-                    "databasePath": .string(opened.databaseURL.path),
-                    "filter": .string(filterText),
-                    "limit": .integer(limit),
-                    "outputPath": .string(outputURL.path),
-                    "quiet": .boolean(globalOptions.quiet),
-                    "outputFormat": .string(globalOptions.outputFormat.rawValue),
-                    "containerRuntime": .string("none"),
-                    "condaEnvironment": .string("none"),
-                ],
-                startedAt: startedAt,
-                completedAt: completedAt
+                format: .vcf,
+                writeOutputToStaging: { stagedOutputURL in
+                    try opened.db.writeVCF(records: records, sampleNames: [], to: stagedOutputURL)
+                },
+                writeProvenanceForOutput: { outputRecord in
+                    let completedAt = Date()
+                    try VariantsCommand.writeProvenance(
+                        workflowName: "lungfish variants query",
+                        command: commandArgv(bundlePath: bundlePath, filterText: filterText, outputPath: outputPath),
+                        bundleURL: bundleURL,
+                        databaseURL: opened.databaseURL,
+                        outputURL: outputURL,
+                        outputRecord: outputRecord,
+                        parameters: [
+                            "bundlePath": .string(bundleURL.path),
+                            "variantTrackID": .string(opened.track.id),
+                            "databasePath": .string(opened.databaseURL.path),
+                            "filter": .string(filterText),
+                            "limit": .integer(limit),
+                            "outputPath": .string(outputURL.path),
+                            "quiet": .boolean(globalOptions.quiet),
+                            "outputFormat": .string(globalOptions.outputFormat.rawValue),
+                            "containerRuntime": .string("none"),
+                            "condaEnvironment": .string("none"),
+                        ],
+                        startedAt: startedAt,
+                        completedAt: completedAt
+                    )
+                }
             )
         }
 
@@ -995,4 +1106,10 @@ private final class VariantCallingEventEmitter: @unchecked Sendable {
     init(_ emit: @escaping (VariantsCommand.VariantCallingEvent) -> Void) {
         self.emit = emit
     }
+}
+
+private enum ProvenanceSidecarSnapshot {
+    case absent
+    case data(Data)
+    case nonFile
 }

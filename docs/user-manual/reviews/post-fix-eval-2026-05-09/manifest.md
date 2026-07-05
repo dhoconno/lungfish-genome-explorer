@@ -294,8 +294,9 @@ Substrate (SQLite-backed variant store) is in place. Variant browser
 (`variant-browser-with-inspector.png`) renders the table with quality/QC
 filter chips (PASS, Qual ≥ 30, DP ≥ 10, Singleton, Minor <20%, Mixed
 20-80%, Dominant ≥80%, DEL, SNP). No per-sample filter syntax (`Sample[NA12878].GT=1/1`).
-No `lungfish-cli variants extract-sample` or `variants query` subcommands.
-Filed as docs-024a.
+`lungfish variants extract-sample` and `lungfish variants query` now exist for
+bundle-owned SQLite variant tracks, and publish exported VCFs only after writing
+sidecar provenance. The historical docs-024a gap is superseded.
 
 ### docs-025 — Reject VCFv3
 

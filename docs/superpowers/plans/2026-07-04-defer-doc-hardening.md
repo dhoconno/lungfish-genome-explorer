@@ -139,6 +139,10 @@ changes that reduce future ambiguity across the codebase.
   CLI provenance rehydration fails.
 - Made analysis manifest appends fail closed on corrupt existing manifests, and made legacy
   analysis migration roll back moved directories if bundle manifest recording fails.
+- Made `variants extract-sample` and `variants query` stage exported VCFs, write provenance for
+  the final output checksum, and only then publish the VCF.
+- Made completed managed GATK executions remove newly-created declared outputs if final
+  provenance persistence fails.
 
 ## Verification
 
