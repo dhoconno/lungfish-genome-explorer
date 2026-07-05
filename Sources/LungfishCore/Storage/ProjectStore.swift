@@ -666,14 +666,14 @@ public final class ProjectStore {
     // MARK: - Project Metadata
 
     /// Sets a project metadata value.
-    public func setMetadata(key: String, value: String) throws {
+    func setMetadata(key: String, value: String) throws {
         try execute("""
             INSERT OR REPLACE INTO project_metadata (key, value) VALUES (?, ?)
         """, parameters: [key, value])
     }
 
     /// Gets a project metadata value.
-    public func getMetadata(key: String) throws -> String? {
+    func getMetadata(key: String) throws -> String? {
         var value: String?
         try query("""
             SELECT value FROM project_metadata WHERE key = ?
@@ -847,7 +847,7 @@ public final class ProjectStore {
     ///
     /// - Parameter mode: The checkpoint mode. Defaults to `.truncate` which
     ///   checkpoints all frames and truncates the WAL file to zero bytes.
-    public func checkpoint(mode: CheckpointMode = .truncate) {
+    func checkpoint(mode: CheckpointMode = .truncate) {
         guard let db = db else { return }
 
         let modeValue: Int32
@@ -884,7 +884,7 @@ public final class ProjectStore {
     }
 
     /// WAL checkpoint modes.
-    public enum CheckpointMode {
+    enum CheckpointMode {
         /// Checkpoint as many frames as possible without waiting.
         case passive
         /// Checkpoint all frames, waiting for readers to finish.

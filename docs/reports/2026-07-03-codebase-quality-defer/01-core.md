@@ -65,9 +65,12 @@ original refactor was constrained to behavior-preserving edits:
 - **RESOLVED — DB-derived row decoding no longer force-unwraps corrupted data.**
   Invalid UUID text and missing/invalid required blob/text payloads now throw
   `ProjectStoreError.queryError` with column context instead of crashing.
-- **F8 — access-control demotion of checkpoint/setMetadata/getMetadata (medium
-  conf).** Appear test-only; could be `internal`. Deferred pending a cross-module
-  grep confirming no leaf/App caller.
+- **RESOLVED F8 — checkpoint/setMetadata/getMetadata are internal implementation
+  details.** Cross-module grep found no production callers outside
+  `LungfishCore`; only `ProjectStoreTests` exercise the metadata helpers through
+  `@testable import`. The methods and nested `CheckpointMode` are now internal
+  so App/IO/Workflow code cannot accidentally depend on low-level project-store
+  maintenance APIs.
 
 ## ReferenceBundleBuilder.swift
 

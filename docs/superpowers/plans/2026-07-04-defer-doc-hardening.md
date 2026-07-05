@@ -93,6 +93,8 @@ changes that reduce future ambiguity across the codebase.
 - Extracted BlastService gzip decompression process setup into one helper while keeping Kraken
   byte residual parsing, FASTQ string residual parsing, retry behavior, and failure mapping
   separate and covered.
+- Narrowed `ProjectStore` metadata and WAL-checkpoint maintenance APIs to internal after
+  cross-module grep confirmed no production caller outside LungfishCore.
 
 ## Verification
 
