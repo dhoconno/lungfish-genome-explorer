@@ -137,13 +137,11 @@ APPLIED (Pass B batch 3 — committed a6f7e84a):
   `init(initialDestination:)`, the positional form, or the no-arg default; both inits have
   identical defaults). Internal type, app-internal, no cross-module/out-of-tree consumer.
 
-DEFERRED:
-- `Views/Viewer/FASTQMetadataDrawerView.swift`: no-op `public func
-  tableViewSelectionDidChange(_:)` (~1312-1321) — body is pure `break`s, behaviorally a no-op
-  delegate stub. Removal is behavior-equivalent but it is PUBLIC protocol-shaped surface with
-  near-zero cleanup value; deferred rather than touch public surface. `isSuppressingDelegate
-  Callbacks` (line 119) is its only reader and is never written -> both are effectively dead;
-  a maintainer pass could remove the pair.
+APPLIED (2026-07-04 hardening continuation):
+- `Views/Viewer/FASTQMetadataDrawerView.swift`: removed the no-op
+  `tableViewSelectionDidChange(_:)` optional delegate stub and its only supporting state,
+  `isSuppressingDelegateCallbacks`, after grep verified the flag had no writers and the method did
+  not dispatch selection behavior for either drawer table.
 
 ## Applied batches (commit log)
 
@@ -207,9 +205,8 @@ Pass A big files (catalogued from the solo audits):
   state for the operation sidebar.
 - RESOLVED: `FASTQMetadataSection` no longer uses an always-true conditional to show Custom
   Fields; unconditional visibility is now represented directly.
-- `FASTQMetadataDrawerView` — dead pair: `public func tableViewSelectionDidChange(_:)` (no-op
-  break-only body) + its only reader `isSuppressingDelegateCallbacks` (never written). Left in
-  place (public protocol-shaped surface); a maintainer pass could remove both.
+- RESOLVED: `FASTQMetadataDrawerView` no longer carries the dead no-op
+  `tableViewSelectionDidChange(_:)` optional delegate stub or its never-written suppression flag.
 - No macOS-26 API violations (lockFocus/wantsLayer/runModal/synchronize/NSSplitViewController
   delegate methods) and no forbidden GCD->MainActor `Task { @MainActor` hops found in any Pass A
   big file (the many `Task { @MainActor in }` are same-actor tasks on already-@MainActor types —

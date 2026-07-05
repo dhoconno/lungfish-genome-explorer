@@ -133,7 +133,6 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
     // Tag constants for distinguishing table views in data source/delegate
     private static let mainTableTag = 100
     private static let kitDetailTableTag = 101
-    private var isSuppressingDelegateCallbacks = false
 
     private weak var delegate: FASTQMetadataDrawerViewDelegate?
 
@@ -1322,17 +1321,6 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
             }
 
         case .primerTrim, .dedup:
-            break
-        }
-    }
-
-    public func tableViewSelectionDidChange(_ notification: Notification) {
-        guard !isSuppressingDelegateCallbacks,
-              let table = notification.object as? NSTableView else { return }
-        switch table.tag {
-        case Self.mainTableTag:
-            break
-        default:
             break
         }
     }

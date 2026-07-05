@@ -95,6 +95,8 @@ changes that reduce future ambiguity across the codebase.
   separate and covered.
 - Narrowed `ProjectStore` metadata and WAL-checkpoint maintenance APIs to internal after
   cross-module grep confirmed no production caller outside LungfishCore.
+- Removed `FASTQMetadataDrawerView`'s dead no-op table-selection delegate stub and its
+  never-written suppression flag after verifying selection changes had no implemented behavior.
 
 ## Verification
 
