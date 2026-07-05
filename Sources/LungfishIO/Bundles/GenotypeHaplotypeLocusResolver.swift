@@ -197,17 +197,11 @@ public enum GenotypeHaplotypeLocusResolver {
     }
 
     private static func speciesFreeToken(_ token: String) -> String? {
-        let runStripped = removeLeadingRunNumber(from: token)
+        let runStripped = GenotypeHaplotypeTokenNormalization.removingLeadingRunNumber(from: token)
         let parts = runStripped.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
         guard parts.count == 2 else { return nil }
         let species = parts[0].lowercased()
         guard ["mafa", "mamu", "mane"].contains(species) else { return nil }
-        return String(parts[1])
-    }
-
-    private static func removeLeadingRunNumber(from token: String) -> String {
-        let parts = token.split(separator: "_", maxSplits: 1, omittingEmptySubsequences: false)
-        guard parts.count == 2, parts[0].allSatisfy(\.isNumber) else { return token }
         return String(parts[1])
     }
 }

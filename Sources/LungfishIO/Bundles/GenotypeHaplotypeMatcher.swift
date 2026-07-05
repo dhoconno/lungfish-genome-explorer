@@ -32,8 +32,9 @@ public enum GenotypeHaplotypeDiagnosticMatcher {
                 .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
             guard !cleaned.isEmpty else { continue }
             insertTokenVariants(cleaned, into: &tokens)
-            insertTokenVariants(removingLeadingRunNumber(from: cleaned), into: &tokens)
-            if let speciesFree = removingSpeciesPrefix(from: removingLeadingRunNumber(from: cleaned)) {
+            let runStripped = GenotypeHaplotypeTokenNormalization.removingLeadingRunNumber(from: cleaned)
+            insertTokenVariants(runStripped, into: &tokens)
+            if let speciesFree = removingSpeciesPrefix(from: runStripped) {
                 insertTokenVariants(speciesFree, into: &tokens)
             }
         }
@@ -47,12 +48,6 @@ public enum GenotypeHaplotypeDiagnosticMatcher {
             let stripped = String(token[..<range.lowerBound])
             if !stripped.isEmpty { tokens.insert(stripped) }
         }
-    }
-
-    private static func removingLeadingRunNumber(from token: String) -> String {
-        let parts = token.split(separator: "_", maxSplits: 1, omittingEmptySubsequences: false)
-        guard parts.count == 2, parts[0].allSatisfy(\.isNumber) else { return token }
-        return String(parts[1])
     }
 
     private static func removingSpeciesPrefix(from token: String) -> String? {

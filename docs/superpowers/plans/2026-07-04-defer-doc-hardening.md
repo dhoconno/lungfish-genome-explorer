@@ -84,6 +84,8 @@ changes that reduce future ambiguity across the codebase.
   `static let` singletons and moved root-change coverage to injected test instances.
 - Narrowed `ManagedStorageConfigStore.shared` from publicly replaceable global state to public
   read-only API with an explicit internal test override for temporary-home isolation.
+- Deduplicated genotype haplotype leading-run-number token stripping behind one internal
+  helper, with public matcher/locus coverage for numeric-prefix normalization.
 
 ## Verification
 
