@@ -1509,19 +1509,7 @@ final class WorkflowOperationDialogState {
     }
 
     private static func packageIsRunnable(_ package: WorkflowPackageValidationResult) -> Bool {
-        switch package.manifest.runner.kind {
-        case .nextflow, .snakemake:
-            break
-        case .command:
-            return false
-        }
-        let hasReferenceInput = package.manifest.inputs.contains {
-            $0.required && $0.bundleTypes.contains(.lungfishref)
-        }
-        let hasFASTQInput = package.manifest.inputs.contains {
-            $0.required && $0.bundleTypes.contains(.lungfishfastq)
-        }
-        return hasReferenceInput && hasFASTQInput && !package.manifest.outputs.isEmpty
+        package.supportsWorkflowLibraryExecution
     }
 
     nonisolated private static func projectDiscoverySnapshot(

@@ -2,32 +2,16 @@ import Foundation
 import LungfishWorkflow
 import Observation
 
+struct WorkflowLibraryPackageStatusRow: Equatable, Identifiable, Sendable {
+    let id: String
+    let label: String
+    let value: String
+    let isReady: Bool
+}
+
 @MainActor
 @Observable
 final class WorkflowLibraryViewModel {
-    enum Tab: Hashable, Sendable {
-        case library
-        case installed
-        case runs
-
-        var segmentIndex: Int {
-            switch self {
-            case .library: return 0
-            case .installed: return 1
-            case .runs: return 2
-            }
-        }
-
-        static func from(segmentIndex: Int) -> Tab {
-            switch segmentIndex {
-            case 0: return .library
-            case 1: return .installed
-            case 2: return .runs
-            default: return .library
-            }
-        }
-    }
-
     let items: [WorkflowLibraryItem]
 
     private let store: WorkflowLibraryEnablementStore
@@ -36,7 +20,6 @@ final class WorkflowLibraryViewModel {
     @ObservationIgnored private var userWorkflowPackageRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var userWorkflowPackageRefreshGeneration: UInt64 = 0
 
-    var selectedTab: Tab = .library
     var pluginStatusesByPackID: [String: PluginPackStatus] = [:]
     var isRefreshing: Bool = false
     var isLoadingUserWorkflowPackages: Bool = false
@@ -83,7 +66,7 @@ final class WorkflowLibraryViewModel {
     }
 
     func isEnabled(_ package: WorkflowPackageValidationResult) -> Bool {
-        enabledUserWorkflowIDs.contains(package.manifest.id)
+        package.supportsWorkflowLibraryExecution && enabledUserWorkflowIDs.contains(package.manifest.id)
     }
 
     func canDisable(_ item: WorkflowLibraryItem) -> Bool {
@@ -111,6 +94,29 @@ final class WorkflowLibraryViewModel {
             return "No managed plug-ins required"
         }
         return item.requiredPluginPackIDs.map(pluginPackName(for:)).joined(separator: ", ")
+    }
+
+    func dependencyStatusRows(for package: WorkflowPackageValidationResult) -> [WorkflowLibraryPackageStatusRow] {
+        guard !package.manifest.requiredPluginPackIDs.isEmpty else {
+            return [
+                WorkflowLibraryPackageStatusRow(
+                    id: "dependencies.none",
+                    label: "Dependencies",
+                    value: "No managed plug-ins required",
+                    isReady: true
+                ),
+            ]
+        }
+        let missingPackIDs = Set(missingRequiredPluginPackIDs(for: package))
+        return package.manifest.requiredPluginPackIDs.map { packID in
+            let ready = !missingPackIDs.contains(packID)
+            return WorkflowLibraryPackageStatusRow(
+                id: "dependency.\(packID)",
+                label: "Dependency",
+                value: "\(pluginPackName(for: packID)) - \(ready ? "Ready" : "Needs install")",
+                isReady: ready
+            )
+        }
     }
 
     func refreshDependencyStatuses() async {
@@ -189,12 +195,14 @@ final class WorkflowLibraryViewModel {
         }
 
         let result = await store.enableUserWorkflow(package, using: statusProvider)
-        if result == .enabled {
+        switch result {
+        case .enabled:
             syncEnablementState()
-        }
-        if case .blocked(let missingPackIDs) = result {
+        case .blocked(let missingPackIDs):
             errorMessage = "Install required plug-ins before enabling \(package.manifest.name): \(missingPackIDs.map(pluginPackName(for:)).joined(separator: ", "))."
             showingError = true
+        case .unsupportedRunner:
+            showUnsupportedRunnerError(for: package)
         }
         await refreshDependencyStatuses()
     }
@@ -229,6 +237,11 @@ final class WorkflowLibraryViewModel {
     }
 
     func installDependenciesAndEnable(_ package: WorkflowPackageValidationResult) async {
+        guard package.supportsWorkflowLibraryExecution else {
+            showUnsupportedRunnerError(for: package)
+            return
+        }
+
         installingWorkflowIDs.insert(package.manifest.id)
         defer { installingWorkflowIDs.remove(package.manifest.id) }
 
@@ -244,17 +257,26 @@ final class WorkflowLibraryViewModel {
             }
             await refreshDependencyStatuses()
             let result = await store.enableUserWorkflow(package, using: statusProvider)
-            if result == .enabled {
+            switch result {
+            case .enabled:
                 syncEnablementState()
-            }
-            if case .blocked(let missingPackIDs) = result {
+            case .blocked(let missingPackIDs):
                 errorMessage = "Could not enable \(package.manifest.name). Still missing: \(missingPackIDs.map(pluginPackName(for:)).joined(separator: ", "))."
                 showingError = true
+            case .unsupportedRunner:
+                showUnsupportedRunnerError(for: package)
             }
         } catch {
             errorMessage = "Could not install plug-ins for \(package.manifest.name): \(error.localizedDescription)"
             showingError = true
         }
+    }
+
+    private func showUnsupportedRunnerError(for package: WorkflowPackageValidationResult) {
+        let reason = package.workflowLibraryExecutionUnavailableReason
+            ?? "This runner type is not executable from Workflow Operations."
+        errorMessage = "\(package.manifest.name) is catalog-only. \(reason)"
+        showingError = true
     }
 
     private func syncEnablementState() {

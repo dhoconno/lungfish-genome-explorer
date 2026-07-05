@@ -122,6 +122,10 @@ and behavior-preserving simplifications are useful and appropriate.
 - 2026-07-04 follow-up: Find Previous now keeps the standard `Cmd-Shift-G` shortcut, Go to Gene
   moved to non-conflicting `Cmd-Option-G`, the active shortcut manual was updated, and sequence
   navigation menu items now disable when their viewer/annotation prerequisites are absent.
+- 2026-07-04 follow-up: Workflow Library no longer exposes placeholder Installed/Runs tabs;
+  command-runner and unsupported-contract workflow packages are labeled and blocked as beta1
+  catalog-only imports; and the stale Workflow Library import design spec now matches the shipped
+  single-pane scope.
 
 ## Still Deferred
 

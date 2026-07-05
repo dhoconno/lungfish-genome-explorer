@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 import LungfishWorkflow
 @testable import LungfishApp
@@ -128,20 +129,62 @@ final class WorkflowLibraryTests: XCTestCase {
     func testWorkflowFeatureAvailabilityFollowsEnabledSpecializedAndUserWorkflows() throws {
         let defaults = try makeDefaults()
         let store = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
 
-        var availability = WorkflowFeatureAvailability.current(enablementStore: store)
+        var availability = WorkflowFeatureAvailability.current(enablementStore: store, packageStore: packageStore)
         XCTAssertTrue(availability.hasWorkflowOperations)
         XCTAssertTrue(availability.hasHaplotypeDefinitions)
 
         store.setWorkflow(.ontGenotyping, enabled: false)
-        availability = WorkflowFeatureAvailability.current(enablementStore: store)
+        availability = WorkflowFeatureAvailability.current(enablementStore: store, packageStore: packageStore)
         XCTAssertFalse(availability.hasWorkflowOperations)
         XCTAssertFalse(availability.hasHaplotypeDefinitions)
 
         store.setUserWorkflow("org.example.custom", enabled: true)
-        availability = WorkflowFeatureAvailability.current(enablementStore: store)
+        availability = WorkflowFeatureAvailability.current(enablementStore: store, packageStore: packageStore)
+        XCTAssertFalse(
+            availability.hasWorkflowOperations,
+            "Stale ID-only user workflow state must not unlock Workflow Operations"
+        )
+
+        let package = try makeUserWorkflowPackageOnDisk(id: "org.example.custom", runnerKind: .nextflow)
+        packageStore.addValidatedPackage(package)
+        store.setUserWorkflow(package, enabled: true)
+        availability = WorkflowFeatureAvailability.current(enablementStore: store, packageStore: packageStore)
         XCTAssertTrue(availability.hasWorkflowOperations)
         XCTAssertFalse(availability.hasHaplotypeDefinitions)
+    }
+
+    func testWorkflowFeatureAvailabilityIgnoresCatalogOnlyUserWorkflowPackages() throws {
+        let defaults = try makeDefaults()
+        let store = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        store.setWorkflow(.ontGenotyping, enabled: false)
+        let commandPackage = try makeUserWorkflowPackageOnDisk(
+            id: "org.example.command-workflow",
+            runnerKind: .command,
+            entrypoint: "run.sh"
+        )
+        let unsupportedContractPackage = try makeUserWorkflowPackageOnDisk(
+            id: "org.example.fastq-only-workflow",
+            runnerKind: .nextflow,
+            inputs: [
+                WorkflowPackageInput(id: "reads", name: "Reads", bundleTypes: [.lungfishfastq]),
+            ]
+        )
+        packageStore.addValidatedPackage(commandPackage)
+        packageStore.addValidatedPackage(unsupportedContractPackage)
+
+        store.setUserWorkflow(commandPackage.manifest.id, enabled: true)
+        store.setUserWorkflow(unsupportedContractPackage.manifest.id, enabled: true)
+        let availability = WorkflowFeatureAvailability.current(enablementStore: store, packageStore: packageStore)
+
+        XCTAssertFalse(availability.hasWorkflowOperations)
+        XCTAssertFalse(availability.hasHaplotypeDefinitions)
+        XCTAssertFalse(unsupportedContractPackage.supportsWorkflowLibraryExecution)
+        XCTAssertTrue(
+            unsupportedContractPackage.workflowLibraryExecutionUnavailableReason?.contains(".lungfishref") == true
+        )
     }
 
     func testEnablingSpecializedWorkflowIsBlockedUntilRequiredPluginPacksAreReady() async throws {
@@ -319,6 +362,51 @@ final class WorkflowLibraryTests: XCTestCase {
         )
     }
 
+    func testWorkflowLibraryWindowUsesSinglePaneWithoutPlaceholderToolbar() throws {
+        let _ = NSApplication.shared
+        closeWorkflowLibraryWindows()
+        addTeardownBlock { @MainActor in
+            self.closeWorkflowLibraryWindows()
+        }
+
+        WorkflowLibraryWindowController.show()
+
+        let window = try XCTUnwrap(workflowLibraryWindow())
+        XCTAssertEqual(window.accessibilityIdentifier(), WorkflowLibraryAccessibilityID.window)
+        XCTAssertNil(window.toolbar)
+        XCTAssertNotNil(window.contentView)
+    }
+
+    func testViewModelSummarizesUserWorkflowPackageExecutionAndDependencies() async throws {
+        let defaults = try makeDefaults()
+        let package = makeUserWorkflowPackage(
+            id: "org.example.command-workflow",
+            runnerKind: .command,
+            entrypoint: "run.sh",
+            requiredPluginPackIDs: ["lungfish-tools"]
+        )
+        let viewModel = WorkflowLibraryViewModel(
+            store: WorkflowLibraryEnablementStore(userDefaults: defaults),
+            packageStore: WorkflowLibraryImportedPackageStore(userDefaults: defaults),
+            statusProvider: StubWorkflowLibraryPluginStatusProvider(states: [
+                "lungfish-tools": .needsInstall,
+            ])
+        )
+        viewModel.userWorkflowPackages = [package]
+
+        await viewModel.refreshDependencyStatuses()
+
+        XCTAssertEqual(package.workflowLibraryExecutionUnavailableReason, "Command-runner packages can be imported and reviewed, but beta1 does not execute them.")
+        XCTAssertEqual(viewModel.dependencyStatusRows(for: package), [
+            WorkflowLibraryPackageStatusRow(
+                id: "dependency.lungfish-tools",
+                label: "Dependency",
+                value: "\(viewModel.pluginPackName(for: "lungfish-tools")) - Needs install",
+                isReady: false
+            ),
+        ])
+    }
+
     func testImportCancelsStartupPackageRefreshAndClearsLoadingState() async throws {
         let defaults = try makeDefaults()
         let store = WorkflowLibraryEnablementStore(userDefaults: defaults)
@@ -420,6 +508,52 @@ final class WorkflowLibraryTests: XCTestCase {
         XCTAssertTrue(reloadedStore.isUserWorkflowEnabled(package.manifest.id))
     }
 
+    func testCommandRunnerUserWorkflowPackagesRemainCatalogOnly() async throws {
+        let defaults = try makeDefaults()
+        let store = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let statusProvider = InstallingWorkflowLibraryPluginStatusProvider(states: [
+            "lungfish-tools": .needsInstall,
+        ])
+        let viewModel = WorkflowLibraryViewModel(
+            store: store,
+            packageStore: packageStore,
+            statusProvider: statusProvider
+        )
+        let package = makeUserWorkflowPackage(
+            id: "org.example.command-workflow",
+            runnerKind: .command,
+            entrypoint: "run.sh",
+            requiredPluginPackIDs: ["lungfish-tools"]
+        )
+
+        XCTAssertFalse(package.supportsWorkflowLibraryExecution)
+        let enablementResult = await store.enableUserWorkflow(package, using: statusProvider)
+        XCTAssertEqual(enablementResult, .unsupportedRunner(kind: .command))
+        XCTAssertFalse(store.isUserWorkflowEnabled(package))
+
+        store.setUserWorkflow(package, enabled: true)
+        XCTAssertFalse(
+            store.isUserWorkflowEnabled(package),
+            "Package-aware enablement must not mark command-runner packages runnable"
+        )
+
+        await viewModel.setWorkflow(package, enabled: true)
+
+        XCTAssertFalse(viewModel.isEnabled(package))
+        XCTAssertTrue(viewModel.showingError)
+        XCTAssertTrue(viewModel.errorMessage?.contains("catalog-only") == true)
+
+        viewModel.showingError = false
+        viewModel.errorMessage = nil
+        await viewModel.installDependenciesAndEnable(package)
+
+        XCTAssertEqual(statusProvider.installedPackIDs, [])
+        XCTAssertFalse(viewModel.isEnabled(package))
+        XCTAssertTrue(viewModel.showingError)
+        XCTAssertTrue(viewModel.errorMessage?.contains("beta1 does not execute") == true)
+    }
+
     func testViewModelInstallsMissingDependenciesBeforeEnablingUserWorkflowPackage() async throws {
         let defaults = try makeDefaults()
         let store = WorkflowLibraryEnablementStore(userDefaults: defaults)
@@ -460,6 +594,77 @@ final class WorkflowLibraryTests: XCTestCase {
             .appendingPathComponent("Examples/WorkflowPackages/hello-world-nextflow.lungfishflowpkg", isDirectory: true)
     }
 
+    private func makeUserWorkflowPackage(
+        id: String,
+        runnerKind: WorkflowPackageRunnerKind,
+        entrypoint: String,
+        inputs: [WorkflowPackageInput]? = nil,
+        outputs: [WorkflowPackageOutput]? = nil,
+        requiredPluginPackIDs: [String] = []
+    ) -> WorkflowPackageValidationResult {
+        let packageURL = URL(fileURLWithPath: "/tmp/\(id).lungfishflowpkg", isDirectory: true)
+        let manifest = WorkflowPackageManifest(
+            id: id,
+            name: "User Workflow",
+            version: "1.0.0",
+            category: "Templates",
+            runner: WorkflowPackageRunner(kind: runnerKind, entrypoint: entrypoint),
+            inputs: inputs ?? [
+                WorkflowPackageInput(id: "reference", name: "Reference", bundleTypes: [.lungfishref]),
+                WorkflowPackageInput(id: "reads", name: "Reads", bundleTypes: [.lungfishfastq]),
+            ],
+            outputs: outputs ?? [
+                WorkflowPackageOutput(
+                    id: "output",
+                    name: "Output",
+                    bundleType: .lungfishref,
+                    pathTemplate: "out.lungfishref"
+                ),
+            ],
+            requiredPluginPackIDs: requiredPluginPackIDs
+        )
+        return WorkflowPackageValidationResult(
+            packageURL: packageURL,
+            manifestURL: packageURL.appendingPathComponent("manifest.json"),
+            manifest: manifest,
+            warnings: []
+        )
+    }
+
+    private func makeUserWorkflowPackageOnDisk(
+        id: String,
+        runnerKind: WorkflowPackageRunnerKind,
+        entrypoint: String = "main.nf",
+        inputs: [WorkflowPackageInput]? = nil,
+        outputs: [WorkflowPackageOutput]? = nil,
+        requiredPluginPackIDs: [String] = []
+    ) throws -> WorkflowPackageValidationResult {
+        let packageURL = try temporaryDirectory()
+            .appendingPathComponent("\(id).lungfishflowpkg", isDirectory: true)
+        try FileManager.default.createDirectory(at: packageURL, withIntermediateDirectories: true)
+        try "exit 0\n".write(
+            to: packageURL.appendingPathComponent(entrypoint),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let manifest = makeUserWorkflowPackage(
+            id: id,
+            runnerKind: runnerKind,
+            entrypoint: entrypoint,
+            inputs: inputs,
+            outputs: outputs,
+            requiredPluginPackIDs: requiredPluginPackIDs
+        ).manifest
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(manifest).write(
+            to: packageURL.appendingPathComponent(WorkflowPackageValidator.manifestFilename),
+            options: .atomic
+        )
+        return try WorkflowPackageValidator.validatePackage(at: packageURL)
+    }
+
     private func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("WorkflowLibraryTests-\(UUID().uuidString)", isDirectory: true)
@@ -472,6 +677,16 @@ final class WorkflowLibraryTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
+    }
+
+    private func workflowLibraryWindow() -> NSWindow? {
+        NSApp.windows.first { $0.accessibilityIdentifier() == WorkflowLibraryAccessibilityID.window }
+    }
+
+    private func closeWorkflowLibraryWindows() {
+        for window in NSApp.windows where window.accessibilityIdentifier() == WorkflowLibraryAccessibilityID.window {
+            window.close()
+        }
     }
 }
 
