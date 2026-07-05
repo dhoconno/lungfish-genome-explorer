@@ -33,6 +33,10 @@ changes that reduce future ambiguity across the codebase.
 - Added Core storage hardening: atomic metadata writes, ProjectStore transactions,
   unsupported-bind errors, negative-version rejection, and structured `queryError`
   failures for corrupted ProjectStore row identifiers/payloads.
+- Hardened remaining ProjectStore read/mutation invariants: checkout rejects negative
+  indexes and missing sequences before mutation, non-UTF-8 stored sequence payloads
+  throw instead of decoding to empty content, and shared queries require terminal
+  `SQLITE_DONE`.
 - Aligned NCBI and ENA batch fetch streams with Pathoplexus cancellation semantics
   so abandoned consumers cancel the producer task before it continues issuing
   network requests.

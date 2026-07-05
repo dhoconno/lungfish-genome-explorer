@@ -115,6 +115,16 @@ final class ProjectStoreTests: XCTestCase {
         )
     }
 
+    func testGetSequenceThrowsQueryErrorForNonUTF8OriginalContent() throws {
+        let sequenceId = try store.storeSequence(name: "corrupt_content", content: "ATCG")
+        try executeRawSQL("UPDATE sequences SET original_content = X'80' WHERE id = '\(sequenceId.uuidString)'")
+
+        assertThrowsProjectStoreQueryError(
+            try store.getSequence(id: sequenceId),
+            contains: "sequences.original_content"
+        )
+    }
+
     // MARK: - Version Tests
 
     func testRecordVersion() throws {
@@ -342,6 +352,40 @@ final class ProjectStoreTests: XCTestCase {
         try store.checkoutVersion(sequenceId: sequenceId, versionIndex: 1)
         currentIndex = try store.getCurrentVersionIndex(for: sequenceId)
         XCTAssertEqual(currentIndex, 1)
+    }
+
+    func testCheckoutVersionRejectsNegativeVersionIndex() throws {
+        let sequenceId = try store.storeSequence(
+            name: "negative_checkout",
+            content: "AAAA"
+        )
+
+        XCTAssertThrowsError(try store.checkoutVersion(sequenceId: sequenceId, versionIndex: -1)) { error in
+            guard case ProjectStoreError.invalidVersionIndex(let index) = error else {
+                XCTFail("Expected invalidVersionIndex, got \(error)")
+                return
+            }
+            XCTAssertEqual(index, -1)
+        }
+    }
+
+    func testCheckoutVersionReportsMissingSequenceAtVersionZero() throws {
+        let missingID = UUID()
+
+        XCTAssertThrowsError(try store.checkoutVersion(sequenceId: missingID, versionIndex: 0)) { error in
+            guard case ProjectStoreError.sequenceNotFound(let id) = error else {
+                XCTFail("Expected sequenceNotFound, got \(error)")
+                return
+            }
+            XCTAssertEqual(id, missingID)
+        }
+    }
+
+    func testQueryHelperRequiresTerminalSQLiteDoneResult() throws {
+        let source = try String(contentsOf: projectStoreSourceURL(), encoding: .utf8)
+
+        XCTAssertTrue(source.contains("guard stepResult == SQLITE_DONE"))
+        XCTAssertTrue(source.contains("Query failed:"))
     }
 
     // MARK: - Edit Log Tests
@@ -621,6 +665,15 @@ final class ProjectStoreTests: XCTestCase {
                 line: line
             )
         }
+    }
+
+    private func projectStoreSourceURL() -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishCore/Storage/ProjectStore.swift")
     }
 
     private func sqliteDate(_ string: String) -> Date {

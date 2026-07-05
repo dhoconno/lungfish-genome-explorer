@@ -27,11 +27,16 @@ original refactor was constrained to behavior-preserving edits:
   rollback.
 - `ProjectStore.bindParameter` now throws for unsupported parameter types instead
   of silently binding NULL.
+- `ProjectStore.checkoutVersion` now rejects negative version indexes and missing
+  sequence IDs before mutating `current_state`.
 - `ProjectStore.reconstructSequence` now rejects negative and past-history version
   indexes with `invalidVersionIndex` instead of trapping or clamping to the latest
   sequence content.
 - `ProjectStore` row decoders now throw `queryError` for corrupted UUID/text/blob
-  columns instead of force-unwrapping DB-derived values.
+  columns instead of force-unwrapping DB-derived values or accepting non-UTF-8
+  stored sequence content as an empty sequence.
+- `ProjectStore.query` now requires terminal `SQLITE_DONE`, so late SQLite errors
+  cannot be returned as successful partial/default reads.
 - `NCBIService.fetchBatch` and `ENAService.fetchBatch` now cancel their producer
   tasks on stream termination and check cancellation before each fetch, matching
   the existing Pathoplexus pattern.
@@ -65,6 +70,11 @@ original refactor was constrained to behavior-preserving edits:
 - **RESOLVED — DB-derived row decoding no longer force-unwraps corrupted data.**
   Invalid UUID text and missing/invalid required blob/text payloads now throw
   `ProjectStoreError.queryError` with column context instead of crashing.
+- **RESOLVED — ProjectStore checkout and query integrity.** `checkoutVersion`
+  now rejects negative indexes and missing sequence IDs before writing
+  `current_state`, `parseStoredSequence` rejects non-UTF-8 `original_content`
+  blobs, and the shared query helper checks for terminal `SQLITE_DONE` after row
+  draining.
 - **RESOLVED F8 — checkpoint/setMetadata/getMetadata are internal implementation
   details.** Cross-module grep found no production callers outside
   `LungfishCore`; only `ProjectStoreTests` exercise the metadata helpers through

@@ -377,6 +377,14 @@ public final class ProjectStore {
         return result
     }
 
+    private func sequenceExists(id: UUID) throws -> Bool {
+        var exists = false
+        try query("SELECT 1 FROM sequences WHERE id = ? LIMIT 1", parameters: [id.uuidString]) { _ in
+            exists = true
+        }
+        return exists
+    }
+
     /// Lists all sequences in the project.
     public func listSequences() throws -> [SequenceSummary] {
         var results: [SequenceSummary] = []
@@ -530,6 +538,13 @@ public final class ProjectStore {
 
     /// Checks out a specific version of a sequence.
     public func checkoutVersion(sequenceId: UUID, versionIndex: Int) throws {
+        guard versionIndex >= 0 else {
+            throw ProjectStoreError.invalidVersionIndex(index: versionIndex)
+        }
+        guard try sequenceExists(id: sequenceId) else {
+            throw ProjectStoreError.sequenceNotFound(id: sequenceId)
+        }
+
         let versions = try getVersionHistory(for: sequenceId)
         let versionHash: String?
 
@@ -716,7 +731,11 @@ public final class ProjectStore {
         }
 
         let contentData = try requiredBlobColumn(stmt, 2, name: "sequences.original_content")
-        let content = String(data: contentData, encoding: .utf8) ?? ""
+        guard let content = String(data: contentData, encoding: .utf8) else {
+            throw ProjectStoreError.queryError(
+                message: "Invalid UTF-8 in required column sequences.original_content"
+            )
+        }
 
         var metadata: [String: String]?
         if let metadataData = try optionalBlobColumn(stmt, 6, name: "sequences.metadata") {
@@ -940,8 +959,15 @@ public final class ProjectStore {
             try bindParameter(stmt, at: bindIndex, value: param)
         }
 
-        while sqlite3_step(stmt) == SQLITE_ROW {
+        var stepResult = sqlite3_step(stmt)
+        while stepResult == SQLITE_ROW {
             try handler(stmt)
+            stepResult = sqlite3_step(stmt)
+        }
+
+        guard stepResult == SQLITE_DONE else {
+            let message = String(cString: sqlite3_errmsg(db))
+            throw ProjectStoreError.queryError(message: "Query failed: \(message)")
         }
     }
 
