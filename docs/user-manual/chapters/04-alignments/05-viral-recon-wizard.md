@@ -73,7 +73,7 @@ The wizard has two reference modes:
 
 A SARS-CoV-2 primer scheme is required, because the protocol is always amplicon. Choose one from the built-in and project-local `.lungfishprimers` bundles. If none are installed, the wizard shows "No SARS-CoV-2 primer schemes are available." and cannot run. It stages `primers.bed`, and `primers.fasta` when the scheme carries it, into the prepared input directory.
 
-Two scheme-related gates can catch you out. First, the wizard checks that your reference accession is compatible with the chosen scheme and rejects an unknown or mismatched one. Second, if the selected scheme carries no bundled `primers.fasta`, the wizard cannot derive primer sequences from the built-in genome alone and needs a Local FASTA to derive them; pick Local FASTA in that case. Primer scheme structure and import status are documented in [Primer Scheme Bundles](../appendices/primer-schemes.md#appendix-primer-schemes).
+Two scheme-related gates can catch you out. First, the wizard checks that your reference accession is compatible with the chosen scheme and rejects an unknown or mismatched one. Second, if the selected scheme carries no bundled `primers.fasta`, the wizard cannot derive primer sequences from the accession alone and needs a local FASTA to derive them. You do not have to leave SARS-CoV-2 Genome mode to satisfy this. When the scheme lacks bundled primers, a local FASTA picker with a **Choose FASTA...** button appears below the accession field; pick a SARS-CoV-2 FASTA there and the gate clears while the mode stays on SARS-CoV-2 Genome. Primer scheme structure and import status are documented in [Primer Scheme Bundles](../appendices/primer-schemes.md#appendix-primer-schemes).
 
 ## Procedure
 
@@ -104,6 +104,22 @@ The wizard opens with these defaults:
 | Memory | 8.GB |
 | Variant caller | iVar |
 | Consensus caller | BCFtools |
+
+The **Variant caller** picker offers iVar (the default) or BCFtools, and the **Consensus caller** picker offers BCFtools (the default) or iVar. The two selections pass through as the viralrecon `variant_caller` and `consensus_caller` parameters.
+
+Each **Skip Options** checkbox maps to a viralrecon `skip_*` parameter, and checking a box skips that stage. Assembly and Kraken2 are checked by default, so both are skipped unless you clear them. Checking the Variants or Consensus box skips that stage and drops the headline variant or consensus outputs from the run, so leave both clear for a standard consensus-plus-variants pass.
+
+| Toggle | Parameter | Default |
+|---|---|---|
+| Assembly | `skip_assembly` | Skipped |
+| Variants | `skip_variants` | Runs |
+| Consensus | `skip_consensus` | Runs |
+| FastQC | `skip_fastqc` | Runs |
+| Kraken2 | `skip_kraken2` | Skipped |
+| fastp | `skip_fastp` | Runs |
+| Cutadapt | `skip_cutadapt` | Runs |
+| iVar trim | `skip_ivar_trim` | Runs |
+| MultiQC | `skip_multiqc` | Runs |
 
 ## CLI Procedure
 

@@ -69,7 +69,7 @@ Keep the full assembly bundle when you want to study the assembly's own
 structure: comparing contig lengths, examining low-coverage tails, spotting
 host or vector contamination, or running annotation across all contigs to see
 which organism each came from. The assembly viewport is built for this and
-shows per-contig length, coverage, and GC content. You can also extract from
+shows per-contig length, GC content, and each contig's share of the assembly. You can also extract from
 the same assembly later, any number of times, so keeping it costs you no
 downstream option.
 
@@ -90,8 +90,15 @@ picker, extract. If your next step is reading the contig list, do not.
 The procedure is the same whether you are extracting one contig or several.
 
 1. Open the assembly bundle (from `Assemblies/` in the sidebar) so its
-   result viewport is showing. The contig table lists every contig with its
-   length, coverage, and GC content.
+   result viewport is showing. The contig table lists every contig across
+   sortable **#**, **Contig**, **Length (bp)**, **GC %**, **Share of
+   Assembly (%)**, and **Sequence Preview** columns. There is no coverage
+   column, though a SPAdes contig name carries its coverage in the
+   identifier. A summary strip across the top of the viewport holds the
+   assembly-wide numbers (Assembler, Read Type, Contigs, Total bp, N50, L50,
+   Longest, Global GC, and, when the run recorded them, Version and Wall
+   Time), and a **Filter contigs** box narrows the table by contig name or
+   header.
 2. Select the contigs you want in the table. Click rows to toggle selection;
    the action bar tracks the count. For a typical viral assembly you select
    the single longest contig; for a bacterial isolate you may take a
@@ -99,7 +106,11 @@ The procedure is the same whether you are extracting one contig or several.
 3. Click **Create Bundle** in the action bar at the bottom of the result
    viewport. The button lights up only when at least one contig is selected.
    The same action bar also offers **BLAST Contigs**, **Copy FASTA**, and
-   **Export FASTA** on the current selection.
+   **Export FASTA** on the current selection. Right-clicking the selection
+   opens those same actions plus **Extract Sequence** (write the chosen
+   contigs straight into a new sequence bundle) and **Run Operation** (hand
+   them to a FASTA operation). A single BLAST submission is capped at 50
+   contigs: select more and Lungfish declines the run rather than sending it.
 4. Lungfish writes the new reference bundle into `Reference Sequences/`, and it
    appears in the sidebar. The work runs as a short background task, so there
    is no progress bar, but it genuinely subsets, compresses, and indexes the

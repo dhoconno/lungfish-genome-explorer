@@ -221,6 +221,53 @@ paired. Each command writes CSV summaries, a workbook, run statistics, and
 provenance into its output directory, the same artifacts the Workflow Library
 produces.
 
+Two extra entry points round out Routes A and B. Run `lungfish fastq
+genotype-cohort` in place of `genotype` to genotype several prepared per-sample
+bundles in one call: it needs at least two `.lungfishfastq` bundles and
+genotypes each independently, and it defaults `--mode` to `illumina-paired`.
+Pass `--preset mcm-mhc-miseq` instead of `--reference` to lock the established
+MCM panel. The preset carries its own reference FASTA and haplotype
+definitions, so it cannot be combined with `--reference` or any `--haplotype-*`
+selector.
+
+Both `genotype` and `genotype-cohort` accept the same tuning options.
+
+| Option | Default | What it does |
+|---|---|---|
+| `--mode` | `auto` | Route selector: `auto`, `ont-sample-bundles`, `illumina-paired`, or the deprecated `ont-barcode-demux`. |
+| `--read-type` | `auto` | Read-type override when the mode leaves it open: `auto`, `ont`, or `illumina`. |
+| `--min-support` | `1` | Minimum retained unique-read support before an allele appears as a genotype row. |
+| `--haplotype-min-sample-percent` | `0` (off) | Drop rows below this percent of the sample's retained genotyping reads. |
+| `--haplotype-min-locus-percent` | `0` (off) | Drop rows below this percent of the sample's retained reads at that locus. |
+| `--haplotype-min-locus-percent-override` | none | Per-locus override such as `MHC-DQ=10`, repeatable. |
+
+To name the haplotype definitions used for family calls, pass
+`--haplotype-definition` with an assay-scoped definition set ID, and disambiguate
+it when needed with `--haplotype-assay` (the amplicon set) and
+`--haplotype-species` (a species code such as `MCM` or `MAMU`). Omit
+`--haplotype-definition` to skip haplotyping. The same three selectors and the
+two dropout thresholds also apply to Route C below.
+
+Route C exposes the clustering and primer-trimming controls that the full-length
+route runs on its way to a genotype. Primers and orientation are optional.
+Lengths, quality, and cluster size shape which consensus sequences survive.
+
+| Option | Default | What it does |
+|---|---|---|
+| `--forward-primer` / `--reverse-primer` | none | Primer FASTAs for 5-prime and 3-prime bbduk trimming. |
+| `--orient-reference` | none | FASTA used by vsearch to orient reads onto one strand. |
+| `--min-length` / `--max-length` | `2000` / `4000` | Post-primer read length window kept for Savont. |
+| `--savont-quality-value-cutoff` | `90` | Minimum estimated read-accuracy percent kept for Savont clustering. |
+| `--savont-min-cluster-size` | `3` | Minimum reads required to keep a Savont cluster. |
+| `--cdna-threshold` | `2000` | Alleles shorter than this length are treated as cDNA references. |
+| `--min-unmatched-reads` | `5` | Minimum cluster read count written to the unmatched FASTA. |
+
+On a cohort, Route C parallelism is automatic unless you set it: `--sample-jobs`
+caps how many samples run at once and `--savont-threads-per-sample` sets Savont
+threads for each. Add `--keep-intermediates` to preserve regenerable workflow
+intermediates for debugging, and `--reuse-compatible-checkpoints` to reuse
+compatible per-sample checkpoints from an earlier run.
+
 ## What good looks like
 
 A healthy run finishes with a genotype result bundle in the sidebar and a green

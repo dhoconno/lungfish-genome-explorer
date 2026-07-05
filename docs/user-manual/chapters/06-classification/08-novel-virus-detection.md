@@ -114,6 +114,10 @@ anything. The summary takes either the run directory or a single
 lungfish nvd summary /path/to/100_blast_concatenated.csv.gz --top 20
 ```
 
+`--top` sets how many contigs the table shows and defaults to 20. Add
+`--format json` or `--format tsv` to emit the same summary as machine-readable
+JSON or TSV for a downstream script.
+
 ## Interpretation: reading the contig viewport
 
 The viewport is a contig-keyed BLAST browser. A summary bar across the top
@@ -125,9 +129,10 @@ right.
 
 Each top-level row is one contig, showing its best BLAST hit. The columns
 include the **Sample** and **Contig** identifiers, the contig **Length**, the
-hit's **Classification** and **Rank**, the subject **Accession**, **Identity %**,
-**E-value**, **Bit Score**, and read counts: **Mapped Reads** and **RPB**, reads
-per billion, a depth-normalised abundance. Expand a contig row to see the
+hit's **Classification** and **Rank**, the subject **Accession** and its **Subject**
+title, **Identity %**, **E-value**, **Bit Score**, **Aln Length**, the length of
+the BLAST alignment, and read counts: **Mapped Reads**, **Unique Reads**, and
+**RPB**, reads per billion, a depth-normalised abundance. Expand a contig row to see the
 secondary BLAST hits the pipeline ranked below the best one. That is how you
 judge whether a call is clean, one strong hit with a large gap to the next, or
 ambiguous, several near-equal hits to different organisms.
@@ -136,6 +141,11 @@ A grouping control switches the outline between **By Sample**, a flat contig
 list, and **By Taxon**, contigs gathered under the organism their best hit
 names. By Sample is the view for walking one run's contigs. By Taxon is
 the view when you want every contig that matched a given virus in one place.
+
+Two more controls sit in the outline's filter bar. A sample-filter button,
+labelled with the current sample count, opens a popover for narrowing the
+outline to chosen samples, and a **Search contigs…** field filters the rows by
+contig or hit text as you type.
 
 Sort by **Identity %** ascending to float the partial and divergent matches
 to the top. A contig whose best hit is a high-identity, full-length match to a
@@ -152,7 +162,18 @@ To get an independent opinion on a contig, click **BLAST Verify** in the
 viewport's action bar. The verification submits the contig sequence to NCBI
 BLAST and returns a verdict, the same flow described in
 [BLAST Verification](06-blast-verification.md). The action bar's **Export**
-button writes the displayed results out for downstream use.
+button writes the displayed results out for downstream use, and its
+**Extract FASTQ** button pulls the reads behind the selected contigs into a
+fresh FASTQ dataset through the shared extraction dialog.
+
+Right-clicking a contig row opens a fuller set of per-contig actions.
+**Extract Reads…** reaches the same extraction dialog, while
+**Extract Sequence…**, **Verify with BLAST…**, **Copy FASTA**,
+**Export FASTA…**, **Create Bundle…**, and **Run Operation…** act on the
+contig's own sequence. The rest are lookups: **Copy Contig Name** and
+**Copy Accession** place those identifiers on the clipboard, and
+**View Accession on NCBI** and **Search PubMed** open the subject accession or
+its organism name in a browser.
 
 The provenance record for the import is reachable from the Inspector and names
 the source directory, the importing command, and the input checksums, so a

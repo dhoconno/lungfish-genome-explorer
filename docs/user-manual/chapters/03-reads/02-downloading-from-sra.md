@@ -89,6 +89,12 @@ dialog.
    Use the filter chips above the table to restrict by platform or layout
    when a query returns many candidates.
 
+When you already hold a list of run IDs, skip the free-text search. The SRA
+Runs pane's **Import Accessions** button loads a CSV or plain-text file of
+accessions in one step: Lungfish runs the whole list as a single query and
+fills the results table with those runs, so you can select and download the
+batch at once.
+
 <!-- planned: sra-search-results -->
 
 ### Download a run
@@ -138,6 +144,18 @@ GUI uses; the two paths are interchangeable. By default it pulls from ENA. Add
 `fasterq-dump`, which is now and then the only way to fetch a run
 ENA has not yet mirrored.
 
+To read a run's metadata without downloading a byte, `lungfish fetch sra info
+<accession>` prints one record:
+
+```sh
+lungfish fetch sra info SRR36291587
+```
+
+It reports the Experiment, Study, BioProject, and BioSample the run belongs to,
+its Organism, Platform, Strategy, Source, and Layout, and the Reads, Bases, and
+Size totals. Add `--api-key` to lift the NCBI rate ceiling, and `--format json`
+to emit the same fields as structured output for a script.
+
 ## Fetching from ENA directly
 
 The download path above resolves through ENA on its own, so most people never
@@ -145,6 +163,18 @@ call the archive by name. When you do want to reach the European Nucleotide
 Archive directly, say to see the exact FASTQ URLs behind a run or to
 pull a reference sequence ENA holds, `lungfish fetch ena` opens it up through
 three subcommands: `search`, `reads`, and `fasta`.
+
+`lungfish fetch ena search <query>` looks up sequences by free text and prints
+a table of matching accessions with each record's title, organism, and length:
+
+```sh
+lungfish fetch ena search "Ebola virus" --organism "Zaire ebolavirus"
+```
+
+Narrow a broad query with `--organism` to filter by species, and raise
+`--limit` when the default of 20 rows truncates the list. Pass `--format json`
+for the same fields as structured output. The same `--limit` bounds
+`fetch ena reads` below.
 
 `lungfish fetch ena reads <accession>` looks up a run or study accession and
 prints its metadata, platform, library strategy, layout, read count, and file

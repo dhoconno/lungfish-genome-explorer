@@ -106,13 +106,29 @@ family, so you can see which targets define which family at a glance.
 <!-- planned: haplotype-definition-editor -->
 
 Add or remove defining targets for a family, set the family display color, and
-edit the definition ID, assay, and species fields. Built-in definition sets are
-read-only, so to change one you duplicate it into your project scope first and
-edit the copy. To turn an edited definition into a reference bundle you can
-genotype against, supply a reference FASTA when you save, which pairs the rules
-with the allele sequences they name. The same operations are available headless
-under `lungfish haplotypes` (for example `list`, `validate`, `save`, and
-`bundle-create`).
+edit the definition ID, assay, and species fields. Each definition also carries a
+required **Allele prefix**, and a save stays blocked until it is filled in. At
+each locus two fields sit side by side: **Locus** is the display name the call
+shows, while **Source** is the locus the reads were called against, and the two
+can differ. Built-in definition sets are read-only, so to change one you
+duplicate it into your project scope first and edit the copy. To turn an edited
+definition into a reference bundle you can genotype against, supply a reference
+FASTA when you save, which pairs the rules with the allele sequences they name.
+
+Each named haplotype carries a **Requires N of M** stepper that sets its minimum
+matches: how many of its defining targets must be observed at credible support
+before the family is called, from one up to the full count of targets listed. A
+read-only diagnostic allele matrix sits alongside the editor so you can see that
+rule bite. Its rows are haplotype definitions, and its columns are Sample, Locus,
+Call, Haplotype, an Obs/Req/Total triple, and Status, followed by one column per
+diagnostic target carrying that target's unique-read count. Status reads Called,
+Observed support, or Not observed. The matrix only reports: it changes no calls.
+
+The same operations are available headless under `lungfish haplotypes`: `list`,
+`validate`, and `save`, plus `export`, `import`, `duplicate`, and `delete` for
+moving a definition between JSON files and the project scope, and
+`bundle-create`, `bundle-save`, and `bundle-replace-reference` for writing
+definitions and their reference FASTA into a `.lungfishmhcref` bundle.
 
 ### Step 2. Run AI-assisted haplotype discovery and refinement
 
@@ -136,25 +152,51 @@ deterministic calling. From the command line the same workflow is `lungfish
 genotype ai-haplotyping`, with `--preview-prompt` to render the request without
 contacting a provider at all.
 
+Several flags shape that run. Choose the provider with `--provider openai` (the
+default) or `--provider anthropic`, set the mode with `--mode ai-discovery` or
+`--mode ai-refinement`, and override the provider's default model with `--model`.
+Credentials resolve in a fixed order: the `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`
+environment variable first, then the matching key held in the app keychain. To
+route OpenAI traffic through Azure, pass `--azure-openai-endpoint` and
+`--azure-openai-deployment` (or set `AZURE_OPENAI_ENDPOINT`,
+`AZURE_OPENAI_DEPLOYMENT`, and `AZURE_OPENAI_API_KEY`); that path is OpenAI-only,
+and the deployment name stands in for the model. For OpenAI reasoning models,
+`--reasoning-effort` accepts none, minimal, low, medium, high, or xhigh.
+
+You can preview a discovery prompt without a bundle at all:
+`--preview-prompt --input-table <file>` builds the request from a long-form
+genotype table, with `--input-format` selecting auto, csv, tsv, or json. That
+table path is discovery-only. A published run prints a JSON summary naming the
+new draft and its state, with fields `revisionID`, `reviewState`, `callCount`,
+`discoveredDefinitionCount`, and `provenancePath` so a script can find the
+revision and its provenance record.
+
 ### Step 3. Export to XLSX, CSV, and TSV
 
 Export when the reviewed result needs to leave Lungfish for a spreadsheet or a
-report. Open the Export control in the genotype viewport and choose a format. The
-XLSX export is a self-describing workbook: a Matrix sheet of the sample-by-locus
-calls colored with the family palette, a Legend sheet that decodes the colors, an
-Overrides sheet of analyst-applied call changes, and an Audit Log sheet of the
-recorded actions. CSV and TSV write the same matrix as plain text for a scripting
-step.
+report. The genotype viewport offers a single in-app export: the Audit lens
+carries an **Export Excel View...** button that always writes the coloured XLSX
+matrix, capturing the visible rows, the active support filters, and the on-screen
+fill and border colours. There is no in-app format picker. That XLSX export is a
+self-describing workbook: a Matrix sheet of the sample-by-locus calls colored
+with the family palette, a Legend sheet that decodes the colors, an Overrides
+sheet of analyst-applied call changes, and an Audit Log sheet of the recorded
+actions. CSV, TSV, and the samples-across pivot workbook come only from the
+command line.
 
 <!-- planned: genotype-export-dialog -->
 
-A fourth shape, the samples-across pivot workbook, transposes the layout so
-samples run across the columns and alleles run down the rows, which is the
-orientation many downstream spreadsheets expect. All of these exports are
-read-only with respect to the bundle: they never modify the calls or the
-annotations. The headless equivalents are `lungfish genotype export-xlsx`,
-`lungfish genotype export-pivot-xlsx`, and `lungfish genotype export` with
-`--export-format csv` or `tsv`.
+The samples-across pivot workbook transposes the layout so samples run across the
+columns and alleles run down the rows, which is the orientation many downstream
+spreadsheets expect. All of these exports are read-only with respect to the
+bundle: they never modify the calls or the annotations. The headless exporters
+are `lungfish genotype export-xlsx` for the coloured matrix,
+`lungfish genotype export-pivot-xlsx` for the pivot workbook, and the general
+`lungfish genotype export`, whose `--export-format` defaults to `xlsx` and also
+accepts `csv` or `tsv`. That general form takes a repeatable `--sample` to
+restrict the matrix to named samples, an `--active-haplotype-definition` to
+resolve calls against a chosen definition set, and an `--annotations` sidecar,
+and it refuses to overwrite an existing file unless you pass `--force`.
 
 ### Step 4. Export LabKey-ready CSV files
 

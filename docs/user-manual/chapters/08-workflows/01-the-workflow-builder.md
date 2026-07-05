@@ -222,6 +222,26 @@ What the saved workflow does not embed is an absolute path to your data. A
 the same workflow run against a different bundle is a matter of pointing that
 node at a different file.
 
+### Manage saved workflows
+
+Every workflow you save lands in a **Workflows** library at the top of the
+left sidebar, above the operation palette. The list holds each
+`.lungfishflow` bundle in the active project; click an entry to load that graph
+onto the canvas. Three buttons sit in the library header: **New** starts an
+empty workflow and prompts for a name, **Duplicate** copies the selected
+workflow, and **Delete** removes it. Right-clicking an entry offers **Rename**,
+**Duplicate**, and **Delete**, and double-clicking a name edits it in place.
+
+Deleting asks first. A confirmation sheet titled **Delete Workflow?** names the
+bundle it will remove from the project library and offers **Delete** and
+**Cancel**. Nothing is removed until you confirm.
+
+One behaviour is worth stating plainly, because it is what keeps the library
+from losing edits. Whenever you switch to another entry or create, duplicate,
+or rename a workflow, Lungfish first saves the current graph if it has unsaved
+changes. You never have to save by hand before selecting a different workflow:
+the edits you made are written to the current bundle before the next one loads.
+
 ### Version and diff saved workflows
 
 Every saved `.lungfishflow` carries a semver-style workflow version such as
@@ -275,7 +295,11 @@ lungfish-cli workflow builder-run \
 ```
 
 The real flags are `--workflow`, `--project`, `--run-directory`, `--threads`,
-and `--dry-run`. Note that command lines recorded inside a provenance file
+and `--dry-run`. Passing `--dry-run` compiles the connected graph into its
+executable plan and prints that plan as JSON to standard output, then stops: no
+tools run and no output bundle is written. Reach for it to inspect exactly what
+a graph would execute before you commit to a real run. Note that command lines
+recorded inside a provenance file
 (for example, argv beginning `workflow builder-run --graph-id …` or
 `workflow builder-step run …`) are audit records, not user-invocable commands.
 The runnable command is the one above. The runner writes `builder-plan.json`,

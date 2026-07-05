@@ -60,7 +60,7 @@ batch before you trust the output on real clinical material.
 ## What you will learn
 
 Expect to come out of this chapter able to verify the TaxTriage runtime
-prerequisites, install its database, run the wizard with TaxTriage selected,
+prerequisites, point it at an installed Kraken2 database, run the wizard with TaxTriage selected,
 read the TASS confidence chart, compare samples in the batch overview, and
 use the batch exporter to write a cross-sample matrix.
 
@@ -101,25 +101,25 @@ rather than degrading it.
 
 ## Install the TaxTriage database
 
-With the runtime in place, install the reference database. It is separate
-from the Kraken2 and EsViritu databases and is not bundled with the
-application. The first time you select TaxTriage in the wizard, its Tool step
-shows a "Database not installed" warning where a database picker would be.
-Open the **Plugin Manager** from `Tools > Plugin Manager…` (Cmd-Shift-B),
-find the TaxTriage entry under Classification, and click **Install**. The
-Plugin Manager downloads the database into the Lungfish conda root and writes
-a manifest the wizard then picks up.
+With the runtime in place, give TaxTriage a classification database. Despite
+the pipeline's name, it does not ship one of its own: it classifies with an
+installed Kraken2 database, the same kind the Kraken2 tool uses. The wizard
+labels its picker **Kraken2 Database** and lists the Kraken2 databases already
+downloaded on this machine. The first time you select TaxTriage, if none are
+installed the picker reads "No Kraken2 databases installed" and the **Run**
+button stays disabled. Install one the same way you would for Kraken2, then
+return.
 
-The default clinical-surveillance database runs to tens of gigabytes, and the
-default run should be planned as a 16 GB or larger memory operation before
-sample-size effects pile on. Budget disk space and time to match.
+Plan for the size of the database you choose. A clinical-surveillance Kraken2
+database can run to tens of gigabytes on disk, and the wizard's default memory
+ceiling is 16 GB (raise it in Advanced Settings for a large database or a big
+batch). Budget disk space and time to match.
 
-You install the database once per machine. Updates run through the same
-Plugin Manager entry, which shows an install date, version string, and
-update-available indicator. From the CLI, use
-`lungfish conda db info "NCBI Taxonomy"` for the bundled taxonomy support
-database and `lungfish conda db list` to inspect the other classifier
-databases registered on the machine.
+You install a Kraken2 database once per machine, and every Kraken2-based tool,
+TaxTriage included, shares it. From the CLI, `lungfish db list` shows each
+registered database with its status, size, recommended RAM, and whether an
+update is available, `lungfish db info <name>` reports one database's installed
+version, and `lungfish db download` fetches a new one.
 
 ## Procedure: run a clinical batch
 
@@ -131,11 +131,17 @@ calls against a same-batch negative control.
 
 1. From the project sidebar, select all four FASTQ bundles. Open **Tools >
    FASTQ/FASTA Operations > Classification…** and choose **TaxTriage** in the
-   wizard's tool picker. The four samples fill the Inputs step.
+   wizard's tool picker. The four samples fill the Inputs step. Each sample
+   carries a **Sample Role** picker (Clinical Sample, Negative Control,
+   Positive Control, Environmental Control, or Extraction Blank), pre-filled
+   from the FASTQ bundle's metadata when it records one. Set the reagent blank
+   to **Extraction Blank** or **Negative Control**: those two roles are what
+   mark a sample as a negative control and drive the contamination-risk column
+   in the batch matrix.
 
-2. Confirm the database picker shows the version you installed. If it reads
-   "Database not installed", or the **Run** button is disabled, stop and
-   resolve the runtime and database setup above before returning.
+2. Confirm the **Kraken2 Database** picker shows a database. If it reads
+   "No Kraken2 databases installed", or the **Run** button is disabled, stop
+   and resolve the runtime and database setup above before returning.
    <!-- planned: taxtriage-wizard-tool-step -->
 
 3. Set the wizard's run options. **Sequencing Platform** (Illumina, Oxford
@@ -158,14 +164,27 @@ The headless form is `lungfish taxtriage run`, with `--platform`,
 `--samplesheet` for a multi-sample run, `--confidence` (default 0.2),
 `--top-hits` (default 10), `--rank` (default S, for species), `--skip-assembly`
 (on by default), `--skip-krona`, `--max-memory`, and `--nf-profile` (default
-docker). The pipeline revision is pinned, so a rerun reproduces the same
-result.
+docker). For a single sample, pass `--input` (add `--input2` for the R2 of a
+pair) with `--sample` for the identifier; `--samplesheet` takes a CSV instead
+and is mutually exclusive with `--input`. Either way `--output`/`-o` is
+required, and `--db` points at the Kraken2 database to classify against.
+
+```bash
+lungfish taxtriage run --input patient-A.fastq.gz --sample patient-A \
+  --db /path/to/kraken2-db --output results/
+```
+
+The pipeline revision is pinned, so a rerun reproduces the same result.
 
 ## Interpretation: read the confidence chart
 
 The result viewport opens on the **TASS confidence chart** for the sample
 selected in the sidebar. Each bar is one organism call, sorted by TASS score,
-highest first, with the numeric score printed on the bar.
+highest first, with the numeric score printed on the bar. On a multi-sample
+run a segmented sample selector sits above the chart, with **All Samples** as
+its first segment and one segment per sample after it, so you can pivot the
+view to any single sample or the whole run. A **Filter organisms** field
+beside it narrows the rows to names that match what you type.
 
 Three things to do on first read.
 
@@ -192,6 +211,9 @@ supporting reads bunch into one narrow region, the call is suspect even when
 the score is high. For an independent second opinion, right-click the row in
 the batch table and choose **Verify with BLAST…**, which runs the
 verification flow described in [BLAST Verification](06-blast-verification.md).
+The same row menu, and the action bar, also offer **Extract Reads…**, which
+pulls the reads assigned to the selected organism into a fresh FASTQ dataset
+for downstream mapping or assembly.
 
 ## Compare and export across samples
 
@@ -202,10 +224,13 @@ differ. Reach for it when two patients carry what looks like the same pathogen
 and you want to know whether it is the same strain.
 
 When the review is done, export from the viewport's action bar, not the File
-menu. The exporter writes two files to a folder you choose: a **cross-sample
-organism matrix** as a CSV (one row per organism, with columns for the mean
-TASS score, how many samples detected it, a contamination-risk indicator, and
-then the per-sample TASS score), and a plain-text summary report. There is no
+menu. The **Export** button opens a menu: **Export as CSV** and **Export as
+TSV** write the current organism table, and **Copy Summary** puts a text
+summary on the clipboard. On a multi-sample run the menu adds two batch-only
+items, **Export Organism Matrix (CSV)** and **Export Batch Report**. The
+organism matrix is one row per organism, with columns for the mean TASS score,
+how many samples detected it, a contamination-risk indicator, and then the
+per-sample TASS score; the batch report is a plain-text summary. There is no
 PDF and no report templates; the matrix CSV is the machine-readable file to
 keep when you are loading TaxTriage results into a downstream LIMS or
 surveillance dashboard.

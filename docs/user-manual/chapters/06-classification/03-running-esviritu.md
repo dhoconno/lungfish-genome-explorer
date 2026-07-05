@@ -105,15 +105,16 @@ Install the database before your first EsViritu run.
    reports progress in the Operations Panel.
 4. Wait until the row's status badge reads **Database ready**. On a
    typical broadband connection this is 5 to 15 minutes.
-5. Confirm the row's install date and update status. From the CLI, the
-   same tracking surface is `lungfish conda db info "EsViritu Viral DB"`,
-   which reports the database version, install date, available update,
-   disk path, disk size, and RAM requirement.
+5. Confirm the row's version and status. From the CLI, the same status
+   surface is `lungfish esviritu db-status`, which reports the database
+   status, version, disk path, and disk size.
 
 Skip this step and the wizard still lets you choose EsViritu, but the
 **Run** button stays disabled and an inline notice points you back to the
-Plugin Manager. The database install is always a Plugin Manager (conda)
-operation; there is no separate `esviritu` install subcommand.
+Plugin Manager. The Plugin Manager is not the only route: the CLI installs
+the database directly with `lungfish esviritu download-db`, which takes
+`--force` to re-download over an existing copy. The tool binary itself
+installs through conda (`lungfish conda install esviritu`).
 
 ## Procedure
 
@@ -138,7 +139,10 @@ NCBI/SRA** as in Chapter 3.4.
    exposes two controls here: **Min Read Length** (default 100 nt), which
    drops reads below the threshold before alignment, and a quality-filter
    toggle, which runs the built-in read-quality screen. There is no
-   minimum-breadth or minimum-read-count field. Click **Run**.
+   minimum-breadth or minimum-read-count field. An **Advanced Settings**
+   disclosure adds a **Threads** stepper (1 to the machine's core count)
+   and an **Extra arguments** field that passes flags straight through to
+   EsViritu. Click **Run**.
 
 The wizard closes and an EsViritu row appears in the Operations Panel.
 For SRR36291587 on an M-series laptop the run takes roughly 4 to 8
@@ -148,9 +152,24 @@ summarisation, report rendering) as it completes.
 The same run is available headless as `lungfish esviritu detect --input
 <fastq> --sample <name>`, with `--paired` for paired reads, `--db` to point
 at a specific database, `--min-read-length` (default 100), `--no-qc` to skip
-the quality screen, and `--extra-args` to pass options straight through to
-EsViritu. The FASTQ goes behind `--input` (or `-i`), never as a bare
-positional argument.
+the quality screen, `--extra-args` to pass options straight through to
+EsViritu, and `--output` (or `-o`) to set the result directory (it defaults
+to `esviritu-<sample>` beside the input). The FASTQ goes behind `--input`
+(or `-i`), never as a bare positional argument.
+
+## Batch runs
+
+Select FASTQ for more than one sample and the wizard switches to batch mode.
+It replaces the sample-name field with a list of the grouped samples, each
+tagged paired-end (PE) or single-end (SE), and runs EsViritu once per sample
+against the same database and settings.
+
+A batch finishes as a single aggregated result rather than one viewport per
+sample. The detection table pools every sample's hits, and a sample picker
+in the Inspector filters the rows down to the samples you want to compare.
+Because unique read counts are tracked per sample, batch mode adds a
+**Recompute Unique Reads** button to the action bar that recounts them from
+each sample's BAM when a stored value is missing.
 
 ## Interpretation
 
@@ -217,6 +236,14 @@ evenly-spread pile, the call is real. If it claims 2,400 reads and the BAM
 viewer shows a single tall stack at one position, you are looking at PCR
 duplicates of one fragment, and the apparent depth is inflated. Flag the
 row as low-confidence whatever the coverage column says.
+
+### Exporting and provenance
+
+The viewport's bottom action bar carries two more controls. **Export**
+writes every detection to a CSV or TSV file through a save panel, one row
+per contig with its accession, taxonomy, read count, RPKMF, coverage, and
+identity columns. **Provenance** opens a popover recording the run's tool
+version, runtime, and database, the audit trail behind the numbers above.
 
 ## What to do next
 

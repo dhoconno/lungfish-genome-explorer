@@ -28,14 +28,14 @@ This chapter is about cleaning reads before mapping. To remove host or rRNA read
 
 Trimming and filtering come before mapping. Reads fresh off a sequencer carry baggage that has nothing to do with the biology you care about: low-Phred bases at the read ends, sequencer adapters the demultiplexer did not finish stripping, amplicon primers that must come off before you count reference matches, and reads too short to map with confidence that slipped through earlier steps. Lungfish gives each artefact its own operation, plus a combined fastp operation for the everyday adapter-plus-quality cleanup.
 
-All of these operations live in one dialog. Choose `Tools > FASTQ/FASTA Operations > Trimming & Filtering…` and pick the one you want from the list inside. The category holds six operations, and the table below pairs each with its tool and defaults. The tool matters, and three are in play: most operations run fastp, primer trimming runs bbduk, a k-mer matcher, and the length filter runs seqkit, so the tuning knobs shift from operation to operation. Each one writes a new FASTQ bundle into the project's `Imports/` folder and leaves the input bundle untouched.
+All of these operations live in one dialog. Choose `Tools > FASTQ/FASTA Operations > Trimming & Filtering…` and pick the one you want from the list inside. The category holds six operations, and the table below pairs each with its tool and defaults. The tool matters, and four are in play: most operations run fastp, primer trimming runs bbduk or cutadapt depending on the primer source, and the length filter runs seqkit, so the tuning knobs shift from operation to operation. Each one writes a new FASTQ bundle into the project's `Imports/` folder and leaves the input bundle untouched.
 
 | Operation | When to use | Tool | Default parameters |
 |---|---|---|---|
 | fastp Adapter + Quality Trim | QC shows adapters and low-quality read ends, or you want the standard Illumina cleanup pass | fastp | Auto-detect adapters plus sliding window Q20, window 4 bp, cut-right |
 | Quality Trim | Per-base quality drops below Q20 at the read ends | fastp | Sliding window Q20, window 4 bp, cut-right |
 | Adapter Removal | QC flagged adapter contamination | fastp | Auto-detect adapters |
-| Primer Trimming (FASTQ-level) | Amplicon reads, shotgun-style downstream analysis | bbduk (default) or cutadapt-linked | K-mer 23, min k-mer 11, Hamming distance 1 |
+| Primer Trimming (FASTQ-level) | Amplicon reads, shotgun-style downstream analysis | bbduk (literal sequence) or cutadapt-linked (reference FASTA) | Literal path: k-mer 15, min k-mer 11, Hamming distance 1 |
 | Trim Fixed Bases | Hard-trim a known number of bases off each end (fixed-length UMIs, adapter stubs) | fastp | 5' trim 0, 3' trim 0 (you set them) |
 | Filter by Read Length | After any trim that shortens reads | seqkit | Min Length and Max Length both blank (you set them) |
 
@@ -54,7 +54,7 @@ The worked example below runs the combined fastp cleanup on the public SRR362915
 1. In the sidebar, click `Imports/SRR36291587` to select the source FASTQ bundle.
 2. Choose `Tools > FASTQ/FASTA Operations > Trimming & Filtering…`. In the dialog that opens, select `fastp Adapter + Quality Trim` from the operations list (it is the default selection for FASTQ input).
    <!-- planned: trimming-dialog -->
-3. Leave adapter trimming enabled with auto-detection, the Phred threshold at Q20, and the window size at 4 bp. Q20 marks a 1-in-100 base error rate, a conservative floor for Illumina data.
+3. Leave adapter trimming enabled with auto-detection, the Phred threshold at Q20, and the window size at 4 bp. Q20 marks a 1-in-100 base error rate, a conservative floor for Illumina data. The Mode segmented picker sets the sliding-window direction: leave it on Cut Right, its default, which scans from the 3' end inward. Cut Front scans from the 5' end, Cut Tail trims low-quality tails only, and Cut Both trims from both ends. On the command line the same control is `--mode` (cut-right, cut-front, cut-tail, cut-both), default cut-right.
 4. Click `Run`.
 
 The Operations Panel shows a combined fastp trim row, and a trimmed bundle appears under `Imports/`. Open it and check the FASTQ viewport's QC tab: the per-base quality plot should now sit above Q20 across the full read length, and the adapter contamination indicator should drop to near zero. The operation provenance records the `lungfish fastq trim` command, the resolved fastp adapter and quality defaults, checksums, file sizes, and runtime status. The combined command also takes a manual adapter with `--adapter <seq>`, quality-only mode with `--no-adapter-trimming`, and extra fastp flags passed verbatim with `--extra-args`.
@@ -76,7 +76,7 @@ When you know exactly how many bases to cut, whether a fixed-length UMI, an in-l
 
 Skip this section unless your data is amplicon, from ARTIC, QIASeqDIRECT, midnight, or a similar protocol. For amplicon data you choose between FASTQ-level and BAM-level primer trimming, weighed in the next section.
 
-To run FASTQ-level primer trimming, select the bundle, choose `Tools > FASTQ/FASTA Operations > Trimming & Filtering…`, select `Primer Trimming` in the dialog, supply the primer sequences as a literal sequence or a primer-scheme FASTA, and click `Run`. This operation runs bbduk by default, matching primers as k-mers with a default k-mer of 23, a minimum k-mer of 11, and Hamming distance 1. A second engine, `cutadapt-linked`, waits on the command line, `lungfish fastq primer-remove --engine cutadapt-linked` with `--minimum-overlap 12` and `--error-rate 0.12`, for when you need anchored linked-adapter matching instead.
+To run FASTQ-level primer trimming, select the bundle, choose `Tools > FASTQ/FASTA Operations > Trimming & Filtering…`, select `Primer Trimming` in the dialog, supply the primer sequences as a literal sequence or a primer-scheme FASTA, and click `Run`. The primer source picks the engine. A Literal Sequence runs bbduk, matching primers as k-mers, and the k-mer, minimum k-mer, and Hamming distance fields govern this path alone, defaulting in the dialog to 15, 11, and 1. A Reference FASTA instead runs cutadapt in linked mode for anchored linked-adapter matching, and the k-mer fields do not apply. On the command line, `lungfish fastq primer-remove` exposes both engines through `--engine bbduk` or `--engine cutadapt-linked`, with `--minimum-overlap 12` and `--error-rate 0.12` tuning the cutadapt path and a default `--kmer 23` on the bbduk path.
 
 ## Interpretation
 

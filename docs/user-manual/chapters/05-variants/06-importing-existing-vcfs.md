@@ -67,6 +67,10 @@ This procedure walks the Import Center path. The drag-drop and CLI paths are sum
 
 For the drag-drop path, drag a `.vcf` or `.vcf.gz` from Finder onto the sidebar. Lungfish runs the same inference and import logic as the Import Center. If inference is unambiguous, the import completes silently and the track appears. If inference is ambiguous or fails, the Import Center opens with the file pre-selected.
 
+### Importing several VCFs at once
+
+Selecting more than one file, or dragging a group of VCFs onto the sidebar together, does not make one track per file. Lungfish merges the whole set into a single variant track backed by one database, and it records each file's name as the source of the rows that file contributed, so the samples table tells you which VCF every call came from. A multi-file import also defaults to haploid ploidy, where a single-file import defaults to auto. If your merged files are diploid, change that default in the bundle's import settings before you read genotypes, or the calls will display as haploid.
+
 The CLI path is narrower than the GUI path, and the difference matters. The command is:
 
 ```bash
@@ -92,6 +96,8 @@ lungfish variants query ./Project.lungfish/References/Cohort.lungfishref \
 ```
 
 The query filter accepts the same per-sample syntax as the browser, including `Sample[NA12878].AF>=0.5`, `Sample[NA12878].DP>=30`, `count(Sample[*].GT=1/1) >= 5`, and `Sample[NA12878].GT != Sample[NA12879].GT`. Both commands write a `.lungfish-provenance.json` sidecar beside the output VCF with the command, options, bundle path, database path, output checksum, exit status, and wall time.
+
+`lungfish variants query` exports at most 5,000 records unless you raise the `--limit` option. The cap is silent: a result set larger than the limit is truncated with no warning in the output. When you expect more matches than that, set `--limit` high enough to hold them all, for example `--limit 200000`.
 
 ## Worked example
 

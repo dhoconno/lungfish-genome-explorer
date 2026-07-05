@@ -180,6 +180,16 @@ The sidebar on the left shows the bundle as a leaf inside the
 **Reference Sequences** folder. Right-click it for rename, reveal in
 Finder, and move-to-trash actions.
 
+To save what you see, choose **File > Export > Image (PNG)…** or
+**Image (PDF)…**. The save panel carries three extra controls. **Scope**
+sets how much to capture: `Tracks View` for the sequence, variant, and
+annotation tracks; `Full Viewer Pane` for the ruler, tracks, and
+annotation table together; or `Selected Region Only`, which appears once
+you have dragged out a selection. **Format** offers `PNG`, `JPEG`,
+`TIFF`, or `PDF`. **Bitmap Scale** renders at `1x`, `2x` (the default), or
+`4x` for a crisper raster, and greys out for `PDF`, which writes true
+vector output.
+
 ## Navigating the sequence
 
 Three actions cover most navigation, all under the **Sequence** menu in
@@ -193,6 +203,23 @@ the bare range `21563-25384` resolves to it. **Sequence > Go to Gene…**
 the SARS-CoV-2 reference, typing `spike` jumps straight to the `S` gene
 at position 21563. To centre on a feature already in view, click its
 block in the annotation track.
+
+### Right-click actions
+
+Right-click (or Control-click) inside the viewport and the menu matches
+whatever sits under the pointer. Right-click a feature block in the
+annotation track for its own menu:
+
+- **Copy**: a submenu for the feature's name, coordinates, bases, complement, reverse complement, or FASTA, with a protein-FASTA option on CDS features.
+- **Extract Sequence…**: writes the feature's bases to a fresh bundle or FASTA.
+- **Run FASTQ/FASTA Operation…**: sends the feature's sequence into the operations dialog.
+- **Zoom to Annotation**: fits the view to the feature.
+- **Edit Annotation…** and **Delete Annotation**: revise or remove it.
+
+Right-click a region you have dragged out instead, and the menu turns to
+the selection: **Copy Visible Region** puts its bases on the clipboard,
+**Zoom to Visible Region** fits the view to it, and **Center View Here**
+recentres on the click point.
 
 ## Translating a sequence to protein
 

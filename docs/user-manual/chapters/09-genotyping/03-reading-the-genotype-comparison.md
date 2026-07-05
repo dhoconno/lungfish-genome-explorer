@@ -66,6 +66,33 @@ the per-sample call evidence, which shows the allele targets and read counts a
 call rested on. Along the way you will learn to spot the overcall guard when it
 fires, and to step in yourself with a manual override or an annotation.
 
+## Switching lenses
+
+The viewport opens on one of three lenses, chosen from a segmented control at the
+top right. Each answers a different question about the same bundle.
+
+- Summary is the dashboard this chapter describes: the matrix, the haplotype
+  tape, and the cohort summary.
+- Review is a queue that walks the flagged samples one at a time, with the call
+  evidence for each within reach.
+- Audit lays out the haplotype definitions and the run artifacts the calls rest
+  on.
+
+Within Summary, an Outline and Matrix toggle switches how the samples are laid
+out. Outline is the default for a run that carries haplotype calls, and Matrix is
+the default for a run that produced raw calls but no haplotype analysis. Outline
+is the compact per-sample rollup. Matrix is the full allele-target grid this
+chapter walks through below.
+
+The Review lens is built for clearing the flagged queue without leaving the
+keyboard. Each sample's call-evidence panel carries Confirm and Skip buttons, and
+four shortcuts act on the selected sample:
+
+- Cmd-R marks it reviewed.
+- Cmd-K marks it confirmed.
+- Cmd-Shift-F flags it as needing review.
+- Cmd-Shift-O opens the Sample Detail sheet with the override editor.
+
 ## The genotype comparison matrix
 
 Everything else builds on the matrix, the raw evidence layer. Each row is an
@@ -116,6 +143,24 @@ when you hover the count, so you can jump straight to the ones that need work.
 The summary is where you start on a fresh cohort. A run of forty animals might
 have five that need a human, and the summary is how you find those five without
 opening all forty.
+
+## Filtering the dashboard
+
+Summary and Review share a filter bar above the content. Its search field is
+sample-oriented: it matches animal IDs, haplotype names, comments, genotype
+strings, and imported metadata. A `field=value` query such as `Cohort=Kenyon20`
+narrows to samples whose metadata field contains that value. Beside the field is
+a pill bar of one-click sample predicates: Has errors, Homozygous, Recombinant,
+Bw6+, Has comments, and Duplicate. Smart Cohorts save a filter for reuse, and the
+built-in "Needs review" cohort is the one the Review lens activates to populate
+its queue.
+
+The Matrix view adds its own row filter, a field reading "Filter genotypes, loci,
+or samples", which also understands `field=value` metadata queries, alongside an
+All Loci popup that restricts the grid to a single locus. Because the Matrix
+instantiates only a capped window of sample columns, a wide cohort shows a
+"Showing N of M samples" banner with a Show all button. The hidden columns are
+display only, so export, sort, and selection still read every sample.
 
 ## Procedure
 

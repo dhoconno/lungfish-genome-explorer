@@ -91,6 +91,26 @@ sequence-filter` (Select Reads by Sequence, with `--search-end`,
 command line `--search-end` takes `left`, `right`, or `both` (default `both`),
 where `left` is the 5' end and `right` is the 3' end the GUI picker labels.
 
+### Extract reads by an ID list (CLI)
+
+The GUI Extract Reads by ID matches a query against read headers. A separate
+command-line tool, `lungfish extract reads --by-id`, does the complementary
+job: it pulls the reads whose identifiers appear in a text file, one ID per
+line. Reach for it when a classifier, mapper, or upstream script hands you an
+explicit list of read names rather than a header pattern.
+
+```bash
+lungfish extract reads --by-id --ids read_ids.txt --source input.fastq -o out.fastq
+```
+
+`--ids` points at the ID file. `--source` names the FASTQ to pull from and
+repeats for paired-end data: pass `--source R1.fastq --source R2.fastq` and
+both mates are handled together. With more than one source `--keep-read-pairs`
+is the default, so a hit on either mate keeps the pair. Pass
+`--no-keep-read-pairs` to emit only the exact reads whose IDs matched. Add
+`--bundle`, or `--bundle-name <name>` which implies it, to wrap the output as a
+sidebar `.lungfishfastq` bundle instead of a bare FASTQ.
+
 ## Interpretation
 
 Every subset operation logs to the Operations Panel and writes a provenance

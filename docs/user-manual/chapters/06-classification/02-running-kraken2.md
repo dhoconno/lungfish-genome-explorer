@@ -130,8 +130,13 @@ a submenu. The run wizard appears. In the **Classifier** picker, choose
 **Kraken2**. The wizard reshapes itself around Kraken2's options: a
 **Sensitivity** preset picker (Sensitive, Balanced, or Precise; default
 Balanced), a **Database** dropdown listing every Kraken2 database registered
-through the Plugin Manager, and an Advanced section holding a **Confidence**
-threshold (default 0.2) and a **Minimum hit groups** field (default 2).
+through the Plugin Manager, and an Advanced section. The Advanced section
+holds a **Confidence** threshold (default 0.2), a **Minimum hit groups**
+field (default 2), a **Threads** stepper (default 4, capped at the machine's
+core count), a **Memory mapping** toggle, and an **Extra arguments** field
+that passes raw flags straight to Kraken2. When the selected database needs
+more RAM than the machine has, a warning banner appears under the Database
+dropdown and Lungfish auto-enables the Memory mapping toggle.
 
 The Sensitivity preset is the simple control. Balanced suits most samples.
 Sensitive recovers more low-abundance hits and pays for them in false
@@ -152,6 +157,12 @@ when you opened the wizard. To change it, click the picker and choose
 another bundle from the project. Paired-end reads are detected
 automatically: when the bundle holds a `_R1`/`_R2` pair, both files feed the
 same Kraken2 run.
+
+Select more than one bundle in the sidebar before opening the wizard and it
+switches to batch mode. Lungfish groups the files into samples, detecting
+single-end or paired-end layout per sample, lists the grouped samples at the
+top of the wizard, and runs one Kraken2 plus Bracken pass for each. The
+database and preset you choose apply to every sample in the batch.
 
 In the **Database** dropdown, choose **Viral** for the worked example
 below. Click **Run**.
@@ -187,9 +198,10 @@ respiratory syndrome-related coronavirus**. The table on the right mirrors
 the sunburst, one row per taxon, with columns for taxon name, rank, read
 count, and percentage of total classified reads.
 
-Click the **Coronaviridae** wedge. The sunburst re-centres on Coronaviridae
-and the breadcrumb bar at the top of the viewport updates to read
-`root > Riboviria > ... > Coronaviridae`. The table filters to taxa under
+A single click on the **Coronaviridae** wedge selects it and syncs the
+table. Double-click it to re-centre the sunburst on Coronaviridae. The
+breadcrumb bar at the top of the viewport updates to read
+`root > Riboviria > ... > Coronaviridae`, the table filters to taxa under
 Coronaviridae, and the per-genus breakdown inside the family comes into
 view.
 
@@ -198,15 +210,50 @@ view.
 To back up, click any earlier breadcrumb segment. To pull out every read
 classified under a taxon for downstream work (mapping to a reference,
 assembling de novo, BLASTing the consensus), right-click the taxon row in
-the table and choose **Extract Reads as FASTQ Bundle**. Lungfish writes a
-new virtual FASTQ bundle into the project holding only the reads assigned to
-that taxon or any of its descendants.
+the table and choose **Extract Reads…**. A dialog opens with a **Format**
+picker (FASTQ or FASTA) and a **Destination** picker: Save as Bundle, Save
+to File…, Copy to Clipboard, or Share…. Save as Bundle writes a new virtual
+FASTQ bundle into the project holding only the reads assigned to that taxon
+or any of its descendants. The alignment-backed classifiers (EsViritu,
+TaxTriage, NAO-MGS, NVD) add an "Include unmapped mates of mapped pairs"
+toggle to this dialog. Kraken2 has no alignment, so that toggle is not shown
+here.
 
 <!-- planned: kraken2-extract-reads -->
 
 For the SRR36291587 run, extracting reads under SARS-CoV-2-related
 coronavirus yields a FASTQ bundle ready to map against the MN908947.3
 reference, exactly the workflow the variant-calling chapters walk through.
+
+## Reading the taxonomy viewport
+
+The sunburst and table share one navigation model. In the sunburst, a single
+click selects a wedge and syncs the table to it, and a double-click
+re-centres the chart on that wedge (double-click or single-click the centre
+circle to step back out one level). Two keyboard shortcuts speed this up:
+Escape zooms out one level, and Cmd-0 jumps straight back to the root.
+Right-clicking the chart background offers **Copy Chart as PNG**, which
+places a rendered image of the current sunburst on the clipboard.
+
+The action bar at the top of the viewport carries an **Export** button.
+**Export as CSV…** and **Export as TSV…** both write the full table in
+depth-first order with the columns Name, Rank, Reads (Clade), Reads
+(Direct), Clade %, and Direct %, followed by any metadata columns visible in
+the table. **Copy Summary** puts the plain-text classification summary on
+the clipboard. Next to Export, a **Provenance** button opens a popover
+listing the pipeline metadata for the run: tool version, database, preset,
+confidence, runtime, and input file.
+
+Right-clicking a taxon row (or a sunburst wedge) opens a context menu with a
+**Look Up on NCBI** submenu that links out to NCBI Taxonomy, GenBank
+Sequences, PubMed Literature, and Genome Assemblies for that taxon. Two more
+action-bar buttons, **Collections** and **BLAST Results**, toggle side
+drawers: Collections gathers taxa you have set aside, and BLAST Results holds
+the hits returned when you verify a selection against NCBI BLAST.
+
+When you open a multi-sample batch result, the Inspector gains a sample
+picker. Pick one sample to see its tree alone, or select several and the
+viewport shows a merged tree that pools the chosen samples under one root.
 
 ## Interpretation
 
@@ -271,6 +318,31 @@ The useful options mirror the wizard and add the abundance step.
 `--bracken-read-length`, `--bracken-level`, and `--bracken-threshold`).
 `--memory-mapping` runs the database from disk when it will not fit in RAM,
 and `--quick` stops at the first hit group for a faster, coarser pass.
+
+FASTA inputs work as well as FASTQ; the format is detected from the files,
+which must all share one format. Pass two files with `--paired` to classify
+a read pair, and set the output location with `-o` (or `--output-dir`). The
+`--extra-args` option forwards raw flags straight to Kraken2, the headless
+form of the wizard's Extra arguments field:
+
+```bash
+lungfish conda classify R1.fastq.gz R2.fastq.gz --db Standard-8 --paired \
+    --profile -o ./sars-classification --extra-args "--minimum-base-quality 20"
+```
+
+Databases have their own subcommands under `conda db`. `lungfish conda db
+list` prints every catalogued database with size, RAM, and update status,
+`lungfish conda db download <name>` installs one, `lungfish conda db remove
+<name>` drops it from the registry (add `--delete-files` to erase the index
+from disk too), and `lungfish conda db recommend` names the largest database
+that fits in this machine's RAM.
+
+To pull reads for a taxon headlessly, use `lungfish extract reads
+--by-classifier --tool kraken2 --result <kreport> --taxon <taxid> -o
+out.fastq`. `--read-format fastq|fasta` chooses the output format, matching
+the dialog's Format picker. The `--include-unmapped-mates` flag is rejected
+with `--tool kraken2`, since Kraken2 produces no alignment to draw mates
+from.
 
 Two neighbouring commands round out the headless path. `lungfish import
 kraken2 <kreport-file>` brings a Kraken2 report you generated elsewhere into

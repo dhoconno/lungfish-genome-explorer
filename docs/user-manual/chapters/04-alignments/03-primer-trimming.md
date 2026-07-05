@@ -112,6 +112,11 @@ for the layout and import procedure.
 
 ## Procedure
 
+Primer trim runs iVar and samtools from the Variant Calling pack, so that
+pack must be installed and ready before you start. Until it is, the dialog's
+Run button stays disabled and its Readiness line reads "Requires Variant
+Calling Pack". Install the pack from the plugin manager, then come back.
+
 The worked example trims the SRR36291587 minimap2 alignment from the
 [Mapping Reads](01-mapping-reads-to-a-reference.md) chapter with the built-in
 QIAseq Direct SARS-CoV-2 scheme.
@@ -120,7 +125,10 @@ QIAseq Direct SARS-CoV-2 scheme.
    previous chapter ("minimap2 Mapping" by default). The Inspector on the
    right fills with the alignment's metadata.
 2. In the Inspector, expand the **Analysis** section and click
-   **Primer-trim BAM…**. The Primer Trim dialog opens.
+   **Primer-trim BAM…**. The Primer Trim dialog opens. Its **Target** section
+   holds an **Alignment Track** picker, defaulted to the first eligible BAM in
+   the bundle. Leave it as is here; switch it only when the bundle carries
+   several alignments and you mean to trim a different one.
    <!-- planned: primer-trim-dialog-overview -->
 3. In the **Primer Scheme** picker at the top of the dialog, choose
    **QIAseq Direct SARS-CoV-2 with Booster A (Built-in)**. The dialog reports
@@ -173,6 +181,12 @@ boundary. Those are the soft-clipped primer footprints. They stay in the BAM,
 addressable and inspectable, but pileup and coverage now pass over them.
 Coverage at amplicon ends dips a little; the inner body of each amplicon is
 unchanged.
+
+Reads that carry no matching primer are retained, not dropped. iVar soft-clips
+only where it locates a primer, so an off-target or primer-free read passes
+through at its full mapped length. That is expected behaviour, not a trim
+failure. Weigh those reads in the downstream coverage and QC checks before you
+call variants.
 
 The Inspector's **Provenance** section for the new track lists the primer-trim
 step with the exact `ivar trim` command, the scheme's BED checksum, and the

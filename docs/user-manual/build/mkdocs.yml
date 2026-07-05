@@ -85,6 +85,7 @@ nav:
     - Decontamination: chapters/03-reads/05-decontamination.md
     - Subsetting and Extraction: chapters/03-reads/06-subsetting-and-extraction.md
     - ONT Runs: chapters/03-reads/07-ont-runs.md
+    - Read Processing: chapters/03-reads/08-read-processing.md
 
   - Alignments:
     - Mapping Reads to a Reference: chapters/04-alignments/01-mapping-reads-to-a-reference.md
@@ -134,6 +135,7 @@ nav:
   - Workflows:
     - The Workflow Builder: chapters/08-workflows/01-the-workflow-builder.md
     - Exporting as Nextflow or Snakemake: chapters/08-workflows/02-exporting-as-nextflow-or-snakemake.md
+    - Running External Workflows: chapters/08-workflows/03-running-external-workflows.md
 
   - Reference:
     - CLI Reference: chapters/appendices/cli-reference.md

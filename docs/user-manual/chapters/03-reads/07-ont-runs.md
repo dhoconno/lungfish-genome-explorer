@@ -198,14 +198,17 @@ SARS-CoV-2 reference, MN908947.3 or equivalent, for this example) and click
 reverse-strand reads to their reverse complement, and writes a new bundle. The
 original bundle is preserved.
 
-The Orient Reads pane exposes three controls: `Word Length` (the length of the
-short exact match, called a seed, that vsearch uses to anchor a read against
-the reference before it decides the read's strand, default 12); a
-`Database Mask` picker (`dust` masks low-complexity regions such as long
-single-base or dinucleotide runs so they cannot throw spurious matches, or
-`none` to mask nothing); and an `Extra arguments` field for additional vsearch
-flags. There is no keep-or-drop checkbox in the pane: how vsearch handles a
-read it cannot orient is a vsearch behavior, not a Lungfish setting.
+The Orient Reads pane keeps its settings under `Advanced Settings`: `Word
+Length` (the length of the short exact match, called a seed, that vsearch uses
+to anchor a read against the reference before it decides the read's strand,
+default 12); a `Database Mask` picker and a `Query Mask` picker (each set to
+`dust` to mask low-complexity regions such as long single-base or dinucleotide
+runs so they cannot throw spurious matches, or `none` to mask nothing); a
+`Save unoriented` checkbox, on by default, that writes the reads vsearch could
+not orient to a separate output file instead of dropping them; and a `Threads`
+stepper. The matching CLI flags are `--word-length`, `--mask` (which sets both
+masks at once), and `--save-unoriented`. Passing verbatim vsearch flags is a
+CLI-only feature, `--extra-args`; the wizard has no such field.
 
 To orient all eight bundles in one pass, multi-select them in the sidebar
 before you launch the operation. Lungfish queues one Orient Reads job per
@@ -220,11 +223,12 @@ scenes. The read counts in the sidebar are the totals across every chunk in
 that barcode folder.
 
 After Orient Reads, the new bundle holds every read in forward orientation
-relative to the reference. Whether a read vsearch cannot confidently orient is
-dropped or carried through unchanged is a vsearch `--orient` behavior, not a
-checkbox in Lungfish. If keeping non-orientable reads matters for your
-workflow, set the relevant vsearch flag in the `Extra arguments` field and
-check the output read count against the input.
+relative to the reference. Reads vsearch cannot confidently orient are handled
+by the `Save unoriented` checkbox: on by default in the wizard, it writes them
+to a separate output file so you can inspect them, and turning it off keeps
+only the oriented reads. On the command line the same behavior is off by
+default, so pass `--save-unoriented` to keep the non-orientable reads. Either
+way, check the output read count against the input.
 
 If a bundle holds unexpectedly few reads, the usual culprits are
 demultiplexing that dropped reads into `unclassified` instead of the expected
@@ -270,6 +274,12 @@ accept or reject for each. A barcode with at least `--accept-threshold` hits
 judge. Use it to confirm the kit is right and to catch barcodes that were
 expected but never show up.
 
+Two flags tune the match. `--source-platform` (one of `illumina`, `ont`,
+`pacbio`, `element`, `ultima`, or `mgi`) tells the scout which platform wrote
+the reads so it can apply platform-appropriate adapter geometry, and
+`--no-indels` forbids insertions and deletions in barcode matching for kits
+where only substitutions are expected.
+
 ### Running the demultiplex
 
 Point the demultiplexer at a FASTQ (or a `.lungfishfastq` bundle) and name a
@@ -291,6 +301,17 @@ the matching:
 - `--no-trim`: keep the barcode bases in the output reads instead of cutting them.
 - `--discard-unassigned`: drop reads that matched no barcode (see below).
 - `--threads`: cutadapt thread count (default 4).
+
+Two more choices matter for tricky kits. `--engine` picks the matcher.
+`cutadapt`, the default, is the fuzzy adapter matcher that honors
+`--error-rate`, `--location`, and `--no-trim`. `exact-bare` is a Swift-native
+matcher for bare A/C/G/T barcodes that scans the whole read and its reverse
+complement for an exact hit. The `exact-bare` engine always keeps every read
+and ignores `--no-trim` and `--location`, so reach for it when a kit's barcodes
+are plain sequences that cutadapt's fuzzy matching splits inconsistently. For
+cutadapt, `--overlap` sets the minimum barcode overlap length (default 3), and
+`--max-distance-5prime` / `--max-distance-3prime` cap how many bases from each
+terminus a barcode may start or end (default 0, meaning flush with the end).
 
 ### Reads that match no barcode
 

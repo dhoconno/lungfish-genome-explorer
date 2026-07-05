@@ -435,9 +435,17 @@ Searches the bioconda index for available packs.
 
 Sequence-level operations that read a file or a bundle directly.
 
-`lungfish analyze stats <input> [--per-sequence]`
+`lungfish analyze stats <input> [--per-sequence] [--no-gc] [--length-distribution]`
 
-Computes sequence statistics: count, total length, GC content, and N50/N90. `analyze` also exposes `composition` and `file-validate`; `stats` is the default subcommand, so `lungfish analyze <input>` runs it.
+Computes sequence statistics: count, total length, GC content, and N50. `--per-sequence` adds a per-record table, `--no-gc` skips the GC calculation, and `--length-distribution` adds a length histogram. `stats` is the default subcommand, so `lungfish analyze <input>` runs it. `analyze` also exposes `composition` and `validate`.
+
+`lungfish analyze composition <input> [--codons] [--dinucleotides] [--alphabet dna|rna|protein]`
+
+Reports detailed per-residue composition: base counts and percentages, plus purine/pyrimidine ratios and GC/AT skew for nucleotides. `--codons` adds a codon usage table and `--dinucleotides` adds dinucleotide frequencies, both nucleotide-only. `--alphabet` overrides the alphabet, which otherwise auto-detects from the file extension (`.faa` is protein, everything else DNA).
+
+`lungfish analyze validate <file>... [--strict]`
+
+Checks that one or more files are well-formed for their detected format, across FASTA, FASTQ, GenBank, GFF3, VCF, and BED. Format is detected from the file extension. `--strict` enables stricter validation.
 
 `lungfish translate <input> [--frame <1-6>] [--table <id>] [-o <path>]`
 

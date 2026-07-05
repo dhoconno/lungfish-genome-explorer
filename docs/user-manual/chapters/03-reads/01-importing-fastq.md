@@ -138,6 +138,22 @@ For a folder of samples, pass the folder path; the CLI pairs files exactly as th
 
 Two CLI defaults change the bytes on disk, so record them in a methods note if bit-exact reproduction matters. `--quality-binning` defaults to `illumina4`, which re-quantises each base quality into one of four levels, the same trick NovaSeq applies in hardware. Pass `--quality-binning none` to keep the original per-base scores. Storage-optimized read reordering is on by default; pass `--no-optimize-storage` to keep the reads in their original order. `--recipe` applies a packaged processing pass at import and takes one of `vsp2`, `wgs`, `amplicon`, `hifi`, or `none`, defaulting to `none`. And `--dry-run` lists the pairs the CLI found without importing a thing.
 
+## The import configuration sheet
+
+Every GUI import, by drag-drop or through the Import Center, opens a configuration sheet before the copy begins. It confirms what Lungfish detected and lets you override it. The **Platform** selector offers seven choices: Illumina, Oxford Nanopore, PacBio, Element Biosciences, Ultima Genomics, MGI / DNBSEQ, and Unknown / Other. Choosing Oxford Nanopore forces single-end and drops quality binning to None, since neither pairing nor Illumina-style binning applies to Nanopore reads.
+
+Three more controls shape the bundle on disk. **Quality Binning** takes Illumina 4-level, 8-level, or None (preserve original), defaulting to 4-level for Illumina, Element, and MGI and to None for the long-read platforms. **Pairing** takes Single-end, Paired-end, or Interleaved. **Compression** takes Fast, Balanced (the default), or Maximum. The **Optimize storage** checkbox, on by default, reorders reads for tighter compression; clear it to keep them in their original order.
+
+The **Apply processing recipe after import** checkbox, off by default, runs a packaged workflow on the reads as they land. The ONT demultiplexing recipes, one splitting by Fluidigm sample barcodes and one by PacBio barcode pairs, need two extra inputs before they can run: a barcode sheet, a CSV, TSV, or text file of sample names and barcodes, and a name for the demux output folder.
+
+A FASTQ bundle can be virtual. Rather than holding a copied FASTQ, it stores a derived manifest that names a root file and the operation to apply, whether a read-ID subset, trim positions, or a full-payload copy. The viewport previews from that manifest while heavier operations run against the full file. To write a virtual or derived bundle back out as a plain FASTQ, materialize it:
+
+```sh
+lungfish fastq materialize SampleA.lungfishfastq -o SampleA.fastq
+```
+
+Add `--temp-dir <dir>` to place intermediate files on a specific volume, `--force` to overwrite an existing output, and `--compress` to gzip the result.
+
 ## What gets recorded at import
 
 An import is more than a copy. Lungfish does three things for every file you import.
@@ -154,9 +170,9 @@ Click a FASTQ bundle in the sidebar. The main viewport flips to the FASTQ viewpo
 
 <!-- planned: fastq-viewport-sparklines -->
 
-The viewport gives one row per file: one for single-end, two for paired-end. Each row carries a small sparkline for read length and a second for mean per-base quality across the file. Read them as a quick "does this look reasonable?" glance, not a stand-in for a full QC pass. A single-end Nanopore FASTQ draws a long-tailed length distribution; an Illumina FASTQ draws a near-vertical spike at the read length the run was set for.
+The viewport stacks two panes. Across the top sits a summary bar with the dataset's read count, base count, and read-length range, and below it a sparkline strip: one sparkline for read length and one for mean per-base quality across the dataset. Read the sparklines as a quick "does this look reasonable?" glance, not a stand-in for a full QC pass. A single-end Nanopore FASTQ draws a long-tailed length distribution; an Illumina FASTQ draws a near-vertical spike at the read length the run was set for. When a quality sparkline is empty, no quality report has run yet: click it, where it reads "Click to Compute", to launch the QC & Reporting operations and compute one.
 
-Below the sparklines, the metadata drawer lists the technical fields Lungfish read straight off the file: the detected platform inferred from the read-header format, whether Illumina, Nanopore, or unknown, plus total read count, total base count, read-length range, and the bundle's checksums.
+The lower pane carries two tabs. The Reads tab is a spot-check table of the first 1,000 records, one row each with columns for #, Read ID, Length, Mean Q, and Sequence. The Operations tab holds a category sidebar, headed "FASTQ/FASTA Operations", that opens the operations dialog pre-scoped to a category: QC & Reporting, Demultiplexing, Trimming & Filtering, Decontamination, Read Processing, Search & Subsetting, Alignment, Mapping, Assembly, Clustering, and Classification. The Inspector's metadata pane, alongside, lists the detected platform inferred from the read-header format, whether Illumina, Nanopore, or unknown, plus the bundle's checksums.
 
 When the sparklines look wrong, with Q scores collapsing or the length distribution surprisingly wide, take it as your cue to run a full QC pass before going further. When they look reasonable, move on to QC at your own pace.
 
@@ -173,6 +189,17 @@ For many samples at once, build a CSV with one row per sample and import it from
 ```sh
 lungfish metadata import ~/Projects/SARS-CoV-2-WW.lungfish/Imports samples.csv --sync-bundles
 ```
+
+## Other metadata commands
+
+Beyond the folder-level `lungfish metadata import`, a few commands write metadata at other granularities. To read or set a single field on one FASTQ bundle, use `lungfish metadata get` and `lungfish metadata set`. Field names follow PHA4GE and NCBI BioSample conventions in snake_case, such as `sample_type`, `collection_date`, and `host`; a name Lungfish does not recognise is kept as a custom field rather than rejected.
+
+```sh
+lungfish metadata set SampleA.lungfishfastq --field sample_type --value "Nasopharyngeal swab"
+lungfish metadata get SampleA.lungfishfastq --format json
+```
+
+`lungfish metadata get` prints a table by default, or JSON or TSV with `--format`. Two import commands push a whole metadata table into other bundle types. `lungfish import sample-metadata <csv|tsv> --bundle <reference-bundle>` writes the table into every variant track in a reference bundle and reports how many tracks and values it updated. `lungfish import metadata <csv|tsv> --bundle <result-bundle>` targets a classification result bundle, auto-detects the sample-ID column, and reports how many records matched and how many did not.
 
 ## Exporting sample metadata for NCBI submission
 

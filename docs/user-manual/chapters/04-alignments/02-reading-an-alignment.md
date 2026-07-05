@@ -75,6 +75,25 @@ non-colour cues for both), switch the read colour channel, read the aggregate
 alignment stats in the Inspector, and launch a downstream operation from the
 Inspector's Analysis section.
 
+## Importing an existing alignment
+
+The Procedure below assumes you mapped reads in the previous chapter, but you
+can also bring an alignment you already have. Choose **File > Open** and pick a
+BAM, CRAM, or SAM file: Lungfish attaches it as an alignment track on a
+reference bundle and opens the pileup viewport. A SAM file is normalised to a
+sorted, indexed BAM on import, and a CRAM file requires a matching reference
+FASTA already in the bundle, because CRAM stores bases as differences against
+that reference.
+
+From the command line, `lungfish import bam` does the same headlessly. It
+accepts BAM, CRAM, and SAM inputs (including `.gz`), copies and indexes the
+alignment into the output directory, and prints total, mapped, and unmapped
+read counts alongside the reference contig count.
+
+```bash
+lungfish import bam aligned.sorted.bam --output-dir ./project/ --name "My Alignment"
+```
+
 ## Procedure
 
 This procedure assumes you finished the previous chapter and have a minimap2
@@ -93,21 +112,29 @@ attached as a track. If you do not, work through
    the reads covering each position, drawn as forward-strand and reverse-strand
    bands stacked together. Tall bars mean deep coverage, short bars thin
    coverage, gaps a region the reads never reached. Hover any bar for the exact
-   depth. Without a mouse, jump to the position (step 3) and read depth from
-   the status bar and the Inspector instead.
+   depth. The track's peak depth is also printed as an `Nx` label in its
+   top-left corner, so `40x` marks the deepest column in view. The status bar
+   along the bottom reports the loaded read count and the current scale in
+   bp/px, not depth, so read the peak off that coverage label and per-strand
+   depth off the Inspector.
 
-3. **Jump to a position.** Press `Cmd-L` to open the Go to Location prompt,
-   type `21618`, and press Return. The viewport recentres on that coordinate.
+3. **Navigate to a position.** The alignment viewport has no typed-coordinate
+   prompt. Pan with the Left and Right arrow keys, reading the position ruler
+   along the top, until position 21618 comes into view, then right-click that
+   spot and choose **Center View Here** to recentre the viewport on it.
 
 4. **Zoom in to read individual bases.** Press `Cmd-=` (or `Cmd-+`, or keypad
    `+`) to zoom in and `Cmd--` (or keypad `-`) to zoom out; bare `=` and `-`
    do nothing. **Arrow Up** also zooms in and **Arrow Down** zooms out, usually
    the faster reach, while the Left and Right arrows pan. These match the Zoom
-   In and Zoom Out items in the menu bar. Keep zooming in at position 21618
-   until each read is tall enough to show its base calls. At single-base
-   resolution the reference base sits on the ruler and the stacked read bases
-   sit beneath it: a match renders as a small tick, a mismatch as the alternate
-   base letter.
+   In and Zoom Out items in the menu bar. `Cmd-0` (Zoom to Fit) reframes the
+   whole contig, and on a trackpad a pinch gesture zooms in and out. Keep
+   zooming in at position 21618 until each read is tall enough to show its base
+   calls. At single-base resolution a reference-base track beneath the coverage
+   histogram carries the reference letter at each position and the stacked read
+   bases sit under it: a match renders as a small tick, a mismatch as the
+   alternate base letter. Both the reference track and the mismatched read
+   bases follow a per-nucleotide colour code: A green, T red, G yellow, C blue.
    <!-- planned: pileup-zoom -->
 
 5. **Inspect aggregate stats.** Click the Inspector tab if it is not already
@@ -116,6 +143,18 @@ attached as a track. If you do not, work through
    supplementary alignments, and the provenance sidecar from the mapping step:
    which mapper, which preset, which input FASTQ.
    <!-- planned: alignment-inspector -->
+
+To pull a single read out of the picture, click it to select it, then
+right-click and choose **Copy Read Sequence (FASTQ)**, **Copy Read Sequence
+(FASTA)**, or **Copy Read Name** to put it on the clipboard for a BLAST search
+or a note.
+
+A deep pileup does not load every read at once. On opening, the viewport draws
+a representative sample of about 2,500 reads and marks the status bar a
+`sampled overview` (for example `2,500 of 40,000 reads`); it swaps in the full
+set automatically only when a contig holds fewer than about 10,000 reads.
+Heavier contigs stay in the sampled sketch, which is enough to read coverage
+shape and strand balance without stalling the interface.
 
 ## Interpretation
 

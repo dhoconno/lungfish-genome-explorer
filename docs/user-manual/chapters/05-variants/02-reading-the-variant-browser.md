@@ -31,7 +31,7 @@ lead_approved: false
 
 The variant browser is the main surface in Lungfish for reading, sorting, and exporting variants. Click a variant track in the sidebar and it opens, filling the full viewport area of the project window. It marries a coordinate-aware view of the genome to a tabular view of every row in the underlying VCF, so you can swing between "where on the genome is this variant" and "what does this variant say" without leaving the page.
 
-Three regions stack vertically. At the top, a genome track draws each variant as a tick at its reference position. Below it, a reference panel shows the bases under the cursor and updates as you navigate. At the bottom sits a sortable variant table, one row per variant, carrying the standard VCF columns plus a `Source` column that records which source file each row came from. When a reference bundle holds more than one variant track, the browser loads them all into this single table at once, and the `Source` column is how you tell them apart. A filter bar above the table takes both chip-style presets and free-text smart-filter queries.
+Three regions stack vertically. At the top, a genome track draws each variant as a tick at its reference position. Below it, a reference panel shows the bases under the cursor and updates as you navigate. At the bottom sits a sortable variant table, one row per variant, carrying the standard VCF columns plus a `Source` column that records which source file each row came from. When a reference bundle holds more than one variant track, the browser loads them all into this single table at once, and the `Source` column is how you tell them apart. A variant-type chip bar and a substring filter field above the table narrow which rows are on display.
 
 <!-- planned: variant-browser-overview -->
 
@@ -43,20 +43,22 @@ This chapter leaves you able to jump to any position in the variant browser, sor
 
 ## The variant table columns
 
-The table has eight fixed columns: seven from the VCF specification and one, `Source`, that is Lungfish-specific. Every column sorts on click, once for ascending, twice for descending. Drag a header to reorder columns, and right-click the header bar to hide or show them.
+The table has ten fixed columns. Every column sorts on click, once for ascending, twice for descending.
 
 | Column | What it holds | Typical use |
 |---|---|---|
-| `ID` | The VCF `ID` field (often `.` when the caller assigns none) | Look up a named or catalogued variant |
+| `#` | Row number in the current filtered and sorted view | Cite a row by position while scanning |
 | `Chrom` | Reference sequence name (`MN908947.3` for SARS-CoV-2) | Filter to one contig in multi-contig VCFs |
 | `Position` | 1-based reference coordinate of the variant | Sort to walk the genome 5' to 3' |
 | `Ref` | Reference allele at that position | Confirm the base the caller compared against |
 | `Alt` | Alternate allele the reads support | Read the variant itself |
+| `Type` | Variant class Lungfish derives from `Ref` and `Alt` (`SNP`, `INS`, `DEL`, `MNP`, `SV`) | Triage by variant kind |
 | `Quality` | Phred-scaled caller confidence | Sort to triage low-confidence rows |
 | `Filter` | Caller-assigned status (`PASS`, `ft`, `sb_fdr`, etc.) | Filter to confident calls only |
-| `Source` | The source file each row came from | Tell two callers' rows apart in one table |
+| `AF` | Allele frequency, read from the `INFO` `AF` field | Gauge how prevalent the alternate is |
+| `DP` | Depth, read from the `INFO` `DP` field | Weight the frequency estimate |
 
-Beyond those eight, the table promotes whatever `INFO` keys the loaded VCF actually defines into columns of their own. There is no fixed list and no dotted `INFO.AF` naming: a key named `AF` becomes a column titled `AF`, a key named `DP` becomes `DP`, and so on. Which columns appear therefore depends on the caller. A LoFreq VCF defines `DP`, `AF`, `SB`, and `DP4` in `INFO`, so those four show up. A Lungfish iVar VCF defines only `TYPE` in `INFO` and keeps depth and allele frequency in the per-sample `FORMAT` payload (`DP`, `ALT_FREQ`, and `MERGED_AF`/`MERGED_DP` on merged rows), so an iVar table promotes fewer `INFO` columns and you read its depth and frequency from the Inspector or the genotype view instead.
+Beyond these, the table promotes whatever `INFO` keys the loaded VCF actually defines into columns of their own. There is no fixed list and no dotted `INFO.AF` naming: a key named `AF` becomes a column titled `AF`, a key named `DP` becomes `DP`, and so on. Which columns appear therefore depends on the caller. A LoFreq VCF defines `DP`, `AF`, `SB`, and `DP4` in `INFO`, so those four show up. A Lungfish iVar VCF defines only `TYPE` in `INFO` and keeps depth and allele frequency in the per-sample `FORMAT` payload (`DP`, `ALT_FREQ`, and `MERGED_AF`/`MERGED_DP` on merged rows), so an iVar table promotes fewer `INFO` columns and you read its depth and frequency from the Inspector or the genotype view instead.
 
 Per-sample genotype data stays out of the main table's columns. Instead, a `GT` sub-tab above the table flips the view from one-row-per-variant to one-row-per-sample genotype, so you can read zygosity and allelic depth for a multi-sample VCF without crowding the variant rows. For multi-sample VCFs, the left-pane sample selector governs which samples that genotype view and the per-sample filters apply to; hide the samples you are not comparing before you filter.
 
@@ -88,27 +90,13 @@ The Inspector is the canonical place to read a single variant. The table is dens
 
 ### Step 4. Filter the table
 
-The filter bar sits above the table. Click the `Presets` toggle on the left to reveal a row of curated chips. Click a chip to apply it, click again to remove it, and stack chips to narrow further. The curated set includes `PASS`, `SNV`, `Indel`, `High Impact`, `Qual >= 30`, `DP >= 10`, and three chips built for reading viral minority variants: `Minor (<=20%)`, `Mixed (20-80%)`, and `Dominant (>=80%)`. Those last three are the fastest way to triage within-host frequency in a viral sample. Alongside the curated chips, Presets also generates value chips from the `INFO` keys the loaded VCF actually carries, so the exact list depends on the file.
+A summary bar runs across the top of the browser. It names the organism and assembly Lungfish infers from the VCF's chromosome set when it can resolve one, the total variant count, and a per-type breakdown. When a reference is inferred but not yet attached to the project, a `Download Reference` button appears at the right of the bar. Click it to fetch and attach that reference so the genome track and the reference panel have a sequence to draw against.
 
-Type into the free-text field on the right of the filter bar to write a smart-filter query directly. A clause is a key, an operator, and a value; the operators are `=`, `!=`, `<`, `<=`, `>`, `>=`, and `~` (contains). Quote a string value only when it contains a space. The filter bar shows a count of matched rows directly under the input. These examples filter the whole table:
+Below the summary bar is a variant-type chip bar. The leftmost chip, `All`, carries the total count. Each chip to its right names a variant type present in the file, `SNP`, `INS`, `DEL`, `MNP`, or `SV`, with that type's count in parentheses, ordered most-common first. Lungfish derives the type from each row's `Ref` and `Alt`, so the set of chips depends on the file. Click a type chip to show only that class, and click it again, or click `All`, to clear the restriction.
 
-- `Filter=PASS` keeps only rows whose `Filter` column reads `PASS`.
-- `AF>=0.5` keeps only rows where the allele frequency reaches half of reads or more.
-- `DP>=50` keeps only rows with depth at or above 50 reads.
-- `Position>=21000` keeps rows at or beyond coordinate 21000.
-- `AF>=0.05 AF<0.5` keeps rows in the minority-variant band.
-
-Clauses are joined by AND only: writing two clauses separated by a space keeps the rows that satisfy both. There is no `OR` operator between clauses, no colon syntax such as `Pos:1193`, and no `Source=` key. To pull one track's rows out of an aggregated table, filter on a column that differs between the tracks rather than on `Source`.
+To the right sits the filter field. It is a plain, case-insensitive substring match, not a query language. It compares what you type against four fields of every row, `Chrom`, `Position`, `Ref`, and `Alt`, and keeps the rows where that text appears in any of them. There are no operators, no `key=value` clauses, and no per-sample syntax. Typing `216` keeps rows whose chromosome, position, or alleles contain `216`, and typing `AT` matches on the allele columns. The count beside the field reports how many rows match out of the total, and clearing the field restores the full table. For thresholds and compound conditions, use the Query Builder described in the next section, or run `lungfish variants query` from the CLI.
 
 <!-- planned: variant-browser-filter -->
-
-For a multi-sample VCF, the same field can be addressed inside one named sample, and a `count(...)` predicate can range over every sample. These per-sample clauses match the CLI `variants query` grammar exactly:
-
-- `Sample[NA12878].GT=1/1` keeps variants where sample `NA12878` is homozygous alternate.
-- `Sample[NA12878].AF>=0.5` keeps variants where that sample's alternate allele fraction is at least 0.5.
-- `Sample[NA12878].DP>=30` keeps variants where that sample's genotype depth is at least 30.
-- `count(Sample[*].GT=1/1) >= 5` keeps variants with at least five homozygous-alternate samples.
-- `Sample[NA12878].GT != Sample[NA12879].GT` keeps variants where two samples have different genotype calls.
 
 For multi-sample VCFs, open the sample selector and leave visible only the samples you want to compare. The genotype view and the per-sample filters draw on that same visible-sample set, so hiding a sample drops it from the browser without changing the imported VCF.
 
@@ -119,6 +107,21 @@ When a reference bundle carries more than one variant track, the browser shows t
 This aggregated table is the substrate for reading two callers side by side. Sort by `Position` and read top to bottom: rows both callers reported appear at the same coordinate with different `Source` values, and rows only one caller produced appear alone. Tell the callers apart by the text in the `Source` column, not the tick color on the genome track. The ticks are color-coded, but the `Source` column is the readable discriminator, and the only one that survives print, small sizes, or a colorblind reader. The next chapter, [Reading Two Callers in One Table](03-cross-caller-comparison.md), works through the disagreements in detail.
 
 <!-- planned: variant-browser-source-column -->
+
+## Building filters with the Query Builder
+
+The filter field handles substring lookups; the Query Builder handles anything with a threshold or a condition. Open it from the toolbar button above the table, labelled `Query Builder...` when no filter is active and `Edit Query...` once one is (a narrow window shortens these to `Query` and `Edit`). The button opens a sheet that composes a filter from structured rules rather than typed syntax.
+
+Each rule is a row with four parts:
+
+- A category, one of seven: Location, Variant Identity, Biological Effect, Population/Frequency, Call Quality, Sample/Genotype, and INFO Field.
+- A field within that category, such as `Quality` or `Filter` under Call Quality, `AF` under Population/Frequency, or any `INFO` key the loaded VCF defines under INFO Field.
+- An operator appropriate to the field: equality `=`, contains `~`, the numeric comparisons `<`, `<=`, `>`, `>=`, or `!=` for genotype fields.
+- A value, typed directly or, for constrained fields like variant `Type`, `IMPACT`, or `Filter`, chosen from a menu.
+
+Add rows with `Add Rule` and remove them with the minus button. A `Match All` selector sits at the top of the sheet: rules combine with AND only, so every rule must hold for a variant to pass. Match Any (OR grouping) is not yet supported. A preset bar offers built-in starting points such as `PASS + High Quality`, `Rare Variants`, and `Indels Only`, filtered to the presets whose fields exist in the current file, and `Save Preset...` stores the current rules under a name for reuse. `Apply` composes the rules into the browser's variant filter and applies it; `Cancel` closes the sheet without changing anything.
+
+The Query Builder is gated on the size of the variant database, because a structured query over a very large store is slow. On a large database the button stays disabled until you zoom the genome track to a region smaller than 10 Mb, at which point the query runs within that window. On a very large database, one Lungfish holds in a materialized-only mode, the button is disabled outright and its tooltip points you to the simpler filters instead.
 
 ## Worked walkthrough on SRR36291587
 

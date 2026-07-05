@@ -111,6 +111,12 @@ Every time this manual says "bundle", it means a folder that Finder shows as a s
 
 Bundles travel as a unit. Copy a `.lungfishref` to another project and the FASTA, the index, the annotations, and the provenance all move together. You cannot lose the index without the FASTA, or strand an annotation from the sequence it describes.
 
+## Searching the project
+
+A search field sits at the top of the sidebar, above the folder tree, and stays there in every project window. Type into it and LGE runs a live, project-wide search as you type, matching datasets, references, annotations, classification hits, and analyses. A background index keeps the results fast. While a query runs against it, a small spinner and a "Searching project" label appear just below the field. Clear the field and the sidebar returns to its full folder tree.
+
+For structured queries, click the filter button to the right of the search field to open the Advanced Search popover. It assembles a query for you, so you need not memorise any syntax. A Scope selector narrows the search to one kind of data: All Project Data, EsViritu, Kraken/Bracken, TaxTriage, FASTQ Datasets, VCF + Reference, or JSON Manifests. Below it, structured fields filter by Keywords, Virus, Family, Species, and Sample, by Min Unique Reads and Min and Max Total Reads, and by a Date From and Date To range entered as `YYYY-MM-DD`. A "High-confidence pathogens only" checkbox restricts results to flagged pathogens. **Apply** writes the assembled query into the sidebar search field and runs it. **Clear** empties both the popover and the field.
+
 ## The Inspector
 
 The [Inspector](../../GLOSSARY.md#inspector) is the right-hand pane, and it reacts to you. Its contents change the moment you change what is selected in the sidebar or the main viewport.

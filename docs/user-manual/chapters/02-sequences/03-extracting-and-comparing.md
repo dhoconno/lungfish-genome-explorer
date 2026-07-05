@@ -95,6 +95,21 @@ Use this when you want to see every protein-coding window above a length cutoff,
 
 The ORF track behaves like any annotation track. Click an ORF to jump to its coordinates. Right-click to copy its range, extract it, or translate it. The track stays with the bundle until you remove it, which you do from the command line with `lungfish sequence delete-annotation-track --track-id <id>` (the track's ID is the **Track ID** you set in the dialog).
 
+## Procedure: extract all features of a type
+
+Use this when you want every annotated feature of one type pulled out at once, for example the sequence of every gene on a bundle, rather than framing and extracting each region by hand. This is a command-line operation, so a bench reader who only needs single regions can skip it.
+
+`lungfish bundle extract-annotations` reads an annotation track from a source bundle and writes the matching feature sequences into a new `.lungfishref` bundle:
+
+```sh
+lungfish bundle extract-annotations \
+  --bundle MN908947.3.lungfishref \
+  --track genes \
+  --output-bundle spike-genes.lungfishref
+```
+
+`--track` accepts either the track ID or the track name. `--feature-type` selects which features to pull and defaults to `gene`; set it to `CDS` or `ORF` to match a Find ORFs track. `--name-prefix` keeps only features whose name or gene name starts with a given string, and `--replace` overwrites an existing output bundle instead of stopping. Minus-strand features are reverse-complemented so every extracted sequence reads in its coding orientation. Each FASTA header carries provenance in the form `source=chrom:start-end strand=`, where the coordinates are 1-based against the source sequence, so the trail back to the original bundle stays intact.
+
 ## Worked example: extract the spike gene from MN908947.3
 
 You have the SARS-CoV-2 reference open and you need the spike CDS as its own bundle, ready to map reads against or to feed a primer-design tool.

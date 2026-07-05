@@ -155,6 +155,21 @@ alternate-match support more cautiously than one with unambiguous reads.
 
 <!-- planned: twelve-s-result-species-table -->
 
+### Working across multiple samples
+
+When a result holds more than one sample, two controls appear above the
+species table (both stay hidden for a single-sample result). The
+sample-filter button, labelled with the current selection (for example
+**All Samples**), opens a picker where you choose which samples contribute
+to the table, so you can read one sample at a time or any subset together.
+Per-sample **Reads** and **% of sample** columns are added automatically
+when eight or fewer samples are selected, and are suppressed above that
+count to keep the table readable. The **Sample Columns** menu carries an
+**Import Metadata…** item that loads a CSV or TSV of per-sample metadata;
+each metadata field then becomes a toggleable column in the same menu, so
+you can annotate the matrix with collection site, date, or any field you
+supplied.
+
 ### Step 3. Review unresolved sequence clusters
 
 Switch the view to **Unresolved**. This table lists the unresolved sequence
@@ -266,6 +281,41 @@ lungfish fastq 12s-export --bundle results/diet-run.lungfish12s \
 lungfish fastq 12s-export-unresolved --bundle results/diet-run.lungfish12s \
   --min-reads 5 --output unresolved.fasta
 ```
+
+The `--reference` for `12s-match` accepts either a plain deduplicated FASTA
+or a prepared `.lungfish12sref` bundle; passing the bundle picks up its
+bundled target metadata automatically. Two options freeze extra context into
+the result: `--sample-metadata` takes a CSV or TSV of per-sample metadata
+(the same fields the viewport shows as columns), and `--reference-metadata`
+takes a target metadata TSV, overriding the bundled one when both are
+present.
+
+`12s-export` filters the species rows before writing. Use
+`--min-exact-reads` to drop rows below a read count, `--filter` for a
+case-insensitive match on species, common name, taxon, or alternate-match
+text, and `--taxon-group` or `--exclude-taxon-group` to keep or remove whole
+groups such as Mammal or Fish. `--exclude-human` drops Homo sapiens (taxid
+9606) rows, and `--require-alternate-matches` keeps only rows that carry an
+alternate-match note.
+
+```bash
+# Export mammal rows with at least 20 exact reads, excluding human
+lungfish fastq 12s-export --bundle results/diet-run.lungfish12s \
+  --export-format tsv --output mammals.tsv \
+  --min-exact-reads 20 --taxon-group Mammal --exclude-human
+
+# Export named unresolved sequences, including chimera candidates,
+# with a side TSV of metadata
+lungfish fastq 12s-export-unresolved --bundle results/diet-run.lungfish12s \
+  --output picked.fasta --sequence-id cluster_3 --sequence-id cluster_7 \
+  --include-chimera-candidates --metadata-output picked-metadata.tsv
+```
+
+For `12s-export-unresolved`, `--include-chimera-candidates` adds sequences
+flagged as candidate or confirmed chimeras, which the export omits by
+default. `--sequence-id` (repeatable) exports only the named clusters, and
+`--metadata-output` writes a companion TSV describing the exported
+sequences.
 
 ## Next
 

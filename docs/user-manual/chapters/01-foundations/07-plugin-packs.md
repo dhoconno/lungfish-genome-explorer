@@ -145,6 +145,13 @@ operation that reaches for one of the pack's tools will find it.
 To install several packs, click **Install** on each. The packs are
 independent, so they install in parallel without stepping on one another.
 
+Installing is reversible. Each optional pack that is already installed
+shows a **Remove All** button in place of Install. Click it and LGE tears
+down every managed environment the pack owns, then flips the pack back to
+**Needs install**, ready to reinstall whenever a later chapter calls for
+it. The Required Setup pack has no Remove All, since LGE leans on it to
+run.
+
 ### Worked example: install read-mapping and variant-calling
 
 Most variant-calling workflows in this manual need two packs together. On
@@ -160,6 +167,42 @@ that is already installed and LGE runs an integrity check, re-verifying
 the tools and reporting them current. That is the recommended way to
 confirm an install survived an interruption, whether you closed the lid
 mid-install, dropped the network, or hit an unexpected reboot.
+
+### Manage installed environments from the Installed tab
+
+The **Installed** tab lists every managed environment LGE has built, one
+per tool. Click a row to expand it and read the exact packages and their
+versions inside, the quickest way to confirm what a given tool actually
+pulled in. Each row also carries a **Remove** button that deletes that
+single environment and all of its packages, finer-grained than the
+pack-level Remove All on the Packs tab.
+
+LGE keeps its own housekeeping honest too. An interrupted install or an
+old plugin sometimes leaves behind an environment with a bare hexadecimal
+hash name rather than a tool name. LGE hides these from the tool list and
+gathers them into an **Orphaned Environments** row that reports how many
+it found. Its **Remove** button clears them in one pass to reclaim disk.
+Removing them is safe: nothing in the packs table depends on a hash-named
+environment.
+
+### Install a pack without internet access
+
+An air-gapped or firewalled Mac cannot reach the tool channels, so LGE
+lets you carry a pack across by hand. Every pack card on the **Packs** tab
+shows two greyed command lines and a **Copy** button that places both on
+the clipboard. On a networked Mac, run the first command to bundle the
+pack into a single archive. Move that archive to the offline Mac and run
+the second command to install from it:
+
+```bash
+lungfish conda export-pack --pack read-mapping --output ./read-mapping-conda-offline-pack.tgz
+lungfish conda install --offline --from-bundle ./read-mapping-conda-offline-pack.tgz
+```
+
+The Copy button fills in whichever pack you are looking at, so the archive
+name always matches its pack id. This is the one place in this chapter
+where you type a command. Every other install path runs from the buttons
+above.
 
 ### Check database versions and update state
 
@@ -179,7 +222,9 @@ RAM requirement outstrips your system reads "(exceeds system RAM)"
 inline, so you avoid loading it by mistake. From the same tab you
 download a new database, update an existing one, or remove one to reclaim
 disk. LGE handles the storage location, the download, and the integrity
-check.
+check. While a database is downloading, its row shows a progress bar with
+a **Cancel** button. Cancel stops the transfer and leaves the database
+uninstalled, ready to start again later.
 
 ## Interpretation
 
