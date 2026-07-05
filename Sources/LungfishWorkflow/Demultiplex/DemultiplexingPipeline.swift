@@ -1035,11 +1035,11 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                     pairingMode: config.inputPairingMode ?? inferredPairingMode(from: parentBundleURL ?? config.inputURL),
                     sequenceFormat: config.inputSequenceFormat
                 )
-                do {
-                    try FASTQBundle.saveDerivedManifest(derivedManifest, in: result.bundleURL)
-                } catch {
-                    logger.error("Failed to save derived manifest for \(result.baseName): \(error)")
-                }
+                try saveRequiredDerivedManifest(
+                    derivedManifest,
+                    in: result.bundleURL,
+                    barcode: result.baseName
+                )
             }
 
             progress(
@@ -1243,11 +1243,11 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                     pairingMode: config.inputPairingMode ?? inferredPairingMode(from: config.sourceBundleURL ?? config.inputURL),
                     sequenceFormat: config.inputSequenceFormat
                 )
-                do {
-                    try FASTQBundle.saveDerivedManifest(derivedManifest, in: bundleURL)
-                } catch {
-                    logger.error("Failed to save derived manifest for \(sampleResult.sampleName): \(error)")
-                }
+                try saveRequiredDerivedManifest(
+                    derivedManifest,
+                    in: bundleURL,
+                    barcode: sampleResult.sampleName
+                )
             }
 
             // Look up sample assignment for sequence info
@@ -1327,11 +1327,11 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                     pairingMode: config.inputPairingMode ?? inferredPairingMode(from: config.sourceBundleURL ?? config.inputURL),
                     sequenceFormat: config.inputSequenceFormat
                 )
-                do {
-                    try FASTQBundle.saveDerivedManifest(derivedManifest, in: bundleURL)
-                } catch {
-                    logger.error("Failed to save derived manifest for unassigned: \(error)")
-                }
+                try saveRequiredDerivedManifest(
+                    derivedManifest,
+                    in: bundleURL,
+                    barcode: "unassigned"
+                )
             }
 
             unassignedBundleURL = bundleURL
@@ -2123,7 +2123,11 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                     pairingMode: config.inputPairingMode ?? inferredPairingMode(from: parentBundleURL ?? config.inputURL),
                     sequenceFormat: config.inputSequenceFormat
                 )
-                try FASTQBundle.saveDerivedManifest(derivedManifest, in: bundleURL)
+                try saveRequiredDerivedManifest(
+                    derivedManifest,
+                    in: bundleURL,
+                    barcode: accumulator.barcodeID
+                )
             }
         }
 
@@ -2834,6 +2838,22 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
 
     private func canonicalSampleID(_ value: String) -> String {
         sanitizedSampleIdentifier(value).lowercased()
+    }
+
+    private func saveRequiredDerivedManifest(
+        _ manifest: FASTQDerivedBundleManifest,
+        in bundleURL: URL,
+        barcode: String
+    ) throws {
+        do {
+            try FASTQBundle.saveDerivedManifest(manifest, in: bundleURL)
+        } catch {
+            try? FileManager.default.removeItem(at: bundleURL)
+            throw DemultiplexError.bundleCreationFailed(
+                barcode: barcode,
+                underlying: "Failed to save derived manifest: \(error.localizedDescription)"
+            )
+        }
     }
 
     private func sampleAssignmentLookup(

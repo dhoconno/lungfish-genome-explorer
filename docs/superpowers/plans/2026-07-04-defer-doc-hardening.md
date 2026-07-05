@@ -100,6 +100,8 @@ changes that reduce future ambiguity across the codebase.
 - Removed the unused standalone `TaxTriageConfidenceView` chart, kept the live compact
   confidence cell with tested shared TASS thresholds, and corrected stale manual/review docs that
   described the removed chart as the result viewport.
+- Made DemultiplexingPipeline fail closed when required derived FASTQ manifests cannot be written:
+  affected demux bundles are removed and the run throws instead of returning lineage-less bundles.
 
 ## Verification
 

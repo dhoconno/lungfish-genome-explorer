@@ -77,6 +77,9 @@ reviewed pass.
   +Stats) needs ~15 promotions incl. nested `DemuxTrimEntry`, `AdapterConfiguration`, and
   the barcode/adapter helpers. D8 follow-on: after removing find5/find3, the 3 stored
   matcher fields become unread -> removing them is an init-signature change, deferred.
+  RESOLVED 2026-07-05: derived demux bundles now fail closed if required
+  `derived.manifest.json` writes fail; the affected bundle is removed and the pipeline throws
+  `bundleCreationFailed` instead of logging and returning a lineage-less scientific bundle.
 - `NativeToolRunner.swift` (1789L) + `FASTQBatchImporter.swift` (1820L). Both split-able but
   deferred: NativeToolRunner's 4 near-duplicate continuation blocks want a concurrency-dedup
   decision first (touches continuation-resume ordering + pipe lifetime); FASTQBatchImporter's
