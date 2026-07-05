@@ -75,6 +75,19 @@ final class SidebarDirectoryScanSnapshotTests: XCTestCase {
         XCTAssertTrue(source.contains("func rewriteAnalysisManifestReferencesIfNeeded"))
     }
 
+    func testSidebarDeletePathRemovesAnalysisManifestReferences() throws {
+        let source = combinedSidebarViewControllerSource()
+        let deleteBody = try slice(
+            source,
+            from: "private func performDelete(items: [SidebarItem], includingDependentURLs dependentURLs: [URL] = [])",
+            to: "/// Returns `true` when `error` indicates the target file no longer exists"
+        )
+
+        XCTAssertTrue(deleteBody.contains("FileManager.default.trashItem(at: url"))
+        XCTAssertTrue(deleteBody.contains("removeAnalysisManifestReferencesIfNeeded(forDeleted: url)"))
+        XCTAssertTrue(source.contains("func removeAnalysisManifestReferencesIfNeeded"))
+    }
+
     func testOpenProjectKeepsDirectoriesBeforeFilesAtRootAndNestedLevels() throws {
         let tempRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("SidebarDirectoryOrder-\(UUID().uuidString)", isDirectory: true)

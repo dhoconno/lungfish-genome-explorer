@@ -304,6 +304,42 @@ public enum AnalysisManifestStore {
         return rewrittenEntries
     }
 
+    /// Removes manifest entries that point at an analysis directory or grouping folder.
+    ///
+    /// Returns the number of entries removed across project bundle manifests.
+    @discardableResult
+    public static func removeAnalysisDirectoryReferences(
+        projectURL: URL,
+        analysisURL: URL
+    ) throws -> Int {
+        guard let removedPath = analysisDirectoryPath(for: analysisURL, projectURL: projectURL) else {
+            return 0
+        }
+
+        var removedEntries = 0
+        for manifestURL in try analysisManifestURLs(in: projectURL) {
+            let data = try Data(contentsOf: manifestURL)
+            var manifest: AnalysisManifest
+            do {
+                manifest = try decoder.decode(AnalysisManifest.self, from: data)
+            } catch {
+                logger.error("Could not decode existing manifest at \(manifestURL.path); refusing to remove analysis paths")
+                throw AnalysisManifestStoreError.corruptManifest(path: manifestURL.path)
+            }
+
+            let beforeCount = manifest.analyses.count
+            manifest.analyses.removeAll { entry in
+                analysisDirectoryPath(entry.analysisDirectoryName, isAtOrUnder: removedPath)
+            }
+            let removedFromManifest = beforeCount - manifest.analyses.count
+            if removedFromManifest > 0 {
+                removedEntries += removedFromManifest
+                try save(manifest, to: manifestURL)
+            }
+        }
+        return removedEntries
+    }
+
     /// Removes entries whose analysis directory is absent from `Analyses/`.
     ///
     /// - Returns: The number of entries removed.
@@ -348,6 +384,10 @@ public enum AnalysisManifestStore {
         }
         let suffix = currentPath.dropFirst(oldPrefix.count)
         return newPath + "/" + suffix
+    }
+
+    private static func analysisDirectoryPath(_ currentPath: String, isAtOrUnder ancestorPath: String) -> Bool {
+        currentPath == ancestorPath || currentPath.hasPrefix(ancestorPath + "/")
     }
 
     private static func analysisManifestURLs(in projectURL: URL) throws -> [URL] {

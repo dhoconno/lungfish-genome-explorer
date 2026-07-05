@@ -619,6 +619,7 @@ extension SidebarViewController: NSOutlineViewDataSource {
                     continue  // Don't remove from sidebar if file deletion failed
                 }
             }
+            removeAnalysisManifestReferencesIfNeeded(forDeleted: url)
 
             for sidecarURL in sidecars {
                 // macOS moves an AppleDouble companion (._<name>) to Trash

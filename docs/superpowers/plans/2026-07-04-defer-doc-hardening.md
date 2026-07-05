@@ -197,6 +197,8 @@ changes that reduce future ambiguity across the codebase.
 - Made sidebar analysis rename/move operations rewrite matching bundle manifest references for
   moved analysis directories or grouping folders, preserving Inspector history after users
   reorganize `Analyses/`.
+- Made sidebar analysis deletion remove matching bundle manifest references immediately, so
+  deleted runs and deleted groups do not linger as stale Inspector history until lazy pruning.
 - Made mapping/reference source resolvers identify the nearest real analysis ancestor instead
   of the first folder below `Analyses/`, so grouped analysis outputs navigate to the run root
   and can recover canonical source bundles from nested mapping sidecars.

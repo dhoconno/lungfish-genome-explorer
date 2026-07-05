@@ -26,4 +26,23 @@ extension SidebarViewController {
             sidebarLogger.warning("Failed to rewrite analysis manifest references after sidebar move: \(error.localizedDescription, privacy: .public)")
         }
     }
+
+    func removeAnalysisManifestReferencesIfNeeded(forDeleted url: URL) {
+        guard let projectURL,
+              AnalysisManifestStore.analysisDirectoryPath(for: url, projectURL: projectURL) != nil else {
+            return
+        }
+
+        do {
+            let removedCount = try AnalysisManifestStore.removeAnalysisDirectoryReferences(
+                projectURL: projectURL,
+                analysisURL: url
+            )
+            if removedCount > 0 {
+                sidebarLogger.info("Removed \(removedCount) stale analysis manifest reference(s) after sidebar delete")
+            }
+        } catch {
+            sidebarLogger.warning("Failed to remove analysis manifest references after sidebar delete: \(error.localizedDescription, privacy: .public)")
+        }
+    }
 }
