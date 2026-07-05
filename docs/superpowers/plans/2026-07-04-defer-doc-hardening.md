@@ -86,6 +86,8 @@ changes that reduce future ambiguity across the codebase.
   read-only API with an explicit internal test override for temporary-home isolation.
 - Deduplicated genotype haplotype leading-run-number token stripping behind one internal
   helper, with public matcher/locus coverage for numeric-prefix normalization.
+- Collapsed `NvdDatabase`'s duplicated read-side migration blocks and repeated BLAST-hit
+  SELECT projection, with legacy-schema coverage for the post-release columns.
 
 ## Verification
 
