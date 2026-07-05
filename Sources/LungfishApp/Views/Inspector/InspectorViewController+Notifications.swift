@@ -276,10 +276,10 @@ extension InspectorViewController {
             // Inspector opens it in the viewer via the sidebar selection path.
             viewModel.documentSectionViewModel.navigateToAnalysis = { [weak self] entry in
                 guard let projectURL else { return }
-                let analysisURL = projectURL
-                    .appendingPathComponent(AnalysesFolder.directoryName)
-                    .appendingPathComponent(entry.analysisDirectoryName)
-                guard FileManager.default.fileExists(atPath: analysisURL.path) else {
+                guard let analysisURL = AnalysisManifestStore.resolveAnalysisDirectory(
+                    for: entry,
+                    projectURL: projectURL
+                ) else {
                     // Stale entry — prune and refresh
                     self?.viewModel.documentSectionViewModel.updateAnalysisManifest(
                         bundleURL: bundleURL,

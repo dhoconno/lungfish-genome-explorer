@@ -185,6 +185,9 @@ changes that reduce future ambiguity across the codebase.
 - Made legacy analysis migration allocate deterministic suffixed `Analyses/` destinations for
   same-tool/same-timestamp collisions and write metadata sidecars before bundle manifest
   recording so migrated directories remain discoverable.
+- Made analysis manifest pruning and Inspector analysis navigation use a shared resolver that
+  preserves grouped `Analyses/` entries instead of treating recursively discoverable analyses
+  as stale.
 
 ## Verification
 

@@ -117,6 +117,27 @@ final class AnalysisManifestTests: XCTestCase {
         XCTAssertEqual(manifest.analyses.first?.tool, "esviritu")
     }
 
+    func testLoadPreservesGroupedAnalysisEntries() throws {
+        let analysesDir = try AnalysesFolder.url(for: projectDir)
+        let groupedDir = analysesDir
+            .appendingPathComponent("Reviewed", isDirectory: true)
+            .appendingPathComponent("esviritu-2026-01-15T10-00-00", isDirectory: true)
+        try FileManager.default.createDirectory(at: groupedDir, withIntermediateDirectories: true)
+
+        let entry = AnalysisManifestEntry(
+            tool: "esviritu",
+            timestamp: Date(timeIntervalSince1970: 0),
+            analysisDirectoryName: "esviritu-2026-01-15T10-00-00",
+            displayName: "EsViritu",
+            summary: "grouped by user"
+        )
+        try AnalysisManifestStore.recordAnalysis(entry, bundleURL: bundleDir)
+
+        let manifest = AnalysisManifestStore.load(bundleURL: bundleDir, projectURL: projectDir)
+
+        XCTAssertEqual(manifest.analyses, [entry])
+    }
+
     func testParametersRoundTrip() throws {
         let analysesDir = try AnalysesFolder.url(for: projectDir)
         try FileManager.default.createDirectory(
