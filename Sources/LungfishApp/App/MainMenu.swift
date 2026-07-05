@@ -400,12 +400,12 @@ public final class MainMenu {
             keyEquivalent: "g"
         ).tag = NSTextFinder.Action.nextMatch.rawValue
 
-        // Find Previous (no shortcut -- Cmd-Shift-G is used by Go to Gene in Sequence menu)
         let findPrevItem = findMenu.addItem(
             withTitle: "Find Previous",
             action: #selector(NSTextView.performFindPanelAction(_:)),
-            keyEquivalent: ""
+            keyEquivalent: "g"
         )
+        findPrevItem.keyEquivalentModifierMask = [.command, .shift]
         findPrevItem.tag = NSTextFinder.Action.previousMatch.rawValue
 
         findItem.submenu = findMenu
@@ -586,13 +586,13 @@ public final class MainMenu {
             keyEquivalent: "l"
         )
 
-        // Go to Gene (Cmd-Shift-G) - search annotations by gene name
+        // Go to Gene uses Command-Option-G so Command-Shift-G remains Find Previous.
         let goToGeneItem = seqMenu.addItem(
             withTitle: "Go to Gene\u{2026}",
             action: #selector(SequenceMenuActions.goToGene(_:)),
             keyEquivalent: "g"
         )
-        goToGeneItem.keyEquivalentModifierMask = [.command, .shift]
+        goToGeneItem.keyEquivalentModifierMask = [.command, .option]
 
         seqMenu.addItem(.separator())
 

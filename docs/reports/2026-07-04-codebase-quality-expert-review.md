@@ -119,6 +119,9 @@ and behavior-preserving simplifications are useful and appropriate.
   to dataset-operation dialogs instead of the active sequence viewer, while Sequence-menu
   visible-region transforms are disabled outside visible genomics content and the stale CLI
   reference wording was clarified.
+- 2026-07-04 follow-up: Find Previous now keeps the standard `Cmd-Shift-G` shortcut, Go to Gene
+  moved to non-conflicting `Cmd-Option-G`, the active shortcut manual was updated, and sequence
+  navigation menu items now disable when their viewer/annotation prerequisites are absent.
 
 ## Still Deferred
 

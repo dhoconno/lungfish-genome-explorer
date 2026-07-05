@@ -187,7 +187,7 @@ on that base. The editable position field on the ruler accepts the same
 input, with placeholder `chr:start-end`. A single number jumps to that
 base. A range like `MN908947.3:21563-25384` zooms to fit (on a
 single-contig bundle the bare range `21563-25384` resolves to it).
-**Sequence > Go to Gene…** (Cmd-Shift-G) opens a fuzzy-matched picker
+**Sequence > Go to Gene…** (Cmd-Option-G) opens a fuzzy-matched picker
 over the annotation names; on the SARS-CoV-2 reference, typing `spike`
 jumps to the `S` gene at position 21563. To centre on a feature you can
 already see, click its block in the annotation track.

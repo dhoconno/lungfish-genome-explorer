@@ -1233,6 +1233,22 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return enabled
         }
 
+        if menuItem.action == #selector(goToPosition(_:)) {
+            let viewerController = activeMainWindowController()?
+                .mainSplitViewController?
+                .viewerController?
+                .activeSequenceViewerController
+            return canNavigateToPosition(viewerController: viewerController)
+        }
+
+        if menuItem.action == #selector(goToGene(_:)) {
+            let viewerController = activeMainWindowController()?
+                .mainSplitViewController?
+                .viewerController?
+                .activeSequenceViewerController
+            return canNavigateToGene(viewerController: viewerController)
+        }
+
         // Visible-region sequence operations require an active viewer.
         if menuItem.action == #selector(reverseComplement(_:))
             || menuItem.action == #selector(translate(_:))
@@ -1282,6 +1298,15 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
 
         return true
+    }
+
+    func canNavigateToPosition(viewerController: ViewerViewController?) -> Bool {
+        viewerController?.referenceFrame != nil
+    }
+
+    func canNavigateToGene(viewerController: ViewerViewController?) -> Bool {
+        canNavigateToPosition(viewerController: viewerController)
+            && viewerController?.annotationSearchIndex != nil
     }
 
     @objc public func showWindowSizeDialog(_ sender: Any?) {

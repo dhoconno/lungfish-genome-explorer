@@ -42,6 +42,46 @@ final class SequenceMenuOperationTests: XCTestCase {
         XCTAssertTrue(fastqTitles.contains("Translate\u{2026}"))
     }
 
+    func testFindPreviousKeepsStandardShortcutAndGoToGeneUsesNonconflictingShortcut() throws {
+        _ = NSApplication.shared
+        let mainMenu = MainMenu.createMainMenu()
+        let editMenu = try XCTUnwrap(mainMenu.items.first { $0.title == "Edit" }?.submenu)
+        let findMenu = try XCTUnwrap(editMenu.items.first { $0.title == "Find" }?.submenu)
+        let sequenceMenu = try XCTUnwrap(mainMenu.items.first { $0.title == "Sequence" }?.submenu)
+
+        let findPrevious = try XCTUnwrap(findMenu.items.first { $0.title == "Find Previous" })
+        XCTAssertEqual(findPrevious.keyEquivalent, "g")
+        XCTAssertEqual(findPrevious.keyEquivalentModifierMask.intersection([.command, .shift, .option, .control]), [.command, .shift])
+        XCTAssertEqual(findPrevious.tag, NSTextFinder.Action.previousMatch.rawValue)
+
+        let goToGene = try XCTUnwrap(sequenceMenu.items.first { $0.title == "Go to Gene\u{2026}" })
+        XCTAssertEqual(goToGene.keyEquivalent, "g")
+        XCTAssertEqual(goToGene.keyEquivalentModifierMask.intersection([.command, .shift, .option, .control]), [.command, .option])
+    }
+
+    func testSequenceNavigationMenuValidationMatchesNavigationPrerequisites() {
+        let appDelegate = AppDelegate()
+        XCTAssertFalse(appDelegate.canNavigateToPosition(viewerController: nil))
+        XCTAssertFalse(appDelegate.canNavigateToGene(viewerController: nil))
+
+        let viewerController = ViewerViewController()
+        XCTAssertFalse(appDelegate.canNavigateToPosition(viewerController: viewerController))
+        XCTAssertFalse(appDelegate.canNavigateToGene(viewerController: viewerController))
+
+        viewerController.referenceFrame = ReferenceFrame(
+            chromosome: "chr1",
+            start: 0,
+            end: 10,
+            pixelWidth: 800,
+            sequenceLength: 100
+        )
+        XCTAssertTrue(appDelegate.canNavigateToPosition(viewerController: viewerController))
+        XCTAssertFalse(appDelegate.canNavigateToGene(viewerController: viewerController))
+
+        viewerController.annotationSearchIndex = AnnotationSearchIndex()
+        XCTAssertTrue(appDelegate.canNavigateToGene(viewerController: viewerController))
+    }
+
     func testORFAnnotationCommandArgumentsUseCLIBackedSequenceWorkflow() {
         let bundleURL = URL(fileURLWithPath: "/Project/Reference Sequences/example.lungfishref", isDirectory: true)
         let request = SequenceAnnotationOperationRequest(
