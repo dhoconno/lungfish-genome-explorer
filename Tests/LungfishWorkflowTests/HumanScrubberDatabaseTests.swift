@@ -24,6 +24,13 @@ final class HumanScrubberDatabaseTests: XCTestCase {
         try await super.tearDown()
     }
 
+    func testManagedDatabaseInstallerClassifiesURLSessionCancellation() {
+        XCTAssertTrue(DatabaseRegistry.isCancellation(CancellationError()))
+        XCTAssertTrue(DatabaseRegistry.isCancellation(URLError(.cancelled)))
+        XCTAssertFalse(DatabaseRegistry.isCancellation(URLError(.timedOut)))
+        XCTAssertFalse(DatabaseRegistry.isCancellation(NSError(domain: "LungfishTests", code: NSURLErrorCancelled)))
+    }
+
     func testHumanScrubberInstallerUsesPinnedManifestFilenameAndMd5URL() async throws {
         let registry = DatabaseRegistry(
             bundledDatabasesRoot: try bundledDatabasesRoot(),

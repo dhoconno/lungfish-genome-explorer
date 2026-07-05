@@ -1004,9 +1004,7 @@ public actor MetagenomicsDatabaseRegistry {
         from url: URL,
         progress: @Sendable @escaping (Double, Int64, Int64) -> Void
     ) async throws -> URL {
-        // Use nonisolated(unsafe) for the task reference that crosses
-        // the isolation boundary into the cancellation handler.
-        nonisolated(unsafe) var downloadTask: URLSessionDownloadTask?
+        let taskBox = DownloadTaskCancellationBox()
 
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
@@ -1028,11 +1026,11 @@ public actor MetagenomicsDatabaseRegistry {
                     delegateQueue: nil
                 )
                 let task = session.downloadTask(with: url)
-                downloadTask = task
+                taskBox.store(task)
                 task.resume()
             }
         } onCancel: {
-            downloadTask?.cancel()
+            taskBox.cancel()
         }
     }
 

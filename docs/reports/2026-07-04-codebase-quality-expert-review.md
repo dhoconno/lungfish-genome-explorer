@@ -109,6 +109,9 @@ and behavior-preserving simplifications are useful and appropriate.
   fallback rejects provenance-bearing configurations, and CLI wrappers using fallback bundle
   creation now fail closed on final provenance write failures while excluding stale provenance
   sidecars from output records.
+- 2026-07-04 follow-up: Managed database downloads now bridge Swift cancellation through a
+  shared lock-backed URLSession task box, removing unsafe cross-isolation task references from
+  the general and metagenomics database registries.
 
 ## Still Deferred
 

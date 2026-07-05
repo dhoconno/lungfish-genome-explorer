@@ -484,7 +484,7 @@ public actor DatabaseRegistry {
             )
             progress?(1.0, "Installed \(manifest.displayName)")
             return destinationURL
-        } catch is CancellationError {
+        } catch let error where Self.isCancellation(error) {
             try? fileManager.removeItem(at: tempDownloadURL)
             try? fileManager.removeItem(at: tempMD5URL)
             throw HumanScrubberDatabaseError.installationCancelled(
@@ -744,7 +744,7 @@ public actor DatabaseRegistry {
             )
             progress?(1.0, "Installed \(manifest.displayName)")
             return destinationURL
-        } catch is CancellationError {
+        } catch let error where Self.isCancellation(error) {
             try? fileManager.removeItem(at: tempOutputURL)
             try? fileManager.removeItem(at: tempReferenceURL)
             throw HumanScrubberDatabaseError.installationCancelled(
@@ -1014,7 +1014,7 @@ public actor DatabaseRegistry {
         from url: URL,
         progress: @Sendable @escaping (Double, Int64, Int64) -> Void
     ) async throws -> URL {
-        nonisolated(unsafe) var downloadTask: URLSessionDownloadTask?
+        let taskBox = DownloadTaskCancellationBox()
 
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
@@ -1031,12 +1031,20 @@ public actor DatabaseRegistry {
                     delegateQueue: nil
                 )
                 let task = session.downloadTask(with: url)
-                downloadTask = task
+                taskBox.store(task)
                 task.resume()
             }
         } onCancel: {
-            downloadTask?.cancel()
+            taskBox.cancel()
         }
+    }
+
+    static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError {
+            return true
+        }
+        let nsError = error as NSError
+        return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
     }
 
     private func overrideFilenameKey(for id: String) -> String {
