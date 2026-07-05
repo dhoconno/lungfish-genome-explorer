@@ -100,6 +100,17 @@ public struct AnalysisManifest: Codable, Sendable {
     }
 }
 
+public enum AnalysisManifestStoreError: Error, LocalizedError, Sendable {
+    case corruptManifest(path: String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .corruptManifest(let path):
+            return "Could not decode existing analysis manifest at '\(path)'"
+        }
+    }
+}
+
 // MARK: - AnalysisManifestStore
 
 /// Reads, writes, and prunes the `analyses-manifest.json` stored inside a bundle directory.
@@ -140,9 +151,14 @@ public enum AnalysisManifestStore {
         let manifestURL = bundleURL.appendingPathComponent(AnalysisManifest.filename)
 
         var manifest: AnalysisManifest
-        if let data = try? Data(contentsOf: manifestURL),
-           let existing = try? decoder.decode(AnalysisManifest.self, from: data) {
-            manifest = existing
+        if FileManager.default.fileExists(atPath: manifestURL.path) {
+            let data = try Data(contentsOf: manifestURL)
+            do {
+                manifest = try decoder.decode(AnalysisManifest.self, from: data)
+            } catch {
+                logger.error("Could not decode existing manifest at \(manifestURL.path); refusing to overwrite")
+                throw AnalysisManifestStoreError.corruptManifest(path: manifestURL.path)
+            }
         } else {
             manifest = AnalysisManifest()
         }

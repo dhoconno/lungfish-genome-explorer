@@ -459,6 +459,24 @@ final class ProjectCommandTests: XCTestCase {
         })
     }
 
+    func testMigrateStagesManifestAndWritesProvenanceBeforePublishing() throws {
+        let source = try String(contentsOf: projectCommandSourceURL(), encoding: .utf8)
+        let start = try XCTUnwrap(source.range(of: "private func migrateLegacyBrowserSummary"))
+        let end = try XCTUnwrap(
+            source.range(of: "\n    private func migrationInputRecords", range: start.upperBound..<source.endIndex)
+        )
+        let method = String(source[start.lowerBound..<end.lowerBound])
+
+        XCTAssertFalse(method.contains("migratedManifest.save(to: bundleURL)"))
+        let provenanceWrite = try XCTUnwrap(method.range(of: "try writeMigrationProvenance"))
+        let manifestPublish = try XCTUnwrap(method.range(of: "replaceItemAt"))
+        XCTAssertTrue(
+            provenanceWrite.lowerBound < manifestPublish.lowerBound,
+            "Migration provenance must be durable before the final manifest is published."
+        )
+        XCTAssertTrue(method.contains("try? fileManager.removeItem(at: provenanceURL)"))
+    }
+
     private func makeProject() throws -> URL {
         let projectURL = tempDir.appendingPathComponent("Shared.lungfish", isDirectory: true)
         try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
@@ -571,6 +589,14 @@ final class ProjectCommandTests: XCTestCase {
     private func jsonObject(at url: URL) throws -> [String: Any] {
         let data = try Data(contentsOf: url)
         return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    private func projectCommandSourceURL() -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishCLI/Commands/ProjectCommand.swift")
     }
 
     private func currentUserName() -> String {

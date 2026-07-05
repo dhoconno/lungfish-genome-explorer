@@ -110,6 +110,30 @@ final class AnalysesMigrationTests: XCTestCase {
         XCTAssertEqual(manifest.analyses.count, 2)
     }
 
+    func testMigrateRollsBackWhenManifestRecordFails() throws {
+        let bundleDir = tempDir.appendingPathComponent("sample.lungfishfastq")
+        let corruptManifestURL = bundleDir.appendingPathComponent(AnalysisManifest.filename)
+        try FileManager.default.createDirectory(at: bundleDir, withIntermediateDirectories: true)
+        let corruptData = Data("{ broken json".utf8)
+        try corruptData.write(to: corruptManifestURL, options: .atomic)
+
+        let derivDir = bundleDir.appendingPathComponent("derivatives")
+            .appendingPathComponent("esviritu-abc123")
+        try FileManager.default.createDirectory(at: derivDir, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(
+            at: TestAnalysisFixtures.esvirituResult.appendingPathComponent("esviritu-result.json"),
+            to: derivDir.appendingPathComponent("esviritu-result.json")
+        )
+
+        XCTAssertThrowsError(try AnalysesMigration.migrateProject(at: tempDir))
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: derivDir.path),
+            "Analysis directory should remain in derivatives when manifest recording fails."
+        )
+        XCTAssertTrue(try AnalysesFolder.listAnalyses(in: tempDir).isEmpty)
+        XCTAssertEqual(try Data(contentsOf: corruptManifestURL), corruptData)
+    }
+
     func testMigrateTimestampExtractedFromSidecar() throws {
         let bundleDir = tempDir.appendingPathComponent("sample.lungfishfastq")
         let derivDir = bundleDir.appendingPathComponent("derivatives")

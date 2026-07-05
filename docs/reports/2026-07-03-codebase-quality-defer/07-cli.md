@@ -41,6 +41,13 @@ Large value is in DEFERRED file splits. TRAP note for CLI: a caller-less command
 user-facing CLI surface — NOT dead. `run()`/`validate()`/parse helpers are ArgumentParser
 protocol entry points — NOT dead.
 
+## 2026-07-05 hardening corrections
+
+- `lungfish project migrate` now stages migrated manifest bytes, writes durable
+  migration provenance with the final manifest checksum first, and only then
+  atomically publishes `manifest.json`. If final publication fails, the new
+  migration provenance sidecar and staged artifacts are removed.
+
 ## Coverage ledger (every one of 90 files accounted for)
 
 Columns: files total / audited / applied / clean / deferred. This ledger is the original Phase 7

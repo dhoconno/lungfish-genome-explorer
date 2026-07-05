@@ -53,54 +53,62 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
         originalRequest: FASTQOperationLaunchRequest,
         sourceInputURL: URL?
     ) async throws -> URL {
-        let pairingMode = pairingMode(for: sourceInputURL)
-        let stats = try await computeStatistics(from: sourceURL)
+        let destinationExistedBeforeImport = FileManager.default.fileExists(atPath: bundleURL.path)
+        do {
+            let pairingMode = pairingMode(for: sourceInputURL)
+            let stats = try await computeStatistics(from: sourceURL)
 
-        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
-        let result = try await ingestor.ingest(
-            config: FASTQIngestionConfig(
-                inputFiles: [sourceURL],
-                pairingMode: ingestionPipelinePairingMode(for: pairingMode),
-                outputDirectory: bundleURL,
-                threads: max(1, ProcessInfo.processInfo.activeProcessorCount),
-                deleteOriginals: true,
-                qualityBinning: .illumina4,
-                skipClumpify: false
-            ),
-            progress: { _, _ in }
-        )
+            try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+            let result = try await ingestor.ingest(
+                config: FASTQIngestionConfig(
+                    inputFiles: [sourceURL],
+                    pairingMode: ingestionPipelinePairingMode(for: pairingMode),
+                    outputDirectory: bundleURL,
+                    threads: max(1, ProcessInfo.processInfo.activeProcessorCount),
+                    deleteOriginals: true,
+                    qualityBinning: .illumina4,
+                    skipClumpify: false
+                ),
+                progress: { _, _ in }
+            )
 
-        var metadata = FASTQMetadataStore.load(for: result.outputFile) ?? PersistedFASTQMetadata()
-        metadata.ingestion = IngestionMetadata(
-            isClumpified: result.wasClumpified,
-            isCompressed: result.outputFile.pathExtension.lowercased() == "gz",
-            pairingMode: ingestionMetadataPairingMode(for: result.pairingMode),
-            qualityBinning: result.qualityBinning.rawValue,
-            originalFilenames: result.originalFilenames,
-            ingestionDate: Date(),
-            originalSizeBytes: result.originalSizeBytes
-        )
-        FASTQMetadataStore.save(metadata, for: result.outputFile)
+            var metadata = FASTQMetadataStore.load(for: result.outputFile) ?? PersistedFASTQMetadata()
+            metadata.ingestion = IngestionMetadata(
+                isClumpified: result.wasClumpified,
+                isCompressed: result.outputFile.pathExtension.lowercased() == "gz",
+                pairingMode: ingestionMetadataPairingMode(for: result.pairingMode),
+                qualityBinning: result.qualityBinning.rawValue,
+                originalFilenames: result.originalFilenames,
+                ingestionDate: Date(),
+                originalSizeBytes: result.originalSizeBytes
+            )
+            FASTQMetadataStore.save(metadata, for: result.outputFile)
 
-        let operation = try writeDerivedManifest(
-            for: result.outputFile,
-            in: bundleURL,
-            sourceURL: sourceURL,
-            originalRequest: originalRequest,
-            sourceInputURL: sourceInputURL,
-            stats: stats,
-            pairingMode: metadata.ingestion?.pairingMode
-        )
-        try await writeOperationProvenance(
-            for: result.outputFile,
-            in: bundleURL,
-            sourceURL: sourceURL,
-            originalRequest: originalRequest,
-            sourceInputURL: sourceInputURL,
-            operation: operation
-        )
+            let operation = try writeDerivedManifest(
+                for: result.outputFile,
+                in: bundleURL,
+                sourceURL: sourceURL,
+                originalRequest: originalRequest,
+                sourceInputURL: sourceInputURL,
+                stats: stats,
+                pairingMode: metadata.ingestion?.pairingMode
+            )
+            try await writeOperationProvenance(
+                for: result.outputFile,
+                in: bundleURL,
+                sourceURL: sourceURL,
+                originalRequest: originalRequest,
+                sourceInputURL: sourceInputURL,
+                operation: operation
+            )
 
-        return bundleURL
+            return bundleURL
+        } catch {
+            if !destinationExistedBeforeImport {
+                try? FileManager.default.removeItem(at: bundleURL)
+            }
+            throw error
+        }
     }
 
     private func computeStatistics(from sourceURL: URL) async throws -> FASTQDatasetStatistics {

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import ArgumentParser
+import CryptoKit
 import Darwin
 import Foundation
 import LungfishCore
@@ -476,23 +477,37 @@ private struct ProjectBundleMigrator {
         try fileManager.copyItem(at: manifestURL, to: backupURL)
 
         let migratedManifest = manifest.withSynthesizedBrowserSummaryIfNeeded()
-        try migratedManifest.save(to: bundleURL)
-
-        let outputRecords = [
-            ProvenanceRecorder.fileRecord(url: manifestURL, format: .json, role: .output),
-            ProvenanceRecorder.fileRecord(url: backupURL, format: .json, role: .output),
-        ]
+        let stagedManifestURL = migrationDirectory.appendingPathComponent("\(timestamp).manifest.json.staged")
         let provenanceURL = migrationDirectory.appendingPathComponent("\(timestamp).project-migrate-provenance.json")
-        try writeMigrationProvenance(
-            projectURL: projectURL,
-            bundleURL: bundleURL,
-            manifestURL: manifestURL,
-            backupURL: backupURL,
-            provenanceURL: provenanceURL,
-            startedAt: startedAt,
-            inputs: inputRecords,
-            outputs: outputRecords
-        )
+        do {
+            let migratedManifestData = try encodedManifestData(migratedManifest)
+            try migratedManifestData.write(to: stagedManifestURL, options: .atomic)
+            let outputRecords = [
+                dataFileRecord(url: manifestURL, data: migratedManifestData, format: .json, role: .output),
+                ProvenanceRecorder.fileRecord(url: backupURL, format: .json, role: .output),
+            ]
+            try writeMigrationProvenance(
+                projectURL: projectURL,
+                bundleURL: bundleURL,
+                manifestURL: manifestURL,
+                backupURL: backupURL,
+                provenanceURL: provenanceURL,
+                startedAt: startedAt,
+                inputs: inputRecords,
+                outputs: outputRecords
+            )
+            _ = try fileManager.replaceItemAt(
+                manifestURL,
+                withItemAt: stagedManifestURL,
+                backupItemName: nil,
+                options: []
+            )
+        } catch {
+            try? fileManager.removeItem(at: provenanceURL)
+            try? fileManager.removeItem(at: stagedManifestURL)
+            try? fileManager.removeItem(at: backupURL)
+            throw error
+        }
 
         let relativePath = ProjectBundleMigrator.relativePath(from: projectURL, to: bundleURL)
         return ProjectMigrationBundleReport(
@@ -517,6 +532,29 @@ private struct ProjectBundleMigrator {
             records.append(ProvenanceRecorder.fileRecord(url: creationProvenanceURL, format: .json, role: .input))
         }
         return records
+    }
+
+    private func encodedManifestData(_ manifest: BundleManifest) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return try encoder.encode(manifest)
+    }
+
+    private func dataFileRecord(
+        url: URL,
+        data: Data,
+        format: FileFormat,
+        role: FileRole
+    ) -> FileRecord {
+        let checksum = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        return FileRecord(
+            path: url.path,
+            sha256: checksum,
+            sizeBytes: UInt64(data.count),
+            format: format,
+            role: role
+        )
     }
 
     private func writeMigrationProvenance(

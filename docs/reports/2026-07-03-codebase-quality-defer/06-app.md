@@ -35,6 +35,12 @@ Views/FASTQ, Views/Metagenomics, App/, Services/, etc.).
 If tokens/time run short: complete whole batches, defer the untouched remainder EXPLICITLY
 here (never leave a half-applied batch).
 
+## 2026-07-05 hardening corrections
+
+- GUI FASTQ direct-output imports now remove a newly-created final
+  `.lungfishfastq` bundle if CLI provenance rehydration fails, so a failed
+  import cannot leave an unprovenanced scientific bundle in the project.
+
 ## Coverage ledger (the anti-selectivity proof — every one of 409 files accounted for)
 
 Columns: files total / audited / applied-count / clean-count / deferred-count. This ledger is

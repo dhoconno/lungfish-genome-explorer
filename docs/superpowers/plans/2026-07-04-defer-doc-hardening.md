@@ -133,6 +133,12 @@ changes that reduce future ambiguity across the codebase.
   suffixes, preventing failed-run cleanup from deleting another run that started in the same second.
 - Added failed Lungfish result-sidecar provenance steps for Classification and EsViritu when their
   required JSON sidecars cannot be written.
+- Made `lungfish project migrate` stage rewritten manifest bytes, write migration provenance for
+  the final manifest checksum, and only then atomically publish `manifest.json`.
+- Made GUI FASTQ direct-output imports remove newly-created final `.lungfishfastq` bundles when
+  CLI provenance rehydration fails.
+- Made analysis manifest appends fail closed on corrupt existing manifests, and made legacy
+  analysis migration roll back moved directories if bundle manifest recording fails.
 
 ## Verification
 

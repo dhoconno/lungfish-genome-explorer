@@ -2041,6 +2041,11 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         } catch {
             XCTFail("Unexpected error: \(error)")
         }
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: destinationBundle.path),
+            "A final FASTQ bundle must not remain when provenance rehydration fails."
+        )
     }
 
     func testBundleImporterWrapsRawFASTAOutputsIntoReferenceBundles() async throws {

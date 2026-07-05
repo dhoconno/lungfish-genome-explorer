@@ -80,6 +80,22 @@ final class AnalysisManifestTests: XCTestCase {
         XCTAssertEqual(manifest.analyses.count, 2)
     }
 
+    func testRecordAnalysisRejectsCorruptExistingManifestWithoutOverwriting() throws {
+        let manifestURL = bundleDir.appendingPathComponent(AnalysisManifest.filename)
+        let corruptData = Data("{ broken json".utf8)
+        try corruptData.write(to: manifestURL, options: .atomic)
+
+        let entry = AnalysisManifestEntry(
+            tool: "esviritu",
+            analysisDirectoryName: "esviritu-2026-01-15T10-00-00",
+            displayName: "EsViritu",
+            summary: "should not overwrite corrupt history"
+        )
+
+        XCTAssertThrowsError(try AnalysisManifestStore.recordAnalysis(entry, bundleURL: bundleDir))
+        XCTAssertEqual(try Data(contentsOf: manifestURL), corruptData)
+    }
+
     func testPruneRemovesStaleEntries() throws {
         let analysesDir = try AnalysesFolder.url(for: projectDir)
         let existingDir = analysesDir.appendingPathComponent("esviritu-2026-01-15T10-00-00")

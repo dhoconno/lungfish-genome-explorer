@@ -108,8 +108,8 @@ public enum AnalysesMigration {
                 }
 
                 // 7. Record in analyses-manifest.json of the source bundle.
-                // Non-fatal: the sidebar will still discover the result in Analyses/
-                // via directory scanning even without a manifest entry.
+                // If this fails, roll the move back so discovery state and bundle-owned
+                // history cannot diverge.
                 do {
                     let entry = AnalysisManifestEntry(
                         tool: tool,
@@ -120,7 +120,15 @@ public enum AnalysesMigration {
                     )
                     try AnalysisManifestStore.recordAnalysis(entry, bundleURL: bundleURL)
                 } catch {
-                    logger.warning("Migration: moved \(name) but failed to record manifest: \(error.localizedDescription, privacy: .public)")
+                    do {
+                        if !fm.fileExists(atPath: candidateURL.path) {
+                            try fm.moveItem(at: destURL, to: candidateURL)
+                        }
+                    } catch {
+                        logger.error("Migration: failed to roll back \(destName) after manifest-record failure: \(error.localizedDescription, privacy: .public)")
+                    }
+                    logger.error("Migration: refused \(name) because manifest recording failed: \(error.localizedDescription, privacy: .public)")
+                    throw error
                 }
 
                 totalMigrated += 1
