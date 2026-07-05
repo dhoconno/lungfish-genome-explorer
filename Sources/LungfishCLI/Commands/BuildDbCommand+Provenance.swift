@@ -18,10 +18,14 @@ enum BuildDbProvenanceTool: String {
 extension BuildDbCommand {
     static func buildDbInputRecords(
         tool: BuildDbProvenanceTool,
-        resultURL: URL
+        resultURL: URL,
+        sampleDirectories: [URL] = []
     ) -> [FileRecord] {
-        let urls = buildDbFileURLs(in: resultURL) { url in
-            isBuildDbSourceFile(url, for: tool)
+        let roots = buildDbSearchRoots(tool: tool, resultURL: resultURL, sampleDirectories: sampleDirectories)
+        let urls = roots.flatMap { root in
+            buildDbFileURLs(in: root) { url in
+                isBuildDbSourceFile(url, for: tool)
+            }
         }
         let records = urls.map { ProvenanceRecorder.fileRecord(url: $0, role: role(for: $0, tool: tool)) }
         if records.isEmpty {
@@ -40,16 +44,23 @@ extension BuildDbCommand {
         startedAt: Date,
         inputRecords: [FileRecord],
         exitStatus: Int = 0,
-        stderr: String? = nil
+        stderr: String? = nil,
+        sampleDirectories: [URL] = []
     ) async throws {
         let completedAt = Date()
-        let outputRecords = buildDbOutputRecords(tool: tool, resultURL: resultURL, dbURL: dbURL)
+        let outputRecords = buildDbOutputRecords(
+            tool: tool,
+            resultURL: resultURL,
+            dbURL: dbURL,
+            sampleDirectories: sampleDirectories
+        )
         let command = buildDbReplayArgv(
             tool: tool,
             resultURL: resultURL,
             force: force,
             noCleanup: noCleanup,
-            globalOptions: globalOptions
+            globalOptions: globalOptions,
+            sampleDirectories: sampleDirectories
         )
         let toolName = tool.workflowName
         let toolVersion = WorkflowRun.currentAppVersion
@@ -81,7 +92,8 @@ extension BuildDbCommand {
                 resultURL: resultURL,
                 force: force,
                 noCleanup: noCleanup,
-                globalOptions: globalOptions
+                globalOptions: globalOptions,
+                sampleDirectories: sampleDirectories
             ),
             defaults: buildDbDefaultOptions(),
             resolved: buildDbResolvedOptions(
@@ -90,7 +102,8 @@ extension BuildDbCommand {
                 dbURL: dbURL,
                 force: force,
                 noCleanup: noCleanup,
-                globalOptions: globalOptions
+                globalOptions: globalOptions,
+                sampleDirectories: sampleDirectories
             )
         )
         .runtime(ProvenanceRuntimeIdentity())
@@ -126,9 +139,15 @@ extension BuildDbCommand {
         globalOptions: GlobalOptions,
         startedAt: Date,
         inputRecords: [FileRecord],
-        error: Error
+        error: Error,
+        sampleDirectories: [URL] = []
     ) async {
-        guard !buildDbOutputRecords(tool: tool, resultURL: resultURL, dbURL: dbURL).isEmpty else {
+        guard !buildDbOutputRecords(
+            tool: tool,
+            resultURL: resultURL,
+            dbURL: dbURL,
+            sampleDirectories: sampleDirectories
+        ).isEmpty else {
             return
         }
 
@@ -143,7 +162,8 @@ extension BuildDbCommand {
                 startedAt: startedAt,
                 inputRecords: inputRecords,
                 exitStatus: 1,
-                stderr: error.localizedDescription
+                stderr: error.localizedDescription,
+                sampleDirectories: sampleDirectories
             )
         } catch {
             if !globalOptions.quiet {
@@ -155,7 +175,8 @@ extension BuildDbCommand {
     private static func buildDbOutputRecords(
         tool: BuildDbProvenanceTool,
         resultURL: URL,
-        dbURL: URL
+        dbURL: URL,
+        sampleDirectories: [URL] = []
     ) -> [FileRecord] {
         var urls = [dbURL]
         switch tool {
@@ -168,18 +189,35 @@ extension BuildDbCommand {
                     && (name.hasSuffix(".bam") || name.hasSuffix(".bam.bai") || name.hasSuffix(".bam.csi"))
             })
         case .kraken2:
-            urls.append(contentsOf: buildDbFileURLs(in: resultURL) { url in
-                let name = url.lastPathComponent
-                return name == "classification.kraken"
-                    || name == "classification.kraken.idx.sqlite"
-                    || name == "classification.kraken.gz"
-                    || name == "classification.kraken.gz.idx.sqlite"
-                    || name == "classification-result.json"
+            urls.append(contentsOf: buildDbSearchRoots(
+                tool: tool,
+                resultURL: resultURL,
+                sampleDirectories: sampleDirectories
+            ).flatMap { root in
+                buildDbFileURLs(in: root) { url in
+                    let name = url.lastPathComponent
+                    return name == "classification.kraken"
+                        || name == "classification.kraken.idx.sqlite"
+                        || name == "classification.kraken.gz"
+                        || name == "classification.kraken.gz.idx.sqlite"
+                        || name == "classification-result.json"
+                }
             })
         }
         return uniqueExistingFileURLs(urls).map { url in
             ProvenanceRecorder.fileRecord(url: url, role: role(for: url, tool: tool, output: true))
         }
+    }
+
+    private static func buildDbSearchRoots(
+        tool: BuildDbProvenanceTool,
+        resultURL: URL,
+        sampleDirectories: [URL]
+    ) -> [URL] {
+        guard tool == .kraken2, !sampleDirectories.isEmpty else {
+            return [resultURL]
+        }
+        return sampleDirectories.map(\.standardizedFileURL)
     }
 
     private static func buildDbFileURLs(
@@ -284,11 +322,17 @@ extension BuildDbCommand {
         resultURL: URL,
         force: Bool,
         noCleanup: Bool,
-        globalOptions: GlobalOptions
+        globalOptions: GlobalOptions,
+        sampleDirectories: [URL] = []
     ) -> [String] {
         var argv = ["lungfish", "build-db", tool.rawValue, resultURL.path]
         if force { argv.append("--force") }
         if noCleanup { argv.append("--no-cleanup") }
+        if tool == .kraken2 {
+            for sampleDirectory in sampleDirectories {
+                argv += ["--sample-dir", sampleDirectory.path]
+            }
+        }
         if globalOptions.outputFormat != .text {
             argv += ["--format", globalOptions.outputFormat.rawValue]
         }
@@ -313,13 +357,17 @@ extension BuildDbCommand {
         resultURL: URL,
         force: Bool,
         noCleanup: Bool,
-        globalOptions: GlobalOptions
+        globalOptions: GlobalOptions,
+        sampleDirectories: [URL] = []
     ) -> [String: ParameterValue] {
         var options: [String: ParameterValue] = [
             "resultDir": .file(resultURL)
         ]
         if force { options["force"] = .boolean(true) }
         if noCleanup { options["noCleanup"] = .boolean(true) }
+        if !sampleDirectories.isEmpty {
+            options["sampleDirs"] = .array(sampleDirectories.map { .file($0.standardizedFileURL) })
+        }
         if globalOptions.outputFormat != .text { options["outputFormat"] = .string(globalOptions.outputFormat.rawValue) }
         if globalOptions.quiet { options["quiet"] = .boolean(true) }
         if globalOptions.verbosity > 0 { options["verbosity"] = .integer(globalOptions.verbosity) }
@@ -345,6 +393,7 @@ extension BuildDbCommand {
             "logFile": .null,
             "noColor": .boolean(false),
             "threads": .null,
+            "sampleDirs": .array([]),
         ]
     }
 
@@ -354,7 +403,8 @@ extension BuildDbCommand {
         dbURL: URL,
         force: Bool,
         noCleanup: Bool,
-        globalOptions: GlobalOptions
+        globalOptions: GlobalOptions,
+        sampleDirectories: [URL] = []
     ) -> [String: ParameterValue] {
         var resolved: [String: ParameterValue] = [
             "tool": .string(tool.rawValue),
@@ -370,6 +420,9 @@ extension BuildDbCommand {
             "threads": globalOptions.threads.map(ParameterValue.integer) ?? .null,
             "effectiveThreads": .integer(globalOptions.effectiveThreads),
         ]
+        if tool == .kraken2 {
+            resolved["sampleDirs"] = .array(sampleDirectories.map { .file($0.standardizedFileURL) })
+        }
 
         if tool != .kraken2 {
             if let samtoolsPath = BuildDbCommand.locateSamtools() {
@@ -388,7 +441,8 @@ extension BuildDbCommand {
                 resultURL: resultURL,
                 force: force,
                 noCleanup: noCleanup,
-                globalOptions: globalOptions
+                globalOptions: globalOptions,
+                sampleDirectories: sampleDirectories
             ),
             defaults: buildDbDefaultOptions(),
             resolved: resolved

@@ -131,6 +131,19 @@ non-op-pipeline layers, NOT OperationCenter violations).
   written. `HumanScrubberDatabaseTests` cover deterministic URLSession/Deacon stubs and
   provenance-write failure cleanup; a source policy test prevents success-capable installer
   paths from discarding install-provenance failures.
+- RESOLVED 2026-07-05: `EsVirituPipeline` now treats `esviritu-result.json` as a required
+  result artifact. Sidecar write failure marks the run failed when possible and throws a typed
+  pipeline error; successful runs record both the final EsViritu output files and a Lungfish
+  wrapper provenance step for the JSON result sidecar.
+- RESOLVED 2026-07-05: `ClassificationPipeline` now treats `classification-result.json` as a
+  required workflow artifact instead of leaving persistence to AppDelegate. Successful runs
+  record a Lungfish wrapper provenance step for the sidecar, and the sidecar is removed if final
+  root provenance cannot be saved. Failed sidecar writes now also record failed Lungfish wrapper
+  steps before failed-run provenance is saved.
+- RESOLVED 2026-07-05: `build-db kraken2` can now receive repeated `--sample-dir` arguments for
+  known-successful sample result directories. Explicit sample mode ignores unrelated sibling
+  kreports, limits cleanup and provenance input/output discovery to the selected samples, and
+  records the selected directories in replay argv and provenance options.
 - `TaxTriagePipeline.swift` (1598L): 4-way actor-extension split, NO promotions (actor
   extensions keep `private` in-module... but across files `private` doesn't span — so any
   cross-file helper needs `internal`; verify per-seam). Test-pinned internals stay internal.

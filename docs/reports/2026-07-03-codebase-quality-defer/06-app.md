@@ -142,6 +142,17 @@ APPLIED (2026-07-04 hardening continuation):
   `tableViewSelectionDidChange(_:)` optional delegate stub and its only supporting state,
   `isSuppressingDelegateCallbacks`, after grep verified the flag had no writers and the method did
   not dispatch selection behavior for either drawer table.
+- `App/AppDelegate+Classification.swift`: classification sidecar persistence moved into
+  `ClassificationPipeline`, incomplete project-owned analysis directories now log cleanup failures,
+  and Kraken2 batch DB builds pass only successful sample directories to the CLI so failed or stale
+  sibling result folders cannot be aggregated into `kraken2.sqlite`.
+- `Views/MainWindow/MainSplitViewController+ClassifierDisplay.swift`: lazy Kraken2 database
+  rebuilds now derive `--sample-dir` inputs from `classification-batch-result.json` instead of
+  scanning every sibling directory; empty success manifests fail visibly instead of rebuilding an
+  ambiguous database.
+- `LungfishIO/AnalysesFolder`: project analysis directories are now created with exclusive
+  timestamp allocation and deterministic suffixes, so cleanup for a failed run cannot remove a
+  concurrently-created analysis directory with the same second-level timestamp.
 
 ## Applied batches (commit log)
 
@@ -244,6 +255,10 @@ removed. The 2026-07-04 hardening additions are listed alongside those batches:
   collapses (AppDelegate+Classification batchRoot).
 - 2026-07-04 hardening pass: removed remaining FASTQ operation sidebar accordion state, made
   Custom Fields visibility explicit, and fixed the ONT import progress callback hop.
+- 2026-07-05 hardening pass: `AppDelegate+Classification` no longer owns classification
+  result-sidecar persistence; `ClassificationPipeline` writes the required sidecar before
+  successful completion. The App layer now removes project-owned analysis directories when
+  classification fails before durable result metadata exists, avoiding stale sidebar shells.
 - batch 2 (`93b6b0c3`): dead `@State` pair (WorkflowOperationsDialog); duplicate doc comment
   (MainSplitViewController+FASTQImport); dead `calculateZoomPercent` (EnhancedCoordinateRulerView);
   dead `performReverseComplement` island (SequenceViewerView+Interaction).

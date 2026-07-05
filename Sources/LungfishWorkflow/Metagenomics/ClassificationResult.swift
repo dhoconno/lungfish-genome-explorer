@@ -129,6 +129,9 @@ public struct ClassificationResult: Sendable {
 private let classificationResultFilename = "classification-result.json"
 
 extension ClassificationResult {
+    static var sidecarFilename: String {
+        classificationResultFilename
+    }
 
     /// Saves the classification result metadata to a JSON file in the given directory.
     ///

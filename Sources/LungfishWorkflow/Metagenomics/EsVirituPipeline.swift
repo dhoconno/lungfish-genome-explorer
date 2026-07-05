@@ -23,6 +23,9 @@ public enum EsVirituPipelineError: Error, LocalizedError, Sendable {
     /// The detection output file was not produced.
     case detectionOutputNotProduced(URL)
 
+    /// The result sidecar could not be persisted.
+    case resultSidecarSaveFailed(URL, String)
+
     /// Could not determine the EsViritu version.
     case versionDetectionFailed
 
@@ -37,6 +40,8 @@ public enum EsVirituPipelineError: Error, LocalizedError, Sendable {
             return "EsViritu is not installed. Run: lungfish conda install --pack metagenomics"
         case .detectionOutputNotProduced(let url):
             return "EsViritu did not produce a detection output at \(url.path)"
+        case .resultSidecarSaveFailed(let url, let reason):
+            return "Failed to save EsViritu result sidecar at \(url.path): \(reason)"
         case .versionDetectionFailed:
             return "Could not determine EsViritu version"
         case .cancelled:
@@ -534,27 +539,6 @@ public actor EsVirituPipeline {
             throw EsVirituPipelineError.detectionOutputNotProduced(config.detectionOutputURL)
         }
 
-        // Record provenance after any temp output copy so file descriptors point
-        // at the final stored payload and can include checksum/size metadata.
-        let inputRecords = config.inputFiles.map { url in
-            ProvenanceRecorder.fileRecord(url: url, format: .fastq, role: .input)
-        }
-        let outputRecords = [
-            ProvenanceRecorder.fileRecord(url: config.detectionOutputURL, format: .text, role: .output),
-        ]
-        await provenanceRecorder.recordStep(
-            runID: runID,
-            toolName: "EsViritu",
-            toolVersion: toolVersion,
-            githubReleaseVersion: Self.esVirituGithubReleaseVersion,
-            command: esVirituCommand,
-            inputs: inputRecords,
-            outputs: outputRecords,
-            exitCode: esVirituResult.exitCode,
-            wallTime: esVirituWallTime,
-            stderr: esVirituResult.stderr
-        )
-
         // Count detected viruses from the TSV (skip header line).
         let virusCount = countDetectedViruses(at: config.detectionOutputURL)
         logger.info("Detected \(virusCount) viruses")
@@ -566,13 +550,6 @@ public actor EsVirituPipeline {
             ? config.taxProfileURL : nil
         let coverageURL: URL? = fm.fileExists(atPath: config.coverageURL.path)
             ? config.coverageURL : nil
-
-        progress?(0.95, "Saving provenance...")
-
-        // Phase 5: Complete provenance (0.95 -- 1.0)
-        await provenanceRecorder.completeRun(runID, status: .completed)
-
-        try await provenanceRecorder.save(runID: runID, to: config.outputDirectory)
 
         let totalRuntime = Date().timeIntervalSince(startTime)
 
@@ -588,11 +565,94 @@ public actor EsVirituPipeline {
             provenanceId: runID
         )
 
-        // Save the result sidecar.
+        // Record tool provenance after any temp output copy so file descriptors
+        // point at final stored payloads. This happens before wrapper sidecar
+        // persistence so failed sidecar writes still leave external tool provenance.
+        let inputRecords = config.inputFiles.map { url in
+            ProvenanceRecorder.fileRecord(url: url, format: .fastq, role: .input)
+        }
+        let outputRecords = [
+            ProvenanceRecorder.fileRecord(url: config.detectionOutputURL, format: .text, role: .output),
+        ] + [assemblyURL, taxProfileURL, coverageURL].compactMap { url in
+            url.map { ProvenanceRecorder.fileRecord(url: $0, format: .text, role: .output) }
+        }
+
+        let esVirituStepID = await provenanceRecorder.recordStep(
+            runID: runID,
+            toolName: "EsViritu",
+            toolVersion: toolVersion,
+            githubReleaseVersion: Self.esVirituGithubReleaseVersion,
+            command: esVirituCommand,
+            inputs: inputRecords,
+            outputs: outputRecords,
+            exitCode: esVirituResult.exitCode,
+            wallTime: esVirituWallTime,
+            stderr: esVirituResult.stderr
+        )
+
+        progress?(0.95, "Saving result metadata...")
+
+        let sidecarURL = config.outputDirectory.appendingPathComponent(esVirituResultFilename)
+        try? fm.removeItem(at: sidecarURL)
+        let sidecarSaveStart = Date()
         do {
             try result.save(to: config.outputDirectory)
+        } catch let sidecarError {
+            await provenanceRecorder.recordStep(
+                runID: runID,
+                toolName: "Lungfish EsViritu Result Sidecar",
+                toolVersion: WorkflowRun.currentAppVersion,
+                command: ["LungfishWorkflow", "EsVirituResult.save", sidecarURL.path],
+                inputs: outputRecords,
+                outputs: [
+                    ProvenanceRecorder.fileRecord(url: sidecarURL, format: .json, role: .output),
+                ],
+                exitCode: 1,
+                wallTime: Date().timeIntervalSince(sidecarSaveStart),
+                stderr: sidecarError.localizedDescription,
+                dependsOn: esVirituStepID.map { [$0] } ?? []
+            )
+            await provenanceRecorder.completeRun(runID, status: .failed)
+            do {
+                try await provenanceRecorder.save(runID: runID, to: config.outputDirectory)
+            } catch let provenanceError {
+                throw EsVirituPipelineError.resultSidecarSaveFailed(
+                    sidecarURL,
+                    "\(sidecarError.localizedDescription); additionally failed to save failed-run provenance: \(provenanceError.localizedDescription)"
+                )
+            }
+            throw EsVirituPipelineError.resultSidecarSaveFailed(
+                sidecarURL,
+                sidecarError.localizedDescription
+            )
+        }
+        let sidecarWallTime = Date().timeIntervalSince(sidecarSaveStart)
+
+        await provenanceRecorder.recordStep(
+            runID: runID,
+            toolName: "Lungfish EsViritu Result Sidecar",
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: ["LungfishWorkflow", "EsVirituResult.save", sidecarURL.path],
+            inputs: outputRecords,
+            outputs: [
+                ProvenanceRecorder.fileRecord(url: sidecarURL, format: .json, role: .output),
+            ],
+            exitCode: 0,
+            wallTime: sidecarWallTime,
+            dependsOn: esVirituStepID.map { [$0] } ?? []
+        )
+
+        progress?(0.98, "Saving provenance...")
+
+        // Phase 5: Complete provenance (0.95 -- 1.0)
+        await provenanceRecorder.completeRun(runID, status: .completed)
+
+        do {
+            try await provenanceRecorder.save(runID: runID, to: config.outputDirectory)
         } catch {
-            logger.warning("Failed to save result sidecar: \(error.localizedDescription)")
+            try? fm.removeItem(at: sidecarURL)
+            await provenanceRecorder.completeRun(runID, status: .failed)
+            throw error
         }
 
         // Prune non-essential intermediates while preserving files needed for

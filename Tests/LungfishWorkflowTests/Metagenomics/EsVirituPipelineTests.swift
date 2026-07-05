@@ -660,6 +660,13 @@ final class EsVirituPipelineErrorTests: XCTestCase {
         XCTAssertTrue(error.localizedDescription.contains("detection"))
     }
 
+    func testResultSidecarSaveFailedDescription() {
+        let url = URL(fileURLWithPath: "/tmp/esviritu-result.json")
+        let error = EsVirituPipelineError.resultSidecarSaveFailed(url, "permission denied")
+        XCTAssertTrue(error.localizedDescription.contains("result sidecar"))
+        XCTAssertTrue(error.localizedDescription.contains("permission denied"))
+    }
+
     func testCancelledDescription() {
         let error = EsVirituPipelineError.cancelled
         XCTAssertTrue(error.localizedDescription.contains("cancelled"))

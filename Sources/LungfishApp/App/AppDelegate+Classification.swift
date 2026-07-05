@@ -237,9 +237,11 @@ extension AppDelegate {
             windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
             workflowName: "Classification"
         ) else { return }
+        var ownsOutputDirectory = false
         if let projectURL = routeContext?.projectURL {
             if let analysisDir = try? AnalysesFolder.createAnalysisDirectory(tool: "kraken2", in: projectURL) {
                 config.outputDirectory = analysisDir
+                ownsOutputDirectory = true
             }
         }
 
@@ -331,15 +333,6 @@ extension AppDelegate {
                     result = try await pipeline.profile(config: resolvedConfig, progress: progressCallback)
                 }
 
-                // Persist the classification result sidecar so the sidebar can
-                // rediscover this result when the project is reopened.
-                do {
-                    try result.save(to: config.outputDirectory)
-                } catch {
-                    // Non-fatal: the result is still displayed, just not persisted.
-                    appDelegateLogger.warning("runClassification: Failed to save result sidecar - \(error.localizedDescription, privacy: .public)")
-                }
-
                 let capturedConfig = config
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
@@ -394,6 +387,15 @@ extension AppDelegate {
                     }
                 }
             } catch {
+                if ownsOutputDirectory {
+                    do {
+                        try FileManager.default.removeItem(at: config.outputDirectory)
+                    } catch {
+                        appDelegateLogger.error(
+                            "runClassification: Failed to remove incomplete analysis directory \(config.outputDirectory.path, privacy: .public) - \(error.localizedDescription, privacy: .public)"
+                        )
+                    }
+                }
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         viewerController.hideProgress()
@@ -692,7 +694,9 @@ extension AppDelegate {
             windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
             workflowName: "Classification batch"
         ) else { return }
+        var ownsBatchRoot = false
         if let projectURL, let batchDir = try? AnalysesFolder.createAnalysisDirectory(tool: "kraken2", in: projectURL, isBatch: true) {
+            ownsBatchRoot = true
             for i in configs.indices {
                 let sampleSubdir = batchDir.appendingPathComponent(configs[i].outputDirectory.lastPathComponent, isDirectory: true)
                 try? FileManager.default.createDirectory(at: sampleSubdir, withIntermediateDirectories: true)
@@ -743,6 +747,17 @@ extension AppDelegate {
             let pipeline = ClassificationPipeline()
             var successfulResults: [(sampleId: String, config: ClassificationConfig, result: ClassificationResult)] = []
             var failedResults: [(sampleId: String, error: String)] = []
+
+            func removeOwnedBatchRoot(context: String) {
+                guard ownsBatchRoot else { return }
+                do {
+                    try FileManager.default.removeItem(at: batchRoot)
+                } catch {
+                    appDelegateLogger.error(
+                        "runClassificationBatch: Failed to remove incomplete batch directory \(batchRoot.path, privacy: .public) after \(context, privacy: .public) - \(error.localizedDescription, privacy: .public)"
+                    )
+                }
+            }
 
             for (index, config) in configs.enumerated() {
                 if Task.isCancelled {
@@ -802,17 +817,52 @@ extension AppDelegate {
                         result = try await pipeline.profile(config: resolvedConfig, progress: progressCallback)
                     }
 
-                    do {
-                        try result.save(to: config.outputDirectory)
-                    } catch {
-                        appDelegateLogger.warning("runClassificationBatch: Failed to save sidecar for \(sampleID, privacy: .public) - \(error.localizedDescription, privacy: .public)")
-                    }
-
                     successfulResults.append((sampleID, config, result))
                 } catch {
+                    if ownsBatchRoot {
+                        do {
+                            try FileManager.default.removeItem(at: config.outputDirectory)
+                        } catch {
+                            appDelegateLogger.error(
+                                "runClassificationBatch: Failed to remove incomplete sample directory \(config.outputDirectory.path, privacy: .public) - \(error.localizedDescription, privacy: .public)"
+                            )
+                        }
+                    }
                     failedResults.append((sampleID, error.localizedDescription))
                     appDelegateLogger.warning("runClassificationBatch: Sample \(sampleID, privacy: .public) failed - \(error.localizedDescription, privacy: .public)")
                 }
+            }
+
+            if Task.isCancelled {
+                removeOwnedBatchRoot(context: "cancellation")
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        viewerController.hideProgress()
+                        OperationCenter.shared.fail(id: opID, detail: "Batch cancelled")
+                    }
+                }
+                return
+            }
+
+            if successfulResults.isEmpty && ownsBatchRoot {
+                let detail = failedResults.first?.error ?? "All samples failed"
+                removeOwnedBatchRoot(context: "all samples failed")
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        viewerController.hideProgress()
+                        OperationCenter.shared.fail(id: opID, detail: detail)
+
+                        let alert = NSAlert()
+                        alert.messageText = "Classification Batch Failed"
+                        alert.informativeText = detail
+                        alert.alertStyle = .warning
+                        alert.addButton(withTitle: "OK")
+                        if let window = viewerController.view.window {
+                            alert.beginSheetModal(for: window)
+                        }
+                    }
+                }
+                return
             }
 
             let fm = FileManager.default
@@ -897,7 +947,13 @@ extension AppDelegate {
                     }
                 }
                 do {
-                    try LungfishCLIRunner.buildClassifierDatabase(tool: "kraken2", resultURL: batchRoot, force: true)
+                    let successfulSampleDirectories = successfulResults.map { $0.config.outputDirectory }
+                    try LungfishCLIRunner.buildClassifierDatabase(
+                        tool: "kraken2",
+                        resultURL: batchRoot,
+                        force: true,
+                        sampleDirectories: successfulSampleDirectories
+                    )
                 } catch {
                     dbBuildErrorDescription = error.localizedDescription
                     appDelegateLogger.warning(
@@ -906,15 +962,21 @@ extension AppDelegate {
                 }
             }
 
+            if Task.isCancelled {
+                removeOwnedBatchRoot(context: "cancellation")
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        viewerController.hideProgress()
+                        OperationCenter.shared.fail(id: opID, detail: "Batch cancelled")
+                    }
+                }
+                return
+            }
+
             let capturedDBBuildError = dbBuildErrorDescription
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     viewerController.hideProgress()
-
-                    if Task.isCancelled {
-                        OperationCenter.shared.fail(id: opID, detail: "Batch cancelled")
-                        return
-                    }
 
                     let successCount = successfulResults.count
                     let failureCount = failedResults.count

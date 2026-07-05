@@ -828,6 +828,13 @@ final class ClassificationPipelineErrorTests: XCTestCase {
         XCTAssertTrue(error.localizedDescription.contains("report"))
     }
 
+    func testResultSidecarSaveFailedDescription() {
+        let url = URL(fileURLWithPath: "/tmp/classification-result.json")
+        let error = ClassificationPipelineError.resultSidecarSaveFailed(url, "permission denied")
+        XCTAssertTrue(error.localizedDescription.contains("result sidecar"))
+        XCTAssertTrue(error.localizedDescription.contains("permission denied"))
+    }
+
     func testCancelledErrorDescription() {
         let error = ClassificationPipelineError.cancelled
         XCTAssertTrue(error.localizedDescription.contains("cancelled"))

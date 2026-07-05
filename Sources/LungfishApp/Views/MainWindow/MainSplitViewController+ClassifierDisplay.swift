@@ -411,7 +411,16 @@ extension MainSplitViewController {
 
         Task.detached { [weak self] in
             do {
-                try LungfishCLIRunner.buildClassifierDatabase(tool: cliTool, resultURL: resultURL, force: true)
+                let sampleDirectories = try Self.classifierDatabaseBuildSampleDirectories(
+                    tool: cliTool,
+                    resultURL: resultURL
+                )
+                try LungfishCLIRunner.buildClassifierDatabase(
+                    tool: cliTool,
+                    resultURL: resultURL,
+                    force: true,
+                    sampleDirectories: sampleDirectories
+                )
 
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
@@ -459,6 +468,24 @@ extension MainSplitViewController {
                 }
             }
         }
+    }
+
+    nonisolated static func classifierDatabaseBuildSampleDirectories(tool: String, resultURL: URL) throws -> [URL] {
+        guard tool.lowercased() == "kraken2" else {
+            return []
+        }
+        guard let manifest = MetagenomicsBatchResultStore.loadClassification(from: resultURL) else {
+            return []
+        }
+
+        let directories = manifest.samples
+            .map { resultURL.appendingPathComponent($0.resultDirectory, isDirectory: true).standardizedFileURL }
+        guard !directories.isEmpty else {
+            throw LungfishCLIRunner.RunError.invalidInvocation(
+                "Cannot build Kraken2 database: batch manifest has no successful sample directories."
+            )
+        }
+        return directories
     }
 
     /// Formats a pipeline runtime duration as a human-readable string for the Inspector.

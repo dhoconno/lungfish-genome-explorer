@@ -40,8 +40,24 @@ final class ProvenanceFailurePolicySourceTests: XCTestCase {
                 "\(file) still treats TaxTriage provenance/result persistence failure as a warning"
             )
             XCTAssertFalse(
+                text.contains(#"logger.warning("Failed to save result sidecar"#),
+                "\(file) still treats result sidecar persistence failure as a warning"
+            )
+            XCTAssertFalse(
+                text.contains(#"logger.warning("runClassification: Failed to save result sidecar"#),
+                "\(file) still treats classification result sidecar persistence failure as a warning"
+            )
+            XCTAssertFalse(
+                text.contains(#"logger.warning("runClassificationBatch: Failed to save sidecar"#),
+                "\(file) still treats result sidecar persistence failure as a warning"
+            )
+            XCTAssertFalse(
                 text.contains("Failed to write root provenance"),
                 "\(file) still treats root provenance save failure as a warning"
+            )
+            XCTAssertFalse(
+                text.contains("try? result.save"),
+                "\(file) still discards result sidecar persistence failures"
             )
             XCTAssertFalse(
                 text.contains("return try? write"),
@@ -49,6 +65,10 @@ final class ProvenanceFailurePolicySourceTests: XCTestCase {
             )
             XCTAssertFalse(
                 text.contains("try? await ProvenanceRecorder.shared.save"),
+                "\(file) still discards provenance recorder save failures"
+            )
+            XCTAssertFalse(
+                text.contains("try? await provenanceRecorder.save"),
                 "\(file) still discards provenance recorder save failures"
             )
         }

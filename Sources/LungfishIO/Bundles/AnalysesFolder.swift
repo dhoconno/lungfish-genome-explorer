@@ -119,6 +119,7 @@ public enum AnalysesFolder {
     ///
     /// - Single run:  `Analyses/{tool}-{yyyy-MM-dd'T'HH-mm-ss}/`
     /// - Batch run:   `Analyses/{tool}-batch-{yyyy-MM-dd'T'HH-mm-ss}/`
+    /// - Collision:   appends `-2`, `-3`, ... if another run already claimed the timestamp.
     ///
     /// - Parameters:
     ///   - tool: The tool identifier (e.g. `"kraken2"`).
@@ -135,16 +136,42 @@ public enum AnalysesFolder {
     ) throws -> URL {
         let analysesDir = try url(for: projectURL)
         let timestamp = formatTimestamp(date)
-        let name = isBatch ? "\(tool)-batch-\(timestamp)" : "\(tool)-\(timestamp)"
-        let analysisURL = analysesDir.appendingPathComponent(name, isDirectory: true)
-        try FileManager.default.createDirectory(at: analysisURL, withIntermediateDirectories: true)
-
-        // Write analysis-metadata.json so the directory is identifiable even if renamed.
+        let baseName = isBatch ? "\(tool)-batch-\(timestamp)" : "\(tool)-\(timestamp)"
         let metadata = AnalysisMetadata(tool: tool, isBatch: isBatch, created: date)
-        try writeAnalysisMetadata(metadata, to: analysisURL)
+        let fileManager = FileManager.default
 
-        logger.info("Created analysis directory: \(name)")
-        return analysisURL
+        for attempt in 0..<1_000 {
+            let name = attempt == 0 ? baseName : "\(baseName)-\(attempt + 1)"
+            let analysisURL = analysesDir.appendingPathComponent(name, isDirectory: true)
+            do {
+                try fileManager.createDirectory(at: analysisURL, withIntermediateDirectories: false)
+                do {
+                    // Write analysis-metadata.json so the directory is identifiable even if renamed.
+                    try writeAnalysisMetadata(metadata, to: analysisURL)
+                } catch {
+                    try? fileManager.removeItem(at: analysisURL)
+                    throw error
+                }
+
+                logger.info("Created analysis directory: \(name)")
+                return analysisURL
+            } catch {
+                let nsError = error as NSError
+                if nsError.domain == NSCocoaErrorDomain,
+                   nsError.code == CocoaError.Code.fileWriteFileExists.rawValue {
+                    continue
+                }
+                throw error
+            }
+        }
+
+        throw CocoaError(
+            .fileWriteFileExists,
+            userInfo: [
+                NSFilePathErrorKey: analysesDir.appendingPathComponent(baseName, isDirectory: true).path,
+                NSLocalizedDescriptionKey: "Could not create a unique analysis directory for \(baseName)"
+            ]
+        )
     }
 
     // MARK: - Listing

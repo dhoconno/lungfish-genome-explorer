@@ -102,6 +102,20 @@ changes that reduce future ambiguity across the codebase.
   described the removed chart as the result viewport.
 - Made DemultiplexingPipeline fail closed when required derived FASTQ manifests cannot be written:
   affected demux bundles are removed and the run throws instead of returning lineage-less bundles.
+- Made EsViritu result sidecar persistence fail closed and recorded the required JSON sidecar
+  as a Lungfish wrapper provenance step after final output files exist.
+- Made classification result sidecars required inside `ClassificationPipeline`, with a Lungfish
+  wrapper provenance step, rollback if final provenance cannot be saved, and App cleanup for
+  project-owned analysis directories that fail before durable result metadata exists.
+- Made GUI-triggered Kraken2 batch database builds pass explicit successful sample directories
+  to `build-db kraken2`, with replay argv/provenance options recording that success set so stale
+  sibling result directories cannot contaminate `kraken2.sqlite`.
+- Made Kraken2 lazy database rebuilds use the batch manifest's successful sample directories,
+  reject empty success manifests, and avoid unfiltered GUI rebuilds for manifest-bearing batches.
+- Made project `Analyses/` directory creation use exclusive timestamp allocation with deterministic
+  suffixes, preventing failed-run cleanup from deleting another run that started in the same second.
+- Added failed Lungfish result-sidecar provenance steps for Classification and EsViritu when their
+  required JSON sidecars cannot be written.
 
 ## Verification
 

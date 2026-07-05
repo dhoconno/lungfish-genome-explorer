@@ -1538,12 +1538,16 @@ extension BuildDbCommand {
         @Flag(name: .customLong("no-cleanup"), help: "Skip post-build cleanup of intermediate files")
         var noCleanup: Bool = false
 
+        @Option(name: .customLong("sample-dir"), help: "Successful Kraken2 sample result directory to include. May be repeated.")
+        var sampleDirs: [String] = []
+
         @OptionGroup var globalOptions: GlobalOptions
 
         func run() async throws {
             let provenanceStartedAt = Date()
             let resultURL = URL(fileURLWithPath: resultDir)
             let dbURL = resultURL.appendingPathComponent("kraken2.sqlite")
+            let requestedSampleDirectories = sampleDirs.map { URL(fileURLWithPath: $0).standardizedFileURL }
 
             // Skip if exists (unless --force)
             if !force && FileManager.default.fileExists(atPath: dbURL.path) {
@@ -1553,11 +1557,19 @@ extension BuildDbCommand {
                 return
             }
 
-            let provenanceInputs = BuildDbCommand.buildDbInputRecords(tool: .kraken2, resultURL: resultURL)
+            let explicitSampleDirectories = try validatedExplicitSampleDirectories(requestedSampleDirectories)
+            let provenanceInputs = BuildDbCommand.buildDbInputRecords(
+                tool: .kraken2,
+                resultURL: resultURL,
+                sampleDirectories: explicitSampleDirectories
+            )
 
             do {
                 // 1. Enumerate sample subdirectories and parse kreport files
-                let (rows, sampleMetadata) = try parseSampleDirectories(resultURL: resultURL)
+                let (rows, sampleMetadata) = try parseSampleDirectories(
+                    resultURL: resultURL,
+                    sampleDirectories: explicitSampleDirectories
+                )
 
                 if !globalOptions.quiet {
                     print("Parsed \(rows.count) classification rows from Kraken2 results")
@@ -1589,7 +1601,7 @@ extension BuildDbCommand {
                 }
 
                 if !noCleanup {
-                    performCleanup(resultURL: resultURL)
+                    performCleanup(resultURL: resultURL, sampleDirectories: explicitSampleDirectories)
                 }
 
                 try await BuildDbCommand.recordBuildDbProvenance(
@@ -1600,7 +1612,8 @@ extension BuildDbCommand {
                     noCleanup: noCleanup,
                     globalOptions: globalOptions,
                     startedAt: provenanceStartedAt,
-                    inputRecords: provenanceInputs
+                    inputRecords: provenanceInputs,
+                    sampleDirectories: explicitSampleDirectories
                 )
             } catch {
                 await BuildDbCommand.recordBuildDbFailureProvenanceIfNeeded(
@@ -1612,7 +1625,8 @@ extension BuildDbCommand {
                     globalOptions: globalOptions,
                     startedAt: provenanceStartedAt,
                     inputRecords: provenanceInputs,
-                    error: error
+                    error: error,
+                    sampleDirectories: explicitSampleDirectories
                 )
                 throw error
             }
@@ -1624,9 +1638,41 @@ extension BuildDbCommand {
         ///
         /// Returns classification rows and per-sample metadata for tree reconstruction.
         func parseSampleDirectories(
-            resultURL: URL
+            resultURL: URL,
+            sampleDirectories: [URL] = []
         ) throws -> (rows: [Kraken2ClassificationRow], sampleMetadata: [String: String]) {
             let fm = FileManager.default
+            let explicitSampleDirectories = try validatedExplicitSampleDirectories(sampleDirectories)
+            if !explicitSampleDirectories.isEmpty {
+                var allRows: [Kraken2ClassificationRow] = []
+                var sampleMetadata: [String: String] = [:]
+
+                for dir in explicitSampleDirectories {
+                    var isDirectory: ObjCBool = false
+                    guard fm.fileExists(atPath: dir.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+                        throw ValidationError("--sample-dir must be an existing directory: \(dir.path)")
+                    }
+
+                    let sampleId = dir.lastPathComponent
+                    guard !sampleId.hasPrefix(".") else {
+                        throw ValidationError("--sample-dir must not point to a hidden directory: \(dir.path)")
+                    }
+
+                    let kreportURL = dir.appendingPathComponent("classification.kreport")
+                    guard fm.fileExists(atPath: kreportURL.path) else {
+                        throw ValidationError("Missing classification.kreport in --sample-dir \(dir.path)")
+                    }
+
+                    let (rows, tree) = try parseKreport(at: kreportURL, sampleId: sampleId)
+                    allRows.append(contentsOf: rows)
+                    sampleMetadata["total_reads_\(sampleId)"] = "\(tree.totalReads)"
+                    sampleMetadata["classified_reads_\(sampleId)"] = "\(tree.classifiedReads)"
+                    sampleMetadata["unclassified_reads_\(sampleId)"] = "\(tree.unclassifiedReads)"
+                }
+
+                return (allRows, sampleMetadata)
+            }
+
             let contents = try fm.contentsOfDirectory(
                 at: resultURL,
                 includingPropertiesForKeys: [.isDirectoryKey]
@@ -1682,6 +1728,31 @@ extension BuildDbCommand {
             return (allRows, sampleMetadata)
         }
 
+        private func validatedExplicitSampleDirectories(_ sampleDirectories: [URL]) throws -> [URL] {
+            var seenPaths = Set<String>()
+            var seenSampleIds = Set<String>()
+            var validated: [URL] = []
+
+            for url in sampleDirectories {
+                let directory = url.standardizedFileURL
+                guard seenPaths.insert(directory.path).inserted else {
+                    throw ValidationError("Duplicate --sample-dir path: \(directory.path)")
+                }
+
+                let sampleId = directory.lastPathComponent
+                guard !sampleId.hasPrefix(".") else {
+                    throw ValidationError("--sample-dir must not point to a hidden directory: \(directory.path)")
+                }
+                guard seenSampleIds.insert(sampleId).inserted else {
+                    throw ValidationError("Duplicate --sample-dir sample identifier '\(sampleId)'. Sample directory basenames must be unique.")
+                }
+
+                validated.append(directory)
+            }
+
+            return validated.sorted { $0.path < $1.path }
+        }
+
         /// Parses a single kreport file into classification rows.
         ///
         /// Flattens the taxonomy tree produced by `KreportParser`, excluding
@@ -1723,22 +1794,32 @@ extension BuildDbCommand {
         /// Keeps: `classification.kraken.gz`,
         /// `classification.kraken.gz.idx.sqlite`, `classification.kreport`,
         /// `classification-result.json`, `kraken2.sqlite`.
-        private func performCleanup(resultURL: URL) {
+        private func performCleanup(resultURL: URL, sampleDirectories: [URL] = []) {
             let fm = FileManager.default
             var freedBytes: Int64 = 0
 
-            guard let contents = try? fm.contentsOfDirectory(
-                at: resultURL,
-                includingPropertiesForKeys: [.isDirectoryKey]
-            ) else { return }
+            let cleanupDirs: [URL]
+            if sampleDirectories.isEmpty {
+                guard let contents = try? fm.contentsOfDirectory(
+                    at: resultURL,
+                    includingPropertiesForKeys: [.isDirectoryKey]
+                ) else { return }
 
-            var cleanupDirs = [resultURL]
-            cleanupDirs.append(contentsOf: contents
-                .filter { url in
-                    ((try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false)
-                        && !url.lastPathComponent.hasPrefix(".")
-                }
-                .sorted { $0.lastPathComponent < $1.lastPathComponent })
+                cleanupDirs = [resultURL] + contents
+                    .filter { url in
+                        ((try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false)
+                            && !url.lastPathComponent.hasPrefix(".")
+                    }
+                    .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            } else {
+                cleanupDirs = sampleDirectories
+                    .map(\.standardizedFileURL)
+                    .filter { url in
+                        ((try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false)
+                            && !url.lastPathComponent.hasPrefix(".")
+                    }
+                    .sorted { $0.path < $1.path }
+            }
 
             for dir in cleanupDirs {
                 let name = dir.lastPathComponent

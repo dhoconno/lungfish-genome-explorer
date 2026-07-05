@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import ArgumentParser
 @testable import LungfishCLI
 @testable import LungfishIO
 @testable import LungfishWorkflow
@@ -709,6 +710,98 @@ final class BuildDbCommandTests: XCTestCase {
         let meta = try db.fetchMetadata()
         XCTAssertEqual(meta["tool"], "kraken2")
         XCTAssertNotNil(meta["created_at"])
+    }
+
+    func testBuildDbKraken2ExplicitSampleDirsExcludeSiblingKreports() async throws {
+        let tmpDir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let fixtureDir = findFixtureDir("kraken2-mini")
+        let resultDir = tmpDir.appendingPathComponent("kraken2")
+        try FileManager.default.copyItem(at: fixtureDir, to: resultDir)
+
+        let includedSampleDir = resultDir.appendingPathComponent("SRR35517702")
+        let excludedSampleDir = resultDir.appendingPathComponent("SRR35517703")
+        let excludedKreport = resultDir
+            .appendingPathComponent(excludedSampleDir.lastPathComponent)
+            .appendingPathComponent("classification.kreport")
+        let excludedRawOutput = excludedSampleDir.appendingPathComponent("classification.kraken")
+        let excludedRawIndex = excludedSampleDir.appendingPathComponent("classification.kraken.idx.sqlite")
+        let fm = FileManager.default
+        fm.createFile(
+            atPath: excludedRawOutput.path,
+            contents: Data("""
+            C\tread-1\t12345\t150\t12345:150
+            U\tread-2\t0\t150\t0:150
+            """.utf8)
+        )
+        fm.createFile(atPath: excludedRawIndex.path, contents: Data("excluded index".utf8))
+
+        let cmd = try BuildDbCommand.Kraken2Subcommand.parse([
+            resultDir.path,
+            "--sample-dir", includedSampleDir.path,
+            "-q",
+        ])
+        try await cmd.run()
+
+        let dbURL = resultDir.appendingPathComponent("kraken2.sqlite")
+        let db = try Kraken2Database(at: dbURL)
+        let samples = try db.fetchSamples()
+        XCTAssertEqual(samples.map(\.sample), ["SRR35517702"])
+
+        let provenance = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: resultDir))
+        XCTAssertTrue(provenance.argv.contains("--sample-dir"))
+        XCTAssertTrue(provenance.argv.contains(includedSampleDir.standardizedFileURL.path))
+
+        let explicitSampleDirs = provenance.options.explicit["sampleDirs"]?.arrayValue?
+            .compactMap(\.fileValue)
+            .map { $0.standardizedFileURL.path }
+        XCTAssertEqual(explicitSampleDirs, [includedSampleDir.standardizedFileURL.path])
+
+        let provenancePaths = Set(provenance.files.map { URL(fileURLWithPath: $0.path).standardizedFileURL.path })
+        XCTAssertFalse(provenancePaths.contains(excludedKreport.standardizedFileURL.path))
+
+        XCTAssertTrue(fm.fileExists(atPath: excludedRawOutput.path))
+        XCTAssertTrue(fm.fileExists(atPath: excludedRawIndex.path))
+        let provenanceOutputPaths = Set(provenance.outputs.map { URL(fileURLWithPath: $0.path).standardizedFileURL.path })
+        XCTAssertFalse(provenanceOutputPaths.contains(excludedRawOutput.standardizedFileURL.path))
+        XCTAssertFalse(provenanceOutputPaths.contains(excludedRawIndex.standardizedFileURL.path))
+        XCTAssertFalse(fm.fileExists(atPath: excludedRawOutput.appendingPathExtension("gz").path))
+    }
+
+    func testBuildDbKraken2ExplicitSampleDirsRejectDuplicateSampleIds() async throws {
+        let tmpDir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let fixtureDir = findFixtureDir("kraken2-mini")
+        let resultDir = tmpDir.appendingPathComponent("kraken2")
+        try FileManager.default.copyItem(at: fixtureDir, to: resultDir)
+
+        let firstParent = tmpDir.appendingPathComponent("first")
+        let secondParent = tmpDir.appendingPathComponent("second")
+        let firstSample = firstParent.appendingPathComponent("duplicate")
+        let secondSample = secondParent.appendingPathComponent("duplicate")
+        try FileManager.default.createDirectory(at: firstSample, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: secondSample, withIntermediateDirectories: true)
+
+        let cmd = try BuildDbCommand.Kraken2Subcommand.parse([
+            resultDir.path,
+            "--sample-dir", firstSample.path,
+            "--sample-dir", secondSample.path,
+            "-q",
+        ])
+
+        do {
+            try await cmd.run()
+            XCTFail("Expected duplicate sample directory basenames to be rejected")
+        } catch let error as ValidationError {
+            XCTAssertTrue(
+                String(describing: error).contains("Duplicate --sample-dir sample identifier"),
+                "Unexpected error: \(error)"
+            )
+        } catch {
+            XCTFail("Unexpected error type: \(error)")
+        }
     }
 
     /// Verifies that Kraken2 cleanup compacts per-read output, writes the
