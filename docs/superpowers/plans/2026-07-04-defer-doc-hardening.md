@@ -74,6 +74,8 @@ changes that reduce future ambiguity across the codebase.
   contents.
 - Split `ONTDirectoryImporter`'s public header parser and import model declarations into
   dedicated files while leaving scan/import/gzip behavior unchanged.
+- Moved the VCF `createFromVCF` pipeline out of `VariantDatabase+Bookmarks.swift` into
+  `VariantDatabase+CreateFromVCF.swift`, leaving bookmark CRUD in the bookmark extension.
 
 ## Verification
 
