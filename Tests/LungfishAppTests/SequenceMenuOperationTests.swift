@@ -224,6 +224,48 @@ final class SequenceMenuOperationTests: XCTestCase {
         XCTAssertEqual(input.records, [">MN908947_4_9\nCCCGGG\n"])
     }
 
+    func testVisibleRegionFASTAOperationAvailabilityRequiresVisibleGenomicsMode() throws {
+        let viewerController = ViewerViewController()
+        viewerController.loadView()
+        viewerController.viewerView.setSequence(try Sequence(name: "seq1", alphabet: .dna, bases: "AACCGGTT"))
+
+        viewerController.contentMode = .genomics
+        viewerController.viewerView.isHidden = false
+        XCTAssertTrue(viewerController.viewerView.canRunSelectedSequenceFASTAOperation())
+
+        viewerController.contentMode = .fastq
+        viewerController.viewerView.isHidden = true
+        XCTAssertFalse(viewerController.viewerView.canRunSelectedSequenceFASTAOperation())
+
+        viewerController.contentMode = .genomics
+        viewerController.viewerView.isHidden = true
+        XCTAssertFalse(viewerController.viewerView.canRunSelectedSequenceFASTAOperation())
+    }
+
+    func testFASTACollectionDrillInRestoresVisibleSequenceOperationAvailability() throws {
+        let sequence = try Sequence(name: "seq1", alphabet: .dna, bases: "AACCGGTT")
+        let viewerController = ViewerViewController()
+        viewerController.loadView()
+        viewerController.contentMode = .fastq
+
+        viewerController.displayFASTACollection(
+            sequences: [sequence],
+            annotations: [],
+            sourceNames: [:]
+        )
+        XCTAssertEqual(viewerController.contentMode, .genomics)
+        XCTAssertFalse(viewerController.viewerView.canRunSelectedSequenceFASTAOperation())
+
+        let collectionController = try XCTUnwrap(
+            viewerController.children.compactMap { $0 as? FASTACollectionViewController }.first
+        )
+        collectionController.onOpenSequence?(sequence, [])
+
+        XCTAssertEqual(viewerController.contentMode, .genomics)
+        XCTAssertFalse(viewerController.viewerView.isHidden)
+        XCTAssertTrue(viewerController.viewerView.canRunSelectedSequenceFASTAOperation())
+    }
+
     func testGoToGenePrefersExactGeneNameOverSubstringMatches() {
         let appDelegate = AppDelegate()
         let results = [
@@ -310,12 +352,25 @@ final class SequenceMenuOperationTests: XCTestCase {
         XCTAssertEqual(sequenceName, "MN908947")
     }
 
-    func testSequenceTransformMenuItemsReuseFASTQFASTAOperationsDialog() throws {
+    func testSequenceTransformMenuItemsSeparateVisibleRegionAndDatasetOperations() throws {
         let appDelegateSource = combinedAppDelegateSource()
+        let mainMenuSource = try String(
+            contentsOf: URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+                .appendingPathComponent("Sources/LungfishApp/App/MainMenu.swift"),
+            encoding: .utf8
+        )
         let sequenceViewerSource = combinedSequenceViewerSource()
 
         XCTAssertTrue(appDelegateSource.contains("viewerView.runSelectedSequenceFASTAOperation(toolID: .reverseComplement)"))
         XCTAssertTrue(appDelegateSource.contains("viewerView.runSelectedSequenceFASTAOperation(toolID: .translate)"))
+        XCTAssertTrue(appDelegateSource.contains("menuItem.action == #selector(reverseComplement(_:))"))
+        XCTAssertTrue(appDelegateSource.contains("menuItem.action == #selector(translate(_:))"))
+        XCTAssertTrue(sequenceViewerSource.contains("func canRunSelectedSequenceFASTAOperation() -> Bool"))
+        XCTAssertTrue(sequenceViewerSource.contains("viewController?.contentMode == .genomics, !isHidden"))
+        XCTAssertTrue(appDelegateSource.contains("showFASTQOperationsDialog(sender, initialCategory: .readProcessing, initialToolID: .reverseComplement)"))
+        XCTAssertTrue(appDelegateSource.contains("showFASTQOperationsDialog(sender, initialCategory: .readProcessing, initialToolID: .translate)"))
+        XCTAssertTrue(mainMenuSource.contains("#selector(ToolsMenuActions.showFASTQReverseComplementOperation(_:))"))
+        XCTAssertTrue(mainMenuSource.contains("#selector(ToolsMenuActions.showFASTQTranslateOperation(_:))"))
         XCTAssertTrue(sequenceViewerSource.contains("presentFASTAOperationDialog("))
     }
 

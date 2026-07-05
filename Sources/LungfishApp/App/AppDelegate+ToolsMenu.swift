@@ -53,6 +53,14 @@ extension AppDelegate {
         showFASTQOperationsDialog(sender, initialCategory: .classification)
     }
 
+    @objc func showFASTQReverseComplementOperation(_ sender: Any?) {
+        showFASTQOperationsDialog(sender, initialCategory: .readProcessing, initialToolID: .reverseComplement)
+    }
+
+    @objc func showFASTQTranslateOperation(_ sender: Any?) {
+        showFASTQOperationsDialog(sender, initialCategory: .readProcessing, initialToolID: .translate)
+    }
+
     @objc func showFreyjaDemix(_ sender: Any?) {
         PluginManagerWindowController.show(packID: "wastewater-surveillance")
     }

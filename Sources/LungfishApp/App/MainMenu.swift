@@ -694,12 +694,12 @@ public final class MainMenu {
         )
         fastqOperationsMenu.addItem(
             withTitle: "Reverse Complement\u{2026}",
-            action: #selector(SequenceMenuActions.reverseComplement(_:)),
+            action: #selector(ToolsMenuActions.showFASTQReverseComplementOperation(_:)),
             keyEquivalent: ""
         )
         fastqOperationsMenu.addItem(
             withTitle: "Translate\u{2026}",
-            action: #selector(SequenceMenuActions.translate(_:)),
+            action: #selector(ToolsMenuActions.showFASTQTranslateOperation(_:)),
             keyEquivalent: ""
         )
         fastqOperationsItem.submenu = fastqOperationsMenu
@@ -1108,6 +1108,8 @@ enum ProvenanceExportMenuModel {
     func showFASTQMappingOperations(_ sender: Any?)
     func showFASTQAssemblyOperations(_ sender: Any?)
     func showFASTQClassificationOperations(_ sender: Any?)
+    func showFASTQReverseComplementOperation(_ sender: Any?)
+    func showFASTQTranslateOperation(_ sender: Any?)
     func showFreyjaDemix(_ sender: Any?)
     func showBAMVariantCalling(_ sender: Any?)
     func searchNCBI(_ sender: Any?)

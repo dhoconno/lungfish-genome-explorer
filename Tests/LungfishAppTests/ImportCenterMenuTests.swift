@@ -279,7 +279,7 @@ final class ImportCenterMenuTests: XCTestCase {
         XCTAssertFalse(toolsMenu.items.contains { $0.identifier?.rawValue == "tools-menu-nf-core-workflows" })
     }
 
-    func testFASTQFASTAOperationsMenuIncludesSequenceTransformActions() throws {
+    func testFASTQFASTAOperationsMenuRoutesTransformActionsToFASTQFASTADialog() throws {
         let _ = NSApplication.shared
         let mainMenu = MainMenu.createMainMenu()
         let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
@@ -294,8 +294,8 @@ final class ImportCenterMenuTests: XCTestCase {
             operationsMenu.items.first(where: { $0.title == "Translate\u{2026}" })
         )
 
-        XCTAssertEqual(reverseComplement.action, #selector(AppDelegate.reverseComplement(_:)))
-        XCTAssertEqual(translate.action, #selector(AppDelegate.translate(_:)))
+        XCTAssertEqual(reverseComplement.action, #selector(ToolsMenuActions.showFASTQReverseComplementOperation(_:)))
+        XCTAssertEqual(translate.action, #selector(ToolsMenuActions.showFASTQTranslateOperation(_:)))
     }
 
     func testFASTQFASTAOperationsMenuKeepsEllipsesOnDialogOpeningLeafCommands() throws {
@@ -474,6 +474,8 @@ private final class WorkflowBuilderMenuActionRecorder: NSObject, ToolsMenuAction
     @objc func showFASTQMappingOperations(_ sender: Any?) {}
     @objc func showFASTQAssemblyOperations(_ sender: Any?) {}
     @objc func showFASTQClassificationOperations(_ sender: Any?) {}
+    @objc func showFASTQReverseComplementOperation(_ sender: Any?) {}
+    @objc func showFASTQTranslateOperation(_ sender: Any?) {}
     @objc func showFreyjaDemix(_ sender: Any?) {}
     @objc func showBAMVariantCalling(_ sender: Any?) {}
     @objc func searchNCBI(_ sender: Any?) {}

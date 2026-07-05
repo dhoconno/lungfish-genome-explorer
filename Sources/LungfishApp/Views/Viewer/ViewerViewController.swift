@@ -1372,6 +1372,7 @@ public class ViewerViewController: NSViewController {
         hideAssemblyView()
         hideMappingView()
         hideAlignmentTreeBundleViews()
+        contentMode = .genomics
 
         let controller = FASTACollectionViewController()
         addChild(controller)
@@ -1439,6 +1440,7 @@ public class ViewerViewController: NSViewController {
             guard let self else { return }
             self.hideFASTACollectionView()
             self.clearBundleDisplay()
+            self.contentMode = .genomics
 
             // Set up the viewer directly with the selected sequence
             self.view.layoutSubtreeIfNeeded()

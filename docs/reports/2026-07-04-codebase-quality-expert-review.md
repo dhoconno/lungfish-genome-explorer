@@ -115,6 +115,10 @@ and behavior-preserving simplifications are useful and appropriate.
 - 2026-07-04 follow-up: Standalone GUI FASTA sequence exports and phylogenetic subtree Newick
   exports now write canonical scientific file provenance sidecars and fail closed if sidecar
   creation fails, instead of producing ambiguous untracked deliverables.
+- 2026-07-04 follow-up: Tools > FASTQ/FASTA Operations > Reverse Complement/Translate now route
+  to dataset-operation dialogs instead of the active sequence viewer, while Sequence-menu
+  visible-region transforms are disabled outside visible genomics content and the stale CLI
+  reference wording was clarified.
 
 ## Still Deferred
 

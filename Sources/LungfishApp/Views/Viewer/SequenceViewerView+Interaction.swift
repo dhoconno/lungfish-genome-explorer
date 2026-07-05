@@ -1282,6 +1282,25 @@ extension SequenceViewerView {
         }
     }
 
+    func canRunSelectedSequenceFASTAOperation() -> Bool {
+        guard viewController?.contentMode == .genomics, !isHidden else {
+            return false
+        }
+
+        if let seq = activeSequence ?? sequence {
+            return hasNonEmptySelectedOrVisibleSequenceRange(sequenceLength: seq.length)
+        }
+
+        guard let bundle = currentReferenceBundle,
+              let frame = viewController?.referenceFrame,
+              let chromosome = viewController?.currentBundleDataProvider?.chromosomeInfo(named: frame.chromosome)
+                ?? bundle.chromosome(named: frame.chromosome) else {
+            return false
+        }
+
+        return hasNonEmptySelectedOrVisibleSequenceRange(sequenceLength: Int(chromosome.length))
+    }
+
     func selectedFASTAOperationInput() throws -> FASTAOperationInput {
         if let seq = activeSequence ?? sequence {
             let range = selectedOrVisibleSequenceRange(sequenceLength: seq.length)
@@ -1316,6 +1335,13 @@ extension SequenceViewerView {
         let sequenceName = selectedSequenceName(chromosome: chromosome.name, start: start, end: end)
         let fasta = formatFASTA(name: sequenceName, sequence: bases)
         return FASTAOperationInput(records: [fasta], suggestedName: sequenceName)
+    }
+
+    private func hasNonEmptySelectedOrVisibleSequenceRange(sequenceLength: Int) -> Bool {
+        let range = selectedOrVisibleSequenceRange(sequenceLength: sequenceLength)
+        let start = max(0, range.lowerBound)
+        let end = min(sequenceLength, range.upperBound)
+        return start < end
     }
 
     func selectedOrVisibleSequenceRange(sequenceLength: Int) -> Range<Int> {

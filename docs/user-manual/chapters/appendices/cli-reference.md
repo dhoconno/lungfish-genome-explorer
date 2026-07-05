@@ -441,7 +441,7 @@ Computes sequence statistics: count, total length, GC content, and N50/N90. `ana
 
 `lungfish translate <input> [--frame <1-6>] [--table <id>] [-o <path>]`
 
-Translates a nucleotide FASTA to protein. Frames 1 to 3 are forward, 4 to 6 are reverse complement; all six frames are translated by default. `--table` selects an NCBI genetic-code table (default 1). This is the CLI counterpart of the `Cmd-Shift-T` GUI verb.
+Translates a nucleotide FASTA to protein. Frames 1 to 3 are forward, 4 to 6 are reverse complement; all six frames are translated by default. `--table` selects an NCBI genetic-code table (default 1). The GUI `Cmd-Shift-T` action opens the FASTQ/FASTA operations dialog for the selected visible region and runs the dialog-backed FASTQ/FASTA translation workflow.
 
 `lungfish sequence annotate-orfs <bundle> [--frames <list>] [--table <id>]`
 

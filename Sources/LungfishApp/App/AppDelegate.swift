@@ -1233,13 +1233,17 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return enabled
         }
 
-        // Copy visible region requires an active viewer.
-        if menuItem.action == #selector(copySelectionFASTA(_:)) {
-            return activeMainWindowController()?
+        // Visible-region sequence operations require an active viewer.
+        if menuItem.action == #selector(reverseComplement(_:))
+            || menuItem.action == #selector(translate(_:))
+            || menuItem.action == #selector(copySelectionFASTA(_:)) {
+            guard let activeSequenceViewer = activeMainWindowController()?
                 .mainSplitViewController?
                 .viewerController?
-                .activeSequenceViewerController
-                .viewerView != nil
+                .activeSequenceViewerController else {
+                return false
+            }
+            return activeSequenceViewer.viewerView.canRunSelectedSequenceFASTAOperation()
         }
 
         // Extract can bootstrap from the currently visible region.
