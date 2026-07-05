@@ -187,12 +187,12 @@ parameter. Provenance sidecar records the verbatim string under
 
 ---
 
-## docs-022a — Add `lungfish run-headless` subcommand and CI documentation
+## docs-022a — Add `lungfish run-headless` subcommand and CI documentation (resolved)
 
 **Parent:** docs-022 (Headless / batch CI mode)
 **Severity:** P2
 
-### Reproduction
+### Historical reproduction
 
 ```bash
 $ lungfish-cli --help | grep -i headless
@@ -200,23 +200,20 @@ The `lungfish` command provides headless access to the Lungfish Genome
 # (no run-headless subcommand)
 ```
 
-The CLI is headless by design — every subcommand runs without a display
-server. The spec called for an explicit `run-headless` subcommand plus a CI
-documentation chapter to make this discoverable.
+Resolved: `lungfish run-headless <workflow> ...` is now a quiet pass-through alias for
+`lungfish workflow run --quiet <workflow> ...`. It captures workflow-run flags after the workflow
+argument, including the `--expected-output` paths required for executed scientific runs.
 
-### Recommendation
+### Implemented behavior
 
-Add `lungfish run-headless <workflow.yaml>` as a thin alias for `lungfish
-workflow run --quiet <workflow>`. Its purpose is to be a single discoverable
-entry point in `--help` and in CI documentation. Add an
-`appendices/06-running-in-ci.md` chapter that walks through invoking
-`lungfish-cli` from GitHub Actions and CircleCI with cached conda packs.
+The CI appendix documents GitHub Actions and CircleCI examples with cached conda packs and
+declared expected outputs, so the examples satisfy the provenance contract.
 
 ### Acceptance criteria
 
-- [ ] `lungfish-cli run-headless --help` exists and points to the workflow run path
-- [ ] `appendices/06-running-in-ci.md` ships with a worked GitHub Actions example
-- [ ] The chapter references the offline conda export/install path (docs-031) for cached environments
+- [x] `lungfish-cli run-headless --help` exists and points to the workflow run path
+- [x] `appendices/06-running-in-ci.md` ships with a worked GitHub Actions example
+- [x] The chapter references the offline conda export/install path (docs-031) for cached environments
 
 ---
 

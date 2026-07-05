@@ -61,6 +61,10 @@ reviewed pass.
   annotation imports as `noImportableAnnotations`, removes generated SQLite artifacts before
   throwing, and records successful imports with `reject_zero_feature_tracks=true` provenance
   defaults/resolved options.
+- 2026-07-05 hardening pass: executed `lungfish workflow run` invocations now fail closed unless
+  at least one `--expected-output` is declared. The local and nf-core runners validate that
+  contract before creating a `.lungfishrun` bundle or launching a workflow process, so completed
+  workflow runs cannot omit focused provenance for their final scientific outputs.
 
 ### Deferred SPLITS (each its own reviewed pass — high value, needs promotions)
 - `ONTBarcodeDemuxGenotypingPipeline.swift` (now ~3.4K lines after script extraction). The

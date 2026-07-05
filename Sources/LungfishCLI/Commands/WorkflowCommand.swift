@@ -197,7 +197,7 @@ struct RunHeadlessSubcommand: AsyncParsableCommand {
         commandName: "run-headless",
         abstract: "Run a workflow quietly without the GUI",
         discussion: """
-            Thin alias for `lungfish workflow run --quiet <workflow>`.
+            Thin alias for `lungfish workflow run --quiet <workflow> ...`.
             Use `lungfish workflow run --help` for the full workflow run option set.
             """
     )
@@ -205,8 +205,21 @@ struct RunHeadlessSubcommand: AsyncParsableCommand {
     @Argument(help: "Workflow file (*.nf, Snakefile) or supported nf-core workflow to pass to workflow run")
     var workflow: String
 
+    @Argument(
+        parsing: .captureForPassthrough,
+        help: "Additional workflow run options passed through after the workflow argument"
+    )
+    var workflowRunArguments: [String] = []
+
+    var forwardedWorkflowRunArguments: [String] {
+        let forwardedArguments = workflowRunArguments.first == "--"
+            ? Array(workflowRunArguments.dropFirst())
+            : workflowRunArguments
+        return [workflow] + forwardedArguments + ["--quiet"]
+    }
+
     func run() async throws {
-        let command = try RunSubcommand.parse([workflow, "--quiet"])
+        let command = try RunSubcommand.parse(forwardedWorkflowRunArguments)
         try await command.run()
     }
 }
@@ -259,7 +272,7 @@ struct RunSubcommand: AsyncParsableCommand {
     @Option(
         name: .customLong("expected-output"),
         parsing: .singleValue,
-        help: "Expected output bundle or file path; repeat for every scientific output that should receive provenance"
+        help: "Final output bundle or file path; required for executed runs and repeatable for every scientific output that must receive provenance"
     )
     var expectedOutput: [String] = []
 
@@ -443,6 +456,7 @@ struct RunSubcommand: AsyncParsableCommand {
         for inputURL in inputURLs where !FileManager.default.fileExists(atPath: inputURL.path) {
             throw CLIError.inputFileNotFound(path: inputURL.path)
         }
+        try requireExpectedOutputsForExecution()
         let expectedOutputURLs = expectedOutput.map { URL(fileURLWithPath: $0).standardizedFileURL }
 
         let request = LocalWorkflowRunRequest(
@@ -555,6 +569,7 @@ struct RunSubcommand: AsyncParsableCommand {
             throw CLIError.inputFileNotFound(path: inputURL.path)
         }
 
+        try requireExpectedOutputsForExecution()
         let outputURL = URL(fileURLWithPath: resultsDir).standardizedFileURL
         let expectedOutputURLs = expectedOutput.map { URL(fileURLWithPath: $0).standardizedFileURL }
         let request = NFCoreRunRequest(
@@ -634,6 +649,13 @@ struct RunSubcommand: AsyncParsableCommand {
             throw CLIError.workflowFailed(reason: "Nextflow exited with status \(processResult.exitCode). See \(runBundleURL.appendingPathComponent("logs/stderr.log").path)")
         }
         print(runBundleURL.path)
+    }
+
+    private func requireExpectedOutputsForExecution() throws {
+        guard !prepareOnly, expectedOutput.isEmpty else { return }
+        throw CLIError.workflowFailed(
+            reason: "workflow run executions require at least one --expected-output so every final scientific output receives focused provenance. Use --prepare-only or --dry-run for planning-only runs."
+        )
     }
 
     func validateViralReconWorkflowName() throws -> String {

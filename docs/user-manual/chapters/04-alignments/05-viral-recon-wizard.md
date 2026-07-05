@@ -57,6 +57,8 @@ The CLI path is the one that requires exactly one samplesheet you supply:
 ```bash
 lungfish workflow run nf-core/viralrecon \
   --input samplesheet.csv \
+  --results-dir ./Analyses/viralrecon-results \
+  --expected-output ./Analyses/viralrecon-results \
   --bundle-root ./Analyses
 ```
 
@@ -112,6 +114,8 @@ The CLI mirrors the run-bundle adapter used by the GUI. The smallest valid viral
 ```bash
 lungfish workflow run nf-core/viralrecon \
   --input samplesheet.csv \
+  --results-dir Analyses/viralrecon-results \
+  --expected-output Analyses/viralrecon-results \
   --bundle-path Analyses/my-viralrecon-run.lungfishrun
 ```
 
@@ -121,6 +125,7 @@ Common options:
 |---|---|
 | `--executor <profile>` | Select the Nextflow execution profile: `docker`, `conda`, or `local`. |
 | `--results-dir <dir>` | Override the workflow output directory. |
+| `--expected-output <path>` | Mark a final scientific output that must receive focused provenance. Executed runs require at least one; repeat it for multiple outputs. |
 | `--bundle-root <dir>` | Let Lungfish create a named `.lungfishrun` bundle under this directory. |
 | `--bundle-path <path>` | Write the run bundle at an exact path. |
 | `--version <tag>` | Override the supported workflow release. |
@@ -140,6 +145,7 @@ lungfish workflow run nf-core/viralrecon \
   --executor conda \
   --bundle-root Analyses \
   --results-dir Analyses/viralrecon-results \
+  --expected-output Analyses/viralrecon-results \
   --param platform=illumina \
   --param protocol=amplicon \
   --param primer_bed=PrimerSchemes/primers.bed \

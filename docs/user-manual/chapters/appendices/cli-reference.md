@@ -68,7 +68,7 @@ The binary exposes 43 top-level commands. Each row gives the real command name a
 | `project` | Lock, unlock, and migrate shared projects. |
 | `provenance` | Read, export, and verify provenance (`bibliography`, `export`, `verify`). |
 | `provision-tools` | Provision managed tools ahead of first use. |
-| `run-headless` | CI alias for `workflow run --quiet`. |
+| `run-headless` | CI alias for `workflow run --quiet`, forwarding workflow-run flags. |
 | `search` | Search a FASTA or FASTQ for sequence patterns. |
 | `sequence` | Annotate ORFs and delete annotation tracks on a bundle. |
 | `taxtriage` | Run the TaxTriage classification pipeline (`taxtriage run`). |
@@ -371,22 +371,24 @@ Materializes a virtual `.lungfishfastq` subset, trim, or demux bundle into a ful
 
 Run, list, and validate Lungfish workflows.
 
-`lungfish workflow run <workflow> --input <path> [--executor <docker|conda|local>] [--bundle-root <dir>] [--bundle-path <path>]`
+`lungfish workflow run <workflow> --input <path> --expected-output <path> [--executor <docker|conda|local>] [--bundle-root <dir>] [--bundle-path <path>]`
 
-Runs a supported workflow or workflow file. `nf-core/viralrecon` and `viralrecon` are accepted for the Viral Recon adapter; that path requires exactly one `--input` samplesheet.
+Runs a supported workflow or workflow file. Executed runs require at least one `--expected-output` so Lungfish can write focused provenance for the final scientific output; `--dry-run` and `--prepare-only` do not require it. `nf-core/viralrecon` and `viralrecon` are accepted for the Viral Recon adapter; that path requires exactly one `--input` samplesheet.
 
 ```bash
 lungfish workflow run nf-core/viralrecon \
     --input samplesheet.csv \
+    --results-dir Analyses/viralrecon-results \
+    --expected-output Analyses/viralrecon-results \
     --executor conda \
     --bundle-root Analyses
 ```
 
-Useful viralrecon flags include `--results-dir`, `--version`, `--workdir`, `--param key=value`, `--cpus`, `--memory`, `--resume`, `--dry-run`, and `--prepare-only`. See [Viral Recon Wizard](../04-alignments/05-viral-recon-wizard.md).
+Useful viralrecon flags include `--results-dir`, `--expected-output`, `--version`, `--workdir`, `--param key=value`, `--cpus`, `--memory`, `--resume`, `--dry-run`, and `--prepare-only`. See [Viral Recon Wizard](../04-alignments/05-viral-recon-wizard.md).
 
-`lungfish run-headless <workflow>`
+`lungfish run-headless <workflow> ...`
 
-Runs `lungfish workflow run --quiet <workflow>` as a discoverable CI-friendly alias. Use `workflow run` directly when you need input, executor, parameter, or bundle flags. See [Running in CI](06-running-in-ci.md).
+Runs `lungfish workflow run --quiet <workflow> ...` as a discoverable CI-friendly alias. Pass workflow-run flags after the workflow path, including `--expected-output` for executed scientific runs. See [Running in CI](06-running-in-ci.md).
 
 `lungfish workflow list`
 

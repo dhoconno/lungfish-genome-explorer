@@ -84,6 +84,11 @@ RESOLVED in the 2026-07-04 hardening pass:
   resolved/default-derived values. `databasePath`, detected input format, materialized execution
   inputs, and defaulted flags are resolved-only; required database/input positionals and supplied
   flags remain explicit.
+- `Commands/WorkflowCommand.swift` now requires executed `workflow run` commands to declare at
+  least one `--expected-output`, preserving prepare-only/dry-run planning behavior while preventing
+  completed scientific workflow executions without focused final-output provenance. The
+  `run-headless` alias now captures and forwards workflow-run flags so CI users can satisfy the
+  same provenance contract through the quiet entry point.
 
 REJECTED candidates (audited, proven NOT safe — a future pass must not re-propose):
 - GenotypeAIHaplotypingSubcommand "8 dead statics" (resolveFormat/loadJSONCalls/loadDelimitedCalls/

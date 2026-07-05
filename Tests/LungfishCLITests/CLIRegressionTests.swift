@@ -910,6 +910,42 @@ final class WorkflowCommandRegressionTests: XCTestCase {
         XCTAssertEqual(command.workflow, "/tmp/workflow.nf")
     }
 
+    func testRunHeadlessForwardsWorkflowRunOptionsWithQuietMode() throws {
+        let command = try RunHeadlessSubcommand.parse([
+            "nf-core/viralrecon",
+            "--input", "/tmp/samplesheet.csv",
+            "--expected-output", "/tmp/results",
+            "--bundle-path", "/tmp/viralrecon.lungfishrun",
+            "--executor", "local",
+        ])
+
+        let forwarded = try RunSubcommand.parse(command.forwardedWorkflowRunArguments)
+
+        XCTAssertEqual(forwarded.workflow, "nf-core/viralrecon")
+        XCTAssertEqual(forwarded.input, ["/tmp/samplesheet.csv"])
+        XCTAssertEqual(forwarded.expectedOutput, ["/tmp/results"])
+        XCTAssertEqual(forwarded.bundlePath, "/tmp/viralrecon.lungfishrun")
+        XCTAssertEqual(forwarded.executor, .local)
+        XCTAssertTrue(forwarded.globalOptions.quiet)
+    }
+
+    func testRunHeadlessForwardsOptionsAfterPassthroughDelimiter() throws {
+        let command = try RunHeadlessSubcommand.parse([
+            "nf-core/viralrecon",
+            "--",
+            "--input", "/tmp/samplesheet.csv",
+            "--expected-output", "/tmp/results",
+            "--dry-run",
+        ])
+
+        let forwarded = try RunSubcommand.parse(command.forwardedWorkflowRunArguments)
+
+        XCTAssertEqual(forwarded.input, ["/tmp/samplesheet.csv"])
+        XCTAssertEqual(forwarded.expectedOutput, ["/tmp/results"])
+        XCTAssertTrue(forwarded.dryRun)
+        XCTAssertTrue(forwarded.globalOptions.quiet)
+    }
+
     func testRunSubcommandAllowsOnlyViralReconNFCoreWorkflow() throws {
         let command = try RunSubcommand.parse([
             "nf-core/viralrecon",
@@ -1198,6 +1234,45 @@ final class WorkflowCommandRegressionTests: XCTestCase {
         } == true)
     }
 
+    func testLocalExecutionRequiresExpectedOutputBeforeLaunchingWorkflow() async throws {
+        let originalRunner = RunSubcommand.localWorkflowProcessRunner
+        let runner = StubLocalWorkflowProcessRunner(result: .init(
+            exitCode: 0,
+            standardOutput: "unexpected launch\n",
+            standardError: ""
+        ))
+        RunSubcommand.localWorkflowProcessRunner = runner
+        defer { RunSubcommand.localWorkflowProcessRunner = originalRunner }
+
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("local-missing-expected-output-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        let snakefileURL = tempDirectory.appendingPathComponent("Snakefile")
+        try "rule all:\n    shell: \"true\"\n".write(to: snakefileURL, atomically: true, encoding: .utf8)
+        let readsURL = tempDirectory.appendingPathComponent("reads.fastq")
+        try "@r1\nACGT\n+\n!!!!\n".write(to: readsURL, atomically: true, encoding: .utf8)
+        let bundleURL = tempDirectory.appendingPathComponent("snake.lungfishrun", isDirectory: true)
+
+        let command = try RunSubcommand.parse([
+            snakefileURL.path,
+            "--input", readsURL.path,
+            "--results-dir", tempDirectory.appendingPathComponent("results", isDirectory: true).path,
+            "--bundle-path", bundleURL.path,
+            "--quiet",
+        ])
+
+        do {
+            try await command.run()
+            XCTFail("Expected workflow run without --expected-output to fail before launching")
+        } catch let error as CLIError {
+            XCTAssertEqual(error.exitCode, .workflowError)
+            XCTAssertTrue(error.localizedDescription.contains("--expected-output"))
+        }
+        XCTAssertTrue(runner.invocations.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: bundleURL.path))
+    }
+
     func testLocalSnakemakeExecutionUsesInjectedRunnerAndUpdatesBundleStatusLogsAndProvenance() async throws {
         let originalRunner = RunSubcommand.localWorkflowProcessRunner
         let runner = StubLocalWorkflowProcessRunner(result: .init(
@@ -1288,6 +1363,48 @@ final class WorkflowCommandRegressionTests: XCTestCase {
         XCTAssertEqual(outputEnvelope.output?.path, expectedOutputURL.standardizedFileURL.path)
         XCTAssertTrue(outputEnvelope.outputs.contains { $0.path == expectedOutputURL.standardizedFileURL.path })
         XCTAssertTrue(outputEnvelope.argv.contains("--expected-output"))
+    }
+
+    func testNFCoreExecutionRequiresExpectedOutputBeforeLaunchingWorkflow() async throws {
+        let originalRunner = RunSubcommand.nfCoreWorkflowProcessRunner
+        let runner = StubNFCoreWorkflowProcessRunner(result: .init(
+            exitCode: 0,
+            standardOutput: "unexpected launch\n",
+            standardError: ""
+        ))
+        RunSubcommand.nfCoreWorkflowProcessRunner = runner
+        defer { RunSubcommand.nfCoreWorkflowProcessRunner = originalRunner }
+
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("nfcore-missing-expected-output-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        let samplesheetURL = tempDirectory.appendingPathComponent("samplesheet.csv")
+        try "sample,fastq_1,fastq_2\nS1,R1.fastq.gz,R2.fastq.gz\n".write(
+            to: samplesheetURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        let bundleURL = tempDirectory.appendingPathComponent("viralrecon.lungfishrun", isDirectory: true)
+
+        let command = try RunSubcommand.parse([
+            "nf-core/viralrecon",
+            "--input", samplesheetURL.path,
+            "--results-dir", tempDirectory.appendingPathComponent("results", isDirectory: true).path,
+            "--bundle-path", bundleURL.path,
+            "--executor", "local",
+            "--quiet",
+        ])
+
+        do {
+            try await command.run()
+            XCTFail("Expected nf-core workflow run without --expected-output to fail before launching")
+        } catch let error as CLIError {
+            XCTAssertEqual(error.exitCode, .workflowError)
+            XCTAssertTrue(error.localizedDescription.contains("--expected-output"))
+        }
+        XCTAssertTrue(runner.invocations.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: bundleURL.path))
     }
 
     func testNFCoreExecutionWritesExpectedOutputProvenance() async throws {

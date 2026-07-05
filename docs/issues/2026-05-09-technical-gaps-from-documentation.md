@@ -646,18 +646,23 @@ The Workflow Builder and Export chapters need updates to match the actual implem
 
 ---
 
-### #docs-022: Headless / batch CI mode for the GUI
+### #docs-022: Headless / batch CI mode for the GUI (headless entry resolved)
 
 **Severity:** P2
 
 **Where focus groups raised it:** Tool developer (David Okafor): "No mention of headless / batch mode for the GUI — can the app be invoked from CI?"
 
+Headless entry resolved: `lungfish run-headless <workflow> ...` is a display-free, quiet alias for
+`lungfish workflow run --quiet <workflow> ...` and forwards workflow-run flags, including
+the `--expected-output` paths required for executed scientific runs. The CI appendix includes
+worked GitHub Actions and CircleCI examples.
+
 **Acceptance criteria:**
 
-- [ ] `lungfish` CLI is sufficient for every operation the GUI exposes (true today for most operations)
+- [ ] Full CLI parity for every GUI operation remains tracked by specific command/workflow issues
 - [ ] If a GUI-only operation exists, document the gap explicitly
-- [ ] `lungfish run-headless <workflow.yaml>` confirms the app does not need a display server
-- [ ] Documentation chapter or appendix on running Lungfish in CI
+- [x] `lungfish run-headless <workflow> ...` confirms the app does not need a display server
+- [x] Documentation chapter or appendix on running Lungfish in CI
 
 ---
 

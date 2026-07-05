@@ -126,6 +126,10 @@ and behavior-preserving simplifications are useful and appropriate.
   command-runner and unsupported-contract workflow packages are labeled and blocked as beta1
   catalog-only imports; and the stale Workflow Library import design spec now matches the shipped
   single-pane scope.
+- 2026-07-05 follow-up: executed `lungfish workflow run` commands now require declared
+  `--expected-output` paths before process launch, ensuring completed workflow runs write focused
+  final-output provenance. The `run-headless` alias forwards workflow-run flags so CI remains
+  usable under the same provenance contract, and the CLI/manual examples were updated.
 
 ## Still Deferred
 

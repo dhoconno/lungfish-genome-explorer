@@ -30,6 +30,9 @@ changes that reduce future ambiguity across the codebase.
 - Fixed `conda classify` provenance option separation so resolved database paths, detected
   formats, materialized execution inputs, and defaulted flags are no longer reported as
   explicit user options.
+- Made executed `workflow run` fail closed unless at least one `--expected-output` is declared,
+  and updated `run-headless` to forward workflow-run flags so CI can satisfy the same final-output
+  provenance contract.
 - Fixed the targeted Kit/App callback hops without introducing the forbidden
   progress/notification `Task { @MainActor }` pattern.
 - Removed stale FASTQ sidebar accordion state and made Custom Fields visibility explicit.
