@@ -724,6 +724,44 @@ public actor NCBIService: DatabaseService {
         public let assemblyAccession: String
     }
 
+    private enum HeadFileInfoResult {
+        case found(GenomeFileInfo)
+        case unavailable(statusCode: Int)
+        case badResponse
+    }
+
+    private func headFileInfo(
+        fileURL: URL,
+        filename: String,
+        assemblyAccession: String,
+        timeout: TimeInterval
+    ) async throws -> HeadFileInfoResult {
+        var request = URLRequest(url: fileURL)
+        request.httpMethod = "HEAD"
+        request.timeoutInterval = timeout
+
+        let (_, response) = try await httpClient.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            return .badResponse
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            return .unavailable(statusCode: httpResponse.statusCode)
+        }
+
+        let fileSize = httpResponse.expectedContentLength > 0
+            ? httpResponse.expectedContentLength
+            : nil
+
+        return .found(GenomeFileInfo(
+            url: fileURL,
+            filename: filename,
+            estimatedSize: fileSize,
+            assemblyAccession: assemblyAccession
+        ))
+    }
+
     /// Gets information about the genomic FASTA file for an assembly.
     ///
     /// This method queries the FTP server (via HTTP) to find the genomic FASTA file
@@ -755,32 +793,23 @@ public actor NCBIService: DatabaseService {
             throw DatabaseServiceError.parseError(message: "Invalid genome file URL")
         }
 
-        // Get file size using HEAD request
-        var request = URLRequest(url: fileURL)
-        request.httpMethod = "HEAD"
-        request.timeoutInterval = 30
-
         logger.info("getGenomeFileInfo: HEAD \(fileURL.absoluteString, privacy: .public)")
-        let (_, response) = try await httpClient.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw DatabaseServiceError.networkError(underlying: "Bad server response")
-        }
-
-        // Check if file exists
-        guard httpResponse.statusCode == 200 else {
-            throw DatabaseServiceError.notFound(accession: summary.assemblyAccession ?? summary.uid)
-        }
-
-        // Get file size from Content-Length header
-        let fileSize = httpResponse.expectedContentLength > 0 ? httpResponse.expectedContentLength : nil
-
-        return GenomeFileInfo(
-            url: fileURL,
+        let assemblyAccession = summary.assemblyAccession ?? summary.uid
+        let result = try await headFileInfo(
+            fileURL: fileURL,
             filename: genomicFilename,
-            estimatedSize: fileSize,
-            assemblyAccession: summary.assemblyAccession ?? summary.uid
+            assemblyAccession: assemblyAccession,
+            timeout: 30
         )
+
+        switch result {
+        case .found(let info):
+            return info
+        case .badResponse:
+            throw DatabaseServiceError.networkError(underlying: "Bad server response")
+        case .unavailable:
+            throw DatabaseServiceError.notFound(accession: assemblyAccession)
+        }
     }
 
     /// Gets information about the GFF3 annotation file for an assembly.
@@ -815,35 +844,24 @@ public actor NCBIService: DatabaseService {
             return nil
         }
 
-        // Check if the GFF3 file exists using HEAD request
-        var request = URLRequest(url: fileURL)
-        request.httpMethod = "HEAD"
-        request.timeoutInterval = 15
+        let assemblyAccession = summary.assemblyAccession ?? summary.uid
 
         do {
-            let (_, response) = try await httpClient.data(for: request)
-
-            guard let httpResponse = response as? HTTPURLResponse else {
-                return nil
-            }
-
-            // Return nil if file does not exist (404 or other non-200 status)
-            guard httpResponse.statusCode == 200 else {
-                logger.info("getAnnotationFileInfo: GFF3 not available for \(summary.assemblyAccession ?? summary.uid, privacy: .public) (HTTP \(httpResponse.statusCode))")
-                return nil
-            }
-
-            // Get file size from Content-Length header
-            let fileSize = httpResponse.expectedContentLength > 0 ? httpResponse.expectedContentLength : nil
-
-            logger.info("getAnnotationFileInfo: Found GFF3 for \(summary.assemblyAccession ?? summary.uid, privacy: .public), size=\(fileSize ?? -1)")
-
-            return GenomeFileInfo(
-                url: fileURL,
+            switch try await headFileInfo(
+                fileURL: fileURL,
                 filename: gffFilename,
-                estimatedSize: fileSize,
-                assemblyAccession: summary.assemblyAccession ?? summary.uid
-            )
+                assemblyAccession: assemblyAccession,
+                timeout: 15
+            ) {
+            case .found(let info):
+                logger.info("getAnnotationFileInfo: Found GFF3 for \(assemblyAccession, privacy: .public), size=\(info.estimatedSize ?? -1)")
+                return info
+            case .badResponse:
+                return nil
+            case .unavailable(let statusCode):
+                logger.info("getAnnotationFileInfo: GFF3 not available for \(assemblyAccession, privacy: .public) (HTTP \(statusCode))")
+                return nil
+            }
         } catch {
             if isCancellation(error) {
                 throw error
@@ -882,32 +900,24 @@ public actor NCBIService: DatabaseService {
             return nil
         }
 
-        var request = URLRequest(url: fileURL)
-        request.httpMethod = "HEAD"
-        request.timeoutInterval = 15
+        let assemblyAccession = summary.assemblyAccession ?? summary.uid
 
         do {
-            let (_, response) = try await httpClient.data(for: request)
-
-            guard let httpResponse = response as? HTTPURLResponse else {
-                return nil
-            }
-
-            guard httpResponse.statusCode == 200 else {
-                logger.info("getAssemblyReportInfo: Assembly report not available for \(summary.assemblyAccession ?? summary.uid, privacy: .public) (HTTP \(httpResponse.statusCode))")
-                return nil
-            }
-
-            let fileSize = httpResponse.expectedContentLength > 0 ? httpResponse.expectedContentLength : nil
-
-            logger.info("getAssemblyReportInfo: Found assembly report for \(summary.assemblyAccession ?? summary.uid, privacy: .public), size=\(fileSize ?? -1)")
-
-            return GenomeFileInfo(
-                url: fileURL,
+            switch try await headFileInfo(
+                fileURL: fileURL,
                 filename: reportFilename,
-                estimatedSize: fileSize,
-                assemblyAccession: summary.assemblyAccession ?? summary.uid
-            )
+                assemblyAccession: assemblyAccession,
+                timeout: 15
+            ) {
+            case .found(let info):
+                logger.info("getAssemblyReportInfo: Found assembly report for \(assemblyAccession, privacy: .public), size=\(info.estimatedSize ?? -1)")
+                return info
+            case .badResponse:
+                return nil
+            case .unavailable(let statusCode):
+                logger.info("getAssemblyReportInfo: Assembly report not available for \(assemblyAccession, privacy: .public) (HTTP \(statusCode))")
+                return nil
+            }
         } catch {
             if isCancellation(error) {
                 throw error

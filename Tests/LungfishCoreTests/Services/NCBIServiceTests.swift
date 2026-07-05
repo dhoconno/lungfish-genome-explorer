@@ -455,6 +455,7 @@ final class NCBIServiceTests: XCTestCase {
         let requests = await mockClient.requests
         XCTAssertEqual(requests.count, 1)
         XCTAssertEqual(requests.first?.httpMethod, "HEAD")
+        XCTAssertEqual(requests.first?.timeoutInterval, 30)
         XCTAssertTrue(requests.first?.url?.absoluteString.contains("_genomic.fna.gz") == true)
     }
 
@@ -476,6 +477,7 @@ final class NCBIServiceTests: XCTestCase {
         let requests = await mockClient.requests
         XCTAssertEqual(requests.count, 1)
         XCTAssertEqual(requests.first?.httpMethod, "HEAD")
+        XCTAssertEqual(requests.first?.timeoutInterval, 15)
         XCTAssertTrue(requests.first?.url?.absoluteString.contains("_genomic.gff.gz") == true)
     }
 
@@ -497,6 +499,7 @@ final class NCBIServiceTests: XCTestCase {
         let requests = await mockClient.requests
         XCTAssertEqual(requests.count, 1)
         XCTAssertEqual(requests.first?.httpMethod, "HEAD")
+        XCTAssertEqual(requests.first?.timeoutInterval, 15)
         XCTAssertTrue(requests.first?.url?.absoluteString.contains("_assembly_report.txt") == true)
     }
 
@@ -511,6 +514,36 @@ final class NCBIServiceTests: XCTestCase {
         } catch {
             XCTFail("Expected URLError.cancelled, got \(error)")
         }
+    }
+
+    func testRequiredGenomeHeadNon200ThrowsNotFound() async throws {
+        await mockClient.register(
+            pattern: "_genomic.fna.gz",
+            response: .error(statusCode: 404, message: "Not Found")
+        )
+
+        do {
+            _ = try await service.getGenomeFileInfo(for: makeAssemblySummary())
+            XCTFail("Expected non-200 genome HEAD lookup to throw notFound")
+        } catch DatabaseServiceError.notFound(let accession) {
+            XCTAssertEqual(accession, "GCF_TEST_ASM")
+        } catch {
+            XCTFail("Expected DatabaseServiceError.notFound, got \(error)")
+        }
+    }
+
+    func testOptionalHeadNon200LookupsReturnNil() async throws {
+        await mockClient.setDefault(response: .error(statusCode: 404, message: "Not Found"))
+
+        let annotationInfo = try await service.getAnnotationFileInfo(for: makeAssemblySummary())
+        let reportInfo = try await service.getAssemblyReportInfo(for: makeAssemblySummary())
+
+        XCTAssertNil(annotationInfo)
+        XCTAssertNil(reportInfo)
+        let requests = await mockClient.requests
+        XCTAssertEqual(requests.count, 2)
+        XCTAssertTrue(requests.allSatisfy { $0.httpMethod == "HEAD" })
+        XCTAssertTrue(requests.allSatisfy { $0.timeoutInterval == 15 })
     }
 
     private func makeAssemblySummary() throws -> NCBIAssemblySummary {

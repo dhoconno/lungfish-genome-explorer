@@ -150,10 +150,11 @@ original refactor was constrained to behavior-preserving edits:
   now route their HEAD probes through the injectable `HTTPClient`; focused tests
   pin the three request paths and optional-lookup cancellation behavior.
 
-- **`dup-headrequest-fileinfo` (medium confidence).** The three HEAD methods are
-  ~90% identical but differ in throw-vs-return-nil error behavior and log text.
-  Deferred as a pure duplication item only; any shared `headFileInfo(...)`
-  helper must preserve `getGenomeFileInfo`'s throw semantics exactly.
+- **RESOLVED — shared HEAD-file lookup helper preserves caller semantics.**
+  `getGenomeFileInfo`, `getAnnotationFileInfo`, and `getAssemblyReportInfo`
+  now share one `headFileInfo(...)` request path. Regression tests pin the
+  strict required-genome `notFound` behavior, optional nil-on-unavailable
+  behavior, cancellation propagation, and caller-specific HEAD timeouts.
 
 - **RESOLVED — unstructured batch-stream producer tasks.** `NCBIService` and
   `ENAService` now capture the producer `Task`, cancel it from
