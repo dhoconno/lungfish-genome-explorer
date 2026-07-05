@@ -172,6 +172,8 @@ changes that reduce future ambiguity across the codebase.
   from a completed or superseded install cannot repopulate cleared setup progress UI.
 - Wired NVD import cancellation through the shared import-dialog action contract so Cancel
   invalidates pending preview validation, cancels the scan task, and prevents stale scan updates.
+- Moved Workflow Operation enablement notifications onto the main queue before refreshing
+  main-actor dialog state, removing the hidden assumption that all posters are main-threaded.
 
 ## Verification
 

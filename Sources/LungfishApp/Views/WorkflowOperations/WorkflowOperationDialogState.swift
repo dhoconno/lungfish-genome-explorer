@@ -239,7 +239,7 @@ final class WorkflowOperationDialogState {
             NotificationCenter.default.addObserver(
                 forName: .workflowLibraryEnablementDidChange,
                 object: nil,
-                queue: nil
+                queue: .main
             ) { [weak self] _ in
                 MainActor.assumeIsolated {
                     self?.refreshWorkflowAvailability()
