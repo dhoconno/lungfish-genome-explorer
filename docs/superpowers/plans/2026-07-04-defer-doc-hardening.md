@@ -180,6 +180,8 @@ changes that reduce future ambiguity across the codebase.
 - Made Workflow Builder native Open/Save consistently use `.lungfishflow` bundles: panels no
   longer advertise bare JSON, JSON-looking save paths normalize to bundles, and legacy JSON loads
   use the matching bundle path as the next save target.
+- Limited the Workflow Builder palette to node types marked as native FASTQ-runner supported,
+  so beta users are not offered normal runnable nodes that the compiler rejects.
 
 ## Verification
 

@@ -60,6 +60,18 @@ final class WorkflowBuilderAppIntegrationTests: XCTestCase {
         XCTAssertNotNil(item.image)
     }
 
+    func testWorkflowBuilderPaletteOnlyListsNativeRunnableNodes() throws {
+        let palette = WorkflowNodePalette()
+        let visibleNodeTypes = palette.nodeTypesForTesting
+        let expectedNodeTypes = WorkflowNodeType.allCases.filter(\.isBuilderNativeFASTQNode)
+
+        XCTAssertFalse(visibleNodeTypes.isEmpty)
+        XCTAssertEqual(Set(visibleNodeTypes), Set(expectedNodeTypes))
+        XCTAssertTrue(visibleNodeTypes.allSatisfy(\.isBuilderNativeFASTQNode))
+        XCTAssertFalse(visibleNodeTypes.contains(.alignment))
+        XCTAssertFalse(visibleNodeTypes.contains(.variantCalling))
+    }
+
     func testBuilderWorkflowLibraryLoadsProjectWorkflowsAndSelection() throws {
         let projectURL = try makeTemporaryDirectory().appendingPathComponent("Project.lungfish", isDirectory: true)
         try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
