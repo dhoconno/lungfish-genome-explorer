@@ -96,6 +96,19 @@ lungfish msa distance S-gene-10-isolates.lungfishmsa \
 
 The same command family also extracts a sub-alignment, masks or trims columns, edits annotations, and exports to other formats. `lungfish msa export` writes aligned FASTA, PHYLIP, NEXUS, Clustal, Stockholm, and the a2m/a3m HMMER formats through `--output-format`, for handing the alignment to a tool that expects one of them.
 
+The full set of `lungfish msa` actions, each writing a new file or bundle with its own provenance, is:
+
+| Subcommand | What it does | Key options |
+|---|---|---|
+| `msa consensus` | Collapse the alignment into a consensus FASTA or `.lungfishref`. | `--output-kind fasta\|reference`, `--threshold`, `--gap-policy omit\|include`, `--rows` |
+| `msa distance` | Write a pairwise distance matrix as TSV. | `--model identity\|p-distance`, `--rows`, `--columns` |
+| `msa extract` | Pull selected rows and columns into a new FASTA or MSA bundle. | `--output-kind fasta\|msa`, `--rows`, `--columns`, `--name` |
+| `msa mask columns` | Derive a bundle with columns masked non-destructively. | `--ranges`, `--gap-threshold`, `--conservation-below`, `--codon-position 1\|2\|3` |
+| `msa trim columns` | Derive a bundle with columns removed outright. | `--gap-only`, `--gap-threshold` |
+| `msa annotate` | Add, edit, delete, or project column annotations. | `add` / `edit` / `delete` / `project` verbs, with `--columns`, `--type`, `--strand` |
+
+The `mask` and `trim` actions each take a `columns` verb, hence `lungfish msa mask columns` and `lungfish msa trim columns`. Every action takes `--output` for the destination and `--force` to overwrite one that already exists.
+
 ## Procedure: infer a tree with IQ-TREE
 
 You launch tree inference from inside the open alignment, not from the Tools menu. With the MSA bundle open in the MSA viewport, right-click and choose **Build Tree with IQ-TREE…**. The **Phylogenetic Tree Operations** dialog opens (subtitle "Configure IQ-TREE for the selected multiple sequence alignment"), pre-populated with the current MSA bundle.
@@ -121,6 +134,8 @@ lungfish tree infer iqtree S-gene-10-isolates.lungfishmsa \
 ```
 
 Drop `--bootstrap` and the tree is built without support values, the CLI equivalent of leaving the Ultrafast Bootstrap box unticked. The builder command for the alignment itself is `lungfish align mafft <inputs> --project <dir>`; note that `lungfish msa` is a different command, one that transforms an existing alignment and cannot build one from unaligned FASTA.
+
+Several escape hatches on the CLI steer IQ-TREE past the defaults. `--sequence-type` forces the data type when auto-detection guesses wrong, taking `auto`, `DNA`, `AA`, `CODON`, `BIN`, `MORPH`, or `NT2AA`. `--alrt <n>` adds SH-aLRT support at the given replicate count, the command-line counterpart of the dialog's SH-aLRT box, while `--seed <n>` fixes the random seed for a reproducible run (default `1`) and `--force` overwrites an existing output bundle. For anything the wrapper does not surface, `--extra-iqtree-options` and `--extra-args` pass text straight through to IQ-TREE verbatim. Finally, `--iqtree-path` points at a specific `iqtree3` executable; without it Lungfish uses the binary from the Phylogenetics plugin pack (or the `LUNGFISH_IQTREE_PATH` environment variable), and reports that the pack must be installed if it finds none.
 
 <!-- SHOT: tree-viewport -->
 

@@ -70,6 +70,16 @@ If you truly need SPAdes' own upstream `--viral` pipeline, it is not a selectabl
 
    <!-- planned: assembly-viewport -->
 
+## Threads, memory, and error correction
+
+Three wizard controls sit outside the profile picker and govern how a run uses your machine.
+
+**Threads** is a slider that sets how many CPU threads the assembler uses. It ranges from 1 to the number of cores your Mac reports and defaults to the smaller of that count and 8. More threads finish faster up to a point, and leaving a core or two free keeps the rest of the machine responsive during a long run. The wizard maps this to SPAdes' `--threads`, and to the matching flag on the other assemblers (`--num-cpu-threads` for MEGAHIT, `--cores` for SKESA).
+
+**Memory Limit** is a slider that caps how much RAM the assembler may use, read in whole gigabytes from 1 up to the memory your Mac reports, and defaulting to roughly three-quarters of installed memory capped at 32 GB. The wizard shows it only for the assemblers that accept a memory budget, SPAdes, MEGAHIT, and SKESA, and passes the value as `--memory`. It is hidden for Flye and hifiasm, which take no such flag. Lowering the cap on a memory-hungry metagenome trades speed for a run that fits, often the difference between a finished assembly and an out-of-memory abort.
+
+**Skip error correction** is a toggle under Advanced Settings, shown for SPAdes, that passes SPAdes' `--only-assembler` flag. SPAdes normally runs a read error-correction stage before assembly; turning this on skips it and runs the assembler alone. Reach for it when your reads were already corrected upstream, or when the correction stage is the step that keeps failing on a difficult library. It is off by default, and off is the right setting for a routine run.
+
 ## Worked example: SRR36291587
 
 The fixture for this walkthrough is the SARS-CoV-2 Illumina amplicon run `SRR36291587`. Citation for the fixture lives in its `README.md`. Download the run via `File > Import > From SRA` and run the Assembly wizard against the resulting FASTQ bundle with SPAdes and its default Isolate profile.
@@ -127,11 +137,14 @@ The CLI command is `lungfish assemble`, and it follows the same tool and read-ty
 |---|---|
 | `--assembler <name>` | `spades` (default), `megahit`, `skesa`, `flye`, or `hifiasm` |
 | `--read-type <class>` | `illumina-short-reads`, `ont-reads`, or `pacbio-hifi`; auto-detected if omitted |
+| `--output <dir>` | Output directory for the assembly bundle; aliases `--output-dir` and `-o` |
+| `--project-name <name>` | Name for the assembly run and its output; alias `--name` |
 | `--paired` | Treat the two input files as paired-end mates |
 | `--profile <id>` | The profile, such as `isolate`, `meta-sensitive`, or `nano-hq`. There is no `viral` value. |
-| `--memory-gb <n>` | Memory budget for assemblers that accept one |
+| `--memory-gb <n>` | Memory budget for assemblers that accept one; alias `--memory` |
 | `--min-contig-length <bp>` | Minimum contig length post-filter |
-| `--extra-args "..."` | Pass-through options written exactly as the underlying tool expects them |
+| `--extra-args "..."` | Pass-through options as one quoted string, written exactly as the underlying tool expects them |
+| `--extra-arg <arg>` | A single pass-through argument; repeat the flag to pass several |
 
 A SARS-CoV-2 amplicon assembly is `lungfish assemble reads_R1.fastq.gz reads_R2.fastq.gz --paired --assembler spades --profile isolate`. There is no `--viral` profile; if you need SPAdes' own viral pipeline, append `--extra-args "--viral"` instead.
 

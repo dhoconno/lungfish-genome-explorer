@@ -73,6 +73,8 @@ lungfish markdup path/to/alignment.bam
 
 The command wraps a `samtools markdup` pipeline (name-sort, fixmate, coordinate-sort, mark, index; fixmate is what lets `markdup` reason about read pairs) and marks duplicates **in place**: it replaces the input BAM with the marked version and writes no separate output. There is no `--in` or `--out` flag. This bites in scripting. Wrap `markdup` in a loop over a cohort and it overwrites every source BAM, so copy the originals first if you need to keep them.
 
+Before it does any of that work, `markdup` checks whether the BAM already carries duplicate flags. If it does, the command skips the re-run, refreshes the index if one is missing, and reports the file as already marked in its summary. Pointing `markdup` at a cohort a second time is therefore cheap and safe: already-marked BAMs are left as they are. Pass `--force` to override that check and drive the full pipeline again, for example after re-mapping fresh reads into the same path.
+
 Mark and remove are two different verbs, and the plain command only marks. In-place `markdup` keeps every read and sets the duplicate flag on the copies; nothing is deleted, and a downstream tool can still see, or ignore, the flagged reads. To instead *drop* the flagged reads into a fresh bundle and leave the source untouched, use the escape hatch:
 
 ```
@@ -80,6 +82,15 @@ lungfish markdup path/to/alignment.bam --deduplicated-bundle path/to/dedup.lungf
 ```
 
 `--deduplicated-bundle` writes a sibling `.lungfishref` with the flagged duplicate reads removed, leaving the input untouched. The GUI equivalent is **Create Deduplicated Bundle** in the same Analysis section. One caution: the Inspector's **Mark Duplicates in Bundle Tracks** button marks every alignment track in the bundle, not just the one you selected.
+
+When the whole reference bundle needs cleaning rather than a single BAM, `lungfish bundle deduplicate-alignments` is the dedicated command. It copies the bundle, runs duplicate removal on every alignment track the bundle holds, and records reproducibility provenance in the output:
+
+```text
+lungfish bundle deduplicate-alignments MyGenome.lungfishref \
+  --output MyGenome-dedup.lungfishref
+```
+
+Omit `--output` and Lungfish writes a uniquely named deduplicated copy beside the source. This is the command-line twin of the **Create Deduplicated Bundle** button: both process every alignment track and both leave the original bundle in place.
 
 ## Thresholds by workflow
 

@@ -47,7 +47,7 @@ NCBI uses different accession schemes for different kinds of records, and the di
 
 A nucleotide accession looks like `MN908947.3`: a two-letter prefix, a number, a dot, and a version. Search for these with Mode set to **Nucleotide**, or **Virus** for curated viral records. They are also what `lungfish fetch ncbi` retrieves. Almost every viral reference in common use is a nucleotide accession, because a viral genome is usually a single molecule.
 
-An assembly accession looks like `GCF_009858895.2` (RefSeq) or `GCA_009858895.3` (GenBank). These are not single records but bundles of FASTA, annotation, and metadata for an entire assembled genome. The dialog handles them with Mode set to **Genome**, which downloads the assembly FASTA plus its GFF3 and builds a `.lungfishref` bundle. The same job runs from the command line as `lungfish fetch genome`, documented in the Genomes chapter. Either way, assembly accessions are a first-class case here, not something the dialog turns away.
+An assembly accession looks like `GCF_009858895.2` (RefSeq) or `GCA_009858895.3` (GenBank). These are not single records but bundles of FASTA, annotation, and metadata for an entire assembled genome. The dialog handles them with Mode set to **Genome**, which downloads the assembly FASTA plus its GFF3 and builds a `.lungfishref` bundle. The same job runs from the command line as `lungfish fetch genome`, covered in the command-line section below. Either way, assembly accessions are a first-class case here, not something the dialog turns away.
 
 The walkthroughs below use a single viral nucleotide accession, the most common starting point in this manual.
 
@@ -61,6 +61,8 @@ The GUI has no four-way file-format menu. Two checkboxes shape the bundle instea
 | RefSeq Only | Restricts results to curated RefSeq records (the `NC_`/`GCF_` series). | When you want the reviewed reference rather than any submitter's record. |
 | Mode: Nucleotide / Virus | Searches single-molecule nucleotide records. | Viral references and any one-molecule sequence. |
 | Mode: Genome | Searches and downloads whole assemblies. | Bacterial or eukaryotic assemblies keyed by `GCF_`/`GCA_`. |
+
+Both checkboxes belong to the **Nucleotide** and **Virus** modes. Switch **Mode** to **Genome** and the **Include GFF3 Annotations** and **RefSeq Only** checkboxes disappear, because a genome-assembly download always pulls the FASTA together with its GFF3 annotations, and the RefSeq or GenBank distinction is already fixed by the `GCF_` or `GCA_` accession you searched for.
 
 The four file formats FASTA, GenBank, GFF3, and XML are a command-line concept, exposed through `lungfish fetch ncbi --fetch-format`. In the GUI you never pick a file format. You pick a Mode, decide whether to include annotations, and Lungfish assembles the bundle for you.
 
@@ -122,6 +124,8 @@ lungfish fetch ncbi MN908947.3 NC_002549.1 NC_001802.1 \
 ```
 
 When the accessions are in a spreadsheet, the GUI can import an accession list from a CSV or text file and queue the whole set for download. When you have no accessions at all, `lungfish fetch search` runs a query and lists the matching accessions so you can pick before fetching. The European Nucleotide Archive is reachable directly too, through `lungfish fetch ena search`, `lungfish fetch ena fasta`, and `lungfish fetch ena reads`, useful when ENA holds a record NCBI has not mirrored.
+
+Whole genome assemblies keyed by `GCF_` or `GCA_` have their own command, `lungfish fetch genome <accession>`, which pulls the assembly FASTA and its GFF3 from NCBI Datasets and builds an indexed `.lungfishref` bundle. Two flags pare that back when you only want the raw files: `--fasta-only` saves just the decompressed FASTA and skips both annotations and the bundle, while `--no-bundle` keeps the FASTA and the annotations but stops short of assembling them into a `.lungfishref`. `--output-dir` sets the destination (default the current directory) and `--name` overrides the bundle name.
 
 Two flags matter for batches. `--db nucleotide` or `--db protein` picks the database, and `--api-key <key>` (or the `NCBI_API_KEY` environment variable) raises NCBI's rate limit for authenticated traffic:
 

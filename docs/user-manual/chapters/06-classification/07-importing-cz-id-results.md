@@ -45,6 +45,8 @@ In practice, export the result from CZ-ID first, then bring it into your project
 4. Confirm the command creates `/path/to/project.lungfish/Classifications/Sample-CZ-001.lungfishtax` and prints the sample name, row count, CZ-ID pipeline version, and NT/NR database versions when those columns are present.
 5. Open the project sidebar under **Classifications** and select the imported `.lungfishtax` bundle to view the taxonomy result.
 
+Before you commit the import, the sheet's **Preview** panel scans the export and reports what it found: the sample name, the project id when the export carries one, the row count, the source kind (TSV, ZIP, or extracted folder), the report file name, the CZ-ID pipeline version, the NT and NR database versions, and the first few taxa by name. The **Import** button stays disabled until a path is selected and the preview scan succeeds, so a malformed or empty export is caught before anything lands in the project.
+
 If you have a CZ-ID metadata sidecar or a non-host FASTQ artifact that should ride along with the audit trail, hand it to the importer so it lands in provenance:
 
 ```bash
@@ -60,6 +62,8 @@ For a quick look before importing, run:
 ```bash
 lungfish cz-id summary /path/to/cz-id-taxon-report.tsv --top 20
 ```
+
+By default `summary` prints a text table; add the global `--format json` or `--format tsv` for machine-readable output. The TSV form writes one header row and the columns `tax_id`, `name`, `rank`, `nt_reads`, `nt_rpm`, and `nr_reads`; the JSON form emits the top taxa as a pretty-printed array of records. Both forms respect `--top` and drop the root taxon before ranking by NT read count.
 
 A second CLI form handles a standalone import outside a project. `lungfish
 cz-id import <input> --output-dir <dir>` writes a self-contained `cz-id-<sample>`

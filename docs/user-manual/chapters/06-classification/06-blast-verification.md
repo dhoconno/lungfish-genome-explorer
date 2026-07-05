@@ -169,12 +169,26 @@ lungfish blast verify \
 ```
 
 `--taxid` selects the taxon to verify. `--reads` sets how many to submit
-(default 20). `--include-children` also pulls reads classified to descendant
+(default 20, and it must fall between 1 and 100, wider than the GUI slider's
+1-to-50 range). `--include-children` also pulls reads classified to descendant
 taxa. `--max-concurrent` caps in-flight submissions (default 1), and
 `--extra-args KEY=VALUE` passes extra NCBI URL-API parameters straight
 through. The command prints the same verdict the drawer shows: SUPPORTED,
 MIXED, UNSUPPORTED, or INCONCLUSIVE, with the supporting and contradicting
 counts and a link to the full NCBI result.
+
+The **Verification Results** block prints as a key-and-value table. It lists the
+Taxon, the Supporting and Contradicting counts (each out of the total reads
+submitted), Inconclusive (reads with no significant hit), Ambiguous, Unverified,
+Errors, the Confidence verdict, the BLAST RID, the Program, and the Database.
+The Program and Database are the fixed `blastn` and `nt`, printed so a captured
+log records exactly what ran.
+
+Add `-v` (`--verbose`) to expand a **Per-Read Results** block beneath the
+summary. It prints one line per submitted read: a `PASS`, `AMBG`, `FAIL`, or
+`ERR` verdict, the read ID, the read's top-hit organism, and the percent
+identity. Without `-v` those per-read lines stay hidden and only the summary
+table and the final verdict print.
 
 ## A note on rate limits
 

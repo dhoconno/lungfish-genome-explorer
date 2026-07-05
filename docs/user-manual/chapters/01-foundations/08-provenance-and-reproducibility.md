@@ -84,13 +84,33 @@ If your collaborator also runs LGE, you need not export at all. A project is jus
 
 For a deeper look at the runnable-script and pipeline formats, see [Exporting as Nextflow or Snakemake](../08-workflows/02-exporting-as-nextflow-or-snakemake.md).
 
+## Verifying and citing from the command line
+
+Two more `provenance` subcommands run from the command line, against a bundle or an export's `provenance/` directory. Neither has a menu equivalent, so reach for them when you are scripting or auditing outside the app.
+
+`lungfish provenance verify` checks a signed provenance sidecar against its signature. Point it at a sidecar file, a bundle, or an output directory:
+
+```sh
+lungfish provenance verify ~/Projects/SARS-CoV-2.lungfish
+```
+
+By default it looks for the signature beside the sidecar at `<sidecar>.signature.json` and the public key at `<sidecar>.pub`; pass `--signature` or `--public-key` to point elsewhere. On success it prints `Signature valid` along with the signing provider, the provenance SHA-256, and the two artifact paths it checked. Verification only means something for a sidecar that was actually signed, so it pairs with the Provenance Signing setting described below: with signing Off, there is nothing to verify.
+
+`lungfish provenance bibliography` reads a bundle's provenance and prints a citation for every tool it recognizes:
+
+```sh
+lungfish provenance bibliography ~/Projects/SARS-CoV-2.lungfish
+```
+
+Each matched tool prints its name, a formatted citation, and a DOI or URL when one is known. Tools the catalog does not recognize are listed separately under a "Tools without known citations" heading, so you can see at a glance which ones you still have to cite by hand.
+
 ## What provenance does not promise
 
 The run record names the tool, the version, the parameters, and the inputs. Three things it cannot promise:
 
 1. **External sources stay the same.** If your workflow downloads a SARS-CoV-2 reference from NCBI, LGE records the accession and the date you fetched it, but cannot promise NCBI will serve those exact bytes next year. A re-run against a different fetch date can land on different results if the upstream record was revised.
 2. **Tool environments stay identical across machines.** LGE pins the plugin pack version, the bundle that carries the tool, which makes a re-run on the same Mac reliable. Re-run on a different machine, a different OS version, or a different CPU family and tool output can shift a little. Some tools are sensitive to thread counts or hardware, others are not, and LGE tells you which.
-3. **The methods export is a very rough draft.** You still write the paper, and you will likely add more: formal citations for each tool, accession numbers and access dates for downloaded data, database DOIs for classification references. Read the draft against your actual methods to be sure the parameters match what you intended. LGE writes down what ran, not what you meant to run.
+3. **The methods export is a very rough draft.** You still write the paper, and you will likely add more: accession numbers and access dates for downloaded data, database DOIs for classification references, and citations for any tool the bibliography command does not recognize. You need not compose every tool citation by hand, though. `lungfish provenance bibliography`, described above, prints a formatted citation for each recognized tool as a starting point. Read the draft against your actual methods to be sure the parameters match what you intended. LGE writes down what ran, not what you meant to run.
 
 For clinical-audit workflows that need tamper-evident records, LGE offers a Provenance Signing option in `Settings > General`, set to Off by default. Off is the right setting for research work. The Local and Cosign Plan options exist for sites that must produce signed audit artifacts.
 

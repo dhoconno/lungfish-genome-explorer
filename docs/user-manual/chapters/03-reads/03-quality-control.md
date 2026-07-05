@@ -78,7 +78,12 @@ clean enough to proceed or needs trimming.
 
 To get the same summary as a standalone JSON file, for a pipeline log or
 an external dashboard, run `lungfish fastq qc-summary <reads.fastq> -o
-qc.json`. It takes several inputs at once and writes one report.
+qc.json`. It takes several inputs at once and writes one report. Two flags
+guard and shape that output. Without `--force`, the command refuses to
+write over a `qc.json` that already exists, so a re-run cannot silently
+clobber an earlier report; pass `--force` when you do mean to overwrite it.
+Pass `--compress` to gzip the JSON on the way out, handy when you are
+archiving many reports. Both are off by default.
 
 ## Interpretation
 

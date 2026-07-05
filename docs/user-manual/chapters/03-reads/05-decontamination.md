@@ -90,6 +90,8 @@ The provenance sidecar on the output bundle carries the same fields plus input a
 
 Every operation has a command-line equivalent: Remove Human Reads is `lungfish fastq scrub-human <reads> -o <out> --database-id deacon-panhuman`; Remove Ribosomal RNA is `lungfish fastq deacon-ribo <reads> -o <outdir>` (with `--retain norrna|rrna|both`); Remove Contaminants is `lungfish fastq contaminant-filter <reads> -o <out> --mode phix|custom`; Remove Duplicates is `lungfish fastq deduplicate <reads> -o <out>`.
 
+Two of those commands take extra flags worth knowing. `lungfish fastq deacon-ribo` decides what counts as an rRNA match by two thresholds on Deacon's minimizer hits. `--absolute-threshold` sets the minimum number of minimizer hits a read needs, defaulting to `1`, and `--relative-threshold` sets the minimum proportion of a read's minimizers that must hit, defaulting to `0` (no proportional floor) and accepting any value from 0 to 1. Raise either one to make the filter stricter and remove fewer reads. On the human side, `lungfish fastq scrub-human` writes a plain FASTQ by default; add `--compress` to gzip the cleaned output, which Lungfish also does on its own whenever the output path you give already ends in `.gz`.
+
 ## Worked example: human-scrubbing a clinical SARS-CoV-2 sample
 
 Say you imported a paired-end nasopharyngeal-swab FASTQ bundle from a SARS-CoV-2 surveillance run, and you plan to map against the Wuhan-Hu-1 reference and call variants. Before mapping, you run Remove Human Reads against the managed `deacon-panhuman` database.

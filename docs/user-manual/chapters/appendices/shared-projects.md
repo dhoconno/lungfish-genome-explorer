@@ -63,6 +63,12 @@ The command creates `.lungfish/project.lock` through an atomic write. Inside, th
 
 The `mode` value is a label by design, not a permission system. Use `exclusive` for work that should block other writers. Reach for a more specific label such as `maintenance` when you want other tools to show a clearer warning.
 
+For scripting, add `--format json` and `lungfish project lock` prints this same record to standard output when it succeeds, so a wrapper can capture the lock metadata without reading the file back:
+
+```sh
+lungfish project lock ~/Projects/SARS-CoV-2.lungfish --mode exclusive --format json
+```
+
 The lock file is a coordination record, not an OS-level lease. The CLI process that wrote it exits the instant `lungfish project lock` returns, so the recorded `pid` belongs to that short-lived CLI process, not to your shell or your maintenance script. Any other tool inspecting the lock will treat a local lock whose recorded process has died as stale, and may replace it. The practical rules:
 
 1. If a lock already exists and the recorded process is still live on this host, `lungfish project lock` refuses to replace it.
@@ -87,6 +93,12 @@ lungfish project unlock ~/Projects/SARS-CoV-2.lungfish --force
 
 Use `--force` only after you have confirmed the owner is no longer working in the project. A forced unlock deletes the file. It does not stop the other process.
 
+Like the other project commands, `lungfish project unlock` accepts `--format json`. On a successful removal it prints a small object naming the lock file it deleted and confirming removal, which a cleanup script can check:
+
+```sh
+lungfish project unlock ~/Projects/SARS-CoV-2.lungfish --format json
+```
+
 ## Migration reports
 
 Run `migrate` when you inherit an older project, or before you share a project with a newer LGE installation:
@@ -106,6 +118,8 @@ The current migration report lists manifest-backed Lungfish bundle directories, 
 A `1.0` reference bundle that already carries a `browser_summary` field in its manifest is reported as `current` with action `none`, and neither its `manifest.json` nor any `.lungfish-provenance.json` sidecar is rewritten. A `1.0` reference manifest that is missing `browser_summary` gets a schema-maintenance migration instead. With `--dry-run`, the report flags it as `migration-available` with action `dry-run-synthesize-browser-summary`. Without `--dry-run`, LGE synthesizes the `browser_summary` field, backs up the original manifest under `.lungfish/migrations/`, and writes migration provenance describing the change.
 
 Unsupported legacy bundles are reported as `unsupported` with action `report-only` or `dry-run-report`, and they are neither renamed nor changed. That restraint is deliberate. A migration that rewrites scientific bundle data has to know the old schema, copy or rewrite the payload, preserve the provenance sidecars, and keep the original data by moving it to a `.v<old>` suffix before the new bundle takes its place. Until a schema-specific transformer exists, LGE reports the gap rather than pretend to migrate.
+
+A bundle whose `manifest.json` is present but cannot be decoded, truncated, corrupt, or written in a shape this build does not understand, is reported as `unreadable` with action `report-only`, and its message quotes the decode error. LGE leaves an unreadable bundle exactly as found, just as it does an unsupported one. Both roll up under the report's `unsupported` count, so a nonzero unsupported total can mean either a legacy schema with no transformer yet or a manifest LGE simply could not parse. Read the per-bundle status to tell the two apart.
 
 Use `--dry-run` when you only want the scan result:
 

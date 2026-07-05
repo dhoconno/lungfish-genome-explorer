@@ -120,6 +120,20 @@ overrides the default bundle name, which otherwise comes from the source
 filename; `-o`/`--output-dir` points at the target project when you are
 not already inside it.
 
+Attaching annotations is not a GUI-only step. When you have a standalone
+GFF3, GTF, or BED to fold in alongside the sequence, build the bundle with
+`lungfish bundle create` instead, which takes one or more `--annotation`
+files:
+
+```bash
+lungfish bundle create --fasta MN908947.3.fasta --annotation MN908947.3.gff3 \
+  --name MN908947.3 --output-dir .
+```
+
+The `--annotation` flag repeats, so several feature files can ride into one
+bundle. The result matches what the Import Center produces when you attach
+the same files by hand.
+
 ## Procedure: import the SARS-CoV-2 reference
 
 This walkthrough imports the SARS-CoV-2 Wuhan-Hu-1 reference, NCBI
@@ -242,11 +256,13 @@ which one is coding.
 Open a sequence bundle, then choose **Sequence > Translate…**. A sheet opens
 with a Mode control offering `Single Frame`, `3 Forward`, `3 Reverse`, and
 `All 6 Frames`; pick `Single Frame` to reveal a picker for one specific frame.
-Choose the genetic code under `Genetic Code`, leave `Show Stop Codons` on if you
-want stop positions marked, and click `Apply`. The translation appears as an
-overlay aligned to the bases in the viewport, and `Hide Translation` clears it.
-The in-app tool overlays the translation for reading; it writes no protein
-file.
+Choose the genetic code under `Genetic Code`. Under `Display Options`, the
+`Color Scheme` picker sets how the overlaid residues are tinted: `Zappo`
+(the default, grouping by physicochemical property), `ClustalX`, `Taylor`, or
+`Hydrophobicity`. Leave `Show Stop Codons` on if you want stop positions
+marked, and click `Apply`. The translation appears as an overlay aligned to the
+bases in the viewport, and `Hide Translation` clears it. The in-app tool
+overlays the translation for reading; it writes no protein file.
 
 ### From the command line
 
@@ -263,7 +279,10 @@ code (default 1, the standard code). Three flags shape the output:
 `--no-stop-asterisk` drops the `*` characters that mark stops, and
 `--longest-orf` keeps only the longest stop-free stretch per frame. The command
 drops a provenance sidecar next to the output, recording the exact options
-used.
+used. Adding the global `--format json` flag prints a machine-readable summary
+of the run (input and output files, sequence and translation counts, and the
+genetic code) to standard output, handy when a script needs to confirm what was
+produced.
 
 ## Annotating features on a sequence
 
@@ -279,9 +298,10 @@ software to propose candidate coding regions for you.
 ### Adding one annotation by hand
 
 Drag across the bases in the sequence viewport to select a region, then choose
-**Sequence > Add Annotation…**. A dialog asks for a name, a type (`gene`,
-`CDS`, `exon`, `mRNA`, `region`, and a few others), and a strand (`+`, `-`, or
-none). Click **Add**. Lungfish writes the annotation into the bundle's
+**Sequence > Add Annotation…**. A dialog asks for a name, a type, and a
+strand. The type menu offers `gene`, `CDS`, `exon`, `mRNA`, `region`,
+`misc_feature`, `promoter`, `primer`, and `restriction_site`; the strand menu
+offers `+`, `-`, or `none`. Click **Add**. Lungfish writes the annotation into the bundle's
 annotation track and redraws the viewport with the new labelled block. It saves
 inside the `.lungfishref` bundle, so it travels with the reference.
 
@@ -290,7 +310,7 @@ inside the `.lungfishref` bundle, so it travels with the reference.
 An open reading frame (ORF) is a stretch that begins with a start codon and
 runs to a stop codon without a break, which makes it a candidate
 protein-coding region. Choose **Sequence > Find ORFs…** on an open reference
-bundle. The dialog exposes five controls:
+bundle. The dialog's main controls are:
 
 - `Reading Frames`: checkboxes for `+1`, `+2`, `+3`, `-1`, `-2`, `-3` (all six on by default).
 - `Codon table`: the genetic code used to recognise starts and stops.
@@ -298,9 +318,15 @@ bundle. The dialog exposes five controls:
 - `Include partial ORFs`: keep ORFs that run off the end of the selected range.
 - `Allow alternative starts`: also treat `GTG`, `TTG`, and `CTG` as starts.
 
-Click **Run**. Lungfish writes a new annotation track (named `ORFs` by default)
-into the bundle, one feature per ORF, each carrying its translated protein as an
-attribute. The same operation runs from the command line:
+An `Output` section names where the results land: a `Track name` field,
+prefilled with the sequence name followed by ` ORFs` (for the SARS-CoV-2
+reference, `MN908947.3 ORFs`), and a `Track ID` field holding the track's
+stable identifier.
+
+Click **Run**. Lungfish writes a new annotation track into the bundle, one
+feature per ORF, each carrying its translated protein as an attribute. The same
+operation runs from the command line, where the `--track-name` option instead
+defaults to `ORFs`:
 
 ```bash
 lungfish sequence annotate-orfs MN908947.3.lungfishref \

@@ -196,9 +196,17 @@ lungfish bundle export MN908947.3.lungfishref \
     --plugin-pack variant-calling
 ```
 
-`lungfish bundle extract-annotations <bundle> [--output <path>]`
+`lungfish bundle extract-annotations --bundle <bundle> --track <id-or-name> --output-bundle <path> [--feature-type <type>] [--name-prefix <prefix>] [--replace]`
 
-Extracts annotation features from a reference bundle as standalone files. The full `bundle` group also includes `info`, `validate`, `deduplicate-alignments`, and `create`/`list`/`export` shown above; run `lungfish bundle --help` for the complete set.
+Extracts annotated feature sequences from a source `.lungfishref` bundle into a new `.lungfishref` bundle. `--bundle`, `--track` (an annotation track id or name), and `--output-bundle` are all required. `--feature-type` selects which feature type to pull (default `gene`), `--name-prefix` keeps only features whose name or gene name starts with the prefix, and `--replace` overwrites an existing output bundle. The full `bundle` group also includes `info`, `validate`, `deduplicate-alignments`, and `create`/`list`/`export` shown above; run `lungfish bundle --help` for the complete set.
+
+```bash
+lungfish bundle extract-annotations \
+    --bundle MN908947.3.lungfishref \
+    --track genes \
+    --output-bundle MN908947.3-genes.lungfishref \
+    --feature-type gene
+```
 
 ## Mapping and alignment
 
@@ -236,7 +244,7 @@ Marks PCR duplicates with samtools markdup. The argument is a single positional 
 
 Run variant callers against an alignment track.
 
-`lungfish variants call --bundle <bundle> --alignment-track <id> --caller <ivar|lofreq|medaka|bcftools> [--ivar-primer-trimmed] [--min-af <float>] [--extra-args <args>] [--name <name>]`
+`lungfish variants call --bundle <bundle> --alignment-track <id> --caller <ivar|lofreq|medaka|bcftools|clair3> [--ivar-primer-trimmed] [--medaka-model <id>] [--min-af <float>] [--extra-args <args>] [--name <name>]`
 
 | Flag | Meaning |
 |---|---|
@@ -244,7 +252,9 @@ Run variant callers against an alignment track.
 | `--caller lofreq` | Run LoFreq (designed for shotgun). Run on un-trimmed BAM. |
 | `--caller medaka` | Run Medaka (designed for ONT). Requires `--medaka-model`. |
 | `--caller bcftools` | Run `bcftools mpileup -Ou | bcftools call -mv -Ov` as an orthogonal short-read cross-check. |
+| `--caller clair3` | Run Clair3 (deep-learning caller for ONT and PacBio). Pass its model path via `--medaka-model`. |
 | `--ivar-primer-trimmed` | Acknowledge that the BAM is primer-trimmed (auto-set when sidecar present). |
+| `--medaka-model <id>` | ONT/basecaller model identifier for Medaka, or the Clair3 model path for Clair3. Required by both callers. |
 | `--min-af <float>` | Minimum allele frequency threshold (iVar default: 0.05). |
 | `--extra-args <args>` | Additional caller options forwarded to the selected caller. For bcftools, these are passed to `bcftools call`. |
 | `--name <name>` | Output track name. |
@@ -312,6 +322,16 @@ lungfish extract reads --by-classifier --tool kraken2 \
 ```
 
 The `--taxon` flag applies to `--by-classifier --tool kraken2`; for the other tools (`esviritu`, `taxtriage`, `naomgs`, `nvd`) select reads with `--accession` instead. To pull reads straight from an NAO-MGS SQLite database, use `--by-db --database <db> --db-taxid <id> -o <path>`. The two other modes are `--by-id` (a read-ID list against source FASTQs) and `--by-region` (a genomic region against a sorted, indexed BAM). Add `--bundle` to any mode to emit a `.lungfishfastq` bundle.
+
+The `--by-region` mode pulls reads overlapping one or more genomic regions out of a sorted, indexed BAM. It requires `--bam <path>` plus at least one `--region <chrom[:start-end]>`; repeat `--region` for several intervals. By default it keeps unmapped reads (samtools `-F 0x400`); pass `--exclude-unmapped` to apply the stricter `-F 0x404` filter that also drops unmapped mates. `samtools` must be available.
+
+```bash
+lungfish extract reads --by-region \
+    --bam aligned.bam \
+    --region NC_005831.2 \
+    --exclude-unmapped \
+    -o region_reads.fastq
+```
 
 For results produced outside Lungfish, `lungfish nvd` and `lungfish cz-id` import Novel Virus Diagnostics and CZ-ID outputs; see the [Other classifiers and importers](#other-classifiers-and-importers) section.
 
@@ -423,13 +443,29 @@ package versions. The install writes provenance to the conda root.
 
 Lists installed packs and their versions.
 
-`lungfish conda remove --pack <name>`
+`lungfish conda remove <environment...>`
 
-Removes a pack.
+Removes one or more conda environments and their tools. This takes positional environment names, not `--pack`; run `lungfish conda envs` first to see the installed environment names.
 
 `lungfish conda search <query>`
 
 Searches the bioconda index for available packs.
+
+`lungfish conda setup`
+
+Downloads and installs micromamba into the managed conda root. Run this once on a fresh machine before installing packs.
+
+`lungfish conda run [--env <name>] <tool> [args...]`
+
+Runs a tool from a managed conda environment. The environment defaults to the tool name; pass `--env` to target a differently named environment. The tool's stdout, stderr, and exit code pass through.
+
+`lungfish conda packs`
+
+Lists the available built-in plugin packs with their ids and bundled packages.
+
+`lungfish conda envs`
+
+Lists installed conda environments with package counts and on-disk sizes.
 
 ## Sequence utilities
 
@@ -457,10 +493,14 @@ Finds open reading frames and adds them as a new annotation track on a reference
 
 `lungfish universal-search <project-path> --query <text> [--limit <n>] [--reindex] [--stats]`
 
-Searches datasets and analysis artifacts within a single project: FASTQ datasets, reference and VCF metadata, classification results, and flattened JSON manifests. The query supports field filters such as `type:fastq_dataset`, `virus:HKU1`, or `date>=2025-01-01`.
+Searches datasets and analysis artifacts within a single project: FASTQ datasets, reference and VCF metadata, classification results, EsViritu detections, and flattened JSON manifests. The index builds on first use and rebuilds with `--reindex`. `--limit` caps the result count (default 200).
+
+The query is a space-separated token list. Recognized field tokens are `type:<kind>` (dataset kind), `format:<format>`, `sample:<value>`, `virus:<value>`, and `role:<value>`; `role` matches exactly while the others match as substrings. Date bounds use `date>=YYYY-MM-DD` and `date<=YYYY-MM-DD`, numeric attribute comparisons use `key>=n`, `key<=n`, `key>n`, `key<n`, or `key=n`, and any other `key:value` becomes a generic substring attribute filter. Quote a value to keep spaces; bare words are matched as free text.
+
+`--stats` adds diagnostics: query and total timing, indexed entity and attribute counts, and per-kind counts. Combine with the global `--format json` or `--format tsv` to script the output. Each result carries `kind`, `title`, `subtitle`, `format`, and a project-relative `path` (JSON also includes the entity `id`). TSV emits those columns with a header row and, when `--stats` is set, writes the timing and count summary to stderr; JSON nests the same diagnostics under a `stats` object.
 
 ```bash
-lungfish universal-search ./MyProject.lungfish --query "virus:HKU1" --stats
+lungfish universal-search ./MyProject.lungfish --query "type:fastq_dataset virus:HKU1 date>=2025-01-01" --stats
 ```
 
 ## Alignment and phylogenetics
@@ -560,9 +600,9 @@ when you need citations.
 
 Sequence-level utilities that do not need a project.
 
-`lungfish convert <input> --to <path> [--to-format <format>]`
+`lungfish convert <input> --to <path> [--to-format <format>] [--include-annotations] [--force]`
 
-Converts between supported sequence formats. The input is positional and the output file is named by `--to` (required); there is no `--in`/`--out`. `--to-format` accepts `fasta` (default), `genbank`, `gff3`, or `fastq`; the input format is auto-detected from its extension.
+Converts between supported sequence formats. The input is positional and the output file is named by `--to` (required); there is no `--in`/`--out`. `--to-format` accepts `fasta` (default), `genbank`, `gff3`, or `fastq`. The input format is auto-detected from the extension across FASTA (`.fa`, `.fasta`, `.fna`, `.faa`), GenBank (`.gb`, `.gbk`, `.genbank`), FASTQ (`.fastq`, `.fq`), and `.lungfishref` bundles; a trailing `.gz` is stripped before detection, so gzipped inputs are accepted. `--include-annotations` carries annotations into the output and is required for `gff3` output, which fails when there are no annotations to write; it also pulls a `.lungfishref` bundle's annotation tracks into GenBank or GFF3 output. `--force` overwrites an existing output file.
 
 `lungfish search <pattern> --in <path>`
 
@@ -576,9 +616,13 @@ Acts on a `.lungfishmsa` bundle. Subcommands are `actions`, `describe`, `annotat
 
 Infers a phylogenetic tree with IQ-TREE. The `iqtree` subcommand is required, the MSA bundle path is positional, and `--project` and `--output` are both mandatory. There is no `--msa` or `--out` flag. Tune the run with `--model` (default `MFP`), `--bootstrap`, and `--alrt`.
 
-`lungfish debug <subcommand>`
+`lungfish debug env [--check-tools] [--tool <name>]`
 
-Diagnostic commands (env check, container diagnostics, log parser).
+Reports the host environment: macOS version, CPU cores, memory, and a Container Support line that states whether Apple Containerization is available (macOS 26 or later). `--check-tools` probes common bioinformatics tools on `PATH`; `--tool` checks a single named tool. This is the default `debug` subcommand.
+
+`lungfish debug container [--pull-test] [--test-image <ref>]`
+
+Runs Apple Container runtime diagnostics. With no flags it reports whether the Apple Containerization framework is available and ready. `--pull-test` initializes the runtime and pulls a test image end to end; `--test-image` overrides the image reference (default `docker.io/condaforge/miniforge3:latest`, which must have arm64/linux support). The remaining `debug` subcommands are `fastq-ingest` and `workflow-log`.
 
 ## Global flags
 

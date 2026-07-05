@@ -105,6 +105,17 @@ lungfish freyja demix \
     --sample sample-001
 ```
 
+One behavior is worth calling out because it surprises people: `--dry-run` wins
+over `--execute`. Pass both flags and Freyja does not run. Lungfish still writes
+and prints the command plan, but it records the operation as a dry run in
+provenance and skips the tool call. Drop `--dry-run` entirely when you actually
+want `--execute` to launch Freyja.
+
+When the run does execute, Freyja writes its lineage-abundance table to
+`freyja-demix.tsv` inside the `--output-dir`, next to `freyja-command-plan.json`
+and the provenance sidecar. A dry run writes the plan and provenance but not
+that table, since Freyja never runs.
+
 Advanced Freyja arguments pass through with `--extra-args`:
 
 ```bash

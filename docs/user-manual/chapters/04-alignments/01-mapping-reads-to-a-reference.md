@@ -106,10 +106,12 @@ can find either one.
 | Spliced transcripts (cDNA)      | Spliced CDS/cDNA     | `splice`             |
 
 Which labels appear depends on the mapper. The assembly, splice, and PacBio
-CLR presets above are minimap2 modes; BBMap offers its own two, "Standard" and
-"PacBio", instead of these tokens. For ordinary viral and bacterial work you
-will reach for "Short-read", "Oxford Nanopore", or "PacBio HiFi" and never
-touch the rest.
+CLR presets above are minimap2 modes; BBMap offers its own two instead of these
+tokens. In the BBMap wizard they read "Standard" and "PacBio"; on the command
+line the `--preset` flag takes `bbmap-standard`, the mode BBMap falls back to
+when you omit the flag, and `bbmap-pacbio` for BBMap's long-read mode. For
+ordinary viral and bacterial work you will reach for "Short-read", "Oxford
+Nanopore", or "PacBio HiFi" and never touch the rest.
 
 Pairing follows from the reads you selected, with no control in the wizard.
 Select a single FASTQ bundle and the run is single-end. Select a bundle that
@@ -194,7 +196,9 @@ row you clicked to open the wizard.
    <!-- planned: mapping-wizard-overview -->
 3. Under **Reference**, click the picker and choose the reference bundle you
    want to map against. The picker lists every `.lungfishref` already imported
-   into the project (see chapter 02-01).
+   into the project (see chapter 02-01). To map against a FASTA that is not in
+   the project, click **Browse...** below the picker and select the reference
+   file; the wizard adds it to the picker and selects it for this run.
 4. Under **Preset**, pick the label that matches your data type from the table
    above. Then check the **Input Compatibility** readout below it: it reports
    the detected format, the read class, and the longest observed read, and it
@@ -257,6 +261,12 @@ lungfish bam adopt-mapping \
 it at. A plain `.fasta` always works. A `.lungfishref` bundle works only when
 Lungfish can extract the bundle's primary FASTA, so if a bundle path is
 rejected, pass the FASTA inside it instead.
+
+`lungfish bam adopt-mapping` mints a fresh alignment-track identifier of the
+form `aln_<hex>` for each adoption. Add `--track-id` to set that identifier
+yourself when a script needs a stable, predictable handle for the track it just
+attached; omit it and Lungfish generates one and records in the adoption
+provenance that the identifier was defaulted.
 
 Both forms write the same provenance sidecar, so a GUI run and a CLI run
 of identical inputs produce identical recorded methods.

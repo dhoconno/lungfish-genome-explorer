@@ -130,7 +130,30 @@ strongest signals to the top, and read Unique Reads beside Hits: a taxon with
 many hits but few unique reads is leaning on a small number of fragments, and
 it deserves more scrutiny than the hit count alone suggests.
 
-Select a taxon to fill the detail pane. For an accession with alignment data,
+Above the table sits a filter bar with a **sample filter** button. It reads
+"All Samples" when every sample is in view and "N of M Samples" once you narrow
+the set. Click it to open a sample picker popover; the table, its Sample column,
+and any metadata columns redraw for the samples you keep, so a multi-sample
+import can be read one sample at a time.
+
+Select a taxon to fill the detail pane. It opens with the taxon name, a subtitle
+carrying the taxid, the unique-over-total read counts, and the accession count,
+then a row of five **metric pills**: Avg Identity, Avg Bit Score, Avg Edit Dist,
+Unique Reads, and Accessions. Read the pills as the taxon's hit quality at a
+glance before you drop into the per-reference coverage below them.
+
+Below the pills the pane stacks a set of **miniBAM panels**, one per reference
+accession the taxon's reads landed on, ordered by unique read count and capped
+at the top five (the header reads
+`miniBAM Panels (Top 5: N of M accessions)`). Each panel leads with a clickable
+accession that opens the record on NCBI GenBank, a stats line giving
+unique-over-total reads and covered-over-reference base pairs with a coverage
+percentage, and an embedded pileup you can drag taller by the handle at its
+lower edge. This is where multi-accession coverage lives: a taxon whose reads
+spread across a reference is stronger evidence than one that piles onto a single
+window of a single accession.
+
+For an accession with alignment data,
 the pane draws a **coverage sparkline**, a small depth track across the
 reference, the same plot the EsViritu viewport uses. Read it the same way: a
 track that spreads across the reference is stronger evidence than one that

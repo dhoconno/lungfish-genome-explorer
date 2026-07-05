@@ -55,12 +55,16 @@ and what it deliberately will not do.
 
 Before the assistant can answer anything, connect a provider. A
 bring-your-own-key provider is an external AI service you hold your own
-account and API key for. Open **Lungfish > Settings** and go to the **AI
-Services** tab. Choose a provider, paste your API key, and enable AI
+account and API key for. Lungfish supports three: Anthropic, OpenAI, and
+Google Gemini. Open **Lungfish > Settings** and go to the **AI Services**
+tab. Choose your preferred provider, paste your API key, and enable AI
 services. Lungfish stores the key in the system keychain, not in your
-project. You can configure more than one provider: if your primary provider
-is unreachable because of a network problem or a rate limit, the assistant
-tries the next one you configured.
+project. You can configure more than one. The assistant uses your preferred
+provider first, then falls back through the others in turn, so if your
+primary is unreachable because of a network problem, a rate limit, or an
+empty balance, a second configured provider can still answer. A provider
+whose key is missing or out of credit is skipped rather than tried. If you
+have not chosen a preference, Anthropic is the default.
 
 If no key is set, the panel will tell you AI services are disabled and point
 you back to this tab. Nothing you type is sent anywhere until a valid key is
@@ -89,15 +93,30 @@ your selected and visible table rows, you can also ask it about "these
 variants" or "the selected samples" and it will read the current selection
 before answering.
 
+### Step 3. Clear the conversation when you switch context
+
+The **Clear** button at the top of the panel wipes the current conversation
+and starts fresh. It removes every message, restores the welcome message,
+and brings back the suggested questions drawn from your loaded data.
+Clearing is local to the panel and changes nothing in your project. Use it
+when you move to a different dataset, or when a long thread has drifted and
+you want the assistant to reason from a clean slate.
+
 ## What the assistant can and cannot do
 
 On the can-do side, the assistant interprets and explains, and it looks
 things up in your loaded data. Within a single request it reads the active
 viewer state, searches your genome data for genes and variants, reports
 variant statistics and gene details, moves the browser view to a gene or
-region you ask about, and searches PubMed for related literature. Where it
-helps most is explaining a result, a dialog, or an unfamiliar term, and
-suggesting which workflow fits your question.
+region you ask about, and searches PubMed for related literature. When you
+ask about a specific gene, variant, or region, it also volunteers practical
+wet-lab follow-ups on its own: candidate assays such as expression, protein,
+or functional readouts, and species-appropriate reagents, prioritizing
+antibodies validated in your dataset's organism and flagging when only
+cross-reactive ones are likely. Treat those reagent suggestions as leads to
+confirm against vendor datasheets and current literature, never as validated
+picks. Where it helps most is explaining a result, a dialog, or an
+unfamiliar term, and suggesting which workflow fits your question.
 
 What it cannot do is change your data or your project. This is not a
 data-modifying agent: it does not edit files, run analysis workflows or
