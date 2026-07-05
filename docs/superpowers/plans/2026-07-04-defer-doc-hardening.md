@@ -90,6 +90,9 @@ changes that reduce future ambiguity across the codebase.
   SELECT projection, with legacy-schema coverage for the post-release columns.
 - Moved `AlignmentDataProvider` samtools process waits off the caller executor by delegating
   the blocking process lifecycle to a detached worker, with behavioral fake-samtools coverage.
+- Extracted BlastService gzip decompression process setup into one helper while keeping Kraken
+  byte residual parsing, FASTQ string residual parsing, retry behavior, and failure mapping
+  separate and covered.
 
 ## Verification
 

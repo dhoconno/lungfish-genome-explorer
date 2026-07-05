@@ -1640,6 +1640,37 @@ final class BlastBuildRequestTests: XCTestCase {
         XCTAssertEqual(request.sequences.first?.id, "read_001")
     }
 
+    func testCorruptCompressedKrakenOutputThrowsInputReadFailure() async throws {
+        let classURL = tempDir.appendingPathComponent("output.kraken.gz")
+        try Data("not a gzip stream".utf8).write(to: classURL)
+
+        let sourceURL = tempDir.appendingPathComponent("reads.fastq")
+        try "@read_001\nATGCATGC\n+\nIIIIIIII\n"
+            .write(to: sourceURL, atomically: true, encoding: .utf8)
+
+        do {
+            _ = try await service.buildVerificationRequest(
+                taxonName: "E. coli",
+                taxId: 562,
+                targetTaxIds: [562],
+                classificationOutputURL: classURL,
+                sourceURL: sourceURL,
+                readCount: 20
+            )
+            XCTFail("Expected corrupt gzipped Kraken output to fail before sequence extraction")
+        } catch let error as BlastServiceError {
+            if case .noSequences = error {
+                XCTFail("Corrupt gzipped Kraken output should report gzip failure, not no matching sequences")
+            }
+            XCTAssertTrue(
+                error.localizedDescription.localizedCaseInsensitiveContains("gzip"),
+                "Expected gzip/decompression error, got \(error.localizedDescription)"
+            )
+        } catch {
+            XCTFail("Expected BlastServiceError, got \(error)")
+        }
+    }
+
     func testPairedEndSuffixStripping() async throws {
         // Kraken2 output uses /1 suffix, FASTQ uses /1 suffix — both should be stripped
         let classURL = tempDir.appendingPathComponent("output.kraken")

@@ -206,6 +206,29 @@ public actor BlastService {
         )
     }
 
+    private func launchGzipDecompression(for url: URL) throws -> (
+        handle: FileHandle,
+        process: Process,
+        stderr: Pipe
+    ) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+        process.arguments = ["-dc", url.path]
+
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        try process.run()
+
+        return (
+            handle: stdout.fileHandleForReading,
+            process: process,
+            stderr: stderr
+        )
+    }
+
     private func scanKrakenClassificationOutput(
         _ classificationOutputURL: URL,
         targetTaxIds: Set<Int>
@@ -216,17 +239,10 @@ public actor BlastService {
         let gzipStderr: Pipe?
 
         if isGzip {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
-            process.arguments = ["-dc", classificationOutputURL.path]
-            let stdout = Pipe()
-            let stderr = Pipe()
-            process.standardOutput = stdout
-            process.standardError = stderr
-            try process.run()
-            fileHandle = stdout.fileHandleForReading
-            gzipProcess = process
-            gzipStderr = stderr
+            let stream = try launchGzipDecompression(for: classificationOutputURL)
+            fileHandle = stream.handle
+            gzipProcess = stream.process
+            gzipStderr = stream.stderr
         } else {
             guard let handle = FileHandle(forReadingAtPath: classificationOutputURL.path) else {
                 throw BlastServiceError.noSequences
@@ -512,22 +528,15 @@ public actor BlastService {
         var gzipStderr: Pipe?
 
         if isGzip {
-            let proc = Process()
-            proc.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
-            proc.arguments = ["-dc", sourceURL.path]
-            let pipe = Pipe()
-            let stderr = Pipe()
-            proc.standardOutput = pipe
-            proc.standardError = stderr
             do {
-                try proc.run()
+                let stream = try launchGzipDecompression(for: sourceURL)
+                handle = stream.handle
+                gzipProcess = stream.process
+                gzipStderr = stream.stderr
             } catch {
                 logger.error("extractMatchingSequences: failed to launch gzip: \(error.localizedDescription, privacy: .public)")
                 throw BlastServiceError.noSequences
             }
-            handle = pipe.fileHandleForReading
-            gzipProcess = proc
-            gzipStderr = stderr
         } else {
             handle = FileHandle(forReadingAtPath: sourceURL.path)
             gzipProcess = nil

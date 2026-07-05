@@ -116,13 +116,14 @@ original refactor was constrained to behavior-preserving edits:
 
 ## BlastService.swift
 
-- **BS-05 — merge the two chunked file/gzip readers (medium confidence).**
-  `scanKrakenClassificationOutput` and `extractMatchingSequencesOnce` share
-  gzip-launch + chunk-read boilerplate, but differ in residual semantics
-  (byte-level `Data` vs string-level) and error behavior on gzip failure (one
-  throws on nonzero exit, the other only logs). Deferred because a naive merge
-  could change error semantics. Suggestion: extract only the process-launch, keep
-  per-caller residual + exit handling.
+- **RESOLVED BS-05 — shared Blast gzip launcher only.**
+  `scanKrakenClassificationOutput` and `extractMatchingSequencesOnce` now share
+  the `/usr/bin/gzip -dc` process setup through `launchGzipDecompression(for:)`.
+  The byte-level Kraken residual handling, string-level FASTQ residual handling,
+  close/wait timing, retry behavior, and gzip-failure mapping remain caller-owned.
+  Coverage pins valid compressed Kraken input, corrupt compressed Kraken failure,
+  valid compressed FASTQ extraction, corrupt compressed FASTQ failure, and retry
+  cancellation.
 
 - **BS-07 — debug-file writes on the hot path (medium confidence).**
   `getResults` unconditionally writes `{rid}-raw-response` and `{rid}-extracted.json`
