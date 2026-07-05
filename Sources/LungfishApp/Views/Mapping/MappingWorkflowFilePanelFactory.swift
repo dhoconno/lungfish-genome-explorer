@@ -26,7 +26,7 @@ enum MappingWorkflowFilePanelFactory {
         panel.allowedContentTypes = contentTypes
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = true
-        panel.message = "Select a Lungfish workflow bundle or workflow JSON file"
+        panel.message = "Select a Lungfish workflow bundle"
         return panel
     }
 

@@ -177,6 +177,9 @@ changes that reduce future ambiguity across the codebase.
 - Made managed-storage root validation match its public error surface by rejecting non-file URLs,
   existing files, unreachable parents, and unwritable existing ancestors while still accepting
   creatable roots under writable parents.
+- Made Workflow Builder native Open/Save consistently use `.lungfishflow` bundles: panels no
+  longer advertise bare JSON, JSON-looking save paths normalize to bundles, and legacy JSON loads
+  use the matching bundle path as the next save target.
 
 ## Verification
 

@@ -35,25 +35,25 @@ final class MappingWorkflowFilePanelFactoryTests: XCTestCase {
         XCTAssertEqual(panel.allowedContentTypes, [.item])
     }
 
-    func testWorkflowOpenPanelAcceptsBundleOrJSON() {
+    func testWorkflowOpenPanelAcceptsWorkflowBundleDirectories() {
         let panel = MappingWorkflowFilePanelFactory.workflowOpenPanel(
-            contentTypes: [.folder, .json]
+            contentTypes: [.folder]
         )
 
-        XCTAssertEqual(panel.allowedContentTypes, [.folder, .json])
+        XCTAssertEqual(panel.allowedContentTypes, [.folder])
         XCTAssertFalse(panel.allowsMultipleSelection)
         XCTAssertTrue(panel.canChooseDirectories)
-        XCTAssertEqual(panel.message, "Select a Lungfish workflow bundle or workflow JSON file")
+        XCTAssertEqual(panel.message, "Select a Lungfish workflow bundle")
     }
 
     func testWorkflowSavePanelUsesSuggestedNameAndMessage() {
         let panel = MappingWorkflowFilePanelFactory.workflowSavePanel(
-            contentTypes: [.folder, .json],
+            contentTypes: [.folder],
             suggestedName: "Example.lungfishflow",
             message: "Save workflow as"
         )
 
-        XCTAssertEqual(panel.allowedContentTypes, [.folder, .json])
+        XCTAssertEqual(panel.allowedContentTypes, [.folder])
         XCTAssertEqual(panel.nameFieldStringValue, "Example.lungfishflow")
         XCTAssertEqual(panel.message, "Save workflow as")
     }
