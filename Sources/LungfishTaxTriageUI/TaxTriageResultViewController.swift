@@ -3595,8 +3595,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             negativeControlSampleIds: negativeControlIds
         )
         let exportedOrganismCount = taxTriageCrossSampleOrganismCount(in: matrixMetrics)
-        try csv.write(to: url, atomically: true, encoding: .utf8)
-        try ScientificFileExportProvenance.write(.init(
+        try ScientificFileExportProvenance.writeAtomically(.init(
             workflowName: "lungfish app taxtriage organism matrix export",
             sourceURLs: exportProvenanceSourceURLs(),
             outputURL: url,
@@ -3619,7 +3618,9 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 "tableMode": .string(exportTableModeName),
             ],
             startedAt: startedAt
-        ))
+        )) { outputURL in
+            try csv.write(to: outputURL, atomically: true, encoding: .utf8)
+        }
     }
 
     @objc private func exportBatchReportAction(_ sender: Any) {
@@ -3653,8 +3654,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             sampleIds: sampleIds
         )
         let reportLineCount = report.split(separator: "\n", omittingEmptySubsequences: false).count
-        try report.write(to: url, atomically: true, encoding: .utf8)
-        try ScientificFileExportProvenance.write(.init(
+        try ScientificFileExportProvenance.writeAtomically(.init(
             workflowName: "lungfish app taxtriage batch report export",
             sourceURLs: exportProvenanceSourceURLs(),
             outputURL: url,
@@ -3678,7 +3678,9 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 "tableMode": .string(exportTableModeName),
             ],
             startedAt: startedAt
-        ))
+        )) { outputURL in
+            try report.write(to: outputURL, atomically: true, encoding: .utf8)
+        }
     }
 
     // MARK: - Delimited Export
@@ -3717,8 +3719,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     ) throws {
         let startedAt = Date()
         let exportContent = content ?? buildDelimitedExport(separator: separator)
-        try exportContent.write(to: url, atomically: true, encoding: .utf8)
-        try ScientificFileExportProvenance.write(.init(
+        try ScientificFileExportProvenance.writeAtomically(.init(
             workflowName: "lungfish app taxtriage results export",
             sourceURLs: exportProvenanceSourceURLs(),
             outputURL: url,
@@ -3743,7 +3744,9 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 "metadataColumns": .array(organismTableView.metadataColumns.exportHeaders.map { .string($0) }),
             ],
             startedAt: startedAt
-        ))
+        )) { outputURL in
+            try exportContent.write(to: outputURL, atomically: true, encoding: .utf8)
+        }
     }
 
     private func exportProvenanceSourceURLs() -> [URL] {

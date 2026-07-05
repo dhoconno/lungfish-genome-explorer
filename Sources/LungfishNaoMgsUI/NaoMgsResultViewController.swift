@@ -2281,8 +2281,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
             throw SummaryExportError.noData
         }
         let startedAt = Date()
-        try summaryTSVContent().write(to: url, atomically: true, encoding: .utf8)
-        try ScientificFileExportProvenance.write(.init(
+        let content = summaryTSVContent()
+        try ScientificFileExportProvenance.writeAtomically(.init(
             workflowName: "lungfish app naomgs summary export",
             sourceURLs: exportProvenanceSourceURLs(),
             outputURL: url,
@@ -2306,7 +2306,9 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
                 "sampleName": .string(manifest?.sampleName ?? "naomgs"),
             ],
             startedAt: startedAt
-        ))
+        )) { outputURL in
+            try content.write(to: outputURL, atomically: true, encoding: .utf8)
+        }
     }
 
     private var exportSelectedSampleIds: [String] {

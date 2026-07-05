@@ -1788,8 +1788,8 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
 
     func writeContigsTSV(to url: URL) throws {
         let startedAt = Date()
-        try contigsTSVContent().write(to: url, atomically: true, encoding: .utf8)
-        try ScientificFileExportProvenance.write(.init(
+        let content = contigsTSVContent()
+        try ScientificFileExportProvenance.writeAtomically(.init(
             workflowName: "lungfish app nvd contigs export",
             sourceURLs: exportProvenanceSourceURLs(),
             outputURL: url,
@@ -1813,7 +1813,9 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
                 "metadataColumns": .array(metadataColumnController.exportHeaders.map { .string($0) }),
             ],
             startedAt: startedAt
-        ))
+        )) { outputURL in
+            try content.write(to: outputURL, atomically: true, encoding: .utf8)
+        }
     }
 
     private var exportGroupingModeName: String {

@@ -1654,8 +1654,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     ) throws {
         let startedAt = Date()
         let content = buildDelimitedExport(result: result, separator: separator)
-        try content.write(to: url, atomically: true, encoding: .utf8)
-        try ScientificFileExportProvenance.write(.init(
+        try ScientificFileExportProvenance.writeAtomically(.init(
             workflowName: "lungfish app esviritu detections export",
             sourceURLs: exportProvenanceSourceURLs(),
             outputURL: url,
@@ -1686,7 +1685,9 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
                 "metadataColumns": .array(detectionTableView.metadataColumns.exportHeaders.map { .string($0) }),
             ],
             startedAt: startedAt
-        ))
+        )) { outputURL in
+            try content.write(to: outputURL, atomically: true, encoding: .utf8)
+        }
     }
 
     private func exportSelectedSampleIds(for result: LungfishIO.EsVirituResult) -> [String] {

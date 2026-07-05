@@ -77,12 +77,22 @@ public enum ScientificFileExportProvenance {
             throw CocoaError(.fileWriteFileExists)
         }
         let outputDirectoryURL = outputURL.deletingLastPathComponent()
+        let finalSidecarURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
+        let excludedSourcePaths = Set([
+            outputURL.standardizedFileURL.path,
+            finalSidecarURL.standardizedFileURL.path,
+        ])
+        let inputDescriptors = try request.sourceURLs.map {
+            try inputDescriptor(for: $0, excluding: excludedSourcePaths)
+        }
         let token = UUID().uuidString
+        // Keep staging names hidden. Directory source manifests skip hidden paths,
+        // and the final output/sidecar are excluded, so same-directory exports do
+        // not record their own payloads as scientific inputs.
         let tempOutputURL = outputDirectoryURL
             .appendingPathComponent(".\(outputURL.lastPathComponent).\(token).export.tmp")
         let tempSidecarURL = outputDirectoryURL
             .appendingPathComponent(".\(outputURL.lastPathComponent).\(token).lungfish-provenance.tmp")
-        let finalSidecarURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
         let backupOutputURL = outputDirectoryURL
             .appendingPathComponent(".\(outputURL.lastPathComponent).\(token).backup")
         let backupSidecarURL = outputDirectoryURL
@@ -105,7 +115,12 @@ public enum ScientificFileExportProvenance {
                 format: tempRecord.format,
                 role: tempRecord.role
             ))
-            let envelope = try envelope(for: request, outputDescriptor: outputDescriptor)
+            let completedRequest = requestWithCompletedAt(Date(), basedOn: request)
+            let envelope = envelope(
+                for: completedRequest,
+                inputDescriptors: inputDescriptors,
+                outputDescriptor: outputDescriptor
+            )
             try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: tempSidecarURL)
 
             if fileManager.fileExists(atPath: outputURL.path) {
@@ -150,6 +165,14 @@ public enum ScientificFileExportProvenance {
         outputDescriptor: ProvenanceFileDescriptor
     ) throws -> ProvenanceEnvelope {
         let inputDescriptors = try request.sourceURLs.map { try inputDescriptor(for: $0) }
+        return envelope(for: request, inputDescriptors: inputDescriptors, outputDescriptor: outputDescriptor)
+    }
+
+    private static func envelope(
+        for request: Request,
+        inputDescriptors: [ProvenanceFileDescriptor],
+        outputDescriptor: ProvenanceFileDescriptor
+    ) -> ProvenanceEnvelope {
         let toolVersion = WorkflowRun.currentAppVersion
         let step = ProvenanceStep(
             toolName: request.toolName,
@@ -190,11 +213,34 @@ public enum ScientificFileExportProvenance {
         return envelope
     }
 
-    private static func inputDescriptor(for url: URL) throws -> ProvenanceFileDescriptor {
+    private static func requestWithCompletedAt(_ completedAt: Date, basedOn request: Request) -> Request {
+        Request(
+            workflowName: request.workflowName,
+            toolName: request.toolName,
+            sourceURLs: request.sourceURLs,
+            outputURL: request.outputURL,
+            outputFormat: request.outputFormat,
+            argv: request.argv,
+            explicitOptions: request.explicitOptions,
+            defaults: request.defaults,
+            resolved: request.resolved,
+            startedAt: request.startedAt,
+            completedAt: completedAt
+        )
+    }
+
+    private static func inputDescriptor(
+        for url: URL,
+        excluding excludedAbsolutePaths: Set<String> = []
+    ) throws -> ProvenanceFileDescriptor {
         let sourceProvenancePath = ProvenanceRecorder.findProvenanceEnvelope(for: url)?.sidecarURL.path
         var isDirectory: ObjCBool = false
         if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue {
-            let manifest = try ProvenanceFileHasher.directoryManifest(for: url, role: .input)
+            let manifest = try ProvenanceFileHasher.directoryManifest(
+                for: url,
+                role: .input,
+                excluding: excludedAbsolutePaths
+            )
             return ProvenanceFileDescriptor(
                 path: url.standardizedFileURL.path,
                 checksumSHA256: directoryChecksum(from: manifest),

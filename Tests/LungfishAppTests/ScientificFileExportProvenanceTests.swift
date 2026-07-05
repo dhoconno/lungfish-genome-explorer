@@ -113,6 +113,84 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
         XCTAssertTrue(envelope.files.contains { $0.path == sourceURL.path && $0.role == .input })
     }
 
+    func testWriteAtomicallySnapshotsDirectoryInputsBeforePayloadWrite() throws {
+        let sourceDirectory = tempDir.appendingPathComponent("source-bundle", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
+        let sourceURL = sourceDirectory.appendingPathComponent("source.tsv")
+        let outputURL = sourceDirectory.appendingPathComponent("export.tsv")
+        let auxiliaryWriteURL = sourceDirectory.appendingPathComponent("auxiliary-write.tmp")
+        try "source\n".write(to: sourceURL, atomically: true, encoding: .utf8)
+
+        let sidecarURL = try ScientificFileExportProvenance.writeAtomically(.init(
+            workflowName: "lungfish app atomic directory export",
+            sourceURLs: [sourceDirectory],
+            outputURL: outputURL,
+            outputFormat: .text,
+            argv: ["Lungfish.app", "atomic-directory-export", "--output", outputURL.path],
+            startedAt: Date()
+        )) { tempURL in
+            try "auxiliary\n".write(to: auxiliaryWriteURL, atomically: true, encoding: .utf8)
+            try "export\n".write(to: tempURL, atomically: true, encoding: .utf8)
+        }
+
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL))
+        let input = try XCTUnwrap(envelope.files.first { $0.path == sourceDirectory.path && $0.role == .input })
+        XCTAssertEqual(input.fileSize, try ProvenanceFileHasher.fileSize(of: sourceURL))
+        XCTAssertEqual(envelope.output?.path, outputURL.path)
+        XCTAssertEqual(envelope.output?.fileSize, try ProvenanceFileHasher.fileSize(of: outputURL))
+    }
+
+    func testWriteAtomicallyExcludesExistingOutputAndSidecarFromDirectoryInputs() throws {
+        let sourceDirectory = tempDir.appendingPathComponent("source-bundle", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
+        let sourceURL = sourceDirectory.appendingPathComponent("source.tsv")
+        let outputURL = sourceDirectory.appendingPathComponent("export.tsv")
+        let sidecarURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
+        try "source\n".write(to: sourceURL, atomically: true, encoding: .utf8)
+        try "old export\n".write(to: outputURL, atomically: true, encoding: .utf8)
+        try "old sidecar\n".write(to: sidecarURL, atomically: true, encoding: .utf8)
+
+        let writtenSidecarURL = try ScientificFileExportProvenance.writeAtomically(.init(
+            workflowName: "lungfish app atomic directory export",
+            sourceURLs: [sourceDirectory],
+            outputURL: outputURL,
+            outputFormat: .text,
+            argv: ["Lungfish.app", "atomic-directory-export", "--output", outputURL.path],
+            startedAt: Date()
+        )) { tempURL in
+            try "new export\n".write(to: tempURL, atomically: true, encoding: .utf8)
+        }
+
+        XCTAssertEqual(writtenSidecarURL, sidecarURL)
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL))
+        let input = try XCTUnwrap(envelope.files.first { $0.path == sourceDirectory.path && $0.role == .input })
+        XCTAssertEqual(input.fileSize, try ProvenanceFileHasher.fileSize(of: sourceURL))
+        XCTAssertEqual(envelope.output?.checksumSHA256, try ProvenanceFileHasher.sha256(of: outputURL))
+        XCTAssertEqual(envelope.output?.fileSize, try ProvenanceFileHasher.fileSize(of: outputURL))
+    }
+
+    func testWriteAtomicallyCompletedAtIncludesPayloadWrite() throws {
+        let sourceURL = tempDir.appendingPathComponent("source.tsv")
+        let outputURL = tempDir.appendingPathComponent("export.tsv")
+        try "source\n".write(to: sourceURL, atomically: true, encoding: .utf8)
+
+        let sidecarURL = try ScientificFileExportProvenance.writeAtomically(.init(
+            workflowName: "lungfish app atomic export",
+            sourceURLs: [sourceURL],
+            outputURL: outputURL,
+            outputFormat: .text,
+            argv: ["Lungfish.app", "atomic-export", "--output", outputURL.path],
+            startedAt: Date()
+        )) { tempURL in
+            try "export\n".write(to: tempURL, atomically: true, encoding: .utf8)
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL))
+        XCTAssertGreaterThanOrEqual(envelope.wallTimeSeconds ?? 0, 0.02)
+        XCTAssertGreaterThanOrEqual(envelope.steps.first?.wallTimeSeconds ?? 0, 0.02)
+    }
+
     func testWriteAtomicallyKeepsExistingOutputWhenPayloadWriteFails() throws {
         let sourceURL = tempDir.appendingPathComponent("source.tsv")
         let outputURL = tempDir.appendingPathComponent("export.tsv")
