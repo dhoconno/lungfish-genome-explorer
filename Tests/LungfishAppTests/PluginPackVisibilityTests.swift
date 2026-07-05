@@ -169,6 +169,27 @@ private actor OperationReportingPluginPackStatusProvider: PluginPackStatusProvid
 @MainActor
 final class PluginPackVisibilityTests: XCTestCase {
 
+    func testPluginManagerCallbacksUseMainQueueBridgeInsteadOfMainActorTasks() throws {
+        let source = try String(contentsOf: pluginManagerViewModelSourceURL(), encoding: .utf8)
+        let storageObserver = try sourceSection(
+            in: source,
+            from: "private final class StorageLocationChangeObserver",
+            to: "private struct RecommendedDatabaseSelection"
+        )
+        let installPack = try sourceSection(
+            in: source,
+            from: "func installPack(_ pack: PluginPack, reinstall: Bool = false)",
+            to: "private func startPluginPackOperation"
+        )
+
+        XCTAssertFalse(storageObserver.contains("Task { @MainActor"))
+        XCTAssertFalse(installPack.contains("Task { @MainActor"))
+        XCTAssertTrue(storageObserver.contains("DispatchQueue.main.async"))
+        XCTAssertTrue(installPack.contains("DispatchQueue.main.async"))
+        XCTAssertTrue(storageObserver.contains("MainActor.assumeIsolated"))
+        XCTAssertTrue(installPack.contains("MainActor.assumeIsolated"))
+    }
+
     func testViewModelExposesRequiredSetupSeparatelyFromOptionalPacks() async {
         guard let readMapping = PluginPack.activeOptionalPacks.first(where: { $0.id == "read-mapping" }) else {
             XCTFail("Expected active read-mapping pack")
@@ -729,5 +750,26 @@ final class PluginPackVisibilityTests: XCTestCase {
             try? await Task.sleep(for: .milliseconds(20))
         }
         return operationCenter.items.first(where: { $0.title == title && $0.state != .running })
+    }
+
+    private func pluginManagerViewModelSourceURL() -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources")
+            .appendingPathComponent("LungfishApp")
+            .appendingPathComponent("Views")
+            .appendingPathComponent("PluginManager")
+            .appendingPathComponent("PluginManagerViewModel.swift")
+    }
+
+    private func sourceSection(in source: String, from start: String, to end: String) throws -> String {
+        let startRange = try XCTUnwrap(source.range(of: start))
+        let endRange = try XCTUnwrap(source.range(
+            of: end,
+            range: startRange.upperBound..<source.endIndex
+        ))
+        return String(source[startRange.lowerBound..<endRange.lowerBound])
     }
 }

@@ -1,4 +1,4 @@
-// MainSplitViewController.swift - Three-panel split view controller
+// MainSplitViewController+ContentDisplay.swift - Content viewport display routing
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 

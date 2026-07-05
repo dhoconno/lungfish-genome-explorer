@@ -1,4 +1,4 @@
-// MainSplitViewController.swift - Three-panel split view controller
+// MainSplitViewController+FASTQImport.swift - FASTQ import actions and dialogs
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 

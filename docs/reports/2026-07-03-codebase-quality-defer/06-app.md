@@ -40,6 +40,12 @@ here (never leave a half-applied batch).
 - GUI FASTQ direct-output imports now remove a newly-created final
   `.lungfishfastq` bundle if CLI provenance rehydration fails, so a failed
   import cannot leave an unprovenanced scientific bundle in the project.
+- Plugin Manager storage-location and pack-install progress callbacks now use
+  the established `DispatchQueue.main.async { MainActor.assumeIsolated { ... } }`
+  bridge instead of forbidden callback-context `Task { @MainActor ... }` hops.
+- `MainSplitViewController+*.swift` split extension headers now identify their
+  own files and responsibilities instead of carrying the stale monolithic
+  `MainSplitViewController.swift` header.
 
 ## Coverage ledger (the anti-selectivity proof — every one of 409 files accounted for)
 
@@ -239,6 +245,13 @@ Pass A big files (catalogued from the solo audits):
   the main queue and use `MainActor.assumeIsolated` instead of the forbidden progress-callback
   `Task { @MainActor ... }` hop. All OTHER `Task { @MainActor }` in App remain legitimate
   same-actor tasks on already-@MainActor types.
+- RESOLVED: `Views/PluginManager/PluginManagerViewModel.swift` storage-location notifications
+  and plugin-pack install progress callbacks now use the same main-queue +
+  `MainActor.assumeIsolated` bridge. `PluginPackVisibilityTests` source-guards the forbidden
+  callback `Task { @MainActor ... }` pattern from returning.
+- RESOLVED: `Views/MainWindow/MainSplitViewController+*.swift` extension headers no longer
+  claim to be the monolithic `MainSplitViewController.swift`; `WorkspaceShellLayoutTests`
+  source-guards the split headers.
 - NON-ISSUE (auditors flagged as violations, verified legitimate — NOT touched):
   `AssemblyConfigurationViewController.swift:74` (type is `@MainActor`, line 39) and
   `WorkflowLibraryViewModel.swift:270` (type is `@MainActor @Observable`, and it uses a proper
@@ -265,6 +278,8 @@ removed. The 2026-07-04 hardening additions are listed alongside those batches:
   result-sidecar persistence; `ClassificationPipeline` writes the required sidecar before
   successful completion. The App layer now removes project-owned analysis directories when
   classification fails before durable result metadata exists, avoiding stale sidebar shells.
+  Plugin Manager callback hops and stale MainSplit split-extension headers were also corrected
+  and source-guarded.
 - batch 2 (`93b6b0c3`): dead `@State` pair (WorkflowOperationsDialog); duplicate doc comment
   (MainSplitViewController+FASTQImport); dead `calculateZoomPercent` (EnhancedCoordinateRulerView);
   dead `performReverseComplement` island (SequenceViewerView+Interaction).

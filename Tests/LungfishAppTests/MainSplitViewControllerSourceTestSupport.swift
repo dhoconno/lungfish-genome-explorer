@@ -43,6 +43,10 @@ private let mainSplitViewControllerOrderedSourceFiles: [String] = [
     "MainSplitViewController+GenomicsDisplay.swift",
 ]
 
+func mainSplitViewControllerSplitExtensionSourceFiles() -> [String] {
+    mainSplitViewControllerOrderedSourceFiles.filter { $0.contains("+") }
+}
+
 /// Returns the concatenated source of MainSplitViewController.swift plus every
 /// MainSplitViewController+*.swift split file, joined with newlines in original
 /// source order. Use this in place of reading the single MainSplitViewController.swift

@@ -1,4 +1,4 @@
-// MainSplitViewController.swift - Three-panel split view controller
+// MainSplitViewController+GenomicsDisplay.swift - Genomics viewport display routing
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 

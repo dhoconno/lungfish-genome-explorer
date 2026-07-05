@@ -31,8 +31,10 @@ private final class StorageLocationChangeObserver {
                     onChange()
                 }
             } else {
-                Task { @MainActor in
-                    onChange()
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        onChange()
+                    }
                 }
             }
         }
@@ -460,10 +462,12 @@ final class PluginManagerViewModel {
             do {
                 try await packStatusProvider.install(pack: pack, reinstall: reinstall) { [weak self, progressLog] event in
                     progressLog.append(event)
-                    Task { @MainActor in
-                        guard let self else { return }
-                        self.packProgressMessage[packID] = event.message
-                        self.updatePluginPackOperationProgress(operationID: operationID, event: event)
+                    DispatchQueue.main.async { [weak self] in
+                        MainActor.assumeIsolated {
+                            guard let self else { return }
+                            self.packProgressMessage[packID] = event.message
+                            self.updatePluginPackOperationProgress(operationID: operationID, event: event)
+                        }
                     }
                 }
                 recordPluginPackProgressEvents(progressLog.snapshot(), operationID: operationID)

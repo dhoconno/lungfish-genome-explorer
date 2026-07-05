@@ -1,4 +1,4 @@
-// MainSplitViewController.swift - Three-panel split view controller
+// MainSplitViewController+MultiDocument.swift - Project session and document coordination
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
