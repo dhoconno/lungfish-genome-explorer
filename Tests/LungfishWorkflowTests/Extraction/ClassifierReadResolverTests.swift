@@ -270,6 +270,23 @@ final class ClassifierReadResolverTests: XCTestCase {
         }
     }
 
+    func testResolveBAMURL_kraken2_throwsUnsupportedBAMTool() async throws {
+        let resolver = ClassifierReadResolver()
+
+        do {
+            _ = try await resolver.testingResolveBAMURL(
+                tool: .kraken2,
+                sampleId: nil,
+                resultPath: URL(fileURLWithPath: "/tmp/kraken2-result")
+            )
+            XCTFail("Expected unsupportedBAMTool error")
+        } catch ClassifierExtractionError.unsupportedBAMTool(let tool) {
+            XCTAssertEqual(tool, .kraken2)
+        } catch {
+            XCTFail("Expected unsupportedBAMTool, got \(error)")
+        }
+    }
+
     // MARK: - extractViaBAM end-to-end (real samtools)
 
     /// Path to the sarscov2 test fixture BAM (exists in Tests/Fixtures/sarscov2/).
@@ -329,6 +346,36 @@ final class ClassifierReadResolverTests: XCTestCase {
         return root.appendingPathComponent("fake-result.sqlite")
     }
 
+    private func makeTestFileProvenance(
+        destination: String = "file",
+        format: CopyFormat = .fastq
+    ) -> ExtractionFileProvenance {
+        ExtractionFileProvenance(
+            workflowName: "lungfish app classifier read extraction",
+            toolName: "Lungfish.app",
+            argv: [
+                "lungfish",
+                "extract",
+                "reads",
+                "--by-classifier",
+                "--tool", "nvd",
+                "--read-format", format.rawValue,
+            ],
+            explicitOptions: [
+                "tool": .string("nvd"),
+                "format": .string(format.rawValue),
+                "destination": .string(destination),
+            ],
+            defaults: [
+                "format": .string("fastq"),
+                "includeUnmappedMates": .boolean(false),
+            ],
+            resolved: [
+                "samtoolsExcludeFlags": .integer(0x404),
+            ]
+        )
+    }
+
     func testExtractViaBAM_nvd_producesFASTQFromFixture() async throws {
         let resultPath = try makeSarscov2ResultFixture(tool: .nvd, sampleId: "s2")
         defer { try? FileManager.default.removeItem(at: resultPath.deletingLastPathComponent()) }
@@ -345,7 +392,10 @@ final class ClassifierReadResolverTests: XCTestCase {
         }
 
         let tempOut = FileManager.default.temporaryDirectory.appendingPathComponent("out-\(UUID().uuidString).fastq")
-        defer { try? FileManager.default.removeItem(at: tempOut) }
+        defer {
+            try? FileManager.default.removeItem(at: tempOut)
+            try? FileManager.default.removeItem(at: ProvenanceRecorder.fileSidecarURL(for: tempOut))
+        }
 
         let resolver = ClassifierReadResolver()
         let outcome = try await resolver.resolveAndExtract(
@@ -354,13 +404,33 @@ final class ClassifierReadResolverTests: XCTestCase {
             selections: [
                 ClassifierRowSelector(sampleId: "s2", accessions: [region], taxIds: [])
             ],
-            options: ExtractionOptions(format: .fastq, includeUnmappedMates: false),
+            options: ExtractionOptions(
+                format: .fastq,
+                includeUnmappedMates: false,
+                fileProvenance: makeTestFileProvenance()
+            ),
             destination: .file(tempOut)
         )
 
         if case .file(let url, let n) = outcome {
             XCTAssertEqual(url.standardizedFileURL.path, tempOut.standardizedFileURL.path)
             XCTAssertGreaterThan(n, 0, "Expected non-zero reads from sarscov2 fixture")
+            let envelope = try XCTUnwrap(
+                ProvenanceEnvelopeReader.load(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: tempOut))
+            )
+            XCTAssertEqual(envelope.workflowName, "lungfish app classifier read extraction")
+            XCTAssertEqual(envelope.output?.path, tempOut.path)
+            XCTAssertEqual(envelope.output?.format, .fastq)
+            XCTAssertNotNil(envelope.output?.checksumSHA256)
+            XCTAssertEqual(envelope.options.explicit["tool"]?.stringValue, "nvd")
+            XCTAssertEqual(envelope.options.explicit["outputPath"]?.fileValue?.path, tempOut.path)
+            XCTAssertEqual(envelope.options.resolvedDefaults["readCount"]?.integerValue, n)
+            XCTAssertGreaterThan(envelope.options.resolvedDefaults["sourceCount"]?.integerValue ?? 0, 0)
+            XCTAssertTrue(envelope.argv.contains(tempOut.path))
+            XCTAssertNotNil(
+                envelope.files.first { $0.role == .input && $0.path.hasSuffix("s2.filtered.bam") },
+                "Expected the provenance sidecar to record the resolved source BAM"
+            )
         } else {
             XCTFail("Expected .file outcome, got \(outcome)")
         }
@@ -509,7 +579,10 @@ final class ClassifierReadResolverTests: XCTestCase {
 
         let tempOut = FileManager.default.temporaryDirectory
             .appendingPathComponent("out-\(UUID().uuidString).fasta")
-        defer { try? FileManager.default.removeItem(at: tempOut) }
+        defer {
+            try? FileManager.default.removeItem(at: tempOut)
+            try? FileManager.default.removeItem(at: ProvenanceRecorder.fileSidecarURL(for: tempOut))
+        }
 
         let resolver = ClassifierReadResolver()
         let outcome = try await resolver.resolveAndExtract(
@@ -518,7 +591,11 @@ final class ClassifierReadResolverTests: XCTestCase {
             selections: [
                 ClassifierRowSelector(sampleId: "fa", accessions: [region], taxIds: [])
             ],
-            options: ExtractionOptions(format: .fasta, includeUnmappedMates: false),
+            options: ExtractionOptions(
+                format: .fasta,
+                includeUnmappedMates: false,
+                fileProvenance: makeTestFileProvenance(format: .fasta)
+            ),
             destination: .file(tempOut)
         )
 
@@ -553,6 +630,15 @@ final class ClassifierReadResolverTests: XCTestCase {
         }
         XCTAssertGreaterThan(recordCount, 0, "No FASTA records parsed")
         XCTAssertEqual(recordCount, n, "FASTA record count should match outcome.readCount")
+
+        let envelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: tempOut))
+        )
+        XCTAssertEqual(envelope.workflowName, "lungfish app classifier read extraction")
+        XCTAssertEqual(envelope.output?.format, .fasta)
+        XCTAssertEqual(envelope.options.explicit["format"]?.stringValue, "fasta")
+        XCTAssertEqual(envelope.options.resolvedDefaults["outputFormat"]?.stringValue, "fasta")
+        XCTAssertEqual(envelope.options.resolvedDefaults["readCount"]?.integerValue, n)
     }
 
     /// Exercises the `includeUnmappedMates: true` path. The sarscov2 fixture
@@ -712,7 +798,7 @@ final class ClassifierReadResolverTests: XCTestCase {
             tool: .nvd,
             resultPath: resultPath,
             selections: [ClassifierRowSelector(sampleId: "sh", accessions: [region], taxIds: [])],
-            options: ExtractionOptions(),
+            options: ExtractionOptions(fileProvenance: makeTestFileProvenance(destination: "share")),
             destination: .share(tempDirectory: shareDir)
         )
         guard case .share(let url, _) = outcome else {
@@ -722,6 +808,16 @@ final class ClassifierReadResolverTests: XCTestCase {
         XCTAssertTrue(url.path.hasPrefix(shareDir.path),
                       "Share file must land under the requested temp directory")
         XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+        let envelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: url))
+        )
+        XCTAssertEqual(envelope.workflowName, "lungfish app classifier read extraction")
+        XCTAssertEqual(envelope.output?.path, url.path)
+        XCTAssertEqual(envelope.output?.format, .fastq)
+        XCTAssertEqual(envelope.options.explicit["destination"]?.stringValue, "share")
+        XCTAssertEqual(envelope.options.explicit["outputPath"]?.fileValue?.path, url.path)
+        XCTAssertGreaterThan(envelope.options.resolvedDefaults["readCount"]?.integerValue ?? 0, 0)
+        XCTAssertTrue(envelope.argv.contains(url.path))
     }
 
     func testDestination_clipboard_capExceeded_throws() async throws {

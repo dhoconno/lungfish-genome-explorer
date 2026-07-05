@@ -382,6 +382,96 @@ final class ClassifierExtractionDialogTests: XCTestCase {
         XCTAssertTrue(cli.contains("GUI only"), "expected GUI-only annotation in: \(cli)")
     }
 
+    func testFileProvenanceOptions_useReplayableClassifierCLIArgv() {
+        let outputURL = URL(fileURLWithPath: "/tmp/out.fastq")
+        let ctx = TaxonomyReadExtractionAction.Context(
+            tool: .nvd,
+            resultPath: URL(fileURLWithPath: "/tmp/nvd-results/fake.sqlite"),
+            selections: [
+                ClassifierRowSelector(sampleId: "S1", accessions: ["NC_001"], taxIds: [])
+            ],
+            suggestedName: "nvd-extract"
+        )
+        let options = ExtractionOptions(format: .fastq, includeUnmappedMates: true)
+        let recorded = TaxonomyReadExtractionAction.optionsByRecordingFileProvenanceForTesting(
+            options,
+            context: ctx,
+            destination: .file(outputURL)
+        )
+
+        let provenance = recorded.fileProvenance
+        let argv = provenance?.argv ?? []
+        XCTAssertEqual(Array(argv.prefix(4)), ["lungfish", "extract", "reads", "--by-classifier"])
+        XCTAssertTrue(argv.contains("--tool"))
+        XCTAssertTrue(argv.contains("nvd"))
+        XCTAssertTrue(argv.contains("--output"))
+        XCTAssertTrue(argv.contains(outputURL.path))
+        XCTAssertFalse(argv.contains("Lungfish.app"))
+        XCTAssertFalse(argv.contains("--destination"))
+        XCTAssertEqual(provenance?.explicitOptions["destination"]?.stringValue, "file")
+        XCTAssertEqual(provenance?.explicitOptions["outputPath"]?.fileValue?.path, outputURL.path)
+        XCTAssertEqual(provenance?.resolved["samtoolsExcludeFlags"]?.integerValue, 0x400)
+    }
+
+    func testFileProvenanceOptions_recordsNaoMgsReadNameAllowlist() {
+        let ctx = TaxonomyReadExtractionAction.Context(
+            tool: .naomgs,
+            resultPath: URL(fileURLWithPath: "/tmp/naomgs/hits.sqlite"),
+            selections: [
+                ClassifierRowSelector(
+                    sampleId: "S1",
+                    accessions: ["ACC_1"],
+                    taxIds: [123],
+                    readNameAllowlist: ["read-B", "read-A"]
+                )
+            ],
+            suggestedName: "naomgs-extract"
+        )
+        let recorded = TaxonomyReadExtractionAction.optionsByRecordingFileProvenanceForTesting(
+            ExtractionOptions(),
+            context: ctx,
+            destination: .file(URL(fileURLWithPath: "/tmp/naomgs.fastq"))
+        )
+
+        let explicit = recorded.fileProvenance?.explicitOptions
+        let allowlist = explicit?["readNameAllowlist"]?.arrayValue?.compactMap(\.stringValue)
+        XCTAssertEqual(allowlist, ["read-A", "read-B"])
+        XCTAssertEqual(explicit?["readNameAllowlistCount"]?.integerValue, 2)
+        XCTAssertEqual(explicit?["readNameAllowlistAppliedBy"]?.stringValue, "samtools view -N")
+        XCTAssertEqual(explicit?["readNameAllowlistSHA256"]?.stringValue?.count, 64)
+        XCTAssertEqual(
+            recorded.fileProvenance?.resolved["readNameAllowlistSHA256"]?.stringValue,
+            explicit?["readNameAllowlistSHA256"]?.stringValue
+        )
+    }
+
+    func testFileProvenanceOptions_leavesBundleAndClipboardUnchanged() {
+        let ctx = TaxonomyReadExtractionAction.Context(
+            tool: .esviritu,
+            resultPath: URL(fileURLWithPath: "/tmp/fake.sqlite"),
+            selections: [ClassifierRowSelector(sampleId: "S1", accessions: ["NC_y"], taxIds: [])],
+            suggestedName: "c"
+        )
+        let options = ExtractionOptions(format: .fastq, includeUnmappedMates: false)
+        let bundle = TaxonomyReadExtractionAction.optionsByRecordingFileProvenanceForTesting(
+            options,
+            context: ctx,
+            destination: .bundle(
+                projectRoot: URL(fileURLWithPath: "/tmp/project"),
+                displayName: "extract",
+                metadata: ExtractionMetadata(sourceDescription: "x", toolName: "EsViritu")
+            )
+        )
+        let clipboard = TaxonomyReadExtractionAction.optionsByRecordingFileProvenanceForTesting(
+            options,
+            context: ctx,
+            destination: .clipboard(format: .fastq, cap: 10_000)
+        )
+
+        XCTAssertNil(bundle.fileProvenance)
+        XCTAssertNil(clipboard.fileProvenance)
+    }
+
     // MARK: - TaskBox cancel contract (Phase 4 review-2 critical #1)
 
     /// Pins the two-task-cancel contract that underpins the dialog's Cancel

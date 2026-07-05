@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import CryptoKit
 import Foundation
 import LungfishCore
 import LungfishIO
@@ -324,7 +325,7 @@ public final class TaxonomyReadExtractionAction {
                 )
 
                 // Build extraction options.
-                let options = ExtractionOptions(
+                var options = ExtractionOptions(
                     format: model.format,
                     includeUnmappedMates: model.includeUnmappedMates
                 )
@@ -333,6 +334,11 @@ public final class TaxonomyReadExtractionAction {
                 // reproduces what the GUI did.
                 let cli = Self.buildCLIString(context: context, options: options, destination: destination)
                 destination = Self.destination(destination, recordingProvenanceCommand: cli, context: context)
+                options = Self.optionsByRecordingFileProvenance(
+                    options,
+                    context: context,
+                    destination: destination
+                )
 
                 let opID = OperationCenter.shared.start(
                     title: "Extract Reads — \(context.tool.displayName)",
@@ -667,6 +673,110 @@ public final class TaxonomyReadExtractionAction {
         return .bundle(projectRoot: projectRoot, displayName: displayName, metadata: updatedMetadata)
     }
 
+    private static func optionsByRecordingFileProvenance(
+        _ options: ExtractionOptions,
+        context: Context,
+        destination: ExtractionDestination
+    ) -> ExtractionOptions {
+        let destinationKind: String
+        var explicitOptions: [String: ParameterValue] = [
+            "tool": .string(context.tool.rawValue),
+            "resultPath": .file(context.resultPath),
+            "format": .string(options.format.rawValue),
+            "includeUnmappedMates": .boolean(options.includeUnmappedMates),
+            "samples": .array(context.selections.compactMap(\.sampleId).map(ParameterValue.string)),
+            "accessions": .array(context.selections.flatMap(\.accessions).map(ParameterValue.string)),
+            "taxIds": .array(context.selections.flatMap { $0.taxIds }.map(ParameterValue.integer)),
+        ]
+
+        switch destination {
+        case .file(let url):
+            destinationKind = "file"
+            explicitOptions["outputPath"] = .file(url)
+        case .share:
+            destinationKind = "share"
+        case .bundle, .clipboard:
+            return options
+        }
+
+        explicitOptions["destination"] = .string(destinationKind)
+        var argv: [String] = [
+            "lungfish",
+            "extract",
+            "reads",
+            "--by-classifier",
+            "--tool", context.tool.rawValue,
+            "--result", context.resultPath.path,
+            "--read-format", options.format.rawValue,
+        ]
+        let readNameAllowlist = mergedReadNameAllowlist(from: context.selections)
+        if !readNameAllowlist.isEmpty {
+            let digest = readNameAllowlistSHA256(readNameAllowlist)
+            explicitOptions["readNameAllowlist"] = .array(readNameAllowlist.map(ParameterValue.string))
+            explicitOptions["readNameAllowlistCount"] = .integer(readNameAllowlist.count)
+            explicitOptions["readNameAllowlistSHA256"] = .string(digest)
+            explicitOptions["readNameAllowlistAppliedBy"] = .string("samtools view -N")
+        }
+        for selector in context.selections {
+            if let sampleId = selector.sampleId {
+                argv.append(contentsOf: ["--sample", sampleId])
+            }
+            for accession in selector.accessions {
+                argv.append(contentsOf: ["--accession", accession])
+            }
+            for taxon in selector.taxIds {
+                argv.append(contentsOf: ["--taxon", String(taxon)])
+            }
+        }
+        if options.includeUnmappedMates {
+            argv.append("--include-unmapped-mates")
+        }
+        if case .file(let url) = destination {
+            argv.append(contentsOf: ["--output", url.path])
+        }
+        var resolvedOptions: [String: ParameterValue] = [
+            "toolDisplayName": .string(context.tool.displayName),
+            "selectionCount": .integer(context.selections.count),
+            "sampleCount": .integer(Set(context.selections.compactMap(\.sampleId)).count),
+            "samtoolsExcludeFlags": .integer(options.samtoolsExcludeFlags),
+        ]
+        if !readNameAllowlist.isEmpty {
+            resolvedOptions["readNameAllowlistCount"] = .integer(readNameAllowlist.count)
+            resolvedOptions["readNameAllowlistSHA256"] = .string(readNameAllowlistSHA256(readNameAllowlist))
+        }
+
+        let provenance = ExtractionFileProvenance(
+            workflowName: "lungfish app classifier read extraction",
+            toolName: "Lungfish.app",
+            argv: argv,
+            explicitOptions: explicitOptions,
+            defaults: [
+                "format": .string(CopyFormat.fastq.rawValue),
+                "includeUnmappedMates": .boolean(false),
+                "samtoolsExcludeFlags": .integer(0x404),
+                "kraken2IncludeChildren": .boolean(true),
+            ],
+            resolved: resolvedOptions
+        )
+        return options.recordingFileProvenance(provenance)
+    }
+
+    private static func mergedReadNameAllowlist(from selections: [ClassifierRowSelector]) -> [String] {
+        selections
+            .compactMap(\.readNameAllowlist)
+            .reduce(into: Set<String>()) { merged, readNames in
+                merged.formUnion(readNames)
+            }
+            .sorted()
+    }
+
+    private static func readNameAllowlistSHA256(_ readNames: [String]) -> String {
+        let payload = readNames.joined(separator: "\n")
+        return SHA256.hash(data: Data(payload.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
     private static func destinationLabel(_ destination: ExtractionDestination) -> String {
         switch destination {
         case .file:      return "file"
@@ -679,6 +789,18 @@ public final class TaxonomyReadExtractionAction {
     // MARK: - Test-only seams
 
     #if DEBUG
+    static func optionsByRecordingFileProvenanceForTesting(
+        _ options: ExtractionOptions,
+        context: Context,
+        destination: ExtractionDestination
+    ) -> ExtractionOptions {
+        optionsByRecordingFileProvenance(
+            options,
+            context: context,
+            destination: destination
+        )
+    }
+
     /// Test-only access to `resolveDestination` for exercising the bundle
     /// disambiguator without going through the full dialog lifecycle.
     /// Used by `ClassifierExtractionDialogTests` to pin the
