@@ -97,30 +97,35 @@ public final class AssemblyBundleBuilder: @unchecked Sendable {
         let safeName = bundleName
             .replacingOccurrences(of: " ", with: "_")
             .replacingOccurrences(of: "/", with: "-")
-        let bundleURL = outputDirectory.appendingPathComponent("\(safeName).lungfishref")
+        let publishedBundleURL = outputDirectory.appendingPathComponent("\(safeName).lungfishref")
+        let stagingBundleURL = try makeStagingBundleURL(for: publishedBundleURL)
+        let stagingPreexisted = FileManager.default.fileExists(atPath: stagingBundleURL.path)
+        var didPublishBundle = false
 
-        logger.info("Creating assembly bundle at \(bundleURL.path)")
+        logger.info("Creating assembly bundle at \(publishedBundleURL.path)")
 
         do {
+            try prepareOutputDestination(for: publishedBundleURL)
+
             // 1. Create bundle directory structure
             progress(0.0, "Creating bundle structure...")
-            try createBundleStructure(at: bundleURL)
+            try createBundleStructure(at: stagingBundleURL)
 
             // 2. Process contigs FASTA (bgzip + index)
             progress(0.05, "Compressing contigs with bgzip...")
             let genomeInfo = try await processContigsFASTA(
                 contigsPath: result.contigsPath,
-                bundleURL: bundleURL,
+                bundleURL: stagingBundleURL,
                 progress: progress
             )
 
             // 3. Copy assembly artifacts
             progress(0.60, "Copying assembly artifacts...")
-            try copyAssemblyArtifacts(result: result, bundleURL: bundleURL)
+            try copyAssemblyArtifacts(result: result, bundleURL: stagingBundleURL)
 
             // 4. Write provenance
             progress(0.70, "Writing provenance record...")
-            let assemblyDir = bundleURL.appendingPathComponent("assembly")
+            let assemblyDir = stagingBundleURL.appendingPathComponent("assembly")
             try provenance.save(to: assemblyDir)
 
             // 5. Build metadata groups for Inspector display
@@ -146,20 +151,24 @@ public final class AssemblyBundleBuilder: @unchecked Sendable {
                 genome: genomeInfo,
                 metadata: metadataGroups
             )
-            try manifest.save(to: bundleURL)
+            try manifest.save(to: stagingBundleURL)
 
             // 7. Validate
             progress(0.90, "Validating bundle...")
-            try validateBundle(at: bundleURL)
+            try validateBundle(at: stagingBundleURL)
+
+            try publishBundle(from: stagingBundleURL, to: publishedBundleURL)
+            didPublishBundle = true
 
             progress(1.0, "Bundle created successfully")
-            logger.info("Assembly bundle created: \(bundleURL.path)")
-            return bundleURL
+            logger.info("Assembly bundle created: \(publishedBundleURL.path)")
+            return publishedBundleURL
 
         } catch {
-            // Clean up partial bundle on failure
-            if FileManager.default.fileExists(atPath: bundleURL.path) {
-                try? FileManager.default.removeItem(at: bundleURL)
+            if !stagingPreexisted,
+               !didPublishBundle,
+               FileManager.default.fileExists(atPath: stagingBundleURL.path) {
+                try? FileManager.default.removeItem(at: stagingBundleURL)
             }
             throw error
         }
@@ -171,7 +180,7 @@ public final class AssemblyBundleBuilder: @unchecked Sendable {
         let fm = FileManager.default
 
         if fm.fileExists(atPath: bundleURL.path) {
-            try fm.removeItem(at: bundleURL)
+            throw AssemblyBundleBuildError.outputBundleAlreadyExists(bundleURL)
         }
 
         let directories = [
@@ -183,6 +192,32 @@ public final class AssemblyBundleBuilder: @unchecked Sendable {
         for dir in directories {
             try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         }
+    }
+
+    private func prepareOutputDestination(for publishedBundleURL: URL) throws {
+        let fm = FileManager.default
+        try fm.createDirectory(
+            at: publishedBundleURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        if fm.fileExists(atPath: publishedBundleURL.path) {
+            throw AssemblyBundleBuildError.outputBundleAlreadyExists(publishedBundleURL)
+        }
+    }
+
+    private func makeStagingBundleURL(for publishedBundleURL: URL) throws -> URL {
+        let parentURL = publishedBundleURL.deletingLastPathComponent()
+        let baseName = publishedBundleURL.deletingPathExtension().lastPathComponent
+        let stagingName = ".\(baseName).building-\(UUID().uuidString)"
+        return parentURL.appendingPathComponent(stagingName, isDirectory: true)
+    }
+
+    private func publishBundle(from stagingBundleURL: URL, to publishedBundleURL: URL) throws {
+        let fm = FileManager.default
+        if fm.fileExists(atPath: publishedBundleURL.path) {
+            throw AssemblyBundleBuildError.outputBundleAlreadyExists(publishedBundleURL)
+        }
+        try fm.moveItem(at: stagingBundleURL, to: publishedBundleURL)
     }
 
     // MARK: - Private: FASTA Processing
@@ -463,6 +498,7 @@ public enum AssemblyBundleBuildError: Error, LocalizedError {
     case contigsNotFound(URL)
     case bgzipFailed(String)
     case indexFailed(String)
+    case outputBundleAlreadyExists(URL)
     case validationFailed(String)
 
     public var errorDescription: String? {
@@ -473,6 +509,8 @@ public enum AssemblyBundleBuildError: Error, LocalizedError {
             return "bgzip compression failed: \(detail)"
         case .indexFailed(let detail):
             return "FASTA indexing failed: \(detail)"
+        case .outputBundleAlreadyExists(let url):
+            return "Output assembly bundle already exists: \(url.path)"
         case .validationFailed(let detail):
             return "Bundle validation failed: \(detail)"
         }
