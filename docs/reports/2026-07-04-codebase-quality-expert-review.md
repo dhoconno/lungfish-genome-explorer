@@ -112,6 +112,9 @@ and behavior-preserving simplifications are useful and appropriate.
 - 2026-07-04 follow-up: Managed database downloads now bridge Swift cancellation through a
   shared lock-backed URLSession task box, removing unsafe cross-isolation task references from
   the general and metagenomics database registries.
+- 2026-07-04 follow-up: Standalone GUI FASTA sequence exports and phylogenetic subtree Newick
+  exports now write canonical scientific file provenance sidecars and fail closed if sidecar
+  creation fails, instead of producing ambiguous untracked deliverables.
 
 ## Still Deferred
 

@@ -5,6 +5,7 @@
 import AppKit
 import LungfishKit
 import LungfishIO
+import LungfishWorkflow
 import UniformTypeIdentifiers
 
 private enum PhylogeneticTreeAccessibilityID {
@@ -750,7 +751,16 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
             )
             let completion: (NSApplication.ModalResponse) -> Void = { response in
                 guard response == .OK, let url = panel.url else { return }
-                try? Data(export.newick.utf8).write(to: url, options: .atomic)
+                do {
+                    try Self.writeSubtreeExport(
+                        export,
+                        sourceBundleURL: bundle.url,
+                        to: url,
+                        startedAt: Date()
+                    )
+                } catch {
+                    NSSound.beep()
+                }
             }
             if let window = view.window {
                 panel.beginSheetModal(for: window, completionHandler: completion)
@@ -767,6 +777,50 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         panel.allowedContentTypes = [.plainText]
         panel.nameFieldStringValue = suggestedName
         return panel
+    }
+
+    @discardableResult
+    static func writeSubtreeExport(
+        _ export: PhylogeneticTreeSubtreeExport,
+        sourceBundleURL: URL?,
+        to outputURL: URL,
+        startedAt: Date = Date()
+    ) throws -> URL {
+        try Data(export.newick.utf8).write(to: outputURL, options: .atomic)
+        let sourceURLs = sourceBundleURL.map { [$0] } ?? []
+        var argv = ["Lungfish Genome Explorer", "export-tree-subtree"]
+        for sourceURL in sourceURLs {
+            argv.append(contentsOf: ["--source", sourceURL.path])
+        }
+        argv.append(contentsOf: ["--node", export.selectedNodeID, "--output", outputURL.path])
+
+        do {
+            return try ScientificFileExportProvenance.write(.init(
+                workflowName: "lungfish app phylogenetic subtree export",
+                sourceURLs: sourceURLs,
+                outputURL: outputURL,
+                outputFormat: .text,
+                argv: argv,
+                explicitOptions: [
+                    "sourceBundlePath": sourceBundleURL.map(ParameterValue.file) ?? .string("none"),
+                    "outputPath": .file(outputURL),
+                    "selectedNodeID": .string(export.selectedNodeID),
+                    "selectedLabel": .string(export.selectedLabel),
+                ],
+                defaults: [
+                    "outputFormat": .string("newick"),
+                ],
+                resolved: [
+                    "descendantTipCount": .integer(export.descendantTipCount),
+                    "outputByteCount": .integer(export.newick.utf8.count),
+                ],
+                startedAt: startedAt,
+                completedAt: Date()
+            ))
+        } catch {
+            try? FileManager.default.removeItem(at: outputURL)
+            throw error
+        }
     }
 
     @objc private func centerSelectedNodeFromMenu(_ sender: Any?) {

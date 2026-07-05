@@ -3127,10 +3127,14 @@ public class ViewerViewController: NSViewController {
         // Collect all sequences from all documents
         var allSequences: [Sequence] = []
         var allAnnotations: [SequenceAnnotation] = []
+        var sourceURLsBySequenceID: [UUID: URL] = [:]
         
         for document in documents {
             allSequences.append(contentsOf: document.sequences)
             allAnnotations.append(contentsOf: document.annotations)
+            for sequence in document.sequences {
+                sourceURLsBySequenceID[sequence.id] = document.url.standardizedFileURL
+            }
             logger.debug("displayDocuments: Added \(document.sequences.count) sequences from '\(document.name)'")
         }
         
@@ -3166,7 +3170,7 @@ public class ViewerViewController: NSViewController {
         logger.debug("displayDocuments: Created referenceFrame for max length \(maxLength)")
         
         // Pass all sequences to the viewer using multi-sequence support
-        viewerView.setSequences(allSequences)
+        viewerView.setSequences(allSequences, sourceURLsByID: sourceURLsBySequenceID)
         viewerView.setAnnotations(allAnnotations)
 
         // Update header with stacked sequence info for precise alignment
