@@ -27,6 +27,9 @@ changes that reduce future ambiguity across the codebase.
 ## Completed Scope
 
 - Implemented CLI provenance explicit/resolved option merging and Markdup regression coverage.
+- Fixed `conda classify` provenance option separation so resolved database paths, detected
+  formats, materialized execution inputs, and defaulted flags are no longer reported as
+  explicit user options.
 - Fixed the targeted Kit/App callback hops without introducing the forbidden
   progress/notification `Task { @MainActor }` pattern.
 - Removed stale FASTQ sidebar accordion state and made Custom Fields visibility explicit.

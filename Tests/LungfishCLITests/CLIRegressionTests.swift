@@ -489,6 +489,20 @@ final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
         XCTAssertEqual(envelope.workflowName, "lungfish.classify")
         XCTAssertEqual(envelope.argv, ["lungfish", "classify", fixture.derivedBundleURL.path, "--db", "FixtureDB"])
         XCTAssertEqual(envelope.durableReplayArgv, ["lungfish", "classify", materializedURL.path, "--db", "FixtureDB"])
+        XCTAssertEqual(envelope.options.explicit["databaseName"], .string("FixtureDB"))
+        XCTAssertEqual(envelope.options.explicit["originalInputs"], .array([.file(fixture.derivedBundleURL.standardizedFileURL)]))
+        XCTAssertNil(envelope.options.explicit["databasePath"])
+        XCTAssertNil(envelope.options.explicit["inputFormat"])
+        XCTAssertNil(envelope.options.explicit["executionInputs"])
+        XCTAssertNil(envelope.options.explicit["threads"])
+        XCTAssertNil(envelope.options.explicit["pairedEnd"])
+        XCTAssertNil(envelope.options.explicit["profile"])
+        XCTAssertEqual(envelope.options.resolvedDefaults["databasePath"], .file(dbURL.standardizedFileURL))
+        XCTAssertEqual(envelope.options.resolvedDefaults["inputFormat"], .string("fastq"))
+        XCTAssertEqual(envelope.options.resolvedDefaults["executionInputs"], .array([.file(materializedURL.standardizedFileURL)]))
+        XCTAssertEqual(envelope.options.resolvedDefaults["threads"], .integer(2))
+        XCTAssertEqual(envelope.options.resolvedDefaults["pairedEnd"], .boolean(false))
+        XCTAssertEqual(envelope.options.resolvedDefaults["profile"], .boolean(false))
         XCTAssertTrue(envelope.files.contains {
             $0.path == fixture.derivedBundleURL.path && $0.checksumSHA256 != nil && $0.fileSize != nil
         })
@@ -510,6 +524,86 @@ final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
         )
         XCTAssertTrue(materializationStep.inputs.contains { $0.path == fixture.derivedBundleURL.path })
         XCTAssertTrue(materializationStep.outputs.contains { $0.path == materializedURL.path })
+    }
+
+    func testClassifyProvenanceRecordsOnlySuppliedFlagsAsExplicitOptions() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("classify-explicit-options-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        let inputURL = tempDir.appendingPathComponent("reads.fastq")
+        try "@read\nACGT\n+\nIIII\n".write(to: inputURL, atomically: true, encoding: .utf8)
+        let reportURL = tempDir.appendingPathComponent("classification.kreport")
+        let outputURL = tempDir.appendingPathComponent("classification.kraken")
+        try """
+          0.00\t0\t0\tU\t0\tunclassified
+        100.00\t1\t1\tR\t1\troot
+        """.write(to: reportURL, atomically: true, encoding: .utf8)
+        try "C\tread\t1\t4\t1:4\n".write(to: outputURL, atomically: true, encoding: .utf8)
+        let dbURL = tempDir.appendingPathComponent("kraken-db", isDirectory: true)
+        try FileManager.default.createDirectory(at: dbURL, withIntermediateDirectories: true)
+
+        var config = ClassificationConfig.fromPreset(
+            .precise,
+            inputFiles: [inputURL],
+            isPairedEnd: false,
+            databaseName: "FixtureDB",
+            inputFormat: .fastq,
+            databasePath: dbURL,
+            threads: 8,
+            outputDirectory: tempDir,
+            extraArguments: ["--minimum-base-quality", "20"]
+        )
+        config.confidence = 0.2
+        let result = ClassificationResult(
+            config: config,
+            tree: try KreportParser.parse(url: reportURL),
+            reportURL: reportURL,
+            outputURL: outputURL,
+            brackenURL: nil,
+            runtime: 4.0,
+            toolVersion: "2.1.3",
+            provenanceId: nil
+        )
+
+        let sidecarURL = try ClassifyCommand.writeProvenance(
+            result: result,
+            originalInputURLs: [inputURL],
+            executionInputURLs: [inputURL],
+            argv: [
+                "lungfish", "conda", "classify", inputURL.path,
+                "--db", "FixtureDB",
+                "--preset", "precise",
+                "--profile",
+                "--confidence", "0.2",
+                "--threads", "8",
+                "--extra-args", "--minimum-base-quality 20",
+            ],
+            preset: "precise",
+            profile: true,
+            startedAt: Date(timeIntervalSince1970: 100),
+            endedAt: Date(timeIntervalSince1970: 104),
+            writer: ProvenanceWriter(signingProvider: nil)
+        )
+
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: sidecarURL)
+        )
+        XCTAssertEqual(envelope.options.explicit["preset"], .string("precise"))
+        XCTAssertEqual(envelope.options.explicit["profile"], .boolean(true))
+        XCTAssertEqual(envelope.options.explicit["confidence"], .number(0.2))
+        XCTAssertEqual(envelope.options.explicit["threads"], .integer(8))
+        XCTAssertEqual(envelope.options.explicit["extraArguments"], .array([
+            .string("--minimum-base-quality"),
+            .string("20"),
+        ]))
+        XCTAssertNil(envelope.options.explicit["databasePath"])
+        XCTAssertNil(envelope.options.explicit["executionInputs"])
+        XCTAssertEqual(envelope.options.resolvedDefaults["preset"], .string("precise"))
+        XCTAssertEqual(envelope.options.resolvedDefaults["databasePath"], .file(dbURL.standardizedFileURL))
+        XCTAssertEqual(envelope.options.resolvedDefaults["executionInputs"], .array([.file(inputURL.standardizedFileURL)]))
     }
 
 }

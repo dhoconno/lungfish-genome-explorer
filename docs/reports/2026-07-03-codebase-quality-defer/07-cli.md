@@ -80,6 +80,10 @@ RESOLVED in the 2026-07-04 hardening pass:
 - `Commands/FastqScrubHumanSubcommand.swift` now records required user inputs and only supplied
   flags as explicit options, while resolved database IDs, database paths, compression behavior, and
   thread counts live in resolved options.
+- `Commands/ClassifyCommand.swift` now separates user-supplied `conda classify` options from
+  resolved/default-derived values. `databasePath`, detected input format, materialized execution
+  inputs, and defaulted flags are resolved-only; required database/input positionals and supplied
+  flags remain explicit.
 
 REJECTED candidates (audited, proven NOT safe — a future pass must not re-propose):
 - GenotypeAIHaplotypingSubcommand "8 dead statics" (resolveFormat/loadJSONCalls/loadDelimitedCalls/

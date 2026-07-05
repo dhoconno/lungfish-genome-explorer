@@ -298,6 +298,7 @@ struct ClassifyCommand: AsyncParsableCommand {
                 executionInputURLs: executionInputURLs,
                 argv: CommandLine.arguments,
                 durableReplayArgv: durableReplayArguments,
+                preset: preset.rawValue,
                 profile: profile,
                 brackenReadLength: brackenReadLength,
                 brackenLevel: brackenLevel,
@@ -387,6 +388,7 @@ struct ClassifyCommand: AsyncParsableCommand {
         executionInputURLs: [URL],
         argv: [String],
         durableReplayArgv: [String]? = nil,
+        preset: String = "balanced",
         profile: Bool = false,
         brackenReadLength: Int = 150,
         brackenLevel: String = "S",
@@ -427,10 +429,11 @@ struct ClassifyCommand: AsyncParsableCommand {
         .argv(argv)
         .durableReplayArgv(durableReplayArgv)
         .options(
-            explicit: classificationResolvedOptions(
+            explicit: classificationExplicitOptions(
                 for: config,
                 originalInputURLs: originalInputURLs,
-                executionInputURLs: executionInputURLs,
+                argv: argv,
+                preset: preset,
                 profile: profile,
                 brackenReadLength: brackenReadLength,
                 brackenLevel: brackenLevel,
@@ -441,6 +444,7 @@ struct ClassifyCommand: AsyncParsableCommand {
                 for: config,
                 originalInputURLs: originalInputURLs,
                 executionInputURLs: executionInputURLs,
+                preset: preset,
                 profile: profile,
                 brackenReadLength: brackenReadLength,
                 brackenLevel: brackenLevel,
@@ -523,6 +527,7 @@ struct ClassifyCommand: AsyncParsableCommand {
         for config: ClassificationConfig,
         originalInputURLs: [URL],
         executionInputURLs: [URL],
+        preset: String,
         profile: Bool,
         brackenReadLength: Int,
         brackenLevel: String,
@@ -532,6 +537,7 @@ struct ClassifyCommand: AsyncParsableCommand {
             "databaseName": .string(config.databaseName),
             "databasePath": .file(config.databasePath),
             "inputFormat": .string(config.inputFormat.rawValue),
+            "preset": .string(preset),
             "pairedEnd": .boolean(config.isPairedEnd),
             "profile": .boolean(profile),
             "confidence": .number(config.confidence),
@@ -547,6 +553,72 @@ struct ClassifyCommand: AsyncParsableCommand {
             "originalInputs": .array(originalInputURLs.map { .file($0.standardizedFileURL) }),
             "executionInputs": .array(executionInputURLs.map { .file($0.standardizedFileURL) }),
         ]
+    }
+
+    private static func classificationExplicitOptions(
+        for config: ClassificationConfig,
+        originalInputURLs: [URL],
+        argv: [String],
+        preset: String,
+        profile: Bool,
+        brackenReadLength: Int,
+        brackenLevel: String,
+        brackenThreshold: Int
+    ) -> [String: ParameterValue] {
+        var options: [String: ParameterValue] = [
+            "databaseName": .string(config.databaseName),
+            "originalInputs": .array(originalInputURLs.map { .file($0.standardizedFileURL) }),
+        ]
+
+        if argvContainsOption(argv, names: ["--output-dir", "-o"]) {
+            options["outputDirectory"] = .file(config.outputDirectory)
+        }
+        if argvContainsOption(argv, names: ["--preset"]) {
+            options["preset"] = .string(preset)
+        }
+        if argvContainsOption(argv, names: ["--paired"]) {
+            options["pairedEnd"] = .boolean(config.isPairedEnd)
+        }
+        if argvContainsOption(argv, names: ["--profile"]) {
+            options["profile"] = .boolean(profile)
+        }
+        if argvContainsOption(argv, names: ["--confidence"]) {
+            options["confidence"] = .number(config.confidence)
+        }
+        if argvContainsOption(argv, names: ["--min-hit-groups"]) {
+            options["minimumHitGroups"] = .integer(config.minimumHitGroups)
+        }
+        if argvContainsOption(argv, names: ["--threads"]) {
+            options["threads"] = .integer(config.threads)
+        }
+        if argvContainsOption(argv, names: ["--memory-mapping"]) {
+            options["memoryMapping"] = .boolean(config.memoryMapping)
+        }
+        if argvContainsOption(argv, names: ["--quick"]) {
+            options["quickMode"] = .boolean(config.quickMode)
+        }
+        if argvContainsOption(argv, names: ["--bracken-read-length"]) {
+            options["brackenReadLength"] = .integer(brackenReadLength)
+        }
+        if argvContainsOption(argv, names: ["--bracken-level"]) {
+            options["brackenLevel"] = .string(brackenLevel)
+        }
+        if argvContainsOption(argv, names: ["--bracken-threshold"]) {
+            options["brackenThreshold"] = .integer(brackenThreshold)
+        }
+        if argvContainsOption(argv, names: ["--extra-args"]) {
+            options["extraArguments"] = .array(config.extraArguments.map(ParameterValue.string))
+        }
+
+        return options
+    }
+
+    private static func argvContainsOption(_ argv: [String], names: Set<String>) -> Bool {
+        argv.contains { argument in
+            let name = argument.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false).first
+                .map(String.init) ?? argument
+            return names.contains(name)
+        }
     }
 
     private static func brackenProvenanceStep(
