@@ -147,6 +147,45 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
         )
     }
 
+    func testMainActorNotificationObserversUseMainQueueDelivery() throws {
+        let root = repositoryRoot()
+        let expectations = [
+            (
+                path: "Sources/LungfishApp/Views/Welcome/WelcomeWindowController.swift",
+                notification: ".managedResourcesDidChange",
+                reason: "WelcomeViewModel is @MainActor; managed resource notifications may be posted off-main."
+            ),
+            (
+                path: "Sources/LungfishApp/App/AppDelegate.swift",
+                notification: ".workflowLibraryEnablementChanged",
+                reason: "Workflow enablement changes rebuild AppKit menus and may be posted off-main."
+            ),
+        ]
+        var violations: [String] = []
+
+        for expectation in expectations {
+            let source = try String(
+                contentsOf: root.appendingPathComponent(expectation.path),
+                encoding: .utf8
+            )
+            let context = observerContext(in: source, notificationName: expectation.notification)
+            if !context.contains("addObserver(")
+                || !context.contains("forName:")
+                || !context.contains("queue: .main") {
+                violations.append("\(expectation.path): \(expectation.notification) must use a block observer delivered on .main. \(expectation.reason)")
+            }
+            if context.contains("selector:") {
+                violations.append("\(expectation.path): \(expectation.notification) must not use selector observer delivery. \(expectation.reason)")
+            }
+        }
+
+        XCTAssertTrue(
+            violations.isEmpty,
+            "Main-actor/AppKit notification observers must marshal delivery onto OperationQueue.main:\n"
+                + violations.joined(separator: "\n")
+        )
+    }
+
     func testProductionSheetsAvoidMainActorTaskAwaitPattern() throws {
         let root = repositoryRoot()
         let appRoot = root.appendingPathComponent("Sources/LungfishApp", isDirectory: true)
@@ -290,6 +329,40 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
             return ""
         }
         return String(source[startRange.lowerBound..<endRange.lowerBound])
+    }
+
+    private func observerContext(in source: String, notificationName: String) -> String {
+        let nameMarkers = [
+            "name: \(notificationName)",
+            "forName: \(notificationName)",
+        ]
+        guard let nameRange = nameMarkers.lazy.compactMap({
+            source.range(of: $0)
+        }).first,
+            let observerStart = source.range(
+                of: "addObserver(",
+                options: .backwards,
+                range: source.startIndex..<nameRange.lowerBound
+            ) else {
+            return ""
+        }
+        let argumentStart = observerStart.upperBound
+        var depth = 1
+        var cursor = argumentStart
+        while cursor < source.endIndex {
+            let character = source[cursor]
+            if character == "(" {
+                depth += 1
+            } else if character == ")" {
+                depth -= 1
+                if depth == 0 {
+                    let upper = source.index(after: cursor)
+                    return String(source[observerStart.lowerBound..<upper])
+                }
+            }
+            cursor = source.index(after: cursor)
+        }
+        return String(source[observerStart.lowerBound..<source.endIndex])
     }
 
     private func swiftSourceFiles(under root: URL) throws -> [URL] {

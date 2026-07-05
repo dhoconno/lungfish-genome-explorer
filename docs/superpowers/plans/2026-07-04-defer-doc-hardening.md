@@ -174,6 +174,9 @@ changes that reduce future ambiguity across the codebase.
   invalidates pending preview validation, cancels the scan task, and prevents stale scan updates.
 - Moved Workflow Operation enablement notifications onto the main queue before refreshing
   main-actor dialog state, removing the hidden assumption that all posters are main-threaded.
+- Moved Welcome managed-resource and AppDelegate workflow-enable notifications to main-queue
+  block observers with explicit observer-token cleanup so background posts cannot mutate
+  main-actor/AppKit state off-main.
 - Made managed-storage root validation match its public error surface by rejecting non-file URLs,
   existing files, unreachable parents, and unwritable existing ancestors while still accepting
   creatable roots under writable parents.

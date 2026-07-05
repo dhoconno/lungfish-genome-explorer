@@ -141,6 +141,20 @@ public struct RecentProject: Codable, Identifiable, Equatable {
 
 // MARK: - Welcome View Model
 
+private final class WelcomeNotificationObserver: @unchecked Sendable {
+    private let notificationCenter: NotificationCenter
+    private let token: NSObjectProtocol
+
+    init(notificationCenter: NotificationCenter, token: NSObjectProtocol) {
+        self.notificationCenter = notificationCenter
+        self.token = token
+    }
+
+    deinit {
+        notificationCenter.removeObserver(token)
+    }
+}
+
 @MainActor
 final class WelcomeViewModel: ObservableObject {
     @Published var selectedAction: WelcomeAction?
@@ -172,6 +186,7 @@ final class WelcomeViewModel: ObservableObject {
     private let notificationCenter: NotificationCenter
     private var setupRefreshTask: Task<Void, Never>?
     private var scheduledSetupRefreshTask: Task<Void, Never>?
+    private var managedResourcesObserver: WelcomeNotificationObserver?
     private var scheduledSetupRefreshGeneration = 0
     private var requiredSetupInstallGeneration = 0
     private var pendingSetupInvalidation = false
@@ -194,22 +209,27 @@ final class WelcomeViewModel: ObservableObject {
         self.storageConfigStore = resolvedStorageConfigStore
         self.storageCoordinator = storageCoordinator ?? ManagedStorageCoordinator(configStore: resolvedStorageConfigStore)
         self.notificationCenter = notificationCenter
-        notificationCenter.addObserver(
-            self,
-            selector: #selector(handleManagedResourcesDidChange(_:)),
-            name: .managedResourcesDidChange,
-            object: nil
-        )
+        let token = notificationCenter.addObserver(
+            forName: .managedResourcesDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let sourceObjectIdentifier = (notification.object as AnyObject?).map(ObjectIdentifier.init)
+            MainActor.assumeIsolated {
+                self?.handleManagedResourcesDidChange(sourceObjectIdentifier: sourceObjectIdentifier)
+            }
+        }
+        managedResourcesObserver = WelcomeNotificationObserver(notificationCenter: notificationCenter, token: token)
     }
 
     deinit {
         setupRefreshTask?.cancel()
         scheduledSetupRefreshTask?.cancel()
-        notificationCenter.removeObserver(self)
+        managedResourcesObserver = nil
     }
 
-    @objc private func handleManagedResourcesDidChange(_ notification: Notification) {
-        if let source = notification.object as AnyObject?, source === self {
+    private func handleManagedResourcesDidChange(sourceObjectIdentifier: ObjectIdentifier?) {
+        if sourceObjectIdentifier == ObjectIdentifier(self) {
             return
         }
         scheduleSetupRefresh(requiresFreshRead: true)

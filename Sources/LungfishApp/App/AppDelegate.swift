@@ -11,6 +11,20 @@ import SQLite3
 import os
 import LungfishKit
 
+private final class AppDelegateNotificationObserver: @unchecked Sendable {
+    private let notificationCenter: NotificationCenter
+    private let token: NSObjectProtocol
+
+    init(notificationCenter: NotificationCenter = .default, token: NSObjectProtocol) {
+        self.notificationCenter = notificationCenter
+        self.token = token
+    }
+
+    deinit {
+        notificationCenter.removeObserver(token)
+    }
+}
+
 /// Main application delegate handling app lifecycle and global state.
 @MainActor
 public class AppDelegate: NSObject, NSApplicationDelegate,
@@ -59,6 +73,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     /// Last applied experimental feature visibility.
     private var lastAppliedExperimentalFeaturesEnabled = AppSettings.defaultExperimentalFeaturesEnabled
+
+    private var workflowLibraryEnablementObserver: AppDelegateNotificationObserver?
 
     /// Repeating timer that cleans stale project temp directories (>24 h old) every 4 hours.
     private var projectTempCleanupTimer: Timer?
@@ -236,6 +252,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     deinit {
+        workflowLibraryEnablementObserver = nil
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -593,12 +610,16 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             object: nil
         )
 
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleWorkflowLibraryEnablementChanged(_:)),
-            name: .workflowLibraryEnablementChanged,
-            object: nil
-        )
+        let workflowLibraryToken = NotificationCenter.default.addObserver(
+            forName: .workflowLibraryEnablementChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.handleWorkflowLibraryEnablementChanged()
+            }
+        }
+        workflowLibraryEnablementObserver = AppDelegateNotificationObserver(token: workflowLibraryToken)
 
         // Register for AI assistant show request
         NotificationCenter.default.addObserver(
@@ -710,7 +731,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
     }
 
-    @objc private func handleWorkflowLibraryEnablementChanged(_ notification: Notification) {
+    private func handleWorkflowLibraryEnablementChanged() {
         NSApp.mainMenu = MainMenu.createMainMenu(
             experimentalFeaturesEnabled: AppSettings.shared.experimentalFeaturesEnabled,
             workflowFeatureAvailability: .current()
