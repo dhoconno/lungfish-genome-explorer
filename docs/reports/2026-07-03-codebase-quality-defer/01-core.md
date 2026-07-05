@@ -277,11 +277,11 @@ original refactor was constrained to behavior-preserving edits:
   lock-state presentation pass.
 - **F9/F10 — KeychainSecretStorage query consistency + non-UTF8 retrieve returns
   nil (low/medium).** Do NOT change keychain security semantics. Defer.
-- **F11 — ManagedStorageConfigStore mutable `@MainActor static var shared` on an
-  `@unchecked Sendable` class (medium).** Read-modify sequences across threads are
-  unsynchronized (individual writes are `.atomic`). `var`->`let` is only safe if no
-  reassignment exists; grep found no `shared =` reassignment, but leaving as-is is
-  safest without a concurrency-model decision. Defer.
+- **RESOLVED F11 — ManagedStorageConfigStore shared replacement narrowed.** The app-wide
+  `shared` store is now public read-only API; tests that need an isolated home directory use a
+  named internal `overrideSharedForTesting(_:)` seam instead of assigning the public singleton.
+  This does not serialize all possible cross-instance config-file writes; new code should prefer
+  explicit `ManagedStorageConfigStore` injection when it needs an isolated or custom store.
 - **F1 — stray orphan comment at ProjectFile.swift end — applied in the wave-3 cluster.**
 
 ## Wave-3 cluster notes (Models-rest, Editing/Extraction/Capabilities/Genotype)

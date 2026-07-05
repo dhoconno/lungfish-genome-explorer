@@ -82,6 +82,8 @@ and behavior-preserving simplifications are useful and appropriate.
   `MiniBAMViewController.swift` retains the pinned `loadTask = Task.detached` loader literal.
 - 2026-07-04 follow-up: metagenomics database actor singletons now use immutable `static let`
   storage, and tests use injected registry/manager instances instead of replacing global actors.
+- 2026-07-04 follow-up: `ManagedStorageConfigStore.shared` is now public read-only API; tests
+  use an explicit internal override when they need a temporary managed-storage home.
 - 2026-07-04 follow-up: Sample metadata CSV/TSV import now rejects rows whose column count differs
   from the header before scanning or persisting metadata, avoiding silent misalignment in scientific
   import workflows.

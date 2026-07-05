@@ -82,6 +82,8 @@ changes that reduce future ambiguity across the codebase.
   renderer file while preserving the pinned `loadTask = Task.detached` source-string location.
 - Replaced mutable `nonisolated(unsafe)` metagenomics database actor singletons with immutable
   `static let` singletons and moved root-change coverage to injected test instances.
+- Narrowed `ManagedStorageConfigStore.shared` from publicly replaceable global state to public
+  read-only API with an explicit internal test override for temporary-home isolation.
 
 ## Verification
 
