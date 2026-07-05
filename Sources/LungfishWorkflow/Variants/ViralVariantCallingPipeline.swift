@@ -535,7 +535,106 @@ public struct ViralVariantCallingPipeline: Sendable {
     private func runCaller(plan: ViralVariantCallingExecutionPlan) async throws -> (commandLine: String, steps: [VariantCallingProvenanceStep]) {
         switch request.caller {
         case .lofreq:
-            let arguments = lofreqArguments(plan: plan)
+            let tool = nativeTool(for: request.caller)
+            if lofreqRequiresIndelQualityPreprocessing {
+                let indelqualBAMURL = lofreqIndelqualBAMURL(plan: plan)
+                let indelqualIndexURL = lofreqIndelqualIndexURL(indelqualBAMURL: indelqualBAMURL)
+                let indelqualArguments = lofreqIndelqualArguments(plan: plan, outputBAMURL: indelqualBAMURL)
+                let indelqualStartedAt = Date()
+                let indelqualResult = try await toolRunner.run(
+                    .lofreq,
+                    arguments: indelqualArguments,
+                    workingDirectory: plan.workingDirectory,
+                    timeout: 3600
+                )
+                let indelqualCompletedAt = Date()
+                guard indelqualResult.isSuccess else {
+                    throw ViralVariantCallingPipelineError.callerExecutionFailed(indelqualResult.combinedOutput)
+                }
+                let indelqualCommand = await nativeCommand(for: tool, arguments: indelqualArguments)
+                let indelqualStep = VariantCallingProvenanceStep(
+                    toolName: tool.executableName,
+                    toolVersion: await nativeToolVersion(for: tool),
+                    command: indelqualCommand,
+                    inputs: [
+                        ProvenanceRecorder.fileRecord(url: plan.referenceURL, format: .fasta, role: .reference),
+                        ProvenanceRecorder.fileRecord(url: plan.alignmentURL, format: .bam, role: .input),
+                        ProvenanceRecorder.fileRecord(url: plan.alignmentIndexURL, role: .index),
+                    ],
+                    outputs: [ProvenanceRecorder.fileRecord(url: indelqualBAMURL, format: .bam, role: .output)],
+                    exitCode: indelqualResult.exitCode,
+                    wallTime: indelqualCompletedAt.timeIntervalSince(indelqualStartedAt),
+                    stderr: indelqualResult.stderr,
+                    startedAt: indelqualStartedAt,
+                    completedAt: indelqualCompletedAt
+                )
+
+                let indexArguments = lofreqIndexArguments(indelqualBAMURL: indelqualBAMURL)
+                let indexStartedAt = Date()
+                let indexResult = try await toolRunner.run(
+                    .lofreq,
+                    arguments: indexArguments,
+                    workingDirectory: plan.workingDirectory,
+                    timeout: 600
+                )
+                let indexCompletedAt = Date()
+                guard indexResult.isSuccess else {
+                    throw ViralVariantCallingPipelineError.callerExecutionFailed(indexResult.combinedOutput)
+                }
+                let indexCommand = await nativeCommand(for: tool, arguments: indexArguments)
+                let indexStep = VariantCallingProvenanceStep(
+                    toolName: tool.executableName,
+                    toolVersion: await nativeToolVersion(for: tool),
+                    command: indexCommand,
+                    inputs: [ProvenanceRecorder.fileRecord(url: indelqualBAMURL, format: .bam, role: .input)],
+                    outputs: [ProvenanceRecorder.fileRecord(url: indelqualIndexURL, role: .index)],
+                    exitCode: indexResult.exitCode,
+                    wallTime: indexCompletedAt.timeIntervalSince(indexStartedAt),
+                    stderr: indexResult.stderr,
+                    startedAt: indexStartedAt,
+                    completedAt: indexCompletedAt
+                )
+
+                let callArguments = lofreqCallArguments(plan: plan, alignmentURL: indelqualBAMURL)
+                let callStartedAt = Date()
+                let callResult = try await toolRunner.run(
+                    .lofreq,
+                    arguments: callArguments,
+                    workingDirectory: plan.workingDirectory,
+                    timeout: 3600
+                )
+                let callCompletedAt = Date()
+                guard callResult.isSuccess else {
+                    throw ViralVariantCallingPipelineError.callerExecutionFailed(callResult.combinedOutput)
+                }
+                let callCommand = await nativeCommand(for: tool, arguments: callArguments)
+                let callStep = VariantCallingProvenanceStep(
+                    toolName: tool.executableName,
+                    toolVersion: await nativeToolVersion(for: tool),
+                    command: callCommand,
+                    inputs: [
+                        ProvenanceRecorder.fileRecord(url: plan.referenceURL, format: .fasta, role: .reference),
+                        ProvenanceRecorder.fileRecord(url: indelqualBAMURL, format: .bam, role: .input),
+                        ProvenanceRecorder.fileRecord(url: indelqualIndexURL, role: .index),
+                    ],
+                    outputs: [ProvenanceRecorder.fileRecord(url: plan.rawVCFURL, format: .vcf, role: .output)],
+                    exitCode: callResult.exitCode,
+                    wallTime: callCompletedAt.timeIntervalSince(callStartedAt),
+                    stderr: callResult.stderr,
+                    startedAt: callStartedAt,
+                    completedAt: callCompletedAt
+                )
+                return (
+                    [
+                        shellCommand(indelqualCommand),
+                        shellCommand(indexCommand),
+                        shellCommand(callCommand),
+                    ].joined(separator: " && "),
+                    [indelqualStep, indexStep, callStep]
+                )
+            }
+
+            let arguments = lofreqCallArguments(plan: plan, alignmentURL: plan.alignmentURL)
             let startedAt = Date()
             let result = try await toolRunner.run(
                 .lofreq,
@@ -544,13 +643,17 @@ public struct ViralVariantCallingPipeline: Sendable {
                 timeout: 3600
             )
             let completedAt = Date()
+            guard result.isSuccess else {
+                throw ViralVariantCallingPipelineError.callerExecutionFailed(result.combinedOutput)
+            }
             let step = VariantCallingProvenanceStep(
-                toolName: nativeTool(for: request.caller).executableName,
-                toolVersion: await nativeToolVersion(for: nativeTool(for: request.caller)),
-                command: await nativeCommand(for: nativeTool(for: request.caller), arguments: arguments),
+                toolName: tool.executableName,
+                toolVersion: await nativeToolVersion(for: tool),
+                command: await nativeCommand(for: tool, arguments: arguments),
                 inputs: [
                     ProvenanceRecorder.fileRecord(url: plan.referenceURL, format: .fasta, role: .reference),
                     ProvenanceRecorder.fileRecord(url: plan.alignmentURL, format: .bam, role: .input),
+                    ProvenanceRecorder.fileRecord(url: plan.alignmentIndexURL, role: .index),
                 ],
                 outputs: [ProvenanceRecorder.fileRecord(url: plan.rawVCFURL, format: .vcf, role: .output)],
                 exitCode: result.exitCode,
@@ -559,10 +662,7 @@ public struct ViralVariantCallingPipeline: Sendable {
                 startedAt: startedAt,
                 completedAt: completedAt
             )
-            guard result.isSuccess else {
-                throw ViralVariantCallingPipelineError.callerExecutionFailed(result.combinedOutput)
-            }
-            return (([nativeTool(for: request.caller).executableName] + arguments).map(shellEscape).joined(separator: " "), [step])
+            return (([tool.executableName] + arguments).map(shellEscape).joined(separator: " "), [step])
         case .ivar:
             let gffURL = await exportBundleGFFIfAvailable(plan: plan)
             let mpileupArguments = ivarMpileupArguments(plan: plan)
@@ -973,8 +1073,25 @@ public struct ViralVariantCallingPipeline: Sendable {
         )
         switch caller {
         case .lofreq:
-            return ([nativeTool(for: caller).executableName] + lofreqArguments(
-                plan: plan
+            if lofreqRequiresIndelQualityPreprocessing {
+                let indelqualBAMURL = lofreqIndelqualBAMURL(plan: plan)
+                return [
+                    ([nativeTool(for: caller).executableName] + lofreqIndelqualArguments(
+                        plan: plan,
+                        outputBAMURL: indelqualBAMURL
+                    )).map(shellEscape).joined(separator: " "),
+                    ([nativeTool(for: caller).executableName] + lofreqIndexArguments(
+                        indelqualBAMURL: indelqualBAMURL
+                    )).map(shellEscape).joined(separator: " "),
+                    ([nativeTool(for: caller).executableName] + lofreqCallArguments(
+                        plan: plan,
+                        alignmentURL: indelqualBAMURL
+                    )).map(shellEscape).joined(separator: " "),
+                ].joined(separator: " && ")
+            }
+            return ([nativeTool(for: caller).executableName] + lofreqCallArguments(
+                plan: plan,
+                alignmentURL: plan.alignmentURL
             )).map(shellEscape).joined(separator: " ")
         case .ivar:
             return """
@@ -1027,14 +1144,43 @@ public struct ViralVariantCallingPipeline: Sendable {
         return workingDirectory.appendingPathComponent("ivar-annotations.gff3")
     }
 
-    private func lofreqArguments(plan: ViralVariantCallingExecutionPlan) -> [String] {
+    private var lofreqRequiresIndelQualityPreprocessing: Bool {
+        request.advancedArguments.contains("--call-indels")
+    }
+
+    private func lofreqIndelqualBAMURL(plan: ViralVariantCallingExecutionPlan) -> URL {
+        plan.rawVCFURL.deletingLastPathComponent().appendingPathComponent("lofreq.indelqual.bam")
+    }
+
+    private func lofreqIndelqualIndexURL(indelqualBAMURL: URL) -> URL {
+        indelqualBAMURL.appendingPathExtension("bai")
+    }
+
+    private func lofreqIndelqualArguments(
+        plan: ViralVariantCallingExecutionPlan,
+        outputBAMURL: URL
+    ) -> [String] {
+        [
+            "indelqual",
+            "--dindel",
+            "-f", plan.referenceURL.path,
+            "-o", outputBAMURL.path,
+            plan.alignmentURL.path,
+        ]
+    }
+
+    private func lofreqIndexArguments(indelqualBAMURL: URL) -> [String] {
+        ["index", indelqualBAMURL.path]
+    }
+
+    private func lofreqCallArguments(plan: ViralVariantCallingExecutionPlan, alignmentURL: URL) -> [String] {
         return ["call-parallel"]
             + request.advancedArguments
             + [
             "--pp-threads", String(max(1, request.threads)),
             "-f", plan.referenceURL.path,
             "-o", plan.rawVCFURL.path,
-            plan.alignmentURL.path,
+            alignmentURL.path,
         ]
     }
 

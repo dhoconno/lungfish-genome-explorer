@@ -39,6 +39,45 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         XCTAssertTrue(plan.commandLine.contains("--call-indels"))
     }
 
+    func testLoFreqIndelCallingPreprocessesAndIndexesBAMBeforeCallParallel() async throws {
+        let toolRunner = try makeFakeVariantToolRunner()
+        let pipeline = try makePipeline(
+            caller: .lofreq,
+            advancedArguments: ["--call-indels"],
+            toolRunner: toolRunner
+        )
+
+        let result = try await pipeline.run()
+
+        let indelqualStep = try XCTUnwrap(result.provenanceSteps.first { step in
+            step.toolName == "lofreq" && step.command.contains("indelqual")
+        })
+        let indexStep = try XCTUnwrap(result.provenanceSteps.first { step in
+            step.toolName == "lofreq" && step.command.contains("index")
+        })
+        let callStep = try XCTUnwrap(result.provenanceSteps.first { step in
+            step.toolName == "lofreq" && step.command.contains("call-parallel")
+        })
+        let indelqualOutput = try XCTUnwrap(indelqualStep.outputs.first { record in
+            record.path.hasSuffix("lofreq.indelqual.bam")
+        })
+        let indelqualIndexOutput = try XCTUnwrap(indexStep.outputs.first { record in
+            record.path.hasSuffix("lofreq.indelqual.bam.bai")
+        })
+
+        XCTAssertTrue(indelqualStep.command.contains("--dindel"))
+        XCTAssertTrue(indelqualStep.command.contains("-f"))
+        XCTAssertEqual(indelqualOutput.format, .bam)
+        XCTAssertTrue(indexStep.inputs.contains { $0.path == indelqualOutput.path && $0.sha256 != nil && $0.sizeBytes != nil })
+        XCTAssertTrue(callStep.command.contains("--call-indels"))
+        XCTAssertTrue(callStep.inputs.contains { $0.path == indelqualOutput.path && $0.sha256 != nil && $0.sizeBytes != nil })
+        XCTAssertTrue(callStep.inputs.contains { $0.path == indelqualIndexOutput.path && $0.sha256 != nil && $0.sizeBytes != nil })
+        XCTAssertTrue(result.commandLine.contains("lofreq indelqual"))
+        XCTAssertTrue(result.commandLine.contains("lofreq index"))
+        XCTAssertTrue(result.commandLine.contains("lofreq call-parallel"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.normalizedVCFURL.path))
+    }
+
     func testIVarCommandLineIncludesAdvancedArguments() throws {
         let pipeline = try makePipeline(caller: .ivar, advancedArguments: ["-g", "primers.gff"])
 
@@ -490,6 +529,44 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         if [ "$1" = "--version" ]; then echo "samtools 1.20"; exit 0; fi
         if [ "$1" = "faidx" ]; then printf "chr1\\t20\\t6\\t20\\t21\\n" > "$2.fai"; exit 0; fi
         if [ "$1" = "mpileup" ]; then echo "chr1\t1\tA\t1\t.\tI"; exit 0; fi
+        exit 0
+        """)
+        try writeFakeTool(home: home, environment: "lofreq", executable: "lofreq", script: """
+        #!/bin/sh
+        if [ "$1" = "--version" ] || [ "$1" = "version" ]; then echo "version: 2.1.5"; exit 0; fi
+        if [ "$1" = "indelqual" ]; then
+          output=""
+          input=""
+          while [ "$#" -gt 0 ]; do
+            if [ "$1" = "-o" ]; then shift; output="$1"; else input="$1"; fi
+            shift
+          done
+          cp "$input" "$output"
+          exit 0
+        fi
+        if [ "$1" = "index" ]; then
+          touch "$2.bai"
+          exit 0
+        fi
+        if [ "$1" = "call-parallel" ]; then
+          output=""
+          input=""
+          while [ "$#" -gt 0 ]; do
+            if [ "$1" = "-o" ]; then shift; output="$1"; else input="$1"; fi
+            shift
+          done
+          case "$input" in
+            *lofreq.indelqual.bam) ;;
+            *) echo "expected indelqual BAM input, got $input" >&2; exit 2 ;;
+          esac
+          cat > "$output" <<'EOF'
+        ##fileformat=VCFv4.3
+        ##contig=<ID=chr1,length=20>
+        #CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+        chr1	5	lofreq-1	A	G	80	PASS	.
+        EOF
+          exit 0
+        fi
         exit 0
         """)
         try writeFakeTool(home: home, environment: "ivar", executable: "ivar", script: """
