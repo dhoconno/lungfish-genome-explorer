@@ -9,7 +9,7 @@ import LungfishIO
 import LungfishKit
 
 /// Editor sheet for user-defined `GenotypeHaplotypeDefinitionSet` values.
-/// Hosted in a sheet from the Audit lens (or a future Tools menu item).
+/// Hosted by the Haplotype Definition Manager.
 ///
 /// **Why a sheet, not an inspector section:** definitions involve
 /// multi-level editing (assay → set → locus → haplotype → diagnostic
@@ -23,9 +23,8 @@ public struct GenotypeHaplotypeDefinitionEditor: View {
     let allowsIdentityEditing: Bool
     let allowsMetadataEditing: Bool
     /// When `true`, the editor surfaces a required Reference FASTA picker and
-    /// blocks Save until one is chosen. Every definition is now a
-    /// `.lungfishmhcref` bundle (FASTA + defs), so a saved definition always
-    /// carries a reference FASTA.
+    /// blocks Save until one is chosen. The parent manager owns persistence of
+    /// the selected FASTA into the final `.lungfishmhcref` bundle.
     let requiresReferenceFASTA: Bool
     /// The project directory used to scan for `.lungfishref`/FASTA candidates.
     let projectURL: URL?
@@ -845,9 +844,7 @@ enum GenotypeHaplotypeDefinitionDrafting {
     }
 }
 
-/// Minimal flow-layout container — wraps chips to multiple lines without
-/// needing iOS 16+ `Layout` protocol on macOS 13 builds. The Definition
-/// editor uses this for diagnostic-allele chips.
+/// Minimal flow-layout container for diagnostic-allele chips.
 private struct FlowLayout<Content: View>: View {
     let spacing: CGFloat
     let content: () -> Content

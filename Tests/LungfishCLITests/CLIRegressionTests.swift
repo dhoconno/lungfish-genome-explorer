@@ -4,11 +4,7 @@
 //
 // Tests command parsing, subcommand structure, option validation, and help
 // text generation for all top-level CLI commands. Uses ArgumentParser's
-// parse() method -- NEVER creates GlobalOptions() directly (see MEMORY.md).
-//
-// NOTE: ClassifyCommand, MapCommand, and OrientCommand still have a duplicate
-// local/global --threads bug. AssembleCommand no longer does, so it can be
-// exercised with real help/parse coverage.
+// parse() method so global defaults are exercised the same way users invoke them.
 
 import ArgumentParser
 import Foundation
@@ -39,9 +35,9 @@ final class CLITopLevelRegressionTests: XCTestCase {
     }
 
     func testLungfishCLISubcommandCount() {
-        // 21 subcommands registered at the time of writing.
-        // If a subcommand is added or removed, update this count.
         let subcommands = LungfishCLI.configuration.subcommands
+        // Keep this threshold loose so adding commands does not create churn; exact
+        // command discoverability is covered by focused command registration tests.
         XCTAssertGreaterThanOrEqual(subcommands.count, 20,
             "Expected at least 20 subcommands; found \(subcommands.count)")
     }
@@ -2496,7 +2492,6 @@ final class AssembleCommandRegressionTests: XCTestCase {
 }
 
 // MARK: - OrientCommand
-// NOTE: Has duplicate --threads option (own + GlobalOptions).
 
 final class OrientCommandRegressionTests: XCTestCase {
 
@@ -2595,7 +2590,6 @@ private func makeVirtualDerivedFASTQFixture(under tempDir: URL) throws -> Virtua
 }
 
 // MARK: - MapCommand
-// NOTE: Has duplicate --threads option (own + GlobalOptions).
 
 final class MapCommandRegressionTests: XCTestCase {
 

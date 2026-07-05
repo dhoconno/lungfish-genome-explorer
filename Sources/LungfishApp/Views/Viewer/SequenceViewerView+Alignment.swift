@@ -587,7 +587,7 @@ extension SequenceViewerView {
     /// Fetches aligned reads asynchronously from samtools for the visible region.
     /// Uses the same generation counter pattern as other fetch methods.
     /// AlignmentDataProvider.fetchReads() is async, so we use Task.detached to avoid
-    /// cooperative executor issues (see MEMORY.md), then return via GCD main queue.
+    /// blocking the viewport actor, then return via the GCD main queue.
     func fetchReadsAsync(bundle: ReferenceBundle, region: GenomicRegion) {
         guard !alignmentDataProviders.isEmpty else { return }
 

@@ -74,10 +74,10 @@ struct DefaultGenotypeViewportExportRunner: GenotypeViewportExportRunning {
 ///
 /// The viewport's colored matrix is serialized into a ``GenotypeViewProjection``
 /// (the contract `LungfishIO` defines and the CLI deserializes), written to a
-/// temporary JSON file, and handed to the canonical CLI exporter. This keeps
-/// the binding "every scientific GUI action shells to `lungfish-cli`" rule:
-/// the produced provenance is stamped by the CLI (`toolName == "lungfish-cli"`)
-/// rather than the GUI faking it. Mirrors ``TwelveSAmpliconResultExportService``.
+/// temporary JSON file, and handed to the canonical CLI exporter. This export
+/// deliberately reuses CLI-authored provenance (`toolName == "lungfish-cli"`)
+/// because the output must be replayable from the recorded argv.
+/// Mirrors ``TwelveSAmpliconResultExportService``.
 struct GenotypeViewportExportService {
     private let runner: GenotypeViewportExportRunning
     private let fileManager: FileManager

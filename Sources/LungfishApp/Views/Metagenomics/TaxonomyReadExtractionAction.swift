@@ -305,9 +305,8 @@ public final class TaxonomyReadExtractionAction {
         // Resolve the destination before spawning the detached task: we may
         // need to show a save panel first (which is @MainActor). The outer
         // Task is spawned from a @MainActor context (startExtraction is called
-        // from the dialog's primary button on the main actor), so this Task
-        // is safe per MEMORY.md (the rule blocks Task { @MainActor in } only
-        // when spawned from GCD background queues).
+        // from the dialog's primary button on the main actor), so creating a
+        // main-actor task here preserves sheet sequencing.
         // Store the outer task handle so Cancel can abort the destination-
         // resolution phase (including a save panel that hasn't appeared yet).
         taskBox.extractionTask = Task { @MainActor [weak self] in
@@ -409,8 +408,8 @@ public final class TaxonomyReadExtractionAction {
                         // Schedule the failure handling on the main queue. The
                         // alert presentation needs to await a sheet modal, so
                         // we hand off to a separate @MainActor helper rather
-                        // than spawning a `Task { @MainActor in }` inside an
-                        // `assumeIsolated` block (MEMORY.md anti-pattern).
+                        // than spawning a nested main-actor task while inside
+                        // an `assumeIsolated` block.
                         DispatchQueue.main.async { [weak self, weak model] in
                             MainActor.assumeIsolated {
                                 OperationCenter.shared.fail(
@@ -448,8 +447,8 @@ public final class TaxonomyReadExtractionAction {
     /// Presents an "Extraction failed" alert sheet on `hostWindow`.
     ///
     /// Extracted into its own `@MainActor` helper so the failure path in
-    /// `startExtraction` doesn't need to spawn a `Task { @MainActor in }` from
-    /// inside a `MainActor.assumeIsolated` block (MEMORY.md anti-pattern).
+    /// `startExtraction` doesn't need to spawn a nested main-actor task from
+    /// inside a `MainActor.assumeIsolated` block.
     @MainActor
     private func presentErrorAlert(_ errorDesc: String, on hostWindow: NSWindow) async {
         let alert = NSAlert()

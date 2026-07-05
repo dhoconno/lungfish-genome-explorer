@@ -74,7 +74,7 @@ public enum AnalysesMigration {
 
                 let tool = toolForPrefix(matchedPrefix)
 
-                // 4. Extract timestamp from the sidecar's savedAt field
+                // 4. Prefer the legacy sidecar timestamp when present.
                 let date = extractTimestamp(from: candidateURL) ?? Date()
                 let timestamp = AnalysesFolder.formatTimestamp(date)
 
@@ -82,7 +82,8 @@ public enum AnalysesMigration {
                 let analysesDir = try AnalysesFolder.url(for: projectURL)
 
                 // 6. Move directory to Analyses/{tool}-{timestamp}/
-                // Wrapped in do/catch so one failed migration does not abort the rest.
+                // Move failures are skipped; metadata or manifest failures below
+                // roll back the move and abort so history cannot diverge.
                 let moved: MigrationDestination
                 do {
                     moved = try moveAnalysisDirectory(
@@ -136,8 +137,7 @@ public enum AnalysesMigration {
         return totalMigrated
     }
 
-    /// Extract timestamp from sidecar JSON's savedAt field.
-    // ISO8601DateFormatter is internally synchronized; shared access is safe.
+    /// Best-effort timestamp extraction from known legacy analysis sidecars.
     private nonisolated(unsafe) static let iso8601Formatter = ISO8601DateFormatter()
 
     private static func extractTimestamp(from analysisDir: URL) -> Date? {

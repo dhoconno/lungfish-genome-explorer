@@ -190,8 +190,8 @@ struct ExtractSubcommand: AsyncParsableCommand {
 
 /// Formats a byte count as a human-readable string.
 ///
-/// Module-level free function to avoid `@MainActor` isolation issues in
-/// `@Sendable` closures per the project convention in MEMORY.md.
+/// Module-level free function so `@Sendable` closures can format byte counts
+/// without capturing actor-isolated formatter state.
 private func formatExtractBytes(_ bytes: Int64) -> String {
     if bytes >= 1_000_000_000 { return String(format: "%.1f GB", Double(bytes) / 1_000_000_000) }
     if bytes >= 1_000_000 { return String(format: "%.1f MB", Double(bytes) / 1_000_000) }
