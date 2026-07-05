@@ -80,6 +80,8 @@ changes that reduce future ambiguity across the codebase.
   models-vs-IO split as pending after the split had already landed.
 - Split `MiniPileupView` out of `MiniBAMViewController.swift` into a dedicated LungfishKit
   renderer file while preserving the pinned `loadTask = Task.detached` source-string location.
+- Replaced mutable `nonisolated(unsafe)` metagenomics database actor singletons with immutable
+  `static let` singletons and moved root-change coverage to injected test instances.
 
 ## Verification
 

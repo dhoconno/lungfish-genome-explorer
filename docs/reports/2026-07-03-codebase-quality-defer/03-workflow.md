@@ -184,10 +184,12 @@ reheader`, not alignment payloads). No MainActor-dispatch violations.
   the `zip` shadow with it) / Types.
 - AIHaplotypingRunner (1191L): +Types / +MinimalMCM / +ProviderErrors.
 
-### Flagged UPWARD (pre-existing, out of scope — do NOT fix in this pass)
-- `MetagenomicsDatabaseRegistry.swift:105`: `public nonisolated(unsafe) static var shared`
-  is an unsynchronized mutable global -> genuine data-race surface under strict concurrency.
-  Pre-existing accepted risk; deserves a separate tracked fix, not a behavior-preserving edit.
+### RESOLVED — metagenomics database singleton mutability
+- `MetagenomicsDatabaseRegistry.shared` is now an immutable actor singleton (`public static let`),
+  removing the unsynchronized mutable global slot that was unsafe under strict concurrency.
+- The same adjacent pattern in `EsVirituDatabaseManager.shared` was hardened to `public static let`.
+  Tests now exercise storage-root changes through injected manager/registry instances instead of
+  reassigning process-global singletons.
 
 ## Fourth big-file tier (PluginPackStatusService/DatabaseRegistry/ProvenanceEnvelope/SequenceAnnotationTrackWorkflow/ClassifierReadResolver) — ZERO safe applies
 

@@ -386,25 +386,23 @@ final class MetagenomicsDatabaseRegistryTests: XCTestCase {
         }
     }
 
-    func testSharedRegistryFollowsActiveRootChangesAfterInitialLoad() async throws {
+    func testRegistryFollowsActiveRootChangesAfterInitialLoad() async throws {
         let home = tempDir.appendingPathComponent("shared-home", isDirectory: true)
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
 
         let store = ManagedStorageConfigStore(homeDirectory: home)
-        let originalShared = MetagenomicsDatabaseRegistry.shared
-        MetagenomicsDatabaseRegistry.shared = MetagenomicsDatabaseRegistry(storageConfigStore: store)
-        defer { MetagenomicsDatabaseRegistry.shared = originalShared }
+        let registry = MetagenomicsDatabaseRegistry(storageConfigStore: store)
 
         let legacyDatabase = createMockKraken2Database(name: "legacy-only")
-        try await MetagenomicsDatabaseRegistry.shared.registerExisting(at: legacyDatabase, name: "LegacyOnly")
-        let legacyEntry = try await MetagenomicsDatabaseRegistry.shared.database(named: "LegacyOnly")
+        try await registry.registerExisting(at: legacyDatabase, name: "LegacyOnly")
+        let legacyEntry = try await registry.database(named: "LegacyOnly")
         XCTAssertNotNil(legacyEntry)
 
         let updatedRoot = home.appendingPathComponent("managed-storage", isDirectory: true)
         try store.setActiveRoot(updatedRoot)
 
-        let reloadedDatabases = try await MetagenomicsDatabaseRegistry.shared.availableDatabases()
-        let storagePath = await MetagenomicsDatabaseRegistry.shared.storagePath
+        let reloadedDatabases = try await registry.availableDatabases()
+        let storagePath = await registry.storagePath
         XCTAssertNil(reloadedDatabases.first { $0.name == "LegacyOnly" })
         XCTAssertEqual(storagePath, updatedRoot.appendingPathComponent("databases", isDirectory: true).path)
         XCTAssertTrue(

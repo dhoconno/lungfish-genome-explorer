@@ -102,9 +102,7 @@ public actor MetagenomicsDatabaseRegistry {
     /// Shared singleton instance.
     ///
     /// Uses the current shared managed storage root for each access.
-    public nonisolated(unsafe) static var shared = MetagenomicsDatabaseRegistry(
-        storageConfigStore: ManagedStorageConfigStore()
-    )
+    public static let shared = MetagenomicsDatabaseRegistry()
 
     // MARK: - Storage
 
