@@ -870,7 +870,7 @@ extension MainSplitViewController {
         OperationCenter.shared.log(id: opID, level: .info, message: "Starting \(request.operationDisplayTitle)")
         viewerController.showProgress("Splitting ONT reads by Fluidigm sample barcodes...")
 
-        Task.detached(priority: .userInitiated) { [weak self, weak viewerController] in
+        let task = Task.detached(priority: .userInitiated) { [weak self, weak viewerController] in
             do {
                 try FileManager.default.createDirectory(at: destinationRoot, withIntermediateDirectories: true)
                 let result = try await executionService.execute(
@@ -942,6 +942,7 @@ extension MainSplitViewController {
                 }
             }
         }
+        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
     }
 
     func performONTPacBioBarcodeDemux(
@@ -995,7 +996,7 @@ extension MainSplitViewController {
         OperationCenter.shared.log(id: opID, level: .info, message: "Starting \(request.operationDisplayTitle)")
         viewerController.showProgress("Demultiplexing ONT chunks with PacBio barcode pairs...")
 
-        Task.detached(priority: .userInitiated) { [weak self, weak viewerController] in
+        let task = Task.detached(priority: .userInitiated) { [weak self, weak viewerController] in
             do {
                 try FileManager.default.createDirectory(at: destinationRoot, withIntermediateDirectories: true)
                 let result = try await executionService.execute(
@@ -1067,6 +1068,7 @@ extension MainSplitViewController {
                 }
             }
         }
+        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
     }
 
     /// Performs the actual ONT directory import after the user has chosen whether to include unclassified reads.

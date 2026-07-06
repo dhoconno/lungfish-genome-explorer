@@ -3,6 +3,7 @@ import XCTest
 @testable import LungfishApp
 import LungfishCore
 @testable import LungfishIO
+import LungfishKit
 @testable import LungfishWorkflow
 
 private enum SyntheticCommandFailure: Error {
@@ -27,6 +28,48 @@ private final class ProgressRecorder: @unchecked Sendable {
 }
 
 final class FASTQOperationExecutionServiceTests: XCTestCase {
+    func testDefaultCLIRunnerCancelsRunningProcessWhenTaskIsCancelled() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecCLICancel")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let fakeCLIURL = tempDir.appendingPathComponent("fake-lungfish-cli")
+        try """
+        #!/bin/sh
+        sleep 3
+        """.write(to: fakeCLIURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: fakeCLIURL.path
+        )
+
+        let runner = LungfishCLIProcessRunner(cliURLProvider: { fakeCLIURL })
+        let start = Date()
+        let task = Task { () -> Result<FASTQCLIExecutionResult, Error> in
+            do {
+                let result = try await runner.run(
+                    invocation: CLIInvocation(subcommand: "fastq", arguments: ["noop"]),
+                    outputDirectory: tempDir,
+                    progress: { _, _ in }
+                )
+                return .success(result)
+            } catch {
+                return .failure(error)
+            }
+        }
+
+        try await Task.sleep(nanoseconds: 100_000_000)
+        task.cancel()
+        let result = await task.value
+        let elapsed = Date().timeIntervalSince(start)
+
+        guard case .failure(let error) = result else {
+            return XCTFail("Expected cancelled CLI runner task to fail")
+        }
+        guard case LungfishCLIRunner.RunError.cancelled = error else {
+            return XCTFail("Expected RunError.cancelled, got \(error)")
+        }
+        XCTAssertLessThan(elapsed, 2.0)
+    }
+
     func testPlannerSplitsPerInputDerivativeRequestsIntoOnePlanPerInput() throws {
         let planner = FASTQOperationPlanner()
         let baseOutputDirectory = URL(fileURLWithPath: "/tmp/fastq-operation-output", isDirectory: true)

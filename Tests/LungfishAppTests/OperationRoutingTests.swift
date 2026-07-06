@@ -616,6 +616,42 @@ final class OperationRoutingTests: XCTestCase {
         }
     }
 
+    func testFASTQOperationLaunchersRegisterOperationCenterCancelCallbacks() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let genomicsSource = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplay.swift"),
+            encoding: .utf8
+        )
+        let fastqImportSource = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/MainWindow/MainSplitViewController+FASTQImport.swift"),
+            encoding: .utf8
+        )
+
+        let generalLauncher = try sourceFunctionBody(
+            named: "func runFASTQOperationLaunchRequestValidated",
+            endingBefore: "    func outputDirectoryWritesIntoCurrentProject",
+            in: genomicsSource
+        )
+        let fluidigmLauncher = try sourceFunctionBody(
+            named: "func performONTFluidigmSampleSplit",
+            endingBefore: "    func performONTPacBioBarcodeDemux",
+            in: fastqImportSource
+        )
+        let pacBioLauncher = try sourceFunctionBody(
+            named: "func performONTPacBioBarcodeDemux",
+            endingBefore: "    /// Performs the actual ONT directory import",
+            in: fastqImportSource
+        )
+
+        for body in [generalLauncher, fluidigmLauncher, pacBioLauncher] {
+            XCTAssertTrue(body.contains("let task = Task.detached"))
+            XCTAssertTrue(body.contains("OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }"))
+        }
+    }
+
     private func sourceFunctionBody(named startNeedle: String, endingBefore endNeedle: String, in source: String) throws -> String {
         let start = try XCTUnwrap(source.range(of: startNeedle))
         let end = try XCTUnwrap(source[start.lowerBound...].range(of: endNeedle))

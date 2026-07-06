@@ -1017,7 +1017,7 @@ extension MainSplitViewController {
 
         viewerController.updateFASTQOperationStatus("Running FASTQ/FASTA operation...")
 
-        Task.detached(priority: .userInitiated) { [weak self] in
+        let task = Task.detached(priority: .userInitiated) { [weak self] in
             do {
                 let result: FASTQOperationExecutionResult
                 if AppUITestConfiguration.current.isEnabled,
@@ -1103,6 +1103,7 @@ extension MainSplitViewController {
                 }
             }
         }
+        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
     }
 
     func outputDirectoryWritesIntoCurrentProject(_ outputDirectory: URL) -> Bool {
