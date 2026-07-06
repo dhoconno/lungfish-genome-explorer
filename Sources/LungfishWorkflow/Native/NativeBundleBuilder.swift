@@ -58,11 +58,30 @@ public final class NativeBundleBuilder: ObservableObject {
     )
 
     private var isCancelled: Bool = false
-    private let toolRunner = NativeToolRunner.shared
+    private let toolRunner: NativeToolRunner
+
+    private struct FASTAProcessingResult {
+        let genomeInfo: GenomeInfo
+        let provenanceSteps: [NativeBuildToolProvenanceStep]
+    }
+
+    private struct NativeBuildToolProvenanceStep {
+        let toolName: String
+        let toolVersion: String
+        let command: [String]
+        let inputURLs: [URL]
+        let outputURLs: [URL]
+        let exitCode: Int32
+        let wallTime: TimeInterval
+        let stderr: String?
+        let dependsOnPrevious: Bool
+    }
 
     // MARK: - Initialization
 
-    public init() {}
+    public init(toolRunner: NativeToolRunner = .shared) {
+        self.toolRunner = toolRunner
+    }
 
     // MARK: - Tool Checking
 
@@ -153,11 +172,12 @@ public final class NativeBundleBuilder: ObservableObject {
             try checkCancellation()
 
             // Step 4: Process FASTA with native tools
-            let genomeInfo = try await processFASTAWithNativeTools(
+            let fastaProcessingResult = try await processFASTAWithNativeTools(
                 configuration: configuration,
                 bundleURL: stagingBundleURL,
                 progressHandler: progressHandler
             )
+            let genomeInfo = fastaProcessingResult.genomeInfo
 
             try checkCancellation()
 
@@ -217,7 +237,8 @@ public final class NativeBundleBuilder: ObservableObject {
                 stagingBundleURL: stagingBundleURL,
                 publishedBundleURL: publishedBundleURL,
                 runID: provenanceRunID,
-                wallTime: Date().timeIntervalSince(buildStart)
+                wallTime: Date().timeIntervalSince(buildStart),
+                nativeToolSteps: fastaProcessingResult.provenanceSteps
             )
 
             try publishBundle(from: stagingBundleURL, to: publishedBundleURL)
@@ -308,7 +329,8 @@ public final class NativeBundleBuilder: ObservableObject {
         stagingBundleURL: URL,
         publishedBundleURL: URL,
         runID: UUID,
-        wallTime: TimeInterval
+        wallTime: TimeInterval,
+        nativeToolSteps: [NativeBuildToolProvenanceStep]
     ) async throws {
         let workflowName = provenanceWorkflowName(for: configuration)
         let inputRecords = provenanceInputURLs(for: configuration).map {
@@ -334,12 +356,62 @@ public final class NativeBundleBuilder: ObservableObject {
             wallTime: wallTime,
             stderr: nil
         )
+        var previousNativeStepID: UUID?
+        for step in nativeToolSteps {
+            let inputs = step.inputURLs.map {
+                provenanceFileRecord(
+                    for: $0,
+                    stagingBundleURL: stagingBundleURL,
+                    publishedBundleURL: publishedBundleURL,
+                    role: .input
+                )
+            }
+            let outputs = step.outputURLs.map {
+                provenanceFileRecord(
+                    for: $0,
+                    stagingBundleURL: stagingBundleURL,
+                    publishedBundleURL: publishedBundleURL,
+                    role: .output
+                )
+            }
+            previousNativeStepID = await ProvenanceRecorder.shared.recordStep(
+                runID: runID,
+                toolName: step.toolName,
+                toolVersion: step.toolVersion,
+                command: step.command,
+                inputs: inputs,
+                outputs: outputs,
+                exitCode: step.exitCode,
+                wallTime: step.wallTime,
+                stderr: step.stderr,
+                dependsOn: step.dependsOnPrevious ? previousNativeStepID.map { [$0] } ?? [] : []
+            ) ?? previousNativeStepID
+        }
         await ProvenanceRecorder.shared.completeRun(runID, status: .completed)
         try await ProvenanceRecorder.shared.save(
             runID: runID,
             to: stagingBundleURL,
             bundleLayoutRoot: publishedBundleURL
         )
+    }
+
+    private func provenanceFileRecord(
+        for url: URL,
+        stagingBundleURL: URL,
+        publishedBundleURL: URL,
+        role: FileRole
+    ) -> FileRecord {
+        let standardizedURL = url.standardizedFileURL
+        let stagingPath = stagingBundleURL.standardizedFileURL.path
+        if standardizedURL.path.hasPrefix(stagingPath + "/") {
+            return publishedFileRecord(
+                forStagedURL: standardizedURL,
+                stagingBundleURL: stagingBundleURL,
+                publishedBundleURL: publishedBundleURL,
+                role: role
+            )
+        }
+        return ProvenanceRecorder.fileRecord(url: standardizedURL, role: role)
     }
 
     private func provenanceInputURLs(for configuration: BuildConfiguration) -> [URL] {
@@ -589,8 +661,9 @@ public final class NativeBundleBuilder: ObservableObject {
         configuration: BuildConfiguration,
         bundleURL: URL,
         progressHandler: (@Sendable (BuildStep, Double, String) -> Void)?
-    ) async throws -> GenomeInfo {
+    ) async throws -> FASTAProcessingResult {
         logger.info("Processing FASTA with native tools")
+        var provenanceSteps: [NativeBuildToolProvenanceStep] = []
 
         let genomeDir = bundleURL.appendingPathComponent("genome")
         let fastaFilename = "sequence.fa"
@@ -613,14 +686,29 @@ public final class NativeBundleBuilder: ObservableObject {
             )
 
             // Use bgzip to compress
+            let bgzipStartedAt = Date()
             let result = try await toolRunner.bgzipCompress(
                 inputPath: destinationFASTA,
                 keepOriginal: false
             )
+            let bgzipWallTime = Date().timeIntervalSince(bgzipStartedAt)
 
             if result.isSuccess {
                 finalFASTAPath = URL(fileURLWithPath: destinationFASTA.path + ".gz")
                 logger.info("FASTA compressed successfully")
+                provenanceSteps.append(
+                    NativeBuildToolProvenanceStep(
+                        toolName: NativeTool.bgzip.rawValue,
+                        toolVersion: await toolRunner.getToolVersion(.bgzip) ?? "unknown",
+                        command: result.arguments,
+                        inputURLs: [configuration.fastaURL],
+                        outputURLs: [finalFASTAPath],
+                        exitCode: result.exitCode,
+                        wallTime: bgzipWallTime,
+                        stderr: result.stderr,
+                        dependsOnPrevious: false
+                    )
+                )
                 // Remove uncompressed original if bgzip didn't (belt and suspenders)
                 if FileManager.default.fileExists(atPath: destinationFASTA.path) {
                     try? FileManager.default.removeItem(at: destinationFASTA)
@@ -632,6 +720,19 @@ public final class NativeBundleBuilder: ObservableObject {
                 if FileManager.default.fileExists(atPath: partialGz.path) {
                     try? FileManager.default.removeItem(at: partialGz)
                 }
+                provenanceSteps.append(
+                    NativeBuildToolProvenanceStep(
+                        toolName: NativeTool.bgzip.rawValue,
+                        toolVersion: await toolRunner.getToolVersion(.bgzip) ?? "unknown",
+                        command: result.arguments,
+                        inputURLs: [configuration.fastaURL],
+                        outputURLs: [],
+                        exitCode: result.exitCode,
+                        wallTime: bgzipWallTime,
+                        stderr: result.stderr,
+                        dependsOnPrevious: false
+                    )
+                )
                 // Fall back to uncompressed
             }
 
@@ -651,13 +752,64 @@ public final class NativeBundleBuilder: ObservableObject {
             progressHandler
         )
 
+        let indexStartedAt = Date()
         let indexResult = try await toolRunner.indexFASTA(fastaPath: finalFASTAPath)
+        let indexWallTime = Date().timeIntervalSince(indexStartedAt)
+        let indexURL = URL(fileURLWithPath: finalFASTAPath.path + ".fai")
+        let gzipIndexURL = URL(fileURLWithPath: finalFASTAPath.path + ".gzi")
 
         if !indexResult.isSuccess {
             logger.warning("samtools faidx failed: \(indexResult.stderr)")
+            provenanceSteps.append(
+                NativeBuildToolProvenanceStep(
+                    toolName: NativeTool.samtools.rawValue,
+                    toolVersion: await toolRunner.getToolVersion(.samtools) ?? "unknown",
+                    command: indexResult.arguments,
+                    inputURLs: [finalFASTAPath],
+                    outputURLs: [],
+                    exitCode: indexResult.exitCode,
+                    wallTime: indexWallTime,
+                    stderr: indexResult.stderr,
+                    dependsOnPrevious: configuration.compressFASTA
+                )
+            )
             // Fall back to manual index creation
-            let indexURL = URL(fileURLWithPath: finalFASTAPath.path + ".fai")
             try createFASTAIndex(chromosomes: chromosomes, indexURL: indexURL)
+            provenanceSteps.append(
+                NativeBuildToolProvenanceStep(
+                    toolName: "NativeBundleBuilder.createFASTAIndex",
+                    toolVersion: WorkflowRun.currentAppVersion,
+                    command: [
+                        "NativeBundleBuilder.createFASTAIndex",
+                        "--input", finalFASTAPath.path,
+                        "--output", indexURL.path,
+                    ],
+                    inputURLs: [finalFASTAPath],
+                    outputURLs: [indexURL],
+                    exitCode: 0,
+                    wallTime: 0,
+                    stderr: nil,
+                    dependsOnPrevious: true
+                )
+            )
+        } else {
+            var indexOutputs = [indexURL]
+            if FileManager.default.fileExists(atPath: gzipIndexURL.path) {
+                indexOutputs.append(gzipIndexURL)
+            }
+            provenanceSteps.append(
+                NativeBuildToolProvenanceStep(
+                    toolName: NativeTool.samtools.rawValue,
+                    toolVersion: await toolRunner.getToolVersion(.samtools) ?? "unknown",
+                    command: indexResult.arguments,
+                    inputURLs: [finalFASTAPath],
+                    outputURLs: indexOutputs,
+                    exitCode: indexResult.exitCode,
+                    wallTime: indexWallTime,
+                    stderr: indexResult.stderr,
+                    dependsOnPrevious: configuration.compressFASTA
+                )
+            )
         }
 
         updateProgress(
@@ -674,12 +826,15 @@ public final class NativeBundleBuilder: ObservableObject {
         let indexPath = "\(relativePath).fai"
         let gzipIndexPath = isCompressed ? "\(relativePath).gzi" : nil
 
-        return GenomeInfo(
-            path: relativePath,
-            indexPath: indexPath,
-            gzipIndexPath: gzipIndexPath,
-            totalLength: totalLength,
-            chromosomes: chromosomes
+        return FASTAProcessingResult(
+            genomeInfo: GenomeInfo(
+                path: relativePath,
+                indexPath: indexPath,
+                gzipIndexPath: gzipIndexPath,
+                totalLength: totalLength,
+                chromosomes: chromosomes
+            ),
+            provenanceSteps: provenanceSteps
         )
     }
 

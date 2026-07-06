@@ -495,6 +495,7 @@ struct BundleCreateSubcommand: AsyncParsableCommand {
             bundleIdentifier: bundleIdentifier,
             compress: compress
         )
+        let nativeToolSteps = Self.nativeBuilderToolSteps(in: bundleURL)
         try await CLIProvenanceSupport.recordSingleStepRun(
             name: "lungfish bundle create",
             parameters: parameters,
@@ -505,6 +506,7 @@ struct BundleCreateSubcommand: AsyncParsableCommand {
                 bundleIdentifier: bundleIdentifier,
                 compress: compress
             ),
+            extraSteps: nativeToolSteps,
             inputs: inputs,
             outputs: outputs,
             exitCode: 0,
@@ -513,6 +515,13 @@ struct BundleCreateSubcommand: AsyncParsableCommand {
             status: .completed,
             outputDirectory: bundleURL
         )
+    }
+
+    private static func nativeBuilderToolSteps(in bundleURL: URL) -> [ProvenanceStep] {
+        guard let builderEnvelope = try? ProvenanceEnvelopeReader.load(from: bundleURL) else {
+            return []
+        }
+        return builderEnvelope.steps.filter { $0.toolName != "NativeBundleBuilder.build" }
     }
 
     private static func inputFileRecords(for configuration: BuildConfiguration) -> [FileRecord] {

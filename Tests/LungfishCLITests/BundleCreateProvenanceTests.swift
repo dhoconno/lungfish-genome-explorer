@@ -97,9 +97,13 @@ final class BundleCreateProvenanceTests: XCTestCase {
 
         XCTAssertEqual(run.name, "lungfish bundle create")
         XCTAssertEqual(run.status, .completed)
-        XCTAssertEqual(run.steps.count, 1)
+        XCTAssertGreaterThanOrEqual(run.steps.count, 1)
         XCTAssertEqual(run.steps[0].toolName, "lungfish bundle create")
         XCTAssertEqual(run.steps[0].exitCode, 0)
+        for nativeStep in run.steps.dropFirst() {
+            XCTAssertFalse(nativeStep.outputs.contains { $0.path.contains(".building-") })
+            XCTAssertTrue(nativeStep.outputs.allSatisfy { $0.path.hasPrefix(bundleURL.path) })
+        }
         XCTAssertEqual(run.parameters["identifier"]?.stringValue, "org.lungfish.test.bundle")
         XCTAssertEqual(run.parameters["compressFASTA"]?.booleanValue, false)
         XCTAssertTrue(run.primaryInputFiles.contains {
