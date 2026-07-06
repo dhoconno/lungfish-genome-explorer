@@ -1,5 +1,6 @@
 import importlib.util
 import os
+import subprocess
 import sys
 import tempfile
 import time
@@ -193,6 +194,25 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
             [match.ref for match in matches],
             ["stash@{0}", "stash@{2}", "stash@{3}"],
         )
+
+    def test_archive_branch_fails_when_git_bundle_create_fails(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            rescue_dir = root / "rescue"
+            rescue_dir.mkdir()
+            candidate = self.release.BranchCandidate(
+                name="codex/broken-rescue",
+                ref="codex/broken-rescue",
+                source="local",
+            )
+
+            def fake_run(command, **_kwargs):
+                self.assertEqual(command[:3], ["git", "bundle", "create"])
+                return subprocess.CompletedProcess(command, 1, stderr="fatal: bad ref\n")
+
+            with mock.patch.object(self.release.subprocess, "run", fake_run):
+                with self.assertRaisesRegex(self.release.NightlyReleaseError, "failed to create rescue bundle"):
+                    self.release.archive_branch(root, rescue_dir, candidate)
 
     def test_main_builds_locally_then_pushes_release_refs_before_remote_publication(self):
         with tempfile.TemporaryDirectory() as temp_dir:

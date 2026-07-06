@@ -320,7 +320,18 @@ def archive_branch(root: Path, rescue_dir: Path, candidate: BranchCandidate) -> 
     branches_dir = rescue_dir / "branches"
     branches_dir.mkdir(exist_ok=True)
     bundle = branches_dir / f"{safe_name(candidate.name)}.bundle"
-    subprocess.run(["git", "bundle", "create", str(bundle), candidate.ref], cwd=root, check=False)
+    result = subprocess.run(
+        ["git", "bundle", "create", str(bundle), candidate.ref],
+        cwd=root,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if result.returncode != 0:
+        bundle.unlink(missing_ok=True)
+        detail = (result.stderr or result.stdout or f"exit {result.returncode}").strip()
+        raise NightlyReleaseError(f"failed to create rescue bundle for {candidate.name}: {detail}")
 
 
 def archive_dirty_worktree(rescue_dir: Path, candidate: BranchCandidate) -> None:
