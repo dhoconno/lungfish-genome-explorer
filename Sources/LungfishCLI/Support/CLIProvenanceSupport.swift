@@ -146,6 +146,7 @@ enum CLIProvenanceSupport {
             toolVersion: toolVersion
         )
         .argv(command)
+        .durableReplayArgv(command)
         .options(
             explicit: parameters,
             defaults: defaults,
