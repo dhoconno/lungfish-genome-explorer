@@ -77,8 +77,9 @@ private func updateUniqueReadsInDB(
     resultURL: URL,
     bamPathResolver: (URL, String, String) -> String,
     updateAccessionLength: Bool,
-    quiet: Bool
-) throws {
+    quiet: Bool,
+    provenance: BuildDbSamtoolsProvenanceCollector
+) async throws {
     var db: OpaquePointer?
     guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK else {
         if !quiet { print("Warning: could not open database for unique reads update") }
@@ -123,6 +124,10 @@ private func updateUniqueReadsInDB(
     guard let samtoolsPath = findSamtools() else {
         throw BuildDbUniqueReadsError.managedSamtoolsUnavailable
     }
+    let samtoolsProvenance = BuildDbSamtoolsProvenanceTracker(
+        samtoolsPath: samtoolsPath,
+        collector: provenance
+    )
 
     // Step 1: Run markdup on each unique BAM file
     let uniqueBAMPaths = Set(rowsToProcess.map { bamPathResolver(resultURL, $0.sample, $0.bamRelPath) })
@@ -132,8 +137,10 @@ private func updateUniqueReadsInDB(
         let bamURL = URL(fileURLWithPath: bamFullPath)
         guard FileManager.default.fileExists(atPath: bamFullPath) else { continue }
         do {
-            let result = try MarkdupService.markdup(bamURL: bamURL, samtoolsPath: samtoolsPath)
+            let result = try await samtoolsProvenance.markdup(bamURL: bamURL)
             if !result.wasAlreadyMarkduped { marked += 1 }
+        } catch let provenanceError as BuildDbSamtoolsProvenanceError {
+            throw provenanceError
         } catch {
             if !quiet { print("  Warning: markdup failed on \(bamURL.lastPathComponent): \(error.localizedDescription)") }
         }
@@ -148,17 +155,8 @@ private func updateUniqueReadsInDB(
     if updateAccessionLength {
         for bamFullPath in uniqueBAMPaths {
             guard FileManager.default.fileExists(atPath: bamFullPath) else { continue }
-            let idxProcess = Process()
-            idxProcess.executableURL = URL(fileURLWithPath: samtoolsPath)
-            idxProcess.arguments = ["idxstats", bamFullPath]
-            let pipe = Pipe()
-            idxProcess.standardOutput = pipe
-            idxProcess.standardError = FileHandle.nullDevice
-            do { try idxProcess.run() } catch { continue }
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            idxProcess.waitUntilExit()
-            guard idxProcess.terminationStatus == 0,
-                  let output = String(data: data, encoding: .utf8) else { continue }
+            let bamURL = URL(fileURLWithPath: bamFullPath)
+            guard let output = try await samtoolsProvenance.idxstats(bamURL: bamURL) else { continue }
             for line in output.split(separator: "\n") {
                 let cols = line.split(separator: "\t")
                 guard cols.count >= 2 else { continue }
@@ -221,11 +219,10 @@ private func updateUniqueReadsInDB(
             unique = cached
         } else {
             do {
-                unique = try MarkdupService.countReads(
+                unique = try await samtoolsProvenance.countReads(
                     bamURL: bamURL,
                     accession: row.accession,
-                    flagFilter: 0x404,  // unmapped + duplicate
-                    samtoolsPath: samtoolsPath
+                    flagFilter: 0x404  // unmapped + duplicate
                 )
                 uniqueCache[cacheKey] = unique
             } catch {
@@ -238,11 +235,10 @@ private func updateUniqueReadsInDB(
             total = cached
         } else {
             do {
-                total = try MarkdupService.countReads(
+                total = try await samtoolsProvenance.countReads(
                     bamURL: bamURL,
                     accession: row.accession,
-                    flagFilter: 0x4,  // unmapped only (includes duplicates)
-                    samtoolsPath: samtoolsPath
+                    flagFilter: 0x4  // unmapped only (includes duplicates)
                 )
                 totalCache[cacheKey] = total
             } catch {
@@ -320,6 +316,7 @@ extension BuildDbCommand {
             }
 
             let provenanceInputs = BuildDbCommand.buildDbInputRecords(tool: .taxTriage, resultURL: resultURL)
+            let samtoolsProvenance = BuildDbSamtoolsProvenanceCollector()
 
             do {
                 // 1. Locate a supported taxonomy report
@@ -353,7 +350,7 @@ extension BuildDbCommand {
                 }
 
                 // 4. Compute unique reads from BAMs and update DB
-                try updateUniqueReadsInDB(
+                try await updateUniqueReadsInDB(
                     dbPath: dbURL.path,
                     table: "taxonomy_rows",
                     sampleCol: "sample",
@@ -366,7 +363,8 @@ extension BuildDbCommand {
                         resultURL.appendingPathComponent(bamRelPath).path
                     },
                     updateAccessionLength: true,
-                    quiet: globalOptions.quiet
+                    quiet: globalOptions.quiet,
+                    provenance: samtoolsProvenance
                 )
 
                 if !noCleanup {
@@ -381,7 +379,8 @@ extension BuildDbCommand {
                     noCleanup: noCleanup,
                     globalOptions: globalOptions,
                     startedAt: provenanceStartedAt,
-                    inputRecords: provenanceInputs
+                    inputRecords: provenanceInputs,
+                    additionalSteps: samtoolsProvenance.steps
                 )
             } catch {
                 await BuildDbCommand.recordBuildDbFailureProvenanceIfNeeded(
@@ -393,7 +392,8 @@ extension BuildDbCommand {
                     globalOptions: globalOptions,
                     startedAt: provenanceStartedAt,
                     inputRecords: provenanceInputs,
-                    error: error
+                    error: error,
+                    additionalSteps: samtoolsProvenance.steps
                 )
                 throw error
             }
@@ -1079,6 +1079,7 @@ extension BuildDbCommand {
             }
 
             let provenanceInputs = BuildDbCommand.buildDbInputRecords(tool: .esViritu, resultURL: resultURL)
+            let samtoolsProvenance = BuildDbSamtoolsProvenanceCollector()
 
             do {
                 // 1. Enumerate sample subdirectories containing detection TSVs
@@ -1144,7 +1145,7 @@ extension BuildDbCommand {
                 relocateEsVirituBAMs(resultURL: resultURL)
 
                 // 5. Compute unique reads from BAMs and update DB
-                try updateUniqueReadsInDB(
+                try await updateUniqueReadsInDB(
                     dbPath: dbURL.path,
                     table: "detection_rows",
                     sampleCol: "sample",
@@ -1157,7 +1158,8 @@ extension BuildDbCommand {
                         resultURL.appendingPathComponent(bamRelPath).path
                     },
                     updateAccessionLength: false,
-                    quiet: globalOptions.quiet
+                    quiet: globalOptions.quiet,
+                    provenance: samtoolsProvenance
                 )
 
                 if !noCleanup {
@@ -1172,7 +1174,8 @@ extension BuildDbCommand {
                     noCleanup: noCleanup,
                     globalOptions: globalOptions,
                     startedAt: provenanceStartedAt,
-                    inputRecords: provenanceInputs
+                    inputRecords: provenanceInputs,
+                    additionalSteps: samtoolsProvenance.steps
                 )
             } catch {
                 await BuildDbCommand.recordBuildDbFailureProvenanceIfNeeded(
@@ -1184,7 +1187,8 @@ extension BuildDbCommand {
                     globalOptions: globalOptions,
                     startedAt: provenanceStartedAt,
                     inputRecords: provenanceInputs,
-                    error: error
+                    error: error,
+                    additionalSteps: samtoolsProvenance.steps
                 )
                 throw error
             }

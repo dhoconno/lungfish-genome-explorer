@@ -89,7 +89,36 @@ final class BuildDbCommandTests: XCTestCase {
             fi
             ;;
           fixmate)
-            cat
+            input="-"
+            output="-"
+            while [ $# -gt 0 ]; do
+              case "$1" in
+                -m)
+                  shift
+                  ;;
+                *)
+                  if [ "$input" = "-" ]; then
+                    input="$1"
+                  else
+                    output="$1"
+                  fi
+                  shift
+                  ;;
+              esac
+            done
+            if [ "$output" = "-" ]; then
+              if [ "$input" = "-" ]; then
+                cat
+              else
+                cat "$input"
+              fi
+            else
+              if [ "$input" = "-" ]; then
+                cat > "$output"
+              else
+                cat "$input" > "$output"
+              fi
+            fi
             ;;
           markdup)
             input="${1:--}"
@@ -926,6 +955,151 @@ final class BuildDbCommandTests: XCTestCase {
                       "count/ should be preserved with --no-cleanup")
         XCTAssertTrue(fm.fileExists(atPath: resultDir.appendingPathComponent("filterkraken").path),
                       "filterkraken/ should be preserved with --no-cleanup")
+    }
+
+    func testBuildDbTaxTriageProvenanceRecordsSamtoolsSubsteps() async throws {
+        let tmpDir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+        let managedHome = try makeFunctionalManagedSamtoolsHome()
+        defer { try? FileManager.default.removeItem(at: managedHome.home) }
+
+        let fixtureDir = findFixtureDir("taxtriage-mini")
+        let resultDir = tmpDir.appendingPathComponent("taxtriage")
+        try FileManager.default.copyItem(at: fixtureDir, to: resultDir)
+
+        try await withHomeDirectory(managedHome.home) {
+            let cmd = try BuildDbCommand.TaxTriageSubcommand.parse([resultDir.path, "-q"])
+            try await cmd.run()
+        }
+
+        let provenance = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: resultDir))
+        assertBuildDbProvenanceRecordsSamtoolsSubsteps(
+            provenance,
+            databaseURL: resultDir.appendingPathComponent("taxtriage.sqlite")
+        )
+        XCTAssertTrue(
+            provenance.steps.contains { $0.toolName == "samtools" && $0.argv.dropFirst().contains("idxstats") },
+            "TaxTriage build-db provenance must include the samtools idxstats accession-length pass"
+        )
+    }
+
+    func testBuildDbEsVirituProvenanceRecordsSamtoolsSubsteps() async throws {
+        let tmpDir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+        let managedHome = try makeFunctionalManagedSamtoolsHome()
+        defer { try? FileManager.default.removeItem(at: managedHome.home) }
+
+        let fixtureDir = findFixtureDir("esviritu-mini")
+        let resultDir = tmpDir.appendingPathComponent("esviritu")
+        try FileManager.default.copyItem(at: fixtureDir, to: resultDir)
+
+        try await withHomeDirectory(managedHome.home) {
+            let cmd = try BuildDbCommand.EsVirituSubcommand.parse([resultDir.path, "-q"])
+            try await cmd.run()
+        }
+
+        let provenance = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: resultDir))
+        assertBuildDbProvenanceRecordsSamtoolsSubsteps(
+            provenance,
+            databaseURL: resultDir.appendingPathComponent("esviritu.sqlite")
+        )
+    }
+
+    private func assertBuildDbProvenanceRecordsSamtoolsSubsteps(
+        _ provenance: ProvenanceEnvelope,
+        databaseURL: URL,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(provenance.exitStatus, 0, file: file, line: line)
+        XCTAssertTrue(
+            provenance.outputs.contains(where: {
+                URL(fileURLWithPath: $0.path).standardizedFileURL.path == databaseURL.standardizedFileURL.path
+                    && $0.checksumSHA256 != nil
+                    && ($0.fileSize ?? 0) > 0
+            }),
+            "build-db provenance must include the final SQLite database with checksum and size",
+            file: file,
+            line: line
+        )
+
+        let samtoolsSteps = provenance.steps.filter { $0.toolName == "samtools" }
+        XCTAssertTrue(
+            samtoolsSteps.contains { $0.argv.dropFirst().contains("markdup") },
+            "build-db provenance must include the samtools markdup mutation step",
+            file: file,
+            line: line
+        )
+        XCTAssertTrue(
+            samtoolsSteps.contains { $0.argv.dropFirst().contains("index") },
+            "build-db provenance must include the samtools index mutation step",
+            file: file,
+            line: line
+        )
+        XCTAssertTrue(
+            samtoolsSteps.contains {
+                $0.argv.dropFirst().contains("view")
+                    && $0.argv.contains("-c")
+                    && $0.argv.contains("-F")
+            },
+            "build-db provenance must include samtools view count steps used to update unique_reads",
+            file: file,
+            line: line
+        )
+
+        for step in samtoolsSteps {
+            XCTAssertEqual(step.exitStatus, 0, file: file, line: line)
+            XCTAssertNotNil(step.wallTimeSeconds, file: file, line: line)
+            XCTAssertFalse(step.reproducibleCommand.isEmpty, file: file, line: line)
+        }
+
+        XCTAssertTrue(
+            samtoolsSteps.contains(where: { step in
+                step.outputs.contains(where: { output in
+                    output.path.hasSuffix(".bam")
+                        && output.checksumSHA256 != nil
+                        && (output.fileSize ?? 0) > 0
+                })
+            }),
+            "samtools markdup step must record the mutated BAM output with checksum and size",
+            file: file,
+            line: line
+        )
+        XCTAssertTrue(
+            samtoolsSteps.contains(where: { step in
+                step.outputs.contains(where: { output in
+                    output.path.hasSuffix(".bam.bai")
+                        && output.checksumSHA256 != nil
+                        && output.fileSize != nil
+                })
+            }),
+            "samtools index step must record the BAM index output with checksum and size",
+            file: file,
+            line: line
+        )
+
+        if let bamOutput = provenance.outputs.first(where: { $0.path.hasSuffix(".bam") }) {
+            let bamSidecar = ProvenanceRecorder.fileSidecarURL(
+                for: URL(fileURLWithPath: bamOutput.path).standardizedFileURL
+            )
+            XCTAssertNotNil(
+                ProvenanceRecorder.loadEnvelope(fromSidecar: bamSidecar),
+                "mutated BAM outputs must receive focused build-db provenance sidecars",
+                file: file,
+                line: line
+            )
+        }
+        if let indexOutput = provenance.outputs.first(where: { $0.path.hasSuffix(".bam.bai") }) {
+            let indexSidecar = ProvenanceRecorder.fileSidecarURL(
+                for: URL(fileURLWithPath: indexOutput.path).standardizedFileURL
+            )
+            XCTAssertNotNil(
+                ProvenanceRecorder.loadEnvelope(fromSidecar: indexSidecar),
+                "mutated BAM index outputs must receive focused build-db provenance sidecars",
+                file: file,
+                line: line
+            )
+        }
     }
 
     func testBuildDbTaxTriageFailsWithoutManagedSamtools() async throws {

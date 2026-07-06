@@ -98,7 +98,36 @@ final class BuildDbCommandMarkdupTests: XCTestCase {
             fi
             ;;
           fixmate)
-            cat
+            input="-"
+            output="-"
+            while [ $# -gt 0 ]; do
+              case "$1" in
+                -m)
+                  shift
+                  ;;
+                *)
+                  if [ "$input" = "-" ]; then
+                    input="$1"
+                  else
+                    output="$1"
+                  fi
+                  shift
+                  ;;
+              esac
+            done
+            if [ "$output" = "-" ]; then
+              if [ "$input" = "-" ]; then
+                cat
+              else
+                cat "$input"
+              fi
+            else
+              if [ "$input" = "-" ]; then
+                cat > "$output"
+              else
+                cat "$input" > "$output"
+              fi
+            fi
             ;;
           markdup)
             input="${1:--}"

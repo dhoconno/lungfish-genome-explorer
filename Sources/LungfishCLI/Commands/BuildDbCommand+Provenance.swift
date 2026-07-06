@@ -45,7 +45,8 @@ extension BuildDbCommand {
         inputRecords: [FileRecord],
         exitStatus: Int = 0,
         stderr: String? = nil,
-        sampleDirectories: [URL] = []
+        sampleDirectories: [URL] = [],
+        additionalSteps: [ProvenanceStep] = []
     ) async throws {
         let completedAt = Date()
         let outputRecords = buildDbOutputRecords(
@@ -80,7 +81,7 @@ extension BuildDbCommand {
             completedAt: completedAt
         )
 
-        let envelope = try ProvenanceRunBuilder(
+        var builder = ProvenanceRunBuilder(
             workflowName: toolName,
             workflowVersion: WorkflowRun.currentAppVersion,
             toolName: toolName,
@@ -107,8 +108,13 @@ extension BuildDbCommand {
             )
         )
         .runtime(ProvenanceRuntimeIdentity())
-        .step(step)
-        .complete(
+
+        for additionalStep in additionalSteps {
+            builder = builder.step(additionalStep)
+        }
+        builder = builder.step(step)
+
+        let envelope = try builder.complete(
             exitStatus: exitStatus,
             stderr: stderr,
             startedAt: startedAt,
@@ -117,9 +123,9 @@ extension BuildDbCommand {
 
         let writer = ProvenanceWriter()
         try writer.write(envelope, to: resultURL)
-        for output in outputRecords {
+        for output in envelope.outputs {
             let outputURL = URL(fileURLWithPath: output.path)
-            let focused = envelope.focusedOnOutput(ProvenanceFileDescriptor(fileRecord: output))
+            let focused = envelope.focusedOnOutput(output)
             var isDirectory: ObjCBool = false
             if FileManager.default.fileExists(atPath: outputURL.path, isDirectory: &isDirectory),
                isDirectory.boolValue {
@@ -140,7 +146,8 @@ extension BuildDbCommand {
         startedAt: Date,
         inputRecords: [FileRecord],
         error: Error,
-        sampleDirectories: [URL] = []
+        sampleDirectories: [URL] = [],
+        additionalSteps: [ProvenanceStep] = []
     ) async {
         guard !buildDbOutputRecords(
             tool: tool,
@@ -163,7 +170,8 @@ extension BuildDbCommand {
                 inputRecords: inputRecords,
                 exitStatus: 1,
                 stderr: error.localizedDescription,
-                sampleDirectories: sampleDirectories
+                sampleDirectories: sampleDirectories,
+                additionalSteps: additionalSteps
             )
         } catch {
             if !globalOptions.quiet {
@@ -449,7 +457,7 @@ extension BuildDbCommand {
         )
     }
 
-    private static func detectSamtoolsVersion(at path: String) -> String {
+    static func detectSamtoolsVersion(at path: String) -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)
         process.arguments = ["--version"]
