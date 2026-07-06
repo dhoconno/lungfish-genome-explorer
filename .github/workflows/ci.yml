@@ -42,14 +42,14 @@ jobs:
         run: swift build --product lungfish-cli
 
       - name: Run smoke package tests
-        run: swift test --filter '^(LungfishCoreTests\.(BundleManifestTests|GenomicRegionTests|RuntimeResourceLocatorTests|SequenceTests)|LungfishWorkflowTests\.(BAMPrimerTrimProvenanceTests|MappingProvenanceTests))(/|$)'
+        run: swift test --filter '^(LungfishCoreTests\.(BundleManifestTests|GenomicRegionTests|RuntimeResourceLocatorTests|SequenceTests)|LungfishWorkflowTests\.(BAMPrimerTrimProvenanceTests|MappingProvenanceTests)|LungfishCLITests\.ScientificCLIProvenanceCoverageTests)(/|$)'
 
       - name: Install script test dependencies
         run: |
           brew install ripgrep
           python3 -m venv .ci-python
           .ci-python/bin/python -m pip install --upgrade pip
-          .ci-python/bin/python -m pip install Pillow
+          .ci-python/bin/python -m pip install Pillow openpyxl
 
       - name: Run release and fixture script tests
         env:

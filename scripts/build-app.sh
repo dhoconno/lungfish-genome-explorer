@@ -7,8 +7,8 @@ set -e
 
 # Configuration
 APP_NAME="Lungfish"
-BUNDLE_ID="org.lungfish.genome-browser"
-DEBUG_BUNDLE_ID="org.lungfish.genome-browser.debug"
+BUNDLE_ID="com.lungfish.browser"
+DEBUG_BUNDLE_ID="com.lungfish.browser.debug"
 BUNDLE_NAME="Lungfish"
 DEBUG_BUNDLE_NAME="Lungfish Debug"
 BUNDLE_DISPLAY_NAME="Lungfish Genome Browser"
@@ -28,6 +28,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 # Shared source Info.plist (consumed by both this script and Lungfish.xcodeproj)
 SHARED_INFO_PLIST="$PROJECT_ROOT/Lungfish-Info.plist"
+CLI_ENTITLEMENTS="$PROJECT_ROOT/lungfish-cli.entitlements"
 
 # Single source of truth for the version + minimum OS: the xcodeproj settings,
 # so the debug bundle and the notarized build never diverge.
@@ -292,6 +293,11 @@ if [ -d "$WORKFLOW_TOOLS_DIR" ]; then
         echo -e "${GREEN}Sanitizing bundled workflow tools...${NC}"
         /bin/bash "$PROJECT_ROOT/scripts/sanitize-bundled-tools.sh" "$WORKFLOW_TOOLS_DIR"
     fi
+fi
+
+if [ -f "$MACOS_DIR/lungfish-cli" ]; then
+    echo -e "${GREEN}Ad-hoc signing bundled CLI with CLI entitlements...${NC}"
+    codesign --force --sign - --options runtime --entitlements "$CLI_ENTITLEMENTS" "$MACOS_DIR/lungfish-cli"
 fi
 
 echo -e "${GREEN}Ad-hoc signing app bundle for local launch...${NC}"

@@ -39,6 +39,7 @@
 		F1E2D3C4B5A69788776655B0 /* AlignmentTreeBundleXCUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A69788776655B1 /* AlignmentTreeBundleXCUITests.swift */; };
 		F1E2D3C4B5A69788776655A6 /* BundleBrowserRobot.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A69788776655A7 /* BundleBrowserRobot.swift */; };
 		F1E2D3C4B5A69788776655A8 /* PrimerTrimXCUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A69788776655A9 /* PrimerTrimXCUITests.swift */; };
+		F1E2D3C4B5A69788776655AC /* VariantCallingAutoConfirmXCUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A69788776655AB /* VariantCallingAutoConfirmXCUITests.swift */; };
 		F1E2D3C4B5A69788776655AE /* ViralReconXCUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A69788776655AF /* ViralReconXCUITests.swift */; };
 /* End PBXBuildFile section */
 
@@ -377,6 +378,7 @@
 				F1E2D3C4B5A6978877665586 /* ProjectLifecycleXCUITests.swift in Sources */,
 				F1E2D3C4B5A6978877665592 /* ProjectLifecycleRobot.swift in Sources */,
 				F1E2D3C4B5A6978877665593 /* SystemPanelRobot.swift in Sources */,
+				F1E2D3C4B5A69788776655AC /* VariantCallingAutoConfirmXCUITests.swift in Sources */,
 				F1E2D3C4B5A69788776655AE /* ViralReconXCUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

@@ -67,6 +67,28 @@ struct ReleaseBuildConfigurationTests {
         #expect(script.contains(".build/arm64-apple-macosx/release"))
     }
 
+    @Test("Fallback build-app script uses the Xcode app bundle identifiers")
+    func buildAppScriptUsesXcodeAppBundleIdentifiers() throws {
+        let repositoryRoot = Self.repositoryRoot()
+        let script = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("scripts/build-app.sh"),
+            encoding: .utf8
+        )
+        let project = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Lungfish.xcodeproj/project.pbxproj"),
+            encoding: .utf8
+        )
+        let releaseBlock = try Self.buildConfigurationBlock(
+            named: "F1E2D3C4B5A6978877665559 /* Release */",
+            in: project
+        )
+
+        #expect(releaseBlock.contains("PRODUCT_BUNDLE_IDENTIFIER = com.lungfish.browser;"))
+        #expect(script.contains(#"BUNDLE_ID="com.lungfish.browser""#))
+        #expect(script.contains(#"DEBUG_BUNDLE_ID="com.lungfish.browser.debug""#))
+        #expect(script.contains("org.lungfish.genome-browser") == false)
+    }
+
     @Test("Fallback build-app script supports debug app bundles")
     func buildAppScriptSupportsDebugConfiguration() throws {
         let script = try String(
@@ -133,6 +155,31 @@ struct ReleaseBuildConfigurationTests {
 
         #expect(script.contains(#"codesign --force --deep --sign - "$APP_DIR""#))
         #expect(script.contains(#"codesign --verify --deep --strict --verbose=4 "$APP_DIR""#))
+    }
+
+    @Test("Fallback build-app script signs embedded CLI with CLI entitlements before app bundle")
+    func buildAppScriptSignsEmbeddedCLIWithCLIEntitlementsBeforeAppBundle() throws {
+        let script = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent("scripts/build-app.sh"),
+            encoding: .utf8
+        )
+        let cliSignMarker = #"codesign --force --sign - --options runtime --entitlements "$CLI_ENTITLEMENTS" "$MACOS_DIR/lungfish-cli""#
+
+        #expect(script.contains(#"CLI_ENTITLEMENTS="$PROJECT_ROOT/lungfish-cli.entitlements""#))
+        #expect(script.contains(cliSignMarker))
+
+        let lines = script.split(separator: "\n", omittingEmptySubsequences: false)
+        guard let cliSignIndex = lines.firstIndex(where: { $0.contains(cliSignMarker) }),
+              let appSignIndex = lines.firstIndex(where: {
+                  $0.contains(#"codesign --force --deep --sign - "$APP_DIR""#)
+              })
+        else {
+            Issue.record("expected fallback build to sign lungfish-cli before signing the app bundle")
+            return
+        }
+
+        #expect(cliSignIndex < appSignIndex)
     }
 
     @Test("Fallback build-app script sanitizes copied workflow tools from flat SwiftPM bundles")
@@ -342,6 +389,18 @@ struct ReleaseBuildConfigurationTests {
             in: project
         )
         #expect(embedBlock.contains("LUNGFISH_SKIP_EMBED_LUNGFISH_CLI"))
+    }
+
+    @Test("Xcode project compiles every checked-in XCUITest file reference")
+    func xcodeProjectCompilesEveryCheckedInXCUITestFileReference() throws {
+        let project = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent("Lungfish.xcodeproj/project.pbxproj"),
+            encoding: .utf8
+        )
+
+        #expect(project.contains("VariantCallingAutoConfirmXCUITests.swift"))
+        #expect(project.contains("VariantCallingAutoConfirmXCUITests.swift in Sources"))
     }
 
     @Test("Sanitize bundled tools phase supports scripted release skip override")
@@ -831,6 +890,42 @@ struct ReleaseBuildConfigurationTests {
         }
     }
 
+    @Test("CI installs Python dependencies required by script tests")
+    func ciInstallsPythonDependenciesRequiredByScriptTests() throws {
+        let workflow = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent(".github/workflows/ci.yml"),
+            encoding: .utf8
+        )
+
+        #expect(workflow.contains(".ci-python/bin/python -m pip install Pillow openpyxl"))
+    }
+
+    @Test("CI fast gate runs scientific CLI provenance coverage")
+    func ciFastGateRunsScientificCLIProvenanceCoverage() throws {
+        let workflow = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent(".github/workflows/ci.yml"),
+            encoding: .utf8
+        )
+
+        #expect(workflow.contains("ScientificCLIProvenanceCoverageTests"))
+    }
+
+    @Test("Git ignore rules do not hide tracked files")
+    func gitIgnoreRulesDoNotHideTrackedFiles() throws {
+        let result = try Self.runCommand(
+            URL(fileURLWithPath: "/usr/bin/git"),
+            arguments: ["ls-files", "-ci", "--exclude-standard"],
+            currentDirectory: Self.repositoryRoot()
+        )
+
+        #expect(
+            result.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            "Tracked files hidden by .gitignore:\n\(result.stdout)"
+        )
+    }
+
     @Test("Release GUI runtime avoids compile-time source path fallbacks")
     func releaseGUIRuntimeAvoidsCompileTimeSourcePathFallbacks() throws {
         let source = try String(
@@ -935,6 +1030,52 @@ struct ReleaseBuildConfigurationTests {
         }
 
         fatalError("Cannot locate repository root from \(#filePath)")
+    }
+
+    private struct CommandResult {
+        let stdout: String
+        let stderr: String
+    }
+
+    private static func runCommand(
+        _ executableURL: URL,
+        arguments: [String],
+        currentDirectory: URL
+    ) throws -> CommandResult {
+        let process = Process()
+        process.executableURL = executableURL
+        process.arguments = arguments
+        process.currentDirectoryURL = currentDirectory
+
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        try process.run()
+        process.waitUntilExit()
+
+        let stdoutData = stdout.fileHandleForReading.readDataToEndOfFile()
+        let stderrData = stderr.fileHandleForReading.readDataToEndOfFile()
+        let result = CommandResult(
+            stdout: String(decoding: stdoutData, as: UTF8.self),
+            stderr: String(decoding: stderrData, as: UTF8.self)
+        )
+
+        guard process.terminationStatus == 0 else {
+            throw NSError(
+                domain: "ReleaseBuildConfigurationTests",
+                code: Int(process.terminationStatus),
+                userInfo: [
+                    NSLocalizedDescriptionKey: """
+                    Command failed: \(executableURL.path) \(arguments.joined(separator: " "))
+                    \(result.stderr)
+                    """
+                ]
+            )
+        }
+
+        return result
     }
 
     private static func releaseAgentCanonicalContents() throws -> String {

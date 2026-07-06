@@ -34,7 +34,7 @@ final class AppDebugLaunchConfigurationTests: XCTestCase {
         )
 
         // The debug bundle's distinct Launch Services identity.
-        XCTAssertTrue(script.contains("DEBUG_BUNDLE_ID=\"org.lungfish.genome-browser.debug\""))
+        XCTAssertTrue(script.contains("DEBUG_BUNDLE_ID=\"com.lungfish.browser.debug\""))
         XCTAssertTrue(script.contains("DEBUG_BUNDLE_NAME=\"Lungfish Debug\""))
         XCTAssertTrue(script.contains("DEBUG_BUNDLE_DISPLAY_NAME=\"Lungfish Genome Browser Debug\""))
         // build-app.sh now copies the shared source Info.plist and substitutes the
