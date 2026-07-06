@@ -389,6 +389,18 @@ final class BundleAlignmentFilterServiceTests: XCTestCase {
             atPath: fixture.bundleURL.appendingPathComponent(try XCTUnwrap(derivedTrack.metadataDBPath)).path,
             contents: Data("db".utf8)
         )
+        let derivedArtifactURLs = [
+            fixture.bundleURL.appendingPathComponent(derivedTrack.sourcePath),
+            fixture.bundleURL.appendingPathComponent(derivedTrack.indexPath),
+            fixture.bundleURL.appendingPathComponent(try XCTUnwrap(derivedTrack.metadataDBPath)),
+        ]
+        for sidecarURL in derivedArtifactURLs.flatMap(ProvenancePublicationArtifacts.fileSidecarArtifacts(for:)) {
+            try FileManager.default.createDirectory(
+                at: sidecarURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            FileManager.default.createFile(atPath: sidecarURL.path, contents: Data("provenance".utf8))
+        }
         try BundleManifest.load(from: fixture.bundleURL)
             .addingAlignmentTrack(derivedTrack)
             .save(to: fixture.bundleURL)
@@ -405,6 +417,9 @@ final class BundleAlignmentFilterServiceTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.bundleURL.appendingPathComponent(derivedTrack.sourcePath).path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.bundleURL.appendingPathComponent(derivedTrack.indexPath).path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.bundleURL.appendingPathComponent(try XCTUnwrap(derivedTrack.metadataDBPath)).path))
+        for sidecarURL in derivedArtifactURLs.flatMap(ProvenancePublicationArtifacts.fileSidecarArtifacts(for:)) {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: sidecarURL.path), sidecarURL.path)
+        }
     }
 
     func testRemovalServiceRejectsSourceAlignmentTrack() async throws {
