@@ -87,22 +87,27 @@ enum FASTQBundleMergeService {
             )
         }
 
-        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: false)
+        let stagingBundleURL = stagingBundleURL(for: bundleURL)
+        var publishedFinalBundle = false
 
         do {
+            try FileManager.default.createDirectory(
+                at: stagingBundleURL,
+                withIntermediateDirectories: false
+            )
             let mergeMode = determineMode(for: sourceBundleURLs)
             let nestedSteps: [ProvenanceStep]
             switch mergeMode {
             case .virtualSingleEnd:
                 try await createVirtualBundle(
-                    at: bundleURL,
+                    at: stagingBundleURL,
                     sourceBundleURLs: sourceBundleURLs,
                     bundleName: bundleName
                 )
                 nestedSteps = []
             case .physical:
                 nestedSteps = try await createPhysicalBundle(
-                    at: bundleURL,
+                    at: stagingBundleURL,
                     sourceBundleURLs: sourceBundleURLs,
                     outputDirectory: outputDirectory,
                     bundleName: bundleName
@@ -110,7 +115,7 @@ enum FASTQBundleMergeService {
             }
             try writeMergeProvenance(
                 sourceBundleURLs: sourceBundleURLs,
-                bundleURL: bundleURL,
+                bundleURL: stagingBundleURL,
                 bundleName: bundleName,
                 mergeMode: mergeMode,
                 startedAt: startedAt,
@@ -118,11 +123,52 @@ enum FASTQBundleMergeService {
                 nestedSteps: nestedSteps,
                 provenanceWriter: provenanceWriter
             )
+            try FileManager.default.moveItem(at: stagingBundleURL, to: bundleURL)
+            publishedFinalBundle = true
+            try moveBundleMetadataSidecar(from: stagingBundleURL, to: bundleURL)
+            do {
+                try writeMergeProvenance(
+                    sourceBundleURLs: sourceBundleURLs,
+                    bundleURL: bundleURL,
+                    bundleName: bundleName,
+                    mergeMode: mergeMode,
+                    startedAt: startedAt,
+                    completedAt: Date(),
+                    nestedSteps: nestedSteps,
+                    provenanceWriter: provenanceWriter
+                )
+            } catch {
+                try? FileManager.default.removeItem(at: bundleURL)
+                try? FileManager.default.removeItem(at: FASTQMetadataStore.metadataURL(for: bundleURL))
+                throw error
+            }
             return bundleURL
         } catch {
-            try? FileManager.default.removeItem(at: bundleURL)
+            try? FileManager.default.removeItem(at: stagingBundleURL)
+            try? FileManager.default.removeItem(at: FASTQMetadataStore.metadataURL(for: stagingBundleURL))
+            if publishedFinalBundle {
+                try? FileManager.default.removeItem(at: bundleURL)
+                try? FileManager.default.removeItem(at: FASTQMetadataStore.metadataURL(for: bundleURL))
+            }
             throw error
         }
+    }
+
+    private static func stagingBundleURL(for bundleURL: URL) -> URL {
+        bundleURL
+            .deletingLastPathComponent()
+            .appendingPathComponent(
+                ".\(bundleURL.lastPathComponent).staging-\(UUID().uuidString)",
+                isDirectory: true
+            )
+    }
+
+    private static func moveBundleMetadataSidecar(from stagingBundleURL: URL, to bundleURL: URL) throws {
+        let stagingMetadataURL = FASTQMetadataStore.metadataURL(for: stagingBundleURL)
+        guard FileManager.default.fileExists(atPath: stagingMetadataURL.path) else { return }
+        let finalMetadataURL = FASTQMetadataStore.metadataURL(for: bundleURL)
+        try? FileManager.default.removeItem(at: finalMetadataURL)
+        try FileManager.default.moveItem(at: stagingMetadataURL, to: finalMetadataURL)
     }
 
     private static func determineMode(for bundleURLs: [URL]) -> MergeMode {
