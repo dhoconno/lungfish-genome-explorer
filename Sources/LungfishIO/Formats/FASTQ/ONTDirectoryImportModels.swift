@@ -137,6 +137,24 @@ public struct ONTImportResult: Sendable {
 
     /// Wall clock time in seconds.
     public let wallClockSeconds: Double
+
+    public init(
+        manifest: DemultiplexManifest,
+        bundleURLs: [URL],
+        flowCellID: String?,
+        sampleID: String?,
+        basecallModel: String?,
+        totalReadCount: Int,
+        wallClockSeconds: Double
+    ) {
+        self.manifest = manifest
+        self.bundleURLs = bundleURLs
+        self.flowCellID = flowCellID
+        self.sampleID = sampleID
+        self.basecallModel = basecallModel
+        self.totalReadCount = totalReadCount
+        self.wallClockSeconds = wallClockSeconds
+    }
 }
 
 public enum ONTImportError: Error, LocalizedError {

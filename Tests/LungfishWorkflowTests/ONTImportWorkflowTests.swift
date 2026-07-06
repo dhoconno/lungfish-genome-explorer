@@ -6,6 +6,11 @@ import XCTest
 final class ONTImportWorkflowTests: XCTestCase {
     private var tempDir: URL!
 
+    private enum IntentionalProvenanceFailure: Error {
+        case finalOutputVisibleDuringProvenanceWrite(String)
+        case writerFailure
+    }
+
     override func setUp() {
         super.setUp()
         tempDir = FileManager.default.temporaryDirectory
@@ -76,7 +81,10 @@ final class ONTImportWorkflowTests: XCTestCase {
             context: makeContext(sourceURL: sourceURL, outputURL: outputURL)
         ) { _, _ in }
 
-        let envelope = try readEnvelope(outputURL.appendingPathComponent(ProvenanceWriter.provenanceFilename))
+        let rootProvenanceURL = outputURL.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        let envelope = try readEnvelope(rootProvenanceURL)
+        let rootProvenanceText = try String(contentsOf: rootProvenanceURL, encoding: .utf8)
+        XCTAssertFalse(rootProvenanceText.contains("ont-import-staging"))
         let originalChunkURLs = [
             sourceURL.appendingPathComponent("barcode01").appendingPathComponent("chunk_0.fastq"),
             sourceURL.appendingPathComponent("barcode01").appendingPathComponent("chunk_1.fastq"),
@@ -100,7 +108,10 @@ final class ONTImportWorkflowTests: XCTestCase {
                 || $0.contains(".lungfishfastq/preview.fastq")
         })
 
-        let bundleEnvelope = try readEnvelope(bundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename))
+        let bundleProvenanceURL = bundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        let bundleEnvelope = try readEnvelope(bundleProvenanceURL)
+        let bundleProvenanceText = try String(contentsOf: bundleProvenanceURL, encoding: .utf8)
+        XCTAssertFalse(bundleProvenanceText.contains("ont-import-staging"))
         let copiedChunkURLs = [
             bundleURL.appendingPathComponent("chunks").appendingPathComponent("chunk_0.fastq"),
             bundleURL.appendingPathComponent("chunks").appendingPathComponent("chunk_1.fastq"),
@@ -204,8 +215,16 @@ final class ONTImportWorkflowTests: XCTestCase {
     func testProvenanceWriteFailureRollsBackCreatedBundlesAndManifest() async throws {
         let sourceURL = try makeONTSource(barcodeChunks: ["barcode01": ["chunk_0.fastq"]])
         let outputURL = tempDir.appendingPathComponent("project", isDirectory: true)
+        let finalBundleURL = outputURL.appendingPathComponent("barcode01.lungfishfastq", isDirectory: true)
+        let finalManifestURL = outputURL.appendingPathComponent(DemultiplexManifest.filename)
         let workflow = ONTImportWorkflow { _, _ in
-            throw NSError(domain: "ONTImportWorkflowTests", code: 42)
+            if FileManager.default.fileExists(atPath: finalBundleURL.path) {
+                throw IntentionalProvenanceFailure.finalOutputVisibleDuringProvenanceWrite(finalBundleURL.path)
+            }
+            if FileManager.default.fileExists(atPath: finalManifestURL.path) {
+                throw IntentionalProvenanceFailure.finalOutputVisibleDuringProvenanceWrite(finalManifestURL.path)
+            }
+            throw IntentionalProvenanceFailure.writerFailure
         }
 
         do {
@@ -218,8 +237,12 @@ final class ONTImportWorkflowTests: XCTestCase {
                 context: makeContext(sourceURL: sourceURL, outputURL: outputURL)
             ) { _, _ in }
             XCTFail("Expected provenance writer failure")
+        } catch IntentionalProvenanceFailure.writerFailure {
+            // Expected.
+        } catch IntentionalProvenanceFailure.finalOutputVisibleDuringProvenanceWrite(let path) {
+            XCTFail("Final output became visible before provenance succeeded: \(path)")
         } catch {
-            XCTAssertEqual((error as NSError).domain, "ONTImportWorkflowTests")
+            XCTFail("Expected intentional provenance failure, got \(error)")
         }
 
         XCTAssertFalse(FileManager.default.fileExists(
@@ -298,6 +321,64 @@ final class ONTImportWorkflowTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(
             atPath: outputURL.appendingPathComponent(ProvenanceWriter.provenanceFilename).path
         ))
+    }
+
+    func testOptimizationProvenanceUsesFinalBundlePathsAfterStaging() async throws {
+        let sourceURL = try makeONTSource(barcodeChunks: ["barcode01": ["chunk_0.fastq"]])
+        let outputURL = tempDir.appendingPathComponent("project", isDirectory: true)
+        let workflow = ONTImportWorkflow(optimizationRunner: { bundleURL, _, _ in
+            guard let inputURL = FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL) else {
+                throw ONTImportWorkflow.ImportError.missingFlattenedPayload(bundleURL.path)
+            }
+            let optimizedURL = bundleURL.appendingPathComponent("optimized.fastq")
+            try """
+            @optimized
+            ACGT
+            +
+            !!!!
+
+            """.write(to: optimizedURL, atomically: true, encoding: .utf8)
+            return [
+                ProvenanceStep(
+                    toolName: "test-optimizer",
+                    toolVersion: "test-version",
+                    argv: ["test-optimizer", bundleURL.path],
+                    durableReplayArgv: ["test-optimizer", bundleURL.path],
+                    reproducibleCommand: "test-optimizer \(bundleURL.path)",
+                    inputs: [
+                        try ProvenanceFileDescriptor.file(url: inputURL, format: .fastq, role: .input),
+                    ],
+                    outputs: [
+                        try ProvenanceFileDescriptor.file(url: optimizedURL, format: .fastq, role: .output),
+                    ],
+                    exitStatus: 0
+                ),
+            ]
+        })
+
+        let result = try await workflow.importDirectory(
+            config: ONTImportConfig(
+                sourceDirectory: sourceURL,
+                outputDirectory: outputURL,
+                maxConcurrentBarcodes: 1,
+                storageMode: .flattened
+            ),
+            context: makeContext(sourceURL: sourceURL, outputURL: outputURL),
+            optimization: ONTImportWorkflow.OptimizationConfig(optimizeStorage: true)
+        ) { _, _ in }
+
+        let bundleURL = try XCTUnwrap(result.importResult.bundleURLs.first)
+        let optimizedURL = bundleURL.appendingPathComponent("optimized.fastq")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: optimizedURL.path))
+
+        let provenanceURL = bundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        let provenanceText = try String(contentsOf: provenanceURL, encoding: .utf8)
+        XCTAssertFalse(provenanceText.contains("ont-import-staging"))
+
+        let envelope = try readEnvelope(provenanceURL)
+        let optimizerStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "test-optimizer" })
+        XCTAssertTrue(optimizerStep.argv.contains(bundleURL.path))
+        XCTAssertTrue(optimizerStep.outputs.contains { $0.path == canonicalPath(optimizedURL) })
     }
 
     func testPreflightRefusesExistingBundleWithoutDeletingIt() async throws {
