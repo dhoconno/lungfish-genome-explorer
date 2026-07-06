@@ -602,6 +602,124 @@ final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
         XCTAssertEqual(envelope.options.resolvedDefaults["executionInputs"], .array([.file(inputURL.standardizedFileURL)]))
     }
 
+    func testClassifyProvenancePreservesPipelineOnlySteps() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("classify-preserve-pipeline-steps-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        let inputURL = tempDir.appendingPathComponent("reads.fastq")
+        try "@read\nACGT\n+\nIIII\n".write(to: inputURL, atomically: true, encoding: .utf8)
+        let reportURL = tempDir.appendingPathComponent("classification.kreport")
+        let outputURL = tempDir.appendingPathComponent("classification.kraken.gz")
+        let indexURL = KrakenIndexDatabase.indexURL(for: outputURL)
+        try """
+          0.00\t0\t0\tU\t0\tunclassified
+        100.00\t1\t1\tR\t1\troot
+        """.write(to: reportURL, atomically: true, encoding: .utf8)
+        try "compressed kraken output\n".write(to: outputURL, atomically: true, encoding: .utf8)
+        try "sqlite index placeholder\n".write(to: indexURL, atomically: true, encoding: .utf8)
+        let dbURL = tempDir.appendingPathComponent("kraken-db", isDirectory: true)
+        try FileManager.default.createDirectory(at: dbURL, withIntermediateDirectories: true)
+
+        let config = ClassificationConfig.fromPreset(
+            .balanced,
+            inputFiles: [inputURL],
+            isPairedEnd: false,
+            databaseName: "FixtureDB",
+            inputFormat: .fastq,
+            databasePath: dbURL,
+            threads: 2,
+            outputDirectory: tempDir
+        )
+        let result = ClassificationResult(
+            config: config,
+            tree: try KreportParser.parse(url: reportURL),
+            reportURL: reportURL,
+            outputURL: outputURL,
+            brackenURL: nil,
+            runtime: 4.0,
+            toolVersion: "2.1.3",
+            provenanceId: nil
+        )
+
+        let outputDescriptor = try ProvenanceFileDescriptor.file(url: outputURL, format: .text, role: .output)
+        let indexDescriptor = try ProvenanceFileDescriptor.file(url: indexURL, format: .unknown, role: .index)
+        let pipelineKrakenStepID = UUID()
+        let pipelineKrakenStep = ProvenanceStep(
+            id: pipelineKrakenStepID,
+            toolName: "kraken2",
+            toolVersion: "2.1.3",
+            argv: ["kraken2", "--db", dbURL.path],
+            inputs: [
+                try ProvenanceFileDescriptor.file(url: inputURL, format: .fastq, role: .input),
+            ],
+            outputs: [outputDescriptor],
+            exitStatus: 0,
+            wallTimeSeconds: 1.0,
+            startedAt: Date(timeIntervalSince1970: 100),
+            completedAt: Date(timeIntervalSince1970: 101)
+        )
+        let pipelineOnlyStep = ProvenanceStep(
+            toolName: "lungfish-kraken2-index",
+            toolVersion: "v2.17.1",
+            argv: ["lungfish", "internal", "kraken2-index", outputURL.path, indexURL.path],
+            inputs: [outputDescriptor],
+            outputs: [indexDescriptor],
+            exitStatus: 0,
+            wallTimeSeconds: 1.0,
+            dependsOn: [pipelineKrakenStepID],
+            startedAt: Date(timeIntervalSince1970: 101),
+            completedAt: Date(timeIntervalSince1970: 102)
+        )
+        let existingPipelineEnvelope = ProvenanceEnvelope(
+            workflowName: "Metagenomics Classification",
+            workflowVersion: "pipeline-version",
+            toolName: "kraken2",
+            toolVersion: "2.1.3",
+            argv: ["kraken2", "--db", dbURL.path],
+            runtimeIdentity: .fixture(),
+            files: [outputDescriptor, indexDescriptor],
+            output: outputDescriptor,
+            outputs: [outputDescriptor, indexDescriptor],
+            steps: [pipelineKrakenStep, pipelineOnlyStep],
+            wallTimeSeconds: 2.0,
+            exitStatus: 0
+        )
+        try ProvenanceWriter(signingProvider: nil).write(existingPipelineEnvelope, to: tempDir)
+
+        let sidecarURL = try ClassifyCommand.writeProvenance(
+            result: result,
+            originalInputURLs: [inputURL],
+            executionInputURLs: [inputURL],
+            argv: ["lungfish", "conda", "classify", inputURL.path, "--db", "FixtureDB"],
+            startedAt: Date(timeIntervalSince1970: 100),
+            endedAt: Date(timeIntervalSince1970: 104),
+            writer: ProvenanceWriter(signingProvider: nil)
+        )
+
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: sidecarURL)
+        )
+        XCTAssertTrue(
+            envelope.steps.contains { $0.toolName == "lungfish-kraken2-index" },
+            "CLI wrapper provenance must preserve pipeline-only compaction/indexing steps"
+        )
+        let preservedIndexStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "lungfish-kraken2-index" })
+        let finalStepIDs = Set(envelope.steps.map(\.id))
+        XCTAssertTrue(
+            preservedIndexStep.dependsOn.allSatisfy(finalStepIDs.contains),
+            "Preserved pipeline-only steps must not keep dangling dependencies on skipped pipeline steps"
+        )
+        XCTAssertTrue(
+            preservedIndexStep.dependsOn.contains { dependencyID in
+                envelope.steps.contains { $0.id == dependencyID && $0.toolName == "kraken2" }
+            },
+            "Preserved index step should depend on the synthesized kraken2 step"
+        )
+    }
+
 }
 
 // MARK: - CLIError

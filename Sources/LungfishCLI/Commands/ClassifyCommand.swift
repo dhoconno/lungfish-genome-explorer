@@ -401,6 +401,7 @@ struct ClassifyCommand: AsyncParsableCommand {
         writer: ProvenanceWriter = ProvenanceWriter()
     ) throws -> URL {
         let config = result.config
+        let pipelineEnvelope = ProvenanceRecorder.loadEnvelope(from: config.outputDirectory)
         let inputPairs = zipOriginalAndExecutionInputs(
             originalInputURLs: originalInputURLs,
             executionInputURLs: executionInputURLs
@@ -489,11 +490,16 @@ struct ClassifyCommand: AsyncParsableCommand {
             builder = builder.step(brackenStep)
         }
 
-        let envelope = try builder.complete(
+        let synthesizedEnvelope = try builder.complete(
             exitStatus: 0,
             stderr: stderr,
             startedAt: startedAt,
             endedAt: endedAt
+        )
+        let envelope = preservingPipelineOnlySteps(
+            in: synthesizedEnvelope,
+            from: pipelineEnvelope,
+            result: result
         )
         return try writer.write(envelope, to: config.outputDirectory)
     }
@@ -662,6 +668,125 @@ struct ClassifyCommand: AsyncParsableCommand {
             stderr: legacyStep?.stderr,
             startedAt: legacyStep?.startTime ?? fallbackStartedAt,
             completedAt: legacyStep?.endTime ?? fallbackStartedAt
+        )
+    }
+
+    private static func preservingPipelineOnlySteps(
+        in envelope: ProvenanceEnvelope,
+        from pipelineEnvelope: ProvenanceEnvelope?,
+        result: ClassificationResult
+    ) -> ProvenanceEnvelope {
+        guard let pipelineEnvelope,
+              isCurrentClassificationPipelineEnvelope(pipelineEnvelope, result: result) else {
+            return envelope
+        }
+
+        let synthesizedToolNames = Set(envelope.steps.map(\.toolName))
+        let synthesizedStepByToolName = Dictionary(
+            envelope.steps.map { ($0.toolName, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let dependencyIDRemap = Dictionary(
+            pipelineEnvelope.steps.compactMap { pipelineStep -> (UUID, UUID)? in
+                guard let synthesizedStep = synthesizedStepByToolName[pipelineStep.toolName] else {
+                    return nil
+                }
+                return (pipelineStep.id, synthesizedStep.id)
+            },
+            uniquingKeysWith: { _, final in final }
+        )
+        let preservedSteps = pipelineEnvelope.steps.compactMap { step -> ProvenanceStep? in
+            guard !synthesizedToolNames.contains(step.toolName) else {
+                return nil
+            }
+            let remappedDependencies = step.dependsOn.map { dependencyIDRemap[$0] ?? $0 }
+            return replacingDependencies(in: step, with: remappedDependencies)
+        }
+        guard !preservedSteps.isEmpty else {
+            return envelope
+        }
+
+        let preservedStepFiles = preservedSteps.flatMap { $0.inputs + $0.outputs }
+        let mergedFiles = deduplicatedDescriptors(envelope.files + preservedStepFiles)
+        let mergedOutputs = deduplicatedDescriptors(envelope.outputs + preservedSteps.flatMap(\.outputs))
+
+        return ProvenanceEnvelope(
+            schemaVersion: envelope.schemaVersion,
+            id: envelope.id,
+            createdAt: envelope.createdAt,
+            workflowName: envelope.workflowName,
+            workflowVersion: envelope.workflowVersion,
+            toolName: envelope.toolName,
+            toolVersion: envelope.toolVersion,
+            githubReleaseVersion: envelope.githubReleaseVersion,
+            tool: envelope.tool,
+            argv: envelope.argv,
+            durableReplayArgv: envelope.durableReplayArgv,
+            reproducibleCommand: envelope.reproducibleCommand,
+            options: envelope.options,
+            runtimeIdentity: envelope.runtimeIdentity,
+            files: mergedFiles,
+            output: envelope.output ?? mergedOutputs.first,
+            outputs: mergedOutputs,
+            steps: envelope.steps + preservedSteps,
+            wallTimeSeconds: envelope.wallTimeSeconds,
+            exitStatus: envelope.exitStatus,
+            stderr: envelope.stderr,
+            signatures: envelope.signatures,
+            legacyWorkflowRun: envelope.legacyRun
+        )
+    }
+
+    private static func isCurrentClassificationPipelineEnvelope(
+        _ envelope: ProvenanceEnvelope,
+        result: ClassificationResult
+    ) -> Bool {
+        let pipelineNames: Set<String> = ["Metagenomics Classification", "Metagenomics Profiling"]
+        guard pipelineNames.contains(envelope.workflowName) else {
+            return false
+        }
+        let currentPaths = Set([
+            result.reportURL.standardizedFileURL.path,
+            result.outputURL.standardizedFileURL.path,
+        ])
+        let envelopePaths = Set((envelope.files + envelope.outputs).map { URL(fileURLWithPath: $0.path).standardizedFileURL.path })
+        return !currentPaths.isDisjoint(with: envelopePaths)
+    }
+
+    private static func deduplicatedDescriptors(
+        _ descriptors: [ProvenanceFileDescriptor]
+    ) -> [ProvenanceFileDescriptor] {
+        var seen = Set<String>()
+        var result: [ProvenanceFileDescriptor] = []
+        for descriptor in descriptors {
+            guard seen.insert(descriptor.path).inserted else {
+                continue
+            }
+            result.append(descriptor)
+        }
+        return result
+    }
+
+    private static func replacingDependencies(
+        in step: ProvenanceStep,
+        with dependsOn: [UUID]
+    ) -> ProvenanceStep {
+        ProvenanceStep(
+            id: step.id,
+            toolName: step.toolName,
+            toolVersion: step.toolVersion,
+            githubReleaseVersion: step.githubReleaseVersion,
+            argv: step.argv,
+            durableReplayArgv: step.durableReplayArgv,
+            reproducibleCommand: step.reproducibleCommand,
+            inputs: step.inputs,
+            outputs: step.outputs,
+            exitStatus: step.exitStatus,
+            wallTimeSeconds: step.wallTimeSeconds,
+            stderr: step.stderr,
+            dependsOn: dependsOn,
+            startedAt: step.startedAt,
+            completedAt: step.completedAt
         )
     }
 
