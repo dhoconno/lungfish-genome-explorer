@@ -132,6 +132,7 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         guard let definitionURL = store.definitionURL(for: definition.id) else {
             throw HaplotypeDefinitionCommandServiceError.missingDefinitionURL(definition.id)
         }
+        try canonicalizeProjectDefinitionProvenance(for: definitionURL)
         return HaplotypeDefinitionCommandResult(
             scope: scope,
             definitionSet: definition,
@@ -221,6 +222,7 @@ public struct HaplotypeDefinitionCommandService: Sendable {
             outputURL: outputURL,
             argv: argv
         )
+        try canonicalizeProjectDefinitionProvenance(for: outputURL)
     }
 
     @discardableResult
@@ -245,6 +247,7 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         guard let definitionURL = store.definitionURL(for: definition.id) else {
             throw HaplotypeDefinitionCommandServiceError.missingDefinitionURL(definition.id)
         }
+        try canonicalizeProjectDefinitionProvenance(for: definitionURL)
         return HaplotypeDefinitionCommandResult(
             scope: scope,
             definitionSet: definition,
@@ -560,6 +563,7 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         guard let definitionURL = store.definitionURL(for: copied.id) else {
             throw HaplotypeDefinitionCommandServiceError.missingDefinitionURL(copied.id)
         }
+        try canonicalizeProjectDefinitionProvenance(for: definitionURL)
         return HaplotypeDefinitionCommandResult(
             scope: toScope,
             definitionSet: copied,
@@ -583,6 +587,9 @@ public struct HaplotypeDefinitionCommandService: Sendable {
             resolvedDefaults: resolvedDefaults(scope: scope)
         )
         try store.delete(id: definitionID, provenanceContext: context)
+        if let provenanceURL = store.provenanceURL(for: definitionID) {
+            try canonicalizeProjectDefinitionProvenance(at: provenanceURL)
+        }
     }
 
     private var library: HaplotypeDefinitionLibrary {
@@ -677,6 +684,116 @@ public struct HaplotypeDefinitionCommandService: Sendable {
             "projectRoot": projectRoot?.path ?? "",
             "scope": scope.rawValue,
         ]
+    }
+
+    private func canonicalizeProjectDefinitionProvenance(for definitionURL: URL) throws {
+        try canonicalizeProjectDefinitionProvenance(at: definitionURL.appendingPathExtension("provenance.json"))
+    }
+
+    private func canonicalizeProjectDefinitionProvenance(at provenanceURL: URL) throws {
+        if (try? ProvenanceEnvelopeReader.loadCanonical(fromSidecar: provenanceURL)) != nil {
+            return
+        }
+        let primitive = try JSONDecoder().decode(
+            HaplotypeDefinitionEditProvenance.self,
+            from: Data(contentsOf: provenanceURL)
+        )
+        try ProvenanceWriter(signingProvider: nil).write(
+            canonicalEnvelope(from: primitive),
+            toSidecar: provenanceURL
+        )
+    }
+
+    private func canonicalEnvelope(from primitive: HaplotypeDefinitionEditProvenance) -> ProvenanceEnvelope {
+        let startedAt = Self.parseHaplotypeProvenanceDate(primitive.startedAt) ?? Date()
+        let endedAt = Self.parseHaplotypeProvenanceDate(primitive.endedAt)
+            ?? startedAt.addingTimeInterval(primitive.wallTimeSeconds)
+        let inputs = primitive.inputs.map(Self.canonicalDescriptor)
+        let outputs = primitive.outputs.map(Self.canonicalDescriptor)
+        let step = ProvenanceStep(
+            toolName: primitive.toolName,
+            toolVersion: primitive.toolVersion,
+            argv: primitive.argv,
+            durableReplayArgv: primitive.argv,
+            reproducibleCommand: primitive.reproducibleCommand,
+            inputs: inputs,
+            outputs: outputs,
+            exitStatus: primitive.exitStatus,
+            wallTimeSeconds: primitive.wallTimeSeconds,
+            stderr: primitive.stderr,
+            startedAt: startedAt,
+            completedAt: endedAt
+        )
+        return ProvenanceEnvelope(
+            createdAt: startedAt,
+            workflowName: primitive.workflowName,
+            workflowVersion: primitive.workflowVersion,
+            toolName: primitive.toolName,
+            toolVersion: primitive.toolVersion,
+            tool: ProvenanceToolIdentity(
+                name: primitive.toolName,
+                version: primitive.toolVersion,
+                kind: primitive.toolName == CLICommandIdentity.executableName ? "cli" : "gui"
+            ),
+            argv: primitive.argv,
+            durableReplayArgv: primitive.argv,
+            reproducibleCommand: primitive.reproducibleCommand,
+            options: ProvenanceOptions(
+                explicit: primitive.options.explicit.mapValues(ParameterValue.string),
+                resolvedDefaults: primitive.options.resolvedDefaults.mapValues(ParameterValue.string)
+            ),
+            runtimeIdentity: ProvenanceRuntimeIdentity(
+                appVersion: primitive.workflowVersion,
+                operatingSystemVersion: primitive.runtime.operatingSystem,
+                user: primitive.runtime.user
+            ),
+            files: inputs + outputs,
+            output: outputs.first,
+            outputs: outputs,
+            steps: [step],
+            wallTimeSeconds: primitive.wallTimeSeconds,
+            exitStatus: primitive.exitStatus,
+            stderr: primitive.stderr
+        )
+    }
+
+    private static func canonicalDescriptor(
+        from record: HaplotypeDefinitionEditProvenance.FileRecord
+    ) -> ProvenanceFileDescriptor {
+        ProvenanceFileDescriptor(
+            path: record.path,
+            checksumSHA256: record.checksumSHA256,
+            fileSize: record.fileSizeBytes,
+            format: .json,
+            role: canonicalFileRole(record.role)
+        )
+    }
+
+    private static func canonicalFileRole(_ raw: String) -> FileRole {
+        switch raw {
+        case FileRole.output.rawValue:
+            return .output
+        case FileRole.reference.rawValue:
+            return .reference
+        case FileRole.index.rawValue:
+            return .index
+        case FileRole.log.rawValue:
+            return .log
+        case FileRole.report.rawValue:
+            return .report
+        default:
+            return .input
+        }
+    }
+
+    private static func parseHaplotypeProvenanceDate(_ value: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: value) {
+            return date
+        }
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: value)
     }
 
     private func existingDefinitionRelativePath(

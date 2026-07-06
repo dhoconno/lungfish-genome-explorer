@@ -25,16 +25,13 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.definitionURL.path))
 
         let provenanceURL = result.definitionURL.appendingPathExtension("provenance.json")
-        let provenance = try JSONDecoder().decode(
-            HaplotypeDefinitionEditProvenance.self,
-            from: Data(contentsOf: provenanceURL)
-        )
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(fromSidecar: provenanceURL))
         XCTAssertEqual(provenance.workflowName, "Haplotype definition import")
         XCTAssertEqual(provenance.toolName, "lungfish-cli")
         XCTAssertEqual(provenance.argv.first, "lungfish")
-        XCTAssertEqual(provenance.options.explicit["scope"], "project")
-        XCTAssertEqual(provenance.inputs.first?.path, sourceURL.path)
-        XCTAssertEqual(provenance.outputs.first?.path, result.definitionURL.path)
+        XCTAssertEqual(provenance.options.explicit["scope"]?.stringValue, "project")
+        XCTAssertTrue(provenance.files.contains { $0.path == sourceURL.path && $0.role == .input })
+        XCTAssertTrue(provenance.outputs.contains { $0.path == result.definitionURL.path })
     }
 
     func testInstallMHCReferenceBundleCopiesBundleIntoProjectAndIsDiscoverable() throws {
@@ -194,14 +191,16 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
         )
         XCTAssertEqual(exported.id, definition.id)
 
-        let provenance = try JSONDecoder().decode(
-            HaplotypeDefinitionEditProvenance.self,
-            from: Data(contentsOf: exportURL.appendingPathExtension("provenance.json"))
-        )
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(
+            fromSidecar: exportURL.appendingPathExtension("provenance.json")
+        ))
         XCTAssertEqual(provenance.workflowName, "Haplotype definition export")
-        XCTAssertEqual(provenance.options.explicit["definitionID"], definition.id)
-        XCTAssertEqual(provenance.inputs.first?.path, HaplotypeDefinitionStore(projectRoot: projectRoot).definitionURL(for: definition.id)?.path)
-        XCTAssertEqual(provenance.outputs.first?.path, exportURL.path)
+        XCTAssertEqual(provenance.options.explicit["definitionID"]?.stringValue, definition.id)
+        XCTAssertTrue(provenance.files.contains {
+            $0.path == HaplotypeDefinitionStore(projectRoot: projectRoot).definitionURL(for: definition.id)?.path
+                && $0.role == .input
+        })
+        XCTAssertTrue(provenance.outputs.contains { $0.path == exportURL.path })
     }
 
     func testValidationRejectsEmptyDiagnosticHaplotypes() throws {
