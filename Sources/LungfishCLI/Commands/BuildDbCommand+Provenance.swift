@@ -46,15 +46,18 @@ extension BuildDbCommand {
         exitStatus: Int = 0,
         stderr: String? = nil,
         sampleDirectories: [URL] = [],
-        additionalSteps: [ProvenanceStep] = []
+        additionalSteps: [ProvenanceStep] = [],
+        includeOutputRecords: Bool = true
     ) async throws {
         let completedAt = Date()
-        let outputRecords = buildDbOutputRecords(
-            tool: tool,
-            resultURL: resultURL,
-            dbURL: dbURL,
-            sampleDirectories: sampleDirectories
-        )
+        let outputRecords = includeOutputRecords
+            ? buildDbOutputRecords(
+                tool: tool,
+                resultURL: resultURL,
+                dbURL: dbURL,
+                sampleDirectories: sampleDirectories
+            )
+            : []
         let command = buildDbReplayArgv(
             tool: tool,
             resultURL: resultURL,
@@ -147,17 +150,9 @@ extension BuildDbCommand {
         inputRecords: [FileRecord],
         error: Error,
         sampleDirectories: [URL] = [],
-        additionalSteps: [ProvenanceStep] = []
+        additionalSteps: [ProvenanceStep] = [],
+        includeOutputRecords: Bool = true
     ) async {
-        guard !buildDbOutputRecords(
-            tool: tool,
-            resultURL: resultURL,
-            dbURL: dbURL,
-            sampleDirectories: sampleDirectories
-        ).isEmpty else {
-            return
-        }
-
         do {
             try await recordBuildDbProvenance(
                 tool: tool,
@@ -171,7 +166,8 @@ extension BuildDbCommand {
                 exitStatus: 1,
                 stderr: error.localizedDescription,
                 sampleDirectories: sampleDirectories,
-                additionalSteps: additionalSteps
+                additionalSteps: additionalSteps,
+                includeOutputRecords: includeOutputRecords
             )
         } catch {
             if !globalOptions.quiet {

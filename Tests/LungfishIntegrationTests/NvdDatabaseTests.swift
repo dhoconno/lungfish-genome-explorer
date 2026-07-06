@@ -8,6 +8,36 @@ import Testing
 import LungfishIO
 
 struct NvdDatabaseTests {
+    private let transientDestructor = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+
+    private final class PermissionFlip: @unchecked Sendable {
+        private let directory: URL
+        private let lock = NSLock()
+        private var flipped = false
+
+        init(directory: URL) {
+            self.directory = directory
+        }
+
+        func flipIfFinalizing(message: String) {
+            lock.lock()
+            defer { lock.unlock() }
+            guard message == "Finalizing...", !flipped else { return }
+            try? FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: directory.path)
+            flipped = true
+        }
+
+        func restoreIfNeeded() {
+            lock.lock()
+            let shouldRestore = flipped
+            flipped = false
+            lock.unlock()
+
+            if shouldRestore {
+                try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: directory.path)
+            }
+        }
+    }
 
     // MARK: - Test Data
 
@@ -215,6 +245,31 @@ struct NvdDatabaseTests {
             .appendingPathComponent("nvd_test_\(UUID().uuidString).sqlite")
     }
 
+    private func buildStateValue(at url: URL) throws -> String? {
+        var db: OpaquePointer?
+        #expect(sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK)
+        defer { sqlite3_close(db) }
+
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(
+            db,
+            "SELECT value FROM lungfish_database_state WHERE key = ?",
+            -1,
+            &stmt,
+            nil
+        ) == SQLITE_OK else {
+            return nil
+        }
+        defer { sqlite3_finalize(stmt) }
+        _ = "build_state".withCString { keyPointer in
+            sqlite3_bind_text(stmt, 1, keyPointer, -1, transientDestructor)
+        }
+        guard sqlite3_step(stmt) == SQLITE_ROW, let value = sqlite3_column_text(stmt, 0) else {
+            return nil
+        }
+        return String(cString: value)
+    }
+
     // MARK: - Tests
 
     @Test
@@ -228,6 +283,135 @@ struct NvdDatabaseTests {
         let db = try NvdDatabase.create(at: url, hits: hits, samples: makeSyntheticSamples())
         let count = try db.totalHitCount()
         #expect(count == 6, "All 6 hits should be in the database")
+        #expect(try buildStateValue(at: url) == "complete")
+    }
+
+    @Test
+    func openRejectsIncompleteBuildState() throws {
+        let url = temporaryDatabaseURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        var db: OpaquePointer?
+        #expect(sqlite3_open(url.path, &db) == SQLITE_OK)
+        defer { sqlite3_close(db) }
+        #expect(sqlite3_exec(db, """
+            CREATE TABLE lungfish_database_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            INSERT INTO lungfish_database_state VALUES ('build_state', 'building');
+            """, nil, nil, nil) == SQLITE_OK)
+
+        do {
+            _ = try NvdDatabase(at: url)
+            Issue.record("Expected incomplete build_state to be rejected")
+        } catch NvdDatabaseError.openFailed(let message) {
+            #expect(message.contains("build_state"))
+            #expect(message.contains("building"))
+        } catch {
+            Issue.record("Expected NvdDatabaseError.openFailed, got \(error)")
+        }
+    }
+
+    @Test
+    func failedCreatePreservesExistingDatabase() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("nvd-preserve-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let url = dir.appendingPathComponent("test.sqlite")
+        let originalHit = NvdBlastHit(
+            experiment: "100",
+            blastTask: "megablast",
+            sampleId: "original",
+            qseqid: "NODE_original",
+            qlen: 100,
+            sseqid: "NC_ORIGINAL",
+            stitle: "Original",
+            taxRank: "species:Original",
+            length: 100,
+            pident: 99,
+            evalue: 0,
+            bitscore: 100,
+            sscinames: "Original",
+            staxids: "1",
+            blastDbVersion: "v1",
+            snakemakeRunId: "run",
+            mappedReads: 10,
+            totalReads: 100,
+            statDbVersion: "stat",
+            adjustedTaxid: "1",
+            adjustmentMethod: "dominant",
+            adjustedTaxidName: "Original",
+            adjustedTaxidRank: "species",
+            hitRank: 1,
+            readsPerBillion: 100_000_000
+        )
+        _ = try NvdDatabase.create(
+            at: url,
+            hits: [originalHit],
+            samples: [NvdSampleMetadata(
+                sampleId: "original",
+                bamPath: "original.bam",
+                fastaPath: "original.fasta",
+                totalReads: 100,
+                contigCount: 1,
+                hitCount: 1
+            )]
+        )
+
+        let permissionFlip = PermissionFlip(directory: dir)
+        defer { permissionFlip.restoreIfNeeded() }
+        let replacementHit = NvdBlastHit(
+            experiment: "200",
+            blastTask: "megablast",
+            sampleId: "replacement",
+            qseqid: "NODE_replacement",
+            qlen: 100,
+            sseqid: "NC_REPLACEMENT",
+            stitle: "Replacement",
+            taxRank: "species:Replacement",
+            length: 100,
+            pident: 99,
+            evalue: 0,
+            bitscore: 100,
+            sscinames: "Replacement",
+            staxids: "2",
+            blastDbVersion: "v1",
+            snakemakeRunId: "run",
+            mappedReads: 10,
+            totalReads: 100,
+            statDbVersion: "stat",
+            adjustedTaxid: "2",
+            adjustmentMethod: "dominant",
+            adjustedTaxidName: "Replacement",
+            adjustedTaxidRank: "species",
+            hitRank: 1,
+            readsPerBillion: 100_000_000
+        )
+
+        #expect(throws: Error.self) {
+            _ = try NvdDatabase.create(
+                at: url,
+                hits: [replacementHit],
+                samples: [NvdSampleMetadata(
+                    sampleId: "replacement",
+                    bamPath: "replacement.bam",
+                    fastaPath: "replacement.fasta",
+                    totalReads: 100,
+                    contigCount: 1,
+                    hitCount: 1
+                )]
+            ) { _, message in
+                permissionFlip.flipIfFinalizing(message: message)
+            }
+        }
+
+        permissionFlip.restoreIfNeeded()
+
+        let reopened = try NvdDatabase(at: url)
+        let samples = try reopened.allSamples()
+        #expect(samples.map(\.sampleId) == ["original"])
+        #expect(try reopened.totalHitCount(samples: ["original"]) == 1)
+        #expect(try reopened.totalHitCount(samples: ["replacement"]) == 0)
     }
 
     @Test
@@ -539,6 +723,7 @@ struct NvdDatabaseTests {
         #expect(samples.first?.sampleId == "sample_A")
         #expect(samples.first?.bamIndexPath == nil)
         #expect(try db.bamIndexPath(forSample: "sample_A") == nil)
+        #expect(try buildStateValue(at: url) == "complete")
 
         let bestHits = try db.bestHits(forSamples: ["sample_A"])
         #expect(bestHits.count == 1)

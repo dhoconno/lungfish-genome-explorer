@@ -1127,19 +1127,17 @@ final class BuildDbCommandTests: XCTestCase {
         }
 
         let dbURL = resultDir.appendingPathComponent("taxtriage.sqlite")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: dbURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dbURL.path))
 
         let provenance = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: resultDir))
         XCTAssertEqual(provenance.exitStatus, 1)
         XCTAssertTrue(provenance.stderr?.contains("Managed samtools is required") == true)
         XCTAssertEqual(provenance.options.resolvedDefaults["samtoolsAvailable"]?.booleanValue, false)
-        XCTAssertTrue(provenance.outputs.contains {
+        XCTAssertFalse(provenance.outputs.contains {
             URL(fileURLWithPath: $0.path).standardizedFileURL.path == dbURL.standardizedFileURL.path
-                && $0.checksumSHA256 != nil
         })
-        let dbSidecar = try XCTUnwrap(
+        XCTAssertNil(
             ProvenanceRecorder.loadEnvelope(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: dbURL.standardizedFileURL))
         )
-        XCTAssertEqual(dbSidecar.exitStatus, 1)
     }
 }

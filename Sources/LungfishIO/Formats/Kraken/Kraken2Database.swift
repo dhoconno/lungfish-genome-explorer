@@ -122,6 +122,19 @@ public final class Kraken2Database: @unchecked Sendable {
 
     private var db: OpaquePointer?
     private let url: URL
+    private static let requiredTables = [
+        "classification_rows",
+        "metadata",
+        "sample_metadata_cache",
+        ClassifierSQLiteDatabaseSupport.stateTableName,
+    ]
+    private static let requiredIndexes = [
+        "idx_kr_sample",
+        "idx_kr_taxon",
+        "idx_kr_reads",
+        "idx_kr_metadata_field_value",
+        "idx_kr_metadata_sample",
+    ]
 
     /// The URL of the database file.
     public var databaseURL: URL { url }
@@ -142,6 +155,21 @@ public final class Kraken2Database: @unchecked Sendable {
             db = nil
             throw Kraken2DatabaseError.openFailed(msg)
         }
+        do {
+            guard let db else {
+                throw ClassifierSQLiteDatabaseError.openFailed("SQLite handle was nil")
+            }
+            try ClassifierSQLiteDatabaseSupport.validateReadyDatabase(
+                db: db,
+                requiredTables: Self.requiredTables,
+                requiredIndexes: Self.requiredIndexes,
+                allowLegacyMissingBuildState: true
+            )
+        } catch {
+            sqlite3_close(db)
+            db = nil
+            throw Kraken2DatabaseError.openFailed(error.localizedDescription)
+        }
 
         // Read-side performance tuning
         sqlite3_exec(db, "PRAGMA cache_size = -65536", nil, nil, nil)    // 64 MB
@@ -160,8 +188,8 @@ public final class Kraken2Database: @unchecked Sendable {
 
     /// Creates a new Kraken2 database from parsed classification rows.
     ///
-    /// Deletes any existing file at `url`, creates the schema, bulk-inserts all rows
-    /// and metadata, then builds indices.
+    /// Builds the database in a sibling staging file, validates it, then atomically
+    /// publishes it over any existing database at `url`.
     ///
     /// - Parameters:
     ///   - url: Path for the new SQLite database file.
@@ -177,49 +205,52 @@ public final class Kraken2Database: @unchecked Sendable {
         metadata: [String: String],
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) throws -> Kraken2Database {
-        // Delete existing file
-        try? FileManager.default.removeItem(at: url)
-
+        let stagingURL = ClassifierSQLiteDatabaseSupport.stagingURL(for: url)
         var db: OpaquePointer?
-        let rc = sqlite3_open_v2(
-            url.path, &db,
-            SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX,
-            nil
-        )
-        guard rc == SQLITE_OK, let db else {
-            let msg = db.flatMap { String(cString: sqlite3_errmsg($0)) } ?? "Unknown error"
-            sqlite3_close(db)
-            throw Kraken2DatabaseError.createFailed(msg)
-        }
-
-        // Performance pragmas for bulk import
-        sqlite3_exec(db, "PRAGMA journal_mode = WAL", nil, nil, nil)
-        sqlite3_exec(db, "PRAGMA synchronous = NORMAL", nil, nil, nil)
-        sqlite3_exec(db, "PRAGMA cache_size = -65536", nil, nil, nil)   // 64 MB
-        sqlite3_exec(db, "PRAGMA temp_store = MEMORY", nil, nil, nil)
-
         do {
-            try createSchema(db: db)
+            db = try ClassifierSQLiteDatabaseSupport.openWritableDatabase(at: stagingURL)
+            guard let openedDB = db else {
+                throw Kraken2DatabaseError.createFailed("SQLite handle was nil")
+            }
+            ClassifierSQLiteDatabaseSupport.configureForBulkImport(openedDB)
+
+            try createSchema(db: openedDB)
+            try ClassifierSQLiteDatabaseSupport.markBuildState(
+                ClassifierSQLiteDatabaseSupport.buildStateBuilding,
+                db: openedDB
+            )
             progress?(0.05, "Schema created")
 
-            try bulkInsertRows(db: db, rows: rows, progress: progress)
+            try bulkInsertRows(db: openedDB, rows: rows, progress: progress)
             progress?(0.80, "Inserting metadata...")
 
-            try insertMetadata(db: db, metadata: metadata)
+            try insertMetadata(db: openedDB, metadata: metadata)
             progress?(0.85, "Building indices...")
 
-            try createIndices(db: db)
+            try createIndices(db: openedDB)
             progress?(0.95, "Finalizing...")
 
-            sqlite3_close(db)
+            try ClassifierSQLiteDatabaseSupport.finalizeSuccessfulBuild(
+                db: openedDB,
+                requiredTables: Self.requiredTables,
+                requiredIndexes: Self.requiredIndexes
+            )
+            sqlite3_close(openedDB)
+            db = nil
+            try ClassifierSQLiteDatabaseSupport.publish(stagingURL: stagingURL, to: url)
             logger.info("Created Kraken2 database with \(rows.count) rows at \(url.lastPathComponent)")
 
             progress?(1.0, "Complete")
             return try Kraken2Database(at: url)
         } catch {
-            sqlite3_close(db)
-            try? FileManager.default.removeItem(at: url)
-            throw error
+            if let db {
+                sqlite3_close(db)
+            }
+            ClassifierSQLiteDatabaseSupport.removeSQLiteDatabase(at: stagingURL)
+            if let error = error as? Kraken2DatabaseError {
+                throw error
+            }
+            throw Kraken2DatabaseError.createFailed(error.localizedDescription)
         }
     }
 

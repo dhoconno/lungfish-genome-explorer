@@ -53,6 +53,59 @@ private enum BuildDbUniqueReadsError: LocalizedError {
     }
 }
 
+private struct BuildDbDatabaseSnapshot {
+    private let dbURL: URL
+    private let sidecarURL: URL
+    private let snapshotDirectory: URL
+    private let capturedFiles: [(source: URL, destination: URL)]
+
+    static func capture(dbURL: URL) throws -> BuildDbDatabaseSnapshot {
+        let snapshotDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lungfish-build-db-snapshot-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: snapshotDirectory, withIntermediateDirectories: true)
+
+        let sidecarURL = ProvenanceRecorder.fileSidecarURL(for: dbURL)
+        let urls = [
+            dbURL,
+            URL(fileURLWithPath: dbURL.path + "-wal"),
+            URL(fileURLWithPath: dbURL.path + "-shm"),
+            sidecarURL,
+        ]
+        var capturedFiles: [(source: URL, destination: URL)] = []
+        for url in urls where FileManager.default.fileExists(atPath: url.path) {
+            let destination = snapshotDirectory.appendingPathComponent(UUID().uuidString)
+            try FileManager.default.copyItem(at: url, to: destination)
+            capturedFiles.append((source: url, destination: destination))
+        }
+
+        return BuildDbDatabaseSnapshot(
+            dbURL: dbURL,
+            sidecarURL: sidecarURL,
+            snapshotDirectory: snapshotDirectory,
+            capturedFiles: capturedFiles
+        )
+    }
+
+    func restore() throws {
+        for url in [
+            dbURL,
+            URL(fileURLWithPath: dbURL.path + "-wal"),
+            URL(fileURLWithPath: dbURL.path + "-shm"),
+            sidecarURL,
+        ] {
+            try? FileManager.default.removeItem(at: url)
+        }
+        for file in capturedFiles {
+            try FileManager.default.copyItem(at: file.destination, to: file.source)
+        }
+        try discard()
+    }
+
+    func discard() throws {
+        try? FileManager.default.removeItem(at: snapshotDirectory)
+    }
+}
+
 /// Updates the `unique_reads` column in a SQLite database for rows with BAM paths.
 ///
 /// Opens the database read-write, queries rows that have a BAM path and accession,
@@ -317,6 +370,7 @@ extension BuildDbCommand {
 
             let provenanceInputs = BuildDbCommand.buildDbInputRecords(tool: .taxTriage, resultURL: resultURL)
             let samtoolsProvenance = BuildDbSamtoolsProvenanceCollector()
+            let databaseSnapshot = try BuildDbDatabaseSnapshot.capture(dbURL: dbURL)
 
             do {
                 // 1. Locate a supported taxonomy report
@@ -382,7 +436,15 @@ extension BuildDbCommand {
                     inputRecords: provenanceInputs,
                     additionalSteps: samtoolsProvenance.steps
                 )
+                try databaseSnapshot.discard()
             } catch {
+                do {
+                    try databaseSnapshot.restore()
+                } catch {
+                    if !globalOptions.quiet {
+                        fputs("Warning: could not restore previous TaxTriage database: \(error.localizedDescription)\n", stderr)
+                    }
+                }
                 await BuildDbCommand.recordBuildDbFailureProvenanceIfNeeded(
                     tool: .taxTriage,
                     resultURL: resultURL,
@@ -393,7 +455,8 @@ extension BuildDbCommand {
                     startedAt: provenanceStartedAt,
                     inputRecords: provenanceInputs,
                     error: error,
-                    additionalSteps: samtoolsProvenance.steps
+                    additionalSteps: samtoolsProvenance.steps,
+                    includeOutputRecords: false
                 )
                 throw error
             }
@@ -1080,6 +1143,7 @@ extension BuildDbCommand {
 
             let provenanceInputs = BuildDbCommand.buildDbInputRecords(tool: .esViritu, resultURL: resultURL)
             let samtoolsProvenance = BuildDbSamtoolsProvenanceCollector()
+            let databaseSnapshot = try BuildDbDatabaseSnapshot.capture(dbURL: dbURL)
 
             do {
                 // 1. Enumerate sample subdirectories containing detection TSVs
@@ -1177,7 +1241,15 @@ extension BuildDbCommand {
                     inputRecords: provenanceInputs,
                     additionalSteps: samtoolsProvenance.steps
                 )
+                try databaseSnapshot.discard()
             } catch {
+                do {
+                    try databaseSnapshot.restore()
+                } catch {
+                    if !globalOptions.quiet {
+                        fputs("Warning: could not restore previous EsViritu database: \(error.localizedDescription)\n", stderr)
+                    }
+                }
                 await BuildDbCommand.recordBuildDbFailureProvenanceIfNeeded(
                     tool: .esViritu,
                     resultURL: resultURL,
@@ -1188,7 +1260,8 @@ extension BuildDbCommand {
                     startedAt: provenanceStartedAt,
                     inputRecords: provenanceInputs,
                     error: error,
-                    additionalSteps: samtoolsProvenance.steps
+                    additionalSteps: samtoolsProvenance.steps,
+                    includeOutputRecords: false
                 )
                 throw error
             }
@@ -1567,6 +1640,7 @@ extension BuildDbCommand {
                 resultURL: resultURL,
                 sampleDirectories: explicitSampleDirectories
             )
+            let databaseSnapshot = try BuildDbDatabaseSnapshot.capture(dbURL: dbURL)
 
             do {
                 // 1. Enumerate sample subdirectories and parse kreport files
@@ -1619,7 +1693,15 @@ extension BuildDbCommand {
                     inputRecords: provenanceInputs,
                     sampleDirectories: explicitSampleDirectories
                 )
+                try databaseSnapshot.discard()
             } catch {
+                do {
+                    try databaseSnapshot.restore()
+                } catch {
+                    if !globalOptions.quiet {
+                        fputs("Warning: could not restore previous Kraken2 database: \(error.localizedDescription)\n", stderr)
+                    }
+                }
                 await BuildDbCommand.recordBuildDbFailureProvenanceIfNeeded(
                     tool: .kraken2,
                     resultURL: resultURL,
@@ -1630,7 +1712,8 @@ extension BuildDbCommand {
                     startedAt: provenanceStartedAt,
                     inputRecords: provenanceInputs,
                     error: error,
-                    sampleDirectories: explicitSampleDirectories
+                    sampleDirectories: explicitSampleDirectories,
+                    includeOutputRecords: false
                 )
                 throw error
             }

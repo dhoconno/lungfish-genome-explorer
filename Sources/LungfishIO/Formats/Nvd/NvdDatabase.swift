@@ -105,6 +105,21 @@ public final class NvdDatabase: @unchecked Sendable {
     private let url: URL
     private static let readOnlyFlags = SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX
     private static let readWriteFlags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX
+    private static let requiredTables = [
+        "blast_hits",
+        "samples",
+        ClassifierSQLiteDatabaseSupport.stateTableName,
+    ]
+    private static let requiredIndexes = [
+        "idx_hits_sample",
+        "idx_hits_contig",
+        "idx_hits_taxon",
+        "idx_hits_experiment",
+        "idx_hits_rank",
+        "idx_hits_evalue",
+        "idx_hits_stitle",
+        "idx_hits_best",
+    ]
     private static let columnMigrations = [
         ColumnMigration(table: "blast_hits", column: "unique_reads", definition: "INTEGER"),
         ColumnMigration(table: "samples", column: "bam_index_path", definition: "TEXT"),
@@ -131,13 +146,27 @@ public final class NvdDatabase: @unchecked Sendable {
         self.url = url
         db = try Self.openReadOnlyDatabase(at: url)
         do {
+            guard let initialDB = db else {
+                throw NvdDatabaseError.openFailed("SQLite handle was nil")
+            }
+            let buildState = try ClassifierSQLiteDatabaseSupport.buildState(db: initialDB)
+            if buildState != nil {
+                try validateReadyDatabase()
+            }
             for migration in Self.columnMigrations {
                 try ensureColumn(migration)
             }
+            if buildState == nil {
+                try ensureLegacyReadinessMetadataAndIndexes()
+            }
+            try validateReadyDatabase()
         } catch {
             sqlite3_close(db)
             db = nil
-            throw error
+            if let error = error as? NvdDatabaseError {
+                throw error
+            }
+            throw NvdDatabaseError.openFailed(error.localizedDescription)
         }
 
         // Read-side performance tuning
@@ -242,12 +271,66 @@ public final class NvdDatabase: @unchecked Sendable {
         }
     }
 
+    private func validateReadyDatabase() throws {
+        guard let db else {
+            throw NvdDatabaseError.openFailed("Database not open")
+        }
+        try ClassifierSQLiteDatabaseSupport.validateReadyDatabase(
+            db: db,
+            requiredTables: Self.requiredTables,
+            requiredIndexes: Self.requiredIndexes
+        )
+    }
+
+    private func ensureLegacyReadinessMetadataAndIndexes() throws {
+        guard let currentDB = db else {
+            throw NvdDatabaseError.openFailed("Database not open for legacy readiness migration")
+        }
+
+        sqlite3_close(currentDB)
+        db = nil
+        var writeDB: OpaquePointer? = try Self.openReadWriteDatabase(at: url)
+        defer {
+            if let writeDB {
+                sqlite3_close(writeDB)
+            }
+        }
+        guard let migrationDB = writeDB else {
+            throw NvdDatabaseError.openFailed("Database not open for legacy readiness migration")
+        }
+
+        let sql = """
+        CREATE INDEX IF NOT EXISTS idx_hits_sample ON blast_hits(sample_id);
+        CREATE INDEX IF NOT EXISTS idx_hits_contig ON blast_hits(sample_id, qseqid);
+        CREATE INDEX IF NOT EXISTS idx_hits_taxon ON blast_hits(adjusted_taxid_name);
+        CREATE INDEX IF NOT EXISTS idx_hits_experiment ON blast_hits(experiment);
+        CREATE INDEX IF NOT EXISTS idx_hits_rank ON blast_hits(adjusted_taxid_rank);
+        CREATE INDEX IF NOT EXISTS idx_hits_evalue ON blast_hits(sample_id, qseqid, evalue);
+        CREATE INDEX IF NOT EXISTS idx_hits_stitle ON blast_hits(stitle);
+        CREATE INDEX IF NOT EXISTS idx_hits_best ON blast_hits(hit_rank, sample_id);
+        """
+        guard sqlite3_exec(migrationDB, sql, nil, nil, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(migrationDB))
+            throw NvdDatabaseError.openFailed(
+                "Could not add legacy readiness metadata and indexes: \(msg)"
+            )
+        }
+        try ClassifierSQLiteDatabaseSupport.markBuildState(
+            ClassifierSQLiteDatabaseSupport.buildStateComplete,
+            db: migrationDB
+        )
+
+        sqlite3_close(migrationDB)
+        writeDB = nil
+        db = try Self.openReadOnlyDatabase(at: url)
+    }
+
     // MARK: - Create New Database
 
     /// Creates a new NVD database from parsed BLAST hits and sample metadata.
     ///
-    /// Deletes any existing file at `url`, creates the schema, bulk-inserts all hits
-    /// and sample rows, then builds indices.
+    /// Builds the database in a sibling staging file, validates it, then atomically
+    /// publishes it over any existing database at `url`.
     ///
     /// - Parameters:
     ///   - url: Path for the new SQLite database file.
@@ -263,49 +346,52 @@ public final class NvdDatabase: @unchecked Sendable {
         samples: [NvdSampleMetadata],
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) throws -> NvdDatabase {
-        // Delete existing file
-        try? FileManager.default.removeItem(at: url)
-
+        let stagingURL = ClassifierSQLiteDatabaseSupport.stagingURL(for: url)
         var db: OpaquePointer?
-        let rc = sqlite3_open_v2(
-            url.path, &db,
-            SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX,
-            nil
-        )
-        guard rc == SQLITE_OK, let db else {
-            let msg = db.flatMap { String(cString: sqlite3_errmsg($0)) } ?? "Unknown error"
-            sqlite3_close(db)
-            throw NvdDatabaseError.createFailed(msg)
-        }
-
-        // Performance pragmas for bulk import
-        sqlite3_exec(db, "PRAGMA journal_mode = WAL", nil, nil, nil)
-        sqlite3_exec(db, "PRAGMA synchronous = NORMAL", nil, nil, nil)
-        sqlite3_exec(db, "PRAGMA cache_size = -65536", nil, nil, nil)   // 64 MB
-        sqlite3_exec(db, "PRAGMA temp_store = MEMORY", nil, nil, nil)
-
         do {
-            try createSchema(db: db)
+            db = try ClassifierSQLiteDatabaseSupport.openWritableDatabase(at: stagingURL)
+            guard let openedDB = db else {
+                throw NvdDatabaseError.createFailed("SQLite handle was nil")
+            }
+            ClassifierSQLiteDatabaseSupport.configureForBulkImport(openedDB)
+
+            try createSchema(db: openedDB)
+            try ClassifierSQLiteDatabaseSupport.markBuildState(
+                ClassifierSQLiteDatabaseSupport.buildStateBuilding,
+                db: openedDB
+            )
             progress?(0.05, "Schema created")
 
-            try bulkInsertHits(db: db, hits: hits, progress: progress)
+            try bulkInsertHits(db: openedDB, hits: hits, progress: progress)
             progress?(0.70, "Inserting sample metadata...")
 
-            try bulkInsertSamples(db: db, samples: samples)
+            try bulkInsertSamples(db: openedDB, samples: samples)
             progress?(0.80, "Building indices...")
 
-            try createIndices(db: db)
+            try createIndices(db: openedDB)
             progress?(0.95, "Finalizing...")
 
-            sqlite3_close(db)
+            try ClassifierSQLiteDatabaseSupport.finalizeSuccessfulBuild(
+                db: openedDB,
+                requiredTables: Self.requiredTables,
+                requiredIndexes: Self.requiredIndexes
+            )
+            sqlite3_close(openedDB)
+            db = nil
+            try ClassifierSQLiteDatabaseSupport.publish(stagingURL: stagingURL, to: url)
             logger.info("Created NVD database with \(hits.count) hits at \(url.lastPathComponent)")
 
             progress?(1.0, "Complete")
             return try NvdDatabase(at: url)
         } catch {
-            sqlite3_close(db)
-            try? FileManager.default.removeItem(at: url)
-            throw error
+            if let db {
+                sqlite3_close(db)
+            }
+            ClassifierSQLiteDatabaseSupport.removeSQLiteDatabase(at: stagingURL)
+            if let error = error as? NvdDatabaseError {
+                throw error
+            }
+            throw NvdDatabaseError.createFailed(error.localizedDescription)
         }
     }
 
