@@ -4,6 +4,7 @@
 
 import Foundation
 import LungfishIO
+import LungfishWorkflow
 import os.log
 
 private let logger = Logger(subsystem: LogSubsystem.app, category: "MaterializationPipeline")
@@ -63,6 +64,7 @@ public actor MaterializationPipeline {
 
     private let derivativeService: FASTQDerivativeService
     private let maxConcurrency: Int
+    private let provenanceWriter: @Sendable (ProvenanceEnvelope, URL) throws -> URL
 
     /// Active jobs tracked by their task ID.
     private var activeJobs: [UUID: Task<MaterializationResult, Error>] = [:]
@@ -72,10 +74,14 @@ public actor MaterializationPipeline {
 
     public init(
         derivativeService: FASTQDerivativeService = .shared,
-        maxConcurrency: Int = 2
+        maxConcurrency: Int = 2,
+        provenanceWriter: @escaping @Sendable (ProvenanceEnvelope, URL) throws -> URL = { envelope, bundleURL in
+            try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
+        }
     ) {
         self.derivativeService = derivativeService
         self.maxConcurrency = max(1, maxConcurrency)
+        self.provenanceWriter = provenanceWriter
     }
 
     // MARK: - Single Job
@@ -111,6 +117,9 @@ public actor MaterializationPipeline {
             }
         }
 
+        let sourceInputDescriptors = try CLISequenceInputMaterialization.originalInputDescriptors(for: bundleURL)
+        let provenanceWriter = provenanceWriter
+
         // Mark as materializing in the manifest
         updateManifestState(bundleURL: bundleURL, state: .materializing(taskID: jobID))
 
@@ -121,6 +130,9 @@ public actor MaterializationPipeline {
                     bundleURL: bundleURL,
                     derivativeService: derivativeService,
                     jobID: jobID,
+                    startedAt: startTime,
+                    sourceInputDescriptors: sourceInputDescriptors,
+                    provenanceWriter: provenanceWriter,
                     onProgress: onProgress
                 )
 
@@ -229,76 +241,87 @@ public actor MaterializationPipeline {
         bundleURL: URL,
         derivativeService: FASTQDerivativeService,
         jobID: UUID,
+        startedAt: Date,
+        sourceInputDescriptors: [ProvenanceFileDescriptor],
+        provenanceWriter: @Sendable (ProvenanceEnvelope, URL) throws -> URL,
         onProgress: (@Sendable (MaterializationProgress) -> Void)?
     ) async throws -> String {
         let materializedFilename = "materialized.fastq"
+        let fm = FileManager.default
         let outputURL = bundleURL.appendingPathComponent(materializedFilename)
+        let temporaryOutputURL = bundleURL.appendingPathComponent(".\(jobID.uuidString).\(materializedFilename).tmp")
+        var provenanceBackup: ProvenanceArtifactBackup?
 
-        // Use the existing export mechanism from FASTQDerivativeService
-        try await derivativeService.exportMaterializedFASTQ(
-            fromDerivedBundle: bundleURL,
-            to: outputURL,
-            progress: { message in
-                onProgress?(MaterializationProgress(
-                    jobID: jobID,
-                    fraction: 0.5, // We don't have fine-grained progress from export
-                    message: message,
-                    bundleURL: bundleURL
-                ))
-            }
-        )
+        do {
+            provenanceBackup = try ProvenanceArtifactBackup.capture(bundleURL: bundleURL)
+            try? fm.removeItem(at: temporaryOutputURL)
+            try await derivativeService.exportMaterializedFASTQ(
+                fromDerivedBundle: bundleURL,
+                to: temporaryOutputURL,
+                progress: { message in
+                    onProgress?(MaterializationProgress(
+                        jobID: jobID,
+                        fraction: 0.5,
+                        message: message,
+                        bundleURL: bundleURL
+                    ))
+                }
+            )
 
-        // Compute checksum of the materialized file
-        let checksum = try computeChecksum(for: outputURL)
+            try? fm.removeItem(at: outputURL)
+            try fm.moveItem(at: temporaryOutputURL, to: outputURL)
+            let checksum = try ProvenanceFileHasher.sha256(of: outputURL)
 
-        // Compute statistics from the materialized file in a single pass
-        onProgress?(MaterializationProgress(
-            jobID: jobID,
-            fraction: 0.9,
-            message: "Computing statistics...",
-            bundleURL: bundleURL
-        ))
-        let stats = try await computeStatistics(for: outputURL)
+            onProgress?(MaterializationProgress(
+                jobID: jobID,
+                fraction: 0.9,
+                message: "Computing statistics...",
+                bundleURL: bundleURL
+            ))
+            let stats = try await computeStatistics(for: outputURL)
 
-        // Update manifest: mark as materialized, cache stats
-        if var manifest = FASTQBundle.loadDerivedManifest(in: bundleURL) {
-            manifest.materializationState = .materialized(checksum: checksum)
-            if let stats {
-                manifest = FASTQDerivedBundleManifest(
-                    id: manifest.id,
-                    name: manifest.name,
-                    createdAt: manifest.createdAt,
-                    parentBundleRelativePath: manifest.parentBundleRelativePath,
-                    rootBundleRelativePath: manifest.rootBundleRelativePath,
-                    rootFASTQFilename: manifest.rootFASTQFilename,
-                    payload: manifest.payload,
-                    lineage: manifest.lineage,
-                    operation: manifest.operation,
-                    cachedStatistics: stats,
-                    pairingMode: manifest.pairingMode,
-                    readClassification: manifest.readClassification,
-                    batchOperationID: manifest.batchOperationID,
-                    sequenceFormat: manifest.sequenceFormat,
-                    provenance: manifest.provenance,
-                    payloadChecksums: manifest.payloadChecksums
-                )
+            if var manifest = FASTQBundle.loadDerivedManifest(in: bundleURL) {
+                if let stats {
+                    manifest = FASTQDerivedBundleManifest(
+                        id: manifest.id,
+                        name: manifest.name,
+                        createdAt: manifest.createdAt,
+                        parentBundleRelativePath: manifest.parentBundleRelativePath,
+                        rootBundleRelativePath: manifest.rootBundleRelativePath,
+                        rootFASTQFilename: manifest.rootFASTQFilename,
+                        payload: manifest.payload,
+                        lineage: manifest.lineage,
+                        operation: manifest.operation,
+                        cachedStatistics: stats,
+                        pairingMode: manifest.pairingMode,
+                        readClassification: manifest.readClassification,
+                        batchOperationID: manifest.batchOperationID,
+                        sequenceFormat: manifest.sequenceFormat,
+                        provenance: manifest.provenance,
+                        payloadChecksums: manifest.payloadChecksums
+                    )
+                }
                 manifest.materializationState = .materialized(checksum: checksum)
+                try FASTQBundle.saveDerivedManifest(manifest, in: bundleURL)
             }
-            try FASTQBundle.saveDerivedManifest(manifest, in: bundleURL)
+
+            try writeMaterializationProvenance(
+                bundleURL: bundleURL,
+                materializedURL: outputURL,
+                manifestURL: FASTQBundle.derivedManifestURL(in: bundleURL),
+                sourceInputDescriptors: sourceInputDescriptors,
+                startedAt: startedAt,
+                completedAt: Date(),
+                provenanceWriter: provenanceWriter
+            )
+            provenanceBackup?.discard()
+
+            return checksum
+        } catch {
+            try? fm.removeItem(at: temporaryOutputURL)
+            cleanupFailedMaterialization(bundleURL: bundleURL, outputURL: outputURL, provenanceBackup: provenanceBackup)
+            throw error
         }
-
-        return checksum
-    }
-
-    /// Computes a SHA-256 checksum of a file (first 1MB for speed).
-    private static func computeChecksum(for url: URL) throws -> String {
-        let handle = try FileHandle(forReadingFrom: url)
-        defer { try? handle.close() }
-        let data = handle.readData(ofLength: 1_048_576) // First 1 MB
-        var hasher = Hasher()
-        hasher.combine(data)
-        let hash = hasher.finalize()
-        return String(format: "%08x", abs(hash))
     }
 
     /// Computes FASTQ statistics from a materialized file using a streaming collector.
@@ -312,6 +335,177 @@ public actor MaterializationPipeline {
             collector.process(record)
         }
         return collector.finalize()
+    }
+
+    private static func writeMaterializationProvenance(
+        bundleURL: URL,
+        materializedURL: URL,
+        manifestURL: URL,
+        sourceInputDescriptors: [ProvenanceFileDescriptor],
+        startedAt: Date,
+        completedAt: Date,
+        provenanceWriter: @Sendable (ProvenanceEnvelope, URL) throws -> URL
+    ) throws {
+        let appArgv = materializationAppArgv(bundleURL: bundleURL, outputURL: materializedURL)
+        let replayArgv = materializationReplayArgv(bundleURL: bundleURL, outputURL: materializedURL)
+        let outputs = [
+            try ProvenanceFileDescriptor.file(url: materializedURL, format: .fastq, role: .output),
+            try ProvenanceFileDescriptor.file(url: manifestURL, format: .json, role: .output),
+        ]
+        let wallTime = completedAt.timeIntervalSince(startedAt)
+        let step = ProvenanceStep(
+            toolName: "Lungfish App",
+            toolVersion: WorkflowRun.currentAppVersion,
+            argv: appArgv,
+            durableReplayArgv: replayArgv,
+            reproducibleCommand: replayArgv.map(shellEscape).joined(separator: " "),
+            inputs: sourceInputDescriptors,
+            outputs: outputs,
+            exitStatus: 0,
+            wallTimeSeconds: wallTime,
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+        let envelope = ProvenanceEnvelope(
+            createdAt: startedAt,
+            workflowName: "lungfish fastq persistent materialization",
+            workflowVersion: WorkflowRun.currentAppVersion,
+            toolName: "Lungfish App",
+            toolVersion: WorkflowRun.currentAppVersion,
+            tool: ProvenanceToolIdentity(name: "Lungfish App", version: WorkflowRun.currentAppVersion, kind: "app"),
+            argv: appArgv,
+            durableReplayArgv: replayArgv,
+            reproducibleCommand: replayArgv.map(shellEscape).joined(separator: " "),
+            options: ProvenanceOptions(
+                explicit: [
+                    "inputBundle": .file(bundleURL),
+                    "output": .file(materializedURL),
+                    "materializedFilename": .string(materializedURL.lastPathComponent),
+                    "persistentBundleOutput": .boolean(true),
+                    "statistics": .boolean(true),
+                ],
+                defaults: [
+                    "materializedFilename": .string("materialized.fastq"),
+                    "persistentBundleOutput": .boolean(true),
+                    "statistics": .boolean(true),
+                ],
+                resolvedDefaults: [
+                    "materializedFilename": .string(materializedURL.lastPathComponent),
+                    "persistentBundleOutput": .boolean(true),
+                    "statistics": .boolean(true),
+                ]
+            ),
+            runtimeIdentity: ProvenanceRuntimeIdentity(executablePath: "Lungfish.app"),
+            files: deduplicated(sourceInputDescriptors + outputs),
+            output: outputs.first,
+            outputs: outputs,
+            steps: [step],
+            wallTimeSeconds: wallTime,
+            exitStatus: 0
+        )
+        _ = try provenanceWriter(envelope, bundleURL)
+    }
+
+    private static func materializationAppArgv(bundleURL: URL, outputURL: URL) -> [String] {
+        [
+            "lungfish-app-workflow:fastq-materialize",
+            bundleURL.standardizedFileURL.path,
+            "--output",
+            outputURL.standardizedFileURL.path,
+        ]
+    }
+
+    private static func materializationReplayArgv(bundleURL: URL, outputURL: URL) -> [String] {
+        [
+            "lungfish",
+            "fastq",
+            "materialize",
+            bundleURL.standardizedFileURL.path,
+            "--output",
+            outputURL.standardizedFileURL.path,
+        ]
+    }
+
+    private static func cleanupFailedMaterialization(
+        bundleURL: URL,
+        outputURL: URL,
+        provenanceBackup: ProvenanceArtifactBackup?
+    ) {
+        let fm = FileManager.default
+        try? fm.removeItem(at: outputURL)
+        provenanceBackup?.restore()
+        guard var manifest = FASTQBundle.loadDerivedManifest(in: bundleURL) else { return }
+        manifest.materializationState = nil
+        try? FASTQBundle.saveDerivedManifest(manifest, in: bundleURL)
+    }
+
+    private static func deduplicated(_ descriptors: [ProvenanceFileDescriptor]) -> [ProvenanceFileDescriptor] {
+        var seen = Set<String>()
+        var result: [ProvenanceFileDescriptor] = []
+        for descriptor in descriptors {
+            let key = "\(descriptor.role.rawValue)\u{0}\(descriptor.path)"
+            if seen.insert(key).inserted {
+                result.append(descriptor)
+            }
+        }
+        return result
+    }
+
+    private struct ProvenanceArtifactBackup {
+        let provenanceURL: URL
+        let provenanceData: Data?
+        let provenanceDirectoryURL: URL
+        let temporaryProvenanceDirectoryURL: URL?
+
+        static func capture(bundleURL: URL) throws -> ProvenanceArtifactBackup {
+            let fm = FileManager.default
+            let provenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+            let provenanceData = fm.fileExists(atPath: provenanceURL.path)
+                ? try Data(contentsOf: provenanceURL)
+                : nil
+            let provenanceDirectoryURL = bundleURL.appendingPathComponent(
+                ProvenanceWriter.bundleProvenanceDirectoryName,
+                isDirectory: true
+            )
+            let temporaryProvenanceDirectoryURL: URL?
+            if fm.fileExists(atPath: provenanceDirectoryURL.path) {
+                let backupURL = bundleURL
+                    .deletingLastPathComponent()
+                    .appendingPathComponent(
+                        ".\(bundleURL.lastPathComponent)-provenance-backup-\(UUID().uuidString)",
+                        isDirectory: true
+                    )
+                try fm.copyItem(at: provenanceDirectoryURL, to: backupURL)
+                temporaryProvenanceDirectoryURL = backupURL
+            } else {
+                temporaryProvenanceDirectoryURL = nil
+            }
+            return ProvenanceArtifactBackup(
+                provenanceURL: provenanceURL,
+                provenanceData: provenanceData,
+                provenanceDirectoryURL: provenanceDirectoryURL,
+                temporaryProvenanceDirectoryURL: temporaryProvenanceDirectoryURL
+            )
+        }
+
+        func restore() {
+            let fm = FileManager.default
+            try? fm.removeItem(at: provenanceURL)
+            if let provenanceData {
+                try? provenanceData.write(to: provenanceURL, options: .atomic)
+            }
+            try? fm.removeItem(at: provenanceDirectoryURL)
+            if let temporaryProvenanceDirectoryURL {
+                try? fm.copyItem(at: temporaryProvenanceDirectoryURL, to: provenanceDirectoryURL)
+            }
+            discard()
+        }
+
+        func discard() {
+            if let temporaryProvenanceDirectoryURL {
+                try? FileManager.default.removeItem(at: temporaryProvenanceDirectoryURL)
+            }
+        }
     }
 
     /// Updates the materialization state in a bundle's manifest.
