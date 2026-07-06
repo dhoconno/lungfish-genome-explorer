@@ -294,6 +294,21 @@ final class KrakenIndexDatabaseTests: XCTestCase {
         )
     }
 
+    func testIsValidReturnsFalseAfterSameSizeSourceContentChanges() throws {
+        try KrakenIndexDatabase.build(from: krakenURL, to: indexURL)
+        let originalSize = try FileManager.default.attributesOfItem(atPath: krakenURL.path)[.size] as? Int64
+
+        let sameSizeDifferentContent = Self.sampleKrakenText.replacingOccurrences(of: "9606", with: "9607")
+        try sameSizeDifferentContent.write(to: krakenURL, atomically: true, encoding: .utf8)
+        let changedSize = try FileManager.default.attributesOfItem(atPath: krakenURL.path)[.size] as? Int64
+
+        XCTAssertEqual(changedSize, originalSize)
+        XCTAssertFalse(
+            KrakenIndexDatabase.isValid(at: indexURL, for: krakenURL),
+            "isValid should return false when source content changes without changing file size"
+        )
+    }
+
     func testIsValidReturnsFalseForMissingSourceFile() throws {
         try KrakenIndexDatabase.build(from: krakenURL, to: indexURL)
 

@@ -2,6 +2,7 @@
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import CryptoKit
 import Foundation
 import LungfishCore
 import SQLite3
@@ -357,6 +358,7 @@ public final class KrakenIndexDatabase: @unchecked Sendable {
         var batchCount = 0
         var bytesRead: Int64 = 0
         var leftover = ""
+        var sourceHasher = SHA256()
 
         // Begin first transaction.
         sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, nil)
@@ -366,6 +368,9 @@ public final class KrakenIndexDatabase: @unchecked Sendable {
             if chunk.isEmpty && leftover.isEmpty { break }
 
             bytesRead += Int64(chunk.count)
+            if !chunk.isEmpty {
+                sourceHasher.update(data: chunk)
+            }
 
             // Combine leftover from previous chunk with new data.
             let text: String
@@ -478,6 +483,7 @@ public final class KrakenIndexDatabase: @unchecked Sendable {
         }
 
         logger.info("Indexed \(totalReads) reads from \(sourceRecords) Kraken2 records (\(classifiedReads) classified)")
+        let sourceChecksum = sourceHasher.finalize().map { String(format: "%02x", $0) }.joined()
 
         // Step 7: Populate tax_counts from reads.
         progress?(0.88, "Computing taxonomy counts...")
@@ -496,6 +502,7 @@ public final class KrakenIndexDatabase: @unchecked Sendable {
         insertMetadataRow(db, key: "schema_version", value: schemaVersion)
         insertMetadataRow(db, key: "source_file", value: krakenURL.lastPathComponent)
         insertMetadataRow(db, key: "source_size", value: String(sourceSize))
+        insertMetadataRow(db, key: "source_sha256", value: sourceChecksum)
         insertMetadataRow(db, key: "created_at", value: ISO8601DateFormatter().string(from: Date()))
         insertMetadataRow(db, key: "total_reads", value: String(totalReads))
         insertMetadataRow(db, key: "source_records", value: String(sourceRecords))
@@ -518,6 +525,7 @@ public final class KrakenIndexDatabase: @unchecked Sendable {
     /// Validity requires:
     /// 1. The index file exists.
     /// 2. The source file size matches the `source_size` stored in metadata.
+    /// 3. The source file checksum matches the `source_sha256` stored in metadata.
     ///
     /// - Parameters:
     ///   - indexURL: URL to the index database file.
@@ -538,9 +546,10 @@ public final class KrakenIndexDatabase: @unchecked Sendable {
         }
         defer { sqlite3_close(db) }
 
-        // Read stored source size.
+        // Read stored source identity.
         guard let storedSizeStr = readMetadataValue(db, key: "source_size"),
-              let storedSize = Int64(storedSizeStr) else {
+              let storedSize = Int64(storedSizeStr),
+              let storedChecksum = readMetadataValue(db, key: "source_sha256") else {
             return false
         }
 
@@ -550,7 +559,14 @@ public final class KrakenIndexDatabase: @unchecked Sendable {
             return false
         }
 
-        return storedSize == currentSize
+        guard storedSize == currentSize else {
+            return false
+        }
+
+        guard let currentChecksum = try? sha256(of: krakenURL) else {
+            return false
+        }
+        return storedChecksum == currentChecksum
     }
 
     // MARK: - Index URL Convention
@@ -599,5 +615,18 @@ public final class KrakenIndexDatabase: @unchecked Sendable {
         guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
         guard let cStr = sqlite3_column_text(stmt, 0) else { return nil }
         return String(cString: cStr)
+    }
+
+    private static func sha256(of url: URL) throws -> String {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+
+        var hasher = SHA256()
+        while true {
+            let data = handle.readData(ofLength: readBufferSize)
+            if data.isEmpty { break }
+            hasher.update(data: data)
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 }
