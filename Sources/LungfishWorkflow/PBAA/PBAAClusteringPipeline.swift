@@ -88,17 +88,49 @@ public struct PBAAClusteringPipeline: Sendable {
         let completedAt = Date()
 
         guard runResult.exitCode == 0 else {
+            try writePBAAProvenance(
+                request: request,
+                runResult: runResult,
+                referenceBundleURL: nil,
+                workflowDirectory: workflowDirectory,
+                startedAt: startedAt,
+                completedAt: completedAt,
+                workflowExitStatus: Int(runResult.exitCode),
+                workflowStderr: runResult.stderr
+            )
             throw PBAAClusteringError.nextflowFailed(status: runResult.exitCode, stderr: runResult.stderr)
         }
 
         let passedFASTA = runResult.rawOutputDirectory
             .appendingPathComponent("\(request.prefix)_passed_cluster_sequences.fasta")
         guard FileManager.default.fileExists(atPath: passedFASTA.path) else {
-            throw PBAAClusteringError.missingPassedConsensusFASTA(passedFASTA)
+            let error = PBAAClusteringError.missingPassedConsensusFASTA(passedFASTA)
+            try writePBAAProvenance(
+                request: request,
+                runResult: runResult,
+                referenceBundleURL: nil,
+                workflowDirectory: workflowDirectory,
+                startedAt: startedAt,
+                completedAt: completedAt,
+                workflowExitStatus: 1,
+                workflowStderr: error.localizedDescription
+            )
+            throw error
         }
         let size = (try FileManager.default.attributesOfItem(atPath: passedFASTA.path)[.size] as? NSNumber)?.uint64Value ?? 0
         guard size > 0 else {
-            throw PBAAClusteringError.emptyPassedConsensusFASTA(passedFASTA)
+            let error = PBAAClusteringError.emptyPassedConsensusFASTA(passedFASTA)
+            try writePBAAProvenance(
+                request: request,
+                runResult: runResult,
+                referenceBundleURL: nil,
+                workflowDirectory: workflowDirectory,
+                startedAt: startedAt,
+                completedAt: completedAt,
+                workflowExitStatus: 1,
+                workflowStderr: error.localizedDescription
+            )
+            throw error
         }
 
         let importResult = try await referenceImporter.importAsReferenceBundle(
@@ -106,15 +138,21 @@ public struct PBAAClusteringPipeline: Sendable {
             outputDirectory: request.outputDirectory,
             preferredBundleName: request.outputName
         )
-        try writePBAAProvenance(
-            request: request,
-            runResult: runResult,
-            referenceBundleURL: importResult.bundleURL,
-            passedFASTA: passedFASTA,
-            workflowDirectory: workflowDirectory,
-            startedAt: startedAt,
-            completedAt: completedAt
-        )
+        do {
+            try writePBAAProvenance(
+                request: request,
+                runResult: runResult,
+                referenceBundleURL: importResult.bundleURL,
+                workflowDirectory: workflowDirectory,
+                startedAt: startedAt,
+                completedAt: completedAt,
+                workflowExitStatus: 0,
+                workflowStderr: runResult.stderr
+            )
+        } catch {
+            try? FileManager.default.removeItem(at: importResult.bundleURL)
+            throw error
+        }
 
         return PBAAClusteringResult(
             referenceBundleURL: importResult.bundleURL,
@@ -126,11 +164,12 @@ public struct PBAAClusteringPipeline: Sendable {
     private func writePBAAProvenance(
         request: PBAAClusteringRunRequest,
         runResult: PBAANextflowRunResult,
-        referenceBundleURL: URL,
-        passedFASTA: URL,
+        referenceBundleURL: URL?,
         workflowDirectory: URL,
         startedAt: Date,
-        completedAt: Date
+        completedAt: Date,
+        workflowExitStatus: Int,
+        workflowStderr: String?
     ) throws {
         let argv = [
             CLICommandIdentity.executableName, "fastq", "pbaa-cluster",
@@ -184,11 +223,15 @@ public struct PBAAClusteringPipeline: Sendable {
         let nextflowArgv = runResult.argv.isEmpty
             ? ProcessPBAANextflowRunner.nextflowArguments(workflowDirectory: workflowDirectory)
             : runResult.argv
-        let bundleDescriptor = ProvenanceFileDescriptor(path: referenceBundleURL.path, role: .output)
         let rawDirectoryDescriptor = ProvenanceFileDescriptor(path: runResult.rawOutputDirectory.path, role: .output)
         let rawOutputDescriptors = try rawPBAAOutputDescriptors(in: runResult.rawOutputDirectory)
-        let outputDescriptors = try finalBundleOutputDescriptors(bundleURL: referenceBundleURL)
-        let stepOutputs = [bundleDescriptor] + outputDescriptors + [rawDirectoryDescriptor] + rawOutputDescriptors
+        let bundleDescriptor = referenceBundleURL.map { ProvenanceFileDescriptor(path: $0.path, role: .output) }
+        let outputDescriptors = try referenceBundleURL.map { try finalBundleOutputDescriptors(bundleURL: $0) } ?? []
+        let finalBundleOutputs = [bundleDescriptor].compactMap { $0 } + outputDescriptors
+        let stepOutputs = finalBundleOutputs + [rawDirectoryDescriptor] + rawOutputDescriptors
+        let normalizedWorkflowStderr = workflowStderr?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true
+            ? nil
+            : workflowStderr
 
         let envelope = try ProvenanceRunBuilder(
             workflowName: "pbAA Amplicon Clustering",
@@ -252,15 +295,17 @@ public struct PBAAClusteringPipeline: Sendable {
             completedAt: completedAt
         ))
         .complete(
-            exitStatus: Int(runResult.exitCode),
-            stderr: runResult.stderr.isEmpty ? nil : runResult.stderr,
+            exitStatus: workflowExitStatus,
+            stderr: normalizedWorkflowStderr,
             startedAt: startedAt,
             endedAt: completedAt
         )
 
         let writer = ProvenanceWriter(signingProvider: nil)
-        try writer.write(envelope, to: referenceBundleURL)
         try writer.write(envelope, to: runResult.rawOutputDirectory)
+        if let referenceBundleURL {
+            try writer.write(envelope, to: referenceBundleURL)
+        }
     }
 
     private func rawPBAAOutputDescriptors(in directory: URL) throws -> [ProvenanceFileDescriptor] {

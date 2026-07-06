@@ -128,7 +128,7 @@ final class PBAAClusteringPipelineTests: XCTestCase {
         XCTAssertEqual(envelope.workflowName, "pbAA Amplicon Clustering")
         XCTAssertEqual(envelope.workflowVersion, PBAAContainerPins.workflowSchemaVersion)
         XCTAssertEqual(envelope.argv, [
-            "lungfish", "fastq", "pbaa-cluster",
+            CLICommandIdentity.executableName, "fastq", "pbaa-cluster",
             reads.standardizedFileURL.path,
             "--guide", guide.standardizedFileURL.path,
             "--output-dir", output.standardizedFileURL.path,
@@ -160,6 +160,99 @@ final class PBAAClusteringPipelineTests: XCTestCase {
             XCTAssertNotNil(descriptor.checksumSHA256, expectedRawOutput)
             XCTAssertNotNil(descriptor.fileSize, expectedRawOutput)
             XCTAssertTrue(rawEnvelope.outputs.contains { $0.path == outputURL.path }, expectedRawOutput)
+        }
+    }
+
+    func testFailedNextflowRunWritesRawOutputProvenance() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pbaa-failed-nextflow-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let reads = root.appendingPathComponent("reads.fastq")
+        let guide = root.appendingPathComponent("guide.fasta")
+        try "@r1\nACGT\n+\nIIII\n".write(to: reads, atomically: true, encoding: .utf8)
+        try ">g1|target\nACGT\n".write(to: guide, atomically: true, encoding: .utf8)
+
+        let request = try PBAAClusteringRunRequest(
+            inputFASTQURL: reads,
+            guideSourceURL: guide,
+            outputDirectory: root.appendingPathComponent("out", isDirectory: true),
+            outputName: "sample"
+        )
+        let runner = StubPBAANextflowRunner { request, _ in
+            let raw = request.rawPBAAOutputDirectory
+            try FileManager.default.createDirectory(at: raw, withIntermediateDirectories: true)
+            try "partial diagnostic\n".write(
+                to: raw.appendingPathComponent("nextflow-partial.log"),
+                atomically: true,
+                encoding: .utf8
+            )
+            return PBAANextflowRunResult(
+                exitCode: 42,
+                stdout: "",
+                stderr: "container failed",
+                rawOutputDirectory: raw,
+                argv: ["nextflow", "run", "main.nf"]
+            )
+        }
+
+        do {
+            _ = try await PBAAClusteringPipeline(nextflowRunner: runner).run(request)
+            XCTFail("Expected Nextflow failure")
+        } catch PBAAClusteringError.nextflowFailed(let status, let stderr) {
+            XCTAssertEqual(status, 42)
+            XCTAssertEqual(stderr, "container failed")
+        }
+
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: request.rawPBAAOutputDirectory))
+        XCTAssertEqual(envelope.workflowName, "pbAA Amplicon Clustering")
+        XCTAssertEqual(envelope.exitStatus, 42)
+        XCTAssertEqual(envelope.stderr, "container failed")
+        XCTAssertTrue(envelope.steps.contains { $0.toolName == "nextflow" && $0.exitStatus == 42 })
+        XCTAssertTrue(envelope.outputs.contains {
+            $0.path == request.rawPBAAOutputDirectory.appendingPathComponent("nextflow-partial.log").path
+        })
+    }
+
+    func testProvenanceWriteFailureRemovesImportedReferenceBundle() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pbaa-provenance-write-failure-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let reads = root.appendingPathComponent("reads.fastq")
+        let guide = root.appendingPathComponent("guide.fasta")
+        try "@r1\nACGT\n+\nIIII\n".write(to: reads, atomically: true, encoding: .utf8)
+        try ">g1|target\nACGT\n".write(to: guide, atomically: true, encoding: .utf8)
+
+        let output = root.appendingPathComponent("out", isDirectory: true)
+        let request = try PBAAClusteringRunRequest(
+            inputFASTQURL: reads,
+            guideSourceURL: guide,
+            outputDirectory: output,
+            outputName: "sample"
+        )
+        let runner = StubPBAANextflowRunner { request, _ in
+            let raw = request.rawPBAAOutputDirectory
+            try FileManager.default.createDirectory(at: raw, withIntermediateDirectories: true)
+            let passed = raw.appendingPathComponent("\(request.prefix)_passed_cluster_sequences.fasta")
+            try ">cluster1\nACGT\n".write(to: passed, atomically: true, encoding: .utf8)
+            try FileManager.default.createDirectory(
+                at: raw.appendingPathComponent(ProvenanceRecorder.provenanceFilename, isDirectory: true),
+                withIntermediateDirectories: true
+            )
+            return PBAANextflowRunResult(exitCode: 0, stdout: "ok", stderr: "", rawOutputDirectory: raw)
+        }
+
+        do {
+            _ = try await PBAAClusteringPipeline(nextflowRunner: runner).run(request)
+            XCTFail("Expected provenance write failure")
+        } catch {
+            let bundles = (try? FileManager.default.contentsOfDirectory(
+                at: output,
+                includingPropertiesForKeys: [.isDirectoryKey]
+            ))?
+                .filter { $0.pathExtension == "lungfishref" } ?? []
+            XCTAssertTrue(bundles.isEmpty, "Final PBAA reference bundle must not remain without provenance: \(bundles)")
         }
     }
 
