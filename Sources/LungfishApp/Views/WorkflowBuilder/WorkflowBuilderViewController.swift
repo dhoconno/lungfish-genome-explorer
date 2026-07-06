@@ -264,7 +264,7 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
     private func loadWorkflowOrThrow(from url: URL) throws {
         let loadedGraph = try WorkflowLibraryStore.loadWorkflow(from: url)
         graph = loadedGraph
-        workflowURL = url.pathExtension.lowercased() == "json" ? url.standardizedFileURL : WorkflowLibraryStore.normalizedWorkflowBundleURL(for: url)
+        workflowURL = WorkflowLibraryStore.normalizedWorkflowBundleURL(for: url)
         hasUnsavedChanges = false
         reloadWorkflowLibrary()
         updateWindowTitle()
@@ -295,17 +295,7 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
 
     private func saveWorkflow(to url: URL) {
         do {
-            let savedURL: URL
-            if url.pathExtension.lowercased() == "json" {
-                let encoder = JSONEncoder()
-                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-                let data = try encoder.encode(graph)
-                try data.write(to: url, options: .atomic)
-                workflowURL = url
-                savedURL = url
-            } else {
-                savedURL = try saveWorkflowBundle(to: url)
-            }
+            let savedURL = try saveWorkflowBundle(to: url)
 
             hasUnsavedChanges = false
             reloadWorkflowLibrary()
@@ -329,6 +319,20 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
     public func saveWorkflowBundleForTesting(to url: URL) throws -> URL {
         try saveWorkflowBundle(to: url)
     }
+
+    #if DEBUG
+    public static var workflowContentTypesForTesting: [UTType] {
+        workflowContentTypes
+    }
+
+    public func saveWorkflowForTesting(to url: URL) throws {
+        saveWorkflow(to: url)
+    }
+
+    public func loadWorkflowForTesting(from url: URL) throws {
+        try loadWorkflowOrThrow(from: url)
+    }
+    #endif
 
     @discardableResult
     private func saveWorkflowBundle(to requestedURL: URL) throws -> URL {
@@ -965,7 +969,7 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
     }
 
     private static var workflowContentTypes: [UTType] {
-        [workflowBundleType, .json]
+        [workflowBundleType]
     }
 }
 

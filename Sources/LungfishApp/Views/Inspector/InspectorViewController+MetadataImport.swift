@@ -393,7 +393,11 @@ extension InspectorViewController {
         for vTrackId in bundle.variantTrackIds {
             guard let trackInfo = bundle.variantTrack(id: vTrackId),
                   let dbPath = trackInfo.databasePath else { continue }
-            let dbURL = bundle.url.appendingPathComponent(dbPath)
+            guard let dbURL = try? BundleManifest.validatedBundleMemberURL(
+                for: dbPath,
+                in: bundle.url,
+                field: "variants[\(vTrackId)].databasePath"
+            ) else { continue }
             guard FileManager.default.fileExists(atPath: dbURL.path) else { continue }
             do {
                 let db = try VariantDatabase(url: dbURL)
@@ -435,14 +439,19 @@ extension InspectorViewController {
                 bundleURL: capturedBundleURL,
                 workflowName: "Sample metadata edit"
             ) == true else { return }
-            for dbURL in capturedURLs {
-                do {
-                    let rwDB = try VariantDatabase(url: dbURL, readWrite: true)
-                    try rwDB.updateSampleMetadata(name: sampleName, metadata: metadata)
-                    inspectorLogger.info("updateSampleSection: Saved metadata for '\(sampleName)' to \(dbURL.lastPathComponent)")
-                } catch {
-                    inspectorLogger.warning("updateSampleSection: Failed to save metadata: \(error.localizedDescription)")
+            do {
+                let targets = capturedURLs.map {
+                    VariantSampleMetadataImportTarget(databaseURL: $0)
                 }
+                let result = try VariantSampleMetadataMutationService().updateSampleMetadata(
+                    sampleName: sampleName,
+                    metadata: metadata,
+                    bundleURL: capturedBundleURL,
+                    targets: targets
+                )
+                inspectorLogger.info("updateSampleSection: Saved metadata for '\(sampleName)' to \(result.totalUpdated) variant database(s)")
+            } catch {
+                inspectorLogger.warning("updateSampleSection: Failed to save metadata: \(error.localizedDescription)")
             }
         }
 
@@ -474,20 +483,22 @@ extension InspectorViewController {
             let ext = fileURL.pathExtension.lowercased()
             let format: MetadataFormat = ext == "csv" ? .csv : .tsv
 
-            var totalUpdated = 0
-            for dbURL in variantDBURLs {
-                do {
-                    let rwDB = try VariantDatabase(url: dbURL, readWrite: true)
-                    let count = try rwDB.importSampleMetadata(from: fileURL, format: format)
-                    totalUpdated += count
-                } catch {
-                    inspectorLogger.warning("importSampleMetadata: \(error.localizedDescription)")
+            do {
+                let targets = variantDBURLs.map {
+                    VariantSampleMetadataImportTarget(databaseURL: $0)
                 }
+                let result = try VariantSampleMetadataImportService().importMetadata(
+                    from: fileURL,
+                    format: format,
+                    bundleURL: bundle.url,
+                    targets: targets
+                )
+                inspectorLogger.info("importSampleMetadata: Updated \(result.totalUpdated) samples from \(fileURL.lastPathComponent)")
+                // Refresh the sample section
+                self?.updateSampleSection(from: bundle)
+            } catch {
+                inspectorLogger.warning("importSampleMetadata: \(error.localizedDescription)")
             }
-
-            inspectorLogger.info("importSampleMetadata: Updated \(totalUpdated) samples from \(fileURL.lastPathComponent)")
-            // Refresh the sample section
-            self?.updateSampleSection(from: bundle)
         }
     }
 
@@ -641,12 +652,12 @@ extension InspectorViewController {
                             } else {
                                 try split.viewerController.displayBundle(at: bundleURL)
                             }
-                            OperationCenter.shared.complete(
+                            _ = OperationCenter.shared.complete(
                                 id: operationID,
                                 detail: "Removed derived alignment track \"\(result.removedTrack.name)\"."
                             )
                         } catch {
-                            OperationCenter.shared.fail(id: operationID, detail: error.localizedDescription)
+                            _ = OperationCenter.shared.fail(id: operationID, detail: error.localizedDescription)
                             self.presentSimpleAlert(
                                 title: shouldReloadMappingViewer ? "Mapping Viewer Reload Failed" : "Reload Failed",
                                 message: "The derived alignment was removed, but the updated bundle could not be reloaded: \(error.localizedDescription)"
@@ -657,7 +668,7 @@ extension InspectorViewController {
             } catch {
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.fail(
+                        _ = OperationCenter.shared.fail(
                             id: operationID,
                             detail: error.localizedDescription,
                             errorMessage: error.localizedDescription

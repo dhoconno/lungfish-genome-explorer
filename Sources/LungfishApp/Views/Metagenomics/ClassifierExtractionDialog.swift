@@ -204,8 +204,7 @@ struct ClassifierExtractionDialog: View {
                 // latter has no clean way to disable a single tag (the
                 // clipboard row is disabled when the selection exceeds the
                 // clipboardReadCap). The manual pattern trades a bit of
-                // VoiceOver polish for per-row disable-state control; see
-                // Phase 4 review-1 minor #5.
+                // VoiceOver polish for per-row disable-state control.
                 HStack(alignment: .top) {
                     Text("Destination:")
                         .font(.system(size: 12))

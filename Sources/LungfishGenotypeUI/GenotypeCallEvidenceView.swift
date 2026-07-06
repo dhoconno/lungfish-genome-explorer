@@ -584,31 +584,6 @@ struct GenotypeCallEvidenceView: View {
         }
     }
 
-    /// Per-haplotype supporting-allele table for healthy calls. Lists each
-    /// matched haplotype (H1, H2, or just one for homozygous samples) with
-    /// the diagnostic alleles that supported it and their read counts.
-    private func perHaplotypeSupportBlock(_ evidence: Evidence) -> some View {
-        return VStack(alignment: .leading, spacing: 8) {
-            Text("Supporting reads per haplotype")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            ForEach(evidence.perHaplotypeSupport) { support in
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        Text(support.haplotypeName)
-                            .font(.callout.monospaced().weight(.semibold))
-                        Text("\(support.supportingAlleles.count) supporting allele\(support.supportingAlleles.count == 1 ? "" : "s")")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                    ForEach(support.supportingAlleles) { allele in
-                        diagnosticAlleleReadRow(allele, compact: true)
-                    }
-                }
-            }
-        }
-    }
-
     private func haplotypeSlotCards(_ evidence: Evidence) -> some View {
         HStack(alignment: .top, spacing: 10) {
             slotCard(.h1, evidence: evidence)

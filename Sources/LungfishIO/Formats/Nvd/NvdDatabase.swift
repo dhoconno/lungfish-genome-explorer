@@ -103,6 +103,34 @@ public final class NvdDatabase: @unchecked Sendable {
 
     private var db: OpaquePointer?
     private let url: URL
+    private static let readOnlyFlags = SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX
+    private static let requiredTables = [
+        "blast_hits",
+        "samples",
+        ClassifierSQLiteDatabaseSupport.stateTableName,
+    ]
+    private static let requiredIndexes = [
+        "idx_hits_sample",
+        "idx_hits_contig",
+        "idx_hits_taxon",
+        "idx_hits_experiment",
+        "idx_hits_rank",
+        "idx_hits_evalue",
+        "idx_hits_stitle",
+        "idx_hits_best",
+    ]
+    private static let requiredColumns: [(table: String, column: String)] = [
+        ("blast_hits", "unique_reads"),
+        ("samples", "bam_index_path"),
+    ]
+    private static let hitColumns = """
+    experiment, blast_task, sample_id, qseqid, qlen,
+    sseqid, stitle, tax_rank, length, pident, evalue, bitscore,
+    sscinames, staxids, blast_db_version, snakemake_run_id,
+    mapped_reads, unique_reads, total_reads, stat_db_version,
+    adjusted_taxid, adjustment_method, adjusted_taxid_name,
+    adjusted_taxid_rank, hit_rank, reads_per_billion
+    """
 
     /// The URL of the database file.
     public var databaseURL: URL { url }
@@ -115,81 +143,17 @@ public final class NvdDatabase: @unchecked Sendable {
     /// - Throws: ``NvdDatabaseError/openFailed(_:)`` if the file cannot be opened.
     public init(at url: URL) throws {
         self.url = url
-        let flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX
-        let rc = sqlite3_open_v2(url.path, &db, flags, nil)
-        guard rc == SQLITE_OK else {
-            let msg = db.flatMap { String(cString: sqlite3_errmsg($0)) } ?? "Unknown error"
+        db = try Self.openReadOnlyDatabase(at: url)
+        do {
+            try validateReadyDatabase()
+            try validateRequiredColumns()
+        } catch {
             sqlite3_close(db)
             db = nil
-            throw NvdDatabaseError.openFailed(msg)
-        }
-
-        // Schema migration: ensure unique_reads column exists (added post-initial release)
-        let colCheck = "PRAGMA table_info(blast_hits)"
-        var checkStmt: OpaquePointer?
-        var hasUniqueReads = false
-        if sqlite3_prepare_v2(db, colCheck, -1, &checkStmt, nil) == SQLITE_OK {
-            while sqlite3_step(checkStmt) == SQLITE_ROW {
-                if let namePtr = sqlite3_column_text(checkStmt, 1) {
-                    let colName = String(cString: namePtr)
-                    if colName == "unique_reads" {
-                        hasUniqueReads = true
-                        break
-                    }
-                }
+            if let error = error as? NvdDatabaseError {
+                throw error
             }
-            sqlite3_finalize(checkStmt)
-        }
-        if !hasUniqueReads {
-            // Close read-only handle, reopen read-write to add the column
-            sqlite3_close(db)
-            db = nil
-            var rwDB: OpaquePointer?
-            if sqlite3_open_v2(url.path, &rwDB, SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK {
-                sqlite3_exec(rwDB, "ALTER TABLE blast_hits ADD COLUMN unique_reads INTEGER", nil, nil, nil)
-                sqlite3_close(rwDB)
-            }
-            // Reopen read-only
-            let rc2 = sqlite3_open_v2(url.path, &db, flags, nil)
-            guard rc2 == SQLITE_OK else {
-                let msg = db.flatMap { String(cString: sqlite3_errmsg($0)) } ?? "Unknown error"
-                sqlite3_close(db)
-                db = nil
-                throw NvdDatabaseError.openFailed(msg)
-            }
-        }
-
-        // Schema migration: ensure bam_index_path column exists in samples table.
-        let sampleColCheck = "PRAGMA table_info(samples)"
-        var sampleStmt: OpaquePointer?
-        var hasBamIndexPath = false
-        if sqlite3_prepare_v2(db, sampleColCheck, -1, &sampleStmt, nil) == SQLITE_OK {
-            while sqlite3_step(sampleStmt) == SQLITE_ROW {
-                if let namePtr = sqlite3_column_text(sampleStmt, 1) {
-                    let colName = String(cString: namePtr)
-                    if colName == "bam_index_path" {
-                        hasBamIndexPath = true
-                        break
-                    }
-                }
-            }
-            sqlite3_finalize(sampleStmt)
-        }
-        if !hasBamIndexPath {
-            sqlite3_close(db)
-            db = nil
-            var rwDB: OpaquePointer?
-            if sqlite3_open_v2(url.path, &rwDB, SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK {
-                sqlite3_exec(rwDB, "ALTER TABLE samples ADD COLUMN bam_index_path TEXT", nil, nil, nil)
-                sqlite3_close(rwDB)
-            }
-            let rc2 = sqlite3_open_v2(url.path, &db, flags, nil)
-            guard rc2 == SQLITE_OK else {
-                let msg = db.flatMap { String(cString: sqlite3_errmsg($0)) } ?? "Unknown error"
-                sqlite3_close(db)
-                db = nil
-                throw NvdDatabaseError.openFailed(msg)
-            }
+            throw NvdDatabaseError.openFailed(error.localizedDescription)
         }
 
         // Read-side performance tuning
@@ -205,18 +169,85 @@ public final class NvdDatabase: @unchecked Sendable {
         }
     }
 
-    // MARK: - Private init (used by create)
+    private static func openReadOnlyDatabase(at url: URL) throws -> OpaquePointer {
+        try openDatabase(at: url, flags: readOnlyFlags, description: "read-only")
+    }
 
-    private init(url: URL) {
-        self.url = url
+    private static func openDatabase(
+        at url: URL,
+        flags: Int32,
+        description: String
+    ) throws -> OpaquePointer {
+        var openedDB: OpaquePointer?
+        let rc = sqlite3_open_v2(url.path, &openedDB, flags, nil)
+        guard rc == SQLITE_OK, let openedDB else {
+            let msg = openedDB.flatMap { String(cString: sqlite3_errmsg($0)) } ?? "Unknown error"
+            sqlite3_close(openedDB)
+            throw NvdDatabaseError.openFailed("Could not open \(description) handle: \(msg)")
+        }
+        return openedDB
+    }
+
+    private static func database(
+        _ db: OpaquePointer,
+        hasColumn column: String,
+        in table: String
+    ) throws -> Bool {
+        let sql = "PRAGMA table_info(\(table))"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw NvdDatabaseError.openFailed("Could not inspect \(table) columns: \(msg)")
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        while true {
+            switch sqlite3_step(stmt) {
+            case SQLITE_ROW:
+                guard let namePtr = sqlite3_column_text(stmt, 1) else { continue }
+                if String(cString: namePtr) == column { return true }
+            case SQLITE_DONE:
+                return false
+            default:
+                let msg = String(cString: sqlite3_errmsg(db))
+                throw NvdDatabaseError.openFailed("Could not read \(table) columns: \(msg)")
+            }
+        }
+    }
+
+    private func validateReadyDatabase() throws {
+        guard let db else {
+            throw NvdDatabaseError.openFailed("Database not open")
+        }
+        try ClassifierSQLiteDatabaseSupport.validateReadyDatabase(
+            db: db,
+            requiredTables: Self.requiredTables,
+            requiredIndexes: Self.requiredIndexes
+        )
+    }
+
+    private func validateRequiredColumns() throws {
+        guard let db else {
+            throw NvdDatabaseError.openFailed("Database not open")
+        }
+        let missingColumns = try Self.requiredColumns.compactMap { requirement in
+            try Self.database(db, hasColumn: requirement.column, in: requirement.table)
+                ? nil
+                : "\(requirement.table).\(requirement.column)"
+        }
+        guard missingColumns.isEmpty else {
+            throw NvdDatabaseError.openFailed(
+                "Missing required columns: \(missingColumns.sorted().joined(separator: ", "))"
+            )
+        }
     }
 
     // MARK: - Create New Database
 
     /// Creates a new NVD database from parsed BLAST hits and sample metadata.
     ///
-    /// Deletes any existing file at `url`, creates the schema, bulk-inserts all hits
-    /// and sample rows, then builds indices.
+    /// Builds the database in a sibling staging file, validates it, then atomically
+    /// publishes it over any existing database at `url`.
     ///
     /// - Parameters:
     ///   - url: Path for the new SQLite database file.
@@ -232,49 +263,52 @@ public final class NvdDatabase: @unchecked Sendable {
         samples: [NvdSampleMetadata],
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) throws -> NvdDatabase {
-        // Delete existing file
-        try? FileManager.default.removeItem(at: url)
-
+        let stagingURL = ClassifierSQLiteDatabaseSupport.stagingURL(for: url)
         var db: OpaquePointer?
-        let rc = sqlite3_open_v2(
-            url.path, &db,
-            SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX,
-            nil
-        )
-        guard rc == SQLITE_OK, let db else {
-            let msg = db.flatMap { String(cString: sqlite3_errmsg($0)) } ?? "Unknown error"
-            sqlite3_close(db)
-            throw NvdDatabaseError.createFailed(msg)
-        }
-
-        // Performance pragmas for bulk import
-        sqlite3_exec(db, "PRAGMA journal_mode = WAL", nil, nil, nil)
-        sqlite3_exec(db, "PRAGMA synchronous = NORMAL", nil, nil, nil)
-        sqlite3_exec(db, "PRAGMA cache_size = -65536", nil, nil, nil)   // 64 MB
-        sqlite3_exec(db, "PRAGMA temp_store = MEMORY", nil, nil, nil)
-
         do {
-            try createSchema(db: db)
+            db = try ClassifierSQLiteDatabaseSupport.openWritableDatabase(at: stagingURL)
+            guard let openedDB = db else {
+                throw NvdDatabaseError.createFailed("SQLite handle was nil")
+            }
+            ClassifierSQLiteDatabaseSupport.configureForBulkImport(openedDB)
+
+            try createSchema(db: openedDB)
+            try ClassifierSQLiteDatabaseSupport.markBuildState(
+                ClassifierSQLiteDatabaseSupport.buildStateBuilding,
+                db: openedDB
+            )
             progress?(0.05, "Schema created")
 
-            try bulkInsertHits(db: db, hits: hits, progress: progress)
+            try bulkInsertHits(db: openedDB, hits: hits, progress: progress)
             progress?(0.70, "Inserting sample metadata...")
 
-            try bulkInsertSamples(db: db, samples: samples)
+            try bulkInsertSamples(db: openedDB, samples: samples)
             progress?(0.80, "Building indices...")
 
-            try createIndices(db: db)
+            try createIndices(db: openedDB)
             progress?(0.95, "Finalizing...")
 
-            sqlite3_close(db)
+            try ClassifierSQLiteDatabaseSupport.finalizeSuccessfulBuild(
+                db: openedDB,
+                requiredTables: Self.requiredTables,
+                requiredIndexes: Self.requiredIndexes
+            )
+            sqlite3_close(openedDB)
+            db = nil
+            try ClassifierSQLiteDatabaseSupport.publish(stagingURL: stagingURL, to: url)
             logger.info("Created NVD database with \(hits.count) hits at \(url.lastPathComponent)")
 
             progress?(1.0, "Complete")
             return try NvdDatabase(at: url)
         } catch {
-            sqlite3_close(db)
-            try? FileManager.default.removeItem(at: url)
-            throw error
+            if let db {
+                sqlite3_close(db)
+            }
+            ClassifierSQLiteDatabaseSupport.removeSQLiteDatabase(at: stagingURL)
+            if let error = error as? NvdDatabaseError {
+                throw error
+            }
+            throw NvdDatabaseError.createFailed(error.localizedDescription)
         }
     }
 
@@ -539,12 +573,7 @@ public final class NvdDatabase: @unchecked Sendable {
 
         let placeholders = samples.map { _ in "?" }.joined(separator: ",")
         let sql = """
-        SELECT experiment, blast_task, sample_id, qseqid, qlen,
-               sseqid, stitle, tax_rank, length, pident, evalue, bitscore,
-               sscinames, staxids, blast_db_version, snakemake_run_id,
-               mapped_reads, unique_reads, total_reads, stat_db_version,
-               adjusted_taxid, adjustment_method, adjusted_taxid_name,
-               adjusted_taxid_rank, hit_rank, reads_per_billion
+        SELECT \(Self.hitColumns)
         FROM blast_hits
         WHERE hit_rank = 1 AND sample_id IN (\(placeholders))
         ORDER BY qlen DESC
@@ -576,12 +605,7 @@ public final class NvdDatabase: @unchecked Sendable {
         }
 
         let sql = """
-        SELECT experiment, blast_task, sample_id, qseqid, qlen,
-               sseqid, stitle, tax_rank, length, pident, evalue, bitscore,
-               sscinames, staxids, blast_db_version, snakemake_run_id,
-               mapped_reads, unique_reads, total_reads, stat_db_version,
-               adjusted_taxid, adjustment_method, adjusted_taxid_name,
-               adjusted_taxid_rank, hit_rank, reads_per_billion
+        SELECT \(Self.hitColumns)
         FROM blast_hits
         WHERE sample_id = ? AND qseqid = ?
         ORDER BY evalue ASC, bitscore DESC
@@ -664,12 +688,7 @@ public final class NvdDatabase: @unchecked Sendable {
 
         let placeholders = samples.map { _ in "?" }.joined(separator: ",")
         let sql = """
-        SELECT experiment, blast_task, sample_id, qseqid, qlen,
-               sseqid, stitle, tax_rank, length, pident, evalue, bitscore,
-               sscinames, staxids, blast_db_version, snakemake_run_id,
-               mapped_reads, unique_reads, total_reads, stat_db_version,
-               adjusted_taxid, adjustment_method, adjusted_taxid_name,
-               adjusted_taxid_rank, hit_rank, reads_per_billion
+        SELECT \(Self.hitColumns)
         FROM blast_hits
         WHERE hit_rank = 1
           AND sample_id IN (\(placeholders))
@@ -821,13 +840,7 @@ public final class NvdDatabase: @unchecked Sendable {
 
     /// Collects all rows from a prepared SELECT statement into NvdBlastHit values.
     ///
-    /// The SELECT must project the 26 blast_hits columns in the standard order:
-    /// experiment, blast_task, sample_id, qseqid, qlen,
-    /// sseqid, stitle, tax_rank, length, pident, evalue, bitscore,
-    /// sscinames, staxids, blast_db_version, snakemake_run_id,
-    /// mapped_reads, unique_reads, total_reads, stat_db_version,
-    /// adjusted_taxid, adjustment_method, adjusted_taxid_name,
-    /// adjusted_taxid_rank, hit_rank, reads_per_billion
+    /// The SELECT must project `Self.hitColumns` in order.
     private func collectHits(stmt: OpaquePointer?) throws -> [NvdBlastHit] {
         var hits: [NvdBlastHit] = []
         while sqlite3_step(stmt) == SQLITE_ROW {

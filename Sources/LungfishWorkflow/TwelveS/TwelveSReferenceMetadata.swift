@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import LungfishCore
 import LungfishIO
 
 public struct TwelveSReferenceMetadataBuildConfiguration: Equatable, Sendable {
@@ -252,7 +253,7 @@ public struct TwelveSReferenceMetadataBuilder: Sendable {
         let envelope = try ProvenanceRunBuilder(
             workflowName: "lungfish fastq 12s-reference-metadata",
             workflowVersion: WorkflowRun.currentAppVersion,
-            toolName: "lungfish-cli",
+            toolName: CLICommandIdentity.executableName,
             toolVersion: WorkflowRun.currentAppVersion
         )
         .argv(argv)
@@ -321,7 +322,7 @@ public struct TwelveSReferenceMetadataBuilder: Sendable {
 
     private static func replayArgv(for config: TwelveSReferenceMetadataBuildConfiguration) -> [String] {
         var argv = [
-            "lungfish-cli", "fastq", "12s-reference-metadata",
+            CLICommandIdentity.executableName, "fastq", "12s-reference-metadata",
             "--dedup-fasta", config.deduplicatedFASTA.path,
             "--midori-metadata", config.midoriMetadataTSV.path,
             "--output", config.outputURL.path,

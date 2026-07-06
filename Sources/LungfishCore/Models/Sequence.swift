@@ -134,14 +134,14 @@ public struct Sequence: Identifiable, Hashable, Sendable {
         guard alphabet.supportsComplement else { return nil }
         guard let rcStorage = storage.reverseComplement(using: alphabet) else { return nil }
         // Reverse quality scores along with the sequence
-        let reversedQuality = qualityScores?.reversed().map { $0 }
+        let reversedQuality = qualityScores.map { Array($0.reversed()) }
         return Sequence(
             id: UUID(),
             name: "\(name)_rc",
             description: description,
             alphabet: alphabet,
             storage: rcStorage,
-            qualityScores: reversedQuality.map { Array($0) }
+            qualityScores: reversedQuality
         )
     }
 

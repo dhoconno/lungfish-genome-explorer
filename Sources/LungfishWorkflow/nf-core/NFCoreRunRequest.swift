@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 
 public enum NFCoreRunPresentationMode: Sendable, Codable, Equatable {
     case genericReport
@@ -11,6 +12,7 @@ public struct NFCoreRunRequest: Sendable, Codable, Equatable {
     public let executor: NFCoreExecutor
     public let inputURLs: [URL]
     public let outputDirectory: URL
+    public let expectedOutputURLs: [URL]
     public let params: [String: String]
     public let resume: Bool
     public let workDirectory: URL?
@@ -78,6 +80,9 @@ public struct NFCoreRunRequest: Sendable, Codable, Equatable {
         for inputURL in inputURLs {
             args += ["--input", inputURL.path]
         }
+        for outputURL in expectedOutputURLs {
+            args += ["--expected-output", outputURL.path]
+        }
         for key in params.keys.sorted() {
             guard let value = params[key], !value.isEmpty else { continue }
             args += ["--param", "\(key)=\(value)"]
@@ -94,7 +99,7 @@ public struct NFCoreRunRequest: Sendable, Codable, Equatable {
         return args
     }
 
-    public func cliCommandPreview(bundlePath: URL, executableName: String = "lungfish-cli") -> String {
+    public func cliCommandPreview(bundlePath: URL, executableName: String = CLICommandIdentity.executableName) -> String {
         ([executableName] + cliArguments(bundlePath: bundlePath)).map(shellEscape).joined(separator: " ")
     }
 
@@ -104,6 +109,7 @@ public struct NFCoreRunRequest: Sendable, Codable, Equatable {
         executor: NFCoreExecutor,
         inputURLs: [URL],
         outputDirectory: URL,
+        expectedOutputURLs: [URL] = [],
         params: [String: String] = [:],
         resume: Bool = false,
         workDirectory: URL? = nil,
@@ -115,6 +121,7 @@ public struct NFCoreRunRequest: Sendable, Codable, Equatable {
         self.executor = executor
         self.inputURLs = inputURLs.map(\.standardizedFileURL)
         self.outputDirectory = outputDirectory.standardizedFileURL
+        self.expectedOutputURLs = expectedOutputURLs.map(\.standardizedFileURL)
         self.params = params
         self.resume = resume
         self.workDirectory = workDirectory?.standardizedFileURL

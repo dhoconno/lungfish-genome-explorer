@@ -50,6 +50,8 @@ final class MHCAmpliconReferenceBundleBuilderTests: XCTestCase {
         XCTAssertTrue(provenance.files.contains { $0.path == fastaURL.path })
         XCTAssertTrue(provenance.files.contains { $0.path == definitionURL.path })
         XCTAssertTrue(provenance.outputs.contains { $0.path == bundleURL.path })
+        XCTAssertFalse(provenance.files.contains { $0.path.contains(".staging-") })
+        XCTAssertFalse(provenance.steps.flatMap(\.outputs).contains { $0.path.contains(".staging-") })
         XCTAssertEqual(provenance.steps.count, 1)
         XCTAssertEqual(provenance.steps.first?.exitStatus, 0)
         XCTAssertTrue(FileManager.default.fileExists(
@@ -58,6 +60,38 @@ final class MHCAmpliconReferenceBundleBuilderTests: XCTestCase {
                 .appendingPathComponent(ProvenanceWriter.bundleRollupFilename)
                 .path
         ))
+    }
+
+    func testBuildDoesNotPublishBundleBeforeProvenanceIsReady() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MHCAmpliconReferenceBundleBuilderTests-\(UUID().uuidString)", isDirectory: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let fastaURL = root.appendingPathComponent("MCM_MHC.fa")
+        let definitionURL = root.appendingPathComponent("mcm-mhc.lungfishhaplotypedef.json")
+        let bundleURL = root.appendingPathComponent("MCM-MHC.lungfishmhcref", isDirectory: true)
+        try ">M1\nACGT\n".write(to: fastaURL, atomically: true, encoding: .utf8)
+        try JSONEncoder().encode(Self.definition(id: "mcm-mhc")).write(to: definitionURL)
+        let visibility = BundleVisibilityRecorder(bundleURL: bundleURL)
+
+        _ = try await MHCAmpliconReferenceBundleBuilder().build(
+            MHCAmpliconReferenceBundleBuildConfiguration(
+                referenceFASTA: fastaURL,
+                haplotypeDefinitionURLs: [definitionURL],
+                outputURL: bundleURL
+            ),
+            progressHandler: { _, message in
+                visibility.recordIfCopyingReference(message: message)
+            }
+        )
+
+        let snapshot = visibility.snapshot()
+        XCTAssertTrue(snapshot.sawCopyingReference)
+        XCTAssertFalse(
+            snapshot.bundleExistedWhileCopyingReference,
+            "The final .lungfishmhcref path should not appear until bundle contents and provenance are complete."
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.path))
     }
 
     private static func definition(id: String) -> GenotypeHaplotypeDefinitionSet {
@@ -78,5 +112,33 @@ final class MHCAmpliconReferenceBundleBuilderTests: XCTestCase {
                 )
             ]
         )
+    }
+}
+
+private final class BundleVisibilityRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private let bundleURL: URL
+    private var sawCopyingReference = false
+    private var bundleExistedWhileCopyingReference = false
+
+    init(bundleURL: URL) {
+        self.bundleURL = bundleURL
+    }
+
+    func recordIfCopyingReference(message: String) {
+        guard message == "Copying MHC reference FASTA." else { return }
+        lock.withLock {
+            sawCopyingReference = true
+            bundleExistedWhileCopyingReference = FileManager.default.fileExists(atPath: bundleURL.path)
+        }
+    }
+
+    func snapshot() -> (sawCopyingReference: Bool, bundleExistedWhileCopyingReference: Bool) {
+        lock.withLock {
+            (
+                sawCopyingReference: sawCopyingReference,
+                bundleExistedWhileCopyingReference: bundleExistedWhileCopyingReference
+            )
+        }
     }
 }

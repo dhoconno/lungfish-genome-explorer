@@ -9,6 +9,30 @@ import CryptoKit
 
 private let dbLogger = Logger(subsystem: LogSubsystem.workflow, category: "DatabaseRegistry")
 
+struct ManagedDatabaseDownloadResult: Sendable {
+    let fileURL: URL
+    let wallTime: TimeInterval
+}
+
+struct ManagedDatabaseToolResult: Sendable {
+    let stdout: String
+    let stderr: String
+    let exitCode: Int32
+    let wallTime: TimeInterval
+}
+
+typealias ManagedDatabaseDownloadProgress = @Sendable (Double, Int64, Int64) -> Void
+typealias ManagedDatabaseDownloader = @Sendable (URL, ManagedDatabaseDownloadProgress) async throws -> ManagedDatabaseDownloadResult
+typealias ManagedDatabaseStderrHandler = @Sendable (String) -> Void
+typealias ManagedDatabaseToolRunner = @Sendable (
+    String,
+    [String],
+    String,
+    TimeInterval,
+    ManagedDatabaseStderrHandler?
+) async throws -> ManagedDatabaseToolResult
+typealias ManagedDatabaseProvenanceWriter = @Sendable (WorkflowRun, URL) throws -> Void
+
 // MARK: - HumanScrubberDatabaseError
 
 /// User-actionable errors for the managed human-scrubber database.
@@ -175,24 +199,48 @@ public actor DatabaseRegistry {
 
     /// User-managed database directory base.
     private let userDatabasesRootProvider: @Sendable () -> URL?
+    private let managedDatabaseDownloader: ManagedDatabaseDownloader?
+    private let managedDatabaseToolRunner: ManagedDatabaseToolRunner?
+    private let managedDatabaseProvenanceWriter: ManagedDatabaseProvenanceWriter
 
     private init() {
         let storageConfigStore = ManagedStorageConfigStore()
         self.userDatabasesRootProvider = {
             storageConfigStore.currentLocation().databaseRootURL
         }
+        self.managedDatabaseDownloader = nil
+        self.managedDatabaseToolRunner = nil
+        self.managedDatabaseProvenanceWriter = Self.writeManagedDatabaseProvenance
     }
 
-    init(bundledDatabasesRoot: URL?, userDatabasesRoot: URL?) {
+    init(
+        bundledDatabasesRoot: URL?,
+        userDatabasesRoot: URL?,
+        managedDatabaseDownloader: ManagedDatabaseDownloader? = nil,
+        managedDatabaseToolRunner: ManagedDatabaseToolRunner? = nil,
+        managedDatabaseProvenanceWriter: ManagedDatabaseProvenanceWriter? = nil
+    ) {
         self.bundledDatabasesRoot = bundledDatabasesRoot
         self.userDatabasesRootProvider = { userDatabasesRoot }
+        self.managedDatabaseDownloader = managedDatabaseDownloader
+        self.managedDatabaseToolRunner = managedDatabaseToolRunner
+        self.managedDatabaseProvenanceWriter = managedDatabaseProvenanceWriter ?? Self.writeManagedDatabaseProvenance
     }
 
-    init(bundledDatabasesRoot: URL?, storageConfigStore: ManagedStorageConfigStore) {
+    init(
+        bundledDatabasesRoot: URL?,
+        storageConfigStore: ManagedStorageConfigStore,
+        managedDatabaseDownloader: ManagedDatabaseDownloader? = nil,
+        managedDatabaseToolRunner: ManagedDatabaseToolRunner? = nil,
+        managedDatabaseProvenanceWriter: ManagedDatabaseProvenanceWriter? = nil
+    ) {
         self.bundledDatabasesRoot = bundledDatabasesRoot
         self.userDatabasesRootProvider = {
             storageConfigStore.currentLocation().databaseRootURL
         }
+        self.managedDatabaseDownloader = managedDatabaseDownloader
+        self.managedDatabaseToolRunner = managedDatabaseToolRunner
+        self.managedDatabaseProvenanceWriter = managedDatabaseProvenanceWriter ?? Self.writeManagedDatabaseProvenance
     }
 
     // MARK: - Public API
@@ -439,26 +487,31 @@ public actor DatabaseRegistry {
         try? fileManager.removeItem(at: tempMD5URL)
 
         progress?(0.02, "Preparing \(manifest.displayName)…")
+        let totalStart = Date()
+        var databaseDownloadWallTime: TimeInterval = 0
+        var checksumDownloadWallTime: TimeInterval = 0
 
         do {
-            let downloadedURL = try await downloadFile(from: downloadURL) { fraction, bytesWritten, totalBytes in
+            let downloaded = try await downloadManagedDatabaseFile(from: downloadURL) { fraction, bytesWritten, totalBytes in
                 let scaled = 0.04 + (fraction * 0.72)
                 progress?(
                     scaled,
                     "Downloading \(manifest.displayName)… \(Self.formatByteCount(bytesWritten)) of \(Self.formatByteCount(totalBytes))"
                 )
             }
+            databaseDownloadWallTime = downloaded.wallTime
 
             progress?(0.78, "Downloading checksum for \(manifest.displayName)…")
-            let downloadedMD5URL = try await downloadFile(from: md5URL) { fraction, _, _ in
+            let downloadedMD5 = try await downloadManagedDatabaseFile(from: md5URL) { fraction, _, _ in
                 let scaled = 0.78 + (fraction * 0.04)
                 progress?(scaled, "Downloading checksum for \(manifest.displayName)…")
             }
+            checksumDownloadWallTime = downloadedMD5.wallTime
 
             progress?(0.84, "Checking \(manifest.displayName)…")
 
-            let expectedMD5 = try parseExpectedMD5(from: downloadedMD5URL)
-            let actualMD5 = try md5Hex(of: downloadedURL) { fraction in
+            let expectedMD5 = try parseExpectedMD5(from: downloadedMD5.fileURL)
+            let actualMD5 = try md5Hex(of: downloaded.fileURL) { fraction in
                 let scaled = 0.84 + (fraction * 0.12)
                 progress?(scaled, "Checking \(manifest.displayName)…")
             }
@@ -474,19 +527,41 @@ public actor DatabaseRegistry {
             if fileManager.fileExists(atPath: destinationURL.path) {
                 try fileManager.removeItem(at: destinationURL)
             }
-            try fileManager.moveItem(at: downloadedURL, to: tempDownloadURL)
+            try fileManager.moveItem(at: downloaded.fileURL, to: tempDownloadURL)
             try fileManager.moveItem(at: tempDownloadURL, to: destinationURL)
-            try? fileManager.removeItem(at: downloadedMD5URL)
+            try? fileManager.removeItem(at: downloadedMD5.fileURL)
             try? fileManager.removeItem(at: tempMD5URL)
+            try writeManagedDatabaseInstallProvenance(
+                installDirectory: installDirectory,
+                manifest: manifest,
+                steps: checksummedManagedDatabaseInstallSteps(
+                    manifest: manifest,
+                    downloadURL: downloadURL,
+                    md5URL: md5URL,
+                    destinationURL: destinationURL,
+                    databaseDownloadWallTime: databaseDownloadWallTime,
+                    checksumDownloadWallTime: checksumDownloadWallTime
+                ),
+                totalWallTime: Date().timeIntervalSince(totalStart),
+                extraParameters: [
+                    "downloadUrl": .string(downloadURL.absoluteString),
+                    "md5Url": .string(md5URL.absoluteString),
+                    "expectedMD5": .string(expectedMD5),
+                    "actualMD5": .string(actualMD5),
+                ]
+            )
             UserDefaults.standard.set(
                 manifest.filename,
                 forKey: overrideFilenameKey(for: databaseID)
             )
             progress?(1.0, "Installed \(manifest.displayName)")
             return destinationURL
-        } catch is CancellationError {
+        } catch let error where Self.isCancellation(error) {
             try? fileManager.removeItem(at: tempDownloadURL)
             try? fileManager.removeItem(at: tempMD5URL)
+            try? fileManager.removeItem(at: destinationURL)
+            try? fileManager.removeItem(at: installDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+            UserDefaults.standard.removeObject(forKey: overrideFilenameKey(for: databaseID))
             throw HumanScrubberDatabaseError.installationCancelled(
                 databaseID: databaseID,
                 displayName: manifest.displayName
@@ -494,10 +569,16 @@ public actor DatabaseRegistry {
         } catch let error as HumanScrubberDatabaseError {
             try? fileManager.removeItem(at: tempDownloadURL)
             try? fileManager.removeItem(at: tempMD5URL)
+            try? fileManager.removeItem(at: destinationURL)
+            try? fileManager.removeItem(at: installDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+            UserDefaults.standard.removeObject(forKey: overrideFilenameKey(for: databaseID))
             throw error
         } catch {
             try? fileManager.removeItem(at: tempDownloadURL)
             try? fileManager.removeItem(at: tempMD5URL)
+            try? fileManager.removeItem(at: destinationURL)
+            try? fileManager.removeItem(at: installDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+            UserDefaults.standard.removeObject(forKey: overrideFilenameKey(for: databaseID))
             throw HumanScrubberDatabaseError.installationFailed(
                 databaseID: databaseID,
                 displayName: manifest.displayName,
@@ -530,12 +611,23 @@ public actor DatabaseRegistry {
         try? fileManager.removeItem(at: tempFetchURL)
 
         progress?(0.02, "Preparing \(manifest.displayName)…")
+        let totalStart = Date()
+        let fetchArgs = ["index", "fetch", manifest.version, "-o", tempOutputURL.path]
+        let durableFetchArgs = ["index", "fetch", manifest.version, "-o", destinationURL.path]
+        let infoArgs = ["index", "info", tempOutputURL.path]
+        let durableInfoArgs = ["index", "info", destinationURL.path]
+        var fetchWallTime: TimeInterval = 0
+        var fetchExitCode: Int32 = 1
+        var fetchStderr = ""
+        var infoWallTime: TimeInterval = 0
+        var infoExitCode: Int32 = 1
+        var infoStderr = ""
 
         do {
             progress?(0.08, "Downloading \(manifest.displayName)…")
-            let fetchResult = try await CondaManager.shared.runTool(
+            let fetchResult = try await runManagedDatabaseTool(
                 name: "deacon",
-                arguments: ["index", "fetch", manifest.version, "-o", tempOutputURL.path],
+                arguments: fetchArgs,
                 environment: "deacon",
                 timeout: 7200,
                 stderrHandler: { line in
@@ -546,6 +638,9 @@ public actor DatabaseRegistry {
                     }
                 }
             )
+            fetchWallTime = fetchResult.wallTime
+            fetchExitCode = fetchResult.exitCode
+            fetchStderr = fetchResult.stderr
             guard fetchResult.exitCode == 0 else {
                 let message = fetchResult.stderr.isEmpty ? fetchResult.stdout : fetchResult.stderr
                 throw HumanScrubberDatabaseError.installationFailed(
@@ -564,12 +659,15 @@ public actor DatabaseRegistry {
             }
 
             progress?(0.88, "Checking \(manifest.displayName)…")
-            let infoResult = try await CondaManager.shared.runTool(
+            let infoResult = try await runManagedDatabaseTool(
                 name: "deacon",
-                arguments: ["index", "info", tempOutputURL.path],
+                arguments: infoArgs,
                 environment: "deacon",
                 timeout: 300
             )
+            infoWallTime = infoResult.wallTime
+            infoExitCode = infoResult.exitCode
+            infoStderr = infoResult.stderr
             guard infoResult.exitCode == 0 else {
                 throw HumanScrubberDatabaseError.installationFailed(
                     databaseID: databaseID,
@@ -583,6 +681,27 @@ public actor DatabaseRegistry {
                 try fileManager.removeItem(at: destinationURL)
             }
             try fileManager.moveItem(at: tempOutputURL, to: destinationURL)
+            try writeManagedDatabaseInstallProvenance(
+                installDirectory: installDirectory,
+                manifest: manifest,
+                steps: deaconManagedDatabaseInstallSteps(
+                    fetchArgs: fetchArgs,
+                    durableFetchArgs: durableFetchArgs,
+                    infoArgs: infoArgs,
+                    durableInfoArgs: durableInfoArgs,
+                    outputURL: destinationURL,
+                    fetchExitCode: fetchExitCode,
+                    fetchWallTime: fetchWallTime,
+                    fetchStderr: fetchStderr,
+                    infoExitCode: infoExitCode,
+                    infoWallTime: infoWallTime,
+                    infoStderr: infoStderr
+                ),
+                totalWallTime: Date().timeIntervalSince(totalStart),
+                extraParameters: [
+                    "condaEnvironment": .string("deacon"),
+                ]
+            )
             UserDefaults.standard.set(
                 manifest.filename,
                 forKey: overrideFilenameKey(for: databaseID)
@@ -592,6 +711,9 @@ public actor DatabaseRegistry {
         } catch is CancellationError {
             try? fileManager.removeItem(at: tempOutputURL)
             try? fileManager.removeItem(at: tempFetchURL)
+            try? fileManager.removeItem(at: destinationURL)
+            try? fileManager.removeItem(at: installDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+            UserDefaults.standard.removeObject(forKey: overrideFilenameKey(for: databaseID))
             throw HumanScrubberDatabaseError.installationCancelled(
                 databaseID: databaseID,
                 displayName: manifest.displayName
@@ -599,10 +721,16 @@ public actor DatabaseRegistry {
         } catch let error as HumanScrubberDatabaseError {
             try? fileManager.removeItem(at: tempOutputURL)
             try? fileManager.removeItem(at: tempFetchURL)
+            try? fileManager.removeItem(at: destinationURL)
+            try? fileManager.removeItem(at: installDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+            UserDefaults.standard.removeObject(forKey: overrideFilenameKey(for: databaseID))
             throw error
         } catch {
             try? fileManager.removeItem(at: tempOutputURL)
             try? fileManager.removeItem(at: tempFetchURL)
+            try? fileManager.removeItem(at: destinationURL)
+            try? fileManager.removeItem(at: installDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+            UserDefaults.standard.removeObject(forKey: overrideFilenameKey(for: databaseID))
             throw HumanScrubberDatabaseError.installationFailed(
                 databaseID: databaseID,
                 displayName: manifest.displayName,
@@ -649,6 +777,9 @@ public actor DatabaseRegistry {
         var buildWallTime: TimeInterval = 0
         var buildExitCode: Int32 = 1
         var buildStderr = ""
+        var infoWallTime: TimeInterval = 0
+        var infoExitCode: Int32 = 1
+        var infoStderr = ""
         let buildArgs = [
             "index", "build",
             "-k", "31",
@@ -661,30 +792,30 @@ public actor DatabaseRegistry {
         do {
             progress?(0.08, "Downloading \(manifest.displayName)…")
             let downloadStarted = Date()
-            let downloadedURL = try await downloadFile(from: sourceURL) { fraction, bytesWritten, totalBytes in
+            let downloaded = try await downloadManagedDatabaseFile(from: sourceURL) { fraction, bytesWritten, totalBytes in
                 let scaled = 0.08 + (fraction * 0.52)
                 progress?(
                     scaled,
                     "Downloading \(manifest.displayName)… \(Self.formatByteCount(bytesWritten)) of \(Self.formatByteCount(totalBytes))"
                 )
             }
-            downloadWallTime = Date().timeIntervalSince(downloadStarted)
+            downloadWallTime = downloaded.wallTime > 0 ? downloaded.wallTime : Date().timeIntervalSince(downloadStarted)
 
             if fileManager.fileExists(atPath: referenceURL.path) {
                 try fileManager.removeItem(at: referenceURL)
             }
-            try fileManager.moveItem(at: downloadedURL, to: tempReferenceURL)
+            try fileManager.moveItem(at: downloaded.fileURL, to: tempReferenceURL)
             try fileManager.moveItem(at: tempReferenceURL, to: referenceURL)
 
             progress?(0.64, "Building \(manifest.displayName)…")
             let buildStarted = Date()
-            let buildResult = try await CondaManager.shared.runTool(
+            let buildResult = try await runManagedDatabaseTool(
                 name: "deacon",
                 arguments: buildArgs,
                 environment: "deacon",
                 timeout: 7200
             )
-            buildWallTime = Date().timeIntervalSince(buildStarted)
+            buildWallTime = buildResult.wallTime > 0 ? buildResult.wallTime : Date().timeIntervalSince(buildStarted)
             buildExitCode = buildResult.exitCode
             buildStderr = buildResult.stderr
             guard buildResult.exitCode == 0 else {
@@ -705,12 +836,16 @@ public actor DatabaseRegistry {
             }
 
             progress?(0.88, "Checking \(manifest.displayName)…")
-            let infoResult = try await CondaManager.shared.runTool(
+            let infoStarted = Date()
+            let infoResult = try await runManagedDatabaseTool(
                 name: "deacon",
                 arguments: ["index", "info", tempOutputURL.path],
                 environment: "deacon",
                 timeout: 300
             )
+            infoWallTime = infoResult.wallTime > 0 ? infoResult.wallTime : Date().timeIntervalSince(infoStarted)
+            infoExitCode = infoResult.exitCode
+            infoStderr = infoResult.stderr
             guard infoResult.exitCode == 0 else {
                 throw HumanScrubberDatabaseError.installationFailed(
                     databaseID: databaseID,
@@ -724,29 +859,45 @@ public actor DatabaseRegistry {
                 try fileManager.removeItem(at: destinationURL)
             }
             try fileManager.moveItem(at: tempOutputURL, to: destinationURL)
+            try writeManagedDatabaseInstallProvenance(
+                installDirectory: installDirectory,
+                manifest: manifest,
+                steps: ribokmersManagedDatabaseInstallSteps(
+                    sourceURL: sourceURL,
+                    referenceURL: referenceURL,
+                    indexURL: destinationURL,
+                    buildArgs: buildArgs,
+                    infoArgs: ["index", "info", tempOutputURL.path],
+                    durableInfoArgs: ["index", "info", destinationURL.path],
+                    downloadExitCode: downloadExitCode,
+                    downloadWallTime: downloadWallTime,
+                    buildExitCode: buildExitCode,
+                    buildWallTime: buildWallTime,
+                    buildStderr: buildStderr,
+                    infoExitCode: infoExitCode,
+                    infoWallTime: infoWallTime,
+                    infoStderr: infoStderr
+                ),
+                totalWallTime: Date().timeIntervalSince(totalStart),
+                extraParameters: [
+                    "kmerLength": .integer(31),
+                    "windowSize": .integer(15),
+                    "condaEnvironment": .string("deacon"),
+                ]
+            )
             UserDefaults.standard.set(
                 manifest.filename,
                 forKey: overrideFilenameKey(for: databaseID)
             )
-            try writeDeaconRibokmersInstallProvenance(
-                installDirectory: installDirectory,
-                manifest: manifest,
-                sourceURL: sourceURL,
-                referenceURL: referenceURL,
-                indexURL: destinationURL,
-                downloadExitCode: downloadExitCode,
-                downloadWallTime: downloadWallTime,
-                buildArgs: buildArgs,
-                buildExitCode: buildExitCode,
-                buildWallTime: buildWallTime,
-                buildStderr: buildStderr,
-                totalWallTime: Date().timeIntervalSince(totalStart)
-            )
             progress?(1.0, "Installed \(manifest.displayName)")
             return destinationURL
-        } catch is CancellationError {
+        } catch let error where Self.isCancellation(error) {
             try? fileManager.removeItem(at: tempOutputURL)
             try? fileManager.removeItem(at: tempReferenceURL)
+            try? fileManager.removeItem(at: referenceURL)
+            try? fileManager.removeItem(at: destinationURL)
+            try? fileManager.removeItem(at: installDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+            UserDefaults.standard.removeObject(forKey: overrideFilenameKey(for: databaseID))
             throw HumanScrubberDatabaseError.installationCancelled(
                 databaseID: databaseID,
                 displayName: manifest.displayName
@@ -754,46 +905,18 @@ public actor DatabaseRegistry {
         } catch let error as HumanScrubberDatabaseError {
             try? fileManager.removeItem(at: tempOutputURL)
             try? fileManager.removeItem(at: tempReferenceURL)
-            if fileManager.fileExists(atPath: referenceURL.path), !fileManager.fileExists(atPath: destinationURL.path) {
-                try? fileManager.removeItem(at: referenceURL)
-            }
-            try? writeDeaconRibokmersInstallProvenance(
-                installDirectory: installDirectory,
-                manifest: manifest,
-                sourceURL: sourceURL,
-                referenceURL: referenceURL,
-                indexURL: destinationURL,
-                downloadExitCode: downloadExitCode,
-                downloadWallTime: downloadWallTime,
-                buildArgs: buildArgs,
-                buildExitCode: buildExitCode,
-                buildWallTime: buildWallTime,
-                buildStderr: buildStderr,
-                totalWallTime: Date().timeIntervalSince(totalStart),
-                status: .failed
-            )
+            try? fileManager.removeItem(at: referenceURL)
+            try? fileManager.removeItem(at: destinationURL)
+            try? fileManager.removeItem(at: installDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+            UserDefaults.standard.removeObject(forKey: overrideFilenameKey(for: databaseID))
             throw error
         } catch {
             try? fileManager.removeItem(at: tempOutputURL)
             try? fileManager.removeItem(at: tempReferenceURL)
-            if fileManager.fileExists(atPath: referenceURL.path), !fileManager.fileExists(atPath: destinationURL.path) {
-                try? fileManager.removeItem(at: referenceURL)
-            }
-            try? writeDeaconRibokmersInstallProvenance(
-                installDirectory: installDirectory,
-                manifest: manifest,
-                sourceURL: sourceURL,
-                referenceURL: referenceURL,
-                indexURL: destinationURL,
-                downloadExitCode: downloadExitCode,
-                downloadWallTime: downloadWallTime,
-                buildArgs: buildArgs,
-                buildExitCode: buildExitCode,
-                buildWallTime: buildWallTime,
-                buildStderr: buildStderr,
-                totalWallTime: Date().timeIntervalSince(totalStart),
-                status: .failed
-            )
+            try? fileManager.removeItem(at: referenceURL)
+            try? fileManager.removeItem(at: destinationURL)
+            try? fileManager.removeItem(at: installDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+            UserDefaults.standard.removeObject(forKey: overrideFilenameKey(for: databaseID))
             throw HumanScrubberDatabaseError.installationFailed(
                 databaseID: databaseID,
                 displayName: manifest.displayName,
@@ -898,21 +1021,117 @@ public actor DatabaseRegistry {
         )
     }
 
-    private func writeDeaconRibokmersInstallProvenance(
-        installDirectory: URL,
+    private func checksummedManagedDatabaseInstallSteps(
         manifest: BundledDatabase,
+        downloadURL: URL,
+        md5URL: URL,
+        destinationURL: URL,
+        databaseDownloadWallTime: TimeInterval,
+        checksumDownloadWallTime: TimeInterval
+    ) -> [StepExecution] {
+        let now = Date()
+        let outputRecord = ProvenanceRecorder.fileRecord(url: destinationURL, format: .unknown, role: .index)
+        return [
+            StepExecution(
+                toolName: "URLSession",
+                toolVersion: "Foundation",
+                command: ["download", downloadURL.absoluteString, "-o", destinationURL.path],
+                inputs: [
+                    remoteFileRecord(url: downloadURL, format: .unknown, role: .input),
+                ],
+                outputs: FileManager.default.fileExists(atPath: destinationURL.path) ? [outputRecord] : [],
+                exitCode: 0,
+                wallTime: databaseDownloadWallTime,
+                stderr: nil,
+                endTime: now
+            ),
+            StepExecution(
+                toolName: "URLSession",
+                toolVersion: "Foundation",
+                command: ["download", md5URL.absoluteString],
+                inputs: [
+                    remoteFileRecord(url: md5URL, format: .text, role: .input),
+                ],
+                outputs: [],
+                exitCode: 0,
+                wallTime: checksumDownloadWallTime,
+                stderr: nil,
+                endTime: now
+            ),
+            StepExecution(
+                toolName: "CryptoKit",
+                toolVersion: "Insecure.MD5",
+                command: ["md5", destinationURL.path],
+                inputs: FileManager.default.fileExists(atPath: destinationURL.path) ? [outputRecord] : [],
+                outputs: [],
+                exitCode: 0,
+                wallTime: nil,
+                stderr: nil,
+                endTime: now
+            ),
+        ]
+    }
+
+    private func deaconManagedDatabaseInstallSteps(
+        fetchArgs: [String],
+        durableFetchArgs: [String],
+        infoArgs: [String],
+        durableInfoArgs: [String],
+        outputURL: URL,
+        fetchExitCode: Int32,
+        fetchWallTime: TimeInterval,
+        fetchStderr: String,
+        infoExitCode: Int32,
+        infoWallTime: TimeInterval,
+        infoStderr: String
+    ) -> [StepExecution] {
+        let now = Date()
+        let outputRecord = ProvenanceRecorder.fileRecord(url: outputURL, format: .unknown, role: .index)
+        let finalOutputRecords = FileManager.default.fileExists(atPath: outputURL.path) ? [outputRecord] : []
+        return [
+            StepExecution(
+                toolName: "deacon",
+                toolVersion: "0.15.0",
+                command: micromambaDeaconCommand(fetchArgs),
+                durableReplayArgv: micromambaDeaconCommand(durableFetchArgs),
+                inputs: [],
+                outputs: finalOutputRecords,
+                exitCode: fetchExitCode,
+                wallTime: fetchWallTime,
+                stderr: fetchStderr,
+                endTime: now
+            ),
+            StepExecution(
+                toolName: "deacon",
+                toolVersion: "0.15.0",
+                command: micromambaDeaconCommand(infoArgs),
+                durableReplayArgv: micromambaDeaconCommand(durableInfoArgs),
+                inputs: finalOutputRecords,
+                outputs: [],
+                exitCode: infoExitCode,
+                wallTime: infoWallTime,
+                stderr: infoStderr,
+                endTime: now
+            ),
+        ]
+    }
+
+    private func ribokmersManagedDatabaseInstallSteps(
         sourceURL: URL,
         referenceURL: URL,
         indexURL: URL,
+        buildArgs: [String],
+        infoArgs: [String],
+        durableInfoArgs: [String],
         downloadExitCode: Int32,
         downloadWallTime: TimeInterval,
-        buildArgs: [String],
         buildExitCode: Int32,
         buildWallTime: TimeInterval,
         buildStderr: String,
-        totalWallTime: TimeInterval,
-        status: RunStatus = .completed
-    ) throws {
+        infoExitCode: Int32,
+        infoWallTime: TimeInterval,
+        infoStderr: String
+    ) -> [StepExecution] {
         let now = Date()
         var steps: [StepExecution] = [
             StepExecution(
@@ -920,10 +1139,8 @@ public actor DatabaseRegistry {
                 toolVersion: "Foundation",
                 command: ["download", sourceURL.absoluteString, "-o", referenceURL.path],
                 inputs: [
-                    FileRecord(
-                        path: sourceURL.absoluteString,
-                        sha256: nil,
-                        sizeBytes: nil,
+                    remoteFileRecord(
+                        url: sourceURL,
                         format: .fasta,
                         role: .reference
                     ),
@@ -938,12 +1155,16 @@ public actor DatabaseRegistry {
             ),
         ]
 
-        let buildCommand = ["micromamba", "run", "-n", "deacon", "deacon"] + buildArgs
+        let buildCommand = micromambaDeaconCommand(buildArgs)
+        let durableBuildArgs = buildArgs.map { argument in
+            argument == indexURL.path + ".partial" ? indexURL.path : argument
+        }
         steps.append(
             StepExecution(
                 toolName: "deacon",
                 toolVersion: "0.15.0",
                 command: buildCommand,
+                durableReplayArgv: micromambaDeaconCommand(durableBuildArgs),
                 inputs: FileManager.default.fileExists(atPath: referenceURL.path)
                     ? [ProvenanceRecorder.fileRecord(url: referenceURL, format: .fasta, role: .reference)]
                     : [],
@@ -956,34 +1177,86 @@ public actor DatabaseRegistry {
                 endTime: now
             )
         )
+        steps.append(
+            StepExecution(
+                toolName: "deacon",
+                toolVersion: "0.15.0",
+                command: micromambaDeaconCommand(infoArgs),
+                durableReplayArgv: micromambaDeaconCommand(durableInfoArgs),
+                inputs: FileManager.default.fileExists(atPath: indexURL.path)
+                    ? [ProvenanceRecorder.fileRecord(url: indexURL, format: .unknown, role: .index)]
+                    : [],
+                outputs: [],
+                exitCode: infoExitCode,
+                wallTime: infoWallTime,
+                stderr: infoStderr,
+                endTime: now
+            )
+        )
+        return steps
+    }
+
+    private func writeManagedDatabaseInstallProvenance(
+        installDirectory: URL,
+        manifest: BundledDatabase,
+        steps: [StepExecution],
+        totalWallTime: TimeInterval,
+        extraParameters: [String: ParameterValue] = [:],
+        status: RunStatus = .completed
+    ) throws {
+        let now = Date()
+        var parameters: [String: ParameterValue] = [
+            "workflow": .string("managed-database-install"),
+            "databaseID": .string(manifest.id),
+            "displayName": .string(manifest.displayName),
+            "tool": .string(manifest.tool),
+            "version": .string(manifest.version),
+            "sourceUrl": .string(manifest.sourceUrl),
+            "releasesUrl": .string(manifest.releasesUrl),
+            "filename": .string(manifest.filename),
+            "releaseDate": .string(manifest.releaseDate),
+            "totalWallTimeSeconds": .number(totalWallTime),
+        ]
+        parameters.merge(extraParameters) { _, new in new }
 
         let run = WorkflowRun(
-            name: "Deacon ribokmers database install",
+            name: "\(manifest.displayName) managed database install",
             endTime: now,
             status: status,
             steps: steps,
-            parameters: [
-                "workflow": .string("managed-database-install"),
-                "databaseID": .string(manifest.id),
-                "displayName": .string(manifest.displayName),
-                "version": .string(manifest.version),
-                "sourceUrl": .string(sourceURL.absoluteString),
-                "indexFilename": .string(manifest.filename),
-                "kmerLength": .integer(31),
-                "windowSize": .integer(15),
-                "condaEnvironment": .string("deacon"),
-                "totalWallTimeSeconds": .number(totalWallTime),
-            ]
+            parameters: parameters
         )
 
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(run)
-        try data.write(
-            to: installDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
-            options: .atomic
+        do {
+            try managedDatabaseProvenanceWriter(
+                run,
+                installDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+            )
+        } catch {
+            throw HumanScrubberDatabaseError.installationFailed(
+                databaseID: manifest.id,
+                displayName: manifest.displayName,
+                reason: "Could not write managed database install provenance: \(String(describing: error))"
+            )
+        }
+    }
+
+    private static func writeManagedDatabaseProvenance(_ run: WorkflowRun, to provenanceURL: URL) throws {
+        try ProvenanceWriter().write(run.canonicalEnvelope(), toSidecar: provenanceURL)
+    }
+
+    private func remoteFileRecord(url: URL, format: FileFormat, role: FileRole) -> FileRecord {
+        FileRecord(
+            path: url.absoluteString,
+            sha256: nil,
+            sizeBytes: nil,
+            format: format,
+            role: role
         )
+    }
+
+    private func micromambaDeaconCommand(_ arguments: [String]) -> [String] {
+        ["micromamba", "run", "-n", "deacon", "deacon"] + arguments
     }
 
     private func md5Hex(
@@ -1014,7 +1287,7 @@ public actor DatabaseRegistry {
         from url: URL,
         progress: @Sendable @escaping (Double, Int64, Int64) -> Void
     ) async throws -> URL {
-        nonisolated(unsafe) var downloadTask: URLSessionDownloadTask?
+        let taskBox = DownloadTaskCancellationBox()
 
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
@@ -1031,12 +1304,20 @@ public actor DatabaseRegistry {
                     delegateQueue: nil
                 )
                 let task = session.downloadTask(with: url)
-                downloadTask = task
+                taskBox.store(task)
                 task.resume()
             }
         } onCancel: {
-            downloadTask?.cancel()
+            taskBox.cancel()
         }
+    }
+
+    static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError {
+            return true
+        }
+        let nsError = error as NSError
+        return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
     }
 
     private func overrideFilenameKey(for id: String) -> String {
@@ -1045,6 +1326,49 @@ public actor DatabaseRegistry {
 
     private static func formatByteCount(_ bytes: Int64) -> String {
         ByteCountFormatter.string(fromByteCount: max(bytes, 0), countStyle: .file)
+    }
+
+    private func downloadManagedDatabaseFile(
+        from url: URL,
+        progress: @escaping ManagedDatabaseDownloadProgress
+    ) async throws -> ManagedDatabaseDownloadResult {
+        if let managedDatabaseDownloader {
+            return try await managedDatabaseDownloader(url, progress)
+        }
+
+        let started = Date()
+        let fileURL = try await downloadFile(from: url, progress: progress)
+        return ManagedDatabaseDownloadResult(
+            fileURL: fileURL,
+            wallTime: Date().timeIntervalSince(started)
+        )
+    }
+
+    private func runManagedDatabaseTool(
+        name: String,
+        arguments: [String],
+        environment: String,
+        timeout: TimeInterval,
+        stderrHandler: ManagedDatabaseStderrHandler? = nil
+    ) async throws -> ManagedDatabaseToolResult {
+        if let managedDatabaseToolRunner {
+            return try await managedDatabaseToolRunner(name, arguments, environment, timeout, stderrHandler)
+        }
+
+        let started = Date()
+        let result = try await CondaManager.shared.runTool(
+            name: name,
+            arguments: arguments,
+            environment: environment,
+            timeout: timeout,
+            stderrHandler: stderrHandler
+        )
+        return ManagedDatabaseToolResult(
+            stdout: result.stdout,
+            stderr: result.stderr,
+            exitCode: result.exitCode,
+            wallTime: Date().timeIntervalSince(started)
+        )
     }
 
     private static func normalizedDatabaseID(_ id: String) -> String {

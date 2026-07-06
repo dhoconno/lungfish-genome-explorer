@@ -34,15 +34,26 @@ final class AppDebugLaunchConfigurationTests: XCTestCase {
         )
 
         // The debug bundle's distinct Launch Services identity.
-        XCTAssertTrue(script.contains("DEBUG_BUNDLE_ID=\"org.lungfish.genome-browser.debug\""))
+        XCTAssertTrue(script.contains("DEBUG_BUNDLE_ID=\"com.lungfish.browser.debug\""))
         XCTAssertTrue(script.contains("DEBUG_BUNDLE_NAME=\"Lungfish Debug\""))
-        XCTAssertTrue(script.contains("DEBUG_BUNDLE_DISPLAY_NAME=\"Lungfish Genome Browser Debug\""))
+        XCTAssertTrue(script.contains("BUNDLE_DISPLAY_NAME=\"Lungfish Genome Explorer\""))
+        XCTAssertTrue(script.contains("DEBUG_BUNDLE_DISPLAY_NAME=\"Lungfish Genome Explorer Debug\""))
         // build-app.sh now copies the shared source Info.plist and substitutes the
         // identity fields via plutil (it no longer embeds an inline plist heredoc).
         XCTAssertTrue(script.contains("Lungfish-Info.plist"))
         XCTAssertTrue(script.contains("plutil -replace CFBundleIdentifier -string \"$BUNDLE_ID\""))
         XCTAssertTrue(script.contains("plutil -replace CFBundleName -string \"$BUNDLE_NAME\""))
         XCTAssertTrue(script.contains("plutil -replace CFBundleDisplayName -string \"$BUNDLE_DISPLAY_NAME\""))
+    }
+
+    func testDebugCaptureScriptUsesCurrentProductName() throws {
+        let script = try String(
+            contentsOf: Self.packageRoot().appendingPathComponent("scripts/debug-capture.sh"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(script.contains("Lungfish Genome Explorer"))
+        XCTAssertFalse(script.contains("Lungfish Genome Browser"))
     }
 
     /// Drift guard: the shared source Info.plist (consumed by BOTH the notarized

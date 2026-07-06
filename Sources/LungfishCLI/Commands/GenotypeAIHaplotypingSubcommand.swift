@@ -526,7 +526,7 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
             parameters: parameters,
             defaults: defaultOptions(),
             resolved: parameters,
-            toolName: "lungfish-cli",
+            toolName: CLICommandIdentity.executableName,
             toolVersion: WorkflowRun.currentAppVersion,
             command: previewCommand(outputURL: outputURL, preview: preview),
             inputs: inputs,
@@ -625,11 +625,11 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
             parameters: explicit,
             defaults: defaultOptions(),
             resolved: resolved,
-            toolName: "lungfish-cli",
+            toolName: CLICommandIdentity.executableName,
             toolVersion: WorkflowRun.currentAppVersion,
             command: debugCommand(outputURL: outputURL, modelID: modelID, promptSelection: promptSelection),
             inputs: [
-                ProvenanceRecorder.fileRecord(url: bundleURL, role: .input),
+                ProvenanceRecorder.fileOrDirectoryRecord(url: bundleURL, role: .input),
             ],
             outputs: [
                 ProvenanceRecorder.fileRecord(url: outputURL, format: .json, role: .output),
@@ -777,7 +777,7 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
     }
 
     private func previewCommand(outputURL: URL, preview: AIHaplotypingCLIPromptPreview) -> [String] {
-        var command = ["lungfish", "genotype", "ai-haplotyping"]
+        var command = [CLICommandIdentity.executableName, "genotype", "ai-haplotyping"]
         if let bundle {
             command += ["--bundle", URL(fileURLWithPath: bundle, isDirectory: true).standardizedFileURL.path]
         }
@@ -827,7 +827,7 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
         modelID: String,
         promptSelection: AIHaplotypingPromptSelection
     ) -> [String] {
-        var command = ["lungfish", "genotype", "ai-haplotyping"]
+        var command = [CLICommandIdentity.executableName, "genotype", "ai-haplotyping"]
         if let bundle {
             command += ["--bundle", URL(fileURLWithPath: bundle, isDirectory: true).standardizedFileURL.path]
         }

@@ -45,10 +45,12 @@ public enum ProvenanceFileHasher {
 
     public static func directoryManifest(
         for root: URL,
-        role: FileRole = .output
+        role: FileRole = .output,
+        excluding excludedAbsolutePaths: Set<String> = []
     ) throws -> ProvenanceDirectoryManifest {
         let fileManager = FileManager.default
         let rootURL = root.standardizedFileURL
+        let excludedPaths = Set(excludedAbsolutePaths.map { URL(fileURLWithPath: $0).standardizedFileURL.path })
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: rootURL.path, isDirectory: &isDirectory), isDirectory.boolValue else {
             throw ProvenanceFileHasherError.notDirectory(rootURL.path)
@@ -67,6 +69,7 @@ public enum ProvenanceFileHasher {
         for case let fileURL as URL in enumerator {
             let relativePath = relativePath(for: fileURL, relativeTo: rootURL)
             guard !relativePath.isEmpty, !hasHiddenPathComponent(relativePath) else { continue }
+            guard !excludedPaths.contains(fileURL.standardizedFileURL.path) else { continue }
 
             let values = try fileURL.resourceValues(forKeys: resourceKeys)
             guard values.isSymbolicLink != true, values.isRegularFile == true else { continue }

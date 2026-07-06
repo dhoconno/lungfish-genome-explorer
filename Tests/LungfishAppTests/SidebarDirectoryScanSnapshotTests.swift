@@ -52,6 +52,42 @@ final class SidebarDirectoryScanSnapshotTests: XCTestCase {
         XCTAssertTrue(recursiveScan.contains("directoryEntries(in: url"))
     }
 
+    func testSidebarMovePathsRewriteAnalysisManifestReferences() throws {
+        let source = combinedSidebarViewControllerSource()
+        let lines = source.components(separatedBy: .newlines)
+        var checkedMoveSites = 0
+
+        for index in lines.indices where lines[index].contains("FileManager.default.moveItem") {
+            let upperBound = min(lines.endIndex, index + 6)
+            let context = lines[index..<upperBound].joined(separator: "\n")
+            guard context.contains("rehydrateScientificProvenance") else {
+                continue
+            }
+
+            checkedMoveSites += 1
+            XCTAssertTrue(
+                context.contains("rewriteAnalysisManifestReferencesIfNeeded"),
+                "Sidebar move paths that rehydrate provenance must also rewrite analysis manifest references:\n\(context)"
+            )
+        }
+
+        XCTAssertEqual(checkedMoveSites, 3)
+        XCTAssertTrue(source.contains("func rewriteAnalysisManifestReferencesIfNeeded"))
+    }
+
+    func testSidebarDeletePathRemovesAnalysisManifestReferences() throws {
+        let source = combinedSidebarViewControllerSource()
+        let deleteBody = try slice(
+            source,
+            from: "private func performDelete(items: [SidebarItem], includingDependentURLs dependentURLs: [URL] = [])",
+            to: "/// Returns `true` when `error` indicates the target file no longer exists"
+        )
+
+        XCTAssertTrue(deleteBody.contains("FileManager.default.trashItem(at: url"))
+        XCTAssertTrue(deleteBody.contains("removeAnalysisManifestReferencesIfNeeded(forDeleted: url)"))
+        XCTAssertTrue(source.contains("func removeAnalysisManifestReferencesIfNeeded"))
+    }
+
     func testOpenProjectKeepsDirectoriesBeforeFilesAtRootAndNestedLevels() throws {
         let tempRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("SidebarDirectoryOrder-\(UUID().uuidString)", isDirectory: true)

@@ -217,8 +217,10 @@ public final class MetadataColumnController {
             object: table,
             queue: nil
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.syncDisabledColumnsFromWidths()
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.syncDisabledColumnsFromWidths()
+                }
             }
         }
     }
@@ -375,7 +377,7 @@ public final class MetadataColumnController {
     /// - Parameter column: The table column to check.
     /// - Returns: A configured NSTextField cell, or nil if not a metadata column.
     public func cellForColumn(_ column: NSTableColumn) -> NSView? {
-        return cellForColumn(column, sampleId: currentSampleId)
+        cellForColumn(column, sampleId: currentSampleId)
     }
 
     /// Returns a cell view for a metadata column using a specific sample ID.

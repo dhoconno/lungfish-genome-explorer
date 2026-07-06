@@ -136,7 +136,7 @@ final class MetagenomicsBatchProvenanceWriterTests: XCTestCase {
         XCTAssertNil(ProvenanceRecorder.findProvenanceEnvelope(for: batchRoot))
 
         let backfilledURL = try XCTUnwrap(
-            MetagenomicsBatchProvenanceWriter.ensureEsVirituBatchProvenanceIfPossible(batchRoot: batchRoot)
+            try MetagenomicsBatchProvenanceWriter.ensureEsVirituBatchProvenanceIfPossible(batchRoot: batchRoot)
         )
 
         XCTAssertEqual(backfilledURL.lastPathComponent, ProvenanceRecorder.provenanceFilename)
@@ -192,7 +192,7 @@ final class MetagenomicsBatchProvenanceWriterTests: XCTestCase {
         XCTAssertNil(ProvenanceRecorder.findProvenanceEnvelope(for: resultDirectory))
 
         let sidecarURL = try XCTUnwrap(
-            MetagenomicsBatchProvenanceWriter.ensureTaxTriageProvenanceIfPossible(resultDirectory: resultDirectory)
+            try MetagenomicsBatchProvenanceWriter.ensureTaxTriageProvenanceIfPossible(resultDirectory: resultDirectory)
         )
 
         XCTAssertEqual(sidecarURL.lastPathComponent, ProvenanceRecorder.provenanceFilename)
@@ -240,7 +240,7 @@ final class MetagenomicsBatchProvenanceWriterTests: XCTestCase {
         try result.save()
 
         let sidecarURL = try XCTUnwrap(
-            MetagenomicsBatchProvenanceWriter.ensureTaxTriageProvenanceIfPossible(resultDirectory: resultDirectory)
+            try MetagenomicsBatchProvenanceWriter.ensureTaxTriageProvenanceIfPossible(resultDirectory: resultDirectory)
         )
 
         XCTAssertEqual(sidecarURL.lastPathComponent, ProvenanceRecorder.provenanceFilename)
@@ -331,7 +331,7 @@ final class MetagenomicsBatchProvenanceWriterTests: XCTestCase {
         try ProvenanceWriter(signingProvider: nil).write(existingEnvelope, to: resultDirectory)
 
         let sidecarURL = try XCTUnwrap(
-            MetagenomicsBatchProvenanceWriter.ensureTaxTriageProvenanceIfPossible(resultDirectory: resultDirectory)
+            try MetagenomicsBatchProvenanceWriter.ensureTaxTriageProvenanceIfPossible(resultDirectory: resultDirectory)
         )
 
         XCTAssertEqual(sidecarURL.lastPathComponent, ProvenanceRecorder.provenanceFilename)

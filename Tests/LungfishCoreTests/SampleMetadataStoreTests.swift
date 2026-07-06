@@ -88,6 +88,25 @@ struct SampleMetadataStoreTests {
         #expect(store.records["S2"]?["note"] == "plain")
     }
 
+    @Test("Rejects rows with missing metadata columns")
+    func rejectsRowsWithMissingColumns() throws {
+        let csv = "sample_id,site\nS1\n"
+        #expect(throws: MetadataParseError.rowWidthMismatch(row: 2, expected: 2, actual: 1)) {
+            try SampleMetadataStore(csvData: Data(csv.utf8), knownSampleIds: Set(["S1"]))
+        }
+    }
+
+    @Test("Rejects rows with extra metadata columns")
+    func rejectsRowsWithExtraColumns() throws {
+        let csv = "sample_id,site\nS1,Hilo,unexpected\n"
+        #expect(throws: MetadataParseError.rowWidthMismatch(row: 2, expected: 2, actual: 3)) {
+            try SampleMetadataStore.scanForSampleColumn(
+                csvData: Data(csv.utf8),
+                knownSampleIds: Set(["S1"])
+            )
+        }
+    }
+
     // MARK: - Column Scanning Tests
 
     @Test("scanForSampleColumn picks column with most matches")

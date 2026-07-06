@@ -213,9 +213,9 @@ private func writeGUISRAFASTQImportProvenance(
     } else {
         steps.append(
             StepExecution(
-                toolName: "lungfish-cli",
+                toolName: CLICommandIdentity.executableName,
                 toolVersion: WorkflowRun.currentAppVersion,
-                command: [CLIImportRunner.cliBinaryPath()?.path ?? "lungfish-cli"] + cliArguments,
+                command: [CLIImportRunner.cliBinaryPath()?.path ?? CLICommandIdentity.executableName] + cliArguments,
                 inputs: stagedFASTQFiles.map {
                     ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input)
                 },
@@ -1032,10 +1032,11 @@ public class DatabaseBrowserViewModel: ObservableObject {
 
     // MARK: - Computed Properties
 
-    /// Whether search text is valid (non-empty after trimming, or any text for Pathoplexus which allows browsing)
+    /// Whether search text is valid.
     var isSearchTextValid: Bool {
-        // Pathoplexus allows browsing all records without a search term
-        if isPathoplexusSearch { return true }
+        if isPathoplexusSearch {
+            return pathoplexusOrganism != nil
+        }
         return !searchText.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
@@ -1224,6 +1225,9 @@ public class DatabaseBrowserViewModel: ObservableObject {
         self.enaService = enaService
         self.automationBackend = automationBackend
         self.largeResultActionProvider = largeResultActionProvider
+        if source == .pathoplexus {
+            self.pathoplexusOrganism = pathoplexusOrganisms.first { $0.id == "mpox" }
+        }
         loadSearchHistory()
     }
 
@@ -1471,7 +1475,9 @@ public class DatabaseBrowserViewModel: ObservableObject {
     /// may not execute properly during modal sheet sessions.
     func performSearch() {
         guard isSearchTextValid else {
-            errorMessage = "Please enter a search term"
+            errorMessage = isPathoplexusSearch
+                ? "Select a Pathoplexus organism"
+                : "Please enter a search term"
             return
         }
 
@@ -2041,7 +2047,9 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         }
                     }
 
-                    let ppOrganism = capturedPpOrganism?.id ?? "mpox"
+                    guard let ppOrganism = capturedPpOrganism?.id else {
+                        throw DatabaseServiceError.invalidQuery(reason: "Select a Pathoplexus organism")
+                    }
                     logger.info("performSearch: Calling Pathoplexus search for organism=\(ppOrganism, privacy: .public)")
 
                     // Build Pathoplexus-specific filters
@@ -2434,7 +2442,12 @@ public class DatabaseBrowserViewModel: ObservableObject {
         // Capture the genome download view model for genome assembly downloads
         let genomeVM = genomeDownloadViewModel
         let genBankVM = genBankDownloadViewModel
-        let ppOrganism = pathoplexusOrganism?.id ?? "mpox"
+        if currentSource == .pathoplexus, pathoplexusOrganism == nil {
+            isDownloading = false
+            errorMessage = "Select a Pathoplexus organism"
+            return
+        }
+        let ppOrganism = pathoplexusOrganism?.id ?? ""
 
         // Build a descriptive title including accession(s) for the Downloads popover
         let accessionList = recordsToDownload.prefix(3).map(\.accession).joined(separator: ", ")
@@ -2561,7 +2574,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                     },
                     onCancel: { [downloadCenterTaskID] in
                         // User cancelled — cancel the DownloadCenter task
-                        DownloadCenter.shared.fail(
+                        _ = DownloadCenter.shared.fail(
                             id: downloadCenterTaskID,
                             detail: "Cancelled by user"
                         )
@@ -2601,7 +2614,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                 // view model may already be deallocated after sheet dismissal.
                 let progressFraction = Double(index) / Double(totalCount)
                 performOnMainRunLoop {
-                    DownloadCenter.shared.update(
+                    _ = DownloadCenter.shared.update(
                         id: downloadCenterTaskID,
                         progress: progressFraction,
                         detail: "Downloading \(record.accession) (\(index + 1)/\(totalCount))"
@@ -2627,7 +2640,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                             logger.info("performBatchDownload: Got assembly summary: \(summary.assemblyAccession ?? "nil", privacy: .public) organism=\(summary.organism ?? "nil", privacy: .public)")
 
                             performOnMainRunLoop {
-                                DownloadCenter.shared.update(
+                                _ = DownloadCenter.shared.update(
                                     id: downloadCenterTaskID,
                                     progress: progressFraction,
                                     detail: "Downloading genome for \(record.accession)..."
@@ -2641,7 +2654,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                             ) { progress, message in
                                 let overall = (Double(index) + progress) / Double(totalCount)
                                 performOnMainRunLoop {
-                                    DownloadCenter.shared.update(
+                                    _ = DownloadCenter.shared.update(
                                         id: downloadCenterTaskID,
                                         progress: overall,
                                         detail: "\(record.accession): \(message)"
@@ -2661,7 +2674,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                             ) { progress, message in
                                 let overall = (Double(index) + progress) / Double(totalCount)
                                 performOnMainRunLoop {
-                                    DownloadCenter.shared.update(
+                                    _ = DownloadCenter.shared.update(
                                         id: downloadCenterTaskID,
                                         progress: overall,
                                         detail: "\(record.accession): \(message)"
@@ -2700,7 +2713,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                             logger.info("performBatchDownload: Pathoplexus record \(record.accession, privacy: .public) has INSDC accession \(insdcAccession, privacy: .public), fetching from GenBank")
                             do {
                                 performOnMainRunLoop {
-                                    DownloadCenter.shared.update(
+                                    _ = DownloadCenter.shared.update(
                                         id: downloadCenterTaskID,
                                         progress: progressFraction,
                                         detail: "Fetching GenBank record \(insdcAccession)..."
@@ -2714,7 +2727,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                                 ) { progress, message in
                                     let overall = (Double(index) + progress) / Double(totalCount)
                                     performOnMainRunLoop {
-                                        DownloadCenter.shared.update(
+                                        _ = DownloadCenter.shared.update(
                                             id: downloadCenterTaskID,
                                             progress: overall,
                                             detail: "\(insdcAccession): \(message)"
@@ -2732,7 +2745,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                             } catch {
                                 logger.warning("performBatchDownload: INSDC fetch failed for \(record.accession, privacy: .public) (\(insdcAccession, privacy: .public)); falling back to Pathoplexus FASTA. Error: \(error.localizedDescription, privacy: .public)")
                                 performOnMainRunLoop {
-                                    DownloadCenter.shared.update(
+                                    _ = DownloadCenter.shared.update(
                                         id: downloadCenterTaskID,
                                         progress: progressFraction,
                                         detail: "GenBank unavailable for \(record.accession); falling back to FASTA..."
@@ -2751,7 +2764,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                                 ) { progress, message in
                                     let overall = (Double(index) + progress) / Double(totalCount)
                                     performOnMainRunLoop {
-                                        DownloadCenter.shared.update(
+                                        _ = DownloadCenter.shared.update(
                                             id: downloadCenterTaskID,
                                             progress: overall,
                                             detail: "\(dbRecord.accession): \(message)"
@@ -2767,7 +2780,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                             // No INSDC accession — download FASTA only from Pathoplexus
                             logger.info("performBatchDownload: Pathoplexus record \(record.accession, privacy: .public) has no INSDC accession, building bundle from Pathoplexus FASTA")
                             performOnMainRunLoop {
-                                DownloadCenter.shared.update(
+                                _ = DownloadCenter.shared.update(
                                     id: downloadCenterTaskID,
                                     progress: progressFraction,
                                     detail: "Building bundle from Pathoplexus sequence for \(record.accession)..."
@@ -2786,7 +2799,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                             ) { progress, message in
                                 let overall = (Double(index) + progress) / Double(totalCount)
                                 performOnMainRunLoop {
-                                    DownloadCenter.shared.update(
+                                    _ = DownloadCenter.shared.update(
                                         id: downloadCenterTaskID,
                                         progress: overall,
                                         detail: "\(dbRecord.accession): \(message)"
@@ -2814,7 +2827,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                     failureDetails.append("\(record.accession.trimmingCharacters(in: .whitespacesAndNewlines)): \(error.localizedDescription)")
                     // Store the last error detail for the DownloadCenter failure message
                     performOnMainRunLoop {
-                        DownloadCenter.shared.update(
+                        _ = DownloadCenter.shared.update(
                             id: downloadCenterTaskID,
                             progress: Double(index + 1) / Double(totalCount),
                             detail: "Failed: \(record.accession) — \(error.localizedDescription)"
@@ -2833,7 +2846,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
             performOnMainRunLoop {
                 if finalDownloadedURLs.isEmpty && finalFailedCount > 0 {
                     let reasonSummary = finalFailureDetails.prefix(3).joined(separator: "; ")
-                    DownloadCenter.shared.fail(
+                    _ = DownloadCenter.shared.fail(
                         id: downloadCenterTaskID,
                         detail: reasonSummary.isEmpty
                             ? "Completed with \(finalFailedCount) failure(s)"
@@ -2855,7 +2868,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         let unit = currentSource == .ena ? "file(s)" : "bundle(s)"
                         detail = "Completed \(finalDownloadedURLs.count) \(unit)"
                     }
-                    DownloadCenter.shared.complete(
+                    _ = DownloadCenter.shared.complete(
                         id: downloadCenterTaskID,
                         detail: detail,
                         bundleURLs: finalDownloadedURLs
@@ -2930,7 +2943,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                 }
                 guard canWriteProject else {
                     performOnMainRunLoop {
-                        DownloadCenter.shared.fail(
+                        _ = DownloadCenter.shared.fail(
                             id: downloadCenterTaskID,
                             detail: "Project is open read only"
                         )
@@ -2945,7 +2958,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
             for (index, record) in records.enumerated() {
                 let progressFraction = Double(index) / Double(totalCount)
                 performOnMainRunLoop {
-                    DownloadCenter.shared.update(
+                    _ = DownloadCenter.shared.update(
                         id: downloadCenterTaskID,
                         progress: progressFraction,
                         detail: "Downloading \(record.accession) (\(index + 1)/\(totalCount))"
@@ -2956,7 +2969,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                     // 1. Fetch ENA read record for FASTQ URLs and metadata
                     logger.info("startENADownloadTask: Downloading FASTQ for SRA run \(record.accession, privacy: .public)")
                     performOnMainRunLoop {
-                        DownloadCenter.shared.update(
+                        _ = DownloadCenter.shared.update(
                             id: downloadCenterTaskID,
                             progress: progressFraction,
                             detail: "Fetching FASTQ URLs for \(record.accession)..."
@@ -3045,7 +3058,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         downloadSource = "ENA"
                     } else {
                         performOnMainRunLoop {
-                            DownloadCenter.shared.update(
+                            _ = DownloadCenter.shared.update(
                                 id: downloadCenterTaskID,
                                 progress: progressFraction,
                                 detail: "ENA FASTQ unavailable for \(record.accession); using SRA Toolkit..."
@@ -3056,7 +3069,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                             outputDir: batchDir,
                             progress: { toolkitProgress in
                                 performOnMainRunLoop {
-                                    DownloadCenter.shared.update(
+                                    _ = DownloadCenter.shared.update(
                                         id: downloadCenterTaskID,
                                         progress: min(
                                             progressFraction + (toolkitProgress / Double(max(totalCount, 1))),
@@ -3095,7 +3108,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
 
                     // 4. Run CLI import pipeline
                     performOnMainRunLoop {
-                        DownloadCenter.shared.update(
+                        _ = DownloadCenter.shared.update(
                             id: downloadCenterTaskID,
                             progress: progressFraction,
                             detail: "\(record.accession) importing via CLI pipeline..."
@@ -3212,7 +3225,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                     failedCount += 1
                     failureDetails.append("\(record.accession): \(error.localizedDescription)")
                     performOnMainRunLoop {
-                        DownloadCenter.shared.update(
+                        _ = DownloadCenter.shared.update(
                             id: downloadCenterTaskID,
                             progress: Double(index + 1) / Double(totalCount),
                             detail: "Failed: \(record.accession) — \(error.localizedDescription)"
@@ -3232,7 +3245,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
             performOnMainRunLoop {
                 if finalDownloadedCount == 0 && finalFailedCount > 0 {
                     let reasonSummary = finalFailureDetails.prefix(3).joined(separator: "; ")
-                    DownloadCenter.shared.fail(
+                    _ = DownloadCenter.shared.fail(
                         id: downloadCenterTaskID,
                         detail: reasonSummary.isEmpty
                             ? "Completed with \(finalFailedCount) failure(s)"
@@ -3249,7 +3262,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         detail = "Completed \(finalDownloadedCount) file(s)"
                     }
                     // Don't pass bundleURLs — they were already delivered incrementally
-                    DownloadCenter.shared.complete(
+                    _ = DownloadCenter.shared.complete(
                         id: downloadCenterTaskID,
                         detail: detail,
                         bundleURLs: []

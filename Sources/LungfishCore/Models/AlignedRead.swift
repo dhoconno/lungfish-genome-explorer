@@ -215,8 +215,8 @@ public struct AlignedRead: Sendable, Identifiable {
     ///
     /// - Parameters:
     ///   - expectedInsertSize: Expected median insert size
-    ///   - stdDevs: Number of standard deviations for normal range (default: 3)
     ///   - stdDev: Estimated standard deviation of insert size
+    ///   - stdDevs: Number of standard deviations for normal range (default: 3)
     /// - Returns: Classification of the insert size
     public func insertSizeClass(expectedInsertSize: Int = 400, stdDev: Int = 100, stdDevs: Double = 3) -> InsertSizeClass {
         guard isPaired, !isMateUnmapped else { return .notApplicable }

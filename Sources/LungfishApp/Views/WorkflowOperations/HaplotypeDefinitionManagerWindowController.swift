@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import LungfishCore
 import LungfishIO
 import LungfishGenotypeUI
 import LungfishWorkflow
@@ -159,7 +160,14 @@ final class HaplotypeDefinitionManagerViewModel: ObservableObject {
                         from: url,
                         scope: .project,
                         changeNote: "Imported from Haplotype Definition Manager",
-                        argv: ["lungfish-cli", "haplotypes", "import", url.path, "--scope", HaplotypeDefinitionScope.project.rawValue]
+                        argv: [
+                            CLICommandIdentity.executableName,
+                            "haplotypes",
+                            "import",
+                            url.path,
+                            "--scope",
+                            HaplotypeDefinitionScope.project.rawValue,
+                        ]
                     )
                 }
             }
@@ -173,7 +181,7 @@ final class HaplotypeDefinitionManagerViewModel: ObservableObject {
         do {
             let installed = try service.installMHCReferenceBundle(
                 from: url,
-                argv: ["lungfish-cli", "haplotypes", "bundle-install", url.path]
+                argv: [CLICommandIdentity.executableName, "haplotypes", "bundle-install", url.path]
             )
             reload()
             selectedRecordID = records.first {
@@ -199,7 +207,14 @@ final class HaplotypeDefinitionManagerViewModel: ObservableObject {
                     assayID: record.definitionSet.assayID,
                     scope: record.scope,
                     to: url,
-                    argv: ["lungfish-cli", "haplotypes", "export", record.definitionSet.id, "--output", url.path]
+                    argv: [
+                        CLICommandIdentity.executableName,
+                        "haplotypes",
+                        "export",
+                        record.definitionSet.id,
+                        "--output",
+                        url.path,
+                    ]
                 )
             }
         }
@@ -225,7 +240,7 @@ final class HaplotypeDefinitionManagerViewModel: ObservableObject {
                     toScope: .project,
                     changeNote: "Duplicated from \(record.scope.displayName)",
                     argv: [
-                        "lungfish-cli", "haplotypes", "duplicate", record.definitionSet.id,
+                        CLICommandIdentity.executableName, "haplotypes", "duplicate", record.definitionSet.id,
                         "--source-scope", record.scope.rawValue,
                         "--target-scope", HaplotypeDefinitionScope.project.rawValue,
                     ]
@@ -240,7 +255,14 @@ final class HaplotypeDefinitionManagerViewModel: ObservableObject {
             try service.deleteDefinition(
                 definitionID: record.definitionSet.id,
                 scope: record.scope,
-                argv: ["lungfish-cli", "haplotypes", "delete", record.definitionSet.id, "--scope", record.scope.rawValue]
+                argv: [
+                    CLICommandIdentity.executableName,
+                    "haplotypes",
+                    "delete",
+                    record.definitionSet.id,
+                    "--scope",
+                    record.scope.rawValue,
+                ]
             )
         }
     }
@@ -272,7 +294,7 @@ final class HaplotypeDefinitionManagerViewModel: ObservableObject {
                 inMHCReferenceBundle: bundleURL,
                 changeNote: "Edited in Haplotype Definition Manager",
                 argv: [
-                    "lungfish-cli", "haplotypes", "bundle-save",
+                    CLICommandIdentity.executableName, "haplotypes", "bundle-save",
                     draft.definitionURL?.path ?? draft.definition.id,
                     "--bundle", bundleURL.path,
                 ]
@@ -283,7 +305,7 @@ final class HaplotypeDefinitionManagerViewModel: ObservableObject {
                     inMHCReferenceBundle: bundleURL,
                     with: referenceFASTA,
                     argv: [
-                        "lungfish-cli", "haplotypes", "bundle-replace-reference",
+                        CLICommandIdentity.executableName, "haplotypes", "bundle-replace-reference",
                         referenceFASTA.path,
                         "--bundle", bundleURL.path,
                     ]
@@ -309,7 +331,7 @@ final class HaplotypeDefinitionManagerViewModel: ObservableObject {
         )
         let service = self.service
         let argv = [
-            "lungfish-cli", "haplotypes", "bundle-create",
+            CLICommandIdentity.executableName, "haplotypes", "bundle-create",
             "--definition", draft.definition.id,
             "--assay", draft.definition.assayID,
             "--species", draft.definition.speciesCode,
@@ -378,7 +400,7 @@ final class HaplotypeDefinitionManagerViewModel: ObservableObject {
                     inMHCReferenceBundle: bundleURL,
                     with: url,
                     argv: [
-                        "lungfish-cli", "haplotypes", "bundle-replace-reference",
+                        CLICommandIdentity.executableName, "haplotypes", "bundle-replace-reference",
                         url.path,
                         "--bundle", bundleURL.path,
                     ]
@@ -424,7 +446,7 @@ final class HaplotypeDefinitionManagerViewModel: ObservableObject {
     }
 
     private func cliArgv(_ arguments: [String]) -> [String] {
-        var argv = ["lungfish-cli"] + arguments
+        var argv = [CLICommandIdentity.executableName] + arguments
         if let projectURL {
             argv += ["--project", projectURL.path]
         }

@@ -10,9 +10,9 @@ import LungfishIO
 /// equivalent NC_045512.2) to exercise the resolver's equivalent-accession
 /// BED rewrite at full integration scale.
 ///
-/// Complements the narrower `PrimerSchemeResolverTests` added in Task 3
-/// (which exercise a hand-rolled miniature bundle) by confirming the rewrite
-/// works against the real ~560-row shipped BED. The pipeline-driven version
+/// Complements the narrower `PrimerSchemeResolverTests` coverage, which
+/// exercises a hand-rolled miniature bundle, by confirming the rewrite works
+/// against the real ~560-row shipped BED. The pipeline-driven version
 /// of this test — which would synthesize a BAM anchored to NC_045512.2 — is
 /// omitted per the plan's allowance; the resolver contract is the load-bearing
 /// piece and the pipeline already consumes the rewritten BED through the same

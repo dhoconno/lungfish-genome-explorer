@@ -1234,16 +1234,6 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         presentUnifiedExtractionDialog()
     }
 
-    @objc private func contextExtractSequence(_ sender: Any?) {
-        let records = selectedContigFASTARecords()
-        guard !records.isEmpty else { return }
-        if let onExtractSequenceRequested {
-            onExtractSequenceRequested(records, suggestedSequenceName(for: records, fallback: "nvd-contig"))
-        } else {
-            presentUnifiedExtractionDialog()
-        }
-    }
-
     @objc private func handleLayoutSwapRequested(_ notification: Notification) {
         applyLayoutPreference()
     }
@@ -1266,20 +1256,6 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         }
     }
 
-    private func resetInitialSplitPositionIfNeeded() {
-        splitCoordinator.resetInitialSplitPositionIfNeeded(
-            in: splitView,
-            minimumExtents: minimumExtents(for: MetagenomicsPanelLayout.current())
-        )
-    }
-
-    private func hasValidInitialSplitPosition() -> Bool {
-        splitCoordinator.hasValidInitialSplitPosition(
-            in: splitView,
-            minimumExtents: minimumExtents(for: MetagenomicsPanelLayout.current())
-        )
-    }
-
     private func scheduleInitialSplitValidationIfNeeded() {
         splitCoordinator.scheduleInitialSplitValidationIfNeeded(
             ownerView: view,
@@ -1290,17 +1266,6 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
             defaultLeadingFraction: { [weak self] in
                 self?.defaultLeadingFraction(for: MetagenomicsPanelLayout.current()) ?? 0.4
             },
-            afterApply: { [weak self] in
-                self?.resizeDetailContentToFit()
-            }
-        )
-    }
-
-    private func applyInitialSplitPositionIfNeeded() {
-        splitCoordinator.applyInitialSplitPositionIfNeeded(
-            to: splitView,
-            defaultLeadingFraction: defaultLeadingFraction(for: MetagenomicsPanelLayout.current()),
-            minimumExtents: minimumExtents(for: MetagenomicsPanelLayout.current()),
             afterApply: { [weak self] in
                 self?.resizeDetailContentToFit()
             }
@@ -1667,36 +1632,6 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
 
     // MARK: - Context Menu Actions
 
-    @objc private func contextBlastVerify(_ sender: NSMenuItem) {
-        guard let hit = sender.representedObject as? NvdBlastHit,
-              let bundleURL, let database else { return }
-
-        do {
-            guard let fastaRelPath = try database.fastaPath(forSample: hit.sampleId) else { return }
-            let fastaURL = bundleURL.appendingPathComponent(fastaRelPath)
-            guard let sequence = NvdDataConverter.extractContigSequence(from: fastaURL, contigName: hit.qseqid) else { return }
-            onBlastVerification?(hit, sequence)
-        } catch {
-            logger.error("Context BLAST verify failed: \(error.localizedDescription, privacy: .public)")
-        }
-    }
-
-    @objc private func contextCopyContigSequence(_ sender: NSMenuItem) {
-        guard let hit = sender.representedObject as? NvdBlastHit,
-              let bundleURL, let database else { return }
-
-        do {
-            guard let fastaRelPath = try database.fastaPath(forSample: hit.sampleId) else { return }
-            let fastaURL = bundleURL.appendingPathComponent(fastaRelPath)
-            guard let sequence = NvdDataConverter.extractContigSequence(from: fastaURL, contigName: hit.qseqid) else { return }
-            let fastaText = ">\(hit.qseqid)\n\(sequence)\n"
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(fastaText, forType: .string)
-        } catch {
-            logger.error("Copy contig sequence failed: \(error.localizedDescription, privacy: .public)")
-        }
-    }
-
     private func performBlastVerification(for hit: NvdBlastHit) {
         guard let sequence = contigSequence(for: hit) else { return }
         onBlastVerification?(hit, sequence)
@@ -1842,33 +1777,87 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         savePanel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK, let url = savePanel.url, let self else { return }
 
-            var lines: [String] = []
-            var header = "sample_id\tcontig\tlength\tclassification\trank\taccession\tsubject\tpident\tevalue\tbitscore\tmapped_reads\treads_per_billion"
-            // Append visible metadata column headers
-            let metaHeaders = self.metadataColumnController.exportHeaders
-            if !metaHeaders.isEmpty {
-                header += "\t" + metaHeaders.joined(separator: "\t")
-            }
-            lines.append(header)
-
-            for hit in self.displayedContigs {
-                var line = "\(hit.sampleId)\t\(hit.qseqid)\t\(hit.qlen)\t\(hit.adjustedTaxidName)\t\(hit.adjustedTaxidRank)\t\(hit.sseqid)\t\(hit.stitle)\t\(String(format: "%.2f", hit.pident))\t\(hit.evalue)\t\(String(format: "%.1f", hit.bitscore))\t\(hit.mappedReads)\t\(String(format: "%.0f", hit.readsPerBillion))"
-                // Append metadata values for this hit's sample
-                let metaValues = self.metadataColumnController.exportValues(for: hit.sampleId)
-                if !metaValues.isEmpty {
-                    line += "\t" + metaValues.joined(separator: "\t")
-                }
-                lines.append(line)
-            }
-
-            let content = lines.joined(separator: "\n") + "\n"
             do {
-                try content.write(to: url, atomically: true, encoding: .utf8)
+                try self.writeContigsTSV(to: url)
                 logger.info("Exported NVD contigs to \(url.lastPathComponent, privacy: .public)")
             } catch {
                 logger.error("Failed to export NVD contigs: \(error.localizedDescription, privacy: .public)")
             }
         }
+    }
+
+    func writeContigsTSV(to url: URL) throws {
+        let startedAt = Date()
+        let content = contigsTSVContent()
+        try ScientificFileExportProvenance.writeAtomically(.init(
+            workflowName: "lungfish app nvd contigs export",
+            sourceURLs: exportProvenanceSourceURLs(),
+            outputURL: url,
+            outputFormat: .text,
+            argv: ["Lungfish.app", "export-nvd-contigs", "--output", url.path],
+            explicitOptions: [
+                "outputPath": .file(url),
+                "format": .string("tsv"),
+            ],
+            defaults: [
+                "format": .string("tsv"),
+            ],
+            resolved: [
+                "rowCount": .integer(displayedContigs.count),
+                "experiment": .string(manifest?.experiment ?? "nvd"),
+                "sourceSampleCount": .integer(sampleEntries.count),
+                "selectedSamples": .array(selectedSamples.sorted().map { .string($0) }),
+                "searchQuery": .string(searchQuery),
+                "groupingMode": .string(exportGroupingModeName),
+                "taxonGroupCount": .integer(taxonGroups.count),
+                "metadataColumns": .array(metadataColumnController.exportHeaders.map { .string($0) }),
+            ],
+            startedAt: startedAt
+        )) { outputURL in
+            try content.write(to: outputURL, atomically: true, encoding: .utf8)
+        }
+    }
+
+    private var exportGroupingModeName: String {
+        switch groupingMode {
+        case .bySample: return "bySample"
+        case .byTaxon: return "byTaxon"
+        }
+    }
+
+    private func contigsTSVContent() -> String {
+        var lines: [String] = []
+        var header = "sample_id\tcontig\tlength\tclassification\trank\taccession\tsubject\tpident\tevalue\tbitscore\tmapped_reads\treads_per_billion"
+        let metaHeaders = metadataColumnController.exportHeaders
+        if !metaHeaders.isEmpty {
+            header += "\t" + metaHeaders.joined(separator: "\t")
+        }
+        lines.append(header)
+
+        for hit in displayedContigs {
+            var line = "\(hit.sampleId)\t\(hit.qseqid)\t\(hit.qlen)\t\(hit.adjustedTaxidName)\t\(hit.adjustedTaxidRank)\t\(hit.sseqid)\t\(hit.stitle)\t\(String(format: "%.2f", hit.pident))\t\(hit.evalue)\t\(String(format: "%.1f", hit.bitscore))\t\(hit.mappedReads)\t\(String(format: "%.0f", hit.readsPerBillion))"
+            let metaValues = metadataColumnController.exportValues(for: hit.sampleId)
+            if !metaValues.isEmpty {
+                line += "\t" + metaValues.joined(separator: "\t")
+            }
+            lines.append(line)
+        }
+
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    private func exportProvenanceSourceURLs() -> [URL] {
+        var urls: [URL] = []
+        if let database {
+            urls.append(database.databaseURL)
+        }
+        if let bundleURL {
+            urls.append(bundleURL.appendingPathComponent("manifest.json"))
+        }
+        if let sourceDirectoryPath = manifest?.sourceDirectoryPath, !sourceDirectoryPath.isEmpty {
+            urls.append(URL(fileURLWithPath: sourceDirectoryPath, isDirectory: true))
+        }
+        return urls.filter { FileManager.default.fileExists(atPath: $0.path) }
     }
 
     // MARK: - Child Hits (Lazy Loading)
@@ -2197,10 +2186,6 @@ extension NvdResultViewController {
 
     private func visibleIdentitySelectionCount() -> Int {
         selectedOutlineItemsByIdentity().count
-    }
-
-    private func hasVisibleIdentitySelection() -> Bool {
-        visibleIdentitySelectionCount() > 0
     }
 
     private func singleIdentityBackedSelectedHit() -> NvdBlastHit? {

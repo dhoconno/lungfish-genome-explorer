@@ -234,6 +234,32 @@ final class NCBIServiceTests: XCTestCase {
         XCTAssertTrue(url.contains("id=id1,id2,id3") || url.contains("id=id1%2Cid2%2Cid3"))
     }
 
+    func testFetchBatchCancelsProducerWhenIterationIsCancelled() async throws {
+        await mockClient.setResponseDelayNanoseconds(100_000_000)
+        await mockClient.register(
+            pattern: "efetch.fcgi",
+            response: .text(Self.genBankFixture(accession: "NC_000001"))
+        )
+
+        let stream = try await service.fetchBatch(accessions: ["NC_000001", "NC_000002"])
+        let consumer = Task<DatabaseRecord?, Error> {
+            var iterator = stream.makeAsyncIterator()
+            return try await iterator.next()
+        }
+
+        try await waitForRecordedRequestCount(1)
+        consumer.cancel()
+        do {
+            _ = try await consumer.value
+        } catch is CancellationError {
+            // Expected: cancelling iteration terminates the stream and producer.
+        }
+
+        try await Task.sleep(nanoseconds: 250_000_000)
+        let requests = await mockClient.requests
+        XCTAssertEqual(requests.count, 1)
+    }
+
     func testEFetchGFF3BuildsGFF3URL() async throws {
         await mockClient.register(pattern: "efetch.fcgi", response: .text("##gff-version 3\n"))
 
@@ -390,6 +416,145 @@ final class NCBIServiceTests: XCTestCase {
         let url = try XCTUnwrap(requests.first?.url?.absoluteString)
         XCTAssertTrue(url.contains("efetch.fcgi"))
         XCTAssertTrue(url.contains("id=NC_002549.1"))
+    }
+
+    func testFetchPropagatesDirectEFetchCancellationWithoutSearchFallback() async throws {
+        await mockClient.register(pattern: "efetch.fcgi", response: .cancelled)
+        await mockClient.registerNCBISearch(ids: ["12345"])
+
+        do {
+            _ = try await service.fetch(accession: "NC_002549.1")
+            XCTFail("Expected cancellation to be propagated")
+        } catch let error as URLError where error.code == .cancelled {
+            // Expected.
+        } catch {
+            XCTFail("Expected URLError.cancelled, got \(error)")
+        }
+
+        let requests = await mockClient.requests
+        XCTAssertEqual(requests.count, 1)
+        XCTAssertTrue(requests[0].url?.absoluteString.contains("efetch.fcgi") == true)
+    }
+
+    // MARK: - Genome File Info Tests
+
+    func testGenomeFileInfoUsesInjectedHTTPClientForHeadRequest() async throws {
+        await mockClient.register(
+            pattern: "_genomic.fna.gz",
+            response: MockHTTPClient.MockResponse(
+                data: Data(),
+                statusCode: 200,
+                headers: ["Content-Length": "12345"]
+            )
+        )
+
+        let info = try await service.getGenomeFileInfo(for: makeAssemblySummary())
+
+        XCTAssertEqual(info.filename, "GCF_TEST_ASM_genomic.fna.gz")
+        XCTAssertEqual(info.estimatedSize, 12345)
+        let requests = await mockClient.requests
+        XCTAssertEqual(requests.count, 1)
+        XCTAssertEqual(requests.first?.httpMethod, "HEAD")
+        XCTAssertEqual(requests.first?.timeoutInterval, 30)
+        XCTAssertTrue(requests.first?.url?.absoluteString.contains("_genomic.fna.gz") == true)
+    }
+
+    func testAnnotationFileInfoUsesInjectedHTTPClientForHeadRequest() async throws {
+        await mockClient.register(
+            pattern: "_genomic.gff.gz",
+            response: MockHTTPClient.MockResponse(
+                data: Data(),
+                statusCode: 200,
+                headers: ["Content-Length": "6789"]
+            )
+        )
+
+        let optionalInfo = try await service.getAnnotationFileInfo(for: makeAssemblySummary())
+        let info = try XCTUnwrap(optionalInfo)
+
+        XCTAssertEqual(info.filename, "GCF_TEST_ASM_genomic.gff.gz")
+        XCTAssertEqual(info.estimatedSize, 6789)
+        let requests = await mockClient.requests
+        XCTAssertEqual(requests.count, 1)
+        XCTAssertEqual(requests.first?.httpMethod, "HEAD")
+        XCTAssertEqual(requests.first?.timeoutInterval, 15)
+        XCTAssertTrue(requests.first?.url?.absoluteString.contains("_genomic.gff.gz") == true)
+    }
+
+    func testAssemblyReportInfoUsesInjectedHTTPClientForHeadRequest() async throws {
+        await mockClient.register(
+            pattern: "_assembly_report.txt",
+            response: MockHTTPClient.MockResponse(
+                data: Data(),
+                statusCode: 200,
+                headers: ["Content-Length": "4321"]
+            )
+        )
+
+        let optionalInfo = try await service.getAssemblyReportInfo(for: makeAssemblySummary())
+        let info = try XCTUnwrap(optionalInfo)
+
+        XCTAssertEqual(info.filename, "GCF_TEST_ASM_assembly_report.txt")
+        XCTAssertEqual(info.estimatedSize, 4321)
+        let requests = await mockClient.requests
+        XCTAssertEqual(requests.count, 1)
+        XCTAssertEqual(requests.first?.httpMethod, "HEAD")
+        XCTAssertEqual(requests.first?.timeoutInterval, 15)
+        XCTAssertTrue(requests.first?.url?.absoluteString.contains("_assembly_report.txt") == true)
+    }
+
+    func testOptionalHeadLookupsPropagateCancellation() async throws {
+        await mockClient.register(pattern: "_genomic.gff.gz", response: .cancelled)
+
+        do {
+            _ = try await service.getAnnotationFileInfo(for: makeAssemblySummary())
+            XCTFail("Expected cancelled HEAD lookup to throw")
+        } catch let error as URLError where error.code == .cancelled {
+            // Expected
+        } catch {
+            XCTFail("Expected URLError.cancelled, got \(error)")
+        }
+    }
+
+    func testRequiredGenomeHeadNon200ThrowsNotFound() async throws {
+        await mockClient.register(
+            pattern: "_genomic.fna.gz",
+            response: .error(statusCode: 404, message: "Not Found")
+        )
+
+        do {
+            _ = try await service.getGenomeFileInfo(for: makeAssemblySummary())
+            XCTFail("Expected non-200 genome HEAD lookup to throw notFound")
+        } catch DatabaseServiceError.notFound(let accession) {
+            XCTAssertEqual(accession, "GCF_TEST_ASM")
+        } catch {
+            XCTFail("Expected DatabaseServiceError.notFound, got \(error)")
+        }
+    }
+
+    func testOptionalHeadNon200LookupsReturnNil() async throws {
+        await mockClient.setDefault(response: .error(statusCode: 404, message: "Not Found"))
+
+        let annotationInfo = try await service.getAnnotationFileInfo(for: makeAssemblySummary())
+        let reportInfo = try await service.getAssemblyReportInfo(for: makeAssemblySummary())
+
+        XCTAssertNil(annotationInfo)
+        XCTAssertNil(reportInfo)
+        let requests = await mockClient.requests
+        XCTAssertEqual(requests.count, 2)
+        XCTAssertTrue(requests.allSatisfy { $0.httpMethod == "HEAD" })
+        XCTAssertTrue(requests.allSatisfy { $0.timeoutInterval == 15 })
+    }
+
+    private func makeAssemblySummary() throws -> NCBIAssemblySummary {
+        let payload: [String: Any] = [
+            "uid": "asm-1",
+            "assemblyaccession": "GCF_TEST_ASM",
+            "assemblyname": "GCF_TEST_ASM",
+            "ftppath_refseq": "http://127.0.0.1:9/genomes/GCF_TEST_ASM"
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        return try JSONDecoder().decode(NCBIAssemblySummary.self, from: data)
     }
 
     // MARK: - Rate Limiting Tests
@@ -1710,6 +1875,35 @@ final class NCBIServiceTests: XCTestCase {
         XCTAssertEqual(result.totalCount, 1000)
         XCTAssertEqual(result.retmax, 50)
         XCTAssertEqual(result.retstart, 100)
+    }
+
+    private func waitForRecordedRequestCount(
+        _ expectedCount: Int,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        for _ in 0..<50 {
+            if await mockClient.requests.count >= expectedCount {
+                return
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let actualCount = await mockClient.requests.count
+        XCTFail("Timed out waiting for \(expectedCount) recorded request(s); saw \(actualCount)", file: file, line: line)
+    }
+
+    private static func genBankFixture(accession: String) -> String {
+        """
+        LOCUS       \(accession)              4 bp    DNA     linear   VRL
+        DEFINITION  Test sequence.
+        ACCESSION   \(accession)
+        VERSION     \(accession).1
+        SOURCE      Synthetic construct
+          ORGANISM  Synthetic construct
+        ORIGIN
+                1 atgc
+        //
+        """
     }
 }
 

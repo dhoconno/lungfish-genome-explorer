@@ -40,7 +40,7 @@ import LungfishIO
 ///
 /// ## Design
 ///
-/// Follows the Lungfish dialog standard (see DEVELOPMENT-LEAD-AGENT.md):
+/// Follows the Lungfish dialog standard:
 /// - Header: tool icon + tool name (.headline) + subtitle (.caption)
 /// - Dataset name top-right
 /// - 520x480 frame

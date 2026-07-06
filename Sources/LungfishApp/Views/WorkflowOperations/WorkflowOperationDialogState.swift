@@ -239,7 +239,7 @@ final class WorkflowOperationDialogState {
             NotificationCenter.default.addObserver(
                 forName: .workflowLibraryEnablementDidChange,
                 object: nil,
-                queue: nil
+                queue: .main
             ) { [weak self] _ in
                 MainActor.assumeIsolated {
                     self?.refreshWorkflowAvailability()
@@ -1509,19 +1509,7 @@ final class WorkflowOperationDialogState {
     }
 
     private static func packageIsRunnable(_ package: WorkflowPackageValidationResult) -> Bool {
-        switch package.manifest.runner.kind {
-        case .nextflow, .snakemake:
-            break
-        case .command:
-            return false
-        }
-        let hasReferenceInput = package.manifest.inputs.contains {
-            $0.required && $0.bundleTypes.contains(.lungfishref)
-        }
-        let hasFASTQInput = package.manifest.inputs.contains {
-            $0.required && $0.bundleTypes.contains(.lungfishfastq)
-        }
-        return hasReferenceInput && hasFASTQInput && !package.manifest.outputs.isEmpty
+        package.supportsWorkflowLibraryExecution
     }
 
     nonisolated private static func projectDiscoverySnapshot(
@@ -1664,10 +1652,6 @@ final class WorkflowOperationDialogState {
         return fastaExtensions.contains { lowercasedName.hasSuffix(".\($0).gz") }
     }
 
-    private static func twelveSReferenceFASTAURL(for url: URL) -> URL? {
-        twelveSReferenceInput(for: url)?.fasta
-    }
-
     private static func twelveSReferenceInput(for url: URL) -> TwelveSReferenceInput? {
         let standardizedURL = url.standardizedFileURL
         if isTwelveSReferenceFASTA(standardizedURL) {
@@ -1798,20 +1782,6 @@ final class WorkflowOperationDialogState {
         return urls.filter { url in
             seen.insert(url.standardizedFileURL.path).inserted
         }
-    }
-
-    private static func defaultONTGenotypingAnalysisName(for selectedReadURLs: [URL]) -> String {
-        guard let stem = selectedReadURLs.first?.deletingPathExtension().lastPathComponent.lowercased() else {
-            return "ONT"
-        }
-        if let range = stem.range(of: #"barcode[-_ ]?([0-9]+)"#, options: .regularExpression) {
-            let match = String(stem[range])
-            let digits = match.filter(\.isNumber)
-            if !digits.isEmpty {
-                return "ONT\(digits)"
-            }
-        }
-        return "ONT"
     }
 
     private static func defaultONTGenotypingOutputName(for selectedReadURLs: [URL]) -> String {

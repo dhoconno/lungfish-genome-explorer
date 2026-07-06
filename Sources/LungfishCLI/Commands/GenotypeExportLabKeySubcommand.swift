@@ -73,7 +73,7 @@ struct GenotypeExportLabKeySubcommand: AsyncParsableCommand {
             workflowName: "genotype.export.labkey",
             toolName: "lungfish genotype export-labkey",
             command: [
-                "lungfish", "genotype", "export-labkey",
+                CLICommandIdentity.executableName, "genotype", "export-labkey",
                 "--bundle", bundleURL.path,
                 "--output-dir", outputDirURL.path,
             ],

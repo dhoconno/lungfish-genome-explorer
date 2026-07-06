@@ -90,7 +90,7 @@ public enum NCBIBioSampleExporter {
 
         // Comment line identifying the package
         lines.append("# BioSample package: \(package.rawValue)")
-        lines.append("# Exported from Lungfish Genome Browser")
+        lines.append("# Exported from Lungfish Genome Explorer")
         lines.append("")
 
         // Header row

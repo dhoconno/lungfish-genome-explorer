@@ -43,7 +43,7 @@ Use `lungfish project lock` before an advanced workflow that expects exclusive w
 lungfish project lock ~/Projects/SARS-CoV-2.lungfish --mode exclusive
 ```
 
-The command creates `.lungfish/project.lock` using an atomic write. The record contains the tool name, LGE CLI version, project path, user, host, process id, process start time when available, current working directory, creation time, and lock mode. A typical record looks like this:
+The command creates `.lungfish/project.lock` with exclusive file creation so two lock attempts cannot both win the same project. The record contains the tool name, LGE CLI version, project path, user, host, process id, process start time when available, current working directory, creation time, and lock mode. A typical record looks like this:
 
 ```json
 {
@@ -105,7 +105,7 @@ The current migration report lists manifest-backed Lungfish bundle directories t
 
 `1.0` reference bundles that already carry a `browser_summary` field in their manifest are reported as `current` with action `none`, and neither their `manifest.json` nor any `.lungfish-provenance.json` sidecar is rewritten. `1.0` reference manifests that are missing `browser_summary` get a schema-maintenance migration: with `--dry-run`, the report flags them as `migration-available` with action `dry-run-synthesize-browser-summary`; without `--dry-run`, LGE synthesizes the `browser_summary` field, backs up the original manifest under `.lungfish/migrations/`, and writes migration provenance describing the change.
 
-Unsupported legacy bundles are reported as `unsupported` with action `report-only` or `dry-run-report`. They are not renamed or changed. This is deliberate. A migration that rewrites scientific bundle data must know the old schema, copy or rewrite the payload, preserve provenance sidecars, and keep the original bundle data by moving the original to a `.v<old>` suffix before the new bundle replaces it. Until a schema-specific transformer exists, LGE reports the gap instead of pretending to migrate.
+Unsupported legacy bundles are reported as `unsupported` with action `report-only` or `dry-run-report`. They are not renamed or changed. This is deliberate. A future full-bundle migration that rewrites scientific payload data must know the old schema, copy or rewrite the payload, preserve provenance sidecars, and keep the original bundle data by moving the original to a `.v<old>` suffix before the new bundle replaces it. Until a schema-specific transformer exists, LGE reports the gap instead of pretending to migrate.
 
 Use `--dry-run` when you only want the scan result:
 
@@ -117,7 +117,7 @@ lungfish project migrate ~/Projects/SARS-CoV-2.lungfish --dry-run --format json
 
 Project locks are coordination metadata, not scientific outputs. Migration is different: when a migration actually rewrites or wraps scientific data, it must preserve existing [provenance sidecars](../../GLOSSARY.md#provenance-sidecar) and write new migration provenance describing the workflow or tool name and version, options, inputs, outputs, checksums, file sizes, runtime identity, exit status, stderr when useful, and wall time.
 
-The current no-op/report-only migration does not create new scientific outputs. It does preserve existing sidecars by leaving bundles untouched and by reporting whether a sidecar was present for each inspected bundle.
+The current browser-summary maintenance migration writes its provenance record under `.lungfish/migrations/` before publishing the changed `manifest.json`, so the record points at the final manifest path and includes the final checksum and size. No-op, dry-run, and unsupported report-only results do not create new scientific outputs; they preserve existing sidecars by leaving bundles untouched and by reporting whether a sidecar was present for each inspected bundle.
 
 ## Practical policy for shared labs
 

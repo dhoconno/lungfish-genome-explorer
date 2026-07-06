@@ -185,6 +185,42 @@ final class MetadataCommandFunctionalTests: XCTestCase {
         XCTAssertEqual(fileEnvelope.output?.checksumSHA256, output.checksumSHA256)
     }
 
+    func testSetRollsBackMetadataWhenProvenanceLayoutFails() async throws {
+        let bundleDir = tmpDir.appendingPathComponent("RollbackSample.lungfishfastq")
+        try FileManager.default.createDirectory(at: bundleDir, withIntermediateDirectories: true)
+        var seededMetadata = FASTQSampleMetadata(sampleName: "RollbackSample")
+        seededMetadata.setValue("Swab", forCSVHeader: "sample_type")
+        try FASTQBundleCSVMetadata.save(seededMetadata.toLegacyCSV(), to: bundleDir)
+
+        let blockedProvenanceDirectory = bundleDir.appendingPathComponent(
+            ProvenanceWriter.bundleProvenanceDirectoryName,
+            isDirectory: true
+        )
+        try "blocked".write(to: blockedProvenanceDirectory, atomically: true, encoding: .utf8)
+
+        let setCmd = try MetadataSetSubcommand.parse([
+            bundleDir.path,
+            "--field", "sample_type",
+            "--value", "Blood",
+            "--quiet"
+        ])
+
+        do {
+            try await setCmd.run()
+            XCTFail("Expected provenance layout failure")
+        } catch {
+            // Expected.
+        }
+
+        let restoredCSV = try XCTUnwrap(FASTQBundleCSVMetadata.load(from: bundleDir))
+        let restored = FASTQSampleMetadata(from: restoredCSV, fallbackName: "RollbackSample")
+        XCTAssertEqual(restored.sampleType, "Swab")
+        XCTAssertEqual(try String(contentsOf: blockedProvenanceDirectory, encoding: .utf8), "blocked")
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: bundleDir.appendingPathComponent(ProvenanceWriter.provenanceFilename).path)
+        )
+    }
+
     func testImportCSV() async throws {
         // Create a CSV file
         let csvContent = """
@@ -344,6 +380,54 @@ final class MetadataCommandFunctionalTests: XCTestCase {
             XCTAssertGreaterThan(bundleEnvelope.output?.fileSize ?? 0, 0)
             assertNoStagingOnlyOutputs(bundleEnvelope)
         }
+    }
+
+    func testImportRollsBackFolderAndSyncedBundleMetadataWhenProvenanceSidecarFails() async throws {
+        let folder = tmpDir.appendingPathComponent("RollbackSyncFolder")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let bundleA = folder.appendingPathComponent("SampleA.lungfishfastq")
+        let bundleB = folder.appendingPathComponent("SampleB.lungfishfastq")
+        try FileManager.default.createDirectory(at: bundleA, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: bundleB, withIntermediateDirectories: true)
+
+        var seededMetadata = FASTQSampleMetadata(sampleName: "SampleA")
+        seededMetadata.setValue("Original", forCSVHeader: "sample_type")
+        try FASTQBundleCSVMetadata.save(seededMetadata.toLegacyCSV(), to: bundleA)
+
+        let csvContent = """
+        sample_name,sample_type,sample_role
+        SampleA,Blood,test_sample
+        SampleB,Stool,negative_control
+        """
+        let csvFile = tmpDir.appendingPathComponent("rollback-sync-input.csv")
+        try csvContent.write(to: csvFile, atomically: true, encoding: .utf8)
+
+        let samplesURL = FASTQFolderMetadata.metadataURL(in: folder)
+        let blockedSamplesSidecar = ProvenanceRecorder.fileSidecarURL(for: samplesURL)
+        try FileManager.default.createDirectory(at: blockedSamplesSidecar, withIntermediateDirectories: true)
+
+        let importCmd = try MetadataImportSubcommand.parse([
+            folder.path,
+            csvFile.path,
+            "--sync-bundles",
+            "--quiet"
+        ])
+
+        do {
+            try await importCmd.run()
+            XCTFail("Expected focused provenance sidecar failure")
+        } catch {
+            // Expected.
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: samplesURL.path))
+        let restoredA = try XCTUnwrap(FASTQBundleCSVMetadata.load(from: bundleA))
+        let restoredSampleA = FASTQSampleMetadata(from: restoredA, fallbackName: "SampleA")
+        XCTAssertEqual(restoredSampleA.sampleType, "Original")
+        XCTAssertFalse(FASTQBundleCSVMetadata.exists(in: bundleB))
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: folder.appendingPathComponent(ProvenanceWriter.provenanceFilename).path)
+        )
     }
 
     func testSetFieldOnNonexistentBundleFails() async throws {

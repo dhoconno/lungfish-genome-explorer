@@ -27,10 +27,52 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
         )
     }
 
+    func testProductionKitAndLeafSourcesAvoidExplicitLayerBacking() throws {
+        let root = repositoryRoot()
+        let scannedSourceRoots = [
+            "Sources/LungfishKit",
+            "Sources/LungfishAlignmentUI",
+            "Sources/LungfishAssemblyUI",
+            "Sources/LungfishEsVirituUI",
+            "Sources/LungfishGenotypeUI",
+            "Sources/LungfishNaoMgsUI",
+            "Sources/LungfishNvdUI",
+            "Sources/LungfishPhylogeneticsUI",
+            "Sources/LungfishTaxTriageUI",
+            "Sources/LungfishTwelveSUI",
+        ]
+        var violations: [String] = []
+
+        for sourceRoot in scannedSourceRoots {
+            let swiftFiles = try swiftSourceFiles(
+                under: root.appendingPathComponent(sourceRoot, isDirectory: true)
+            )
+            for file in swiftFiles {
+                let source = try String(contentsOf: file, encoding: .utf8)
+                let lines = source.components(separatedBy: .newlines)
+                let path = relativePath(file, root: root)
+                for index in lines.indices {
+                    let trimmed = lines[index].trimmingCharacters(in: .whitespaces)
+                    guard trimmed.contains("wantsLayer"), !isCommentLine(trimmed) else {
+                        continue
+                    }
+                    violations.append("\(path):\(index + 1)")
+                }
+            }
+        }
+
+        XCTAssertTrue(
+            violations.isEmpty,
+            "Production Kit and leaf UI code must use draw-backed NSView rendering instead of explicit wantsLayer toggles:\n"
+                + violations.joined(separator: "\n")
+        )
+    }
+
     func testTargetedAppKitCallbacksAvoidUnsafeMainActorTaskHops() throws {
         let root = repositoryRoot()
         let scannedPaths = [
             "Sources/LungfishApp/App/AppDelegate.swift",
+            "Sources/LungfishApp/Services/ONTImportOperationCoordinator.swift",
             "Sources/LungfishApp/Services/ViralReconWorkflowExecutionService.swift",
             "Sources/LungfishApp/Views/Assembly/AssemblyConfigurationViewModel.swift",
             "Sources/LungfishApp/Views/Inspector/InspectorViewController.swift",
@@ -39,6 +81,7 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
             "Sources/LungfishApp/Views/WorkflowBuilder/WorkflowBuilderViewController.swift",
             "Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift",
             "Sources/LungfishApp/Views/Viewer/ViewerViewController.swift",
+            "Sources/LungfishKit/MetadataColumnController.swift",
             "Sources/LungfishNaoMgsUI/NaoMgsResultViewController.swift",
             "Sources/LungfishKit/MiniBAMViewController.swift",
         ]
@@ -100,6 +143,45 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
         XCTAssertTrue(
             violations.isEmpty,
             "Unsafe AppKit callback actor hops must use DispatchQueue.main/MainActor.assumeIsolated or performOnMainRunLoop:\n"
+                + violations.joined(separator: "\n")
+        )
+    }
+
+    func testMainActorNotificationObserversUseMainQueueDelivery() throws {
+        let root = repositoryRoot()
+        let expectations = [
+            (
+                path: "Sources/LungfishApp/Views/Welcome/WelcomeWindowController.swift",
+                notification: ".managedResourcesDidChange",
+                reason: "WelcomeViewModel is @MainActor; managed resource notifications may be posted off-main."
+            ),
+            (
+                path: "Sources/LungfishApp/App/AppDelegate.swift",
+                notification: ".workflowLibraryEnablementChanged",
+                reason: "Workflow enablement changes rebuild AppKit menus and may be posted off-main."
+            ),
+        ]
+        var violations: [String] = []
+
+        for expectation in expectations {
+            let source = try String(
+                contentsOf: root.appendingPathComponent(expectation.path),
+                encoding: .utf8
+            )
+            let context = observerContext(in: source, notificationName: expectation.notification)
+            if !context.contains("addObserver(")
+                || !context.contains("forName:")
+                || !context.contains("queue: .main") {
+                violations.append("\(expectation.path): \(expectation.notification) must use a block observer delivered on .main. \(expectation.reason)")
+            }
+            if context.contains("selector:") {
+                violations.append("\(expectation.path): \(expectation.notification) must not use selector observer delivery. \(expectation.reason)")
+            }
+        }
+
+        XCTAssertTrue(
+            violations.isEmpty,
+            "Main-actor/AppKit notification observers must marshal delivery onto OperationQueue.main:\n"
                 + violations.joined(separator: "\n")
         )
     }
@@ -249,6 +331,40 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
         return String(source[startRange.lowerBound..<endRange.lowerBound])
     }
 
+    private func observerContext(in source: String, notificationName: String) -> String {
+        let nameMarkers = [
+            "name: \(notificationName)",
+            "forName: \(notificationName)",
+        ]
+        guard let nameRange = nameMarkers.lazy.compactMap({
+            source.range(of: $0)
+        }).first,
+            let observerStart = source.range(
+                of: "addObserver(",
+                options: .backwards,
+                range: source.startIndex..<nameRange.lowerBound
+            ) else {
+            return ""
+        }
+        let argumentStart = observerStart.upperBound
+        var depth = 1
+        var cursor = argumentStart
+        while cursor < source.endIndex {
+            let character = source[cursor]
+            if character == "(" {
+                depth += 1
+            } else if character == ")" {
+                depth -= 1
+                if depth == 0 {
+                    let upper = source.index(after: cursor)
+                    return String(source[observerStart.lowerBound..<upper])
+                }
+            }
+            cursor = source.index(after: cursor)
+        }
+        return String(source[observerStart.lowerBound..<source.endIndex])
+    }
+
     private func swiftSourceFiles(under root: URL) throws -> [URL] {
         let resourceKeys: Set<URLResourceKey> = [.isRegularFileKey]
         guard let enumerator = FileManager.default.enumerator(
@@ -272,5 +388,11 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
     private func relativePath(_ url: URL, root: URL) -> String {
         let rootPath = root.path.hasSuffix("/") ? root.path : root.path + "/"
         return url.path.hasPrefix(rootPath) ? String(url.path.dropFirst(rootPath.count)) : url.path
+    }
+
+    private func isCommentLine(_ trimmedLine: String) -> Bool {
+        trimmedLine.hasPrefix("//")
+            || trimmedLine.hasPrefix("/*")
+            || trimmedLine.hasPrefix("*")
     }
 }

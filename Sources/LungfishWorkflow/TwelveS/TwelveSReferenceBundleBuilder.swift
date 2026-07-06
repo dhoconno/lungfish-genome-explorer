@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import LungfishCore
 import LungfishIO
 
 public struct TwelveSReferenceBundleBuildConfiguration: Equatable, Sendable {
@@ -92,7 +93,7 @@ public struct TwelveSReferenceBundleBuilder: Sendable {
                     outputURL: metadataURL,
                     forceOverwrite: true,
                     argv: [
-                        "lungfish-cli", "fastq", "12s-reference-metadata",
+                        CLICommandIdentity.executableName, "fastq", "12s-reference-metadata",
                         "--dedup-fasta", referenceURL.path,
                         "--midori-metadata", config.midoriMetadataTSV.path,
                         "--output", metadataURL.path,
@@ -285,9 +286,9 @@ public struct TwelveSReferenceBundleBuilder: Sendable {
             createdAt: startedAt,
             workflowName: "lungfish fastq 12s-reference-bundle",
             workflowVersion: WorkflowRun.currentAppVersion,
-            toolName: "lungfish-cli",
+            toolName: CLICommandIdentity.executableName,
             toolVersion: WorkflowRun.currentAppVersion,
-            tool: ProvenanceToolIdentity(name: "lungfish-cli", version: WorkflowRun.currentAppVersion, kind: "cli"),
+            tool: ProvenanceToolIdentity(name: CLICommandIdentity.executableName, version: WorkflowRun.currentAppVersion, kind: "cli"),
             argv: argv,
             durableReplayArgv: argv,
             reproducibleCommand: commandLine(from: argv),
@@ -396,7 +397,7 @@ public struct TwelveSReferenceBundleBuilder: Sendable {
 
     private func replayArgv(for config: TwelveSReferenceBundleBuildConfiguration) -> [String] {
         var argv = [
-            "lungfish-cli", "fastq", "12s-reference-bundle",
+            CLICommandIdentity.executableName, "fastq", "12s-reference-bundle",
             "--dedup-fasta", config.deduplicatedFASTA.path,
             "--midori-metadata", config.midoriMetadataTSV.path,
             "--output", config.outputURL.path,

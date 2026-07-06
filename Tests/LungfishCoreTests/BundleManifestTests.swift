@@ -98,6 +98,17 @@ final class BundleManifestTests: XCTestCase {
         XCTAssertEqual(loaded.originBundlePath, "@/Downloads/TestGenome.lungfishref")
     }
 
+    func testBundleManifestSaveUsesAtomicWrite() throws {
+        let root = try repoRoot()
+        let sourceURL = root.appendingPathComponent("Sources/LungfishCore/Bundles/BundleManifest.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(
+            source.contains("try data.write(to: manifestURL, options: .atomic)"),
+            "BundleManifest.save(to:) should atomically replace manifest.json instead of truncating in place"
+        )
+    }
+
     // MARK: - SourceInfo Tests
 
     func testSourceInfoCreation() {
@@ -547,6 +558,73 @@ final class BundleManifestTests: XCTestCase {
 
         let errors = manifest.validate()
         XCTAssertFalse(errors.isEmpty)
+    }
+
+    func testValidateRejectsUnsafeBundleMemberPaths() {
+        let manifest = BundleManifest(
+            formatVersion: "1.0",
+            name: "Test",
+            identifier: "test",
+            source: SourceInfo(organism: "Test", assembly: "Test"),
+            genome: GenomeInfo(
+                path: "../outside.fa",
+                indexPath: "/tmp/outside.fa.fai",
+                gzipIndexPath: "provenance/outside.fa.gzi",
+                totalLength: 1000,
+                chromosomes: [
+                    ChromosomeInfo(name: "chr1", length: 1000, offset: 6, lineBases: 50, lineWidth: 51)
+                ]
+            ),
+            annotations: [
+                AnnotationTrackInfo(
+                    id: "genes",
+                    name: "Genes",
+                    path: "annotations/../genes.bb",
+                    databasePath: "manifest.json"
+                )
+            ],
+            variants: [
+                VariantTrackInfo(
+                    id: "variants",
+                    name: "Variants",
+                    path: "variants/test.bcf",
+                    indexPath: "variants/test.bcf.csi",
+                    databasePath: "~/variants.db"
+                )
+            ],
+            tracks: [
+                SignalTrackInfo(id: "signal", name: "Signal", path: "tracks/./signal.bw")
+            ]
+        )
+
+        let invalidPaths = manifest.validate().compactMap { error -> String? in
+            guard case .invalidPath(let field, let path) = error else { return nil }
+            return "\(field)=\(path)"
+        }
+
+        XCTAssertTrue(invalidPaths.contains("genome.path=../outside.fa"))
+        XCTAssertTrue(invalidPaths.contains("genome.indexPath=/tmp/outside.fa.fai"))
+        XCTAssertTrue(invalidPaths.contains("genome.gzipIndexPath=provenance/outside.fa.gzi"))
+        XCTAssertTrue(invalidPaths.contains("annotations[genes].path=annotations/../genes.bb"))
+        XCTAssertTrue(invalidPaths.contains("annotations[genes].databasePath=manifest.json"))
+        XCTAssertTrue(invalidPaths.contains("variants[variants].databasePath=~/variants.db"))
+        XCTAssertTrue(invalidPaths.contains("tracks[signal].path=tracks/./signal.bw"))
+    }
+
+    func testValidatedBundleMemberURLRejectsSymlinkEscapes() throws {
+        let bundleURL = tempDirectory.appendingPathComponent("symlink-test.lungfishref", isDirectory: true)
+        let genomeDirectory = bundleURL.appendingPathComponent("genome", isDirectory: true)
+        try FileManager.default.createDirectory(at: genomeDirectory, withIntermediateDirectories: true)
+
+        let outsideURL = tempDirectory.appendingPathComponent("outside.fa")
+        try ">chr1\nACGT\n".write(to: outsideURL, atomically: true, encoding: .utf8)
+
+        let symlinkURL = genomeDirectory.appendingPathComponent("sequence.fa")
+        try FileManager.default.createSymbolicLink(at: symlinkURL, withDestinationURL: outsideURL)
+
+        XCTAssertThrowsError(
+            try BundleManifest.validatedBundleMemberURL(for: "genome/sequence.fa", in: bundleURL)
+        )
     }
 
     func testDuplicateTrackIds() {
@@ -1035,5 +1113,17 @@ final class BundleManifestTests: XCTestCase {
             variants: [],
             tracks: []
         )
+    }
+
+    private func repoRoot() throws -> URL {
+        var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        let fileManager = FileManager.default
+        for _ in 0..<10 {
+            if fileManager.fileExists(atPath: directory.appendingPathComponent("Package.swift").path) {
+                return directory
+            }
+            directory = directory.deletingLastPathComponent()
+        }
+        throw XCTSkip("Could not locate Package.swift above \(#filePath)")
     }
 }

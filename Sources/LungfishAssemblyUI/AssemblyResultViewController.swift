@@ -164,7 +164,9 @@ public final class AssemblyResultViewController: NSViewController {
         splitView.delegate = self
         splitView.isVertical = true
         splitView.addArrangedSubview(tableContainer)
+        splitView.addArrangedSubview(detailContainer)
         splitView.setHoldingPriority(.defaultLow, forSubviewAt: 0)
+        splitView.setHoldingPriority(.defaultLow, forSubviewAt: 1)
     }
 
     private func setupActionBar() {
@@ -410,6 +412,7 @@ public final class AssemblyResultViewController: NSViewController {
         currentResult = result
         summaryStrip.configure(result: result, pasteboard: scalarPasteboard)
         contigTableView.scalarPasteboard = scalarPasteboard
+        detailPane.configureQuickCopy(pasteboard: scalarPasteboard)
 
         if result.outcome == .completedWithNoContigs {
             catalog = nil
@@ -441,9 +444,47 @@ public final class AssemblyResultViewController: NSViewController {
 
     private func showSelection(rows: [AssemblyContigRecord]) async {
         selectionGeneration += 1
-        selectedContigNames = rows.map(\.name)
+        let generation = selectionGeneration
+        let selectedNames = rows.map(\.name)
+        selectedContigNames = selectedNames
         actionBar.setSelectionCount(rows.count)
         refreshContextMenu()
+
+        guard let catalog, !rows.isEmpty else {
+            detailContainer.isHidden = true
+            return
+        }
+
+        if rows.count == 1, let record = rows.first {
+            let fastaPreview = (try? await catalog.sequenceFASTA(for: record.name, lineWidth: 70)) ?? ""
+            guard generation == selectionGeneration else { return }
+            detailPane.showSingleSelection(record: record, fastaPreview: fastaPreview)
+            detailContainer.isHidden = false
+            applyLayoutPreference()
+            return
+        }
+
+        var fastaPreviewRecords: [String] = []
+        fastaPreviewRecords.reserveCapacity(selectedNames.count)
+        for name in selectedNames {
+            guard generation == selectionGeneration else { return }
+            if let fasta = try? await catalog.sequenceFASTA(for: name, lineWidth: 70) {
+                fastaPreviewRecords.append(fasta)
+            }
+        }
+        guard generation == selectionGeneration else { return }
+        let fastaPreview = fastaPreviewRecords.joined(separator: "\n")
+        if let summary = try? await catalog.selectionSummary(for: selectedNames) {
+            guard generation == selectionGeneration else { return }
+            detailPane.showMultiSelection(summary: summary, fastaPreview: fastaPreview)
+        } else {
+            detailPane.showUnavailableSelectionSummary(
+                selectedContigCount: selectedNames.count,
+                fastaPreview: fastaPreview
+            )
+        }
+        detailContainer.isHidden = false
+        applyLayoutPreference()
     }
 
     private func showEmptySelectionState(advanceSelectionGeneration: Bool = true) {
@@ -453,6 +494,7 @@ public final class AssemblyResultViewController: NSViewController {
         selectedContigNames = []
         actionBar.setSelectionCount(0)
         refreshContextMenu()
+        detailContainer.isHidden = true
     }
 
     private func showEmptyContigState() {

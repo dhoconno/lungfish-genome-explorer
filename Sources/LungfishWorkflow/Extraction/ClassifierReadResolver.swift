@@ -114,6 +114,7 @@ public actor ClassifierReadResolver {
         destination: ExtractionDestination,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> ExtractionOutcome {
+        let startedAt = Date()
         let nonEmpty = selections.filter { !$0.isEmpty }
         guard !nonEmpty.isEmpty else {
             throw ClassifierExtractionError.zeroReadsExtracted
@@ -128,6 +129,7 @@ public actor ClassifierReadResolver {
                 resultPath: resultPath,
                 options: options,
                 destination: destination,
+                startedAt: startedAt,
                 progress: progress
             )
         } else {
@@ -136,12 +138,13 @@ public actor ClassifierReadResolver {
                 resultPath: resultPath,
                 options: options,
                 destination: destination,
+                startedAt: startedAt,
                 progress: progress
             )
         }
     }
 
-    /// Cheap pre-flight count. Implemented in Task 2.2.
+    /// Cheap pre-flight count for the selected classifier rows.
     public func estimateReadCount(
         tool: ClassifierTool,
         resultPath: URL,
@@ -372,7 +375,7 @@ public actor ClassifierReadResolver {
             candidates = urls
 
         case .kraken2:
-            throw ClassifierExtractionError.notImplemented  // Kraken2 isn't BAM-backed.
+            throw ClassifierExtractionError.unsupportedBAMTool(tool)
         }
 
         for url in candidates {
@@ -392,10 +395,12 @@ public actor ClassifierReadResolver {
         resultPath: URL,
         options: ExtractionOptions,
         destination: ExtractionDestination,
+        startedAt: Date,
         progress: (@Sendable (Double, String) -> Void)?
     ) async throws -> ExtractionOutcome {
         let fm = FileManager.default
         let projectRoot = Self.resolveProjectRoot(from: resultPath)
+        var provenanceSourceURLs = existingUniqueURLs([resultPath])
 
         let tempDir = try ProjectTempDirectory.create(
             prefix: "classifier-extract-\(tool.rawValue)-",
@@ -439,6 +444,7 @@ public actor ClassifierReadResolver {
                 sampleId: sampleId,
                 resultPath: resultPath
             )
+            provenanceSourceURLs.append(bamURL)
 
             let perSampleBAM = tempDir.appendingPathComponent("\(stem)_regions.bam")
             var viewArgs = ["view", "-b", "-F", String(options.samtoolsExcludeFlags)]
@@ -519,6 +525,9 @@ public actor ClassifierReadResolver {
             finalFile: finalFASTQ,
             readCount: readCount,
             destination: destination,
+            options: options,
+            provenanceSourceURLs: existingUniqueURLs(provenanceSourceURLs),
+            extractionStartedAt: startedAt,
             progress: progress
         )
     }
@@ -530,6 +539,7 @@ public actor ClassifierReadResolver {
         resultPath: URL,
         options: ExtractionOptions,
         destination: ExtractionDestination,
+        startedAt: Date,
         progress: (@Sendable (Double, String) -> Void)?
     ) async throws -> ExtractionOutcome {
         // Collect tax IDs from the (possibly multi-row) selection.
@@ -566,6 +576,7 @@ public actor ClassifierReadResolver {
         }
 
         var allProducedURLs: [URL] = []
+        var provenanceSourceURLs = existingUniqueURLs([resultPath])
 
         for (jobIndex, job) in sampleJobs.enumerated() {
             try Task.checkCancellation()
@@ -584,23 +595,26 @@ public actor ClassifierReadResolver {
                 logger.warning("Skipping sample \(sampleLabel, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 continue
             }
+            provenanceSourceURLs.append(job.sampleResultPath)
+            provenanceSourceURLs.append(classResult.outputURL)
 
             // Resolve the source FASTQ(s) for this sample.
-            let sourceURLs: [URL]
+            let sourceFASTQs: [URL]
             do {
-                sourceURLs = try resolveKraken2SourceFASTQs(classResult: classResult)
+                sourceFASTQs = try resolveKraken2SourceFASTQs(classResult: classResult)
             } catch {
                 logger.warning("Skipping sample \(sampleLabel, privacy: .public) — source FASTQ not found: \(error.localizedDescription, privacy: .public)")
                 continue
             }
+            provenanceSourceURLs.append(contentsOf: sourceFASTQs)
 
             // Build per-sample output paths in the shared temp dir.
             let stem = "\(jobIndex)_\(sampleLabel)"
             let outputFiles: [URL]
-            if sourceURLs.count == 1 {
+            if sourceFASTQs.count == 1 {
                 outputFiles = [tempDir.appendingPathComponent("\(stem).fastq")]
             } else {
-                outputFiles = sourceURLs.enumerated().map { idx, _ in
+                outputFiles = sourceFASTQs.enumerated().map { idx, _ in
                     tempDir.appendingPathComponent("\(stem)_R\(idx + 1).fastq")
                 }
             }
@@ -608,9 +622,10 @@ public actor ClassifierReadResolver {
             let config = TaxonomyExtractionConfig(
                 taxIds: allTaxIds,
                 includeChildren: true,
-                sourceFiles: sourceURLs,
+                sourceFiles: sourceFASTQs,
                 outputFiles: outputFiles,
                 classificationOutput: classResult.outputURL,
+                taxonomyReport: classResult.reportURL,
                 keepReadPairs: true
             )
 
@@ -661,6 +676,9 @@ public actor ClassifierReadResolver {
             finalFile: finalFile,
             readCount: readCount,
             destination: destination,
+            options: options,
+            provenanceSourceURLs: existingUniqueURLs(provenanceSourceURLs),
+            extractionStartedAt: startedAt,
             progress: progress
         )
     }
@@ -763,6 +781,20 @@ public actor ClassifierReadResolver {
         }
     }
 
+    private func existingUniqueURLs(_ urls: [URL]) -> [URL] {
+        var seen: Set<String> = []
+        var result: [URL] = []
+        for url in urls {
+            let standardized = url.standardizedFileURL
+            guard FileManager.default.fileExists(atPath: standardized.path),
+                  seen.insert(standardized.path).inserted else {
+                continue
+            }
+            result.append(standardized)
+        }
+        return result
+    }
+
     /// Counts FASTQ records by dividing `wc -l` by 4. Fast and dependency-free.
     private func countFASTQRecords(in url: URL) async throws -> Int {
         let handle = try FileHandle(forReadingFrom: url)
@@ -822,6 +854,9 @@ public actor ClassifierReadResolver {
         finalFile: URL,
         readCount: Int,
         destination: ExtractionDestination,
+        options: ExtractionOptions,
+        provenanceSourceURLs: [URL],
+        extractionStartedAt: Date,
         progress: (@Sendable (Double, String) -> Void)?
     ) async throws -> ExtractionOutcome {
         let fm = FileManager.default
@@ -830,6 +865,14 @@ public actor ClassifierReadResolver {
             let destinationURL = url.standardizedFileURL
             let sourceURL = finalFile.standardizedFileURL
             if destinationURL == sourceURL {
+                try writeStandaloneFileProvenanceIfNeeded(
+                    outputURL: destinationURL,
+                    outputFormat: options.format.fileFormat,
+                    readCount: readCount,
+                    options: options,
+                    sourceURLs: provenanceSourceURLs,
+                    extractionStartedAt: extractionStartedAt
+                )
                 progress?(1.0, "Wrote \(readCount) reads to \(destinationURL.lastPathComponent)")
                 return .file(destinationURL, readCount: readCount)
             }
@@ -848,6 +891,14 @@ public actor ClassifierReadResolver {
             // with the extraction scratch space. This avoids rename/remove races
             // on transient destinations and keeps the `.file` contract simple.
             try fm.copyItem(at: sourceURL, to: destinationURL)
+            try writeStandaloneFileProvenanceIfNeeded(
+                outputURL: destinationURL,
+                outputFormat: options.format.fileFormat,
+                readCount: readCount,
+                options: options,
+                sourceURLs: provenanceSourceURLs,
+                extractionStartedAt: extractionStartedAt
+            )
             progress?(1.0, "Wrote \(readCount) reads to \(destinationURL.lastPathComponent)")
             return .file(destinationURL, readCount: readCount)
 
@@ -856,14 +907,19 @@ public actor ClassifierReadResolver {
             // is actor-isolated on ReadExtractionService, so we must `await` the call
             // even though the method itself is not declared `async`.
             let service = ReadExtractionService()
-            // TODO[phase3+]: the resolver does not currently know whether the
-            // upstream extraction was paired-end (selectors carry regions/taxa,
-            // not pair layout). `ReadExtractionService.createBundle` does not
-            // read `pairedEnd`, but any future caller that inspects
-            // `ExtractionResult.pairedEnd` (e.g. the CLI at
-            // `ExtractReadsCommand.swift:228`) will see `false` for every
-            // resolver-produced extraction. Plumb the real value when the CLI
-            // and GUI converge on a single extraction path.
+            let outputFormat = finalFile.pathExtension.lowercased() == "fasta" ? "fasta" : "fastq"
+            let bundleMetadata = metadata.mergingParameters([
+                "classifierExtractionOutputLayout": "single_file",
+                "classifierExtractionOutputPairingMode": "single_end",
+                "classifierExtractionOutputFormat": outputFormat,
+                "classifierExtractionReadCountUnit": "reads",
+            ])
+            .recordingSourceURLs(provenanceSourceURLs)
+            // Classifier extraction intentionally normalizes BAM-backed and
+            // Kraken2 selections into one output file before bundling. Any
+            // upstream mate layout has already been flattened, so the bundle
+            // must be marked single-end rather than carrying an inferred
+            // paired-end flag that no longer matches the stored payload.
             let result = ExtractionResult(
                 fastqURLs: [finalFile],
                 readCount: readCount,
@@ -873,7 +929,7 @@ public actor ClassifierReadResolver {
                 from: result,
                 sourceName: displayName,
                 selectionDescription: "extract",
-                metadata: metadata,
+                metadata: bundleMetadata,
                 in: projectRoot
             )
             progress?(1.0, "Created bundle \(bundleURL.lastPathComponent)")
@@ -899,9 +955,55 @@ public actor ClassifierReadResolver {
                 try fm.removeItem(at: stableURL)
             }
             try fm.moveItem(at: finalFile, to: stableURL)
+            try writeStandaloneFileProvenanceIfNeeded(
+                outputURL: stableURL,
+                outputFormat: options.format.fileFormat,
+                readCount: readCount,
+                options: options,
+                sourceURLs: provenanceSourceURLs,
+                extractionStartedAt: extractionStartedAt
+            )
             progress?(1.0, "Prepared file for sharing")
             return .share(stableURL, readCount: readCount)
         }
+    }
+
+    private func writeStandaloneFileProvenanceIfNeeded(
+        outputURL: URL,
+        outputFormat: FileFormat,
+        readCount: Int,
+        options: ExtractionOptions,
+        sourceURLs: [URL],
+        extractionStartedAt: Date
+    ) throws {
+        guard let fileProvenance = options.fileProvenance else {
+            return
+        }
+        let provenance = fileProvenance.mergingResolved([
+            "outputPath": .file(outputURL),
+            "outputFormat": .string(options.format.rawValue),
+            "readCount": .integer(readCount),
+            "sourceCount": .integer(sourceURLs.count),
+        ])
+        var explicitOptions = provenance.explicitOptions
+        if explicitOptions["outputPath"] == nil {
+            explicitOptions["outputPath"] = .file(outputURL)
+        }
+        let argv = provenance.argv.contains(outputURL.path)
+            ? provenance.argv
+            : provenance.argv + ["--output", outputURL.path]
+        try ScientificFileExportProvenance.write(.init(
+            workflowName: provenance.workflowName,
+            toolName: provenance.toolName,
+            sourceURLs: sourceURLs,
+            outputURL: outputURL,
+            outputFormat: outputFormat,
+            argv: argv,
+            explicitOptions: explicitOptions,
+            defaults: provenance.defaults,
+            resolved: provenance.resolved,
+            startedAt: extractionStartedAt
+        ))
     }
 
     // MARK: - Test hooks
@@ -933,8 +1035,8 @@ public actor ClassifierReadResolver {
 /// etc.) from primitive samtools/seqkit failures.
 public enum ClassifierExtractionError: Error, LocalizedError, Sendable {
 
-    /// The resolver method is not yet implemented (build-time stub).
-    case notImplemented
+    /// The requested tool does not expose BAM-backed reads.
+    case unsupportedBAMTool(ClassifierTool)
 
     /// No BAM file could be found for the given sample ID.
     case bamNotFound(sampleId: String)
@@ -970,8 +1072,8 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable {
 
     public var errorDescription: String? {
         switch self {
-        case .notImplemented:
-            return "ClassifierReadResolver path is not yet implemented"
+        case .unsupportedBAMTool(let tool):
+            return "\(tool.displayName) does not expose BAM-backed reads. Use the classifier extraction path for \(tool.displayName) instead."
         case .bamNotFound(let sampleId):
             return "No BAM file found for sample '\(sampleId)'. The classifier result may be corrupted or imported without the underlying alignment data."
         case .kraken2OutputMissing(let url):

@@ -156,15 +156,6 @@ final class GenotypeQuickFilterBarView: NSView, NSSearchFieldDelegate {
         NSSize(width: NSView.noIntrinsicMetric, height: Self.preferredHeight)
     }
 
-    private func makePillButton(_ pill: Pill) -> NSButton {
-        let button = NSButton(title: pill.displayName, target: self, action: #selector(togglePill(_:)))
-        button.bezelStyle = .roundRect
-        button.setButtonType(.pushOnPushOff)
-        button.controlSize = .small
-        button.identifier = NSUserInterfaceItemIdentifier(pill.rawValue)
-        return button
-    }
-
     private func configureSavedCohortButton() {
         savedCohortButton.title = ""
         savedCohortButton.bezelStyle = .roundRect
@@ -191,17 +182,6 @@ final class GenotypeQuickFilterBarView: NSView, NSSearchFieldDelegate {
     @objc private func clearSavedCohort(_ sender: NSButton) {
         setSavedCohortName(nil)
         onSavedCohortCleared?()
-    }
-
-    @objc private func togglePill(_ sender: NSButton) {
-        guard let rawValue = sender.identifier?.rawValue,
-              let pill = Pill(rawValue: rawValue) else { return }
-        if sender.state == .on {
-            activePills.insert(pill)
-        } else {
-            activePills.remove(pill)
-        }
-        emitChange()
     }
 
     func setActivePills(_ pills: Set<Pill>) {

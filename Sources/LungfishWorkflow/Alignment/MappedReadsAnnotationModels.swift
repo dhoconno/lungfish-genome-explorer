@@ -183,7 +183,7 @@ public struct CDSBestAnnotationRequest: Sendable, Equatable {
         outputBundleURL: URL,
         outputTrackName: String,
         outputTrackID: String? = nil,
-        includeSecondary: Bool = true,
+        includeSecondary: Bool = false,
         includeSupplementary: Bool = false,
         minimumQueryCoverage: Double = 0.5,
         replaceExisting: Bool = false

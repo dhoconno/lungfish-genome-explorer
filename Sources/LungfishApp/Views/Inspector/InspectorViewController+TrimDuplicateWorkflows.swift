@@ -218,20 +218,20 @@ extension InspectorViewController {
 
                         let detail = tracker.completedTrackName.map { "Adopted alignment track \($0)" }
                             ?? "Primer trim complete"
-                        OperationCenter.shared.complete(id: opID, detail: detail)
+                        _ = OperationCenter.shared.complete(id: opID, detail: detail)
                     }
                 }
             } catch is CancellationError {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.fail(id: opID, detail: "Cancelled")
+                        _ = OperationCenter.shared.fail(id: opID, detail: "Cancelled")
                     }
                 }
             } catch {
                 let message = tracker.failureMessage ?? error.localizedDescription
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.fail(
+                        _ = OperationCenter.shared.fail(
                             id: opID,
                             detail: message,
                             errorMessage: message
@@ -281,7 +281,7 @@ extension InspectorViewController {
             }
         }()
 
-        OperationCenter.shared.update(id: operationID, progress: progress, detail: detail)
+        _ = OperationCenter.shared.update(id: operationID, progress: progress, detail: detail)
         OperationCenter.shared.log(id: operationID, level: level, message: detail)
     }
 
@@ -352,7 +352,7 @@ extension InspectorViewController {
                     progressHandler: { [weak self] progress, message in
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
-                                OperationCenter.shared.update(
+                                _ = OperationCenter.shared.update(
                                     id: operationID,
                                     progress: max(0.01, min(0.99, progress)),
                                     detail: message
@@ -368,7 +368,7 @@ extension InspectorViewController {
 
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.complete(
+                        _ = OperationCenter.shared.complete(
                             id: operationID,
                             detail: "Created annotation track \"\(result.annotationTrackInfo.name)\"."
                         )
@@ -409,7 +409,7 @@ extension InspectorViewController {
             } catch {
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.fail(
+                        _ = OperationCenter.shared.fail(
                             id: operationID,
                             detail: error.localizedDescription,
                             errorMessage: error.localizedDescription
@@ -473,7 +473,7 @@ extension InspectorViewController {
                     progressHandler: { [weak self] progress, message in
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
-                                OperationCenter.shared.update(
+                                _ = OperationCenter.shared.update(
                                     id: operationID,
                                     progress: max(0.01, min(0.99, progress)),
                                     detail: message
@@ -489,7 +489,7 @@ extension InspectorViewController {
 
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.complete(
+                        _ = OperationCenter.shared.complete(
                             id: operationID,
                             detail: "Created filtered alignment track \"\(result.trackInfo.name)\"."
                         )
@@ -531,7 +531,7 @@ extension InspectorViewController {
             } catch {
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.fail(
+                        _ = OperationCenter.shared.fail(
                             id: operationID,
                             detail: error.localizedDescription,
                             errorMessage: error.localizedDescription

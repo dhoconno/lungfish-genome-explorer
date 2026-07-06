@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import LungfishCore
 import LungfishIO
 
 public enum TwelveSResultExportFormat: String, CaseIterable, Sendable {
@@ -461,7 +462,7 @@ private func writeExportProvenance(
     var builder = ProvenanceRunBuilder(
         workflowName: "lungfish fastq 12s-export",
         workflowVersion: WorkflowRun.currentAppVersion,
-        toolName: "lungfish-cli",
+        toolName: CLICommandIdentity.executableName,
         toolVersion: WorkflowRun.currentAppVersion
     )
     .argv(argv)
@@ -525,7 +526,7 @@ private func writeUnresolvedProvenance(
     var builder = ProvenanceRunBuilder(
         workflowName: "lungfish fastq 12s-export-unresolved",
         workflowVersion: WorkflowRun.currentAppVersion,
-        toolName: "lungfish-cli",
+        toolName: CLICommandIdentity.executableName,
         toolVersion: WorkflowRun.currentAppVersion
     )
     .argv(argv)
@@ -574,7 +575,7 @@ private struct TwelveSExportSourceInput {
 
 private func twelveSExportReplayArgv(for config: TwelveSResultExportConfiguration) -> [String] {
     var argv = [
-        "lungfish-cli", "fastq", "12s-export",
+        CLICommandIdentity.executableName, "fastq", "12s-export",
         "--bundle", config.bundleURL.path,
         "--export-format", config.format.rawValue,
         "--output", config.outputURL.path,
@@ -611,7 +612,7 @@ private func twelveSExportReplayArgv(for config: TwelveSResultExportConfiguratio
 
 private func twelveSUnresolvedReplayArgv(for config: TwelveSUnresolvedFastaExportConfiguration) -> [String] {
     var argv = [
-        "lungfish-cli", "fastq", "12s-export-unresolved",
+        CLICommandIdentity.executableName, "fastq", "12s-export-unresolved",
         "--bundle", config.bundleURL.path,
         "--min-reads", String(config.minimumReads),
         "--output", config.outputURL.path,

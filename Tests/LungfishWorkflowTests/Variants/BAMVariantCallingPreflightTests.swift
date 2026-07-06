@@ -228,6 +228,72 @@ final class BAMVariantCallingPreflightTests: XCTestCase {
         XCTAssertEqual(result.referenceNameMap["chr1"], "chr1")
     }
 
+    func testPreflightRetainsBookmarkedAlignmentScopeForReturnedResult() async throws {
+        let sourceBookmark = Data("source-bookmark".utf8)
+        let indexBookmark = Data("index-bookmark".utf8)
+        let fixture = try createBookmarkedExternalAlignmentBundle(
+            sourceBookmark: sourceBookmark,
+            indexBookmark: indexBookmark
+        )
+        let access = ScopedAlignmentBookmarkAccessProbe(
+            resolutions: [
+                sourceBookmark: fixture.externalBAMURL,
+                indexBookmark: fixture.externalIndexURL,
+            ]
+        )
+        let preflight = BAMVariantCallingPreflight(
+            bamReferenceReader: { alignmentURL in
+                guard access.isAccessing(alignmentURL) else {
+                    throw ScopedAlignmentBookmarkAccessError.scopeNotActiveDuringRead(alignmentURL.path)
+                }
+                return [
+                    SAMParser.ReferenceSequence(
+                        name: "chr1",
+                        length: 20,
+                        md5: nil,
+                        assembly: nil,
+                        uri: nil,
+                        species: nil
+                    )
+                ]
+            },
+            referenceBundleFactory: { bundleURL, manifest in
+                ReferenceBundle(
+                    url: bundleURL,
+                    manifest: manifest,
+                    bookmarkAccess: ReferenceBundleBookmarkAccess(
+                        resolve: access.resolve,
+                        startAccessing: access.startAccessing,
+                        stopAccessing: access.stopAccessing
+                    )
+                )
+            }
+        )
+
+        var result: BAMVariantCallingPreflightResult? = try await preflight.validate(
+            BundleVariantCallingRequest(
+                bundleURL: fixture.bundleURL,
+                alignmentTrackID: "aln-1",
+                caller: .lofreq,
+                outputTrackName: "Bookmarked BAM • LoFreq"
+            )
+        )
+
+        XCTAssertEqual(result?.alignmentURL.standardizedFileURL, fixture.externalBAMURL.standardizedFileURL)
+        XCTAssertEqual(result?.alignmentIndexURL.standardizedFileURL, fixture.externalIndexURL.standardizedFileURL)
+        XCTAssertTrue(access.isAccessing(fixture.externalBAMURL))
+        XCTAssertTrue(access.isAccessing(fixture.externalIndexURL))
+
+        result = nil
+
+        XCTAssertFalse(access.isAccessing(fixture.externalBAMURL))
+        XCTAssertFalse(access.isAccessing(fixture.externalIndexURL))
+        XCTAssertEqual(
+            Set(access.stoppedURLs()),
+            Set([fixture.externalBAMURL.standardizedFileURL, fixture.externalIndexURL.standardizedFileURL])
+        )
+    }
+
     private func createBundle(
         genomeMD5Checksum: String?,
         includeAlignmentFile: Bool = true
@@ -280,5 +346,93 @@ final class BAMVariantCallingPreflightTests: XCTestCase {
         )
         try manifest.save(to: bundleURL)
         return bundleURL
+    }
+
+    private func createBookmarkedExternalAlignmentBundle(
+        sourceBookmark: Data,
+        indexBookmark: Data
+    ) throws -> (bundleURL: URL, externalBAMURL: URL, externalIndexURL: URL) {
+        let bundleURL = try createBundle(genomeMD5Checksum: nil, includeAlignmentFile: false)
+        let externalDir = tempDir.appendingPathComponent("external-alignments", isDirectory: true)
+        try FileManager.default.createDirectory(at: externalDir, withIntermediateDirectories: true)
+        let externalBAMURL = externalDir.appendingPathComponent("sample.sorted.bam")
+        let externalIndexURL = externalDir.appendingPathComponent("sample.sorted.bam.bai")
+        try Data("bam".utf8).write(to: externalBAMURL)
+        try Data("bai".utf8).write(to: externalIndexURL)
+
+        let manifest = try BundleManifest.load(from: bundleURL)
+        let bookmarkedManifest = BundleManifest(
+            formatVersion: manifest.formatVersion,
+            name: manifest.name,
+            identifier: manifest.identifier,
+            source: manifest.source,
+            genome: manifest.genome,
+            alignments: [
+                AlignmentTrackInfo(
+                    id: "aln-1",
+                    name: "Sample BAM",
+                    format: .bam,
+                    sourcePath: "alignments/missing.sorted.bam",
+                    sourceBookmark: sourceBookmark.base64EncodedString(),
+                    indexPath: "alignments/missing.sorted.bam.bai",
+                    indexBookmark: indexBookmark.base64EncodedString(),
+                    checksumSHA256: "bam-sha-256"
+                )
+            ]
+        )
+        try bookmarkedManifest.save(to: bundleURL)
+        return (bundleURL, externalBAMURL, externalIndexURL)
+    }
+}
+
+private enum ScopedAlignmentBookmarkAccessError: Error {
+    case scopeNotActiveDuringRead(String)
+    case unresolvedBookmark
+}
+
+private final class ScopedAlignmentBookmarkAccessProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private let resolutions: [Data: URL]
+    private var active = Set<URL>()
+    private var stopped = [URL]()
+
+    init(resolutions: [Data: URL]) {
+        self.resolutions = resolutions.mapValues { $0.standardizedFileURL }
+    }
+
+    func resolve(_ data: Data) throws -> ReferenceBundleBookmarkResolution {
+        guard let url = resolutions[data] else {
+            throw ScopedAlignmentBookmarkAccessError.unresolvedBookmark
+        }
+        return ReferenceBundleBookmarkResolution(url: url, isStale: false)
+    }
+
+    func startAccessing(_ url: URL) -> Bool {
+        lock.lock()
+        active.insert(url.standardizedFileURL)
+        lock.unlock()
+        return true
+    }
+
+    func stopAccessing(_ url: URL) {
+        lock.lock()
+        let standardizedURL = url.standardizedFileURL
+        active.remove(standardizedURL)
+        stopped.append(standardizedURL)
+        lock.unlock()
+    }
+
+    func isAccessing(_ url: URL) -> Bool {
+        lock.lock()
+        let contains = active.contains(url.standardizedFileURL)
+        lock.unlock()
+        return contains
+    }
+
+    func stoppedURLs() -> [URL] {
+        lock.lock()
+        let urls = stopped
+        lock.unlock()
+        return urls
     }
 }

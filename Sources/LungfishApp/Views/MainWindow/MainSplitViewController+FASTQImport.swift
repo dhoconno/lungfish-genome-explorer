@@ -1,4 +1,4 @@
-// MainSplitViewController.swift - Three-panel split view controller
+// MainSplitViewController+FASTQImport.swift - FASTQ import actions and dialogs
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -83,7 +83,7 @@ extension MainSplitViewController {
                 ) { progress, message in
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.update(
+                            _ = OperationCenter.shared.update(
                                 id: opID,
                                 progress: progress,
                                 detail: message
@@ -92,7 +92,7 @@ extension MainSplitViewController {
                     }
                 }
 
-                OperationCenter.shared.complete(
+                _ = OperationCenter.shared.complete(
                     id: opID,
                     detail: "Imported \(result.bundleURL.lastPathComponent)"
                 )
@@ -144,6 +144,7 @@ extension MainSplitViewController {
                 title: "Annotation Import",
                 detail: "Importing \(url.lastPathComponent)...",
                 operationType: .bundleBuild,
+                targetBundleURL: bundleURL,
                 cliCommand: nil,
                 routeContext: operationRouteContext
             )
@@ -156,7 +157,7 @@ extension MainSplitViewController {
                         trackID: importConfiguration.trackID,
                         trackName: importConfiguration.trackName
                     )
-                OperationCenter.shared.complete(
+                _ = OperationCenter.shared.complete(
                     id: opID,
                     detail: "Imported \(result.featureCount) annotations"
                 )
@@ -166,7 +167,7 @@ extension MainSplitViewController {
                 }
                 postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: true, error: nil)
             } catch {
-                OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
                 postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: false, error: error.localizedDescription)
             }
             return
@@ -188,7 +189,7 @@ extension MainSplitViewController {
                 let installedURL = try HaplotypeDefinitionCommandService(projectRoot: projectURL)
                     .installMHCReferenceBundle(
                         from: url,
-                        argv: ["lungfish-cli", "haplotypes", "bundle-install", url.path]
+                        argv: [CLICommandIdentity.executableName, "haplotypes", "bundle-install", url.path]
                     )
                 mainSplitLogger.info(
                     "handleSidebarFileDropped: Installed reference allele database at \(installedURL.path, privacy: .public)"
@@ -289,7 +290,14 @@ extension MainSplitViewController {
 
     func copyProjectItemForImport(from sourceURL: URL, to destinationURL: URL) throws -> URL {
         if FASTQBundle.isBundleURL(sourceURL) {
-            let argv = ["lungfish", "fastq", "import-ont", sourceURL.path, "--output", destinationURL.path]
+            let argv = [
+                CLICommandIdentity.executableName,
+                "fastq",
+                "import-ont",
+                sourceURL.path,
+                "--output",
+                destinationURL.path,
+            ]
             let result = try FASTQBundleCopyImportWorkflow().importBundle(
                 sourceBundleURL: sourceURL,
                 outputURL: destinationURL,
@@ -468,7 +476,6 @@ extension MainSplitViewController {
 
     // MARK: - Duplicate File Handling
 
-    /// Shows a dialog asking the user how to handle a duplicate file
     /// Shows a dialog asking the user how to handle a duplicate file
     func showDuplicateFileDialog(filename: String) async -> DuplicateResolution {
         let alert = NSAlert()
@@ -856,7 +863,10 @@ extension MainSplitViewController {
                 .path ?? workingDirectory.path
             let invocation = try FASTQOperationCLIInvocationBuilder()
                 .buildInvocation(for: request, outputTargetPath: outputTarget)
-            return ([ "lungfish-cli", invocation.subcommand ] + invocation.arguments).joined(separator: " ")
+            return OperationCenter.buildCLICommand(
+                subcommand: invocation.subcommand,
+                args: invocation.arguments
+            )
         }()
         let opTitle = "FASTQ: \(request.operationDisplayTitle)"
         let startTime = Date()
@@ -870,7 +880,7 @@ extension MainSplitViewController {
         OperationCenter.shared.log(id: opID, level: .info, message: "Starting \(request.operationDisplayTitle)")
         viewerController.showProgress("Splitting ONT reads by Fluidigm sample barcodes...")
 
-        Task.detached(priority: .userInitiated) { [weak self, weak viewerController] in
+        let task = Task.detached(priority: .userInitiated) { [weak self, weak viewerController] in
             do {
                 try FileManager.default.createDirectory(at: destinationRoot, withIntermediateDirectories: true)
                 let result = try await executionService.execute(
@@ -880,7 +890,7 @@ extension MainSplitViewController {
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
                                 viewerController?.showProgress(message)
-                                OperationCenter.shared.updateWithLog(
+                                _ = OperationCenter.shared.updateWithLog(
                                     id: opID,
                                     progress: fraction,
                                     detail: message
@@ -900,7 +910,7 @@ extension MainSplitViewController {
                             level: .info,
                             message: "Completed in \(String(format: "%.1f", elapsed))s"
                         )
-                        OperationCenter.shared.complete(
+                        _ = OperationCenter.shared.complete(
                             id: opID,
                             detail: "Done in \(String(format: "%.1f", elapsed))s"
                         )
@@ -921,7 +931,7 @@ extension MainSplitViewController {
                             level: .error,
                             message: "Failed after \(String(format: "%.1f", elapsed))s: \(errorDesc)"
                         )
-                        OperationCenter.shared.fail(
+                        _ = OperationCenter.shared.fail(
                             id: opID,
                             detail: "Failed after \(String(format: "%.1f", elapsed))s",
                             errorMessage: errorDesc,
@@ -942,6 +952,7 @@ extension MainSplitViewController {
                 }
             }
         }
+        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
     }
 
     func performONTPacBioBarcodeDemux(
@@ -981,7 +992,10 @@ extension MainSplitViewController {
                 .path ?? workingDirectory.path
             let invocation = try FASTQOperationCLIInvocationBuilder()
                 .buildInvocation(for: request, outputTargetPath: outputTarget)
-            return ([ "lungfish-cli", invocation.subcommand ] + invocation.arguments).joined(separator: " ")
+            return OperationCenter.buildCLICommand(
+                subcommand: invocation.subcommand,
+                args: invocation.arguments
+            )
         }()
         let opTitle = "FASTQ: \(request.operationDisplayTitle)"
         let startTime = Date()
@@ -995,7 +1009,7 @@ extension MainSplitViewController {
         OperationCenter.shared.log(id: opID, level: .info, message: "Starting \(request.operationDisplayTitle)")
         viewerController.showProgress("Demultiplexing ONT chunks with PacBio barcode pairs...")
 
-        Task.detached(priority: .userInitiated) { [weak self, weak viewerController] in
+        let task = Task.detached(priority: .userInitiated) { [weak self, weak viewerController] in
             do {
                 try FileManager.default.createDirectory(at: destinationRoot, withIntermediateDirectories: true)
                 let result = try await executionService.execute(
@@ -1005,7 +1019,7 @@ extension MainSplitViewController {
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
                                 viewerController?.showProgress(message)
-                                OperationCenter.shared.updateWithLog(
+                                _ = OperationCenter.shared.updateWithLog(
                                     id: opID,
                                     progress: fraction,
                                     detail: message
@@ -1025,7 +1039,7 @@ extension MainSplitViewController {
                             level: .info,
                             message: "Completed in \(String(format: "%.1f", elapsed))s"
                         )
-                        OperationCenter.shared.complete(
+                        _ = OperationCenter.shared.complete(
                             id: opID,
                             detail: "Done in \(String(format: "%.1f", elapsed))s"
                         )
@@ -1046,7 +1060,7 @@ extension MainSplitViewController {
                             level: .error,
                             message: "Failed after \(String(format: "%.1f", elapsed))s: \(errorDesc)"
                         )
-                        OperationCenter.shared.fail(
+                        _ = OperationCenter.shared.fail(
                             id: opID,
                             detail: "Failed after \(String(format: "%.1f", elapsed))s",
                             errorMessage: errorDesc,
@@ -1067,6 +1081,7 @@ extension MainSplitViewController {
                 }
             }
         }
+        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
     }
 
     /// Performs the actual ONT directory import after the user has chosen whether to include unclassified reads.

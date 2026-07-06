@@ -312,34 +312,18 @@ extension DocumentCapability: ExpressibleByArrayLiteral {
 
 /// A type that can provide document capabilities.
 ///
-/// Implement this protocol to declare what capabilities a document,
-/// format, or data source can provide. This enables tools to validate
+/// Implement this protocol to declare what capabilities a synchronous,
+/// nonisolated capability snapshot can provide. This enables tools to validate
 /// inputs and the system to suggest appropriate conversions.
+///
+/// MainActor-isolated documents should compute their capabilities on the main
+/// actor and pass a ``DocumentCapabilityWrapper`` to APIs that require a generic
+/// provider.
 ///
 /// ## Example Implementation
 /// ```swift
-/// extension GenomicDocument: CapabilityProvider {
-///     var capabilities: DocumentCapability {
-///         var caps: DocumentCapability = []
-///
-///         // Check sequence types
-///         for sequence in sequences {
-///             switch sequence.alphabet {
-///             case .dna, .rna:
-///                 caps.insert(.nucleotideSequence)
-///             case .protein:
-///                 caps.insert(.aminoAcidSequence)
-///             }
-///         }
-///
-///         // Check for annotations
-///         if annotationCount > 0 {
-///             caps.insert(.annotations)
-///         }
-///
-///         return caps
-///     }
-/// }
+/// let caps = await MainActor.run { document.computeCapabilities() }
+/// let provider = DocumentCapabilityWrapper(capabilities: caps)
 /// ```
 public protocol CapabilityProvider: Sendable {
     /// The capabilities this provider offers.

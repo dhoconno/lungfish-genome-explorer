@@ -68,11 +68,7 @@ public enum ReadAnnotationFile {
 
     /// Writes annotations to a TSV file atomically.
     public static func write(_ annotations: [Annotation], to url: URL) throws {
-        let fm = FileManager.default
-        let tmpURL = url.appendingPathExtension("tmp")
-        fm.createFile(atPath: tmpURL.path, contents: nil)
-        let handle = try FileHandle(forWritingTo: tmpURL)
-        do {
+        try FASTQAtomicFileWriter.write(to: url) { handle in
             if let headerData = "\(formatHeader)\nread_id\tmate\ttype\tstart\tend\tstrand\tlabel\tmetadata\n"
                 .data(using: .utf8) {
                 handle.write(headerData)
@@ -88,16 +84,6 @@ public enum ReadAnnotationFile {
                     handle.write(data)
                 }
             }
-            try handle.close()
-        } catch {
-            try? handle.close()
-            try? fm.removeItem(at: tmpURL)
-            throw error
-        }
-        // POSIX rename is atomic on same filesystem
-        if rename(tmpURL.path, url.path) != 0 {
-            try? fm.removeItem(at: url)
-            try fm.moveItem(at: tmpURL, to: url)
         }
     }
 

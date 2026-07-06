@@ -121,13 +121,6 @@ public final class FASTQDatasetViewController: NSViewController {
 
     // MARK: - Operation Categories
 
-    private struct OperationItem {
-        let kind: OperationKind
-        let title: String
-        let sfSymbol: String
-        let category: String
-    }
-
     private enum LegacyOperationKind: Int, CaseIterable {
         case qualityReport
         case subsampleProportion
@@ -153,132 +146,6 @@ public final class FASTQDatasetViewController: NSViewController {
         case detectViruses
         case comprehensiveTriage
         case humanReadScrub
-
-        var title: String {
-            switch self {
-            case .qualityReport: return "Generate Quality Report"
-            case .subsampleProportion: return "Subsample by Proportion"
-            case .subsampleCount: return "Subsample by Count"
-            case .lengthFilter: return "Filter by Read Length"
-            case .searchText: return "Extract Reads by ID"
-            case .searchMotif: return "Extract Reads by Motif"
-            case .deduplicate: return "Remove Duplicate Reads"
-            case .qualityTrim: return "Quality Trim"
-            case .adapterTrim: return "Adapter Removal"
-            case .fixedTrim: return "Trim Fixed Bases"
-            case .contaminantFilter: return "Remove Spike-in / Contaminants"
-            case .pairedEndMerge: return "Merge Overlapping Pairs"
-            case .pairedEndRepair: return "Repair Paired-End Files"
-            case .primerRemoval: return "PCR Primer Trimming\u{2026}"
-            case .sequencePresenceFilter: return "Select Reads by Sequence"
-            case .errorCorrection: return "Correct Sequencing Errors"
-            case .orient: return "Orient to Reference Strand"
-            case .demultiplex: return "Demultiplex by Barcodes\u{2026}"
-            case .assembleReads: return "Assemble Reads"
-            case .mapReads: return "Map Reads"
-            case .classifyReads: return "Classify & Profile (Kraken2)"
-            case .detectViruses: return "Detect Viruses (EsViritu)"
-            case .comprehensiveTriage: return "Detect Pathogens (TaxTriage)"
-            case .humanReadScrub: return "Remove Human Reads"
-            }
-        }
-
-        var sfSymbol: String {
-            switch self {
-            case .qualityReport: return "chart.bar.doc.horizontal"
-            case .subsampleProportion: return "percent"
-            case .subsampleCount: return "number"
-            case .lengthFilter: return "ruler"
-            case .searchText: return "magnifyingglass"
-            case .searchMotif: return "text.magnifyingglass"
-            case .deduplicate: return "square.on.square.dashed"
-            case .qualityTrim: return "scissors"
-            case .adapterTrim: return "scissors.badge.ellipsis"
-            case .fixedTrim: return "crop"
-            case .contaminantFilter: return "shield.slash"
-            case .pairedEndMerge: return "arrow.triangle.merge"
-            case .pairedEndRepair: return "wrench.and.screwdriver"
-            case .primerRemoval: return "pin.slash"
-            case .sequencePresenceFilter: return "text.badge.checkmark"
-            case .errorCorrection: return "wand.and.stars"
-            case .orient: return "arrow.uturn.right"
-            case .demultiplex: return "barcode"
-            case .assembleReads: return "puzzlepiece.extension"
-            case .mapReads: return "arrow.left.and.right.text.vertical"
-            case .classifyReads: return "k.circle"
-            case .detectViruses: return "e.circle"
-            case .comprehensiveTriage: return "t.circle"
-            case .humanReadScrub: return "person.slash"
-            }
-        }
-
-        var category: String {
-            switch self {
-            case .qualityReport: return "REPORTS"
-            case .demultiplex: return "DEMULTIPLEXING"
-            case .qualityTrim, .adapterTrim, .fixedTrim, .primerRemoval, .lengthFilter: return "TRIMMING"
-            case .humanReadScrub, .contaminantFilter, .deduplicate: return "DECONTAMINATION"
-            case .pairedEndMerge, .pairedEndRepair, .orient, .errorCorrection: return "READ PROCESSING"
-            case .subsampleProportion, .subsampleCount, .searchText, .searchMotif, .sequencePresenceFilter: return "SAMPLING & SEARCH"
-            case .assembleReads: return "ASSEMBLY"
-            case .mapReads: return "MAPPING"
-            case .classifyReads, .detectViruses, .comprehensiveTriage: return "CLASSIFICATION"
-            }
-        }
-
-        /// Tooltip describing when and why a biologist would use this operation.
-        var tooltip: String {
-            switch self {
-            case .qualityReport:
-                return "Compute per-base quality, GC content, adapter content, and read length distributions. Use as your first step to decide which preprocessing is needed."
-            case .subsampleProportion:
-                return "Keep a random fraction of reads. Useful for quick test runs or normalizing read depth across samples."
-            case .subsampleCount:
-                return "Keep a specific number of randomly selected reads. Useful for downsampling to a target coverage."
-            case .lengthFilter:
-                return "Keep only reads within a specified length range. Similar to gel-based or bead-based size selection in the lab."
-            case .searchText:
-                return "Find and extract reads matching a text pattern in the read ID or description header."
-            case .searchMotif:
-                return "Find and extract reads containing a specific DNA sequence motif (supports IUPAC ambiguity codes)."
-            case .deduplicate:
-                return "Remove PCR duplicates (identical read pairs from library amplification). Important for WGS and enrichment. Do NOT use for amplicon data — identical reads are expected signal."
-            case .qualityTrim:
-                return "Trim low-quality bases from read ends using a sliding window. Improves downstream mapping and variant calling accuracy."
-            case .adapterTrim:
-                return "Remove sequencing adapter sequences from reads. Auto-detect mode works for most Illumina libraries."
-            case .fixedTrim:
-                return "Remove a fixed number of bases from the 5\u{2032} and/or 3\u{2032} end of every read. Use when you know the first N bases are always a technical artifact."
-            case .contaminantFilter:
-                return "Remove reads matching a contaminant reference (PhiX spike-in by default). Specify a custom FASTA for other contaminants like cloning vectors."
-            case .pairedEndMerge:
-                return "Combine overlapping R1 and R2 reads into single longer reads. Useful when insert size is shorter than 2\u{00D7} read length (common in amplicon and viral WGS)."
-            case .pairedEndRepair:
-                return "Fix paired-end files where R1 and R2 are out of sync (e.g., after filtering removed one mate). Restores proper pairing."
-            case .primerRemoval:
-                return "Remove known PCR primer sequences from read ends. Required for amplicon sequencing to prevent primer-derived false variants."
-            case .sequencePresenceFilter:
-                return "Keep or discard reads containing a specific DNA sequence. Useful for selecting reads with a known barcode or removing unwanted adapter chimeras."
-            case .errorCorrection:
-                return "Correct random sequencing errors using k-mer frequency analysis. Improves de novo assembly quality. Do NOT use before variant calling — it can erase real low-frequency mutations."
-            case .orient:
-                return "Ensure all reads face 5\u{2032}\u{2192}3\u{2032} relative to a reference. Reverse-complements reads on the minus strand. Essential for amplicon data with known primer orientation."
-            case .demultiplex:
-                return "Split a pooled FASTQ into individual samples by barcode. Supports Illumina, ONT, and PacBio kits. Not needed if your core already demultiplexed."
-            case .assembleReads:
-                return "Assemble reads de novo into contigs and scaffolds using SPAdes. Supports bacterial isolate, metagenome, and viral assembly modes."
-            case .mapReads:
-                return "Map reads to a reference genome with the shared mapping tools. Produces a sorted, indexed BAM file for viewport display and region-based browsing."
-            case .classifyReads:
-                return "Assign each read to a taxonomic group using Kraken2. Produces abundance profiles at species level and optional Bracken-refined estimates."
-            case .detectViruses:
-                return "Run EsViritu viral metagenomics detection with de novo assembly and genome coverage analysis."
-            case .comprehensiveTriage:
-                return "Run TaxTriage for end-to-end pathogen detection from metagenomic reads with confidence scoring and organism reporting."
-            case .humanReadScrub:
-                return "Remove human-derived reads using the required Human Read Removal Data. Required before SRA submission and recommended for clinical or surveillance samples."
-            }
-        }
 
         var previewKind: OperationPreviewView.OperationKind {
             switch self {
@@ -314,44 +181,7 @@ public final class FASTQDatasetViewController: NSViewController {
 
     // MARK: - Sidebar Data
 
-    /// Category headers + operation items for the source list sidebar.
-    /// Ordered to match a typical FASTQ preprocessing workflow.
-    private static let legacyOperationSections: [(header: String, items: [OperationKind])] = [
-        ("REPORTS", [.qualityReport]),
-        ("DEMULTIPLEXING", [.demultiplex]),
-        ("TRIMMING", [.qualityTrim, .adapterTrim, .primerRemoval, .fixedTrim, .lengthFilter]),
-        ("DECONTAMINATION", [.humanReadScrub, .contaminantFilter, .deduplicate]),
-        ("READ PROCESSING", [.pairedEndMerge, .pairedEndRepair, .orient, .errorCorrection]),
-        ("SAMPLING & SEARCH", [.subsampleProportion, .subsampleCount, .searchText, .searchMotif, .sequencePresenceFilter]),
-        ("MAPPING", [.mapReads]),
-        ("ASSEMBLY", [.assembleReads]),
-        ("CLASSIFICATION", [.classifyReads, .detectViruses, .comprehensiveTriage]),
-    ]
-
     private static let operationCategoryLaunchers: [FASTQOperationCategoryID] = FASTQOperationCategoryID.allCases
-
-
-    // MARK: - Sidebar Expansion State
-
-    private static let expansionDefaultsKey = "FASTQOperationSidebarExpansion"
-
-    /// Set of category header names that are currently expanded.
-    /// Categories not in this set are collapsed (all collapsed by default).
-    private var expandedCategories: Set<String> = {
-        guard let dict = UserDefaults.standard.dictionary(forKey: FASTQDatasetViewController.expansionDefaultsKey) as? [String: Bool] else {
-            return []
-        }
-        return Set(dict.filter { $0.value }.map { $0.key })
-    }()
-
-    /// Persists the current expansion state to UserDefaults.
-    private func saveExpansionState() {
-        var dict: [String: Bool] = [:]
-        for (header, _) in Self.legacyOperationSections {
-            dict[header] = expandedCategories.contains(header)
-        }
-        UserDefaults.standard.set(dict, forKey: Self.expansionDefaultsKey)
-    }
 
     // MARK: - Properties
 
@@ -456,6 +286,9 @@ public final class FASTQDatasetViewController: NSViewController {
     private let qualityTrimModePopup = NSPopUpButton()
     private let adapterModePopup = NSPopUpButton()
     private let contaminantModePopup = NSPopUpButton()
+    private let contaminantReferenceBrowseButton = NSButton(title: "Browse\u{2026}", target: nil, action: nil)
+    private let contaminantReferenceLabel = NSTextField(labelWithString: "No reference selected")
+    private var contaminantReferenceURL: URL?
     private let mergeStrictnessPopup = NSPopUpButton()
     private let primerSourcePopup = NSPopUpButton()
     private let interleaveDirectionPopup = NSPopUpButton()
@@ -485,7 +318,8 @@ public final class FASTQDatasetViewController: NSViewController {
         return label
     }()
     private lazy var errorBannerDismissButton: NSButton = {
-        let btn = NSButton(image: NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "Dismiss")!, target: self, action: #selector(dismissErrorBanner))
+        let image = AppSystemSymbolImage.named("xmark.circle.fill", accessibilityDescription: "Dismiss")
+        let btn = NSButton(image: image, target: self, action: #selector(dismissErrorBanner))
         btn.bezelStyle = .inline
         btn.isBordered = false
         return btn
@@ -865,6 +699,16 @@ public final class FASTQDatasetViewController: NSViewController {
         qualityTrimModePopup.addItems(withTitles: ["Cut Right (3')", "Cut Front (5')", "Cut Tail", "Cut Both"])
         adapterModePopup.addItems(withTitles: ["Auto-Detect", "Specify Sequence"])
         contaminantModePopup.addItems(withTitles: ["PhiX Spike-in", "Custom Reference"])
+        contaminantReferenceBrowseButton.translatesAutoresizingMaskIntoConstraints = false
+        contaminantReferenceBrowseButton.bezelStyle = .rounded
+        contaminantReferenceBrowseButton.controlSize = .small
+        contaminantReferenceBrowseButton.target = self
+        contaminantReferenceBrowseButton.action = #selector(contaminantReferenceBrowseClicked(_:))
+        contaminantReferenceLabel.translatesAutoresizingMaskIntoConstraints = false
+        contaminantReferenceLabel.font = .systemFont(ofSize: 11)
+        contaminantReferenceLabel.textColor = .secondaryLabelColor
+        contaminantReferenceLabel.lineBreakMode = .byTruncatingMiddle
+        contaminantReferenceLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         mergeStrictnessPopup.addItems(withTitles: ["Normal", "Strict"])
         primerSourcePopup.addItems(withTitles: ["Literal Sequence", "Reference FASTA"])
         interleaveDirectionPopup.addItems(withTitles: ["Interleave (R1+R2 → one)", "Deinterleave (one → R1+R2)"])
@@ -1153,6 +997,9 @@ public final class FASTQDatasetViewController: NSViewController {
             parameterBar.addArrangedSubview(fieldOneInput)
             parameterBar.addArrangedSubview(fieldTwoLabel)
             parameterBar.addArrangedSubview(fieldTwoInput)
+            parameterBar.addArrangedSubview(contaminantReferenceBrowseButton)
+            parameterBar.addArrangedSubview(contaminantReferenceLabel)
+            updateContaminantReferenceControls()
 
         case .pairedEndMerge:
             fieldOneLabel.stringValue = "Min Overlap:"
@@ -1723,14 +1570,14 @@ public final class FASTQDatasetViewController: NSViewController {
     // MARK: - Quality Report
 
     private func updateQualityReportButton() {
-        // Quality report availability is now reflected via the sidebar operation state.
+        // Quality report availability is reflected by the selected operation controls.
         // If quality data already exists, the parameter bar shows "already computed".
         if selectedOperation == .qualityReport {
             updateParameterBar()
         }
     }
 
-    /// Selects the Quality Report operation in the sidebar and immediately runs it.
+    /// Selects the Quality Report operation controls and immediately runs them.
     private func selectAndRunQualityReport() {
         selectedOperation = .qualityReport
         updateParameterBar()
@@ -1889,7 +1736,7 @@ public final class FASTQDatasetViewController: NSViewController {
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
                         guard let self else { return }
-                        OperationCenter.shared.complete(id: opID, detail: "Complete — \(fullStats.readCount) reads")
+                        _ = OperationCenter.shared.complete(id: opID, detail: "Complete — \(fullStats.readCount) reads")
                         self.qualityReportTask = nil
                         self.statistics = fullStats
                         self.summaryBar.update(with: fullStats)
@@ -1909,7 +1756,7 @@ public final class FASTQDatasetViewController: NSViewController {
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
                         guard let self else { return }
-                        OperationCenter.shared.complete(id: opID, detail: "Cancelled")
+                        _ = OperationCenter.shared.complete(id: opID, detail: "Cancelled")
                         self.qualityReportTask = nil
                         self.updateRunButtonState()
                         self.cancelButton.isHidden = true
@@ -1923,7 +1770,7 @@ public final class FASTQDatasetViewController: NSViewController {
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
                         guard let self else { return }
-                        OperationCenter.shared.fail(id: opID, detail: errorMessage)
+                        _ = OperationCenter.shared.fail(id: opID, detail: errorMessage)
                         self.qualityReportTask = nil
                         self.updateRunButtonState()
                         self.cancelButton.isHidden = true
@@ -1962,12 +1809,37 @@ public final class FASTQDatasetViewController: NSViewController {
 
 
     @objc private func parameterPopupChanged(_ sender: NSPopUpButton) {
+        if sender === contaminantModePopup {
+            updateContaminantReferenceControls()
+            updateRunButtonState()
+        }
         updatePreview()
     }
 
 
     @objc private func parameterCheckboxChanged(_ sender: NSButton) {
         updatePreview()
+    }
+
+    private func updateContaminantReferenceControls() {
+        let usesCustomReference = contaminantModePopup.indexOfSelectedItem == 1
+        contaminantReferenceBrowseButton.isHidden = !usesCustomReference
+        contaminantReferenceLabel.isHidden = !usesCustomReference
+        contaminantReferenceLabel.stringValue = contaminantReferenceURL?.lastPathComponent ?? "No reference selected"
+        contaminantReferenceLabel.textColor = contaminantReferenceURL == nil ? .secondaryLabelColor : .labelColor
+    }
+
+    @objc private func contaminantReferenceBrowseClicked(_ sender: NSButton) {
+        let panel = ViewerFilePanelFactory.fastqContaminantReferencePanel()
+        guard let window = self.view.window ?? NSApp.mainWindow else { return }
+
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard let self, response == .OK, let url = panel.url else { return }
+            self.contaminantReferenceURL = url.standardizedFileURL
+            self.updateContaminantReferenceControls()
+            self.updateRunButtonState()
+            self.updatePreview()
+        }
     }
 
     /// Programmatically triggers the current operation run. Called after scout "Proceed".
@@ -2353,35 +2225,9 @@ public final class FASTQDatasetViewController: NSViewController {
         }
     }
 
-    /// Maps a flat table row index to an OperationKind, accounting for category
-    /// headers and collapsed categories.
-    private func operationKindForRow(_ row: Int) -> OperationKind? {
-        var currentRow = 0
-        for (header, items) in Self.legacyOperationSections {
-            if currentRow == row { return nil } // header row
-            currentRow += 1 // header
-            guard expandedCategories.contains(header) else { continue }
-            for item in items {
-                if currentRow == row { return item }
-                currentRow += 1
-            }
-        }
-        return nil
-    }
-
-    /// Total number of rows in the sidebar (headers + visible items).
+    /// Total number of rows in the sidebar.
     private var sidebarRowCount: Int {
         Self.operationCategoryLaunchers.count
-    }
-
-    /// Returns whether a row is a group header.
-    private func isGroupRow(_ row: Int) -> Bool {
-        false
-    }
-
-    /// Returns the category header name for a group row, or nil if not a group row.
-    private func categoryHeaderForRow(_ row: Int) -> String? {
-        nil
     }
 
     /// Returns the category header or operation title for a row.
@@ -2394,11 +2240,6 @@ public final class FASTQDatasetViewController: NSViewController {
     private func sfSymbolForRow(_ row: Int) -> String? {
         guard let category = operationCategoryForRow(row) else { return nil }
         return symbolForOperationCategory(category)
-    }
-
-    /// Toggles expansion of a category, animating row insertion or removal.
-    private func toggleCategory(_ header: String) {
-        _ = header
     }
 
     // MARK: - Request Building
@@ -2538,11 +2379,23 @@ public final class FASTQDatasetViewController: NSViewController {
                 setStatus("Mismatch tolerance must be 0-3.", isError: true)
                 return nil
             }
-            if contaminantModePopup.indexOfSelectedItem == 1 {
-                setStatus("Custom reference mode requires a file picker (not yet implemented). Use PhiX mode.", isError: true)
-                return nil
+            let mode: FASTQContaminantFilterMode = contaminantModePopup.indexOfSelectedItem == 1 ? .custom : .phix
+            let referencePath: String?
+            if mode == .custom {
+                guard let contaminantReferenceURL else {
+                    setStatus("Select a contaminant reference FASTA before running custom contaminant filtering.", isError: true)
+                    return nil
+                }
+                referencePath = contaminantReferenceURL.path
+            } else {
+                referencePath = nil
             }
-            return .contaminantFilter(mode: .phix, referenceFasta: nil, kmerSize: kmerSize, hammingDistance: hammingDist)
+            return .contaminantFilter(
+                mode: mode,
+                referenceFasta: referencePath,
+                kmerSize: kmerSize,
+                hammingDistance: hammingDist
+            )
 
         case .pairedEndMerge:
             let minOverlap = Int(fieldOneInput.stringValue) ?? 12
@@ -2751,6 +2604,9 @@ public final class FASTQDatasetViewController: NSViewController {
         case .humanReadScrub:
             runButton.isEnabled = true
             runButton.title = "Run"
+        case .contaminantFilter:
+            runButton.isEnabled = contaminantModePopup.indexOfSelectedItem != 1 || contaminantReferenceURL != nil
+            runButton.title = "Run"
         case .orient:
             runButton.isEnabled = orientReferenceURL != nil
             runButton.title = "Run"
@@ -2844,8 +2700,7 @@ extension FASTQDatasetViewController: NSTableViewDataSource, NSTableViewDelegate
     }
 
     public func tableView(_ tableView: NSTableView, isGroupRow row: Int) -> Bool {
-        if tableView === readPreviewTable { return false }
-        return isGroupRow(row)
+        false
     }
 
     public func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
@@ -2853,27 +2708,8 @@ extension FASTQDatasetViewController: NSTableViewDataSource, NSTableViewDelegate
             return readPreviewCellView(for: tableColumn, row: row)
         }
 
-        let isGroup = isGroupRow(row)
         let title = titleForRow(row)
         let columnID = tableColumn?.identifier.rawValue ?? ""
-
-        if isGroup {
-            if columnID == "icon" {
-                // Disclosure triangle in the icon column
-                let isExpanded = expandedCategories.contains(title)
-                let triangleName = isExpanded ? "chevron.down" : "chevron.right"
-                let imageView = NSImageView()
-                imageView.image = NSImage(systemSymbolName: triangleName, accessibilityDescription: isExpanded ? "Collapse" : "Expand")?
-                    .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold))
-                imageView.contentTintColor = .tertiaryLabelColor
-                imageView.imageScaling = .scaleProportionallyDown
-                return imageView
-            }
-            let cell = NSTextField(labelWithString: title)
-            cell.font = .systemFont(ofSize: 11, weight: .semibold)
-            cell.textColor = .secondaryLabelColor
-            return cell
-        }
 
         if columnID == "icon" {
             if let symbolName = sfSymbolForRow(row) {
@@ -2898,19 +2734,12 @@ extension FASTQDatasetViewController: NSTableViewDataSource, NSTableViewDelegate
 
     public func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         if tableView === readPreviewTable { return 20 }
-        return isGroupRow(row) ? 28 : 24
+        return 24
     }
 
     public func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
         if tableView === readPreviewTable { return true }
-        if isGroupRow(row) {
-            // Toggle expansion when the user clicks on a group header row
-            if let header = categoryHeaderForRow(row) {
-                toggleCategory(header)
-            }
-            return false
-        }
-        return true
+        return operationCategoryForRow(row) != nil
     }
 
     public func tableViewSelectionDidChange(_ notification: Notification) {
@@ -3030,3 +2859,22 @@ extension FASTQDatasetViewController: NSSplitViewDelegate {
         false
     }
 }
+
+#if DEBUG
+extension FASTQDatasetViewController {
+    func testingSelectContaminantFilter(
+        mode: FASTQContaminantFilterMode,
+        referenceURL: URL? = nil
+    ) -> (request: FASTQDerivativeRequest?, isRunEnabled: Bool) {
+        _ = view
+        selectedOperation = .contaminantFilter
+        updateParameterBar()
+        contaminantModePopup.selectItem(at: mode == .custom ? 1 : 0)
+        contaminantReferenceURL = referenceURL?.standardizedFileURL
+        updateContaminantReferenceControls()
+        updateRunButtonState()
+
+        return (buildOperationRequest(), runButton.isEnabled)
+    }
+}
+#endif

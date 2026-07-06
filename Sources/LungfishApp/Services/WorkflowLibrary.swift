@@ -80,16 +80,24 @@ public struct WorkflowFeatureAvailability: Equatable, Sendable {
 
     @MainActor
     static func current(
-        enablementStore: WorkflowLibraryEnablementStore = .shared
+        enablementStore: WorkflowLibraryEnablementStore = .shared,
+        packageStore: WorkflowLibraryImportedPackageStore = .shared
     ) -> WorkflowFeatureAvailability {
         let enabledBuiltInCapabilities = Set(
             WorkflowLibraryCatalog.builtIn
                 .filter { $0.maturity != .core && enablementStore.isWorkflowEnabled($0) }
                 .flatMap(\.capabilities)
         )
+        let hasBuiltInWorkflowOperations = enabledBuiltInCapabilities.contains(.workflowOperations)
+        let enabledUserWorkflowIDs = enablementStore.enabledUserWorkflowIDSnapshot
+        let hasRunnableUserWorkflows = hasBuiltInWorkflowOperations || enabledUserWorkflowIDs.isEmpty
+            ? false
+            : packageStore.validatedPackages().contains { package in
+                package.supportsWorkflowLibraryExecution && enabledUserWorkflowIDs.contains(package.manifest.id)
+            }
         return WorkflowFeatureAvailability(
-            hasWorkflowOperations: enabledBuiltInCapabilities.contains(.workflowOperations)
-                || !enablementStore.enabledUserWorkflowIDSnapshot.isEmpty,
+            hasWorkflowOperations: hasBuiltInWorkflowOperations
+                || hasRunnableUserWorkflows,
             hasHaplotypeDefinitions: enabledBuiltInCapabilities.contains(.haplotypeDefinitions)
         )
     }
@@ -270,6 +278,49 @@ protocol WorkflowLibraryEnabling: AnyObject {
 enum WorkflowLibraryEnablementResult: Equatable, Sendable {
     case enabled
     case blocked(missingPackIDs: [String])
+    case unsupportedRunner(kind: WorkflowPackageRunnerKind)
+}
+
+extension WorkflowPackageRunnerKind {
+    var supportsWorkflowLibraryExecution: Bool {
+        switch self {
+        case .nextflow, .snakemake:
+            return true
+        case .command:
+            return false
+        }
+    }
+
+    var workflowLibraryUnsupportedReason: String? {
+        switch self {
+        case .nextflow, .snakemake:
+            return nil
+        case .command:
+            return "Command-runner packages can be imported and reviewed, but beta1 does not execute them."
+        }
+    }
+}
+
+extension WorkflowPackageValidationResult {
+    var supportsWorkflowLibraryExecution: Bool {
+        workflowLibraryExecutionUnavailableReason == nil
+    }
+
+    var workflowLibraryExecutionUnavailableReason: String? {
+        if let runnerReason = manifest.runner.kind.workflowLibraryUnsupportedReason {
+            return runnerReason
+        }
+        let hasReferenceInput = manifest.inputs.contains {
+            $0.required && $0.bundleTypes.contains(.lungfishref)
+        }
+        let hasFASTQInput = manifest.inputs.contains {
+            $0.required && $0.bundleTypes.contains(.lungfishfastq)
+        }
+        guard hasReferenceInput, hasFASTQInput, !manifest.outputs.isEmpty else {
+            return "Beta1 Workflow Operations require a required .lungfishref input, a required .lungfishfastq input, and at least one declared output."
+        }
+        return nil
+    }
 }
 
 extension Notification.Name {
@@ -375,6 +426,7 @@ final class WorkflowLibraryEnablementStore: WorkflowLibraryEnabling {
     }
 
     func setUserWorkflow(_ package: WorkflowPackageValidationResult, enabled: Bool) {
+        guard !enabled || package.supportsWorkflowLibraryExecution else { return }
         setUserWorkflow(package.manifest.id, enabled: enabled)
     }
 
@@ -394,6 +446,9 @@ final class WorkflowLibraryEnablementStore: WorkflowLibraryEnabling {
         _ package: WorkflowPackageValidationResult,
         using provider: any PluginPackStatusProviding
     ) async -> WorkflowLibraryEnablementResult {
+        guard package.supportsWorkflowLibraryExecution else {
+            return .unsupportedRunner(kind: package.manifest.runner.kind)
+        }
         let missingPackIDs = await missingRequiredPluginPackIDs(for: package, using: provider)
         guard missingPackIDs.isEmpty else {
             return .blocked(missingPackIDs: missingPackIDs)

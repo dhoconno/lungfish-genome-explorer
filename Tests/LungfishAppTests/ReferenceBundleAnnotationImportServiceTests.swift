@@ -188,9 +188,10 @@ final class ReferenceBundleAnnotationImportServiceTests: XCTestCase {
         XCTAssertTrue(provenance.contains(gffURL.path))
         XCTAssertTrue(provenance.contains("custom_feature.db"))
         XCTAssertTrue(provenance.contains("\"featureCount\" : 1"))
+        XCTAssertTrue(provenance.contains("\"rejectZeroFeatureTracks\" : \"true\""))
     }
 
-    func testAttachesEmptyGFFWithNoAnnotationsManifestEntry() async throws {
+    func testRejectsEmptyGFFWithoutPublishingAnnotationTrack() async throws {
         let bundleURL = try makeBundle(named: "M1")
         let gffURL = tempRoot.appendingPathComponent("empty.gff3")
         try """
@@ -199,19 +200,55 @@ final class ReferenceBundleAnnotationImportServiceTests: XCTestCase {
 
         """.write(to: gffURL, atomically: true, encoding: .utf8)
 
-        let result = try await ReferenceBundleAnnotationImportService().attachAnnotationTrack(
-            sourceURL: gffURL,
-            bundleURL: bundleURL
-        )
+        do {
+            _ = try await ReferenceBundleAnnotationImportService().attachAnnotationTrack(
+                sourceURL: gffURL,
+                bundleURL: bundleURL
+            )
+            XCTFail("Expected empty GFF import to fail closed")
+        } catch ReferenceBundleAnnotationImportError.noImportableAnnotations(let url) {
+            XCTAssertEqual(url, gffURL)
+        } catch {
+            XCTFail("Expected noImportableAnnotations, got \(error)")
+        }
 
         let manifest = try BundleManifest.load(from: bundleURL)
-        XCTAssertEqual(result.featureCount, 0)
-        XCTAssertEqual(manifest.annotations.count, 1)
-        XCTAssertEqual(manifest.annotations.first?.featureCount, 0)
-        XCTAssertEqual(manifest.annotations.first?.description, "Imported from empty.gff3 (no annotations found)")
-        XCTAssertTrue(FileManager.default.fileExists(
+        XCTAssertTrue(manifest.annotations.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(
             atPath: bundleURL.appendingPathComponent("annotations/empty.db").path
         ))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: bundleURL.appendingPathComponent("annotations/empty-import-provenance.json").path
+        ))
+    }
+
+    func testAnnotationImportReportsRollbackFailureWhenProvenanceRestoreFails() async throws {
+        let bundleURL = try makeBundle(named: "M1")
+        let provenanceURL = bundleURL.appendingPathComponent("provenance", isDirectory: true)
+        try FileManager.default.createDirectory(at: provenanceURL, withIntermediateDirectories: true)
+        let annotationsBlockerURL = provenanceURL.appendingPathComponent("annotations")
+        try "not a directory".write(to: annotationsBlockerURL, atomically: true, encoding: .utf8)
+        try setUserImmutable(true, at: annotationsBlockerURL)
+        defer { try? setUserImmutable(false, at: annotationsBlockerURL) }
+
+        let bedURL = tempRoot.appendingPathComponent("rollback_fail.bed")
+        try "chr1\t1\t12\tgeneA\t0\t+\n".write(to: bedURL, atomically: true, encoding: .utf8)
+
+        do {
+            _ = try await ReferenceBundleAnnotationImportService().attachAnnotationTrack(
+                sourceURL: bedURL,
+                bundleURL: bundleURL,
+                trackID: "rollback_fail",
+                trackName: "Rollback Fail"
+            )
+            XCTFail("Expected annotation import rollback failure to be reported.")
+        } catch let error as ProvenancePublicationRollbackError {
+            XCTAssertTrue(error.originalErrorDescription.contains("provenance/annotations"))
+            XCTAssertTrue(error.rollbackErrorDescription.contains("Cocoa"))
+            XCTAssertTrue(error.errorDescription?.contains("rollback failed") == true)
+        } catch {
+            XCTFail("Expected ProvenancePublicationRollbackError, got \(error).")
+        }
     }
 
     func testDiscoverReferenceBundlesReturnsProjectRelativeDisplayPaths() throws {
@@ -302,5 +339,16 @@ final class ReferenceBundleAnnotationImportServiceTests: XCTestCase {
         )
         try manifest.save(to: bundleURL)
         return bundleURL
+    }
+
+    private func setUserImmutable(_ enabled: Bool, at url: URL) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/chflags")
+        process.arguments = [enabled ? "uchg" : "nouchg", url.path]
+        try process.run()
+        process.waitUntilExit()
+        if process.terminationStatus != 0 {
+            throw POSIXError(.EPERM)
+        }
     }
 }

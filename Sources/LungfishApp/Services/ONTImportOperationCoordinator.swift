@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 import LungfishKit
@@ -84,20 +85,22 @@ public final class ONTImportOperationCoordinator {
                     threads: concurrency
                 )
             ) { [operationCenter, opID] fraction, message in
-                Task { @MainActor in
-                    operationCenter.update(id: opID, progress: fraction, detail: message)
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        _ = operationCenter.update(id: opID, progress: fraction, detail: message)
+                    }
                 }
             }
 
             let detail = "\(result.importResult.bundleURLs.count) barcode bundles, \(result.importResult.totalReadCount) reads"
-            operationCenter.complete(
+            _ = operationCenter.complete(
                 id: opID,
                 detail: detail,
                 bundleURLs: result.importResult.bundleURLs
             )
             return result
         } catch {
-            operationCenter.fail(id: opID, detail: "\(error)")
+            _ = operationCenter.fail(id: opID, detail: "\(error)")
             throw error
         }
     }
@@ -226,7 +229,7 @@ public final class ONTImportOperationCoordinator {
         cliArgs: [String],
         cliCommand: String
     ) -> ONTImportWorkflow.CommandContext {
-        let argv = ["lungfish", "fastq", "import-ont"] + cliArgs
+        let argv = [CLICommandIdentity.executableName, "fastq", "import-ont"] + cliArgs
         return ONTImportWorkflow.CommandContext(
             caller: .gui,
             workflowName: "lungfish fastq import-ont",

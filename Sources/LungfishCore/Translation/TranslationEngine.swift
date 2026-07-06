@@ -2,12 +2,24 @@
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
-import Foundation
-
 // MARK: - Translation Engine
 
 /// Pure translation functions. All methods are static and `Sendable`-safe.
 public enum TranslationEngine {
+
+    /// RNA-independent complement mappings shared by every `reverseComplement` call.
+    /// Only the adenine entries (`A`/`a`) depend on whether the sequence is RNA (U) or DNA (T),
+    /// so they are added per-call rather than stored here.
+    private static let baseComplementMap: [Character: Character] = [
+        "T": "A", "U": "A", "C": "G", "G": "C",
+        "t": "a", "u": "a", "c": "g", "g": "c",
+        "R": "Y", "Y": "R", "S": "S", "W": "W",
+        "K": "M", "M": "K", "B": "V", "V": "B",
+        "D": "H", "H": "D", "N": "N",
+        "r": "y", "y": "r", "s": "s", "w": "w",
+        "k": "m", "m": "k", "b": "v", "v": "b",
+        "d": "h", "h": "d", "n": "n"
+    ]
 
     // MARK: - Basic Translation
 
@@ -62,16 +74,9 @@ public enum TranslationEngine {
 
         let adenineComplementUpper: Character = isRNA ? "U" : "T"
         let adenineComplementLower: Character = isRNA ? "u" : "t"
-        let complementMap: [Character: Character] = [
-            "A": adenineComplementUpper, "T": "A", "U": "A", "C": "G", "G": "C",
-            "a": adenineComplementLower, "t": "a", "u": "a", "c": "g", "g": "c",
-            "R": "Y", "Y": "R", "S": "S", "W": "W",
-            "K": "M", "M": "K", "B": "V", "V": "B",
-            "D": "H", "H": "D", "N": "N",
-            "r": "y", "y": "r", "s": "s", "w": "w",
-            "k": "m", "m": "k", "b": "v", "v": "b",
-            "d": "h", "h": "d", "n": "n"
-        ]
+        var complementMap = baseComplementMap
+        complementMap["A"] = adenineComplementUpper
+        complementMap["a"] = adenineComplementLower
         return String(sequence.reversed().map { complementMap[$0] ?? $0 })
     }
 

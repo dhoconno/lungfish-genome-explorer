@@ -346,9 +346,51 @@ extension VersionHistory {
             originalSequence: export.originalSequence,
             sequenceName: export.sequenceName
         )
+
+        guard export.currentVersionIndex >= 0 && export.currentVersionIndex <= export.versions.count else {
+            throw VersionError.corruptedHistory(
+                reason: "currentVersionIndex \(export.currentVersionIndex) is outside valid range 0...\(export.versions.count)"
+            )
+        }
+
+        var currentSequence = export.originalSequence
+        var selectedSequence = export.currentVersionIndex == 0 ? export.originalSequence : nil
+        var expectedParentHash: String?
+        for (offset, version) in export.versions.enumerated() {
+            guard version.parentHash == expectedParentHash else {
+                throw VersionError.corruptedHistory(
+                    reason: "version \(offset + 1) parent hash mismatch"
+                )
+            }
+
+            do {
+                currentSequence = try version.diff.apply(to: currentSequence)
+            } catch {
+                throw VersionError.corruptedHistory(
+                    reason: "version \(offset + 1) diff cannot be replayed: \(error.localizedDescription)"
+                )
+            }
+
+            let reconstructedHash = Version.computeHash(currentSequence)
+            guard reconstructedHash == version.contentHash else {
+                throw VersionError.corruptedHistory(
+                    reason: "version \(offset + 1) content hash mismatch"
+                )
+            }
+            if export.currentVersionIndex == offset + 1 {
+                selectedSequence = currentSequence
+            }
+            expectedParentHash = version.contentHash
+        }
+
+        guard let selectedSequence else {
+            throw VersionError.corruptedHistory(reason: "currentVersionIndex \(export.currentVersionIndex) was not reconstructed")
+        }
+
         history.versions = export.versions
         history.currentVersionIndex = export.currentVersionIndex
-        _ = try? history.checkout(at: export.currentVersionIndex)
+        history.currentSequence = selectedSequence
+        history.updateNavigationState()
 
         return history
     }

@@ -7,8 +7,6 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
 
-@MainActor private var databasesTabTestsOriginalManagedStorageStore: ManagedStorageConfigStore?
-
 // MARK: - DatabasesTabTests
 
 /// Tests for the Databases tab in the Plugin Manager.
@@ -32,8 +30,7 @@ final class DatabasesTabTests: XCTestCase {
     override func tearDownWithError() throws {
         try? FileManager.default.removeItem(at: tempDir)
         MainActor.assumeIsolated {
-            ManagedStorageConfigStore.shared = databasesTabTestsOriginalManagedStorageStore ?? ManagedStorageConfigStore()
-            databasesTabTestsOriginalManagedStorageStore = nil
+            ManagedStorageConfigStore.overrideSharedForTesting(nil)
             SettingsNavigationState.shared.selectedTab = .general
         }
     }
@@ -439,14 +436,13 @@ final class DatabasesTabTests: XCTestCase {
 
     /// Verifies that the footer path uses the shared managed storage root.
     func testDatabaseStoragePathUsesManagedStorageRoot() throws {
-        databasesTabTestsOriginalManagedStorageStore = ManagedStorageConfigStore.shared
         let home = tempDir.appendingPathComponent("managed-storage-home", isDirectory: true)
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
 
         let store = ManagedStorageConfigStore(homeDirectory: home)
         let customRoot = home.appendingPathComponent("External/Lungfish", isDirectory: true)
         try store.setActiveRoot(customRoot)
-        ManagedStorageConfigStore.shared = store
+        ManagedStorageConfigStore.overrideSharedForTesting(store)
 
         let vm = PluginManagerViewModel(automaticallyRefresh: false)
         let path = vm.storageLocationPath
@@ -457,12 +453,11 @@ final class DatabasesTabTests: XCTestCase {
     }
 
     func testDatabaseStorageFooterRefreshesAfterStorageChangeNotification() throws {
-        databasesTabTestsOriginalManagedStorageStore = ManagedStorageConfigStore.shared
         let home = tempDir.appendingPathComponent("managed-storage-notification-home", isDirectory: true)
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
 
         let store = ManagedStorageConfigStore(homeDirectory: home)
-        ManagedStorageConfigStore.shared = store
+        ManagedStorageConfigStore.overrideSharedForTesting(store)
 
         let vm = PluginManagerViewModel(automaticallyRefresh: false)
         let defaultPath = store.defaultLocation.rootURL.path

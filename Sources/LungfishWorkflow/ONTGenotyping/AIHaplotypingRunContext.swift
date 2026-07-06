@@ -153,11 +153,7 @@ public struct AIHaplotypingRunContext: Codable, Equatable, Sendable {
     }
 
     private static func region(for call: ONTGenotypeCall) -> String {
-        let locus = GenotypeHaplotypeLocusResolver.haplotypeEvidenceLocusName(call.locusGroup)
-        if locus == "MHC-DP" || locus == "MHC-DQ" || locus == "MHC-DRB" {
-            return locus
-        }
-        return locus
+        GenotypeHaplotypeLocusResolver.haplotypeEvidenceLocusName(call.locusGroup)
     }
 
     private static func notes(

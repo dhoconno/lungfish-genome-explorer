@@ -6,6 +6,64 @@ import XCTest
 
 @MainActor
 final class BundleCreateProvenanceTests: XCTestCase {
+    func testBundlePayloadURLsExcludeProvenanceSidecars() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("bundle-payload-filter-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let bundleURL = tempDir.appendingPathComponent("Payload.lungfishref", isDirectory: true)
+        let genomeURL = bundleURL.appendingPathComponent("genome", isDirectory: true)
+        let provenanceURL = bundleURL.appendingPathComponent(
+            ProvenanceWriter.bundleProvenanceDirectoryName,
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: genomeURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: provenanceURL, withIntermediateDirectories: true)
+
+        let manifestURL = bundleURL.appendingPathComponent("manifest.json")
+        let fastaURL = genomeURL.appendingPathComponent("sequence.fa")
+        try "{}".write(to: manifestURL, atomically: true, encoding: .utf8)
+        try ">chr1\nACGT\n".write(to: fastaURL, atomically: true, encoding: .utf8)
+        try "{}".write(
+            to: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "{}".write(
+            to: provenanceURL.appendingPathComponent(ProvenanceWriter.bundleRollupFilename),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "{}".write(
+            to: genomeURL.appendingPathComponent("sequence.fa.lungfish-provenance.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "{}".write(
+            to: bundleURL.appendingPathComponent("\(ProvenanceRecorder.provenanceFilename).signature.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "{}".write(
+            to: bundleURL.appendingPathComponent("\(ProvenanceRecorder.provenanceFilename).pub"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "{}".write(
+            to: genomeURL.appendingPathComponent("sequence.fa.lungfish-provenance.json.signature.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "{}".write(
+            to: genomeURL.appendingPathComponent("sequence.fa.lungfish-provenance.json.pub"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let payloadPaths = Set(CLIProvenanceSupport.bundlePayloadURLs(in: bundleURL).map(\.path))
+        XCTAssertEqual(payloadPaths, [manifestURL.standardizedFileURL.path, fastaURL.standardizedFileURL.path])
+    }
+
     func testBundleCreateWritesWorkflowProvenanceSidecar() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("bundle-create-provenance-\(UUID().uuidString)")
@@ -39,9 +97,13 @@ final class BundleCreateProvenanceTests: XCTestCase {
 
         XCTAssertEqual(run.name, "lungfish bundle create")
         XCTAssertEqual(run.status, .completed)
-        XCTAssertEqual(run.steps.count, 1)
+        XCTAssertGreaterThanOrEqual(run.steps.count, 1)
         XCTAssertEqual(run.steps[0].toolName, "lungfish bundle create")
         XCTAssertEqual(run.steps[0].exitCode, 0)
+        for nativeStep in run.steps.dropFirst() {
+            XCTAssertFalse(nativeStep.outputs.contains { $0.path.contains(".building-") })
+            XCTAssertTrue(nativeStep.outputs.allSatisfy { $0.path.hasPrefix(bundleURL.path) })
+        }
         XCTAssertEqual(run.parameters["identifier"]?.stringValue, "org.lungfish.test.bundle")
         XCTAssertEqual(run.parameters["compressFASTA"]?.booleanValue, false)
         XCTAssertTrue(run.primaryInputFiles.contains {
@@ -55,6 +117,9 @@ final class BundleCreateProvenanceTests: XCTestCase {
             URL(fileURLWithPath: $0.path).standardizedFileURL.path == manifestPath
                 && $0.sha256 != nil
                 && $0.sizeBytes != nil
+        })
+        XCTAssertFalse(run.allOutputFiles.contains {
+            $0.path.contains("/provenance/") || $0.path.hasSuffix(".lungfish-provenance.json")
         })
         XCTAssertTrue(run.steps[0].command.contains("--identifier"))
     }

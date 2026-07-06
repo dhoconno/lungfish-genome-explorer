@@ -395,6 +395,74 @@ final class DemultiplexingPipelineTests: XCTestCase {
         XCTAssertEqual(derivedManifests.first?.pairingMode, .interleaved)
     }
 
+    func testExactVirtualDemuxFailsClosedWhenDerivedManifestCannotBeWritten() async throws {
+        let (tempDir, bundleURL, fastqURL) = try makeTempBundle(named: "root")
+        defer { try? FileManager.default.removeItem(at: tempDir.deletingLastPathComponent()) }
+
+        let forward = "ACGTACGT"
+        let reverse = "TGCATGCA"
+        let insert = "GATTACA"
+        let sequence = forward + insert + PlatformAdapters.reverseComplement(reverse)
+        try writeFASTQ(sequences: [sequence], to: fastqURL)
+
+        let outputDir = tempDir.appendingPathComponent("demux-out", isDirectory: true)
+        let blockedBundleURL = outputDir
+            .appendingPathComponent("sample1.\(FASTQBundle.directoryExtension)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: blockedBundleURL.appendingPathComponent(FASTQBundle.derivedManifestFilename),
+            withIntermediateDirectories: true
+        )
+
+        let kit = BarcodeKitDefinition(
+            id: "exact-derived-manifest-failure",
+            displayName: "Exact Derived Manifest Failure",
+            vendor: "custom",
+            isDualIndexed: true,
+            pairingMode: .fixedDual,
+            barcodes: [
+                BarcodeEntry(id: "PAIR1", i7Sequence: forward, i5Sequence: reverse),
+            ]
+        )
+
+        do {
+            _ = try await DemultiplexingPipeline().run(
+                config: DemultiplexConfig(
+                    inputURL: bundleURL,
+                    barcodeKit: kit,
+                    outputDirectory: outputDir,
+                    errorRate: 0.0,
+                    minimumOverlap: 4,
+                    trimBarcodes: true,
+                    threads: 1,
+                    sampleAssignments: [
+                        FASTQSampleBarcodeAssignment(
+                            sampleID: "sample1",
+                            forwardSequence: forward,
+                            reverseSequence: reverse
+                        ),
+                    ],
+                    rootBundleURL: bundleURL,
+                    rootFASTQFilename: fastqURL.lastPathComponent,
+                    minimumInsert: insert.count
+                ),
+                progress: { _, _ in }
+            )
+            XCTFail("Demux should fail when a required derived manifest cannot be saved.")
+        } catch let error as DemultiplexError {
+            guard case .bundleCreationFailed(let barcode, _) = error else {
+                XCTFail("Expected bundleCreationFailed, got \(error)")
+                return
+            }
+            XCTAssertEqual(barcode, "sample1")
+            XCTAssertFalse(
+                FileManager.default.fileExists(atPath: blockedBundleURL.path),
+                "A demux bundle without its required derived manifest must be removed."
+            )
+        } catch {
+            XCTFail("Expected DemultiplexError.bundleCreationFailed, got \(error)")
+        }
+    }
+
     func testVirtualSymmetricDemuxCachesStatisticsFromCanonicalTrimmedSequence() async throws {
         let (tempDir, bundleURL, fastqURL) = try makeTempBundle(named: "root")
         defer { try? FileManager.default.removeItem(at: tempDir.deletingLastPathComponent()) }

@@ -200,6 +200,18 @@ public final class TaxTriageDatabase: @unchecked Sendable {
 
     private var db: OpaquePointer?
     private let url: URL
+    private static let requiredTables = [
+        "taxonomy_rows",
+        "accession_map",
+        "metadata",
+        ClassifierSQLiteDatabaseSupport.stateTableName,
+    ]
+    private static let requiredIndexes = [
+        "idx_taxonomy_sample",
+        "idx_taxonomy_organism",
+        "idx_tt_tass",
+        "idx_accmap_sample_organism",
+    ]
 
     /// The URL of the database file.
     public var databaseURL: URL { url }
@@ -220,6 +232,21 @@ public final class TaxTriageDatabase: @unchecked Sendable {
             db = nil
             throw TaxTriageDatabaseError.openFailed(msg)
         }
+        do {
+            guard let db else {
+                throw ClassifierSQLiteDatabaseError.openFailed("SQLite handle was nil")
+            }
+            try ClassifierSQLiteDatabaseSupport.validateReadyDatabase(
+                db: db,
+                requiredTables: Self.requiredTables,
+                requiredIndexes: Self.requiredIndexes,
+                allowLegacyMissingBuildState: true
+            )
+        } catch {
+            sqlite3_close(db)
+            db = nil
+            throw TaxTriageDatabaseError.openFailed(error.localizedDescription)
+        }
 
         // Read-side performance tuning
         sqlite3_exec(db, "PRAGMA cache_size = -65536", nil, nil, nil)    // 64 MB
@@ -238,8 +265,8 @@ public final class TaxTriageDatabase: @unchecked Sendable {
 
     /// Creates a new TaxTriage database from parsed taxonomy rows.
     ///
-    /// Deletes any existing file at `url`, creates the schema, bulk-inserts all rows
-    /// and metadata, then builds indices.
+    /// Builds the database in a sibling staging file, validates it, then atomically
+    /// publishes it over any existing database at `url`.
     ///
     /// - Parameters:
     ///   - url: Path for the new SQLite database file.
@@ -256,52 +283,55 @@ public final class TaxTriageDatabase: @unchecked Sendable {
         metadata: [String: String],
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) throws -> TaxTriageDatabase {
-        // Delete existing file
-        try? FileManager.default.removeItem(at: url)
-
+        let stagingURL = ClassifierSQLiteDatabaseSupport.stagingURL(for: url)
         var db: OpaquePointer?
-        let rc = sqlite3_open_v2(
-            url.path, &db,
-            SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX,
-            nil
-        )
-        guard rc == SQLITE_OK, let db else {
-            let msg = db.flatMap { String(cString: sqlite3_errmsg($0)) } ?? "Unknown error"
-            sqlite3_close(db)
-            throw TaxTriageDatabaseError.createFailed(msg)
-        }
-
-        // Performance pragmas for bulk import
-        sqlite3_exec(db, "PRAGMA journal_mode = WAL", nil, nil, nil)
-        sqlite3_exec(db, "PRAGMA synchronous = NORMAL", nil, nil, nil)
-        sqlite3_exec(db, "PRAGMA cache_size = -65536", nil, nil, nil)   // 64 MB
-        sqlite3_exec(db, "PRAGMA temp_store = MEMORY", nil, nil, nil)
-
         do {
-            try createSchema(db: db)
+            db = try ClassifierSQLiteDatabaseSupport.openWritableDatabase(at: stagingURL)
+            guard let openedDB = db else {
+                throw TaxTriageDatabaseError.createFailed("SQLite handle was nil")
+            }
+            ClassifierSQLiteDatabaseSupport.configureForBulkImport(openedDB)
+
+            try createSchema(db: openedDB)
+            try ClassifierSQLiteDatabaseSupport.markBuildState(
+                ClassifierSQLiteDatabaseSupport.buildStateBuilding,
+                db: openedDB
+            )
             progress?(0.05, "Schema created")
 
-            try bulkInsertRows(db: db, rows: rows, progress: progress)
+            try bulkInsertRows(db: openedDB, rows: rows, progress: progress)
             progress?(0.75, "Inserting accession map...")
 
-            try bulkInsertAccessionMap(db: db, entries: accessionMap)
+            try bulkInsertAccessionMap(db: openedDB, entries: accessionMap)
             progress?(0.80, "Inserting metadata...")
 
-            try insertMetadata(db: db, metadata: metadata)
+            try insertMetadata(db: openedDB, metadata: metadata)
             progress?(0.85, "Building indices...")
 
-            try createIndices(db: db)
+            try createIndices(db: openedDB)
             progress?(0.95, "Finalizing...")
 
-            sqlite3_close(db)
+            try ClassifierSQLiteDatabaseSupport.finalizeSuccessfulBuild(
+                db: openedDB,
+                requiredTables: Self.requiredTables,
+                requiredIndexes: Self.requiredIndexes
+            )
+            sqlite3_close(openedDB)
+            db = nil
+            try ClassifierSQLiteDatabaseSupport.publish(stagingURL: stagingURL, to: url)
             logger.info("Created TaxTriage database with \(rows.count) rows at \(url.lastPathComponent)")
 
             progress?(1.0, "Complete")
             return try TaxTriageDatabase(at: url)
         } catch {
-            sqlite3_close(db)
-            try? FileManager.default.removeItem(at: url)
-            throw error
+            if let db {
+                sqlite3_close(db)
+            }
+            ClassifierSQLiteDatabaseSupport.removeSQLiteDatabase(at: stagingURL)
+            if let error = error as? TaxTriageDatabaseError {
+                throw error
+            }
+            throw TaxTriageDatabaseError.createFailed(error.localizedDescription)
         }
     }
 
@@ -672,7 +702,7 @@ public final class TaxTriageDatabase: @unchecked Sendable {
         let trimmedSearch = organismSearchText?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let searchPattern = trimmedSearch.flatMap { text -> String? in
-            text.isEmpty ? nil : "%\(Self.escapedLikePattern(text))%"
+            text.isEmpty ? nil : SQLiteLikePattern.contains(text)
         }
         let placeholders = samples.map { _ in "?" }.joined(separator: ",")
         var whereClauses = ["sample IN (\(placeholders))"]
@@ -843,21 +873,6 @@ public final class TaxTriageDatabase: @unchecked Sendable {
             throw TaxTriageDatabaseError.queryFailed(msg)
         }
         return Int(sqlite3_column_int64(stmt, 0))
-    }
-
-    private static func escapedLikePattern(_ value: String) -> String {
-        var escaped = ""
-        escaped.reserveCapacity(value.count)
-        for character in value {
-            switch character {
-            case "\\", "%", "_":
-                escaped.append("\\")
-                escaped.append(character)
-            default:
-                escaped.append(character)
-            }
-        }
-        return escaped
     }
 
     /// Reads an optional TEXT column, returning nil if the column is NULL.

@@ -18,6 +18,8 @@ public struct BAMVariantCallingPreflightResult: Sendable {
     public let bamReferenceSequences: [SAMParser.ReferenceSequence]
     public let referenceNameMap: [String: String]
     public let contigValidation: BAMVariantCallingContigValidation
+    // Retains bookmark-backed alignment scopes until downstream staging finishes with this result.
+    private let securityScopedReferenceBundle: ReferenceBundle?
 
     public init(
         manifest: BundleManifest,
@@ -29,7 +31,8 @@ public struct BAMVariantCallingPreflightResult: Sendable {
         referenceFAIURL: URL,
         bamReferenceSequences: [SAMParser.ReferenceSequence],
         referenceNameMap: [String: String],
-        contigValidation: BAMVariantCallingContigValidation
+        contigValidation: BAMVariantCallingContigValidation,
+        securityScopedReferenceBundle: ReferenceBundle? = nil
     ) {
         self.manifest = manifest
         self.alignmentTrack = alignmentTrack
@@ -41,6 +44,7 @@ public struct BAMVariantCallingPreflightResult: Sendable {
         self.bamReferenceSequences = bamReferenceSequences
         self.referenceNameMap = referenceNameMap
         self.contigValidation = contigValidation
+        self.securityScopedReferenceBundle = securityScopedReferenceBundle
     }
 }
 
@@ -94,9 +98,11 @@ public enum BAMVariantCallingPreflightError: Error, LocalizedError, Equatable {
 public actor BAMVariantCallingPreflight {
     public typealias BAMReferenceReader = @Sendable (URL) async throws -> [SAMParser.ReferenceSequence]
     public typealias BAMHeaderReader = @Sendable (URL) async throws -> String
+    typealias ReferenceBundleFactory = @Sendable (URL, BundleManifest) -> ReferenceBundle
 
     private let bamReferenceReader: BAMReferenceReader
     private let bamHeaderReader: BAMHeaderReader
+    private let referenceBundleFactory: ReferenceBundleFactory
 
     public init(
         bamReferenceReader: @escaping BAMReferenceReader = BAMVariantCallingPreflight.readBAMReferenceSequences(alignmentURL:),
@@ -104,6 +110,17 @@ public actor BAMVariantCallingPreflight {
     ) {
         self.bamReferenceReader = bamReferenceReader
         self.bamHeaderReader = bamHeaderReader
+        self.referenceBundleFactory = BAMVariantCallingPreflight.makeReferenceBundle(url:manifest:)
+    }
+
+    init(
+        bamReferenceReader: @escaping BAMReferenceReader = BAMVariantCallingPreflight.readBAMReferenceSequences(alignmentURL:),
+        bamHeaderReader: @escaping BAMHeaderReader = BAMVariantCallingPreflight.readBAMHeader(alignmentURL:),
+        referenceBundleFactory: @escaping ReferenceBundleFactory
+    ) {
+        self.bamReferenceReader = bamReferenceReader
+        self.bamHeaderReader = bamHeaderReader
+        self.referenceBundleFactory = referenceBundleFactory
     }
 
     public func validate(
@@ -125,7 +142,7 @@ public actor BAMVariantCallingPreflight {
             throw BAMVariantCallingPreflightError.missingBundleGenome
         }
 
-        let bundle = ReferenceBundle(url: request.bundleURL, manifest: manifest)
+        let bundle = referenceBundleFactory(request.bundleURL, manifest)
         let alignmentPath: String
         do {
             alignmentPath = try bundle.resolveAlignmentPath(alignmentTrack)
@@ -157,11 +174,19 @@ public actor BAMVariantCallingPreflight {
             throw BAMVariantCallingPreflightError.missingAlignmentIndex(alignmentIndexURL.path)
         }
 
-        let referenceFASTAURL = request.bundleURL.appendingPathComponent(genome.path)
+        let referenceFASTAURL = try BundleManifest.validatedBundleMemberURL(
+            for: genome.path,
+            in: request.bundleURL,
+            field: "genome.path"
+        )
         guard FileManager.default.fileExists(atPath: referenceFASTAURL.path) else {
             throw BAMVariantCallingPreflightError.missingReferenceFASTA(genome.path)
         }
-        let referenceFAIURL = request.bundleURL.appendingPathComponent(genome.indexPath)
+        let referenceFAIURL = try BundleManifest.validatedBundleMemberURL(
+            for: genome.indexPath,
+            in: request.bundleURL,
+            field: "genome.indexPath"
+        )
         guard FileManager.default.fileExists(atPath: referenceFAIURL.path) else {
             throw BAMVariantCallingPreflightError.missingReferenceFAI(genome.indexPath)
         }
@@ -196,8 +221,13 @@ public actor BAMVariantCallingPreflight {
             referenceFAIURL: referenceFAIURL,
             bamReferenceSequences: bamReferenceSequences,
             referenceNameMap: referenceNameMap,
-            contigValidation: contigValidation
+            contigValidation: contigValidation,
+            securityScopedReferenceBundle: bundle
         )
+    }
+
+    private static func makeReferenceBundle(url: URL, manifest: BundleManifest) -> ReferenceBundle {
+        ReferenceBundle(url: url, manifest: manifest)
     }
 
     private func resolveReferenceNameMap(

@@ -65,9 +65,20 @@ public actor CLIImportRunner {
         mainExecutableURL: URL?,
         currentWorkingDirectoryURL: URL?,
         environment: [String: String] = [:],
-        pathLookup: () -> URL?
+        pathLookup: () -> URL?,
+        swiftPMBinPathLookup: ((URL) -> URL?)? = nil
     ) -> URL? {
-        CLIBinaryLocator.resolveCLIPath(
+        if let swiftPMBinPathLookup {
+            return CLIBinaryLocator.resolveCLIPath(
+                mainExecutableURL: mainExecutableURL,
+                currentWorkingDirectoryURL: currentWorkingDirectoryURL,
+                environment: environment,
+                pathLookup: pathLookup,
+                swiftPMBinPathLookup: swiftPMBinPathLookup
+            )
+        }
+
+        return CLIBinaryLocator.resolveCLIPath(
             mainExecutableURL: mainExecutableURL,
             currentWorkingDirectoryURL: currentWorkingDirectoryURL,
             environment: environment,
@@ -126,7 +137,7 @@ public actor CLIImportRunner {
     /// Builds the display form of a `lungfish-cli` command using the same
     /// argument array passed to ``run(arguments:operationID:projectDirectory:onBundleCreated:onError:)``.
     public nonisolated static func commandLine(arguments: [String]) -> String {
-        (["lungfish-cli"] + arguments).map { shellEscape($0) }.joined(separator: " ")
+        ([CLICommandIdentity.executableName] + arguments).map { shellEscape($0) }.joined(separator: " ")
     }
 
     // MARK: - Static: Event Parsing
@@ -233,7 +244,7 @@ public actor CLIImportRunner {
             logger.error("\(msg, privacy: .public)")
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    OperationCenter.shared.fail(id: operationID, detail: msg, errorMessage: msg)
+                    _ = OperationCenter.shared.fail(id: operationID, detail: msg, errorMessage: msg)
                 }
             }
             onError(msg)
@@ -264,7 +275,7 @@ public actor CLIImportRunner {
         let opID = operationID
         DispatchQueue.main.async {
             MainActor.assumeIsolated {
-                OperationCenter.shared.update(
+                _ = OperationCenter.shared.update(
                     id: opID,
                     progress: 0.01,
                     detail: "Launching import pipeline\u{2026}"
@@ -306,7 +317,7 @@ public actor CLIImportRunner {
                         let progress = Double(index) / Double(currentTotal)
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
-                                OperationCenter.shared.update(
+                                _ = OperationCenter.shared.update(
                                     id: opID,
                                     progress: progress * 0.05,
                                     detail: "Importing \(sample) (\(index + 1)/\(currentTotal))"
@@ -319,7 +330,7 @@ public actor CLIImportRunner {
                         let fraction = Double(stepIndex) / Double(max(1, totalSteps))
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
-                                OperationCenter.shared.update(
+                                _ = OperationCenter.shared.update(
                                     id: opID,
                                     progress: fraction * 0.80,
                                     detail: "\(sample): \(step)"
@@ -468,7 +479,7 @@ public actor CLIImportRunner {
                 logger.error("\(msg, privacy: .public)")
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.fail(id: opID, detail: msg, errorMessage: msg)
+                        _ = OperationCenter.shared.fail(id: opID, detail: msg, errorMessage: msg)
                     }
                 }
                 onError(msg)
@@ -502,7 +513,7 @@ public actor CLIImportRunner {
                 logger.error("\(exitSummary, privacy: .public): \(stderrOutput, privacy: .public)")
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.fail(
+                        _ = OperationCenter.shared.fail(
                             id: opID,
                             detail: msg,
                             errorMessage: msg,

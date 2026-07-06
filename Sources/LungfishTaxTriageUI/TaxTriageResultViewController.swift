@@ -204,12 +204,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Maps accessions → mapped read count from `samtools idxstats`.
     private var accessionMappedReadCounts: [String: Int] = [:]
 
-    /// Optional downloaded reference FASTA from TaxTriage output.
-    private var referenceFastaURL: URL?
-
-    /// Cached accession → reference sequence map loaded from `referenceFastaURL`.
-    private var referenceSequenceCache: [String: String] = [:]
-
     /// Cached normalized organism name → deduplicated read count.
     private var deduplicatedReadCounts: [String: Int] = [:]
 
@@ -997,20 +991,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     }
 
 
-    // MARK: - Sample Extraction
-
-    /// Extracts distinct sample identifiers from metrics, preserving discovery order.
-    private func extractSampleIds(from metrics: [TaxTriageMetric]) -> [String] {
-        var seen = Set<String>()
-        var ordered: [String] = []
-        for metric in metrics {
-            if let sample = metric.sample, !sample.isEmpty, seen.insert(sample).inserted {
-                ordered.append(sample)
-            }
-        }
-        return ordered
-    }
-
     // MARK: - CSV Metadata Labels
 
     /// Builds sample display labels from CSV metadata in each source bundle.
@@ -1436,113 +1416,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     }
 
 
-    /// Sets up the NSTabView with Report and Krona tabs.
-    // MARK: - Top Report Parser
-
-    /// Parses preferred confidence/organism reports in deterministic order.
-    private func parsePreferredConfidenceMetrics(from result: TaxTriageResult) -> [TaxTriageMetric] {
-        let files = result.allOutputFiles
-            .filter { TaxTriageOutputArtifactPolicy.isRetainedOutputFile($0, outputDirectory: result.config.outputDirectory) }
-            .sorted { $0.path < $1.path }
-
-        let preferred = files.filter {
-            $0.lastPathComponent == "multiqc_confidences.txt"
-                || $0.lastPathComponent.hasSuffix(".organisms.report.txt")
-        }
-
-        var parsed: [TaxTriageMetric] = []
-        for url in preferred {
-            if let metrics = try? TaxTriageMetricsParser.parse(url: url), !metrics.isEmpty {
-                logger.info("Parsed \(metrics.count) TaxTriage metrics from \(url.lastPathComponent, privacy: .public)")
-                parsed.append(contentsOf: metrics)
-            } else {
-                logger.warning("Failed to parse TaxTriage metrics from \(url.lastPathComponent, privacy: .public)")
-            }
-        }
-        if parsed.isEmpty {
-            logger.info("No preferred TaxTriage confidence metrics found in output files")
-        }
-        return parsed
-    }
-
-    /// Deduplicates metrics per (organism, sample) pair, keeping the highest TASS.
-    ///
-    /// Multi-sample runs produce overlapping files (multiqc_confidences.txt +
-    /// per-sample .organisms.report.txt) that contain the same data. This removes
-    /// true duplicates while preserving distinct per-sample entries.
-    private func deduplicatePerOrganismSample(_ metrics: [TaxTriageMetric]) -> [TaxTriageMetric] {
-        var seen = Set<String>()
-        var deduped: [TaxTriageMetric] = []
-        for metric in metrics.sorted(by: { $0.tassScore > $1.tassScore }) {
-            let orgKey = normalizedOrganismName(metric.organism)
-            let sampleKey = metric.sample ?? ""
-            let compositeKey = "\(orgKey)\t\(sampleKey)"
-            guard !seen.contains(compositeKey) else { continue }
-            seen.insert(compositeKey)
-            deduped.append(metric)
-        }
-        return deduped
-    }
-
-    /// Deduplicates metrics per organism (ignoring sample), keeping the highest TASS.
-    ///
-    /// Used for the merged "All Samples" organism list where each organism
-    /// appears once with its best score across all samples.
-    private func deduplicatedMetrics(_ metrics: [TaxTriageMetric]) -> [TaxTriageMetric] {
-        var seen = Set<String>()
-        var deduped: [TaxTriageMetric] = []
-        for metric in metrics.sorted(by: { $0.tassScore > $1.tassScore }) {
-            let key = normalizedOrganismName(metric.organism)
-            guard !seen.contains(key) else { continue }
-            seen.insert(key)
-            deduped.append(metric)
-        }
-        return deduped
-    }
-
-    /// Parses the TaxTriage top_report.tsv into TaxTriageOrganism objects.
-    ///
-    /// The top_report.tsv has columns:
-    /// `abundance, clade_fragments_covered, number_fragments_assigned, rank, taxid, name`
-    private func parseTopReport(url: URL) -> [TaxTriageOrganism] {
-        guard let content = try? String(contentsOf: url, encoding: .utf8) else { return [] }
-
-        let lines = content.components(separatedBy: .newlines)
-        guard lines.count > 1 else { return [] }
-
-        var organisms: [TaxTriageOrganism] = []
-
-        for line in lines.dropFirst() {  // Skip header
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard !trimmed.isEmpty else { continue }
-
-            let cols = trimmed.components(separatedBy: "\t")
-            guard cols.count >= 6 else { continue }
-
-            let abundance = Double(cols[0]) ?? 0
-            let cladeReads = Int(Double(cols[1]) ?? 0)
-            let rank = cols[3]
-            let taxId = Int(cols[4])
-            let name = cols[5].trimmingCharacters(in: .whitespacesAndNewlines)
-
-            let organism = TaxTriageOrganism(
-                name: name,
-                score: abundance,
-                reads: cladeReads,
-                coverage: nil,
-                taxId: taxId,
-                rank: rank
-            )
-            organisms.append(organism)
-        }
-
-        // Sort by clade reads descending
-        organisms.sort { $0.reads > $1.reads }
-
-        logger.info("Parsed \(organisms.count) organisms from \(url.lastPathComponent)")
-        return organisms
-    }
-
     typealias OrganismAccessionMap = [String: [String]]
     typealias TaxIDAccessionMap = [Int: [String]]
 
@@ -1825,53 +1698,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         let denominator = max(lhsTokens.count, rhsTokens.count)
         guard denominator > 0 else { return 0 }
         return Double(intersection) / Double(denominator)
-    }
-
-    private func referenceSequence(for accession: String) -> String? {
-        if referenceSequenceCache.isEmpty {
-            loadReferenceSequenceCache()
-        }
-        return referenceSequenceCache[accession]
-    }
-
-    private func loadReferenceSequenceCache() {
-        guard referenceSequenceCache.isEmpty else { return }
-        guard let fastaURL = referenceFastaURL else { return }
-        guard let content = try? String(contentsOf: fastaURL, encoding: .utf8) else {
-            logger.warning("Failed to load reference FASTA: \(fastaURL.lastPathComponent, privacy: .public)")
-            return
-        }
-
-        var cache: [String: String] = [:]
-        var currentAccession: String?
-        var sequenceBuffer = ""
-
-        for rawLine in content.components(separatedBy: .newlines) {
-            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !line.isEmpty else { continue }
-
-            if line.hasPrefix(">") {
-                if let accession = currentAccession, !sequenceBuffer.isEmpty {
-                    cache[accession] = sequenceBuffer
-                }
-                sequenceBuffer = ""
-                let header = String(line.dropFirst())
-                let accession = header
-                    .split(whereSeparator: { $0.isWhitespace })
-                    .first
-                    .map(String.init)
-                currentAccession = accession
-            } else {
-                sequenceBuffer.append(line.uppercased())
-            }
-        }
-
-        if let accession = currentAccession, !sequenceBuffer.isEmpty {
-            cache[accession] = sequenceBuffer
-        }
-
-        referenceSequenceCache = cache
-        logger.info("Loaded \(cache.count) reference sequences from \(fastaURL.lastPathComponent, privacy: .public)")
     }
 
     private static func deduplicatedReadCount(from reads: [AlignedRead]) -> Int {
@@ -2717,6 +2543,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         batchFlatTableView.onRowSelected = { [weak self] row in
             guard let self else { return }
             self.actionBar.updateInfoText("1 row selected")
+            self.actionBar.setBlastEnabled(true)
             self.actionBar.setExtractEnabled(true)
             self.hideMultiSelectionPlaceholder()
             self.selectedBatchSampleId = row.sample
@@ -2748,6 +2575,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         batchFlatTableView.onMultipleRowsSelected = { [weak self] rows in
             guard let self else { return }
             self.actionBar.updateInfoText("\(rows.count) rows selected")
+            self.actionBar.setBlastEnabled(false, reason: "Select a single row to use BLAST Verify")
             self.actionBar.setExtractEnabled(true)
             self.showMultiSelectionPlaceholder(count: rows.count)
             self.selectedBatchSampleId = nil
@@ -2762,6 +2590,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         batchFlatTableView.onSelectionCleared = { [weak self] in
             guard let self else { return }
             self.actionBar.updateInfoText("Select an organism to view details")
+            self.actionBar.setBlastEnabled(false, reason: "Select a row to use BLAST Verify")
             self.hideMultiSelectionPlaceholder()
             self.selectedBatchSampleId = nil
             self.selectedBatchOrganismName = nil
@@ -3004,6 +2833,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         batchFlatTableView.onRowSelected = { [weak self] row in
             guard let self else { return }
             self.actionBar.updateInfoText("1 row selected")
+            self.actionBar.setBlastEnabled(true)
             self.actionBar.setExtractEnabled(true)
             self.hideMultiSelectionPlaceholder()
             self.selectedBatchSampleId = row.sample
@@ -3036,6 +2866,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         batchFlatTableView.onMultipleRowsSelected = { [weak self] rows in
             guard let self else { return }
             self.actionBar.updateInfoText("\(rows.count) rows selected")
+            self.actionBar.setBlastEnabled(false, reason: "Select a single row to use BLAST Verify")
             self.actionBar.setExtractEnabled(true)
             self.showMultiSelectionPlaceholder(count: rows.count)
             self.selectedBatchSampleId = nil
@@ -3049,6 +2880,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         batchFlatTableView.onSelectionCleared = { [weak self] in
             guard let self else { return }
             self.actionBar.updateInfoText("Select an organism to view details")
+            self.actionBar.setBlastEnabled(false, reason: "Select a row to use BLAST Verify")
             self.hideMultiSelectionPlaceholder()
             self.selectedBatchSampleId = nil
             self.selectedBatchOrganismName = nil
@@ -3201,17 +3033,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
         // Table BLAST request -> forward to host with BAM context
         organismTableView.onBlastRequested = { [weak self] row, readCount in
-            guard let self else { return }
-            let organism = TaxTriageOrganism(
-                name: row.organism,
-                score: row.tassScore,
-                reads: row.reads,
-                coverage: row.coverage,
-                taxId: row.taxId,
-                rank: row.rank
-            )
-            let rowAccessions = self.accessions(for: row)
-            self.onBlastVerification?(organism, readCount, rowAccessions, self.bamURL, self.bamIndexURL)
+            self?.requestBlastVerification(for: row, readCount: readCount)
         }
 
         // Action bar Extract FASTQ -> route to the unified extraction dialog.
@@ -3231,31 +3053,12 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
         // Batch flat table BLAST verify -> forward to host with BAM context.
         batchFlatTableView.onBlastVerifyRequested = { [weak self] metric, readCount in
-            guard let self else { return }
-            let organism = TaxTriageOrganism(
-                name: metric.organism,
-                score: metric.tassScore,
-                reads: metric.reads,
-                coverage: metric.coverageBreadth,
-                taxId: metric.taxId,
-                rank: metric.rank
-            )
-            let rowAccessions = self.accessions(for: metric)
-            let sampleId = metric.sample
-            let bamURL = sampleId.flatMap { self.bamFilesBySample[$0] } ?? self.bamURL
-            let bamIndexURL: URL?
-            if let bamURL {
-                bamIndexURL = resolveBamIndex(for: bamURL, allOutputFiles: self.taxTriageResult?.allOutputFiles ?? [])
-            } else {
-                bamIndexURL = self.bamIndexURL
-            }
-            self.onBlastVerification?(organism, readCount, rowAccessions, bamURL, bamIndexURL)
+            self?.requestBlastVerification(for: metric, readCount: readCount)
         }
 
-        // Action bar BLAST verify (TaxTriage triggers BLAST via table context menu)
-        actionBar.onBlastVerify = {
-            // TaxTriage BLAST is triggered via the table context menu per-organism;
-            // the action bar button is intentionally a no-op placeholder
+        // Action bar BLAST verify -> run the selected row with the default all-reads count.
+        actionBar.onBlastVerify = { [weak self] in
+            self?.requestBlastVerificationForCurrentSelection()
         }
 
         // Action bar export
@@ -3283,6 +3086,64 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         recomputeUniqueReadsButton.target = self
         recomputeUniqueReadsButton.action = #selector(recomputeUniqueReadsTapped)
         actionBar.addCustomButton(recomputeUniqueReadsButton)
+    }
+
+    private func requestBlastVerification(for row: TaxTriageTableRow, readCount: Int) {
+        let organism = TaxTriageOrganism(
+            name: row.organism,
+            score: row.tassScore,
+            reads: row.reads,
+            coverage: row.coverage,
+            taxId: row.taxId,
+            rank: row.rank
+        )
+        let rowAccessions = accessions(for: row)
+        onBlastVerification?(organism, readCount, rowAccessions, bamURL, bamIndexURL)
+    }
+
+    private func requestBlastVerification(for metric: TaxTriageMetric, readCount: Int) {
+        let organism = TaxTriageOrganism(
+            name: metric.organism,
+            score: metric.tassScore,
+            reads: metric.reads,
+            coverage: metric.coverageBreadth,
+            taxId: metric.taxId,
+            rank: metric.rank
+        )
+        let rowAccessions = accessions(for: metric)
+        let sampleId = metric.sample
+        let metricBamURL = sampleId.flatMap { bamFilesBySample[$0] } ?? bamURL
+        let metricBamIndexURL: URL?
+        if let metricBamURL {
+            metricBamIndexURL = resolveBamIndex(
+                for: metricBamURL,
+                allOutputFiles: taxTriageResult?.allOutputFiles ?? []
+            )
+        } else {
+            metricBamIndexURL = bamIndexURL
+        }
+        onBlastVerification?(organism, readCount, rowAccessions, metricBamURL, metricBamIndexURL)
+    }
+
+    private func requestBlastVerificationForCurrentSelection() {
+        let flatSelection = batchFlatTableView.selectedMetrics()
+        if batchFlatTableView.isHidden == false, flatSelection.count == 1, let metric = flatSelection.first {
+            requestBlastVerification(for: metric, readCount: defaultBlastReadCount(for: metric))
+            return
+        }
+
+        let organismRows = organismTableView.selectedTableRows()
+        if organismTableView.isHidden == false, organismRows.count == 1, let row = organismRows.first {
+            requestBlastVerification(for: row, readCount: row.uniqueReads ?? row.reads)
+            return
+        }
+
+        actionBar.setBlastEnabled(false, reason: "Select a single row to use BLAST Verify")
+    }
+
+    private func defaultBlastReadCount(for metric: TaxTriageMetric) -> Int {
+        let sampleKey = metric.sample ?? ""
+        return batchFlatTableView.totalReadsByKey["\(sampleKey)\t\(metric.organism)"] ?? metric.reads
     }
 
     // MARK: - Recompute Unique Reads
@@ -3707,11 +3568,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     @objc private func exportBatchMatrixAction(_ sender: Any) {
         guard let window = view.window else { return }
-        let csv = TaxTriageBatchExporter.generateOrganismMatrixCSV(
-            metrics: metrics,
-            sampleIds: sampleIds,
-            negativeControlSampleIds: negativeControlSampleIds()
-        )
 
         let panel = MetagenomicsFilePanelFactory.delimitedExportPanel(
             title: "Export Organism Matrix",
@@ -3721,7 +3577,49 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
         panel.beginSheetModal(for: window) { response in
             guard response == .OK, let url = panel.url else { return }
-            try? csv.write(to: url, atomically: true, encoding: .utf8)
+            do {
+                try self.writeBatchMatrixCSV(to: url)
+            } catch {
+                logger.error("Failed to export TaxTriage organism matrix: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
+    func writeBatchMatrixCSV(to url: URL) throws {
+        let startedAt = Date()
+        let negativeControlIds = negativeControlSampleIds()
+        let matrixMetrics = exportMetrics
+        let csv = TaxTriageBatchExporter.generateOrganismMatrixCSV(
+            metrics: matrixMetrics,
+            sampleIds: sampleIds,
+            negativeControlSampleIds: negativeControlIds
+        )
+        let exportedOrganismCount = taxTriageCrossSampleOrganismCount(in: matrixMetrics)
+        try ScientificFileExportProvenance.writeAtomically(.init(
+            workflowName: "lungfish app taxtriage organism matrix export",
+            sourceURLs: exportProvenanceSourceURLs(),
+            outputURL: url,
+            outputFormat: .text,
+            argv: ["Lungfish.app", "export-taxtriage-organism-matrix", "--output", url.path],
+            explicitOptions: [
+                "outputPath": .file(url),
+                "format": .string("csv"),
+            ],
+            defaults: [
+                "format": .string("csv"),
+            ],
+            resolved: [
+                "rowCount": .integer(exportedOrganismCount),
+                "exportedOrganismCount": .integer(exportedOrganismCount),
+                "metricCount": .integer(matrixMetrics.count),
+                "sampleCount": .integer(sampleIds.count),
+                "sampleIds": .array(sampleIds.map { .string($0) }),
+                "negativeControlSampleIds": .array(negativeControlIds.sorted().map { .string($0) }),
+                "tableMode": .string(exportTableModeName),
+            ],
+            startedAt: startedAt
+        )) { outputURL in
+            try csv.write(to: outputURL, atomically: true, encoding: .utf8)
         }
     }
 
@@ -3730,13 +3628,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
               let result = taxTriageResult,
               let config = taxTriageConfig else { return }
 
-        let report = TaxTriageBatchExporter.generateSummaryReport(
-            result: result,
-            config: config,
-            metrics: metrics,
-            sampleIds: sampleIds
-        )
-
         let panel = MetagenomicsFilePanelFactory.delimitedExportPanel(
             title: "Export Batch Report",
             suggestedName: "batch_report.txt"
@@ -3744,7 +3635,51 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
         panel.beginSheetModal(for: window) { response in
             guard response == .OK, let url = panel.url else { return }
-            try? report.write(to: url, atomically: true, encoding: .utf8)
+            do {
+                try self.writeBatchReport(to: url, result: result, config: config)
+            } catch {
+                logger.error("Failed to export TaxTriage batch report: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
+    func writeBatchReport(to url: URL, result: TaxTriageResult, config: TaxTriageConfig) throws {
+        let startedAt = Date()
+        let negativeControlIds = negativeControlSampleIds()
+        let reportMetrics = exportMetrics
+        let report = TaxTriageBatchExporter.generateSummaryReport(
+            result: result,
+            config: config,
+            metrics: reportMetrics,
+            sampleIds: sampleIds
+        )
+        let reportLineCount = report.split(separator: "\n", omittingEmptySubsequences: false).count
+        try ScientificFileExportProvenance.writeAtomically(.init(
+            workflowName: "lungfish app taxtriage batch report export",
+            sourceURLs: exportProvenanceSourceURLs(),
+            outputURL: url,
+            outputFormat: .text,
+            argv: ["Lungfish.app", "export-taxtriage-batch-report", "--output", url.path],
+            explicitOptions: [
+                "outputPath": .file(url),
+                "format": .string("txt"),
+            ],
+            defaults: [
+                "format": .string("txt"),
+            ],
+            resolved: [
+                "reportLineCount": .integer(reportLineCount),
+                "metricCount": .integer(reportMetrics.count),
+                "sampleCount": .integer(sampleIds.count),
+                "exportedOrganismCount": .integer(taxTriageCrossSampleOrganismCount(in: reportMetrics)),
+                "sampleIds": .array(sampleIds.map { .string($0) }),
+                "negativeControlSampleIds": .array(negativeControlIds.sorted().map { .string($0) }),
+                "classifierCount": .integer(config.classifiers.count),
+                "tableMode": .string(exportTableModeName),
+            ],
+            startedAt: startedAt
+        )) { outputURL in
+            try report.write(to: outputURL, atomically: true, encoding: .utf8)
         }
     }
 
@@ -3768,12 +3703,111 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
             let content = self.buildDelimitedExport(separator: separator)
             do {
-                try content.write(to: url, atomically: true, encoding: .utf8)
+                try self.writeDelimitedResults(separator: separator, fileExtension: fileExtension, to: url, content: content)
                 logger.info("Exported \(fileTypeName, privacy: .public) to \(url.lastPathComponent, privacy: .public)")
             } catch {
                 logger.error("Export failed: \(error.localizedDescription, privacy: .public)")
             }
         }
+    }
+
+    func writeDelimitedResults(
+        separator: String,
+        fileExtension: String,
+        to url: URL,
+        content: String? = nil
+    ) throws {
+        let startedAt = Date()
+        let exportContent = content ?? buildDelimitedExport(separator: separator)
+        try ScientificFileExportProvenance.writeAtomically(.init(
+            workflowName: "lungfish app taxtriage results export",
+            sourceURLs: exportProvenanceSourceURLs(),
+            outputURL: url,
+            outputFormat: .text,
+            argv: ["Lungfish.app", "export-taxtriage-results", "--format", fileExtension, "--output", url.path],
+            explicitOptions: [
+                "outputPath": .file(url),
+                "format": .string(fileExtension),
+            ],
+            defaults: [
+                "format": .string("tsv"),
+            ],
+            resolved: [
+                "rowCount": .integer(organismTableView.exportRows.count),
+                "sampleIds": .array(sampleIds.map { .string($0) }),
+                "selectedSamples": .array(exportSelectedSampleIds().map(ParameterValue.string)),
+                "selectedSampleIndex": .integer(selectedSampleIndex),
+                "selectedSampleId": exportSelectedSampleId().map(ParameterValue.string) ?? .null,
+                "organismSearchText": .string(organismSearchText),
+                "tableMode": .string(exportTableModeName),
+                "sortDescriptors": .array(exportSortDescriptorParameters(organismTableView.exportSortDescriptors)),
+                "metadataColumns": .array(organismTableView.metadataColumns.exportHeaders.map { .string($0) }),
+            ],
+            startedAt: startedAt
+        )) { outputURL in
+            try exportContent.write(to: outputURL, atomically: true, encoding: .utf8)
+        }
+    }
+
+    private func exportProvenanceSourceURLs() -> [URL] {
+        var urls: [URL] = []
+        if let databaseURL = taxTriageDatabase?.databaseURL {
+            urls.append(databaseURL)
+        }
+        if let batchGroupURL {
+            urls.append(batchGroupURL.appendingPathComponent(TaxTriageBatchManifest.filename))
+        }
+        if let outputDirectory = taxTriageConfig?.outputDirectory {
+            urls.append(outputDirectory)
+        }
+        if let resultDirectory = taxTriageResult?.outputDirectory {
+            urls.append(resultDirectory)
+        }
+        return urls.filter { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    private var exportTableModeName: String {
+        if isBatchGroupMode { return "batchGroup" }
+        if isMultiSampleSingleResultMode { return "multiSampleFlat" }
+        if selectedSampleIndex == 0, sampleIds.count > 1 { return "batchOverview" }
+        return "organismTable"
+    }
+
+    private func exportSelectedSampleIds() -> [String] {
+        if (isBatchGroupMode || isMultiSampleSingleResultMode), let samplePickerState {
+            return sampleIds.filter { samplePickerState.selectedSamples.contains($0) }
+        }
+        if let selected = exportSelectedSampleId() {
+            return [selected]
+        }
+        return sampleIds
+    }
+
+    private func exportSelectedSampleId() -> String? {
+        guard selectedSampleIndex > 0, selectedSampleIndex <= sampleIds.count else {
+            return sampleIds.count == 1 ? sampleIds.first : nil
+        }
+        return sampleIds[selectedSampleIndex - 1]
+    }
+
+    private func exportSortDescriptorParameters(_ descriptors: [NSSortDescriptor]) -> [ParameterValue] {
+        descriptors.map { descriptor in
+            .dictionary([
+                "key": descriptor.key.map(ParameterValue.string) ?? .null,
+                "ascending": .boolean(descriptor.ascending),
+                "selector": descriptor.selector.map { .string(NSStringFromSelector($0)) } ?? .null,
+            ])
+        }
+    }
+
+    private var exportMetrics: [TaxTriageMetric] {
+        metrics.isEmpty ? allBatchGroupRows : metrics
+    }
+
+    private func taxTriageCrossSampleOrganismCount(in metrics: [TaxTriageMetric]) -> Int {
+        Set(metrics.map {
+            $0.organism.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        }).count
     }
 
     /// Builds delimited export content from all table rows.
@@ -3789,7 +3823,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         headers.append(contentsOf: metaHeaders)
         lines.append(headers.joined(separator: separator))
 
-        for row in organismTableView.rows {
+        for row in organismTableView.exportRows {
             var fields: [String] = []
             fields.append(escapeField(row.organism, separator: separator))
             fields.append(String(format: "%.4f", row.tassScore))
@@ -4091,6 +4125,14 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
     /// The currently sorted rows.
     private var sortedRows: [TaxTriageTableRow] = []
 
+    var exportRows: [TaxTriageTableRow] {
+        sortedRows
+    }
+
+    var exportSortDescriptors: [NSSortDescriptor] {
+        tableView.sortDescriptors
+    }
+
     /// Shared formatter for integer read counts.
     private static let countFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
@@ -4174,7 +4216,7 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
         scoreCol.minWidth = 60
         scoreCol.maxWidth = 120
         scoreCol.sortDescriptorPrototype = NSSortDescriptor(key: "tassScore", ascending: false)
-        scoreCol.headerToolTip = "Taxonomic Assignment Specificity Score: >=0.95 high confidence, 0.80-0.95 moderate, <0.80 low confidence"
+        scoreCol.headerToolTip = "Taxonomic Assignment Specificity Score: >=0.80 high confidence, 0.40-0.80 medium confidence, <0.40 low confidence"
         tableView.addTableColumn(scoreCol)
 
         // Reads column
@@ -4516,12 +4558,12 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
 
         case ColumnID.tassScore:
             let tassCell = makeLabelCell(text: String(format: "%.3f", item.tassScore), monospaced: true)
-            if item.tassScore >= 0.95 {
-                tassCell.toolTip = "High confidence (>=0.95): strong taxonomic signal"
-            } else if item.tassScore >= 0.80 {
-                tassCell.toolTip = "Moderate confidence (0.80-0.95): likely true positive, verify with BLAST"
+            if item.tassScore >= 0.80 {
+                tassCell.toolTip = "High confidence (>=0.80): strong taxonomic signal"
+            } else if item.tassScore >= 0.40 {
+                tassCell.toolTip = "Medium confidence (0.40-0.80): likely true positive, verify with BLAST"
             } else {
-                tassCell.toolTip = "Low confidence (<0.80): weak signal, may be noise or contamination"
+                tassCell.toolTip = "Low confidence (<0.40): weak signal, may be noise or contamination"
             }
             return tassCell
 

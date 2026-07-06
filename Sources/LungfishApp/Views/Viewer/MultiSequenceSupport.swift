@@ -34,6 +34,9 @@ public struct StackedSequenceInfo: Identifiable {
     /// The sequence data
     public let sequence: Sequence
 
+    /// Durable source document or bundle for this sequence, when known.
+    public let sourceURL: URL?
+
     /// The track index (0 = reference, 1+ = additional sequences)
     public let trackIndex: Int
 
@@ -102,6 +105,7 @@ public struct StackedSequenceInfo: Identifiable {
 
     public init(
         sequence: Sequence,
+        sourceURL: URL? = nil,
         trackIndex: Int,
         yOffset: CGFloat = 0,
         sequenceHeight: CGFloat = 28,
@@ -116,6 +120,7 @@ public struct StackedSequenceInfo: Identifiable {
     ) {
         self.id = sequence.id
         self.sequence = sequence
+        self.sourceURL = sourceURL
         self.trackIndex = trackIndex
         self.yOffset = yOffset
         self.sequenceHeight = sequenceHeight
@@ -263,6 +268,9 @@ public class MultiSequenceState: ObservableObject {
     /// All annotations (used to associate with sequences)
     private var allAnnotations: [SequenceAnnotation] = []
 
+    /// Durable source URLs by sequence id, populated by multi-document/bundle loaders.
+    private var sourceURLsBySequenceID: [UUID: URL] = [:]
+
     /// Layout configuration
     public var layout: SequenceStackLayout
 
@@ -296,17 +304,25 @@ public class MultiSequenceState: ObservableObject {
     /// Sets the sequences to display, determining reference and calculating layout.
     ///
     /// - Parameter sequences: Array of sequences to display
+    /// - Parameter sourceURLsByID: Durable source URL for each sequence when known
     /// - Parameter useFirstAsReference: If true, uses first sequence as reference;
     ///   otherwise uses longest
-    public func setSequences(_ sequences: [Sequence], useFirstAsReference: Bool = true) {
+    public func setSequences(
+        _ sequences: [Sequence],
+        sourceURLsByID: [UUID: URL] = [:],
+        useFirstAsReference: Bool = true
+    ) {
         multiSeqLogger.info("setSequences: Setting \(sequences.count) sequences")
 
         guard !sequences.isEmpty else {
             stackedSequences = []
             referenceSequence = nil
             activeSequenceIndex = 0
+            sourceURLsBySequenceID = [:]
             return
         }
+
+        sourceURLsBySequenceID = sourceURLsByID
 
         // Determine reference sequence
         if useFirstAsReference {
@@ -371,6 +387,7 @@ public class MultiSequenceState: ObservableObject {
 
             let info = StackedSequenceInfo(
                 sequence: seq,
+                sourceURL: sourceURLsBySequenceID[seq.id],
                 trackIndex: index,
                 yOffset: currentY,
                 sequenceHeight: layout.trackHeight,
@@ -458,6 +475,7 @@ public class MultiSequenceState: ObservableObject {
         if removed.isReference && !sequences.isEmpty {
             referenceSequence = sequences.first
         }
+        sourceURLsBySequenceID.removeValue(forKey: removed.sequence.id)
 
         rebuildStackedSequences(sequences: sequences)
     }

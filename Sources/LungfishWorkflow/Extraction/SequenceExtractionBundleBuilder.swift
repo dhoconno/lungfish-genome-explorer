@@ -281,10 +281,28 @@ public final class SequenceExtractionBundleBuilder: @unchecked Sendable {
               let genome = manifest.genome else {
             return urls
         }
-        urls.append(sourceBundleURL.appendingPathComponent(genome.path))
-        urls.append(sourceBundleURL.appendingPathComponent(genome.indexPath))
+        if let genomeURL = try? BundleManifest.validatedBundleMemberURL(
+            for: genome.path,
+            in: sourceBundleURL,
+            field: "genome.path"
+        ) {
+            urls.append(genomeURL)
+        }
+        if let indexURL = try? BundleManifest.validatedBundleMemberURL(
+            for: genome.indexPath,
+            in: sourceBundleURL,
+            field: "genome.indexPath"
+        ) {
+            urls.append(indexURL)
+        }
         if let gzipIndexPath = genome.gzipIndexPath {
-            urls.append(sourceBundleURL.appendingPathComponent(gzipIndexPath))
+            if let gzipIndexURL = try? BundleManifest.validatedBundleMemberURL(
+                for: gzipIndexPath,
+                in: sourceBundleURL,
+                field: "genome.gzipIndexPath"
+            ) {
+                urls.append(gzipIndexURL)
+            }
         }
         return urls
     }

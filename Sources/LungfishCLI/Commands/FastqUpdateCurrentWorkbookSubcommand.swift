@@ -1,5 +1,6 @@
 import ArgumentParser
 import Foundation
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
@@ -59,9 +60,9 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
                 annotationSidecarURL: annotationURL,
                 into: bundleURL,
                 provenanceContext: GenotypeWorkbookRevisionProvenanceContext(
-                    toolName: "lungfish-cli fastq update-current-workbook",
+                    toolName: "\(CLICommandIdentity.executableName) fastq update-current-workbook",
                     toolKind: "cli",
-                    argv: ["lungfish-cli", "fastq"] + arguments
+                    argv: [CLICommandIdentity.executableName, "fastq"] + arguments
                 )
             )
         FileHandle.standardError.write(Data("[100%] Updated current.xlsx\n".utf8))

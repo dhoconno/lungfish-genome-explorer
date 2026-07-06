@@ -239,13 +239,11 @@ Four facts dominate the whole section and recur per chapter:
   Skip-Krona toggle, and Advanced (k2Confidence 0.2, topHits 10, maxMemory 16 GB,
   maxCPUs) (`TaxTriageWizardSheet.swift:90-104, 404-451`). "Clinical /
   research / wastewater profiles" are fabricated.
-- **The confidence score is unnamed in the doc** but is the **TASS score** in
-  code (TaxTriage Aggregate Scoring System). The viewport is
-  `TaxTriageConfidenceView`, "a CoreGraphics horizontal bar chart showing TASS
-  confidence scores per organism" with tiers >=0.8 green / 0.4-0.8 yellow /
-  <0.4 red (`TaxTriageConfidenceView.swift:11-20`). The chapter's 0-to-1
-  description is broadly right but never names TASS and invents a four-part
-  weighting (lines 71-76) not found in code.
+- **RESOLVED 2026-07-05: The confidence score is now named as TASS in the active
+  chapter.** The old standalone `TaxTriageConfidenceView` chart was removed
+  because the result viewport uses a TASS-ranked organism table with a compact
+  confidence bar cell. The documented high/medium/low tiers now match the UI's
+  >=0.8 / 0.4-0.8 / <0.4 thresholds.
 - **Manual-review flag names `LOW_BREADTH`, `CLASSIFIER_DISAGREE`,
   `BLANK_MATCH`, `LOW_QUALITY_SUPPORT`** (table, lines 203-208). **None of these
   identifiers exist** in `LungfishTaxTriageUI/` or the TaxTriage workflow/IO. The
@@ -319,9 +317,9 @@ Four facts dominate the whole section and recur per chapter:
   chart.** `NaoMgsResultViewController` is a **single-import split view: detail
   pane | taxonomy table** with columns **Sample, Taxon, Hits, Unique Reads, Refs**
   (`NaoMgsResultViewController.swift:1360-1425`) plus per-sample metadata
-  columns. The only chart is a **per-accession coverage depth sparkline**
-  (`NaoMgsChartViews.swift` `CoveragePlotView`), like EsViritu, not a multi-week
-  abundance line.
+  columns. 2026-07-05 hardening removed the unused SwiftUI coverage chart
+  subtree; the shipped viewport now uses the AppKit detail pane for metrics and
+  miniBAM evidence cards, not a per-accession coverage sparkline.
 - **Upstream attribution to "the Nucleic Acid Observatory ... `naobservatory.org`
   ... `github.com/naobservatory`"** (lines 31, 108-112). The code attributes
   NAO-MGS to **SecureBio**: "the SecureBio NAO-MGS metagenomic surveillance

@@ -2,19 +2,19 @@
   "config" : {
     "confidence" : 0.2,
     "databaseName" : "Standard-16",
-    "databasePath" : "file:\/\/\/Users\/dho\/.lungfish\/databases\/kraken2\/standard-16\/",
+    "databasePath" : "database",
     "databaseVersion" : "20240904",
     "goal" : "profile",
     "inputFiles" : [
-      "file:\/\/\/Volumes\/nvd_remote\/TGS-air-VSP2.lungfish\/Imports\/SRR35517703.lungfishfastq\/SRR35517703.fastq.gz"
+      "source.fastq"
     ],
     "isPairedEnd" : false,
     "memoryMapping" : false,
     "minimumHitGroups" : 2,
     "originalInputFiles" : [
-      "file:\/\/\/Volumes\/nvd_remote\/TGS-air-VSP2.lungfish\/Imports\/SRR35517703.lungfishfastq\/"
+      "source.fastq"
     ],
-    "outputDirectory" : "file:\/\/\/Volumes\/nvd_remote\/TGS-air-VSP2.lungfish\/Analyses\/kraken2-batch-2026-04-06T20-45-49\/SRR35517703\/",
+    "outputDirectory" : ".",
     "quickMode" : false,
     "sampleDisplayName" : "SRR35517703",
     "threads" : 4

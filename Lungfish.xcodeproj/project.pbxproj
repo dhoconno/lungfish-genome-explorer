@@ -39,6 +39,7 @@
 		F1E2D3C4B5A69788776655B0 /* AlignmentTreeBundleXCUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A69788776655B1 /* AlignmentTreeBundleXCUITests.swift */; };
 		F1E2D3C4B5A69788776655A6 /* BundleBrowserRobot.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A69788776655A7 /* BundleBrowserRobot.swift */; };
 		F1E2D3C4B5A69788776655A8 /* PrimerTrimXCUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A69788776655A9 /* PrimerTrimXCUITests.swift */; };
+		F1E2D3C4B5A69788776655AC /* VariantCallingAutoConfirmXCUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A69788776655AB /* VariantCallingAutoConfirmXCUITests.swift */; };
 		F1E2D3C4B5A69788776655AE /* ViralReconXCUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A69788776655AF /* ViralReconXCUITests.swift */; };
 /* End PBXBuildFile section */
 
@@ -377,6 +378,7 @@
 				F1E2D3C4B5A6978877665586 /* ProjectLifecycleXCUITests.swift in Sources */,
 				F1E2D3C4B5A6978877665592 /* ProjectLifecycleRobot.swift in Sources */,
 				F1E2D3C4B5A6978877665593 /* SystemPanelRobot.swift in Sources */,
+				F1E2D3C4B5A69788776655AC /* VariantCallingAutoConfirmXCUITests.swift in Sources */,
 				F1E2D3C4B5A69788776655AE /* ViralReconXCUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -409,7 +411,7 @@
 				);
 				LUNGFISH_SPARKLE_PUBLIC_ED_KEY = "";
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = "0.5.0-alpha35";
+				MARKETING_VERSION = "0.5.0-beta1";
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.lungfish.browser;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -437,7 +439,7 @@
 				);
 				LUNGFISH_SPARKLE_PUBLIC_ED_KEY = "";
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = "0.5.0-alpha35";
+				MARKETING_VERSION = "0.5.0-beta1";
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.lungfish.browser;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -503,7 +505,7 @@
 				EXCLUDED_ARCHS = x86_64;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = "0.5.0-alpha35";
+				MARKETING_VERSION = "0.5.0-beta1";
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.lungfish.browser.xcuitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -525,7 +527,7 @@
 				EXCLUDED_ARCHS = x86_64;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = "0.5.0-alpha35";
+				MARKETING_VERSION = "0.5.0-beta1";
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.lungfish.browser.xcuitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";

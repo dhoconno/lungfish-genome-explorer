@@ -34,7 +34,7 @@ extension ViewerViewController {
             return
         }
 
-        Task { @MainActor [weak self] in
+        Task { [weak self] in
             do {
                 let payload = try await controller.buildConsensusExportPayload()
                 self?.presentFASTASequenceExtractionDialog(

@@ -353,7 +353,11 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
 
         for trackInfo in bundle.manifest.variants {
             guard let dbPath = trackInfo.databasePath else { continue }
-            let dbURL = bundle.url.appendingPathComponent(dbPath)
+            guard let dbURL = try? BundleManifest.validatedBundleMemberURL(
+                for: dbPath,
+                in: bundle.url,
+                field: "variants[\(trackInfo.id)].databasePath"
+            ) else { continue }
             guard FileManager.default.fileExists(atPath: dbURL.path),
                   let db = try? VariantDatabase(url: dbURL) else { continue }
 
@@ -554,6 +558,7 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         if let currentChrom = referenceFrame?.chromosome, currentChrom != chromosome {
             viewerView.hideTranslation()
             viewerView.invalidateAlignmentFetchState()
+            viewerView.clearUserColumnSelection()
         }
 
         let effectiveWidth = max(800, Int(viewerView.bounds.width))

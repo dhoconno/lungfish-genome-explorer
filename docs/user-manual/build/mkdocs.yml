@@ -109,8 +109,8 @@ nav:
     - Running NAO-MGS: chapters/06-classification/05-running-nao-mgs.md
     - BLAST Verification: chapters/06-classification/06-blast-verification.md
     - Running Freyja: chapters/06-classification/07-running-freyja.md
-    - Importing CZ ID Results: chapters/06-classification/07-importing-cz-id-results.md
-    - Novel Virus Diagnostics: chapters/06-classification/08-novel-virus-detection.md
+    - Importing CZ ID Results: chapters/06-classification/08-importing-cz-id-results.md
+    - Novel Virus Diagnostics: chapters/06-classification/09-novel-virus-detection.md
 
   - Human Germline Variants (Preview):
     - HaplotypeCaller Dry Runs: chapters/06-human-germline-variants/01-haplotype-caller.md

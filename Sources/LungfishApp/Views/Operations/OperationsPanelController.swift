@@ -157,7 +157,7 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
                 reloadDataPreservingSelection(selectedIDs)
                 break
             }
-            if item.state == .running {
+            if item.state.isActive {
                 scheduleCoalescedRowReload(for: id)
             } else {
                 pendingRowReloadIDs.remove(id)
@@ -291,10 +291,10 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
     // MARK: - Elapsed Refresh Timer
 
     /// Starts or stops the 1-second elapsed refresh timer based on whether any
-    /// items are currently running.
+    /// items are currently active.
     private func updateElapsedRefreshTimer() {
-        let hasRunning = items.contains { $0.state == .running }
-        if hasRunning && elapsedRefreshTimer == nil {
+        let hasActiveItems = items.contains { $0.state.isActive }
+        if hasActiveItems && elapsedRefreshTimer == nil {
             elapsedRefreshTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
@@ -302,13 +302,13 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
                     }
                 }
             }
-        } else if !hasRunning && elapsedRefreshTimer != nil {
+        } else if !hasActiveItems && elapsedRefreshTimer != nil {
             elapsedRefreshTimer?.invalidate()
             elapsedRefreshTimer = nil
         }
     }
 
-    /// Reloads only the elapsed column cells for running rows.
+    /// Reloads only the elapsed column cells for active rows.
     private func refreshElapsedColumn() {
         guard let elapsedColumnIndex = tableView.tableColumns.firstIndex(where: {
             $0.identifier.rawValue == "elapsed"
@@ -317,13 +317,13 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
             $0.identifier.rawValue == "eta"
         }) else { return }
 
-        var runningRows = IndexSet()
-        for (index, item) in items.enumerated() where item.state == .running {
-            runningRows.insert(index)
+        var activeRows = IndexSet()
+        for (index, item) in items.enumerated() where item.state.isActive {
+            activeRows.insert(index)
         }
-        guard !runningRows.isEmpty else { return }
+        guard !activeRows.isEmpty else { return }
         tableView.reloadData(
-            forRowIndexes: runningRows,
+            forRowIndexes: activeRows,
             columnIndexes: IndexSet([elapsedColumnIndex, etaColumnIndex])
         )
     }
@@ -425,6 +425,7 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
     @objc private func cancelItem(_ sender: NSButton) {
         let row = tableView.row(for: sender)
         guard row >= 0, row < items.count else { return }
+        guard items[row].isCancellable else { return }
         OperationCenter.shared.cancel(id: items[row].id)
     }
 
@@ -721,6 +722,12 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
                 progressBar.doubleValue = item.progress
                 progressBar.isHidden = false
                 statusLabel.isHidden = true
+            case .cancelling:
+                progressBar.isHidden = true
+                statusLabel.isHidden = false
+                statusLabel.stringValue = item.displayStateLabel
+                statusLabel.textColor = .secondaryLabelColor
+                statusLabel.font = .systemFont(ofSize: 11)
             case .completed, .cancelled, .failed:
                 progressBar.isHidden = true
                 statusLabel.isHidden = false
@@ -756,7 +763,7 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
             textField.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
 
             switch item.state {
-            case .running:
+            case .running, .cancelling:
                 let elapsed = Date().timeIntervalSince(item.startedAt)
                 textField.stringValue = formatElapsedTime(elapsed)
                 textField.textColor = .secondaryLabelColor
@@ -794,6 +801,9 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
                     textField.stringValue = "—"
                 }
                 textField.textColor = .secondaryLabelColor
+            case .cancelling:
+                textField.stringValue = "—"
+                textField.textColor = .tertiaryLabelColor
             case .completed, .cancelled, .failed:
                 textField.stringValue = "—"
                 textField.textColor = .tertiaryLabelColor
@@ -809,6 +819,7 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
                 btn.controlSize = .small
                 btn.font = .systemFont(ofSize: 10)
                 btn.translatesAutoresizingMaskIntoConstraints = false
+                btn.setAccessibilityIdentifier("operations-cancel-button")
                 cell.addSubview(btn)
                 NSLayoutConstraint.activate([
                     btn.centerXAnchor.constraint(equalTo: cell.centerXAnchor),
@@ -836,7 +847,10 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
 
             switch item.state {
             case .running:
-                cancelButton.isHidden = false
+                cancelButton.isHidden = !item.isCancellable
+                issueButton.isHidden = true
+            case .cancelling:
+                cancelButton.isHidden = true
                 issueButton.isHidden = true
             case .failed:
                 cancelButton.isHidden = true
@@ -1504,12 +1518,12 @@ extension OperationsPanelViewController: NSMenuDelegate {
             menu.addItem(.separator())
         }
 
-        if item.state == .running {
+        if item.isCancellable {
             let cancelItem = NSMenuItem(title: "Cancel", action: #selector(contextCancel(_:)), keyEquivalent: "")
             cancelItem.representedObject = item.id
             cancelItem.target = self
             menu.addItem(cancelItem)
-        } else {
+        } else if !item.state.isActive {
             let clearItem = NSMenuItem(title: "Clear", action: #selector(contextClear(_:)), keyEquivalent: "")
             clearItem.representedObject = item.id
             clearItem.target = self

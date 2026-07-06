@@ -3,6 +3,7 @@ import XCTest
 @testable import LungfishApp
 import LungfishCore
 @testable import LungfishIO
+import LungfishKit
 @testable import LungfishWorkflow
 
 private enum SyntheticCommandFailure: Error {
@@ -27,6 +28,48 @@ private final class ProgressRecorder: @unchecked Sendable {
 }
 
 final class FASTQOperationExecutionServiceTests: XCTestCase {
+    func testDefaultCLIRunnerCancelsRunningProcessWhenTaskIsCancelled() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecCLICancel")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let fakeCLIURL = tempDir.appendingPathComponent("fake-lungfish-cli")
+        try """
+        #!/bin/sh
+        sleep 3
+        """.write(to: fakeCLIURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: fakeCLIURL.path
+        )
+
+        let runner = LungfishCLIProcessRunner(cliURLProvider: { fakeCLIURL })
+        let start = Date()
+        let task = Task { () -> Result<FASTQCLIExecutionResult, Error> in
+            do {
+                let result = try await runner.run(
+                    invocation: CLIInvocation(subcommand: "fastq", arguments: ["noop"]),
+                    outputDirectory: tempDir,
+                    progress: { _, _ in }
+                )
+                return .success(result)
+            } catch {
+                return .failure(error)
+            }
+        }
+
+        try await Task.sleep(nanoseconds: 100_000_000)
+        task.cancel()
+        let result = await task.value
+        let elapsed = Date().timeIntervalSince(start)
+
+        guard case .failure(let error) = result else {
+            return XCTFail("Expected cancelled CLI runner task to fail")
+        }
+        guard case LungfishCLIRunner.RunError.cancelled = error else {
+            return XCTFail("Expected RunError.cancelled, got \(error)")
+        }
+        XCTAssertLessThan(elapsed, 2.0)
+    }
+
     func testPlannerSplitsPerInputDerivativeRequestsIntoOnePlanPerInput() throws {
         let planner = FASTQOperationPlanner()
         let baseOutputDirectory = URL(fileURLWithPath: "/tmp/fastq-operation-output", isDirectory: true)
@@ -549,7 +592,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
             .appendingPathComponent("Sources/LungfishApp/Services/FASTQOperationExecutionService.swift")
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
         let runnerSource = try XCTUnwrap(
-            source.range(of: "private struct LungfishCLIProcessRunner")
+            source.range(of: "struct LungfishCLIProcessRunner")
                 .flatMap { start in
                     source[start.lowerBound...].range(of: "\n    }\n}")
                         .map { String(source[start.lowerBound..<$0.upperBound]) }
@@ -1652,7 +1695,14 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
             "source-deacon-ribo-norrna.\(FASTQBundle.directoryExtension)",
             isDirectory: true
         )
-        let ingestor = SpyFASTQOutputIngestor()
+        let ingestor = SpyFASTQOutputIngestor { config in
+            XCTAssertFalse(
+                FileManager.default.fileExists(atPath: destinationBundle.path),
+                "FASTQ operation imports must not expose the final bundle until ingestion, manifest, and provenance are complete."
+            )
+            XCTAssertNotEqual(config.outputDirectory, destinationBundle)
+            XCTAssertTrue(config.outputDirectory.lastPathComponent.hasPrefix(".\(destinationBundle.lastPathComponent).staging-"))
+        }
         let writer = AppFASTQOutputBundleWriter(ingestor: ingestor)
         let request = FASTQOperationLaunchRequest.derivative(
             request: .ribosomalRNAFilter(retention: .nonRRNA, ensure: .rrna),
@@ -1670,7 +1720,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(bundleURL, destinationBundle)
         let config = try XCTUnwrap(ingestor.configs.first)
         XCTAssertEqual(config.inputFiles, [stagedFASTQ])
-        XCTAssertEqual(config.outputDirectory, destinationBundle)
+        XCTAssertNotEqual(config.outputDirectory, destinationBundle)
         XCTAssertFalse(config.skipClumpify)
         XCTAssertTrue(config.deleteOriginals)
         XCTAssertEqual(config.pairingMode.rawValue, FASTQIngestionConfig.PairingMode.interleaved.rawValue)
@@ -2041,6 +2091,11 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         } catch {
             XCTFail("Unexpected error: \(error)")
         }
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: destinationBundle.path),
+            "A final FASTQ bundle must not remain when provenance rehydration fails."
+        )
     }
 
     func testBundleImporterWrapsRawFASTAOutputsIntoReferenceBundles() async throws {
@@ -2108,12 +2163,14 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         let stagedFASTA = stagingDir.appendingPathComponent("filtered.rrna.fasta")
         try ">seq1\nAACCGGTTAACC\n".write(to: stagedFASTA, atomically: true, encoding: .utf8)
         let stagedSidecarURL = ProvenanceRecorder.fileSidecarURL(for: stagedFASTA)
+        let sourceDurableReplayArgv = ["deacon", "filter", sourcePayloadURL.path, "-o", stagedFASTA.path]
         try writeSyntheticProvenance(
             to: stagingDir,
             name: "Deacon rRNA FASTA filter",
             toolName: "deacon",
             toolVersion: "0.15.0",
-            command: ["deacon", "filter", sourcePayloadURL.path, "-o", stagedFASTA.path],
+            command: sourceDurableReplayArgv,
+            durableReplayArgv: sourceDurableReplayArgv,
             inputURL: sourcePayloadURL,
             outputURL: stagedFASTA,
             parameters: ["retain": .string("rrna")],
@@ -2170,6 +2227,10 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(envelope.workflowName, "Deacon rRNA FASTA filter")
         XCTAssertEqual(envelope.toolName, "deacon")
         XCTAssertEqual(envelope.toolVersion, "0.15.0")
+        XCTAssertEqual(envelope.durableReplayArgv, [
+            "deacon", "filter", sourcePayloadURL.path, "-o", finalPayloadURL.path
+        ])
+        XCTAssertFalse(envelope.durableReplayArgv?.contains(stagedFASTA.path) ?? true)
         XCTAssertEqual(descriptor.path, finalPayloadURL.path)
         XCTAssertEqual(descriptor.originPath, stagedFASTA.path)
         XCTAssertEqual(descriptor.sourceProvenancePath, stagedSidecarURL.path)
@@ -2229,6 +2290,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         )
         let reportData = try JSONEncoder().encode(report)
         try reportData.write(to: reportURL, options: .atomic)
+        try writeQCSummaryCLIProvenance(reportURL: reportURL, sourceURL: root.fastqURL)
 
         let importer = BundleFASTQOperationImporter(destinationDirectory: tempDir)
         let request = FASTQOperationLaunchRequest.refreshQCSummary(inputURLs: [derivedBundle])
@@ -2244,6 +2306,19 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         let updatedManifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: derivedBundle))
         XCTAssertEqual(updatedManifest.cachedStatistics.readCount, 4)
         XCTAssertEqual(updatedManifest.cachedStatistics.baseCount, 120)
+
+        let manifestURL = FASTQBundle.derivedManifestURL(in: derivedBundle)
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: derivedBundle))
+        XCTAssertTrue(envelope.steps.contains { $0.toolName == "lungfish fastq qc-summary" })
+        XCTAssertTrue(envelope.steps.contains {
+            $0.toolName == "lungfish-app-action:fastq-refresh-qc-summary-import"
+        })
+        XCTAssertTrue(envelope.outputs.contains { $0.path == manifestURL.path })
+        let manifestOutput = try XCTUnwrap(
+            envelope.steps.flatMap(\.outputs).first { $0.path == manifestURL.path }
+        )
+        XCTAssertEqual(manifestOutput.checksumSHA256, try ProvenanceFileHasher.sha256(of: manifestURL))
+        XCTAssertEqual(manifestOutput.fileSize, UInt64(try Data(contentsOf: manifestURL).count))
     }
 
     func testMapLaunchBuildsTopLevelMapInvocation() throws {
@@ -3158,13 +3233,13 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         }
     }
 
-    func testClassificationLaunchesMapToTopLevelCommands() throws {
+    func testClassificationLaunchesMapToRegisteredCLICommands() throws {
         let baseInput = [URL(fileURLWithPath: "/tmp/input.fastq")]
 
         let kraken2 = try FASTQOperationExecutionService().buildInvocation(
             for: .classify(tool: .kraken2, inputURLs: baseInput, databaseName: "kraken-db")
         )
-        XCTAssertEqual(kraken2.subcommand, "classify")
+        XCTAssertEqual(kraken2.subcommand, "conda classify")
 
         let esviritu = try FASTQOperationExecutionService().buildInvocation(
             for: .classify(tool: .esViritu, inputURLs: baseInput, databaseName: "esv-db")
@@ -3227,7 +3302,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         """.write(to: fastaURL, atomically: true, encoding: .utf8)
 
         let runner = SpyCommandRunner { invocation, _ in
-            XCTAssertEqual(invocation.subcommand, "classify")
+            XCTAssertEqual(invocation.subcommand, "conda classify")
             XCTAssertEqual(invocation.arguments.first, fastaURL.path)
             XCTAssertEqual(SequenceFormat.from(url: URL(fileURLWithPath: invocation.arguments[0])), .fasta)
             return FASTQCLIExecutionResult(outputURLs: [])
@@ -3245,6 +3320,54 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
 
         XCTAssertEqual(runner.invocations.count, 1)
     }
+}
+
+private func writeQCSummaryCLIProvenance(reportURL: URL, sourceURL: URL) throws {
+    let startedAt = Date()
+    let completedAt = startedAt.addingTimeInterval(0.1)
+    let argv = [
+        "lungfish-cli",
+        "fastq",
+        "qc-summary",
+        sourceURL.path,
+        "--output",
+        reportURL.path,
+    ]
+    let step = try ProvenanceStep(
+        toolName: "lungfish fastq qc-summary",
+        toolVersion: WorkflowRun.currentAppVersion,
+        argv: argv,
+        inputs: [
+            ProvenanceFileDescriptor.file(url: sourceURL, format: .fastq, role: .input)
+        ],
+        outputs: [
+            ProvenanceFileDescriptor.file(url: reportURL, format: .json, role: .output)
+        ],
+        exitStatus: 0,
+        wallTimeSeconds: 0.1,
+        startedAt: startedAt,
+        completedAt: completedAt
+    )
+    let envelope = try ProvenanceRunBuilder(
+        workflowName: "lungfish fastq qc-summary",
+        workflowVersion: WorkflowRun.currentAppVersion,
+        toolName: "lungfish fastq qc-summary",
+        toolVersion: WorkflowRun.currentAppVersion
+    )
+    .argv(argv)
+    .options(
+        explicit: ["output": .string(reportURL.path)],
+        defaults: [:],
+        resolved: ["output": .string(reportURL.path)]
+    )
+    .runtime(ProvenanceRuntimeIdentity())
+    .step(step)
+    .complete(exitStatus: 0, startedAt: startedAt, endedAt: completedAt)
+
+    try ProvenanceWriter(signingProvider: nil).write(
+        envelope,
+        toSidecar: ProvenanceRecorder.fileSidecarURL(for: reportURL)
+    )
 }
 
 private struct TestFastqQCSummaryReport: Codable {
@@ -3386,12 +3509,18 @@ private final class SpyFASTQOutputBundleWriter: @unchecked Sendable, FASTQOutput
 
 private final class SpyFASTQOutputIngestor: @unchecked Sendable, FASTQOutputIngesting {
     private(set) var configs: [FASTQIngestionConfig] = []
+    private let onIngest: @Sendable (FASTQIngestionConfig) throws -> Void
+
+    init(onIngest: @escaping @Sendable (FASTQIngestionConfig) throws -> Void = { _ in }) {
+        self.onIngest = onIngest
+    }
 
     func ingest(
         config: FASTQIngestionConfig,
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> FASTQIngestionResult {
         configs.append(config)
+        try onIngest(config)
         progress(0.5, "ingesting")
 
         let outputURL = config.outputDirectory
@@ -3426,6 +3555,7 @@ private func writeSyntheticProvenance(
     toolName: String,
     toolVersion: String,
     command: [String],
+    durableReplayArgv: [String]? = nil,
     inputURL: URL,
     outputURL: URL,
     parameters: [String: ParameterValue] = [:],
@@ -3443,6 +3573,7 @@ private func writeSyntheticProvenance(
         toolVersion: toolVersion
     )
     .argv(command)
+    .durableReplayArgv(durableReplayArgv)
     .options(explicit: parameters, defaults: [:], resolved: parameters)
     .input(inputURL, format: format, role: .input)
     .output(outputURL, format: format, role: .output)

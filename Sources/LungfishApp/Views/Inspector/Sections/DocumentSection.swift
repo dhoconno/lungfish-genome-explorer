@@ -381,7 +381,12 @@ public final class DocumentSectionViewModel {
 
     private func derivedAlignmentTrackSummary(for track: AlignmentTrackInfo, in bundle: ReferenceBundle) -> String {
         guard let metadataDBPath = track.metadataDBPath,
-              let metadataDB = try? AlignmentMetadataDatabase(url: bundle.url.appendingPathComponent(metadataDBPath)) else {
+              let metadataDBURL = try? BundleManifest.validatedBundleMemberURL(
+                for: metadataDBPath,
+                in: bundle.url,
+                field: "alignments[\(track.id)].metadataDBPath"
+              ),
+              let metadataDB = try? AlignmentMetadataDatabase(url: metadataDBURL) else {
             return "Derived alignment stored in this bundle. Use View > Alignment to inspect it alone."
         }
 

@@ -49,7 +49,7 @@ public struct SequenceAppearance: Codable, Sendable {
     /// Track height in points.
     ///
     /// Controls the vertical size of sequence tracks in the viewer.
-    /// Default is 50 points.
+    /// Default is 20 points.
     public var trackHeight: CGFloat
 
     /// Whether to show quality overlay on sequences.

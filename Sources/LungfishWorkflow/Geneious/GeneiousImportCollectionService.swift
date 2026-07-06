@@ -241,7 +241,6 @@ public struct GeneiousImportCollectionService: Sendable {
             collectionURL: collectionURL,
             inventoryURL: inventoryURL,
             reportURL: reportURL,
-            provenanceURL: provenanceURL,
             rawSourceOutputs: sourceCopyOutputs,
             preservedArtifactURLs: preservedArtifactURLs,
             decodedFASTAURLs: decodedFASTAURLs,
@@ -251,7 +250,7 @@ public struct GeneiousImportCollectionService: Sendable {
             tempRunURL: tempRunURL,
             startedAt: startedAt
         )
-        try writeJSON(provenance, to: provenanceURL)
+        try writeProvenance(provenance, to: provenanceURL)
 
         progress?(1.0, "Geneious import complete.")
         return GeneiousImportResult(
@@ -592,7 +591,6 @@ public struct GeneiousImportCollectionService: Sendable {
         collectionURL: URL,
         inventoryURL: URL,
         reportURL: URL,
-        provenanceURL: URL,
         rawSourceOutputs: [URL],
         preservedArtifactURLs: [URL],
         decodedFASTAURLs: [URL],
@@ -606,14 +604,22 @@ public struct GeneiousImportCollectionService: Sendable {
         let preserveStarted = Date()
         let referenceStarted = Date()
         let completedAt = Date()
-        let sourceRecord = ProvenanceRecorder.fileRecord(url: sourceURL, format: .unknown, role: .input)
-        let inventoryRecord = ProvenanceRecorder.fileRecord(url: inventoryURL, format: .json, role: .output)
-        let reportRecord = ProvenanceRecorder.fileRecord(url: reportURL, format: .text, role: .report)
-        let provenanceRecord = FileRecord(path: provenanceURL.path, sha256: nil, sizeBytes: nil, format: .json, role: .output)
-        let rawSourceRecords = rawSourceOutputs.map { ProvenanceRecorder.fileRecord(url: $0, format: .unknown, role: .output) }
-        let artifactRecords = preservedArtifactURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .unknown, role: .output) }
-        let decodedFASTARecords = decodedFASTAURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .fasta, role: .output) }
-        let bundleRecords = nativeBundleURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .unknown, role: .output) }
+        let sourceRecord = ProvenanceRecorder.fileOrDirectoryRecord(url: sourceURL, format: .unknown, role: .input)
+        let inventoryRecord = ProvenanceRecorder.fileOrDirectoryRecord(url: inventoryURL, format: .json, role: .output)
+        let reportRecord = ProvenanceRecorder.fileOrDirectoryRecord(url: reportURL, format: .text, role: .report)
+        let collectionRecord = ProvenanceRecorder.fileOrDirectoryRecord(url: collectionURL, format: .unknown, role: .output)
+        let rawSourceRecords = rawSourceOutputs.map {
+            ProvenanceRecorder.fileOrDirectoryRecord(url: $0, format: .unknown, role: .output)
+        }
+        let artifactRecords = preservedArtifactURLs.map {
+            ProvenanceRecorder.fileOrDirectoryRecord(url: $0, format: .unknown, role: .output)
+        }
+        let decodedFASTARecords = decodedFASTAURLs.map {
+            ProvenanceRecorder.fileOrDirectoryRecord(url: $0, format: .fasta, role: .output)
+        }
+        let bundleRecords = nativeBundleURLs.map {
+            ProvenanceRecorder.fileOrDirectoryRecord(url: $0, format: .unknown, role: .output)
+        }
         let replayCommand = Self.replayCommand(sourceURL: sourceURL, projectURL: projectURL, options: options)
 
         let scanStep = StepExecution(
@@ -661,7 +667,7 @@ public struct GeneiousImportCollectionService: Sendable {
             toolVersion: WorkflowRun.currentAppVersion,
             command: replayCommand,
             inputs: [sourceRecord],
-            outputs: bundleRecords + [provenanceRecord],
+            outputs: [collectionRecord] + bundleRecords,
             exitCode: 0,
             wallTime: completedAt.timeIntervalSince(referenceStarted),
             dependsOn: [preserveStep.id],
@@ -720,7 +726,7 @@ public struct GeneiousImportCollectionService: Sendable {
         options: GeneiousImportOptions
     ) -> [String] {
         var command = [
-            "lungfish", "import", "geneious", sourceURL.path,
+            CLICommandIdentity.executableName, "import", "geneious", sourceURL.path,
             "--project", projectURL.path,
         ]
         if let collectionName = options.collectionName,
@@ -745,6 +751,10 @@ public struct GeneiousImportCollectionService: Sendable {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(value)
         try data.write(to: url, options: .atomic)
+    }
+
+    private func writeProvenance(_ provenance: WorkflowRun, to url: URL) throws {
+        try ProvenanceWriter(signingProvider: nil).write(provenance.canonicalEnvelope(), toSidecar: url)
     }
 
     private func appendUnique(_ value: String, to values: inout [String]) {

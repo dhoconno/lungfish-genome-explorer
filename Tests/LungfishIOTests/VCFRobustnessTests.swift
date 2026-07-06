@@ -471,10 +471,14 @@ final class VCFRobustnessTests: XCTestCase {
 
     // MARK: - Batch VCF Parsing (All 50 Files)
 
-    func testAllRealVCFsFromDownloads() async throws {
-        let vcfDir = URL(fileURLWithPath: "/Users/dho/Downloads/vcfs")
+    func testAllRealVCFsFromConfiguredDirectory() async throws {
+        guard let vcfDirectory = ProcessInfo.processInfo.environment["LUNGFISH_REAL_VCF_DIR"],
+              !vcfDirectory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw XCTSkip("Set LUNGFISH_REAL_VCF_DIR to run the optional real-data VCF stress test")
+        }
+        let vcfDir = URL(fileURLWithPath: vcfDirectory, isDirectory: true)
         guard FileManager.default.fileExists(atPath: vcfDir.path) else {
-            throw XCTSkip("VCF test directory not available")
+            throw XCTSkip("VCF test directory not available: \(vcfDir.path)")
         }
 
         let files = try FileManager.default.contentsOfDirectory(at: vcfDir, includingPropertiesForKeys: nil)

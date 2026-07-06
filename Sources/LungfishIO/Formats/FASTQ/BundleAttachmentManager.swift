@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import os.log
 
 private let logger = Logger(subsystem: "com.lungfish.io", category: "BundleAttachmentManager")
@@ -45,7 +46,10 @@ public struct BundleAttachmentManager: Sendable {
                 includingPropertiesForKeys: [.isRegularFileKey],
                 options: [.skipsHiddenFiles]
             )
-            return contents.map(\.lastPathComponent).sorted()
+            return contents
+                .map(\.lastPathComponent)
+                .filter(BundleAttachmentFilenamePolicy.isUserVisibleAttachmentFilename)
+                .sorted()
         } catch {
             logger.warning("Failed to list attachments: \(error.localizedDescription)")
             return []
@@ -105,6 +109,7 @@ public struct BundleAttachmentManager: Sendable {
         let fm = FileManager.default
         guard fm.fileExists(atPath: url.path) else { return }
         try fm.removeItem(at: url)
+        try? fm.removeItem(at: BundleAttachmentFilenamePolicy.provenanceSidecarURL(forAttachmentURL: url))
         logger.info("Removed attachment '\(filename)' from bundle at \(self.bundleURL.lastPathComponent)")
 
         // Remove the attachments directory if empty

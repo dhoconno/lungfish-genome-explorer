@@ -1,6 +1,7 @@
 import XCTest
 @testable import LungfishNvdUI
 @testable import LungfishIO
+@testable import LungfishWorkflow
 
 @MainActor
 final class NvdResultViewControllerTests: XCTestCase {
@@ -147,6 +148,44 @@ final class NvdResultViewControllerTests: XCTestCase {
                 "Search PubMed",
             ]
         )
+    }
+
+    func testContigTSVExportWritesScientificProvenanceSidecar() throws {
+        let fixture = try NvdMenuFixture()
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: fixture.rootURL)
+        }
+
+        let vc = NvdResultViewController()
+        _ = vc.view
+        vc.configure(database: fixture.database, manifest: fixture.manifest, bundleURL: fixture.bundleURL)
+
+        let outputDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("nvd-export-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: outputDirectory)
+        }
+        let outputURL = outputDirectory.appendingPathComponent("nvd-contigs.tsv")
+        try vc.writeContigsTSV(to: outputURL)
+
+        let envelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: outputURL))
+        )
+        XCTAssertEqual(envelope.workflowName, "lungfish app nvd contigs export")
+        XCTAssertEqual(envelope.output?.path, outputURL.path)
+        XCTAssertNotNil(envelope.output?.checksumSHA256)
+        XCTAssertEqual(envelope.options.resolvedDefaults["rowCount"]?.integerValue, 1)
+        XCTAssertEqual(
+            envelope.options.resolvedDefaults["selectedSamples"]?.arrayValue?.compactMap(\.stringValue),
+            ["sample1"]
+        )
+        XCTAssertEqual(envelope.options.resolvedDefaults["searchQuery"]?.stringValue, "")
+        XCTAssertEqual(envelope.options.resolvedDefaults["groupingMode"]?.stringValue, "bySample")
+        XCTAssertTrue(envelope.files.contains { $0.path == fixture.database.databaseURL.path && $0.checksumSHA256 != nil })
+        let sourceDirectory = try XCTUnwrap(envelope.files.first { $0.path == fixture.rootURL.path && $0.role == .input })
+        XCTAssertNotNil(sourceDirectory.checksumSHA256)
+        XCTAssertNotNil(sourceDirectory.fileSize)
     }
 
     private static func contigRow(sampleId: String, qseqid: String) -> NvdContigRow {

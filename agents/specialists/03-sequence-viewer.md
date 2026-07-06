@@ -35,19 +35,10 @@
 
 ### Component Ownership
 ```
-LungfishUI/
-├── SequenceViewer/
-│   ├── SequenceViewerView.swift         # PRIMARY OWNER
-│   ├── SequenceRenderer.swift           # PRIMARY OWNER
-│   ├── MetalSequenceRenderer.swift      # PRIMARY OWNER
-│   ├── TileCache.swift                  # PRIMARY OWNER
-│   ├── SelectionController.swift        # PRIMARY OWNER
-│   └── EditController.swift             # PRIMARY OWNER
-├── Rendering/
-│   ├── ReferenceFrame.swift             # CO-OWNER with Track Engineer
-│   └── RenderContext.swift              # CO-OWNER
-└── Shaders/
-    └── SequenceShaders.metal            # PRIMARY OWNER
+Sources/LungfishApp/Views/Viewer/        # PRIMARY OWNER for app sequence viewer surfaces
+Sources/LungfishKit/                     # Shared reusable viewer controls/utilities
+Sources/LungfishCore/Models/             # Co-owner for sequence-facing models
+Sources/LungfishIO/Formats/              # Interface point for sequence data access
 ```
 
 ### Interfaces with Other Roles

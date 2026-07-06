@@ -160,6 +160,36 @@ final class AnnotationConverterTests: XCTestCase {
         XCTAssertEqual(lines.count, 1) // Only gene features
     }
 
+    func testConvertGFF3MergeOverlappingFeatures() async throws {
+        let gff3Content = """
+        ##gff-version 3
+        chr1\tLungfish\tgene\t100\t180\t.\t+\t.\tID=gene1;Name=SharedGene
+        chr1\tLungfish\tgene\t170\t220\t.\t+\t.\tID=gene2;Name=SharedGene
+        chr1\tLungfish\tgene\t210\t260\t.\t-\t.\tID=gene3;Name=SharedGene
+        chr1\tLungfish\tCDS\t170\t220\t.\t+\t.\tID=cds1;Name=SharedGene
+        """
+        let gff3URL = tempDirectory.appendingPathComponent("merge.gff3")
+        try gff3Content.write(to: gff3URL, atomically: true, encoding: .utf8)
+
+        let outputURL = tempDirectory.appendingPathComponent("merge-output.bed")
+        let converter = AnnotationConverter()
+        let options = AnnotationConverter.ConversionOptions(mergeOverlapping: true)
+
+        _ = try await converter.convertToBED(
+            from: gff3URL,
+            format: .gff3,
+            output: outputURL,
+            options: options
+        )
+
+        let outputContent = try String(contentsOf: outputURL, encoding: .utf8)
+        let lines = outputContent.split(separator: "\n").map { String($0) }
+        XCTAssertEqual(lines.count, 3)
+        XCTAssertEqual(lines[0], "chr1\t99\t220\tSharedGene\t0\t+\tgene")
+        XCTAssertEqual(lines[1], "chr1\t169\t220\tSharedGene\t0\t+\tCDS")
+        XCTAssertEqual(lines[2], "chr1\t209\t260\tSharedGene\t0\t-\tgene")
+    }
+
     // MARK: - BED Conversion Tests
 
     func testConvertBEDToBED() async throws {
@@ -214,6 +244,60 @@ final class AnnotationConverterTests: XCTestCase {
         let outputContent = try String(contentsOf: outputURL, encoding: .utf8)
         let lines = outputContent.split(separator: "\n")
         XCTAssertEqual(lines.count, 1) // Only medium feature passes filter
+    }
+
+    func testConvertBEDMergeOverlappingFeatures() async throws {
+        let bedContent = """
+        chr1\t100\t180\tgeneA\t100\t+
+        chr1\t170\t220\tgeneA\t500\t+
+        chr1\t220\t250\tgeneA\t200\t+
+        chr1\t240\t300\tgeneB\t900\t+
+        chr1\t260\t310\tgeneA\t100\t-
+        chr2\t10\t20\tgeneA\t100\t+
+        """
+        let bedURL = tempDirectory.appendingPathComponent("merge-input.bed")
+        try bedContent.write(to: bedURL, atomically: true, encoding: .utf8)
+
+        let outputURL = tempDirectory.appendingPathComponent("merge-output.bed")
+        let converter = AnnotationConverter()
+        let options = AnnotationConverter.ConversionOptions(mergeOverlapping: true)
+
+        _ = try await converter.convertToBED(
+            from: bedURL,
+            format: .bed,
+            output: outputURL,
+            options: options
+        )
+
+        let outputContent = try String(contentsOf: outputURL, encoding: .utf8)
+        let lines = outputContent.split(separator: "\n").map { String($0) }
+        XCTAssertEqual(lines.count, 4)
+        XCTAssertEqual(lines[0], "chr1\t100\t250\tgeneA\t500\t+")
+        XCTAssertEqual(lines[1], "chr1\t240\t300\tgeneB\t900\t+")
+        XCTAssertEqual(lines[2], "chr1\t260\t310\tgeneA\t100\t-")
+        XCTAssertEqual(lines[3], "chr2\t10\t20\tgeneA\t100\t+")
+    }
+
+    func testConvertBEDDoesNotMergeOverlappingFeaturesByDefault() async throws {
+        let bedContent = """
+        chr1\t100\t180\tgeneA\t100\t+
+        chr1\t170\t220\tgeneA\t500\t+
+        """
+        let bedURL = tempDirectory.appendingPathComponent("no-merge-input.bed")
+        try bedContent.write(to: bedURL, atomically: true, encoding: .utf8)
+
+        let outputURL = tempDirectory.appendingPathComponent("no-merge-output.bed")
+        let converter = AnnotationConverter()
+
+        _ = try await converter.convertToBED(
+            from: bedURL,
+            format: .bed,
+            output: outputURL
+        )
+
+        let outputContent = try String(contentsOf: outputURL, encoding: .utf8)
+        let lines = outputContent.split(separator: "\n")
+        XCTAssertEqual(lines.count, 2)
     }
 
     // MARK: - Progress Callback Tests

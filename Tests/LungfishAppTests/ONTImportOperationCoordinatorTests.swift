@@ -55,7 +55,7 @@ final class ONTImportOperationCoordinatorTests: XCTestCase {
         XCTAssertEqual(envelope.options.resolvedDefaults["caller"], .string("gui"))
         XCTAssertEqual(envelope.options.resolvedDefaults["includeUnclassified"], .boolean(true))
         XCTAssertEqual(envelope.options.resolvedDefaults["concurrency"], .integer(1))
-        XCTAssertEqual(envelope.argv.first, "lungfish")
+        XCTAssertEqual(envelope.argv.first, "lungfish-cli")
         XCTAssertTrue(envelope.reproducibleCommand.contains("fastq import-ont"))
     }
 

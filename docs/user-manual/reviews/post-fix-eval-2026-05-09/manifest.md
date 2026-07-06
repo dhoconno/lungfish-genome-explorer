@@ -203,13 +203,13 @@ End-to-end execution against GIAB fixture deferred.
 
 ### docs-040 — Workflow Builder
 
-**Verdict:** BROKEN — Workflow Builder is **dead code**
+**Verdict:** Superseded 2026-07-04 — Workflow Builder is a reachable
+experimental feature
 
-The Tools menu has no Workflow Builder entry (`tools-menu.png`). The 612-line
-`WorkflowBuilderViewController` is never instantiated anywhere in the app.
-2,809 lines of Workflow Builder source in `Sources/LungfishApp/Views/WorkflowBuilder/`
-+ 1,300 lines of model in `Sources/LungfishWorkflow/Builder/` are unreachable
-from the GUI. Filed as docs-040a/b/c/d.
+Current app wiring exposes `Tools > Workflow Builder (Experimental)…`, routes it
+through `AppDelegate+ToolsMenu.swift`, assigns `WorkflowBuilderWindow`, and has
+XCUI coverage in `MainWindowNavigationXCUITests`. The original May 2026 verdict
+is retained only as historical context in the archived evaluation artifacts.
 
 ---
 
@@ -294,8 +294,9 @@ Substrate (SQLite-backed variant store) is in place. Variant browser
 (`variant-browser-with-inspector.png`) renders the table with quality/QC
 filter chips (PASS, Qual ≥ 30, DP ≥ 10, Singleton, Minor <20%, Mixed
 20-80%, Dominant ≥80%, DEL, SNP). No per-sample filter syntax (`Sample[NA12878].GT=1/1`).
-No `lungfish-cli variants extract-sample` or `variants query` subcommands.
-Filed as docs-024a.
+`lungfish variants extract-sample` and `lungfish variants query` now exist for
+bundle-owned SQLite variant tracks, and publish exported VCFs only after writing
+sidecar provenance. The historical docs-024a gap is superseded.
 
 ### docs-025 — Reject VCFv3
 

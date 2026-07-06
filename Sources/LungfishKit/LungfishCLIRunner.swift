@@ -60,6 +60,7 @@ public enum LungfishCLIRunner {
         case cancelled
         case nonZeroExit(status: Int32, stderr: String)
         case launchFailed(String)
+        case invalidInvocation(String)
 
         public var errorDescription: String? {
             switch self {
@@ -74,6 +75,8 @@ public enum LungfishCLIRunner {
                     : "lungfish-cli exited with status \(status): \(trimmed)"
             case .launchFailed(let message):
                 return "Failed to launch lungfish-cli: \(message)"
+            case .invalidInvocation(let message):
+                return message
             }
         }
     }
@@ -86,7 +89,8 @@ public enum LungfishCLIRunner {
     ///   * Plain SPM debug binary (`.build/debug/Lungfish`) — CLI found in the
     ///     same directory as the GUI binary.
     ///   * Xcode debug `.app` (`DerivedData/.../Debug/Lungfish.app`) — CLI
-    ///     found by walking from the current workspace to `<repo>/.build/debug/lungfish-cli`.
+    ///     found by walking to the package root and asking SwiftPM for its
+    ///     active binary directory.
     ///   * Release `.app` with bundled CLI — found adjacent to the main executable
     ///     inside `Lungfish.app/Contents/MacOS/`.
     ///   * System install — found via `which lungfish-cli` (`/usr/local/bin`, Homebrew, etc.).
@@ -186,8 +190,19 @@ public enum LungfishCLIRunner {
     /// - Parameters:
     ///   - tool: Classifier tool name (`kraken2`, `esviritu`, `taxtriage`).
     ///   - resultURL: The batch result directory that the CLI should operate on.
+    ///   - sampleDirectories: Kraken2 sample result directories to include. When
+    ///     provided, sibling directories under `resultURL` are ignored.
     /// - Throws: ``RunError`` on missing CLI, launch failure, or non-zero exit.
-    public static func buildClassifierDatabase(tool: String, resultURL: URL, force: Bool = false) throws {
+    public static func buildClassifierDatabase(
+        tool: String,
+        resultURL: URL,
+        force: Bool = false,
+        sampleDirectories: [URL] = []
+    ) throws {
+        if !sampleDirectories.isEmpty && tool != "kraken2" {
+            throw RunError.invalidInvocation("Explicit sample directories are only supported for Kraken2 database builds.")
+        }
+
         guard let cliURL = findCLI() else {
             let execDir = Bundle.main.executableURL?.deletingLastPathComponent().path ?? "<nil>"
             let bundleDir = Bundle.main.bundleURL.path
@@ -203,6 +218,9 @@ public enum LungfishCLIRunner {
         var arguments = ["build-db", tool, resultURL.path]
         if force {
             arguments.append("--force")
+        }
+        for sampleDirectory in sampleDirectories {
+            arguments += ["--sample-dir", sampleDirectory.standardizedFileURL.path]
         }
 
         let output = try run(arguments: arguments)

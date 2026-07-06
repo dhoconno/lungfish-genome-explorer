@@ -75,6 +75,8 @@ public actor BundleAlignmentTrackRemovalService {
         let artifactURLs = try artifactPaths.map {
             try resolvedRemovableBundleURL(bundleURL: bundleURL, relativePath: $0)
         }
+        let removableURLs = artifactURLs
+            + artifactURLs.flatMap(ProvenancePublicationArtifacts.fileSidecarArtifacts(for:))
 
         let manifestURL = bundleURL.appendingPathComponent(BundleManifest.filename)
         let originalManifestData = try? Data(contentsOf: manifestURL)
@@ -82,7 +84,7 @@ public actor BundleAlignmentTrackRemovalService {
             try manifestSaver(manifest.removingAlignmentTrack(id: trackID), bundleURL)
 
             var removedArtifactURLs: [URL] = []
-            for url in artifactURLs where fileManager.fileExists(atPath: url.path) {
+            for url in removableURLs where fileManager.fileExists(atPath: url.path) {
                 try fileManager.removeItem(at: url)
                 removedArtifactURLs.append(url)
             }

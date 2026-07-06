@@ -35,28 +35,10 @@
 
 ### Component Ownership
 ```
-LungfishUI/
-├── Tracks/
-│   ├── Track.swift                    # PRIMARY OWNER - Protocol
-│   ├── AbstractTrack.swift            # PRIMARY OWNER - Base class
-│   ├── FeatureTrack.swift             # PRIMARY OWNER
-│   ├── AlignmentTrack.swift           # PRIMARY OWNER
-│   ├── CoverageTrack.swift            # PRIMARY OWNER
-│   ├── VariantTrack.swift             # PRIMARY OWNER
-│   └── TrackFactory.swift             # PRIMARY OWNER
-├── Renderers/
-│   ├── Renderer.swift                 # PRIMARY OWNER - Protocol
-│   ├── FeatureRenderer.swift          # PRIMARY OWNER
-│   ├── AlignmentRenderer.swift        # PRIMARY OWNER
-│   ├── CoverageRenderer.swift         # PRIMARY OWNER
-│   └── GeneRenderer.swift             # PRIMARY OWNER
-├── Layout/
-│   ├── FeaturePacker.swift            # PRIMARY OWNER
-│   ├── RowPacker.swift                # PRIMARY OWNER
-│   └── AlignmentPacker.swift          # PRIMARY OWNER
-└── Rendering/
-    ├── RenderContext.swift            # CO-OWNER with Sequence Viewer
-    └── TrackPanel.swift               # PRIMARY OWNER
+Sources/LungfishApp/Views/Viewer/       # PRIMARY OWNER for track presentation in the app viewer
+Sources/LungfishAlignmentUI/            # Alignment-specific reusable UI surfaces
+Sources/LungfishCore/Capabilities/      # Co-owner for document capability contracts
+Sources/LungfishIO/Bundles/             # Interface point for indexed track data
 ```
 
 ### Interfaces with Other Roles

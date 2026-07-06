@@ -408,6 +408,7 @@ enum PrimitiveProvenanceEnvelopeAdapter {
                 outputs: stepOutputs,
                 exitStatus: step.exitStatus,
                 wallTimeSeconds: step.wallTimeSeconds,
+                peakMemoryBytes: step.peakMemoryBytes,
                 stderr: step.stderr,
                 dependsOn: step.dependsOn,
                 startedAt: step.startedAt,
@@ -461,6 +462,7 @@ enum PrimitiveProvenanceEnvelopeAdapter {
             outputs: descriptors(json["outputs"], role: .output) + descriptors(json["output"], role: .output),
             exitStatus: int(json, keys: ["exitStatus", "exit_status", "exitCode"]),
             wallTimeSeconds: double(json, keys: ["wallTimeSeconds", "wall_time_seconds", "wallTime"]),
+            peakMemoryBytes: uint64(json, keys: ["peakMemoryBytes", "peak_memory_bytes", "maxRssBytes"]),
             stderr: string(json, keys: ["stderr"]),
             startedAt: startedAt,
             completedAt: completedAt
@@ -647,6 +649,15 @@ enum PrimitiveProvenanceEnvelopeAdapter {
         default:
             return nil
         }
+    }
+
+    private static func uint64(_ json: [String: Any], keys: [String]) -> UInt64? {
+        for key in keys {
+            if let value = unsignedInt(json[key]) {
+                return value
+            }
+        }
+        return nil
     }
 
     private static func unsignedInt(_ value: Any?) -> UInt64? {

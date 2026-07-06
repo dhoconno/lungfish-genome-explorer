@@ -364,6 +364,22 @@ public enum DatabaseServiceError: Error, LocalizedError, Sendable {
 /// This allows injection of mock clients for testing.
 public protocol HTTPClient: Sendable {
     func data(for request: URLRequest) async throws -> (Data, URLResponse)
+    func download(for request: URLRequest) async throws -> (URL, URLResponse)
+}
+
+public extension HTTPClient {
+    func download(for request: URLRequest) async throws -> (URL, URLResponse) {
+        let (data, response) = try await data(for: request)
+        let temporaryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lungfish-http-download-\(UUID().uuidString)")
+        do {
+            try data.write(to: temporaryURL, options: .atomic)
+            return (temporaryURL, response)
+        } catch {
+            try? FileManager.default.removeItem(at: temporaryURL)
+            throw error
+        }
+    }
 }
 
 /// Default HTTP client using URLSession.
@@ -376,5 +392,9 @@ public struct URLSessionHTTPClient: HTTPClient {
 
     public func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         try await session.data(for: request)
+    }
+
+    public func download(for request: URLRequest) async throws -> (URL, URLResponse) {
+        try await session.download(for: request)
     }
 }

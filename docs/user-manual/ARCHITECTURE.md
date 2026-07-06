@@ -413,21 +413,18 @@ depth) so the chapter survives without the foundations layer.
 
 | Chapter | Status |
 |---|---|
-| F01-F08 | not started |
-| S01-S04 | not started |
-| R01-R07 | not started |
-| A01-A04 | not started |
-| V01 | written, under revision |
-| V02-V06 | not started |
-| C01-C06 | not started |
-| AS01-AS04 | not started |
-| W01-W02 | not started |
-| Appendices | not started |
+| Foundations | Published under `chapters/01-foundations/` |
+| Projects and bundles | Published under `chapters/02-projects-bundles/` |
+| Reads and FASTQ workflows | Published under `chapters/03-reads/` |
+| Alignments | Published under `chapters/04-alignments/` |
+| Assembly | Published under `chapters/07-assembly/` |
+| Classification | Published under `chapters/06-classification/` |
+| Human germline variants | Published under `chapters/06-human-germline-variants/` |
+| Appendices | Published under `chapters/appendices/` |
 
-The 2026-05-09 plan ships the V01 rewrite first, with inline minimum-vocabulary
-to compensate for missing foundations. The next planning sprint stubs every
-chapter listed above (frontmatter + one-paragraph teaching summary) so the
-manual's full surface is visible before any further chapter writing begins.
+This architecture note is historical design context. The active public navigation
+is `build/mkdocs.yml`, and the chapter files under `chapters/` are the current
+manual inventory.
 
 ## Resolved planning decisions (2026-05-09)
 

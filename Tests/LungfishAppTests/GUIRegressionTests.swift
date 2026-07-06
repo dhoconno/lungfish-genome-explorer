@@ -698,7 +698,7 @@ final class OperationsPanelTests: XCTestCase {
             onCancel: {}
         )
         defer {
-            OperationCenter.shared.cancel(id: operationID)
+            _ = OperationCenter.shared.fail(id: operationID, detail: "cleanup")
             OperationCenter.shared.clearCompleted()
         }
 
@@ -712,6 +712,10 @@ final class OperationsPanelTests: XCTestCase {
         XCTAssertEqual(statusItem.action, #selector(OperationsMenuActions.cancelOperation(_:)))
         XCTAssertTrue(statusItem.isEnabled)
         XCTAssertEqual(statusItem.representedObject as? UUID, operationID)
+        let cancelAllItem = try XCTUnwrap(
+            operationsMenu.items.first { $0.action == #selector(OperationsMenuActions.cancelAllOperations(_:)) }
+        )
+        XCTAssertTrue(cancelAllItem.isEnabled)
     }
 
     @MainActor
@@ -725,7 +729,7 @@ final class OperationsPanelTests: XCTestCase {
             operationType: .bundleBuild
         )
         defer {
-            OperationCenter.shared.fail(id: operationID, detail: "cleanup")
+            _ = OperationCenter.shared.fail(id: operationID, detail: "cleanup")
             OperationCenter.shared.clearCompleted()
         }
 
@@ -738,10 +742,46 @@ final class OperationsPanelTests: XCTestCase {
         XCTAssertEqual(statusItem.title, "Find ORFs (0%)")
         XCTAssertNil(statusItem.action)
         XCTAssertFalse(statusItem.isEnabled)
+        let cancelAllItem = try XCTUnwrap(
+            operationsMenu.items.first { $0.action == #selector(OperationsMenuActions.cancelAllOperations(_:)) }
+        )
+        XCTAssertFalse(cancelAllItem.isEnabled)
     }
 
     @MainActor
-    func testCompletedCallbacksDoNotOverwriteCancelledOperationRows() {
+    func testOperationsPanelHidesCancelButtonForRunningRowsWithoutCancelCallbacks() throws {
+        _ = NSApplication.shared
+        OperationCenter.shared.cancelAll()
+        OperationCenter.shared.clearCompleted()
+        let operationID = OperationCenter.shared.start(
+            title: "Find ORFs",
+            detail: "Running",
+            operationType: .bundleBuild
+        )
+        defer {
+            _ = OperationCenter.shared.fail(id: operationID, detail: "cleanup")
+            OperationCenter.shared.clearCompleted()
+        }
+
+        let controller = try makeOperationsPanelController()
+        defer { controller.close() }
+        let window = try XCTUnwrap(controller.window)
+        let tableView = try XCTUnwrap(window.contentView?.firstSubview(of: NSTableView.self))
+        drainOperationsPanelRunLoop(window)
+        tableView.reloadData()
+        tableView.layoutSubtreeIfNeeded()
+
+        let actionColumn = try XCTUnwrap(
+            tableView.tableColumns.firstIndex { $0.identifier.rawValue == "action" }
+        )
+        let actionCell = try XCTUnwrap(tableView.view(atColumn: actionColumn, row: 0, makeIfNecessary: true))
+        let cancelButton = try XCTUnwrap(actionCell.firstButton(titled: "Cancel"))
+        XCTAssertTrue(cancelButton.isHidden)
+        XCTAssertEqual(OperationCenter.shared.items.first { $0.id == operationID }?.state, .running)
+    }
+
+    @MainActor
+    func testCompletedCallbacksDoNotOverwriteCancelledOperationRows() async throws {
         OperationCenter.shared.cancelAll()
         OperationCenter.shared.clearCompleted()
         let operationID = OperationCenter.shared.start(
@@ -752,8 +792,10 @@ final class OperationsPanelTests: XCTestCase {
         )
         OperationCenter.shared.cancel(id: operationID)
 
-        OperationCenter.shared.complete(id: operationID, detail: "Complete after cancellation")
+        _ = OperationCenter.shared.complete(id: operationID, detail: "Complete after cancellation")
 
+        XCTAssertEqual(OperationCenter.shared.items.first { $0.id == operationID }?.state, .cancelling)
+        try await waitForOperation(operationID, toReach: .cancelled)
         XCTAssertEqual(OperationCenter.shared.items.first { $0.id == operationID }?.state, .cancelled)
         OperationCenter.shared.clearCompleted()
     }
@@ -770,7 +812,7 @@ final class OperationsPanelTests: XCTestCase {
             detail: "Writing report",
             operationType: .export
         )
-        OperationCenter.shared.complete(
+        _ = OperationCenter.shared.complete(
             id: operationID,
             detail: "Export complete",
             outputURLs: [outputURL]
@@ -840,7 +882,7 @@ final class OperationsPanelTests: XCTestCase {
         let controller = try makeOperationsPanelController()
         defer {
             controller.close()
-            OperationCenter.shared.cancel(id: operationID)
+            _ = OperationCenter.shared.fail(id: operationID, detail: "cleanup")
             OperationCenter.shared.clearCompleted()
         }
 
@@ -910,6 +952,22 @@ final class OperationsPanelTests: XCTestCase {
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         window.contentView?.layoutSubtreeIfNeeded()
     }
+
+    @MainActor
+    private func waitForOperation(
+        _ operationID: UUID,
+        toReach state: OperationCenter.Item.State,
+        timeout: TimeInterval = 2
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if OperationCenter.shared.items.first(where: { $0.id == operationID })?.state == state {
+                return
+            }
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+        XCTFail("Timed out waiting for operation \(operationID) to reach \(state.rawValue)")
+    }
 }
 
 private extension NSView {
@@ -948,6 +1006,18 @@ private extension NSView {
             return true
         }
         return subviews.contains { $0.containsText(text) }
+    }
+
+    func firstButton(titled title: String) -> NSButton? {
+        if let button = self as? NSButton, button.title == title {
+            return button
+        }
+        for subview in subviews {
+            if let match = subview.firstButton(titled: title) {
+                return match
+            }
+        }
+        return nil
     }
 }
 

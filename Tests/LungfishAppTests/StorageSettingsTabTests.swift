@@ -6,8 +6,6 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
 
-@MainActor private var storageSettingsTabTestsOriginalManagedStorageStore: ManagedStorageConfigStore?
-
 final class StorageSettingsTabTests: XCTestCase {
     private var tempHome: URL!
 
@@ -17,17 +15,9 @@ final class StorageSettingsTabTests: XCTestCase {
             .appendingPathComponent("storage-settings-tab-tests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempHome, withIntermediateDirectories: true)
 
-        MainActor.assumeIsolated {
-            storageSettingsTabTestsOriginalManagedStorageStore = ManagedStorageConfigStore.shared
-        }
     }
 
     override func tearDownWithError() throws {
-        MainActor.assumeIsolated {
-            ManagedStorageConfigStore.shared = storageSettingsTabTestsOriginalManagedStorageStore ?? ManagedStorageConfigStore()
-            storageSettingsTabTestsOriginalManagedStorageStore = nil
-        }
-
         if let tempHome {
             try? FileManager.default.removeItem(at: tempHome)
         }
@@ -44,7 +34,6 @@ final class StorageSettingsTabTests: XCTestCase {
             withIntermediateDirectories: true
         )
         try Data("not-json".utf8).write(to: store.configURL, options: [.atomic])
-        ManagedStorageConfigStore.shared = store
 
         let state = StorageSettingsTab.makeViewState(configStore: store, fileManager: .default)
 
@@ -74,7 +63,6 @@ final class StorageSettingsTabTests: XCTestCase {
         )
         let data = try JSONEncoder().encode(config)
         try data.write(to: store.configURL, options: [.atomic])
-        ManagedStorageConfigStore.shared = store
 
         let state = StorageSettingsTab.makeViewState(configStore: store, fileManager: .default)
 

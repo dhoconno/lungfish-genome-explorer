@@ -167,7 +167,7 @@ public struct CondaOfflinePackService {
 
         let provenanceURL = try writeProvenance(
             name: "Conda Offline Pack Export",
-            toolName: "lungfish-cli",
+            toolName: CLICommandIdentity.executableName,
             commandLine: sanitizedCommandLine,
             inputs: environmentNames.map {
                 FileRecord(path: sourceCondaRoot.appendingPathComponent("envs/\($0)", isDirectory: true).path, role: .input)
@@ -257,7 +257,7 @@ public struct CondaOfflinePackService {
         })
         let provenanceURL = try writeProvenance(
             name: "Conda Offline Pack Install",
-            toolName: "lungfish-cli",
+            toolName: CLICommandIdentity.executableName,
             commandLine: sanitizedCommandLine,
             inputs: inputRecords,
             outputs: copiedFiles.map { ProvenanceRecorder.fileRecord(url: $0, role: .output) },

@@ -1,3 +1,4 @@
+import LungfishCore
 import LungfishWorkflow
 import XCTest
 @testable import LungfishApp
@@ -60,12 +61,20 @@ final class ApplicationExportImportCollectionServiceTests: XCTestCase {
         XCTAssertEqual(
             provenance.steps.first?.command,
             [
-                "lungfish", "import", "application-export", "clc-workbench", archiveURL.path,
+                CLICommandIdentity.executableName, "import", "application-export", "clc-workbench", archiveURL.path,
                 "--project", projectURL.path,
             ]
         )
         XCTAssertFalse(provenance.steps.flatMap(\.command).contains("--collection"))
         XCTAssertFalse(provenance.steps.flatMap(\.command).contains("--application-export-source"))
+
+        let canonicalProvenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: result.provenanceURL))
+        XCTAssertEqual(canonicalProvenance.output?.path, result.collectionURL.path)
+        XCTAssertNotNil(canonicalProvenance.output?.checksumSHA256)
+        XCTAssertNotNil(canonicalProvenance.output?.fileSize)
+        XCTAssertTrue(canonicalProvenance.outputs.contains {
+            $0.path == result.collectionURL.path && $0.checksumSHA256 != nil && $0.fileSize != nil
+        })
 
         let bundleURL = try XCTUnwrap(result.nativeBundleURLs.first)
         let bundleProvenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: bundleURL))
@@ -116,7 +125,7 @@ final class ApplicationExportImportCollectionServiceTests: XCTestCase {
         XCTAssertEqual(
             provenance.steps.first?.command,
             [
-                "lungfish", "import", "application-export", "clc-workbench", archiveURL.path,
+                CLICommandIdentity.executableName, "import", "application-export", "clc-workbench", archiveURL.path,
                 "--project", projectURL.path,
                 "--collection-name", "Reviewed Batch",
             ]
@@ -236,6 +245,53 @@ final class ApplicationExportImportCollectionServiceTests: XCTestCase {
         XCTAssertTrue(inventory.items.contains {
             $0.kind == .report && $0.lgeDestination == nil
         })
+    }
+
+    func testNativeOnlyImportFailureWritesFailedCollectionProvenanceAndThrows() async throws {
+        struct NativeImportFailure: LocalizedError {
+            var errorDescription: String? { "parser unavailable" }
+        }
+
+        let root = try makeTempDirectory()
+        let projectURL = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try fileManager.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        let sourceURL = try makeAlignmentTreeExportFolder(root: root)
+        let service = ApplicationExportImportCollectionService(
+            scanner: ApplicationExportScanner(),
+            msaImporter: { _, _ in throw NativeImportFailure() }
+        )
+
+        do {
+            _ = try await service.importApplicationExport(
+                sourceURL: sourceURL,
+                projectURL: projectURL,
+                kind: .alignmentTree,
+                options: .default
+            )
+            XCTFail("Native-only imports must fail when a required native bundle import fails")
+        } catch let error as ApplicationExportImportCollectionError {
+            guard case .nativeBundleImportsFailed(let kind, let failures, let collectionURL, let provenanceURL) = error else {
+                return XCTFail("Unexpected application export error: \(error)")
+            }
+            XCTAssertEqual(kind, .alignmentTree)
+            XCTAssertTrue(failures.contains { $0.contains("mhc.aln") && $0.contains("parser unavailable") })
+            XCTAssertTrue(fileManager.fileExists(atPath: collectionURL.path))
+            XCTAssertTrue(fileManager.fileExists(atPath: provenanceURL.path))
+
+            let workflowData = try Data(contentsOf: provenanceURL)
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            let workflow = try decoder.decode(WorkflowRun.self, from: workflowData)
+            XCTAssertEqual(workflow.status, .failed)
+            XCTAssertEqual(workflow.steps.last?.exitCode, 1)
+            XCTAssertTrue(workflow.steps.last?.stderr?.contains("parser unavailable") == true)
+
+            let canonicalProvenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL))
+            XCTAssertEqual(canonicalProvenance.workflowName, "Application Export Import")
+            XCTAssertEqual(canonicalProvenance.exitStatus, 1)
+            XCTAssertEqual(canonicalProvenance.output?.path, collectionURL.path)
+            XCTAssertNotNil(canonicalProvenance.output?.checksumSHA256)
+        }
     }
 
     func testArchiveImportRejectsUnsafeMembers() async throws {

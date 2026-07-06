@@ -5,6 +5,7 @@
 // Owner: NCBI Integration Lead (Role 12)
 
 import Foundation
+import Darwin
 import os.log
 
 private let logger = Logger(subsystem: LogSubsystem.core, category: "SRAService")
@@ -82,6 +83,13 @@ public actor SRAService {
         .cannotLoadFromNetwork,
     ]
 
+    private nonisolated static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError {
+            return true
+        }
+        return (error as? URLError)?.code == .cancelled
+    }
+
     private let ncbiService: NCBIService
     private let httpClient: HTTPClient
     private let homeDirectoryProvider: @Sendable () -> URL
@@ -140,24 +148,25 @@ public actor SRAService {
     /// - Returns: Search results with SRA run information
     public func search(_ query: SearchQuery) async throws -> SRASearchResults {
         // Use NCBI ESearch with SRA database
-        let ids = try await ncbiService.esearch(
+        let searchResult = try await ncbiService.esearchWithCount(
             database: .sra,
             term: query.term,
             retmax: query.limit,
             retstart: query.offset
         )
+        let ids = searchResult.ids
 
         guard !ids.isEmpty else {
-            return SRASearchResults(totalCount: 0, runs: [])
+            return SRASearchResults(totalCount: searchResult.totalCount, runs: [])
         }
 
         // Get run info via EFetch
         let runs = try await fetchRunInfo(ids: ids)
 
         return SRASearchResults(
-            totalCount: ids.count,
+            totalCount: searchResult.totalCount,
             runs: runs,
-            hasMore: runs.count == query.limit
+            hasMore: query.offset + ids.count < searchResult.totalCount
         )
     }
 
@@ -183,7 +192,7 @@ public actor SRAService {
             throw SRAError.parseError("Invalid encoding")
         }
 
-        return parseRunInfoCSV(content)
+        return SRARunInfoCSVParser.parseRows(content)
     }
 
     private func fetchRunInfoData(request: URLRequest) async throws -> Data {
@@ -240,104 +249,18 @@ public actor SRAService {
         }
     }
 
-    /// Parses CSV run info from NCBI.
-    ///
-    /// NCBI efetch returns CSV without headers. The known column order is:
-    /// Run, ReleaseDate, LoadDate, spots, bases, spots_with_mates, avgLength, size_MB,
-    /// AssemblyName, download_path, Experiment, LibraryName, LibraryStrategy, LibrarySelection,
-    /// LibrarySource, LibraryLayout, InsertSize, InsertDev, Platform, Model, SRAStudy, BioProject,
-    /// Study_Pubmed_id, ProjectID, Sample, BioSample, SampleType, TaxID, ScientificName, SampleName, ...
-    private func parseRunInfoCSV(_ csv: String) -> [SRARunInfo] {
-        let lines = csv.components(separatedBy: "\n")
-        guard !lines.isEmpty else { return [] }
-
-        // Check if first line looks like a header (starts with "Run,")
-        let firstLine = lines[0]
-        let hasHeader = firstLine.hasPrefix("Run,")
-
-        // Column indices (0-based) for headerless CSV
-        // These are based on NCBI's fixed output format
-        let runIdx = 0
-        let releaseDateIdx = 1
-        let spotsIdx = 3
-        let basesIdx = 4
-        let avgLengthIdx = 6
-        let sizeMBIdx = 7
-        let experimentIdx = 10
-        let libraryStrategyIdx = 12
-        let librarySourceIdx = 14
-        let libraryLayoutIdx = 15
-        let platformIdx = 18
-        _ = 19  // modelIdx - reserved for future use
-        let studyIdx = 20
-        let bioprojectIdx = 21
-        let sampleIdx = 24
-        let biosampleIdx = 25
-        _ = 27  // taxIdIdx - reserved for future use
-        let scientificNameIdx = 28
-
-        var runs: [SRARunInfo] = []
-
-        // If there's a header, skip it; otherwise process all lines
-        let dataLines = hasHeader ? Array(lines.dropFirst()) : lines
-
-        for line in dataLines where !line.isEmpty {
-            let fields = parseCSVLine(line)
-            guard fields.count > runIdx, !fields[runIdx].isEmpty else { continue }
-
-            let run = SRARunInfo(
-                accession: fields[safe: runIdx] ?? "",
-                experiment: fields[safe: experimentIdx],
-                sample: fields[safe: sampleIdx],
-                study: fields[safe: studyIdx],
-                bioproject: fields[safe: bioprojectIdx],
-                biosample: fields[safe: biosampleIdx],
-                organism: fields[safe: scientificNameIdx],
-                platform: fields[safe: platformIdx],
-                libraryStrategy: fields[safe: libraryStrategyIdx],
-                librarySource: fields[safe: librarySourceIdx],
-                libraryLayout: fields[safe: libraryLayoutIdx],
-                spots: Int(fields[safe: spotsIdx] ?? ""),
-                bases: Int(fields[safe: basesIdx] ?? ""),
-                avgLength: Int(fields[safe: avgLengthIdx] ?? ""),
-                size: Int(fields[safe: sizeMBIdx] ?? ""),
-                releaseDate: parseDate(fields[safe: releaseDateIdx])
-            )
-
-            if !run.accession.isEmpty {
-                runs.append(run)
-            }
+    private static func publishDownloadedFile(from temporaryURL: URL, to destinationURL: URL) throws {
+        let fileManager = FileManager.default
+        defer { try? fileManager.removeItem(at: temporaryURL) }
+        try fileManager.createDirectory(
+            at: destinationURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        if fileManager.fileExists(atPath: destinationURL.path) {
+            _ = try fileManager.replaceItemAt(destinationURL, withItemAt: temporaryURL)
+        } else {
+            try fileManager.moveItem(at: temporaryURL, to: destinationURL)
         }
-
-        return runs
-    }
-
-    /// Parses a CSV line handling quoted fields.
-    private func parseCSVLine(_ line: String) -> [String] {
-        var fields: [String] = []
-        var current = ""
-        var inQuotes = false
-
-        for char in line {
-            if char == "\"" {
-                inQuotes.toggle()
-            } else if char == "," && !inQuotes {
-                fields.append(current)
-                current = ""
-            } else {
-                current.append(char)
-            }
-        }
-        fields.append(current)
-
-        return fields
-    }
-
-    private func parseDate(_ dateStr: String?) -> Date? {
-        guard let str = dateStr, !str.isEmpty else { return nil }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        return formatter.date(from: str)
     }
 
     // MARK: - Download
@@ -424,21 +347,24 @@ public actor SRAService {
         )
         let fasterqCompletedAt = Date()
 
-        if fasterqResult.exitCode != 0 {
-            trace?(
-                FASTQDownloadStepTrace(
-                    toolName: "fasterq-dump",
-                    toolVersion: "sra-tools",
-                    command: [toolkit.fasterqDump.path] + fasterqArguments,
-                    inputs: [sraFile.path],
-                    outputs: [],
-                    exitCode: fasterqResult.exitCode,
-                    wallTime: fasterqCompletedAt.timeIntervalSince(fasterqStartedAt),
-                    stderr: fasterqResult.stderr,
-                    startedAt: fasterqStartedAt,
-                    completedAt: fasterqCompletedAt
-                )
+        // Shared trace fields for both the failure and success paths; only `outputs` differs.
+        let makeFasterqTrace: ([URL]) -> FASTQDownloadStepTrace = { outputs in
+            FASTQDownloadStepTrace(
+                toolName: "fasterq-dump",
+                toolVersion: "sra-tools",
+                command: [toolkit.fasterqDump.path] + fasterqArguments,
+                inputs: [sraFile.path],
+                outputs: outputs,
+                exitCode: fasterqResult.exitCode,
+                wallTime: fasterqCompletedAt.timeIntervalSince(fasterqStartedAt),
+                stderr: fasterqResult.stderr,
+                startedAt: fasterqStartedAt,
+                completedAt: fasterqCompletedAt
             )
+        }
+
+        if fasterqResult.exitCode != 0 {
+            trace?(makeFasterqTrace([]))
             logger.error("fasterq-dump failed: \(fasterqResult.stderr, privacy: .public)")
             throw SRAError.conversionFailed(fasterqResult.stderr)
         }
@@ -463,20 +389,7 @@ public actor SRAService {
         progress?(1.0)
 
         logger.info("Downloaded \(fastqFiles.count, privacy: .public) FASTQ files for \(accession, privacy: .public)")
-        trace?(
-            FASTQDownloadStepTrace(
-                toolName: "fasterq-dump",
-                toolVersion: "sra-tools",
-                command: [toolkit.fasterqDump.path] + fasterqArguments,
-                inputs: [sraFile.path],
-                outputs: fastqFiles,
-                exitCode: fasterqResult.exitCode,
-                wallTime: fasterqCompletedAt.timeIntervalSince(fasterqStartedAt),
-                stderr: fasterqResult.stderr,
-                startedAt: fasterqStartedAt,
-                completedAt: fasterqCompletedAt
-            )
-        )
+        trace?(makeFasterqTrace(fastqFiles))
 
         return fastqFiles
     }
@@ -518,6 +431,9 @@ public actor SRAService {
                 }
             }
         } catch {
+            if Self.isCancellation(error) {
+                throw error
+            }
             logger.warning("ENA portal URL resolution failed for \(accession, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
 
@@ -539,6 +455,7 @@ public actor SRAService {
         var attemptedURLs: [String] = []
         let totalCandidates = max(candidateURLs.count, 1)
         for (index, fileURL) in candidateURLs.enumerated() {
+            try Task.checkCancellation()
             let filename = fileURL.lastPathComponent.isEmpty
                 ? "\(accession)_\(index + 1).fastq.gz"
                 : fileURL.lastPathComponent
@@ -553,14 +470,15 @@ public actor SRAService {
                 request.timeoutInterval = 600
 
                 let downloadStartedAt = Date()
-                let (data, response) = try await httpClient.data(for: request)
+                let (temporaryURL, response) = try await httpClient.download(for: request)
                 let downloadCompletedAt = Date()
                 guard let httpResponse = response as? HTTPURLResponse,
                       (200...299).contains(httpResponse.statusCode) else {
+                    try? FileManager.default.removeItem(at: temporaryURL)
                     continue
                 }
 
-                try data.write(to: localPath)
+                try Self.publishDownloadedFile(from: temporaryURL, to: localPath)
                 downloadedFiles.append(localPath)
                 trace?(
                     FASTQDownloadStepTrace(
@@ -587,6 +505,9 @@ public actor SRAService {
 
                 logger.info("Downloaded: \(localPath.lastPathComponent, privacy: .public)")
             } catch {
+                if Self.isCancellation(error) {
+                    throw error
+                }
                 logger.warning("ENA FASTQ download failed for \(fileURL.absoluteString, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 continue
             }
@@ -636,10 +557,16 @@ public actor SRAService {
         do {
             return try await ena(accession, outputDir)
         } catch let enaError {
+            if Self.isCancellation(enaError) {
+                throw enaError
+            }
             onFallback?("Falling back to SRA Toolkit (prefetch + fasterq-dump)…")
             do {
                 return try await toolkit(accession, outputDir)
             } catch let toolkitError {
+                if Self.isCancellation(toolkitError) {
+                    throw toolkitError
+                }
                 throw SRAError.downloadFailed("ENA: \(enaError.localizedDescription); Toolkit: \(toolkitError.localizedDescription)")
             }
         }
@@ -731,36 +658,227 @@ public actor SRAService {
         let exitCode: Int32
     }
 
-    private func runCommand(_ path: String, arguments: [String]) async throws -> CommandResult {
-        return try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global().async {
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: path)
-                process.arguments = arguments
+    private final class PipeDataBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var storage = Data()
 
-                let stdoutPipe = Pipe()
-                let stderrPipe = Pipe()
-                process.standardOutput = stdoutPipe
-                process.standardError = stderrPipe
+        func set(_ data: Data) {
+            lock.lock()
+            storage = data
+            lock.unlock()
+        }
 
-                do {
-                    try process.run()
-                    process.waitUntilExit()
+        func stringValue() -> String {
+            lock.lock()
+            let data = storage
+            lock.unlock()
+            return String(data: data, encoding: .utf8) ?? ""
+        }
+    }
 
-                    let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-                    let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+    private final class CommandCancellationState: @unchecked Sendable {
+        private let lock = NSLock()
+        private var process: Process?
+        private var cancellationRequested = false
 
-                    let result = CommandResult(
-                        stdout: String(data: stdoutData, encoding: .utf8) ?? "",
-                        stderr: String(data: stderrData, encoding: .utf8) ?? "",
-                        exitCode: process.terminationStatus
-                    )
+        var isCancelled: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return cancellationRequested
+        }
 
-                    continuation.resume(returning: result)
-                } catch {
-                    continuation.resume(throwing: error)
+        func store(_ process: Process) {
+            let shouldTerminate: Bool
+            lock.lock()
+            self.process = process
+            shouldTerminate = cancellationRequested
+            lock.unlock()
+
+            if shouldTerminate {
+                terminate(process)
+            }
+        }
+
+        func cancel() {
+            let process: Process?
+            lock.lock()
+            cancellationRequested = true
+            process = self.process
+            lock.unlock()
+
+            guard let process else { return }
+            terminate(process)
+        }
+
+        func terminateIfCancelled() {
+            let process: Process?
+            lock.lock()
+            process = cancellationRequested ? self.process : nil
+            lock.unlock()
+
+            guard let process else { return }
+            terminate(process)
+        }
+
+        private func terminate(_ process: Process) {
+            let pid = process.processIdentifier
+            guard pid > 0 else {
+                if process.isRunning {
+                    process.terminate()
+                }
+                return
+            }
+            let initialTree = processTree(rootPID: pid)
+            signal(processIDs: initialTree, rootPID: pid, signal: SIGTERM)
+            if process.isRunning {
+                process.terminate()
+            }
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.5) {
+                let expandedTree = self.uniqueProcessIDs(
+                    initialTree + self.processTree(rootPID: pid) + initialTree.flatMap(self.processTree(rootPID:))
+                )
+                self.signal(processIDs: expandedTree, rootPID: pid, signal: SIGKILL)
+            }
+        }
+
+        private func processTree(rootPID: Int32) -> [Int32] {
+            var processIDs = descendantProcessIDs(of: rootPID)
+            processIDs.append(rootPID)
+            return uniqueProcessIDs(processIDs)
+        }
+
+        private func descendantProcessIDs(of rootPID: Int32) -> [Int32] {
+            let ps = Process()
+            ps.executableURL = URL(fileURLWithPath: "/bin/ps")
+            ps.arguments = ["-Ao", "pid=,ppid="]
+            let stdoutPipe = Pipe()
+            ps.standardOutput = stdoutPipe
+            ps.standardError = Pipe()
+
+            do {
+                try ps.run()
+            } catch {
+                return []
+            }
+
+            let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+            ps.waitUntilExit()
+            guard ps.terminationStatus == 0,
+                  let output = String(data: data, encoding: .utf8) else {
+                return []
+            }
+
+            var childrenByParent: [Int32: [Int32]] = [:]
+            for line in output.split(separator: "\n") {
+                let fields = line.split(whereSeparator: \.isWhitespace)
+                guard fields.count == 2,
+                      let pid = Int32(fields[0]),
+                      let parentPID = Int32(fields[1]) else {
+                    continue
+                }
+                childrenByParent[parentPID, default: []].append(pid)
+            }
+
+            var descendants: [Int32] = []
+            var queue = [rootPID]
+            var seen: Set<Int32> = [rootPID]
+            while !queue.isEmpty {
+                let parent = queue.removeFirst()
+                for child in childrenByParent[parent, default: []] where seen.insert(child).inserted {
+                    descendants.append(child)
+                    queue.append(child)
                 }
             }
+            return descendants
+        }
+
+        private func signal(processIDs: [Int32], rootPID: Int32, signal: Int32) {
+            let descendants = processIDs.filter { $0 != rootPID }
+            for pid in descendants.reversed() where processExists(pid: pid) {
+                kill(pid, signal)
+            }
+            if processExists(pid: rootPID) {
+                kill(rootPID, signal)
+            }
+        }
+
+        private func processExists(pid: Int32) -> Bool {
+            if kill(pid, 0) == 0 {
+                return true
+            }
+            return errno != ESRCH
+        }
+
+        private func uniqueProcessIDs(_ processIDs: [Int32]) -> [Int32] {
+            var seen = Set<Int32>()
+            return processIDs.filter { pid in
+                pid > 0 && seen.insert(pid).inserted
+            }
+        }
+    }
+
+    private func runCommand(_ path: String, arguments: [String]) async throws -> CommandResult {
+        let cancellationState = CommandCancellationState()
+
+        return try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            return try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global().async {
+                    let process = Process()
+                    process.executableURL = URL(fileURLWithPath: path)
+                    process.arguments = arguments
+                    cancellationState.store(process)
+
+                    let stdoutPipe = Pipe()
+                    let stderrPipe = Pipe()
+                    process.standardOutput = stdoutPipe
+                    process.standardError = stderrPipe
+
+                    do {
+                        try process.run()
+                        cancellationState.terminateIfCancelled()
+
+                        let stdoutData = PipeDataBox()
+                        let stderrData = PipeDataBox()
+                        let readGroup = DispatchGroup()
+
+                        readGroup.enter()
+                        DispatchQueue.global(qos: .utility).async {
+                            stdoutData.set(stdoutPipe.fileHandleForReading.readDataToEndOfFile())
+                            readGroup.leave()
+                        }
+                        readGroup.enter()
+                        DispatchQueue.global(qos: .utility).async {
+                            stderrData.set(stderrPipe.fileHandleForReading.readDataToEndOfFile())
+                            readGroup.leave()
+                        }
+
+                        process.waitUntilExit()
+                        readGroup.wait()
+
+                        if cancellationState.isCancelled {
+                            continuation.resume(throwing: CancellationError())
+                            return
+                        }
+
+                        let result = CommandResult(
+                            stdout: stdoutData.stringValue(),
+                            stderr: stderrData.stringValue(),
+                            exitCode: process.terminationStatus
+                        )
+
+                        continuation.resume(returning: result)
+                    } catch {
+                        if cancellationState.isCancelled {
+                            continuation.resume(throwing: CancellationError())
+                        } else {
+                            continuation.resume(throwing: error)
+                        }
+                    }
+                }
+            }
+        } onCancel: {
+            cancellationState.cancel()
         }
     }
 }

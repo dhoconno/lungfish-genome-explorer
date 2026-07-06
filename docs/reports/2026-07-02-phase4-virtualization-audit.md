@@ -3,6 +3,12 @@
 Date: 2026-07-02
 Context: Fable-only GUI performance refactor, Phase 4 (large-dataset scaling).
 
+> **Archive note (2026-07-05):** This is the historical audit that retargeted
+> the performance phase. Do not treat the findings table below as a current
+> backlog without re-checking source. In particular, `GenotypeOutlineView` is
+> now backed by a virtualized `NSTableView`; see
+> `GenotypeOutlineVirtualizationTests`.
+
 ## Why this audit
 
 The implementation plan's original Phase 4 assumed non-virtualized result

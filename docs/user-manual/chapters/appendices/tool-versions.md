@@ -71,7 +71,7 @@ These are workflow releases selected by Lungfish workflow adapters. They are not
 
 | Workflow | Default release | How to override |
 |---|---:|---|
-| nf-core/viralrecon | 3.0.0 | `lungfish workflow run nf-core/viralrecon --version <tag>` or the Viral Recon wizard version field |
+| nf-core/viralrecon | 3.0.0 | Add `--version <tag>` to a full `lungfish workflow run nf-core/viralrecon ...` command, or use the Viral Recon wizard version field |
 
 ## Provenance Rule
 

@@ -820,6 +820,7 @@ final class WorkflowExporterTests: XCTestCase {
         XCTAssertTrue(script.contains("process fastqc"))
         XCTAssertTrue(script.contains("process fastp"))
         XCTAssertTrue(script.contains("workflow"))
+        XCTAssertFalse(script.contains("TODO"))
     }
 
     func testNextflowExportCanReferenceLocalContainerAndCondaLockfile() throws {
@@ -875,6 +876,7 @@ final class WorkflowExporterTests: XCTestCase {
         XCTAssertTrue(snakefile.contains("input:"))
         XCTAssertTrue(snakefile.contains("output:"))
         XCTAssertTrue(snakefile.contains("shell:"))
+        XCTAssertFalse(snakefile.contains("TODO"))
     }
 
     func testSnakemakeExportDefaultsToLockfileAndContainerReferencesWhenConfigured() throws {

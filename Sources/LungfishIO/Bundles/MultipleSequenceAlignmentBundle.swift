@@ -181,6 +181,13 @@ public struct MultipleSequenceAlignmentBundle: Sendable {
         public let parsimonyInformative: Bool
     }
 
+    private static func annotationRecordOrder(
+        _ lhs: AlignmentAnnotationRecord,
+        _ rhs: AlignmentAnnotationRecord
+    ) -> Bool {
+        lhs.rowName == rhs.rowName ? lhs.name < rhs.name : lhs.rowName < rhs.rowName
+    }
+
     public struct SourceRowMetadataInput: Codable, Sendable, Equatable {
         public let rowName: String
         public let originalName: String
@@ -530,11 +537,6 @@ public struct MultipleSequenceAlignmentBundle: Sendable {
         }
     }
 
-    private struct ParsedRow {
-        let name: String
-        var sequence: String
-    }
-
     public static func load(from url: URL) throws -> MultipleSequenceAlignmentBundle {
         let manifestURL = url.appendingPathComponent("manifest.json")
         let rowsURL = url.appendingPathComponent("metadata/rows.json")
@@ -649,12 +651,8 @@ public struct MultipleSequenceAlignmentBundle: Sendable {
                 sourceAnnotations.append(annotation)
             }
         }
-        sourceAnnotations.sort { lhs, rhs in
-            lhs.rowName == rhs.rowName ? lhs.name < rhs.name : lhs.rowName < rhs.rowName
-        }
-        projectedAnnotations.sort { lhs, rhs in
-            lhs.rowName == rhs.rowName ? lhs.name < rhs.name : lhs.rowName < rhs.rowName
-        }
+        sourceAnnotations.sort(by: Self.annotationRecordOrder)
+        projectedAnnotations.sort(by: Self.annotationRecordOrder)
 
         store = AnnotationStore(
             schemaVersion: store.schemaVersion,
@@ -683,72 +681,166 @@ public struct MultipleSequenceAlignmentBundle: Sendable {
         let annotationsSQLiteURL = url.appendingPathComponent(Self.annotationSQLiteRelativePath)
         let editProvenanceURL = url.appendingPathComponent("metadata/annotation-edit-provenance.json")
         let manifestURL = url.appendingPathComponent("manifest.json")
+        let publicationSnapshot = try FilePublicationSnapshot.capture(urls: [
+            annotationsURL,
+            annotationsSQLiteURL,
+            URL(fileURLWithPath: annotationsSQLiteURL.path + "-wal"),
+            URL(fileURLWithPath: annotationsSQLiteURL.path + "-shm"),
+            URL(fileURLWithPath: annotationsSQLiteURL.path + "-journal"),
+            editProvenanceURL,
+            manifestURL,
+        ])
 
-        let sourceAnnotations = store.sourceAnnotations.sorted { lhs, rhs in
-            lhs.rowName == rhs.rowName ? lhs.name < rhs.name : lhs.rowName < rhs.rowName
-        }
-        let projectedAnnotations = store.projectedAnnotations.sorted { lhs, rhs in
-            lhs.rowName == rhs.rowName ? lhs.name < rhs.name : lhs.rowName < rhs.rowName
-        }
+        let sourceAnnotations = store.sourceAnnotations.sorted(by: Self.annotationRecordOrder)
+        let projectedAnnotations = store.projectedAnnotations.sorted(by: Self.annotationRecordOrder)
         let normalizedStore = AnnotationStore(
             schemaVersion: store.schemaVersion,
             sourceAnnotations: sourceAnnotations,
             projectedAnnotations: projectedAnnotations
         )
-        try Self.encode(normalizedStore, to: annotationsURL)
-        try Self.writeAnnotationSQLiteStore(normalizedStore, to: annotationsSQLiteURL)
+        do {
+            try Self.encode(normalizedStore, to: annotationsURL)
+            try Self.writeAnnotationSQLiteStore(normalizedStore, to: annotationsSQLiteURL)
 
-        let provenance = AnnotationEditProvenance(
-            schemaVersion: 1,
-            workflowName: workflowName,
-            toolName: toolName,
-            toolVersion: Self.toolVersion,
-            argv: argv,
-            reproducibleCommand: Self.shellCommand(from: argv),
-            editDescription: editDescription,
-            bundlePath: url.path,
-            input: try Self.fileRecord(for: url),
-            output: try Self.fileRecord(for: annotationsSQLiteURL),
-            files: [
-                "metadata/annotations.json": try Self.fileRecord(for: annotationsURL),
-                Self.annotationSQLiteRelativePath: try Self.fileRecord(for: annotationsSQLiteURL),
-            ],
-            exitStatus: 0,
-            wallTimeSeconds: max(0, Date().timeIntervalSince(startedAt)),
-            createdAt: Date()
-        )
-        try Self.encode(provenance, to: editProvenanceURL)
+            let provenance = AnnotationEditProvenance(
+                schemaVersion: 1,
+                workflowName: workflowName,
+                toolName: toolName,
+                toolVersion: Self.toolVersion,
+                argv: argv,
+                reproducibleCommand: Self.shellCommand(from: argv),
+                editDescription: editDescription,
+                bundlePath: url.path,
+                input: try Self.fileRecord(for: url),
+                output: try Self.fileRecord(for: annotationsSQLiteURL),
+                files: [
+                    "metadata/annotations.json": try Self.fileRecord(for: annotationsURL),
+                    Self.annotationSQLiteRelativePath: try Self.fileRecord(for: annotationsSQLiteURL),
+                ],
+                exitStatus: 0,
+                wallTimeSeconds: max(0, Date().timeIntervalSince(startedAt)),
+                createdAt: Date()
+            )
+            try Self.encode(provenance, to: editProvenanceURL)
 
-        var capabilities = Set(manifest.capabilities)
-        if !normalizedStore.allAnnotations.isEmpty {
-            capabilities.insert("annotation-retention")
-            capabilities.insert("annotation-projection")
-        } else {
-            capabilities.remove("annotation-retention")
-            capabilities.remove("annotation-projection")
-            capabilities.remove("annotation-authoring")
+            var capabilities = Set(manifest.capabilities)
+            if !normalizedStore.allAnnotations.isEmpty {
+                capabilities.insert("annotation-retention")
+                capabilities.insert("annotation-projection")
+            } else {
+                capabilities.remove("annotation-retention")
+                capabilities.remove("annotation-projection")
+                capabilities.remove("annotation-authoring")
+            }
+            if normalizedStore.sourceAnnotations.contains(where: { $0.origin == .manual }) {
+                capabilities.insert("annotation-authoring")
+            } else {
+                capabilities.remove("annotation-authoring")
+            }
+
+            var checksums = manifest.checksums
+            var fileSizes = manifest.fileSizes
+            for relativePath in [Self.annotationJSONRelativePath, Self.annotationSQLiteRelativePath, "metadata/annotation-edit-provenance.json"] {
+                let fileURL = url.appendingPathComponent(relativePath)
+                checksums[relativePath] = try Self.checksum(at: fileURL)
+                fileSizes[relativePath] = try Self.fileSize(at: fileURL)
+            }
+
+            let updatedManifest = manifest.copying(
+                capabilities: capabilities.sorted(),
+                checksums: checksums,
+                fileSizes: fileSizes
+            )
+            try Self.encode(updatedManifest, to: manifestURL)
+            return try Self.load(from: url)
+        } catch {
+            try Self.throwAfterAnnotationEditPublicationFailure(error) {
+                try publicationSnapshot.restore()
+            }
         }
-        if normalizedStore.sourceAnnotations.contains(where: { $0.origin == .manual }) {
-            capabilities.insert("annotation-authoring")
-        } else {
-            capabilities.remove("annotation-authoring")
+    }
+
+    struct AnnotationEditRollbackError: Error, LocalizedError {
+        let originalErrorDescription: String
+        let rollbackErrorDescription: String
+
+        init(originalError: Error, rollbackError: Error) {
+            originalErrorDescription = String(reflecting: originalError)
+            rollbackErrorDescription = String(reflecting: rollbackError)
         }
 
-        var checksums = manifest.checksums
-        var fileSizes = manifest.fileSizes
-        for relativePath in [Self.annotationJSONRelativePath, Self.annotationSQLiteRelativePath, "metadata/annotation-edit-provenance.json"] {
-            let fileURL = url.appendingPathComponent(relativePath)
-            checksums[relativePath] = try Self.checksum(at: fileURL)
-            fileSizes[relativePath] = try Self.fileSize(at: fileURL)
+        var errorDescription: String? {
+            "MSA annotation edit failed and rollback failed; original error: \(originalErrorDescription); rollback failed: \(rollbackErrorDescription)"
+        }
+    }
+
+    static func throwAfterAnnotationEditPublicationFailure(
+        _ originalError: Error,
+        restore: () throws -> Void
+    ) throws -> Never {
+        do {
+            try restore()
+        } catch {
+            throw AnnotationEditRollbackError(
+                originalError: originalError,
+                rollbackError: error
+            )
+        }
+        throw originalError
+    }
+
+    private struct FilePublicationSnapshot {
+        enum State {
+            case missing
+            case file(Data)
+            case directory
         }
 
-        let updatedManifest = manifest.copying(
-            capabilities: capabilities.sorted(),
-            checksums: checksums,
-            fileSizes: fileSizes
-        )
-        try Self.encode(updatedManifest, to: manifestURL)
-        return try Self.load(from: url)
+        let entries: [(url: URL, state: State)]
+
+        static func capture(urls: [URL], fileManager: FileManager = .default) throws -> FilePublicationSnapshot {
+            let entries = try urls.map { url -> (URL, State) in
+                var isDirectory: ObjCBool = false
+                guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+                    return (url, .missing)
+                }
+                if isDirectory.boolValue {
+                    return (url, .directory)
+                }
+                return (url, .file(try Data(contentsOf: url)))
+            }
+            return FilePublicationSnapshot(entries: entries)
+        }
+
+        func restore(fileManager: FileManager = .default) throws {
+            for entry in entries.reversed() {
+                switch entry.state {
+                case .missing:
+                    if fileManager.fileExists(atPath: entry.url.path) {
+                        try fileManager.removeItem(at: entry.url)
+                    }
+                case .file(let data):
+                    if fileManager.fileExists(atPath: entry.url.path) {
+                        try fileManager.removeItem(at: entry.url)
+                    }
+                    try fileManager.createDirectory(
+                        at: entry.url.deletingLastPathComponent(),
+                        withIntermediateDirectories: true
+                    )
+                    try data.write(to: entry.url, options: .atomic)
+                case .directory:
+                    var isDirectory: ObjCBool = false
+                    if fileManager.fileExists(atPath: entry.url.path, isDirectory: &isDirectory) {
+                        if !isDirectory.boolValue {
+                            try fileManager.removeItem(at: entry.url)
+                            try fileManager.createDirectory(at: entry.url, withIntermediateDirectories: true)
+                        }
+                    } else {
+                        try fileManager.createDirectory(at: entry.url, withIntermediateDirectories: true)
+                    }
+                }
+            }
+        }
     }
 
     public static func projectAnnotation(
@@ -1219,194 +1311,6 @@ public struct MultipleSequenceAlignmentBundle: Sendable {
         return intervals
     }
 
-    private static func detectFormat(for url: URL, sourceText: String) throws -> SourceFormat {
-        let ext = url.pathExtension.lowercased()
-        switch ext {
-        case "fa", "fasta", "fas", "fna", "faa":
-            return .alignedFASTA
-        case "aln", "clustal", "clw":
-            return .clustal
-        case "phy", "phylip":
-            return .phylip
-        case "nex", "nexus":
-            return .nexus
-        case "sto", "stockholm":
-            return .stockholm
-        case "a2m", "a3m":
-            return .a2mA3m
-        default:
-            let trimmed = sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.hasPrefix(">") { return .alignedFASTA }
-            if trimmed.uppercased().hasPrefix("CLUSTAL") { return .clustal }
-            if trimmed.uppercased().hasPrefix("#NEXUS") { return .nexus }
-            if trimmed.uppercased().hasPrefix("# STOCKHOLM") { return .stockholm }
-            throw ImportError.unsupportedFormat(ext.isEmpty ? url.lastPathComponent : ext)
-        }
-    }
-
-    private static func parse(_ text: String, format: SourceFormat) throws -> [ParsedRow] {
-        switch format {
-        case .alignedFASTA, .a2mA3m:
-            return try parseFASTA(text)
-        case .clustal:
-            return try parseBlockedRows(text, skip: { line in
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                return trimmed.isEmpty
-                    || trimmed.uppercased().hasPrefix("CLUSTAL")
-                    || trimmed.hasPrefix("*")
-                    || trimmed.hasPrefix(":")
-                    || trimmed.hasPrefix(".")
-                    || line.first?.isWhitespace == true && trimmed.allSatisfy { "*:. ".contains($0) }
-            })
-        case .phylip:
-            return try parsePHYLIP(text)
-        case .nexus:
-            return try parseNEXUS(text)
-        case .stockholm:
-            return try parseBlockedRows(text, skip: { line in
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                return trimmed.isEmpty || trimmed.hasPrefix("#") || trimmed == "//"
-            })
-        }
-    }
-
-    private static func parseFASTA(_ text: String) throws -> [ParsedRow] {
-        var rows: [ParsedRow] = []
-        var currentName: String?
-        var currentSequence = ""
-
-        for rawLine in text.components(separatedBy: .newlines) {
-            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-            if line.isEmpty { continue }
-            if line.hasPrefix(">") {
-                if let name = currentName {
-                    rows.append(ParsedRow(name: name, sequence: currentSequence))
-                }
-                let name = String(line.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !name.isEmpty else { throw ImportError.malformedInput("FASTA row header is empty.") }
-                currentName = name
-                currentSequence = ""
-            } else {
-                guard currentName != nil else {
-                    throw ImportError.malformedInput("FASTA sequence appears before the first header.")
-                }
-                currentSequence += line.filter { !$0.isWhitespace }
-            }
-        }
-        if let name = currentName {
-            rows.append(ParsedRow(name: name, sequence: currentSequence))
-        }
-        guard !rows.isEmpty else { throw ImportError.emptyAlignment }
-        guard rows.allSatisfy({ !$0.sequence.isEmpty }) else {
-            throw ImportError.malformedInput("FASTA contains an empty aligned row.")
-        }
-        return rows
-    }
-
-    private static func parseBlockedRows(_ text: String, skip: (String) -> Bool) throws -> [ParsedRow] {
-        var order: [String] = []
-        var sequences: [String: String] = [:]
-        for rawLine in text.components(separatedBy: .newlines) {
-            if skip(rawLine) { continue }
-            let parts = rawLine.split(whereSeparator: \.isWhitespace).map(String.init)
-            guard parts.count >= 2 else { continue }
-            let name = parts[0]
-            let segment = parts[1]
-            if sequences[name] == nil {
-                order.append(name)
-                sequences[name] = segment
-            } else {
-                sequences[name, default: ""] += segment
-            }
-        }
-        let rows = order.compactMap { name in sequences[name].map { ParsedRow(name: name, sequence: $0) } }
-        guard !rows.isEmpty else { throw ImportError.emptyAlignment }
-        return rows
-    }
-
-    private static func parsePHYLIP(_ text: String) throws -> [ParsedRow] {
-        let lines = text.components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        guard let header = lines.first else { throw ImportError.emptyAlignment }
-        let headerParts = header.split(whereSeparator: \.isWhitespace)
-        guard headerParts.count >= 2,
-              let expectedRows = Int(headerParts[0]),
-              let expectedLength = Int(headerParts[1]) else {
-            throw ImportError.malformedInput("PHYLIP header must contain row count and aligned length.")
-        }
-        let body = Array(lines.dropFirst())
-        var rows: [ParsedRow] = []
-        var index = 0
-        while rows.count < expectedRows, index < body.count {
-            let parts = body[index].split(whereSeparator: \.isWhitespace).map(String.init)
-            guard let name = parts.first else {
-                index += 1
-                continue
-            }
-
-            var sequence = parts.dropFirst().joined()
-            index += 1
-            while sequence.count < expectedLength, index < body.count {
-                sequence += body[index].filter { !$0.isWhitespace }
-                index += 1
-            }
-            rows.append(ParsedRow(name: name, sequence: sequence))
-        }
-
-        guard rows.count == expectedRows else {
-            throw ImportError.malformedInput("PHYLIP expected \(expectedRows) rows but found \(rows.count).")
-        }
-        let badLength = rows.first { $0.sequence.count != expectedLength }
-        if let badLength {
-            throw ImportError.malformedInput("PHYLIP row \(badLength.name) length does not match header nchar \(expectedLength).")
-        }
-        return rows
-    }
-
-    private static func parseNEXUS(_ text: String) throws -> [ParsedRow] {
-        var inMatrix = false
-        var matrixLines: [String] = []
-        for rawLine in text.components(separatedBy: .newlines) {
-            let withoutComment = rawLine.replacingOccurrences(
-                of: #"\[[^\]]*\]"#,
-                with: "",
-                options: .regularExpression
-            )
-            let trimmed = withoutComment.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty { continue }
-            if !inMatrix {
-                if trimmed.lowercased().hasPrefix("matrix") {
-                    inMatrix = true
-                    let remainder = String(trimmed.dropFirst("matrix".count)).trimmingCharacters(in: .whitespaces)
-                    if !remainder.isEmpty { matrixLines.append(remainder) }
-                }
-            } else if trimmed.hasPrefix(";") {
-                break
-            } else {
-                matrixLines.append(trimmed)
-                if trimmed.contains(";") { break }
-            }
-        }
-
-        let rows = matrixLines.compactMap { line -> ParsedRow? in
-            let cleaned = line.replacingOccurrences(of: ";", with: "")
-            let parts = cleaned.split(whereSeparator: \.isWhitespace).map(String.init)
-            guard parts.count >= 2 else { return nil }
-            return ParsedRow(name: parts[0], sequence: parts.dropFirst().joined())
-        }
-        guard !rows.isEmpty else { throw ImportError.emptyAlignment }
-        return rows
-    }
-
-    private static func validateRectangular(_ rows: [ParsedRow]) throws {
-        guard !rows.isEmpty else { throw ImportError.emptyAlignment }
-        let lengths = rows.map { ($0.name, $0.sequence.count) }
-        guard let expected = lengths.first?.1, lengths.allSatisfy({ $0.1 == expected }) else {
-            throw ImportError.unequalAlignedLengths(lengths)
-        }
-    }
-
     private static func computeColumnStats(_ rows: [ParsedRow]) -> [ColumnStat] {
         guard let alignedLength = rows.first?.sequence.count else { return [] }
         let rowCharacters = rows.map { Array($0.sequence) }
@@ -1513,324 +1417,6 @@ public struct MultipleSequenceAlignmentBundle: Sendable {
         try data.write(to: url, options: .atomic)
     }
 
-    private static func writeAnnotationSQLiteStore(_ store: AnnotationStore, to url: URL) throws {
-        if FileManager.default.fileExists(atPath: url.path) {
-            try FileManager.default.removeItem(at: url)
-        }
-        var db: OpaquePointer?
-        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK,
-              let db else {
-            throw ImportError.sqliteError("open annotations.sqlite failed")
-        }
-        defer { sqlite3_close_v2(db) }
-
-        try exec("""
-        PRAGMA user_version = 1;
-        CREATE TABLE annotation_records (
-            id TEXT PRIMARY KEY,
-            record_order INTEGER NOT NULL,
-            origin TEXT NOT NULL,
-            row_id TEXT NOT NULL,
-            row_name TEXT NOT NULL,
-            source_sequence_name TEXT NOT NULL,
-            source_file_path TEXT NOT NULL,
-            source_track_id TEXT NOT NULL,
-            source_track_name TEXT NOT NULL,
-            source_annotation_id TEXT NOT NULL,
-            name TEXT NOT NULL,
-            type TEXT NOT NULL,
-            strand TEXT NOT NULL,
-            source_intervals_json TEXT NOT NULL,
-            aligned_intervals_json TEXT NOT NULL,
-            qualifiers_json TEXT NOT NULL,
-            note TEXT,
-            projection_json TEXT,
-            warnings_json TEXT NOT NULL
-        );
-        CREATE TABLE annotation_intervals (
-            record_id TEXT NOT NULL,
-            coordinate_system TEXT NOT NULL,
-            interval_order INTEGER NOT NULL,
-            start INTEGER NOT NULL,
-            end INTEGER NOT NULL,
-            FOREIGN KEY(record_id) REFERENCES annotation_records(id) ON DELETE CASCADE
-        );
-        CREATE INDEX annotation_records_row_idx ON annotation_records(row_id);
-        CREATE INDEX annotation_records_track_idx ON annotation_records(source_track_id);
-        CREATE INDEX annotation_records_type_idx ON annotation_records(type);
-        CREATE INDEX annotation_intervals_lookup_idx ON annotation_intervals(coordinate_system, start, end);
-        """, db: db)
-
-        try exec("BEGIN TRANSACTION", db: db)
-        do {
-            for (order, record) in store.allAnnotations.enumerated() {
-                try execute(
-                    """
-                    INSERT INTO annotation_records VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    values: [
-                        record.id,
-                        order,
-                        record.origin.rawValue,
-                        record.rowID,
-                        record.rowName,
-                        record.sourceSequenceName,
-                        record.sourceFilePath,
-                        record.sourceTrackID,
-                        record.sourceTrackName,
-                        record.sourceAnnotationID,
-                        record.name,
-                        record.type,
-                        record.strand,
-                        try jsonString(record.sourceIntervals),
-                        try jsonString(record.alignedIntervals),
-                        try jsonString(record.qualifiers),
-                        record.note ?? NSNull(),
-                        try optionalJSONString(record.projection),
-                        try jsonString(record.warnings),
-                    ],
-                    db: db
-                )
-                try writeAnnotationIntervals(record.sourceIntervals, recordID: record.id, coordinateSystem: "source", db: db)
-                try writeAnnotationIntervals(record.alignedIntervals, recordID: record.id, coordinateSystem: "aligned", db: db)
-            }
-            try exec("COMMIT", db: db)
-        } catch {
-            try? exec("ROLLBACK", db: db)
-            throw error
-        }
-    }
-
-    private static func writeAnnotationIntervals(
-        _ intervals: [AnnotationInterval],
-        recordID: String,
-        coordinateSystem: String,
-        db: OpaquePointer
-    ) throws {
-        for (order, interval) in intervals.enumerated() {
-            try execute(
-                "INSERT INTO annotation_intervals VALUES (?, ?, ?, ?, ?)",
-                values: [
-                    recordID,
-                    coordinateSystem,
-                    order,
-                    interval.start,
-                    interval.end,
-                ],
-                db: db
-            )
-        }
-    }
-
-    private static func readAnnotationSQLiteStore(from url: URL) throws -> AnnotationStore {
-        var db: OpaquePointer?
-        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK,
-              let db else {
-            throw ImportError.sqliteError("open annotations.sqlite failed")
-        }
-        defer { sqlite3_close_v2(db) }
-
-        let sql = """
-        SELECT origin, row_id, row_name, source_sequence_name, source_file_path,
-               source_track_id, source_track_name, source_annotation_id, name, type,
-               strand, source_intervals_json, aligned_intervals_json, qualifiers_json,
-               note, projection_json, warnings_json, id
-        FROM annotation_records
-        ORDER BY record_order, row_name, name
-        """
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
-            throw ImportError.sqliteError(String(cString: sqlite3_errmsg(db)))
-        }
-        defer { sqlite3_finalize(statement) }
-
-        var sourceAnnotations: [AlignmentAnnotationRecord] = []
-        var projectedAnnotations: [AlignmentAnnotationRecord] = []
-        while sqlite3_step(statement) == SQLITE_ROW {
-            let origin = AnnotationOrigin(rawValue: columnText(statement, 0)) ?? .source
-            let record = AlignmentAnnotationRecord(
-                id: columnText(statement, 17),
-                origin: origin,
-                rowID: columnText(statement, 1),
-                rowName: columnText(statement, 2),
-                sourceSequenceName: columnText(statement, 3),
-                sourceFilePath: columnText(statement, 4),
-                sourceTrackID: columnText(statement, 5),
-                sourceTrackName: columnText(statement, 6),
-                sourceAnnotationID: columnText(statement, 7),
-                name: columnText(statement, 8),
-                type: columnText(statement, 9),
-                strand: columnText(statement, 10),
-                sourceIntervals: try valueFromJSONString([AnnotationInterval].self, columnText(statement, 11)),
-                alignedIntervals: try valueFromJSONString([AnnotationInterval].self, columnText(statement, 12)),
-                qualifiers: try valueFromJSONString([String: [String]].self, columnText(statement, 13)),
-                note: columnOptionalText(statement, 14),
-                projection: try optionalValueFromJSONString(ProjectionMetadata.self, columnOptionalText(statement, 15)),
-                warnings: try valueFromJSONString([String].self, columnText(statement, 16))
-            )
-            switch origin {
-            case .projected:
-                projectedAnnotations.append(record)
-            case .source, .manual:
-                sourceAnnotations.append(record)
-            }
-        }
-        return AnnotationStore(sourceAnnotations: sourceAnnotations, projectedAnnotations: projectedAnnotations)
-    }
-
-    private static func writeSQLiteIndex(at url: URL, rows: [Row], columns: [ColumnStat]) throws {
-        if FileManager.default.fileExists(atPath: url.path) {
-            try FileManager.default.removeItem(at: url)
-        }
-        var db: OpaquePointer?
-        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK,
-              let db else {
-            throw ImportError.sqliteError("open failed")
-        }
-        defer { sqlite3_close_v2(db) }
-
-        try exec("""
-        CREATE TABLE alignment_rows (
-            id TEXT PRIMARY KEY,
-            source_name TEXT NOT NULL,
-            display_name TEXT NOT NULL,
-            row_order INTEGER NOT NULL,
-            aligned_length INTEGER NOT NULL,
-            ungapped_length INTEGER NOT NULL,
-            gap_count INTEGER NOT NULL,
-            ambiguous_count INTEGER NOT NULL,
-            checksum_sha256 TEXT NOT NULL
-        );
-        CREATE TABLE column_stats (
-            column_index INTEGER PRIMARY KEY,
-            consensus_residue TEXT NOT NULL,
-            residue_counts_json TEXT NOT NULL,
-            gap_fraction REAL NOT NULL,
-            conservation REAL NOT NULL,
-            entropy REAL NOT NULL,
-            variable_site INTEGER NOT NULL,
-            parsimony_informative INTEGER NOT NULL
-        );
-        """, db: db)
-
-        try exec("BEGIN TRANSACTION", db: db)
-        do {
-            try rows.forEach { row in
-                try execute(
-                    "INSERT INTO alignment_rows VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    values: [
-                        row.id,
-                        row.sourceName,
-                        row.displayName,
-                        row.order,
-                        row.alignedLength,
-                        row.ungappedLength,
-                        row.gapCount,
-                        row.ambiguousCount,
-                        row.checksumSHA256,
-                    ],
-                    db: db
-                )
-            }
-            try columns.forEach { column in
-                let countsData = try JSONSerialization.data(withJSONObject: column.residueCounts, options: [.sortedKeys])
-                let countsJSON = String(data: countsData, encoding: .utf8) ?? "{}"
-                try execute(
-                    "INSERT INTO column_stats VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    values: [
-                        column.index,
-                        column.consensusResidue,
-                        countsJSON,
-                        column.gapFraction,
-                        column.conservation,
-                        column.entropy,
-                        column.variableSite ? 1 : 0,
-                        column.parsimonyInformative ? 1 : 0,
-                    ],
-                    db: db
-                )
-            }
-            try exec("COMMIT", db: db)
-        } catch {
-            try? exec("ROLLBACK", db: db)
-            throw error
-        }
-    }
-
-    private static func exec(_ sql: String, db: OpaquePointer) throws {
-        var errorMessage: UnsafeMutablePointer<CChar>?
-        let rc = sqlite3_exec(db, sql, nil, nil, &errorMessage)
-        guard rc == SQLITE_OK else {
-            let message = errorMessage.map { String(cString: $0) } ?? String(cString: sqlite3_errmsg(db))
-            sqlite3_free(errorMessage)
-            throw ImportError.sqliteError(message)
-        }
-    }
-
-    private static func execute(_ sql: String, values: [Any], db: OpaquePointer) throws {
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
-            throw ImportError.sqliteError(String(cString: sqlite3_errmsg(db)))
-        }
-        defer { sqlite3_finalize(statement) }
-
-        for (index, value) in values.enumerated() {
-            let position = Int32(index + 1)
-            switch value {
-            case let text as String:
-                sqlite3_bind_text(statement, position, text, -1, SQLITE_TRANSIENT)
-            case let int as Int:
-                sqlite3_bind_int64(statement, position, Int64(int))
-            case let double as Double:
-                sqlite3_bind_double(statement, position, double)
-            default:
-                sqlite3_bind_null(statement, position)
-            }
-        }
-        guard sqlite3_step(statement) == SQLITE_DONE else {
-            throw ImportError.sqliteError(String(cString: sqlite3_errmsg(db)))
-        }
-    }
-
-    private static func columnText(_ statement: OpaquePointer?, _ index: Int32) -> String {
-        guard let value = sqlite3_column_text(statement, index) else { return "" }
-        return String(cString: value)
-    }
-
-    private static func columnOptionalText(_ statement: OpaquePointer?, _ index: Int32) -> String? {
-        guard sqlite3_column_type(statement, index) != SQLITE_NULL else { return nil }
-        return columnText(statement, index)
-    }
-
-    private static func jsonString<T: Encodable>(_ value: T) throws -> String {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        let data = try encoder.encode(value)
-        guard let text = String(data: data, encoding: .utf8) else {
-            throw ImportError.malformedInput("Could not encode annotation metadata as UTF-8 JSON.")
-        }
-        return text
-    }
-
-    private static func optionalJSONString<T: Encodable>(_ value: T?) throws -> Any {
-        guard let value else { return NSNull() }
-        return try jsonString(value)
-    }
-
-    private static func valueFromJSONString<T: Decodable>(_ type: T.Type, _ text: String) throws -> T {
-        guard let data = text.data(using: .utf8) else {
-            throw ImportError.malformedInput("Could not decode annotation metadata JSON.")
-        }
-        return try JSONDecoder().decode(type, from: data)
-    }
-
-    private static func optionalValueFromJSONString<T: Decodable>(_ type: T.Type, _ text: String?) throws -> T? {
-        guard let text, !text.isEmpty else { return nil }
-        return try valueFromJSONString(type, text)
-    }
-
-    private static let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
-
     private static func encode<T: Encodable>(_ value: T, to url: URL) throws {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -1923,7 +1509,7 @@ public struct MultipleSequenceAlignmentBundle: Sendable {
     }
 
     private static func defaultArgv(inputURL: URL, bundleURL: URL, name: String) -> [String] {
-        ["lungfish", "import", "msa", inputURL.path, "--output", bundleURL.path, "--name", name]
+        [CLICommandIdentity.executableName, "import", "msa", inputURL.path, "--output", bundleURL.path, "--name", name]
     }
 
     private static func shellCommand(from argv: [String]) -> String {

@@ -924,7 +924,7 @@ public final class Minimap2Pipeline: @unchecked Sendable {
     ///
     /// - Parameter output: The raw flagstat text from samtools.
     /// - Returns: A tuple of (totalReads, mappedReads). Returns (0, 0) on parse failure.
-    func parseFlagstat(_ output: String) -> (total: Int, mapped: Int) {
+    private func parseFlagstat(_ output: String) -> (total: Int, mapped: Int) {
         var total = 0
         var mapped = 0
 

@@ -87,7 +87,7 @@ enum AppUITestPrimerTrimBackend {
             ],
             timestamp: Date(),
             workflowName: "lungfish bam primer-trim",
-            command: ["lungfish-cli"] + cliArguments,
+            command: [CLICommandIdentity.executableName] + cliArguments,
             resolvedOptions: [
                 "alignment_track": alignmentTrackID,
                 "bundle": bundleURL.path,
@@ -117,7 +117,7 @@ enum AppUITestPrimerTrimBackend {
                 StepExecution(
                     toolName: "ui-test-primer-trim",
                     toolVersion: "deterministic",
-                    command: ["lungfish-cli"] + cliArguments,
+                    command: [CLICommandIdentity.executableName] + cliArguments,
                     inputs: [
                         ProvenanceRecorder.fileRecord(url: sourceBAMURL, format: .bam, role: .input),
                         ProvenanceRecorder.fileRecord(url: sourceIndexURL, role: .index),

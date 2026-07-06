@@ -3,9 +3,6 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
-import os
-
-private let logger = Logger(subsystem: LogSubsystem.core, category: "OpenAIProvider")
 
 /// AI provider implementation for the OpenAI Chat Completions API.
 ///
@@ -249,6 +246,10 @@ public actor OpenAIProvider: StructuredAIProvider {
         modelId.lowercased().hasPrefix("gpt-5")
     }
 
+    private var apiKeyAvailable: Bool {
+        !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     private func buildMessages(_ messages: [AIMessage]) -> [[String: Any]] {
         var result: [[String: Any]] = []
 
@@ -351,7 +352,7 @@ public actor OpenAIProvider: StructuredAIProvider {
             endpoint: chatCompletionsURL.absoluteString,
             apiVersion: endpointConfiguration.apiVersionLabel(for: .chatCompletions),
             credentialSource: request.credentialSource,
-            apiKeyAvailable: !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            apiKeyAvailable: apiKeyAvailable,
             requestID: requestID,
             statusCode: httpResponse.statusCode,
             stopReason: finishReason,
@@ -399,7 +400,7 @@ public actor OpenAIProvider: StructuredAIProvider {
             endpoint: responsesURL.absoluteString,
             apiVersion: endpointConfiguration.apiVersionLabel(for: .responses),
             credentialSource: request.credentialSource,
-            apiKeyAvailable: !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            apiKeyAvailable: apiKeyAvailable,
             requestID: requestID,
             statusCode: httpResponse.statusCode,
             stopReason: status,

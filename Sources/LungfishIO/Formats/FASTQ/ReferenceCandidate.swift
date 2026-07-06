@@ -39,7 +39,7 @@ public enum ReferenceCandidate: Sendable, Identifiable, Equatable {
     public var fastaURL: URL {
         switch self {
         case .projectReference(let url, let manifest):
-            return url.appendingPathComponent(manifest.fastaFilename)
+            return manifest.resolvedFastaURL(in: url) ?? manifest.safeFallbackFastaURL(in: url)
         case .genomeBundleFASTA(let fastaURL, _, _):
             return fastaURL
         case .standaloneFASTA(let url):

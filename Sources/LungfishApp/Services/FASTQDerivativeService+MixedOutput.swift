@@ -642,7 +642,13 @@ extension FASTQDerivativeService {
         }
         if let manifest = FASTQBundle.loadDerivedManifest(in: sourceBundleURL) {
             if case .full(let fastqFilename) = manifest.payload {
-                let url = sourceBundleURL.appendingPathComponent(fastqFilename)
+                guard let url = try? FASTQBundle.validatedBundleMemberURL(
+                    for: fastqFilename,
+                    in: sourceBundleURL,
+                    field: "payload.full.fastqFilename"
+                ) else {
+                    return nil
+                }
                 return FileManager.default.fileExists(atPath: url.path) ? url : nil
             }
             return nil
@@ -661,7 +667,13 @@ extension FASTQDerivativeService {
         guard case .full(let fastqFilename) = payload else {
             return nil
         }
-        let url = outputBundleURL.appendingPathComponent(fastqFilename)
+        guard let url = try? FASTQBundle.validatedBundleMemberURL(
+            for: fastqFilename,
+            in: outputBundleURL,
+            field: "payload.full.fastqFilename"
+        ) else {
+            return nil
+        }
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
@@ -889,8 +901,13 @@ extension FASTQDerivativeService {
 
         switch request {
         case .adapterTrim(let mode, _, _, let fastaFilename) where mode == .fastaFile:
-            if let fastaFilename {
-                references.append((sourceBundleURL.appendingPathComponent(fastaFilename), .fasta))
+            if let fastaFilename,
+               let fastaURL = try? FASTQBundle.validatedBundleMemberURL(
+                for: fastaFilename,
+                in: sourceBundleURL,
+                field: "adapterTrim.fastaFilename"
+               ) {
+                references.append((fastaURL, .fasta))
             }
         case .contaminantFilter(let mode, let referenceFasta, _, _):
             switch mode {
@@ -1148,13 +1165,19 @@ extension FASTQDerivativeService {
         if let manifest = FASTQBundle.loadDerivedManifest(in: sourceBundleURL) {
             switch manifest.payload {
             case .full(let fastqFilename):
-                let payloadURL = sourceBundleURL.appendingPathComponent(fastqFilename)
-                if FileManager.default.fileExists(atPath: payloadURL.path) {
+                if let payloadURL = try? FASTQBundle.validatedBundleMemberURL(
+                    for: fastqFilename,
+                    in: sourceBundleURL,
+                    field: "payload.full.fastqFilename"
+                ), FileManager.default.fileExists(atPath: payloadURL.path) {
                     return ProvenanceRecorder.fileRecord(url: payloadURL, format: .fastq, role: .input)
                 }
             case .fullFASTA(let fastaFilename):
-                let payloadURL = sourceBundleURL.appendingPathComponent(fastaFilename)
-                if FileManager.default.fileExists(atPath: payloadURL.path) {
+                if let payloadURL = try? FASTQBundle.validatedBundleMemberURL(
+                    for: fastaFilename,
+                    in: sourceBundleURL,
+                    field: "payload.fullFASTA.fastaFilename"
+                ), FileManager.default.fileExists(atPath: payloadURL.path) {
                     return ProvenanceRecorder.fileRecord(url: payloadURL, format: .fasta, role: .input)
                 }
             default:

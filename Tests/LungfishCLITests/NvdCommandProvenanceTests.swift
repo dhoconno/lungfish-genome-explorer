@@ -47,7 +47,7 @@ final class NvdCommandProvenanceTests: XCTestCase {
         XCTAssertEqual(envelope.options.explicit["inputPath"]?.stringValue, nvdDir.path)
         XCTAssertEqual(envelope.options.resolvedDefaults["outputDir"]?.stringValue, outputDir.path)
         XCTAssertEqual(envelope.argv, [
-            "lungfish", "nvd", "import", nvdDir.path,
+            "lungfish-cli", "nvd", "import", nvdDir.path,
             "--output-dir", outputDir.path,
             "--name", "ImportedNVD",
         ])
@@ -55,11 +55,11 @@ final class NvdCommandProvenanceTests: XCTestCase {
         XCTAssertEqual(input.format, .unknown)
         XCTAssertNotNil(input.checksumSHA256)
         XCTAssertGreaterThan(input.fileSize ?? 0, 0)
-        XCTAssertEqual(output.role, .output)
+        XCTAssertEqual(output.role, .report)
         XCTAssertEqual(output.format, .json)
         XCTAssertNotNil(output.checksumSHA256)
         XCTAssertGreaterThan(output.fileSize ?? 0, 0)
-        XCTAssertTrue(envelope.reproducibleCommand.contains("lungfish nvd import"))
+        XCTAssertTrue(envelope.reproducibleCommand.contains("lungfish-cli nvd import"))
     }
 
     func testImportRemovesPartialBundleWhenProvenanceWriteFails() async throws {
@@ -120,46 +120,6 @@ final class NvdCommandProvenanceTests: XCTestCase {
             "keep me",
             "Rejecting an existing output must not delete durable user data."
         )
-    }
-
-    func testFinalOutputRecordsEnumerateAllBundleFilesWithFinalPaths() throws {
-        let stagingBundle = tempDir.appendingPathComponent("ImportedNVD.staging", isDirectory: true)
-        let finalBundle = tempDir.appendingPathComponent("ImportedNVD", isDirectory: true)
-        try FileManager.default.createDirectory(
-            at: stagingBundle.appendingPathComponent("tables", isDirectory: true),
-            withIntermediateDirectories: true
-        )
-        try "{}".write(
-            to: stagingBundle.appendingPathComponent("manifest.json"),
-            atomically: true,
-            encoding: .utf8
-        )
-        try "sample\tcontig\n".write(
-            to: stagingBundle.appendingPathComponent("tables/top-contigs.tsv"),
-            atomically: true,
-            encoding: .utf8
-        )
-        try "provenance".write(
-            to: stagingBundle.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
-            atomically: true,
-            encoding: .utf8
-        )
-
-        let records = try nvdFinalOutputRecords(
-            stagingBundleDirectory: stagingBundle,
-            finalBundleDirectory: finalBundle
-        )
-
-        XCTAssertEqual(
-            records.map(\.path),
-            [
-                finalBundle.appendingPathComponent("manifest.json").path,
-                finalBundle.appendingPathComponent("tables/top-contigs.tsv").path,
-            ]
-        )
-        XCTAssertTrue(records.allSatisfy { $0.role == .output })
-        XCTAssertTrue(records.allSatisfy { $0.sha256 != nil })
-        XCTAssertFalse(records.contains { $0.path.hasSuffix(ProvenanceRecorder.provenanceFilename) })
     }
 
     private func makeNvdRunDirectory() throws -> URL {

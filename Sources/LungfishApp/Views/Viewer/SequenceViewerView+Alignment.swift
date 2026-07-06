@@ -116,7 +116,11 @@ extension SequenceViewerView {
             for trackId in variantTrackIds {
                 guard let trackInfo = bundle.variantTrack(id: trackId),
                       let dbPath = trackInfo.databasePath else { continue }
-                let dbURL = bundle.url.appendingPathComponent(dbPath)
+                guard let dbURL = try? BundleManifest.validatedBundleMemberURL(
+                    for: dbPath,
+                    in: bundle.url,
+                    field: "variants[\(trackId)].databasePath"
+                ) else { continue }
                 guard FileManager.default.fileExists(atPath: dbURL.path) else { continue }
 
                 do {
@@ -587,7 +591,7 @@ extension SequenceViewerView {
     /// Fetches aligned reads asynchronously from samtools for the visible region.
     /// Uses the same generation counter pattern as other fetch methods.
     /// AlignmentDataProvider.fetchReads() is async, so we use Task.detached to avoid
-    /// cooperative executor issues (see MEMORY.md), then return via GCD main queue.
+    /// blocking the viewport actor, then return via the GCD main queue.
     func fetchReadsAsync(bundle: ReferenceBundle, region: GenomicRegion) {
         guard !alignmentDataProviders.isEmpty else { return }
 
@@ -750,7 +754,11 @@ extension SequenceViewerView {
             for trackId in variantTrackIds {
                 guard let trackInfo = bundle.variantTrack(id: trackId),
                       let dbPath = trackInfo.databasePath else { continue }
-                let dbURL = bundleURL.appendingPathComponent(dbPath)
+                guard let dbURL = try? BundleManifest.validatedBundleMemberURL(
+                    for: dbPath,
+                    in: bundleURL,
+                    field: "variants[\(trackId)].databasePath"
+                ) else { continue }
                 guard FileManager.default.fileExists(atPath: dbURL.path) else { continue }
 
                 do {

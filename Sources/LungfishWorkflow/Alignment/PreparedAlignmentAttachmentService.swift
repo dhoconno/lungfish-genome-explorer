@@ -89,6 +89,27 @@ public enum PreparedAlignmentAttachmentError: Error, LocalizedError, Sendable, E
     }
 }
 
+enum PreparedAlignmentAttachmentPathPolicy {
+    static func normalizedOutputTrackID(_ trackID: String) throws -> String {
+        let trimmed = trackID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isValidPathComponent(trimmed) else {
+            throw PreparedAlignmentAttachmentError.invalidOutputTrackID(trackID)
+        }
+        return trimmed
+    }
+
+    static func isValidPathComponent(_ component: String) -> Bool {
+        guard !component.isEmpty,
+              component != ".",
+              component != ".." else {
+            return false
+        }
+
+        let allowedCharacters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
+        return component.unicodeScalars.allSatisfy { allowedCharacters.contains($0) }
+    }
+}
+
 struct PreparedAlignmentMetadataSnapshot: Sendable, Equatable {
     let idxstatsOutput: String
     let flagstatOutput: String
@@ -162,7 +183,7 @@ public actor PreparedAlignmentAttachmentService {
     ) async throws -> PreparedAlignmentAttachmentResult {
         try validateSupportedFormat(request.format)
         let relativeDirectory = try normalizedRelativeDirectory(request.relativeDirectory)
-        let outputTrackID = try normalizedOutputTrackID(request.outputTrackID)
+        let outputTrackID = try PreparedAlignmentAttachmentPathPolicy.normalizedOutputTrackID(request.outputTrackID)
         let manifest = try BundleManifest.load(from: request.bundleURL)
         guard !manifest.alignments.contains(where: { $0.id == outputTrackID }) else {
             throw PreparedAlignmentAttachmentError.duplicateTrackID(outputTrackID)
@@ -288,14 +309,6 @@ public actor PreparedAlignmentAttachmentService {
         return components.joined(separator: "/")
     }
 
-    private func normalizedOutputTrackID(_ trackID: String) throws -> String {
-        let trimmed = trackID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isValidPathComponent(trimmed) else {
-            throw PreparedAlignmentAttachmentError.invalidOutputTrackID(trackID)
-        }
-        return trimmed
-    }
-
     private func validateSupportedFormat(_ format: AlignmentFormat) throws {
         guard format != .sam else {
             throw PreparedAlignmentAttachmentError.unsupportedFormat(format)
@@ -314,14 +327,7 @@ public actor PreparedAlignmentAttachmentService {
     }
 
     private func isValidPathComponent(_ component: String) -> Bool {
-        guard !component.isEmpty,
-              component != ".",
-              component != ".." else {
-            return false
-        }
-
-        let allowedCharacters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
-        return component.unicodeScalars.allSatisfy { allowedCharacters.contains($0) }
+        PreparedAlignmentAttachmentPathPolicy.isValidPathComponent(component)
     }
 
     private func resolvedBundleURL(

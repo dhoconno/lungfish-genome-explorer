@@ -756,19 +756,6 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
         return 0
     }
 
-    private static func gzipCompress(_ url: URL) throws -> URL {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
-        process.arguments = ["-f", "-1", url.path]
-        try process.run()
-        process.waitUntilExit()
-        guard process.terminationReason == .exit,
-              process.terminationStatus == 0 else {
-            throw ONTFluidigmAmpliconMaterializerError.compressionFailed(url, process.terminationStatus)
-        }
-        return url.appendingPathExtension("gz")
-    }
-
     private struct BarcodeEntry: Sendable {
         let sampleID: String
         let barcode: String
@@ -908,16 +895,6 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
         mutating func recordExtracted(sequence: String) {
             extractedReadCount += 1
             sequenceCounts[sequence, default: 0] += 1
-        }
-
-        func orderedSequences() -> [(sequence: String, count: Int)] {
-            sequenceCounts.map { ($0.key, $0.value) }
-                .sorted {
-                    if $0.count != $1.count {
-                        return $0.count > $1.count
-                    }
-                    return $0.sequence.localizedStandardCompare($1.sequence) == .orderedAscending
-                }
         }
     }
 

@@ -1,5 +1,10 @@
 # Fable-only GUI Performance Refactor — Implementation Plan
 
+> **Archive note (2026-07-05):** This is a historical execution plan, not an
+> active checklist. Open checkboxes are preserved as planning provenance and may
+> describe tasks that were later completed, superseded, or deferred in
+> `docs/reports/2026-07-02-gui-perf-opus-deferrals.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Remove perceptible lag from every LGE GUI interaction and keep the app elegant on very large datasets, implemented exclusively with Fable.
@@ -408,12 +413,12 @@ Note: the genotype v2 work has LANDED on main (the `codex/lungfishgenotype-viewp
 
 **Approach:** Replace the unbounded `NSStackView.addArrangedSubview`-per-sample layout with a virtualized surface. Preferred: back it with an `NSTableView` (single column, each row = the existing per-sample view content) so AppKit virtualizes rows — this preserves the visual design while only instantiating visible rows. If an `NSTableView` conversion is too invasive to land safely (the row content is a complex custom view with selection/tape/accessibility), fall back to a **windowing cap**: render the first N (N=100) sample rows with an explicit "Show all <count> samples" control, keeping the rest off-screen until requested. Whichever path: preserve selection, the haplotype tape rendering, accessibility elements per swatch, and all existing per-row callbacks.
 
-- [ ] **Step 1: Re-read** `GenotypeOutlineView` fully — the `rebuild()` loop, `makeRow`, selection handling, tape subview, accessibility, and every callback the rows fire. Decide NSTableView-conversion vs windowing-cap based on what preserves behavior with least risk; state the decision in the report.
-- [ ] **Step 2: Write failing test:** a cohort of, say, 300 samples does NOT instantiate 300 row view-trees eagerly (assert via a row-view-construction counter, or that only ≤ window/visible count are built), while all 300 remain reachable (scroll or "Show all"). A small cohort (e.g. 20) renders all 20 identically to before.
-- [ ] **Step 3: Run to verify fail** → FAIL.
-- [ ] **Step 4: Implement** the chosen approach. Preserve selection, tape, accessibility, callbacks, and visual layout.
-- [ ] **Step 5: Run to verify pass** + `LungfishGenotypeUITests` green (XCTest ⊆ the 6 known environmental genotype failures) → PASS.
-- [ ] **Step 6: Commit** `perf: virtualize GenotypeOutlineView to bound per-sample view creation` with the Fable trailer.
+- [x] **Step 1: Re-read** `GenotypeOutlineView` fully — the `rebuild()` loop, `makeRow`, selection handling, tape subview, accessibility, and every callback the rows fire. Decision landed as the `NSTableView` conversion.
+- [x] **Step 2: Write failing test:** a cohort of, say, 300 samples does NOT instantiate 300 row view-trees eagerly (assert via a row-view-construction counter, or that only ≤ window/visible count are built), while all 300 remain reachable (scroll or "Show all"). A small cohort (e.g. 20) renders all 20 identically to before.
+- [x] **Step 3: Run to verify fail** → FAIL.
+- [x] **Step 4: Implement** the chosen approach. Preserve selection, tape, accessibility, callbacks, and visual layout.
+- [x] **Step 5: Run to verify pass** + `LungfishGenotypeUITests` green (XCTest ⊆ the 6 known environmental genotype failures) → PASS.
+- [x] **Step 6: Commit** `perf: virtualize GenotypeOutlineView to bound per-sample view creation` with the Fable trailer.
 
 ### Task 22: Column-window the per-sample matrices
 

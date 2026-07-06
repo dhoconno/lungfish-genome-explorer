@@ -41,8 +41,9 @@ Documentation/
 │   │   ├── Tutorials/
 │   │   └── Resources/
 │   ├── LungfishIO.docc/              # PRIMARY OWNER
-│   ├── LungfishUI.docc/              # PRIMARY OWNER
-│   └── LungfishPlugin.docc/          # PRIMARY OWNER
+│   ├── LungfishWorkflow.docc/        # PRIMARY OWNER
+│   ├── LungfishKit.docc/             # PRIMARY OWNER when present
+│   └── Lungfish*UI.docc/             # Feature UI docs when present
 ├── UserGuide/
 │   ├── GettingStarted.md             # PRIMARY OWNER
 │   ├── ImportingData.md              # PRIMARY OWNER

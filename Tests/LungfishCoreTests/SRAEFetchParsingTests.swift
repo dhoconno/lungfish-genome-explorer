@@ -39,4 +39,21 @@ final class SRAEFetchParsingTests: XCTestCase {
         let accessions = NCBIService.parseRunInfoCSV(csv)
         XCTAssertEqual(accessions, ["DRR028938", "DRR051810"])
     }
+
+    func testParseRunInfoRowsAcceptsDateOnlyReleaseDate() {
+        let csv = """
+        Run,ReleaseDate
+        SRR11140748,2020-03-18
+        """
+
+        let rows = NCBIService.parseRunInfoRows(csv)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+
+        XCTAssertEqual(rows.map(\.accession), ["SRR11140748"])
+        XCTAssertEqual(
+            rows.first?.releaseDate,
+            calendar.date(from: DateComponents(year: 2020, month: 3, day: 18))
+        )
+    }
 }

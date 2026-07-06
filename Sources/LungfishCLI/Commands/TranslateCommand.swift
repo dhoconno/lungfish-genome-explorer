@@ -281,7 +281,7 @@ struct TranslateCommand: AsyncParsableCommand {
     }
 
     private func provenanceCommand(inputURL: URL, outputURL: URL) -> [String] {
-        var command = ["lungfish", "translate", inputURL.path]
+        var command = [CLICommandIdentity.executableName, "translate", inputURL.path]
         if let frame {
             command += ["--frame", String(frame)]
         }

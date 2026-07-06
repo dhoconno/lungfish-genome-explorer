@@ -120,31 +120,7 @@ enum ReferenceBundleSourceResolver {
         projectURL: URL?
     ) -> URL? {
         guard let projectURL else { return nil }
-
-        let resolvedProjectURL = projectURL.standardizedFileURL.resolvingSymlinksInPath()
-        let resolvedURL = url.standardizedFileURL.resolvingSymlinksInPath()
-        let projectComponents = resolvedProjectURL.pathComponents
-        let urlComponents = resolvedURL.pathComponents
-
-        guard urlComponents.count >= projectComponents.count + 3,
-              urlComponents.starts(with: projectComponents),
-              urlComponents[projectComponents.count] == AnalysesFolder.directoryName else {
-            return nil
-        }
-
-        let analysisName = urlComponents[projectComponents.count + 1]
-        let analysisURL = resolvedProjectURL
-            .appendingPathComponent(AnalysesFolder.directoryName, isDirectory: true)
-            .appendingPathComponent(analysisName, isDirectory: true)
-            .standardizedFileURL
-
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: analysisURL.path, isDirectory: &isDirectory),
-              isDirectory.boolValue else {
-            return nil
-        }
-
-        return analysisURL
+        return AnalysesFolder.enclosingAnalysisDirectory(for: url, projectURL: projectURL)
     }
 
     private static func enclosingReferenceBundleURL(for url: URL) -> URL? {

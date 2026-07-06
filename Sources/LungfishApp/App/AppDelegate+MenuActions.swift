@@ -739,12 +739,14 @@ extension AppDelegate {
     }
 
     @objc func cancelAllOperations(_ sender: Any?) {
-        let runningCount = OperationCenter.shared.activeCount
-        guard runningCount > 0 else { return }
+        let cancellableRunningCount = OperationCenter.shared.items.filter {
+            $0.isCancellable
+        }.count
+        guard cancellableRunningCount > 0 else { return }
 
         let alert = NSAlert()
         alert.messageText = "Cancel All Operations?"
-        alert.informativeText = "This will cancel \(runningCount) running operation\(runningCount == 1 ? "" : "s")."
+        alert.informativeText = "This will cancel \(cancellableRunningCount) running operation\(cancellableRunningCount == 1 ? "" : "s")."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Cancel Operations")
         alert.addButton(withTitle: "Keep Running")
@@ -767,7 +769,7 @@ extension AppDelegate {
               let operationID = menuItem.representedObject as? UUID else { return }
 
         guard let item = OperationCenter.shared.items.first(where: { $0.id == operationID }),
-              item.state == .running else { return }
+              item.isCancellable else { return }
 
         let alert = NSAlert()
         alert.messageText = "Cancel \"\(item.title)\"?"
@@ -862,14 +864,14 @@ extension AppDelegate {
             title: "UI test failed operation",
             detail: "Preparing deterministic failure",
             operationType: .classification,
-            cliCommand: "lungfish classify --reads '~/ui-test/R1.fastq.gz'"
+            cliCommand: "\(CLICommandIdentity.executableName) conda classify --reads '~/ui-test/R1.fastq.gz'"
         )
         OperationCenter.shared.log(
             id: operationID,
             level: .info,
             message: "UI test seeded operation"
         )
-        OperationCenter.shared.fail(
+        _ = OperationCenter.shared.fail(
             id: operationID,
             detail: "Deterministic failure used by XCUI",
             errorMessage: "UI test failure",

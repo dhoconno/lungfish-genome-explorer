@@ -22,7 +22,8 @@
 - `Sources/LungfishApp/App/MainMenu.swift`: remove restriction-site menu item, add annotation-track operations.
 - `Sources/LungfishApp/App/AppDelegate.swift`: wire Sequence actions to CLI-backed operations and fix active-window navigation.
 - `Sources/LungfishApp/Views/Viewer/ViewerViewController.swift` and bundle display extension as needed: expose active bundle/chromosome navigation helpers.
-- `docs/TODO.md`: add deferred restriction-site search feature request.
+- `Tests/LungfishAppTests/SequenceMenuOperationTests.swift`: pin that restriction-site search
+  remains absent until a CLI-backed, provenance-writing implementation exists.
 - `Tests/LungfishCLITests/SequenceAnnotationCommandTests.swift`: CLI and provenance coverage for real bundle artifacts.
 - `Tests/LungfishAppTests/SequenceMenuOperationTests.swift`: menu wiring, command construction, and restriction-site removal.
 - `Tests/LungfishIntegrationTests/SequenceAnnotationE2ETests.swift`: real artifact smoke tests where practical.
@@ -164,11 +165,13 @@ lungfish sequence annotate-orfs <bundle> --sequence <name> --start <start> --end
 ## Task 6: Restriction-Site Backlog
 
 **Files:**
-- Modify: `docs/TODO.md`
+- Modify: `Tests/LungfishAppTests/SequenceMenuOperationTests.swift`
 - Modify: `docs/user-manual/help-ids.yaml` if the removed menu help ID would otherwise expose a dead command.
 
-- [ ] Add a dated deferred TODO entry for restriction-site searching.
-- [ ] State that future implementation must be CLI-backed, provenance-writing, and track-producing; plugin-only searching is not sufficient.
+- [ ] Keep restriction-site searching absent from the Sequence menu until it is
+  implemented as a CLI-backed, provenance-writing, track-producing workflow.
+- [ ] Keep a regression test pinning the absence so plugin-only or preview-only
+  searching cannot reappear as a shipped command.
 
 ## Task 7: Independent End-to-End Evaluation
 

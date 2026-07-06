@@ -60,6 +60,18 @@ final class WorkflowBuilderAppIntegrationTests: XCTestCase {
         XCTAssertNotNil(item.image)
     }
 
+    func testWorkflowBuilderPaletteOnlyListsNativeRunnableNodes() throws {
+        let palette = WorkflowNodePalette()
+        let visibleNodeTypes = palette.nodeTypesForTesting
+        let expectedNodeTypes = WorkflowNodeType.allCases.filter(\.isBuilderNativeFASTQNode)
+
+        XCTAssertFalse(visibleNodeTypes.isEmpty)
+        XCTAssertEqual(Set(visibleNodeTypes), Set(expectedNodeTypes))
+        XCTAssertTrue(visibleNodeTypes.allSatisfy(\.isBuilderNativeFASTQNode))
+        XCTAssertFalse(visibleNodeTypes.contains(.alignment))
+        XCTAssertFalse(visibleNodeTypes.contains(.variantCalling))
+    }
+
     func testBuilderWorkflowLibraryLoadsProjectWorkflowsAndSelection() throws {
         let projectURL = try makeTemporaryDirectory().appendingPathComponent("Project.lungfish", isDirectory: true)
         try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
@@ -196,6 +208,50 @@ final class WorkflowBuilderAppIntegrationTests: XCTestCase {
         XCTAssertTrue(isDirectory.boolValue)
         XCTAssertTrue(FileManager.default.fileExists(atPath: savedURL.appendingPathComponent("graph.json").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: savedURL.appendingPathComponent("provenance.json").path))
+    }
+
+    func testWorkflowBuilderNativePanelsUseBundleContentTypeOnly() {
+        let contentTypes = WorkflowBuilderViewController.workflowContentTypesForTesting
+
+        XCTAssertEqual(contentTypes.count, 1)
+        XCTAssertFalse(contentTypes.contains(.json))
+        XCTAssertTrue(contentTypes.allSatisfy { $0.conforms(to: .package) })
+    }
+
+    func testWorkflowBuilderNativeSaveNormalizesJSONPathToBundle() throws {
+        let controller = WorkflowBuilderViewController()
+        controller.loadViewIfNeeded()
+        controller.graph = WorkflowGraph(name: "Native Save")
+        let tempDirectory = try makeTemporaryDirectory()
+        let requestedURL = tempDirectory.appendingPathComponent("workflow.json", isDirectory: false)
+
+        try controller.saveWorkflowForTesting(to: requestedURL)
+
+        let savedURL = try XCTUnwrap(controller.workflowURL)
+        XCTAssertEqual(savedURL.pathExtension, "lungfishflow")
+        XCTAssertEqual(savedURL.path, WorkflowLibraryStore.normalizedWorkflowBundleURL(for: requestedURL).path)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: requestedURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: savedURL.appendingPathComponent("graph.json").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: savedURL.appendingPathComponent("provenance.json").path))
+    }
+
+    func testWorkflowBuilderLegacyJSONLoadUsesBundleAsNextSaveTarget() throws {
+        let controller = WorkflowBuilderViewController()
+        controller.loadViewIfNeeded()
+        let tempDirectory = try makeTemporaryDirectory()
+        let jsonURL = tempDirectory.appendingPathComponent("legacy-workflow.json", isDirectory: false)
+        let graph = WorkflowGraph(name: "Legacy JSON")
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(graph).write(to: jsonURL)
+
+        try controller.loadWorkflowForTesting(from: jsonURL)
+
+        XCTAssertEqual(controller.graph.name, "Legacy JSON")
+        XCTAssertEqual(
+            controller.workflowURL?.path,
+            WorkflowLibraryStore.normalizedWorkflowBundleURL(for: jsonURL).path
+        )
     }
 
     func testExplicitFastqBundleWorkflowResolvesInputNodeAsRunSample() throws {

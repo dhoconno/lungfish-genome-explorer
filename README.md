@@ -9,7 +9,7 @@ A native macOS workbench for everyday genomics. Lungfish Genome Explorer brings 
 
 Lungfish Genome Explorer is developed in association with the [Lungfish Research Collaboratory](http://lung.fish).
 
-> ⚠️ **Alpha software.** Lungfish Genome Explorer is at an early alpha stage. Expect rough edges, missing polish, and bugs that have not yet been surfaced. The current shape of the app reflects where it is headed rather than a finished product, and a lot of what's visible today will be sharpened as more people start using it. Please report what you find on the [Issues](../../issues) tracker.
+> ⚠️ **Beta candidate.** Lungfish Genome Explorer is being hardened for beta use. Expect rough edges and bugs that have not yet been surfaced, especially around large local datasets and long-running workflow tools. Please report what you find on the [Issues](../../issues) tracker.
 
 ## About
 
@@ -38,7 +38,7 @@ Lungfish Genome Explorer is built around five viewport classes (sequence, alignm
 ### Alignments (BAM / CRAM / SAM)
 
 - Pile-up viewer for sorted, indexed BAM and CRAM with coverage track, base mismatches, soft-clip indicators, and read inspector.
-- Map reads with [minimap2](https://github.com/lh3/minimap2), [BWA-MEM2](https://github.com/bwa-mem2/bwa-mem2), or [Bowtie2](https://bowtie-bio.sourceforge.net/bowtie2/) through guided wizards or the command line. Output is always written as sorted, indexed BAM.
+- Map reads with [minimap2](https://github.com/lh3/minimap2), [BWA-MEM2](https://github.com/bwa-mem2/bwa-mem2), [Bowtie2](https://bowtie-bio.sourceforge.net/bowtie2/), or BBMap through guided wizards or the command line. Output is always written as sorted, indexed BAM.
 - Mark and remove PCR duplicates, extract reads by region or chromosome, and verify read orientation.
 
 ### Variants (VCF)
@@ -50,7 +50,7 @@ Lungfish Genome Explorer is built around five viewport classes (sequence, alignm
 ### Classification & Metagenomics
 
 - Run [Kraken 2](https://github.com/DerrickWood/kraken2) + [Bracken](https://github.com/jenniferlu717/Bracken), [EsViritu](https://github.com/cmmr/EsViritu) (viral discovery), [TaxTriage](https://github.com/jhuapl-bio/taxtriage) (multi-level taxonomic triage), and the [NAO-MGS](https://github.com/naobservatory/mgs-workflow) metagenomics workflow on FASTQ datasets.
-- Import results from the [NVD](https://github.com/dholab/nvd) (Novel Virus Discovery) Nextflow workflow as first-class taxonomy datasets.
+- Import results from the [NVD](https://github.com/dholab/nvd) (Novel Virus Diagnostics) Snakemake workflow as first-class taxonomy datasets.
 - Taxonomy browser with sortable hit table, sunburst chart, breadcrumb navigation, and detail pane.
 - Extract reads assigned to any taxon back into a fresh FASTQ dataset for downstream work.
 - BLAST any classified sequence against NCBI for verification.
@@ -70,43 +70,49 @@ Lungfish Genome Explorer is built around five viewport classes (sequence, alignm
 
 ### Workflows
 
-- Run [Nextflow](https://www.nextflow.io/) and [Snakemake](https://snakemake.readthedocs.io/) workflows from inside the app. Nextflow pipelines with a `nextflow_schema.json` get an auto-generated parameter form.
-- Browse the [nf-core](https://nf-co.re/) pipeline catalogue and launch directly into the project.
-- Direct import path for the [NVD (Novel Virus Discovery)](https://github.com/dholab/nvd) workflow. Point Lungfish Genome Explorer at an NVD output directory and the run lands in the taxonomy browser with reads, hits, and reports cross-linked.
-- Workflow outputs auto-import as project datasets in the appropriate viewport.
-- Container support via [Apple Containerization](https://github.com/apple/containerization). Docker / Apptainer images run in lightweight Linux VMs on Apple Silicon.
+- Run curated local workflows from inside the app, including the supported `nf-core/viralrecon` adapter and the FASTQ Workflow Builder when **Settings > Advanced > Show Experimental Features** is enabled.
+- Export recorded provenance as shell, Python, Nextflow, Snakemake, methods text, or raw JSON for external replay and review.
+- Direct import path for the [NVD (Novel Virus Diagnostics)](https://github.com/dholab/nvd) workflow. Point Lungfish Genome Explorer at an NVD output directory and the run lands in the taxonomy browser with reads, hits, and reports cross-linked.
+- Workflow outputs from supported adapters auto-import as project datasets in the appropriate viewport.
+- Container support targets [Apple Containerization](https://github.com/apple/containerization) on Apple Silicon, with Docker fallback where supported by the selected workflow/runtime.
 
 ### AI Assistant
 
 A built-in chat panel can answer questions about the active dataset, suggest workflows, and help interpret classification or variant results. The panel supports multiple providers; bring your own API key.
 
-### Plugins
+### Plugin Packs
 
-A multi-language plugin system supports extensions in Python, Rust, Swift, and any CLI executable. Plugins can add sequence operations, annotation generators, viewers, data sources, or workflow integrations. The Plugin Manager handles discovery, installation, and lifecycle.
+The Plugin Manager handles managed tool packs and workflow/runtime integrations used by the app. A general third-party multi-language plugin SDK is not currently a shipped SwiftPM product; historical plugin-architecture plans live under `docs/archive/` until that surface is implemented.
 
 ### Command Line
 
-Every major capability has a `lungfish-cli` counterpart for headless and scripted use:
+The CLI exposes the supported headless surface for scripted use:
 
 ```
-analyze    assemble    bam         blast        classify
-convert    extract     fastq       fetch        import
-map        markdup     metadata    nao-mgs      nvd
-orient     taxtriage   translate   variants     workflow
+align       analyze      assemble    bam       blast       build-db
+bundle      conda        convert     cz-id     debug       esviritu
+extract     fastq        fetch       freyja    gatk        genotype
+haplotypes  import       import-fastq map      markdup     metadata
+msa         nao-mgs      nvd         ops       orient      primers
+project     provenance   provision-tools       run-headless search   sequence
+taxtriage   translate    tree        universal-search      variants    workflow
 ```
 
-The `fastq` command groups subcommands for `materialize`, `orient`, `qc-summary`, `scrub-human`, `search-motif`, `search-text`, and `sequence-filter`.
+The `fastq` command group includes 40+ subcommands; common examples include `materialize`, `trim`, `adapter-trim`, `orient`, `qc-summary`, `scrub-human`, `deacon-ribo`, 12S workflows, genotype workflows, `search-motif`, `search-text`, and `sequence-filter`. Run `lungfish-cli fastq --help` for the full list.
 
 ## File Format Support
 
-| Category    | Read                                | Write                |
-|-------------|-------------------------------------|----------------------|
-| Sequences   | FASTA, FASTQ, GenBank, 2bit         | FASTA, FASTQ         |
-| Alignments  | BAM, CRAM, SAM (via HTSlib)         | sorted/indexed BAM   |
-| Variants    | VCF, VCF.GZ + TBI                   | VCF                  |
-| Annotations | GFF3, GTF, BED                      | BED                  |
-| Coverage    | BigWig, bedGraph                    | BigWig               |
+| Category    | Read                                | Write                 |
+|-------------|-------------------------------------|-----------------------|
+| Sequences   | FASTA, FASTQ, GenBank               | FASTA, FASTQ, GenBank |
+| Alignments  | BAM, CRAM, SAM (via HTSlib)         | sorted/indexed BAM    |
+| Variants    | VCF, VCF.GZ + TBI                   | VCF                   |
+| Annotations | GFF3, GTF, BED                      | BED                   |
+| Coverage    | bedGraph                            | BigWig via bedGraph conversion |
 | Reports     | Kraken2 kreport, EsViritu, TaxTriage, NAO-MGS | JSON, TSV |
+
+BigWig detection only is available for existing bundle artifacts; the in-process
+BigWig reader/writer API is intentionally unavailable until parser support is complete.
 
 BigBed files are recognized as bundle artifacts, but the incomplete in-process
 BigBed reader API is intentionally unavailable until parser support is complete.
@@ -121,7 +127,7 @@ BigBed reader API is intentionally unavailable until parser support is complete.
 
 ## Installation
 
-The simplest way to install Lungfish Genome Explorer is to download the latest signed and notarized `.dmg` from the [Releases](../../releases) page, drag the app to Applications, and launch it. On first launch the welcome screen will offer to install the on-demand toolchain (Nextflow, Snakemake, BBTools, mappers, assemblers, classifiers) into `~/.lungfish`. Signed release builds can check for graphical app updates through **Lungfish Genome Explorer > Check for Updates...**.
+The simplest way to install Lungfish Genome Explorer is to download the latest signed and notarized `.dmg` from the [Releases](../../releases) page, drag the app to Applications, and launch it. On first launch the welcome screen offers to install the core managed toolchain into `~/.lungfish`; workflow-specific packs such as mappers, assemblers, and classifiers are provisioned when enabled or needed. Signed release builds can check for graphical app updates through **Lungfish Genome Explorer > Check for Updates...**.
 
 ### Building from source
 
@@ -135,21 +141,22 @@ A signed and notarized `.dmg` can be produced with `bash scripts/release/build-n
 
 ## User Manual
 
-Primitive documentation is now available on Read the Docs at [lungfish.readthedocs.io](https://lungfish.readthedocs.io/). The manual is early and incomplete, but it is now the canonical place for user-facing workflow documentation as it matures.
+User documentation is available on Read the Docs at [lungfish-genome-explorer.readthedocs.io](https://lungfish-genome-explorer.readthedocs.io/en/latest/). The manual is still being hardened for beta, and it is the canonical place for user-facing workflow documentation as it matures.
 
 ## Architecture
 
-Lungfish Genome Explorer is organised into seven Swift modules:
+Lungfish Genome Explorer is organised as SwiftPM products with a small core and feature-focused UI modules:
 
-| Module             | Purpose                                              |
-|--------------------|------------------------------------------------------|
-| **LungfishCore**     | Core data models for sequences, annotations, documents |
-| **LungfishIO**       | File-format parsers, indexers, and writers           |
-| **LungfishUI**       | Rendering, tracks, viewport rendering                |
-| **LungfishWorkflow** | Native tool runner, Nextflow / Snakemake integration |
-| **LungfishPlugin**   | Multi-language plugin system                         |
-| **LungfishApp**      | macOS application UI                                 |
-| **LungfishCLI**      | `lungfish-cli` headless interface                    |
+| Product / module | Purpose |
+|------------------|---------|
+| **LungfishCore** | Core models, bundle manifests, project storage, metadata |
+| **LungfishIO** | File-format parsers, indexes, bundle readers/writers |
+| **LungfishWorkflow** | Native tool execution, workflows, provenance, conda/tool management |
+| **LungfishApp** | Shared macOS application services, state, and AppKit integration |
+| **LungfishKit** | Reusable app UI controls and support utilities |
+| **Feature UI modules** | Focused result/viewer surfaces: Alignment, Assembly, TwelveS, NVD, NAO-MGS, TaxTriage, EsViritu, Genotype, Phylogenetics |
+| **Lungfish** | Graphical app executable |
+| **LungfishCLI** | `lungfish-cli` headless interface |
 
 ## Optional test gates
 
@@ -158,8 +165,7 @@ A handful of integration tests are gated by environment variables so they do not
 | Env var                       | Gates                                                                                              | How to run locally                                                                                                                                                                                                                                                  |
 |-------------------------------|----------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `LUNGFISH_VIRALRECON_PARITY`  | `IVarConverterViralReconParityTests` — asserts the Swift iVar TSV-to-VCF converter byte-matches the upstream `nf-core/viralrecon` Python script on a real SARS-CoV-2 fixture. | Install the upstream script and its Python deps, then run with the env vars set. The path of the Python script is supplied via `LUNGFISH_IVAR_TO_VCF_PY`: `pip install pandas scipy && curl -fsSL https://raw.githubusercontent.com/nf-core/viralrecon/master/bin/ivar_variants_to_vcf.py -o /tmp/ivar_variants_to_vcf.py && chmod +x /tmp/ivar_variants_to_vcf.py && LUNGFISH_VIRALRECON_PARITY=1 LUNGFISH_IVAR_TO_VCF_PY=/tmp/ivar_variants_to_vcf.py swift test --filter IVarConverterViralReconParity` |
-| `LUNGFISH_LIVE_PIPELINE_TESTS` | `ReadsToVariantsEndToEndTests` — runs the full minimap2 plus iVar pipeline against a small SARS-CoV-2 amplicon fixture and asserts the produced VCF matches the committed reference VCF. Requires the managed conda envs (`samtools`, `minimap2`, `ivar`, `bcftools`, `bgzip`, `tabix`) to be provisioned. | Provision the conda envs (run the app once and accept the on-demand install, or run `lungfish conda install`), then `LUNGFISH_LIVE_PIPELINE_TESTS=1 swift test --filter ReadsToVariantsEndToEndTests`. Expect 30 seconds to 2 minutes depending on hardware.       |
-| `LUNGFISH_LIVE_SRA_TESTS`     | Planned SRA download integration test (`SRADownloadFallbackIntegrationTests`) — actually pulls `SRR36291587` to verify the ENA-then-toolkit fallback path and the explicit `--use-toolkit` path. Currently still a placeholder in the chapter spec; once shipped, the gate keeps it out of the default test pass. | Will be `LUNGFISH_LIVE_SRA_TESTS=1 swift test --filter SRADownloadFallbackIntegration` when the test lands.                                                                                                                                                            |
+| `LUNGFISH_LIVE_PIPELINE_TESTS` | `ReadsToVariantsEndToEndTests` — runs the full minimap2 plus iVar pipeline against a small SARS-CoV-2 amplicon fixture and asserts the produced VCF matches the committed reference VCF. Requires the managed conda envs (`samtools`, `minimap2`, `ivar`, `bcftools`, `bgzip`, `tabix`) to be provisioned. | Provision the conda envs (run the app once and accept the on-demand install, or run `lungfish-cli conda install`), then `LUNGFISH_LIVE_PIPELINE_TESTS=1 swift test --filter ReadsToVariantsEndToEndTests`. Expect 30 seconds to 2 minutes depending on hardware.       |
 
 These tests are not run in CI today. If a change touches a gated code path, please run the gate locally and paste the result into the PR description. CI catches the unit-test side automatically.
 
@@ -184,45 +190,13 @@ Lungfish Genome Explorer stands on the shoulders of the open-source bioinformati
 
 ### Bundled in the app
 
-| Tool                      | Version    | License       | Source                                                    |
-|---------------------------|------------|---------------|-----------------------------------------------------------|
-| SAMtools                  | 1.22.1     | MIT           | https://github.com/samtools/samtools                      |
-| BCFtools                  | 1.22       | MIT           | https://github.com/samtools/bcftools                      |
-| HTSlib (bgzip, tabix)     | 1.22.1     | MIT           | https://github.com/samtools/htslib                        |
-| UCSC bedGraphToBigWig     | v469       | MIT           | https://github.com/ucscGenomeBrowser/kent             |
-| SeqKit                    | 2.9.0      | MIT           | https://github.com/shenwei356/seqkit                      |
-| cutadapt                  | 4.9        | MIT           | https://github.com/marcelm/cutadapt                       |
-| VSEARCH                   | 2.29.2     | BSD-2-Clause  | https://github.com/torognes/vsearch                       |
-| pigz                      | 2.8        | zlib          | https://github.com/madler/pigz                            |
-| micromamba                | 2.0.5-0    | BSD-3-Clause  | https://github.com/mamba-org/mamba                        |
-| NCBI SRA Human Scrubber   | 2.2.1      | Public Domain | https://github.com/ncbi/sra-human-scrubber                |
-| NCBI SRA Tools            | 3.4.0      | Public Domain | https://github.com/ncbi/sra-tools                         |
+The app bundle carries micromamba plus Lungfish resources needed to provision tool environments. The bundled tool manifest is [`Sources/LungfishWorkflow/Resources/Tools/tool-versions.json`](Sources/LungfishWorkflow/Resources/Tools/tool-versions.json); at this release it lists micromamba `2.0.5-0`.
 
 ### Installed on demand into `~/.lungfish`
 
-| Tool         | Version  | License        | Source                                      |
-|--------------|----------|----------------|---------------------------------------------|
-| Nextflow     | 25.10.4  | Apache-2.0     | https://github.com/nextflow-io/nextflow     |
-| Snakemake    | 9.19.0   | MIT            | https://github.com/snakemake/snakemake      |
-| BBTools      | 39.80    | BSD-3-Clause   | https://sourceforge.net/projects/bbmap/     |
-| fastp        | 1.3.2    | MIT            | https://github.com/OpenGene/fastp           |
-| Deacon       | 0.15.0   | MIT            | https://github.com/bede/deacon              |
-| minimap2     | 2.30     | MIT            | https://github.com/lh3/minimap2             |
-| BWA-MEM2     | 2.3      | MIT            | https://github.com/bwa-mem2/bwa-mem2        |
-| Bowtie2      | 2.5.4    | GPL-3.0        | https://bowtie-bio.sourceforge.net/bowtie2/ |
-| SPAdes       | 4.2.0    | GPL-2.0        | https://github.com/ablab/spades             |
-| MEGAHIT      | 1.2.9    | GPL-3.0        | https://github.com/voutcn/megahit           |
-| SKESA        | 2.5.1    | Public Domain  | https://github.com/ncbi/SKESA               |
-| Flye         | 2.9.6    | BSD-3-Clause   | https://github.com/mikolmogorov/Flye        |
-| hifiasm      | 0.25.0   | MIT            | https://github.com/chhylp123/hifiasm        |
-| Kraken 2     | 2.17.1   | GPL-3.0        | https://github.com/DerrickWood/kraken2      |
-| Bracken      | 1.0.0    | GPL-3.0        | https://github.com/jenniferlu717/Bracken    |
-| EsViritu     | 1.3.1    | MIT            | https://github.com/cmmr/EsViritu            |
-| LoFreq       | 2.1.5    | MIT            | https://csb5.github.io/lofreq/              |
-| iVar         | 1.4.4    | GPL-3.0        | https://andersen-lab.github.io/ivar/        |
-| Medaka       | 2.1.1    | MPL-2.0        | https://github.com/nanoporetech/medaka      |
+Managed tools are installed from [`Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json`](Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json). The user-manual [Tool Versions appendix](docs/user-manual/chapters/appendices/tool-versions.md) is the release-level readable table, and `lungfish-cli version --tools` prints the table for the running binary.
 
-The full canonical list, with license texts, is in [`THIRD-PARTY-NOTICES`](THIRD-PARTY-NOTICES). Tool versions are pinned in [`tool-versions.json`](Sources/LungfishWorkflow/Resources/Tools/tool-versions.json) and [`third-party-tools-lock.json`](Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json).
+The full canonical list of third-party notices and license text is in [`THIRD-PARTY-NOTICES`](THIRD-PARTY-NOTICES). For a specific analysis, the provenance sidecar remains the authority for the executable, version, command line, inputs, outputs, and runtime that actually produced the data.
 
 VSEARCH is dual-licensed BSD-2-Clause / GPL-3.0; Lungfish Genome Explorer elects BSD-2-Clause.
 

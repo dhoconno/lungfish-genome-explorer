@@ -5,6 +5,7 @@
 import ArgumentParser
 import Darwin
 import Foundation
+import LungfishCore
 
 /// Lungfish Genome Explorer Command-Line Interface
 ///
@@ -16,10 +17,10 @@ import Foundation
 /// - Debugging and troubleshooting
 struct LungfishCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "lungfish",
+        commandName: CLICommandIdentity.executableName,
         abstract: "Lungfish Genome Explorer CLI - Bioinformatics tools for sequence analysis",
         discussion: """
-            The `lungfish` command provides headless access to the Lungfish Genome Explorer's
+            The `\(CLICommandIdentity.executableName)` command provides headless access to the Lungfish Genome Explorer's
             bioinformatics capabilities. Use it for scripting, automation, pipeline
             integration, and debugging workflows.
 
@@ -28,7 +29,7 @@ struct LungfishCLI: AsyncParsableCommand {
 
             For more information, see: https://github.com/dhoconno/lungfish-genome-explorer
             """,
-        version: "0.5.0-alpha35",
+        version: LungfishAppVersion.short,
         subcommands: [
             VersionCommand.self,
             ConvertCommand.self,

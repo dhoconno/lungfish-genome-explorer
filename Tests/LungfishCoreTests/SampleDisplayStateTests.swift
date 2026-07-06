@@ -314,6 +314,14 @@ final class SampleDisplayStateTests: XCTestCase {
         XCTAssertEqual(homAlt.g, 248/255, accuracy: 0.01)
     }
 
+    func testVariantColorThemeCustomNamePreservesName() {
+        let custom = VariantColorTheme(name: "Reviewer Palette")
+
+        XCTAssertEqual(custom.name, "Reviewer Palette")
+        XCTAssertEqual(custom.homRef, VariantColorTheme.modern.homRef)
+        XCTAssertEqual(custom.frameshiftHomAlt, VariantColorTheme.modern.frameshiftHomAlt)
+    }
+
     func testGenotypeCallAllCases() {
         XCTAssertEqual(GenotypeDisplayCall.allCases.count, 4)
     }

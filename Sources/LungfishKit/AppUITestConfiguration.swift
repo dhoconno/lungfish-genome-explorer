@@ -16,35 +16,50 @@ public struct AppUITestConfiguration: Equatable, Sendable {
     public let backendMode: AppUITestBackendMode
 
     public init(arguments: [String], environment: [String: String]) {
+        self.init(
+            arguments: arguments,
+            environment: environment,
+            allowsUITestMode: Self.buildAllowsUITestMode
+        )
+    }
+
+    public init(
+        arguments: [String],
+        environment: [String: String],
+        allowsUITestMode: Bool
+    ) {
         let explicitFlag = arguments.contains("--ui-test-mode")
         let environmentFlag = environment["LUNGFISH_UI_TEST_MODE"] == "1"
+        let enabled = allowsUITestMode && (explicitFlag || environmentFlag)
 
-        isEnabled = explicitFlag || environmentFlag
-        scenarioName = environment["LUNGFISH_UI_TEST_SCENARIO"]
-        fixtureRootPath = environment["LUNGFISH_UI_TEST_FIXTURE_ROOT"].map(URL.init(fileURLWithPath:))
+        isEnabled = enabled
+        scenarioName = enabled ? environment["LUNGFISH_UI_TEST_SCENARIO"] : nil
+        fixtureRootPath = enabled
+            ? environment["LUNGFISH_UI_TEST_FIXTURE_ROOT"].map(URL.init(fileURLWithPath:))
+            : nil
         projectPath = Self.resolvePath(
-            environment["LUNGFISH_UI_TEST_PROJECT_PATH"],
+            enabled ? environment["LUNGFISH_UI_TEST_PROJECT_PATH"] : nil,
             fixtureRootPath: fixtureRootPath,
             isDirectory: true
         )
         welcomeOpenProjectPath = Self.resolvePath(
-            environment["LUNGFISH_UI_TEST_WELCOME_OPEN_PROJECT_PATH"],
+            enabled ? environment["LUNGFISH_UI_TEST_WELCOME_OPEN_PROJECT_PATH"] : nil,
             fixtureRootPath: fixtureRootPath,
             isDirectory: true
         )
         welcomeCreateProjectPath = Self.resolvePath(
-            environment["LUNGFISH_UI_TEST_WELCOME_CREATE_PROJECT_PATH"],
+            enabled ? environment["LUNGFISH_UI_TEST_WELCOME_CREATE_PROJECT_PATH"] : nil,
             fixtureRootPath: fixtureRootPath,
             isDirectory: true
         )
         eventLogPath = Self.resolvePath(
-            environment["LUNGFISH_UI_TEST_EVENT_LOG_PATH"],
+            enabled ? environment["LUNGFISH_UI_TEST_EVENT_LOG_PATH"] : nil,
             fixtureRootPath: fixtureRootPath,
             isDirectory: false
         )
-        backendMode = AppUITestBackendMode(
-            rawValue: environment["LUNGFISH_UI_TEST_BACKEND_MODE"] ?? ""
-        ) ?? .deterministic
+        backendMode = enabled
+            ? AppUITestBackendMode(rawValue: environment["LUNGFISH_UI_TEST_BACKEND_MODE"] ?? "") ?? .deterministic
+            : .liveSmoke
     }
 
     public func appendEvent(_ event: String) {
@@ -73,6 +88,14 @@ public struct AppUITestConfiguration: Equatable, Sendable {
         arguments: ProcessInfo.processInfo.arguments,
         environment: ProcessInfo.processInfo.environment
     )
+
+    private static var buildAllowsUITestMode: Bool {
+        #if DEBUG
+        true
+        #else
+        false
+        #endif
+    }
 
     private static func resolvePath(
         _ rawPath: String?,

@@ -54,7 +54,7 @@ final class CLIPreviewCommandTests: XCTestCase {
 
         let command = AssemblyRunner.cliCommandPreview(config: config)
 
-        XCTAssertTrue(command.hasPrefix("lungfish assemble "))
+        XCTAssertTrue(command.hasPrefix("lungfish-cli assemble "))
         XCTAssertTrue(command.contains("'/Volumes/Reads/Sample R1.fastq.gz'"))
         XCTAssertTrue(command.contains("'/Volumes/Reads/Sample R2.fastq.gz'"))
         XCTAssertTrue(command.contains("--paired"))

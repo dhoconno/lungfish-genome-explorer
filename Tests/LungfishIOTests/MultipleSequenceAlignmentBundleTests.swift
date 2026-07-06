@@ -5,6 +5,14 @@ import XCTest
 @testable import LungfishIO
 
 final class MultipleSequenceAlignmentBundleTests: XCTestCase {
+    enum AnnotationEditOriginalFailure: Error, Equatable {
+        case failed
+    }
+
+    enum AnnotationEditRollbackFailure: Error, Equatable {
+        case failed
+    }
+
     private var workspace: URL!
 
     override func setUpWithError() throws {
@@ -18,6 +26,19 @@ final class MultipleSequenceAlignmentBundleTests: XCTestCase {
         if let workspace, FileManager.default.fileExists(atPath: workspace.path) {
             try FileManager.default.removeItem(at: workspace)
         }
+    }
+
+    func testColumnStatRemainsPublicAPI() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishIO/Bundles/MultipleSequenceAlignmentBundle.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("public struct ColumnStat"))
+        XCTAssertTrue(source.contains("public let consensusResidue"))
+        XCTAssertTrue(source.contains("public let parsimonyInformative"))
     }
 
     func testImportsAcceptedP0FormatsIntoNativeBundle() throws {
@@ -172,6 +193,34 @@ final class MultipleSequenceAlignmentBundleTests: XCTestCase {
             }
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: bundleURL.path))
+    }
+
+    func testSQLiteIndexWriteFailureKeepsExistingDatabase() throws {
+        let indexURL = workspace.appendingPathComponent("alignment-index.sqlite")
+        let originalRows = [makeRow(id: "row-1", order: 0)]
+        let columnStats = [makeColumnStat(index: 0)]
+        try MultipleSequenceAlignmentBundle.writeSQLiteIndex(
+            at: indexURL,
+            rows: originalRows,
+            columns: columnStats
+        )
+        let originalData = try Data(contentsOf: indexURL)
+        XCTAssertEqual(try sqliteTableCount(at: indexURL), 1)
+
+        let duplicateRows = [
+            makeRow(id: "duplicate", order: 0),
+            makeRow(id: "duplicate", order: 1),
+        ]
+        XCTAssertThrowsError(
+            try MultipleSequenceAlignmentBundle.writeSQLiteIndex(
+                at: indexURL,
+                rows: duplicateRows,
+                columns: columnStats
+            )
+        )
+
+        XCTAssertEqual(try Data(contentsOf: indexURL), originalData)
+        XCTAssertEqual(try sqliteTableCount(at: indexURL), 1)
     }
 
     func testManifestAndProvenanceUseFinalPathsAndChecksumsWithoutTmpPaths() throws {
@@ -426,6 +475,78 @@ final class MultipleSequenceAlignmentBundleTests: XCTestCase {
         XCTAssertFalse(provenanceText.contains("/tmp/"))
     }
 
+    func testAnnotationEditRestoresPublishedFilesWhenManifestWriteFails() throws {
+        let inputURL = try writeInput(
+            named: "rollback-annotation.fasta",
+            contents: """
+            >seqA
+            A-CG-T
+            >seqB
+            ATCGGT
+            """
+        )
+        let bundleURL = workspace.appendingPathComponent("RollbackAnnotations.lungfishmsa", isDirectory: true)
+        let bundle = try MultipleSequenceAlignmentBundle.importAlignment(from: inputURL, to: bundleURL)
+        let firstManual = try bundle.makeAnnotationFromAlignedSelection(
+            rowID: bundle.rows[0].id,
+            alignedIntervals: [AnnotationInterval(start: 2, end: 6)],
+            name: "first-feature",
+            type: "gene",
+            strand: "+",
+            qualifiers: ["created_by": ["test"]]
+        )
+        let authored = try bundle.appendingAnnotations(
+            [firstManual],
+            editDescription: "Add first annotation",
+            argv: ["lungfish-gui", "msa", "add-annotation"]
+        )
+
+        let annotationJSONURL = bundleURL.appendingPathComponent("metadata/annotations.json")
+        let annotationSQLiteURL = bundleURL.appendingPathComponent("metadata/annotations.sqlite")
+        let provenanceURL = bundleURL.appendingPathComponent("metadata/annotation-edit-provenance.json")
+        let originalAnnotationJSON = try Data(contentsOf: annotationJSONURL)
+        let originalAnnotationSQLite = try Data(contentsOf: annotationSQLiteURL)
+        let originalProvenance = try Data(contentsOf: provenanceURL)
+
+        let manifestURL = bundleURL.appendingPathComponent("manifest.json")
+        try FileManager.default.removeItem(at: manifestURL)
+        try FileManager.default.createDirectory(at: manifestURL, withIntermediateDirectories: false)
+
+        let secondManual = try authored.makeAnnotationFromAlignedSelection(
+            rowID: authored.rows[1].id,
+            alignedIntervals: [AnnotationInterval(start: 1, end: 3)],
+            name: "second-feature",
+            type: "gene",
+            strand: "+",
+            qualifiers: ["created_by": ["test"]]
+        )
+
+        XCTAssertThrowsError(try authored.appendingAnnotations(
+            [secondManual],
+            editDescription: "Add second annotation",
+            argv: ["lungfish-gui", "msa", "add-annotation"]
+        ))
+        XCTAssertEqual(try Data(contentsOf: annotationJSONURL), originalAnnotationJSON)
+        XCTAssertEqual(try Data(contentsOf: annotationSQLiteURL), originalAnnotationSQLite)
+        XCTAssertEqual(try Data(contentsOf: provenanceURL), originalProvenance)
+    }
+
+    func testAnnotationEditRollbackHelperReportsRestoreFailureDetails() throws {
+        XCTAssertThrowsError(
+            try MultipleSequenceAlignmentBundle.throwAfterAnnotationEditPublicationFailure(
+                AnnotationEditOriginalFailure.failed,
+                restore: { throw AnnotationEditRollbackFailure.failed }
+            )
+        ) { error in
+            guard let rollbackError = error as? MultipleSequenceAlignmentBundle.AnnotationEditRollbackError else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertTrue(rollbackError.originalErrorDescription.contains("AnnotationEditOriginalFailure.failed"))
+            XCTAssertTrue(rollbackError.rollbackErrorDescription.contains("AnnotationEditRollbackFailure.failed"))
+            XCTAssertTrue(rollbackError.localizedDescription.contains("rollback failed"))
+        }
+    }
+
     private func writeInput(named filename: String, contents: String) throws -> URL {
         let url = workspace.appendingPathComponent(filename)
         try contents.write(to: url, atomically: true, encoding: .utf8)
@@ -458,5 +579,38 @@ final class MultipleSequenceAlignmentBundleTests: XCTestCase {
         defer { sqlite3_finalize(statement) }
         XCTAssertEqual(sqlite3_step(statement), SQLITE_ROW)
         return Int(sqlite3_column_int64(statement, 0))
+    }
+
+    private func makeRow(id: String, order: Int) -> MultipleSequenceAlignmentBundle.Row {
+        MultipleSequenceAlignmentBundle.Row(
+            id: id,
+            sourceName: id,
+            displayName: id,
+            order: order,
+            alphabet: "dna",
+            alignedLength: 1,
+            ungappedLength: 1,
+            gapCount: 0,
+            ambiguousCount: 0,
+            checksumSHA256: MultipleSequenceAlignmentBundle.sha256Hex(for: Data(id.utf8)),
+            accession: nil,
+            organism: nil,
+            geneProduct: nil,
+            haplotypeClade: nil,
+            metadata: [:]
+        )
+    }
+
+    private func makeColumnStat(index: Int) -> MultipleSequenceAlignmentBundle.ColumnStat {
+        MultipleSequenceAlignmentBundle.ColumnStat(
+            index: index,
+            consensusResidue: "A",
+            residueCounts: ["A": 1],
+            gapFraction: 0,
+            conservation: 1,
+            entropy: 0,
+            variableSite: false,
+            parsimonyInformative: false
+        )
     }
 }

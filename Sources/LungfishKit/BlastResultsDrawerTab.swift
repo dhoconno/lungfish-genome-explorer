@@ -333,7 +333,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
     // MARK: - Subviews: Results State
 
     private let resultsContainer = NSView()
-    let summaryBar = NSView()
+    private let summaryBar = NSView()
     private let summaryIcon = NSImageView()
     public let summaryLabel = NSTextField(labelWithString: "")
     public let lcaWarningLabel = NSTextField(labelWithString: "")
@@ -1437,7 +1437,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
     ///
     /// Uses `beginSheetModal` (never `runModal`) per macOS 26 guidelines.
     @objc private func exportButtonClicked(_ sender: NSButton) {
-        guard case .results(_) = displayState else { return }
+        guard case .results = displayState else { return }
 
         let menu = NSMenu()
         let csvItem = NSMenuItem(title: "Export as CSV...", action: #selector(exportCSV(_:)), keyEquivalent: "")

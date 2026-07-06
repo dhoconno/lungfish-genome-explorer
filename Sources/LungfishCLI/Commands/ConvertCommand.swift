@@ -249,7 +249,7 @@ struct ConvertCommand: AsyncParsableCommand {
 
     private func provenanceCommand(inputURL: URL, outputURL: URL) -> [String] {
         var command = [
-            "lungfish",
+            CLICommandIdentity.executableName,
             "convert",
             inputURL.path,
             "--to", outputURL.path,

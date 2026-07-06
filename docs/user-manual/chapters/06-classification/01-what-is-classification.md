@@ -116,4 +116,4 @@ The Run button always says "Run". When you click it, the classifier launches in 
 
 ## Next
 
-Continue to [Running Kraken2](02-running-kraken2.md) for general-purpose classification, jump to the classifier that matches your question, or see [Importing CZ-ID Results](07-importing-cz-id-results.md) and [Novel Virus Diagnostics](08-novel-virus-detection.md) when you already have an external result to bring in.
+Continue to [Running Kraken2](02-running-kraken2.md) for general-purpose classification, jump to the classifier that matches your question, or see [Importing CZ-ID Results](08-importing-cz-id-results.md) and [Novel Virus Diagnostics](09-novel-virus-detection.md) when you already have an external result to bring in.

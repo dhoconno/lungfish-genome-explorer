@@ -7,6 +7,7 @@
 
 import AppKit
 import LungfishCore
+import LungfishWorkflow
 import os.log
 
 /// Logger for multi-sequence drawing operations
@@ -292,11 +293,16 @@ extension SequenceViewerView {
         }
 
         // Reorder sequences to put the selected one first
+        let sourceURLsByID = Dictionary(
+            uniqueKeysWithValues: state.stackedSequences.compactMap { info in
+                info.sourceURL.map { (info.sequence.id, $0) }
+            }
+        )
         var sequences = state.stackedSequences.map { $0.sequence }
         let selected = sequences.remove(at: index)
         sequences.insert(selected, at: 0)
 
-        setSequences(sequences)
+        setSequences(sequences, sourceURLsByID: sourceURLsByID)
 
         drawLogger.info("setSequenceAsReference: Set '\(selected.name, privacy: .public)' as reference")
     }
@@ -337,27 +343,127 @@ extension SequenceViewerView {
         savePanel.begin { response in
             guard response == .OK, let url = savePanel.url else { return }
 
-            // Format as FASTA
-            var fasta = ">\(seq.name)"
-            if let desc = seq.description {
-                fasta += " \(desc)"
-            }
-            fasta += "\n"
-
-            // Add sequence in 80-character lines
-            let bases = seq.asString()
-            for i in stride(from: 0, to: bases.count, by: 80) {
-                let start = bases.index(bases.startIndex, offsetBy: i)
-                let end = bases.index(start, offsetBy: min(80, bases.count - i))
-                fasta += String(bases[start..<end]) + "\n"
-            }
-
+            let startedAt = Date()
+            let sourceURLs = self.sequenceFASTAExportSourceURLs(for: seqInfo)
             do {
-                try fasta.write(to: url, atomically: true, encoding: .utf8)
+                try Self.writeSequenceFASTAExport(seq, sourceURLs: sourceURLs, to: url, startedAt: startedAt)
                 drawLogger.info("exportSequenceAsFASTA: Exported '\(seq.name, privacy: .public)' to \(url.path, privacy: .public)")
             } catch {
                 drawLogger.error("exportSequenceAsFASTA: Failed to export: \(error.localizedDescription, privacy: .public)")
             }
+        }
+    }
+
+    @discardableResult
+    static func writeSequenceFASTAExport(
+        _ sequence: Sequence,
+        sourceURLs: [URL],
+        to outputURL: URL,
+        startedAt: Date = Date()
+    ) throws -> URL {
+        let fasta = sequenceFASTAText(sequence)
+        try fasta.write(to: outputURL, atomically: true, encoding: .utf8)
+        var explicitOptions: [String: ParameterValue] = [
+            "sourcePaths": .array(sourceURLs.map { .file($0) }),
+            "outputPath": .file(outputURL),
+            "sequenceName": .string(sequence.name),
+        ]
+        if let description = sequence.description {
+            explicitOptions["sequenceDescription"] = .string(description)
+        }
+
+        do {
+            return try ScientificFileExportProvenance.write(.init(
+                workflowName: "lungfish app sequence fasta export",
+                sourceURLs: sourceURLs,
+                outputURL: outputURL,
+                outputFormat: .fasta,
+                argv: sequenceFASTAExportArgv(sourceURLs: sourceURLs, outputURL: outputURL, sequenceName: sequence.name),
+                explicitOptions: explicitOptions,
+                defaults: [
+                    "lineWidth": .integer(80),
+                    "outputFormat": .string("fasta"),
+                ],
+                resolved: [
+                    "sequenceLength": .integer(sequence.length),
+                    "outputByteCount": .integer(fasta.utf8.count),
+                    "sourceCount": .integer(sourceURLs.count),
+                ],
+                startedAt: startedAt,
+                completedAt: Date()
+            ))
+        } catch {
+            try? FileManager.default.removeItem(at: outputURL)
+            throw error
+        }
+    }
+
+    private static func sequenceFASTAText(_ sequence: Sequence) -> String {
+        var fasta = ">\(sequence.name)"
+        if let desc = sequence.description {
+            fasta += " \(desc)"
+        }
+        fasta += "\n"
+
+        let bases = sequence.asString()
+        for i in stride(from: 0, to: bases.count, by: 80) {
+            let start = bases.index(bases.startIndex, offsetBy: i)
+            let end = bases.index(start, offsetBy: min(80, bases.count - i))
+            fasta += String(bases[start..<end]) + "\n"
+        }
+        return fasta
+    }
+
+    private static func sequenceFASTAExportArgv(
+        sourceURLs: [URL],
+        outputURL: URL,
+        sequenceName: String
+    ) -> [String] {
+        var argv = ["Lungfish Genome Explorer", "export-sequence-fasta"]
+        for sourceURL in sourceURLs {
+            argv.append(contentsOf: ["--source", sourceURL.path])
+        }
+        argv.append(contentsOf: ["--sequence", sequenceName, "--output", outputURL.path])
+        return argv
+    }
+
+    func sequenceFASTAExportSourceURLs(for seqInfo: StackedSequenceInfo) -> [URL] {
+        if let sourceURL = seqInfo.sourceURL,
+           let existing = Self.existingUniqueURLs([sourceURL]).first {
+            return [existing]
+        }
+
+        if let document = viewController?.currentDocument,
+           let state = multiSequenceState {
+            let visibleSequenceIDs = Set(state.stackedSequences.map { $0.sequence.id })
+            let documentSequenceIDs = Set(document.sequences.map(\.id))
+            if !visibleSequenceIDs.isEmpty,
+               visibleSequenceIDs.isSubset(of: documentSequenceIDs),
+               let url = Self.existingUniqueURLs([document.url]).first {
+                return [url]
+            }
+        } else if let document = viewController?.currentDocument,
+                  document.sequences.contains(where: { $0.id == seqInfo.sequence.id }),
+                  let url = Self.existingUniqueURLs([document.url]).first {
+            return [url]
+        }
+
+        let candidates = [
+            viewController?.currentBundleURL,
+            currentReferenceBundle?.url,
+            viewController?.multipleSequenceAlignmentViewController?.bundleURL,
+            viewController?.phylogeneticTreeViewController?.bundleURL,
+        ]
+        let existing = Self.existingUniqueURLs(candidates)
+        return existing.count == 1 ? existing : []
+    }
+
+    private static func existingUniqueURLs(_ candidates: [URL?]) -> [URL] {
+        var seen = Set<String>()
+        return candidates.compactMap { candidate in
+            guard let url = candidate?.standardizedFileURL else { return nil }
+            guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+            return seen.insert(url.path).inserted ? url : nil
         }
     }
 }

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import LungfishWorkflow
 
 /// Helper-mode entrypoint used by GUI imports to execute metagenomics imports
@@ -65,6 +66,14 @@ public enum MetagenomicsImportHelper {
             in: arguments,
             defaultValue: true
         )
+        let provenanceCommand = canonicalProvenanceCommand(
+            kind: kind,
+            inputURL: inputURL,
+            outputDirectory: outputDirectory,
+            secondaryInputURL: secondaryInputURL,
+            preferredName: normalizedName,
+            fetchReferences: fetchReferences
+        )
 
         final class ExitCodeBox: @unchecked Sendable {
             var value: Int32 = 0
@@ -97,7 +106,8 @@ public enum MetagenomicsImportHelper {
                         kreportURL: inputURL,
                         outputDirectory: outputDirectory,
                         outputFileURL: secondaryInputURL,
-                        preferredName: normalizedName
+                        preferredName: normalizedName,
+                        provenanceCommand: provenanceCommand
                     ) { progress, message in
                         emit(Event(
                             event: "progress",
@@ -138,7 +148,8 @@ public enum MetagenomicsImportHelper {
                     let result = try MetagenomicsImportService.importEsViritu(
                         inputURL: inputURL,
                         outputDirectory: outputDirectory,
-                        preferredName: normalizedName
+                        preferredName: normalizedName,
+                        provenanceCommand: provenanceCommand
                     ) { progress, message in
                         emit(Event(
                             event: "progress",
@@ -179,7 +190,8 @@ public enum MetagenomicsImportHelper {
                     let result = try MetagenomicsImportService.importTaxTriage(
                         inputURL: inputURL,
                         outputDirectory: outputDirectory,
-                        preferredName: normalizedName
+                        preferredName: normalizedName,
+                        provenanceCommand: provenanceCommand
                     ) { progress, message in
                         emit(Event(
                             event: "progress",
@@ -222,7 +234,8 @@ public enum MetagenomicsImportHelper {
                         outputDirectory: outputDirectory,
                         sampleName: nil,
                         fetchReferences: fetchReferences,
-                        preferredName: normalizedName
+                        preferredName: normalizedName,
+                        provenanceCommand: provenanceCommand
                     ) { progress, message in
                         emit(Event(
                             event: "progress",
@@ -260,21 +273,44 @@ public enum MetagenomicsImportHelper {
                     ))
 
                 case .nvd:
-                    // NVD import is handled directly in AppDelegate (not via CLI subprocess).
-                    // This case is included for exhaustiveness; the helper path is not used.
+                    let result = try await MetagenomicsImportService.importNvd(
+                        inputURL: inputURL,
+                        outputDirectory: outputDirectory,
+                        preferredName: normalizedName,
+                        samtoolsPath: BundleBuildHelpers.managedToolExecutablePath(.samtools),
+                        provenanceCommand: provenanceCommand
+                    ) { progress, message in
+                        emit(Event(
+                            event: "progress",
+                            progress: max(0.0, min(1.0, progress)),
+                            message: message,
+                            resultPath: nil,
+                            sampleName: nil,
+                            totalReads: nil,
+                            speciesCount: nil,
+                            virusCount: nil,
+                            taxonCount: nil,
+                            fetchedReferenceCount: nil,
+                            createdBAM: nil,
+                            fileCount: nil,
+                            reportEntryCount: nil,
+                            error: nil
+                        ))
+                    }
+
                     emit(Event(
                         event: "done",
                         progress: 1.0,
-                        message: "NVD import: use the NVD import wizard instead",
-                        resultPath: nil,
+                        message: "Imported NVD result: \(formatNumber(result.hitCount)) hits, \(result.sampleCount) samples",
+                        resultPath: result.resultDirectory.path,
                         sampleName: nil,
-                        totalReads: nil,
+                        totalReads: result.hitCount,
                         speciesCount: nil,
                         virusCount: nil,
-                        taxonCount: nil,
+                        taxonCount: result.contigCount,
                         fetchedReferenceCount: nil,
                         createdBAM: nil,
-                        fileCount: nil,
+                        fileCount: result.copiedBAMCount + result.copiedBAMIndexCount + result.copiedFASTACount,
                         reportEntryCount: nil,
                         error: nil
                     ))
@@ -309,6 +345,47 @@ public enum MetagenomicsImportHelper {
 
         semaphore.wait()
         return exitState.value
+    }
+
+    static func canonicalProvenanceCommand(
+        kind: MetagenomicsImportKind,
+        inputURL: URL,
+        outputDirectory: URL,
+        secondaryInputURL: URL?,
+        preferredName: String?,
+        fetchReferences: Bool
+    ) -> [String] {
+        var command = [
+            CLICommandIdentity.executableName,
+            "import",
+            kind.importCommandToken,
+            inputURL.path,
+            "--output-dir",
+            outputDirectory.path,
+        ]
+
+        switch kind {
+        case .kraken2:
+            if let secondaryInputURL {
+                command += ["--output", secondaryInputURL.path]
+            }
+            if let preferredName {
+                command += ["--name", preferredName]
+            }
+        case .esviritu, .taxtriage, .nvd:
+            if let preferredName {
+                command += ["--name", preferredName]
+            }
+        case .naomgs:
+            if let preferredName {
+                command += ["--sample-name", preferredName]
+            }
+            if !fetchReferences {
+                command.append("--no-fetch-references")
+            }
+        }
+
+        return command
     }
 
     private static func value(for flag: String, in arguments: [String]) -> String? {

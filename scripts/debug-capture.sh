@@ -3,7 +3,7 @@
 #
 # Usage: ./debug-capture.sh [--live SECONDS]
 #
-# This script captures debugging information for the Lungfish Genome Browser:
+# This script captures debugging information for Lungfish Genome Explorer:
 # - Console logs from the unified logging system
 # - Screenshot of the app window
 # - Process information
@@ -15,7 +15,7 @@ set -e
 
 # Configuration
 SUBSYSTEM="com.lungfish.browser"
-TEST_FOLDER="/Users/dho/Desktop/test"
+TEST_FOLDER="${LUNGFISH_DEBUG_TEST_FOLDER:-$HOME/Desktop/test}"
 LIVE_DURATION=${2:-30}
 
 # Parse arguments

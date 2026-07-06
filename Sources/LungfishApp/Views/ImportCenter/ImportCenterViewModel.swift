@@ -107,8 +107,6 @@ struct ImportCardInfo: Identifiable, Sendable {
         case phylogeneticsResultSet
         case qiime2Archive
         case igvSessionTrackSet
-        case bundleSampleMetadata
-        case projectSampleMetadata
         case naoMgs
         case kraken2
         case esViritu
@@ -654,9 +652,6 @@ final class ImportCenterViewModel {
         case .phylogeneticsResultSet: return "Select a phylogenetics result folder, archive, or file"
         case .qiime2Archive: return "Select a QIIME 2 archive or exported folder"
         case .igvSessionTrackSet: return "Select an IGV session file or local track-set folder"
-        case .bundleSampleMetadata:
-            return "Select a CSV or TSV file with sample metadata for the selected dataset"
-        case .projectSampleMetadata: return "Select project sample metadata"
         case .kraken2:  return "Select Kraken2 report files to import"
         case .esViritu: return "Select EsViritu result files or directory"
         case .taxTriage: return "Select TaxTriage result files or directory"
@@ -729,12 +724,6 @@ final class ImportCenterViewModel {
             for url in urls {
                 appDelegate.importApplicationExportFromURL(url, kind: kind)
             }
-        case .bundleSampleMetadata:
-            for url in urls {
-                appDelegate.importBundleSampleMetadataFromURL(url)
-            }
-        case .projectSampleMetadata:
-            break
         case .kraken2:
             for url in urls {
                 appDelegate.importKraken2ResultFromURL(url)
@@ -775,8 +764,6 @@ final class ImportCenterViewModel {
         switch action {
         case .naoMgs:
             appDelegate.launchNaoMgsImport(nil)
-        case .projectSampleMetadata:
-            appDelegate.importProjectSampleMetadata(nil)
         case .nvd:
             appDelegate.launchNvdImport(nil)
         case .czId:
@@ -834,8 +821,6 @@ final class ImportCenterViewModel {
         case .phylogeneticsResultSet: return "Phylogenetics"
         case .qiime2Archive: return "QIIME 2"
         case .igvSessionTrackSet: return "IGV Session"
-        case .bundleSampleMetadata: return "Bundle Metadata"
-        case .projectSampleMetadata: return "Project Metadata"
         case .naoMgs:   return "NAO-MGS"
         case .kraken2:  return "Kraken2"
         case .esViritu: return "EsViritu"

@@ -80,12 +80,40 @@ public struct BundleContainerExportService {
             DeterministicTarEntry(path: ProvenanceRecorder.provenanceFilename, data: provenanceData),
         ]
         try DeterministicTarWriter().archive(entries: entries, to: outputURL)
+        let finalArchiveRecord = ProvenanceRecorder.fileRecord(url: outputURL, format: .unknown, role: .output)
+        let sidecarRun = provenance(
+            bundle: bundleURL,
+            payloadFiles: payloadFiles,
+            output: outputURL,
+            pluginPacks: pluginPacks,
+            commandLine: commandLine,
+            imageDigest: manifestDigest,
+            configDigest: configDigest,
+            configSize: configData.count,
+            manifestDigest: manifestDigest,
+            manifestSize: manifestData.count,
+            layerDigest: layerDigest,
+            layerSize: layerTar.count,
+            archiveOutputRecord: finalArchiveRecord,
+            start: start,
+            end: Date()
+        )
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
+        do {
+            try ProvenanceWriter(signingProvider: nil).write(
+                sidecarRun.canonicalEnvelope(),
+                toSidecar: provenanceURL
+            )
+        } catch {
+            try? fileManager.removeItem(at: outputURL)
+            throw error
+        }
 
         return BundleContainerExportResult(
             outputURL: outputURL,
             imageDigest: manifestDigest,
             manifestDigest: manifestDigest,
-            provenanceURL: nil
+            provenanceURL: provenanceURL
         )
     }
 
@@ -221,13 +249,14 @@ public struct BundleContainerExportService {
         manifestSize: Int,
         layerDigest: String,
         layerSize: Int,
+        archiveOutputRecord: FileRecord? = nil,
         start: Date,
         end: Date
     ) -> WorkflowRun {
         let inputs = [ProvenanceRecorder.fileRecord(url: bundle, role: .input)]
             + payloadFiles.map { ProvenanceRecorder.fileRecord(url: $0, role: .input) }
         let outputRecords = [
-            FileRecord(path: output.path, sha256: nil, sizeBytes: nil, format: .unknown, role: .output),
+            archiveOutputRecord ?? FileRecord(path: output.path, sha256: nil, sizeBytes: nil, format: .unknown, role: .output),
             FileRecord(path: "oci://config.json", sha256: String(configDigest.dropFirst("sha256:".count)), sizeBytes: UInt64(configSize), format: .json, role: .output),
             FileRecord(path: "oci://manifest.json", sha256: String(manifestDigest.dropFirst("sha256:".count)), sizeBytes: UInt64(manifestSize), format: .json, role: .output),
             FileRecord(path: "oci://layer.tar", sha256: String(layerDigest.dropFirst("sha256:".count)), sizeBytes: UInt64(layerSize), format: .unknown, role: .output),

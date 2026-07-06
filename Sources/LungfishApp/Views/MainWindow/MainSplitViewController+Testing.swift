@@ -1,4 +1,4 @@
-// MainSplitViewController.swift - Three-panel split view controller
+// MainSplitViewController+Testing.swift - Test support hooks for MainSplitViewController
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 

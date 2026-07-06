@@ -5,6 +5,7 @@
 import XCTest
 @testable import LungfishCLI
 @testable import LungfishIO
+@testable import LungfishWorkflow
 
 final class BuildDbCommandKraken2SingleSampleTests: XCTestCase {
     private func makeTempDir() throws -> URL {
@@ -43,5 +44,31 @@ final class BuildDbCommandKraken2SingleSampleTests: XCTestCase {
         let samples = try db.fetchSamples()
         XCTAssertEqual(samples.count, 1, "Should produce exactly 1 sample from root-level kreport")
         XCTAssertGreaterThan(samples[0].taxonCount, 0)
+
+        let provenance = try XCTUnwrap(
+            ProvenanceRecorder.loadEnvelope(from: resultDir),
+            "build-db must write canonical provenance into the result directory"
+        )
+        XCTAssertEqual(provenance.workflowName, "lungfish build-db kraken2")
+        XCTAssertEqual(provenance.toolName, "lungfish build-db kraken2")
+        XCTAssertTrue(provenance.argv.contains("build-db"))
+        XCTAssertTrue(provenance.argv.contains("kraken2"))
+        XCTAssertEqual(provenance.options.explicit["resultDir"]?.fileValue?.path, resultDir.path)
+        XCTAssertEqual(provenance.options.defaults["force"]?.booleanValue, false)
+        XCTAssertEqual(provenance.options.defaults["noCleanup"]?.booleanValue, false)
+        XCTAssertEqual(provenance.options.resolvedDefaults["cleanupPerformed"]?.booleanValue, true)
+        let kreportPath = kreportURL.standardizedFileURL.path
+        let dbPath = dbURL.standardizedFileURL.path
+        XCTAssertTrue(provenance.files.contains {
+            URL(fileURLWithPath: $0.path).standardizedFileURL.path == kreportPath && $0.checksumSHA256 != nil
+        })
+        XCTAssertTrue(provenance.outputs.contains {
+            URL(fileURLWithPath: $0.path).standardizedFileURL.path == dbPath && $0.checksumSHA256 != nil
+        })
+
+        let dbSidecar = try XCTUnwrap(
+            ProvenanceRecorder.loadEnvelope(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: dbURL.standardizedFileURL))
+        )
+        XCTAssertEqual(dbSidecar.output.map { URL(fileURLWithPath: $0.path).standardizedFileURL.path }, dbPath)
     }
 }

@@ -4,6 +4,7 @@
 
 import ArgumentParser
 import Foundation
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
@@ -104,7 +105,7 @@ struct FastqOrientSubcommand: AsyncParsableCommand {
             ],
             toolName: NativeTool.vsearch.rawValue,
             toolVersion: toolVersion,
-            command: ["lungfish", "fastq"] + cliArguments,
+            command: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
             stepCommand: result.arguments.isEmpty ? [NativeTool.vsearch.executableName] + args : result.arguments,
             inputs: [
                 ProvenanceRecorder.fileRecord(url: inputURL, format: .fastq, role: .input),

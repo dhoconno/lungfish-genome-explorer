@@ -20,7 +20,7 @@ lead_approved: false
 
 ## What it is
 
-Lungfish CLI workflows run without a display server. The explicit CI entry point is `lungfish run-headless <workflow>`, a discoverable alias for `lungfish workflow run --quiet <workflow>`. Use `workflow run` directly when you need the full set of workflow flags; use `run-headless` in CI scripts when the important signal is "run this workflow quietly and fail the job on error".
+Lungfish CLI workflows run without a display server. The explicit CI entry point is `lungfish run-headless <workflow> ...`, a discoverable alias for `lungfish workflow run --quiet <workflow> ...`. Pass the same workflow flags after the workflow path, including `--expected-output` for executed scientific runs. Use `workflow run` directly when you prefer the full command name; use `run-headless` in CI scripts when the important signal is "run this workflow quietly and fail the job on error".
 
 Every headless run writes the same provenance sidecars as the app: tool names and versions, argv, resolved options, runtime identity, input and output paths, checksums, file sizes, exit status, wall time, and useful stderr. Keep the resulting `.lungfish*` bundle or run directory as a CI artifact when the job produces scientific output.
 
@@ -43,7 +43,10 @@ export LUNGFISH_CONDA_ROOT="$RUNNER_TEMP/lungfish-conda"
 lungfish conda offline-install \
   .ci/lungfish-conda-packs/classification \
   --conda-root "$LUNGFISH_CONDA_ROOT"
-lungfish run-headless workflows/classify-sample.yaml
+lungfish run-headless workflows/classify-sample.yaml \
+  --input samplesheet.csv \
+  --results-dir outputs/classify-sample \
+  --expected-output outputs/classify-sample
 ```
 
 The offline install and export commands take the same `<conda-root>/.install.lock` used by interactive plugin installs. If a second process is already mutating the root, Lungfish prints `waiting for conda lock held by pid <n>` and blocks until the first operation exits. On shared read-only roots, mutation commands fail with `conda root is read-only; reinstall as the admin user`.
@@ -81,7 +84,11 @@ jobs:
             --conda-root "$LUNGFISH_CONDA_ROOT"
 
       - name: Run Lungfish workflow
-        run: lungfish run-headless workflows/classify-sample.yaml
+        run: |
+          lungfish run-headless workflows/classify-sample.yaml \
+            --input samplesheet.csv \
+            --results-dir outputs/classify-sample \
+            --expected-output outputs/classify-sample
 
       - name: Upload Lungfish outputs
         uses: actions/upload-artifact@v4
@@ -122,7 +129,11 @@ jobs:
 
       - run:
           name: Run Lungfish workflow
-          command: lungfish run-headless workflows/classify-sample.yaml
+          command: |
+            lungfish run-headless workflows/classify-sample.yaml \
+              --input samplesheet.csv \
+              --results-dir outputs/classify-sample \
+              --expected-output outputs/classify-sample
 
       - save_cache:
           key: lungfish-conda-packs-{{ checksum ".ci/lungfish-conda-packs/manifest.json" }}

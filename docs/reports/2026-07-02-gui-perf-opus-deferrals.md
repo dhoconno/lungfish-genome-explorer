@@ -142,11 +142,11 @@ refactor with its own spec, not a single ticket.
 These are small, non-architectural items the phase gates flagged as
 non-blocking. They do not require Opus; they are backlog polish.
 
-- **GenotypeOutlineView `handleClick` gesture resolution (pre-existing bug).**
-  `handleClick` (~:330) reads `recognizer.view?.identifier` on the `leading`
-  view, which never has an identifier set, so a real click early-returns. Masked
-  in tests because they call `onRowSelected?` directly. Predates this refactor.
-  (Also spawned as a session follow-up task.)
+- **Retired 2026-07-05: GenotypeOutlineView `handleClick` gesture resolution.**
+  This entry is no longer a live follow-up. The current virtualized row builder
+  assigns the row's sample identifier to the leading click target, and
+  `GenotypeOutlineVirtualizationTests.testCallbacksPreservedAfterVirtualization`
+  drives the materialized row recognizer through the handler.
 - **GenotypeOutlineView cell recycling.** `viewFor` builds a fresh cell per call
   rather than reusing (`makeView(withIdentifier:)`), justified by per-row
   gesture state. Bounded to the visible window, so acceptable; a recycling +

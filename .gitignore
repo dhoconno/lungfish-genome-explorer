@@ -15,10 +15,8 @@
 !Lungfish.xcodeproj/**
 !Package.resolved
 !Package.swift
-!PLAN.md
 !README.md
 !Resources/**
-!SESSION-NOTES.md
 !SKILLS.md
 !Sources/**
 !THIRD-PARTY-NOTICES
@@ -85,9 +83,11 @@ DerivedData/
 *.provisionprofile
 AuthKey_*.p8
 
-# Test data (local only)
-test-data/
-test-genomes/
+# Local root test data, except committed smoke fixtures
+/test-data/*
+!/test-data/test-annotated.gb
+!/test-data/test-sequence.fa
+/test-genomes/
 
 # IDE
 .idea/
@@ -96,8 +96,8 @@ test-genomes/
 *~
 
 # Reference materials (not part of this project)
-igv/
-geneious/
+/igv/
+/geneious/
 
 # Test outputs
 *.xcresult/

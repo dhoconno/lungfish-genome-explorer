@@ -505,7 +505,6 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
 
         let startedAt = Date()
         let result = try await runner.run(.fastp, arguments: args)
-        let wallTime = Date().timeIntervalSince(startedAt)
         guard result.isSuccess else {
             throw CLIError.conversionFailed(reason: "fastp quality trim failed: \(result.stderr)")
         }
@@ -558,7 +557,6 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
             ],
             startedAt: startedAt
         )
-        _ = wallTime
         FileHandle.standardError.write(Data("Quality-trimmed reads written to \(output.output)\n".utf8))
     }
 
@@ -617,27 +615,6 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
         )
     }
 
-    private func saveProvenance(
-        inputURL: URL,
-        outputURL: URL,
-        argv: [String],
-        fastpArguments: [String],
-        exitCode: Int32,
-        wallTime: TimeInterval,
-        stderr: String?
-    ) throws {
-        let run = makeProvenanceRun(
-            inputURL: inputURL,
-            outputURL: outputURL,
-            argv: argv,
-            fastpArguments: fastpArguments,
-            exitCode: exitCode,
-            wallTime: wallTime,
-            stderr: stderr
-        )
-        try writeWorkflowRun(run, to: outputURL.deletingLastPathComponent())
-    }
-
     private func makeProvenanceRun(
         inputURL: URL,
         outputURL: URL,
@@ -678,18 +655,6 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
     }
 }
 
-private func writeWorkflowRun(_ run: WorkflowRun, to directory: URL) throws {
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    let encoder = JSONEncoder()
-    encoder.dateEncodingStrategy = .iso8601
-    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-    let data = try encoder.encode(run)
-    try data.write(
-        to: directory.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
-        options: .atomic
-    )
-}
-
 func recordFASTQNativeToolProvenance(
     workflowName: String,
     nativeTool: NativeTool,
@@ -723,7 +688,7 @@ func recordFASTQNativeToolProvenance(
         resolved: resolved,
         toolName: nativeTool.rawValue,
         toolVersion: toolVersion,
-        command: ["lungfish", "fastq"] + cliArguments,
+        command: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
         stepCommand: stepCommand,
         inputs: inputRecords ?? inputURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input) },
         outputs: outputRecords ?? outputURLs
@@ -734,6 +699,248 @@ func recordFASTQNativeToolProvenance(
         stderr: result.stderr,
         status: result.isSuccess ? .completed : .failed,
         outputDirectory: firstOutputURL.deletingLastPathComponent()
+    )
+}
+
+struct FASTQGzipProvenanceResult {
+    let command: [String]
+    let inputURL: URL
+    let outputURL: URL
+    let exitCode: Int32
+    let wallTime: TimeInterval
+    let stderr: String?
+}
+
+func gzipCompressFASTQ(
+    sourceURL: URL,
+    outputURL: URL,
+    failureDescription: String
+) throws -> FASTQGzipProvenanceResult {
+    if FileManager.default.fileExists(atPath: outputURL.path) {
+        try FileManager.default.removeItem(at: outputURL)
+    }
+    FileManager.default.createFile(atPath: outputURL.path, contents: nil)
+    let outputHandle = try FileHandle(forWritingTo: outputURL)
+    defer { try? outputHandle.close() }
+
+    let process = Process()
+    let command = ["/usr/bin/gzip", "-c", sourceURL.path]
+    let stderrPipe = Pipe()
+    let startedAt = Date()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+    process.arguments = Array(command.dropFirst())
+    process.standardOutput = outputHandle
+    process.standardError = stderrPipe
+    try process.run()
+    process.waitUntilExit()
+    let stderr = String(
+        decoding: stderrPipe.fileHandleForReading.readDataToEndOfFile(),
+        as: UTF8.self
+    )
+    let wallTime = Date().timeIntervalSince(startedAt)
+    guard process.terminationReason == .exit, process.terminationStatus == 0 else {
+        let detail = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+        let suffix = detail.isEmpty ? "" : ": \(detail)"
+        throw CLIError.conversionFailed(reason: "gzip failed while compressing \(failureDescription) \(outputURL.path)\(suffix)")
+    }
+    return FASTQGzipProvenanceResult(
+        command: command,
+        inputURL: sourceURL,
+        outputURL: outputURL,
+        exitCode: process.terminationStatus,
+        wallTime: wallTime,
+        stderr: stderr
+    )
+}
+
+@discardableResult
+func recordFASTQMergeProvenance(
+    cliArguments: [String],
+    nativeArguments: [String],
+    bbmergeResult: NativeToolResult,
+    gzipResult: FASTQGzipProvenanceResult?,
+    inputURL: URL,
+    bbmergeOutputURLs: [URL],
+    finalOutputURL: URL,
+    parameters: [String: ParameterValue],
+    defaults: [String: ParameterValue] = [:],
+    concatenateWallTime: TimeInterval = 0,
+    startedAt: Date
+) async throws -> ProvenanceEnvelope {
+    let completedAt = Date()
+    let toolVersion = await NativeToolRunner.shared.getToolVersion(.bbmerge) ?? "unknown"
+    let bbmergeCommand = bbmergeResult.arguments.isEmpty
+        ? [NativeTool.bbmerge.executableName] + nativeArguments
+        : bbmergeResult.arguments
+    let inputRecord = ProvenanceRecorder.fileRecord(url: inputURL, format: .fastq, role: .input)
+    let finalOutputRecord = ProvenanceRecorder.fileRecord(url: finalOutputURL, format: .fastq, role: .output)
+    let bbmergeOutputRecords = bbmergeOutputURLs
+        .filter { FileManager.default.fileExists(atPath: $0.path) }
+        .map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output) }
+
+    let bbmergeStepID = UUID()
+    let concatenateStepID = UUID()
+    let concatenatedURL = gzipResult?.inputURL ?? finalOutputURL
+    let concatenateInputs = bbmergeOutputRecords.map { ProvenanceFileDescriptor(fileRecord: $0).withRole(.input) }
+    let concatenateOutput = try ProvenanceFileDescriptor.file(
+        url: concatenatedURL,
+        format: .fastq,
+        role: .output
+    )
+    let concatenatedInputPaths = bbmergeOutputRecords.map(\.path)
+    let concatenateShell = "cat "
+        + concatenatedInputPaths.map(shellEscape).joined(separator: " ")
+        + " > "
+        + shellEscape(concatenatedURL.path)
+    var extraSteps = [
+        ProvenanceStep(
+            id: concatenateStepID,
+            toolName: "lungfish fastq merge concatenate",
+            toolVersion: WorkflowRun.currentAppVersion,
+            argv: ["/bin/sh", "-lc", concatenateShell],
+            inputs: concatenateInputs,
+            outputs: [concatenateOutput],
+            exitStatus: 0,
+            wallTimeSeconds: concatenateWallTime,
+            dependsOn: [bbmergeStepID],
+            startedAt: completedAt.addingTimeInterval(-concatenateWallTime),
+            completedAt: completedAt
+        ),
+    ]
+
+    if let gzipResult {
+        let gzipInput = try ProvenanceFileDescriptor.file(
+            url: gzipResult.inputURL,
+            format: .fastq,
+            role: .input
+        )
+        let gzipOutput = try ProvenanceFileDescriptor.file(
+            url: gzipResult.outputURL,
+            format: .fastq,
+            role: .output
+        )
+        extraSteps.append(
+            ProvenanceStep(
+                toolName: gzipResult.command.first ?? "/usr/bin/gzip",
+                toolVersion: "system",
+                argv: gzipResult.command,
+                inputs: [gzipInput],
+                outputs: [gzipOutput],
+                exitStatus: Int(gzipResult.exitCode),
+                wallTimeSeconds: gzipResult.wallTime,
+                stderr: gzipResult.stderr,
+                dependsOn: [concatenateStepID],
+                startedAt: completedAt.addingTimeInterval(-gzipResult.wallTime),
+                completedAt: completedAt
+            )
+        )
+    }
+
+    return try await CLIProvenanceSupport.recordSingleStepRun(
+        name: "lungfish fastq merge",
+        parameters: parameters,
+        defaults: defaults,
+        toolName: NativeTool.bbmerge.rawValue,
+        toolVersion: toolVersion,
+        command: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
+        stepID: bbmergeStepID,
+        stepCommand: bbmergeCommand,
+        stepInputs: [inputRecord],
+        stepOutputs: bbmergeOutputRecords,
+        extraSteps: extraSteps,
+        inputs: [inputRecord],
+        outputs: [finalOutputRecord],
+        exitCode: bbmergeResult.exitCode,
+        wallTime: completedAt.timeIntervalSince(startedAt),
+        stderr: bbmergeResult.stderr,
+        status: bbmergeResult.isSuccess && (gzipResult?.exitCode ?? 0) == 0 ? .completed : .failed,
+        outputDirectory: finalOutputURL.deletingLastPathComponent()
+    )
+}
+
+@discardableResult
+func recordFASTQCountedMergeProvenance(
+    cliArguments: [String],
+    nativeArguments: [String],
+    bbmergeResult: NativeToolResult,
+    inputURL: URL,
+    bbmergeOutputURLs: [URL],
+    countedResult: CountedFASTQMaterializationResult,
+    finalOutputURL: URL,
+    parameters: [String: ParameterValue],
+    defaults: [String: ParameterValue] = [:],
+    startedAt: Date
+) async throws -> ProvenanceEnvelope {
+    let completedAt = Date()
+    let toolVersion = await NativeToolRunner.shared.getToolVersion(.bbmerge) ?? "unknown"
+    let bbmergeCommand = bbmergeResult.arguments.isEmpty
+        ? [NativeTool.bbmerge.executableName] + nativeArguments
+        : bbmergeResult.arguments
+    let inputRecord = ProvenanceRecorder.fileRecord(url: inputURL, format: .fastq, role: .input)
+    let finalOutputRecord = ProvenanceRecorder.fileRecord(url: finalOutputURL, format: .fastq, role: .output)
+    let bbmergeOutputRecords = bbmergeOutputURLs
+        .filter { FileManager.default.fileExists(atPath: $0.path) }
+        .map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output) }
+
+    let bbmergeStepID = UUID()
+    let countedStepID = UUID()
+    let countedInputs = bbmergeOutputRecords
+        .map { ProvenanceFileDescriptor(fileRecord: $0).withRole(.input) }
+    let countedOutput = ProvenanceFileDescriptor(fileRecord: countedResult.materializedOutput)
+    let countedCommand = [CLICommandIdentity.executableName, "fastq"] + cliArguments
+
+    var extraSteps = [
+        ProvenanceStep(
+            id: countedStepID,
+            toolName: "lungfish fastq merge count-duplicates",
+            toolVersion: WorkflowRun.currentAppVersion,
+            argv: countedCommand,
+            inputs: countedInputs,
+            outputs: [countedOutput],
+            exitStatus: 0,
+            dependsOn: [bbmergeStepID],
+            startedAt: completedAt,
+            completedAt: completedAt
+        ),
+    ]
+
+    if let compression = countedResult.compression {
+        extraSteps.append(
+            ProvenanceStep(
+                toolName: compression.command.first ?? "/usr/bin/gzip",
+                toolVersion: "system",
+                argv: compression.command,
+                inputs: [ProvenanceFileDescriptor(fileRecord: compression.input).withRole(.input)],
+                outputs: [ProvenanceFileDescriptor(fileRecord: compression.output).withRole(.output)],
+                exitStatus: Int(compression.exitCode),
+                wallTimeSeconds: compression.wallTime,
+                stderr: compression.stderr,
+                dependsOn: [countedStepID],
+                startedAt: completedAt.addingTimeInterval(-compression.wallTime),
+                completedAt: completedAt
+            )
+        )
+    }
+
+    return try await CLIProvenanceSupport.recordSingleStepRun(
+        name: "lungfish fastq merge",
+        parameters: parameters,
+        defaults: defaults,
+        toolName: NativeTool.bbmerge.rawValue,
+        toolVersion: toolVersion,
+        command: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
+        stepID: bbmergeStepID,
+        stepCommand: bbmergeCommand,
+        stepInputs: [inputRecord],
+        stepOutputs: bbmergeOutputRecords,
+        extraSteps: extraSteps,
+        inputs: [inputRecord],
+        outputs: [finalOutputRecord],
+        exitCode: bbmergeResult.exitCode,
+        wallTime: completedAt.timeIntervalSince(startedAt),
+        stderr: bbmergeResult.stderr,
+        status: bbmergeResult.isSuccess && (countedResult.compression?.exitCode ?? 0) == 0 ? .completed : .failed,
+        outputDirectory: finalOutputURL.deletingLastPathComponent()
     )
 }
 
@@ -750,7 +957,7 @@ func recordFASTQSwiftToolProvenance(
 ) async throws {
     guard let firstOutputURL = outputURLs.first else { return }
     let completedAt = Date()
-    let command = ["lungfish", "fastq"] + cliArguments
+    let command = [CLICommandIdentity.executableName, "fastq"] + cliArguments
     var resolved = parameters
     for (key, value) in defaults where resolved[key] == nil {
         resolved[key] = value
@@ -1701,12 +1908,20 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
 
         let outputURL = URL(fileURLWithPath: output.output)
         var countedResult: CountedFASTQMaterializationResult?
+        var gzipResult: FASTQGzipProvenanceResult?
+        var concatenateWallTime: TimeInterval = 0
         if countDuplicates {
             let countedInputs = [mergedURL, unmergedURL].filter {
                 FileManager.default.fileExists(atPath: $0.path)
             }
             if countedInputs.isEmpty {
-                FileManager.default.createFile(atPath: outputURL.path, contents: nil)
+                countedResult = try CountedFASTQMaterializer().write(
+                    counts: [:],
+                    outputURL: outputURL,
+                    compress: output.compress,
+                    inputRecordCount: 0,
+                    totalReadCount: 0
+                )
             } else {
                 countedResult = try await CountedFASTQMaterializer().materialize(
                     inputs: countedInputs,
@@ -1717,6 +1932,7 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
             }
         } else {
             // Concatenate merged + unmerged.
+            let concatenateStartedAt = Date()
             let concatenatedURL = output.compress
                 ? tempDir.appendingPathComponent("merged-and-unmerged.fastq")
                 : outputURL
@@ -1733,8 +1949,12 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
                 }
             }
             try outputHandle.close()
+            concatenateWallTime = Date().timeIntervalSince(concatenateStartedAt)
             if output.compress {
-                try gzipCompress(sourceURL: concatenatedURL, outputURL: outputURL)
+                gzipResult = try gzipCompress(
+                    sourceURL: concatenatedURL,
+                    outputURL: outputURL
+                )
             }
         }
         var cliArguments = ["merge", inputURL.path]
@@ -1758,57 +1978,67 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
             .map { ParameterValue.integer($0.uniqueSequenceCount) } ?? .string("not counted")
         let countedOutputReadCount: ParameterValue = countedResult
             .map { ParameterValue.integer($0.totalReadCount) } ?? .string("not counted")
-        try await recordFASTQNativeToolProvenance(
-            workflowName: "lungfish fastq merge",
-            nativeTool: .bbmerge,
-            cliArguments: cliArguments,
-            nativeArguments: args,
-            result: result,
-            inputURLs: [inputURL],
-            outputURLs: [outputURL],
-            parameters: [
-                "input": .file(inputURL),
-                "output": .file(outputURL),
-                "minOverlap": .integer(minOverlap),
-                "strict": .boolean(strict),
-                "countDuplicatesAfterMerge": .boolean(countDuplicates),
-                "duplicateCountEncoding": .string(countDuplicates ? "size=N" : "none"),
-                "countedOutputRecords": countedOutputRecords,
-                "countedOutputReadCount": countedOutputReadCount,
-                "force": .boolean(output.force),
-                "compress": .boolean(output.compress)
-            ],
-            defaults: [
-                "minOverlap": .integer(12),
-                "strict": .boolean(false),
-                "countDuplicatesAfterMerge": .boolean(false),
-                "duplicateCountEncoding": .string("none"),
-                "force": .boolean(false),
-                "compress": .boolean(false)
-            ],
-            startedAt: startedAt
-        )
+        let provenanceParameters: [String: ParameterValue] = [
+            "input": .file(inputURL),
+            "output": .file(outputURL),
+            "minOverlap": .integer(minOverlap),
+            "strict": .boolean(strict),
+            "countDuplicatesAfterMerge": .boolean(countDuplicates),
+            "duplicateCountEncoding": .string(countDuplicates ? "size=N" : "none"),
+            "countedOutputRecords": countedOutputRecords,
+            "countedOutputReadCount": countedOutputReadCount,
+            "force": .boolean(output.force),
+            "compress": .boolean(output.compress)
+        ]
+        let provenanceDefaults: [String: ParameterValue] = [
+            "minOverlap": .integer(12),
+            "strict": .boolean(false),
+            "countDuplicatesAfterMerge": .boolean(false),
+            "duplicateCountEncoding": .string("none"),
+            "force": .boolean(false),
+            "compress": .boolean(false)
+        ]
+        if countDuplicates {
+            guard let countedResult else {
+                throw CLIError.conversionFailed(reason: "Counted merge did not produce an output for provenance recording")
+            }
+            try await recordFASTQCountedMergeProvenance(
+                cliArguments: cliArguments,
+                nativeArguments: args,
+                bbmergeResult: result,
+                inputURL: inputURL,
+                bbmergeOutputURLs: [mergedURL, unmergedURL],
+                countedResult: countedResult,
+                finalOutputURL: outputURL,
+                parameters: provenanceParameters,
+                defaults: provenanceDefaults,
+                startedAt: startedAt
+            )
+        } else {
+            try await recordFASTQMergeProvenance(
+                cliArguments: cliArguments,
+                nativeArguments: args,
+                bbmergeResult: result,
+                gzipResult: gzipResult,
+                inputURL: inputURL,
+                bbmergeOutputURLs: [mergedURL, unmergedURL],
+                finalOutputURL: outputURL,
+                parameters: provenanceParameters,
+                defaults: provenanceDefaults,
+                concatenateWallTime: concatenateWallTime,
+                startedAt: startedAt
+            )
+        }
 
         FileHandle.standardError.write(Data("Merged reads written to \(output.output)\n".utf8))
     }
 
-    private func gzipCompress(sourceURL: URL, outputURL: URL) throws {
-        if FileManager.default.fileExists(atPath: outputURL.path) {
-            try FileManager.default.removeItem(at: outputURL)
-        }
-        FileManager.default.createFile(atPath: outputURL.path, contents: nil)
-        let outputHandle = try FileHandle(forWritingTo: outputURL)
-        defer { try? outputHandle.close() }
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
-        process.arguments = ["-c", sourceURL.path]
-        process.standardOutput = outputHandle
-        try process.run()
-        process.waitUntilExit()
-        guard process.terminationReason == .exit, process.terminationStatus == 0 else {
-            throw CLIError.conversionFailed(reason: "gzip failed while compressing merged FASTQ \(outputURL.path)")
-        }
+    private func gzipCompress(sourceURL: URL, outputURL: URL) throws -> FASTQGzipProvenanceResult {
+        try gzipCompressFASTQ(
+            sourceURL: sourceURL,
+            outputURL: outputURL,
+            failureDescription: "merged FASTQ"
+        )
     }
 }
 
@@ -2378,7 +2608,7 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             defaults: provenanceDefaults,
             toolName: demultiplexToolName,
             toolVersion: demultiplexToolVersion,
-            command: ["lungfish", "fastq"] + cliArguments,
+            command: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
             stepCommand: stepCommand,
             inputs: inputRecords,
             outputs: outputRecords,
@@ -2545,8 +2775,8 @@ struct FastqONTFluidigmSamplesSubcommand: AsyncParsableCommand {
             ],
             toolName: "lungfish fastq ont-fluidigm-samples",
             toolVersion: WorkflowRun.currentAppVersion,
-            command: ["lungfish", "fastq"] + cliArguments,
-            stepCommand: ["lungfish", "fastq"] + cliArguments,
+            command: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
+            stepCommand: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
             inputs: inputRecords,
             outputs: outputs,
             exitCode: 0,
@@ -2736,8 +2966,8 @@ struct FastqONTPacBioBarcodeDemuxSubcommand: AsyncParsableCommand {
             ],
             toolName: "lungfish fastq ont-pacbio-barcode-demux",
             toolVersion: WorkflowRun.currentAppVersion,
-            command: ["lungfish", "fastq"] + cliArguments,
-            stepCommand: ["lungfish", "fastq"] + cliArguments,
+            command: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
+            stepCommand: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
             inputs: inputs,
             outputs: outputs,
             exitCode: 0,
@@ -2880,7 +3110,7 @@ struct FastqScoutSubcommand: AsyncParsableCommand {
         try encoder.encode(result).write(to: outputURL, options: .atomic)
 
         var command = [
-            "lungfish", "fastq", "scout",
+            CLICommandIdentity.executableName, "fastq", "scout",
             inputURL.path,
             "--kit", kit,
             "--output", outputURL.path,
@@ -3034,7 +3264,7 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
         }
 
         let cliArguments = cliArguments(inputURL: inputURL, outputURL: outputURL)
-        let argv = ["lungfish", "fastq"] + cliArguments
+        let argv = [CLICommandIdentity.executableName, "fastq"] + cliArguments
         if FASTQBundle.isBundleURL(inputURL) {
             let destinationBundleURL = FASTQBundleCopyImportWorkflow.resolvedDestinationBundleURL(
                 outputURL: outputURL,

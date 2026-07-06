@@ -15,8 +15,6 @@ extension ThemeColor {
     }
 }
 
-private let genotypeLogger = Logger(subsystem: "com.lungfish.app", category: "GenotypeTab")
-
 // MARK: - Variant Subtab
 
 extension AnnotationTableDrawerView {

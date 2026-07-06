@@ -56,20 +56,19 @@ final class ImportCzIdCommandTests: XCTestCase {
         )
         XCTAssertEqual(manifest.sourceFiles.map(\.standardizedFileURL), [bundleURL.appendingPathComponent("classification.czid.tsv").standardizedFileURL])
 
-        let provenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
-        let provenance = try decoder.decode(WorkflowRun.self, from: try Data(contentsOf: provenanceURL))
-        XCTAssertEqual(provenance.name, "CZ-ID Import")
-        XCTAssertEqual(provenance.status, .completed)
-        XCTAssertEqual(provenance.parameters["sampleName"]?.stringValue, "Imported-CZ-Sample")
-        XCTAssertEqual(provenance.parameters["czIdSchemaVersion"]?.stringValue, "cz-id-taxon-report-v1")
-        XCTAssertEqual(provenance.parameters["pipelineVersion"]?.stringValue, "8.4")
-        XCTAssertEqual(provenance.parameters["ntDatabaseVersion"]?.stringValue, "nt_2025_12_01")
-        XCTAssertEqual(provenance.parameters["nrDatabaseVersion"]?.stringValue, "nr_2025_12_01")
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: bundleURL))
+        XCTAssertEqual(provenance.workflowName, "CZ-ID Import")
+        XCTAssertEqual(provenance.exitStatus, 0)
+        XCTAssertEqual(provenance.options.resolvedDefaults["sampleName"]?.stringValue, "Imported-CZ-Sample")
+        XCTAssertEqual(provenance.options.resolvedDefaults["czIdSchemaVersion"]?.stringValue, "cz-id-taxon-report-v1")
+        XCTAssertEqual(provenance.options.resolvedDefaults["pipelineVersion"]?.stringValue, "8.4")
+        XCTAssertEqual(provenance.options.resolvedDefaults["ntDatabaseVersion"]?.stringValue, "nt_2025_12_01")
+        XCTAssertEqual(provenance.options.resolvedDefaults["nrDatabaseVersion"]?.stringValue, "nr_2025_12_01")
 
         let step = try XCTUnwrap(provenance.steps.first)
         XCTAssertEqual(step.toolName, "lungfish import cz-id")
-        XCTAssertEqual(step.command, [
-            "lungfish",
+        XCTAssertEqual(step.argv, [
+            "lungfish-cli",
             "import",
             "cz-id",
             fixture.path,
@@ -78,11 +77,18 @@ final class ImportCzIdCommandTests: XCTestCase {
             "--sample-name",
             "Imported-CZ-Sample",
         ])
-        XCTAssertEqual(step.exitCode, 0)
-        XCTAssertNotNil(step.wallTime)
-        XCTAssertTrue(step.inputs.contains { $0.path == fixture.path && $0.sha256 != nil && $0.sizeBytes != nil })
-        XCTAssertTrue(step.outputs.contains { $0.path == bundleURL.appendingPathComponent("classification-result.json").path && $0.sha256 != nil && $0.sizeBytes != nil })
-        XCTAssertEqual(provenance.parameters["reportPayload"]?.fileValue?.standardizedFileURL, bundleURL.appendingPathComponent("classification.czid.tsv").standardizedFileURL)
+        XCTAssertEqual(step.exitStatus, 0)
+        XCTAssertNotNil(step.wallTimeSeconds)
+        XCTAssertTrue(step.inputs.contains { $0.path == fixture.path && $0.checksumSHA256 != nil && $0.fileSize != nil })
+        XCTAssertTrue(step.outputs.contains {
+            $0.path == bundleURL.appendingPathComponent("classification-result.json").path
+                && $0.checksumSHA256 != nil
+                && $0.fileSize != nil
+        })
+        XCTAssertEqual(
+            provenance.options.resolvedDefaults["reportPayload"]?.fileValue?.standardizedFileURL,
+            bundleURL.appendingPathComponent("classification.czid.tsv").standardizedFileURL
+        )
     }
 
     private func fixtureURL(_ relativePath: String) throws -> URL {

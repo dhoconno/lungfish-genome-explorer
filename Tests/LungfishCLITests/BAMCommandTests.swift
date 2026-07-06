@@ -1,9 +1,10 @@
 import XCTest
+@testable import LungfishCore
 @testable import LungfishCLI
 
 final class BAMCommandTests: XCTestCase {
     func testRootHelpUsesCanonicalExecutableName() {
-        XCTAssertEqual(LungfishCLI.configuration.commandName, "lungfish")
+        XCTAssertEqual(LungfishCLI.configuration.commandName, CLICommandIdentity.executableName)
         XCTAssertTrue(LungfishCLI.helpMessage().contains("bam"))
     }
 
@@ -11,8 +12,8 @@ final class BAMCommandTests: XCTestCase {
         XCTAssertEqual(BAMCommand.configuration.commandName, "bam")
         XCTAssertTrue(BAMCommand.helpMessage().contains("filter"))
         XCTAssertTrue(BAMCommand.helpMessage().contains("annotate"))
-        XCTAssertTrue(BAMCommand.helpMessage().contains("lungfish bam filter"))
-        XCTAssertTrue(BAMCommand.helpMessage().contains("lungfish bam annotate"))
+        XCTAssertTrue(BAMCommand.helpMessage().contains("\(CLICommandIdentity.executableName) bam filter"))
+        XCTAssertTrue(BAMCommand.helpMessage().contains("\(CLICommandIdentity.executableName) bam annotate"))
         XCTAssertTrue(BAMCommand.FilterSubcommand.helpMessage().contains("mapping analysis directory"))
         XCTAssertTrue(BAMCommand.FilterSubcommand.helpMessage().contains("Output format: text, json"))
         XCTAssertFalse(BAMCommand.FilterSubcommand.helpMessage().contains("tsv"))
@@ -29,6 +30,7 @@ final class BAMCommandTests: XCTestCase {
             "--bundle", "/tmp/Test.lungfishref",
             "--alignment-track", "aln-1",
             "--output-track-name", "Exact Match Reads",
+            "--output-track-id", "aln_exact",
             "--mapped-only",
             "--primary-only",
             "--min-mapq", "42",
@@ -41,6 +43,7 @@ final class BAMCommandTests: XCTestCase {
         XCTAssertNil(command.mappingResultPath)
         XCTAssertEqual(command.alignmentTrackID, "aln-1")
         XCTAssertEqual(command.outputTrackName, "Exact Match Reads")
+        XCTAssertEqual(command.outputTrackID, "aln_exact")
         XCTAssertTrue(command.mappedOnly)
         XCTAssertTrue(command.primaryOnly)
         XCTAssertEqual(command.minimumMAPQ, 42)
@@ -157,6 +160,20 @@ final class BAMCommandTests: XCTestCase {
             ])
         ) { error in
             XCTAssertTrue("\(error)".contains("--output-track-name"))
+        }
+    }
+
+    func testFilterSubcommandRejectsMalformedOutputTrackID() {
+        XCTAssertThrowsError(
+            try BAMCommand.FilterSubcommand.parse([
+                "filter",
+                "--bundle", "/tmp/Test.lungfishref",
+                "--alignment-track", "aln-1",
+                "--output-track-name", "Filtered",
+                "--output-track-id", "bad/id",
+            ])
+        ) { error in
+            XCTAssertTrue("\(error)".contains("--output-track-id"))
         }
     }
 

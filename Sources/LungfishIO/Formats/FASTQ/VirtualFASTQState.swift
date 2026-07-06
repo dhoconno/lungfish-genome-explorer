@@ -102,7 +102,18 @@ public struct VirtualFASTQDescriptor: Sendable, Equatable, Identifiable {
     }
 
     /// Resolves the root FASTQ file URL.
+    public var validatedRootFASTQURL: URL? {
+        try? FASTQBundle.validatedBundleMemberURL(
+            for: rootFASTQFilename,
+            in: resolvedRootBundleURL,
+            field: "rootFASTQFilename",
+            allowExistingSymlinkEscape: true
+        )
+    }
+
+    /// Resolves the root FASTQ file URL without failing the legacy non-optional API.
+    /// Use ``validatedRootFASTQURL`` before consuming manifest-controlled paths.
     public var resolvedRootFASTQURL: URL {
-        resolvedRootBundleURL.appendingPathComponent(rootFASTQFilename)
+        validatedRootFASTQURL ?? resolvedRootBundleURL.appendingPathComponent(rootFASTQFilename)
     }
 }

@@ -1,4 +1,4 @@
-// MainSplitViewController.swift - Three-panel split view controller
+// MainSplitViewController+ContentDisplay.swift - Content viewport display routing
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -100,8 +100,7 @@ extension MainSplitViewController {
             return
         }
 
-        // TaxTriage results — all go through the DB router now.
-        // Per-sample display will be handled via DB queries (Task 6).
+        // TaxTriage results all go through the DB-backed classifier router.
         if item.type == .taxTriageResult, let url = item.url {
             routeClassifierDisplay(url: url)
             return
@@ -531,28 +530,28 @@ extension MainSplitViewController {
     func displayMHCReferenceBundleFromExternalOpen(at url: URL) {
         // External open is a one-shot (Finder double-click / Open Recent), not a
         // sidebar selection that a later selection can supersede, so no display
-        // generation guard is needed. The reference FASTA read moves off the
-        // main actor via `loadAsync` so a large reference does not block the UI.
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            do {
-                let model = try await MHCReferenceBundleViewportModel.loadAsync(bundleURL: url)
-                self.inspectorController.clearSelection()
-                self.inspectorController.updateMHCReferenceBundleDocument(url)
-                self.viewerController.displayMHCReferenceBundle(model) { [weak self] in
-                    guard let self else { return }
-                    HaplotypeDefinitionManagerWindowController.show(
-                        projectURL: self.sidebarController.currentProjectURL
-                            ?? DocumentManager.shared.activeProject?.url,
-                        editingBundleURL: url
-                    )
-                }
-            } catch {
-                mainSplitLogger.error(
-                    "displayMHCReferenceBundleFromExternalOpen: Failed - \(error.localizedDescription, privacy: .public)"
+        // generation guard is needed. Unlike the sidebar path (which uses
+        // `loadAsync` because rapid navigation can spam large reference reads),
+        // this one-shot path reads synchronously to match its non-MHC sibling
+        // `displayReferenceBundleFromExternalOpen` and to keep the inspector and
+        // viewport populated together on return.
+        do {
+            let model = try MHCReferenceBundleViewportModel.load(bundleURL: url)
+            inspectorController.clearSelection()
+            inspectorController.updateMHCReferenceBundleDocument(url)
+            viewerController.displayMHCReferenceBundle(model) { [weak self] in
+                guard let self else { return }
+                HaplotypeDefinitionManagerWindowController.show(
+                    projectURL: self.sidebarController.currentProjectURL
+                        ?? DocumentManager.shared.activeProject?.url,
+                    editingBundleURL: url
                 )
-                self.viewerController.clearViewport(statusMessage: "Unable to load MHC reference bundle.")
             }
+        } catch {
+            mainSplitLogger.error(
+                "displayMHCReferenceBundleFromExternalOpen: Failed - \(error.localizedDescription, privacy: .public)"
+            )
+            viewerController.clearViewport(statusMessage: "Unable to load MHC reference bundle.")
         }
     }
 

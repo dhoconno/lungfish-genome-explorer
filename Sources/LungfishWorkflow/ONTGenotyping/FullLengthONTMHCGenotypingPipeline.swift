@@ -159,7 +159,7 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
 
     public var argv: [String] {
         var values = [
-            "lungfish",
+            CLICommandIdentity.executableName,
             "fastq",
             "full-length-ont-mhc-genotype",
         ] + inputFASTQURLs.map(\.path) + [
@@ -1005,7 +1005,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             toolName: "lungfish full-length ONT MHC sample checkpoint reuse",
             toolVersion: WorkflowRun.currentAppVersion,
             argv: [
-                "lungfish",
+                CLICommandIdentity.executableName,
                 "fastq",
                 "full-length-ont-mhc-genotype",
                 "reuse-sample-checkpoint",
@@ -1352,7 +1352,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             toolName: "lungfish select Savont preset",
             toolVersion: WorkflowRun.currentAppVersion,
             argv: [
-                "lungfish",
+                CLICommandIdentity.executableName,
                 "fastq",
                 "full-length-ont-mhc-genotype",
                 "select-savont-preset",
@@ -1403,7 +1403,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             toolName: "lungfish handled Savont failure",
             toolVersion: WorkflowRun.currentAppVersion,
             argv: [
-                "lungfish",
+                CLICommandIdentity.executableName,
                 "fastq",
                 "full-length-ont-mhc-genotype",
                 "handled-savont-failure",
@@ -1547,7 +1547,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             toolName: "lungfish empty Savont clusters",
             toolVersion: FullLengthONTMHCGenotypingRunRequest.savontToolVersion,
             argv: [
-                "lungfish",
+                CLICommandIdentity.executableName,
                 "fastq",
                 "full-length-ont-mhc-genotype",
                 "empty-savont-clusters",
@@ -2408,7 +2408,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         var builder = try ProvenanceRunBuilder(
             workflowName: "lungfish fastq full-length-ont-mhc-genotype",
             workflowVersion: WorkflowRun.currentAppVersion,
-            toolName: "lungfish-cli",
+            toolName: CLICommandIdentity.executableName,
             toolVersion: WorkflowRun.currentAppVersion
         )
         .argv(request.argv)

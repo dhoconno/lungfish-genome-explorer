@@ -38,38 +38,14 @@
 
 ### Component Ownership
 ```
-LungfishPlugin/
-├── Host/
-│   ├── PluginHost.swift              # PRIMARY OWNER
-│   ├── PluginLifecycle.swift         # PRIMARY OWNER
-│   ├── PluginSandbox.swift           # PRIMARY OWNER
-│   └── PluginRegistry.swift          # PRIMARY OWNER
-├── Python/
-│   ├── PythonBridge.swift            # PRIMARY OWNER
-│   ├── PythonPluginLoader.swift      # PRIMARY OWNER
-│   └── PythonEnvironment.swift       # PRIMARY OWNER
-├── Rust/
-│   ├── RustFFI.swift                 # PRIMARY OWNER
-│   ├── RustPluginLoader.swift        # PRIMARY OWNER
-│   └── RustTypeConversion.swift      # PRIMARY OWNER
-├── Swift/
-│   ├── SwiftPluginLoader.swift       # PRIMARY OWNER
-│   └── SwiftPluginBundle.swift       # PRIMARY OWNER
-├── CLI/
-│   ├── CLIWrapper.swift              # PRIMARY OWNER
-│   ├── CLIManifestParser.swift       # PRIMARY OWNER
-│   └── CLIProcessManager.swift       # PRIMARY OWNER
-├── Protocols/
-│   ├── PluginProtocol.swift          # PRIMARY OWNER
-│   ├── SequenceOperationPlugin.swift # PRIMARY OWNER
-│   ├── AnnotationPlugin.swift        # PRIMARY OWNER
-│   ├── ViewerPlugin.swift            # PRIMARY OWNER
-│   ├── FormatPlugin.swift            # PRIMARY OWNER
-│   └── WorkflowPlugin.swift          # PRIMARY OWNER
-└── SDK/
-    ├── swift/                        # Swift SDK package
-    ├── python/                       # Python SDK package
-    └── rust/                         # Rust SDK crate
+Current shipped surfaces:
+Sources/LungfishApp/Views/PluginManager/         # Plugin Manager UI
+Sources/LungfishWorkflow/Conda/PluginPack*.swift # Managed tool/plugin-pack metadata
+
+Not currently shipped:
+- A standalone `LungfishPlugin` SwiftPM product
+- Python/Rust/Swift third-party plugin SDK packages
+- In-process third-party plugin host/sandbox APIs
 ```
 
 ### Interfaces with Other Roles

@@ -184,15 +184,17 @@ public struct ChromosomeAliasResolver: Sendable, Equatable {
 
     // MARK: - Well-Known Synonyms
 
+    /// Canonical mitochondrial chromosome names across naming conventions.
+    ///
+    /// UCSC uses "chrM", Ensembl/NCBI use "MT", some assemblies use "chrMT".
+    private static let canonicalMitochondrialNames = ["M", "MT", "chrM", "chrMT"]
+
     /// Well-known mitochondrial chromosome name synonyms.
     ///
-    /// Different naming conventions use different names for the mitochondrial
-    /// genome: UCSC uses "chrM", Ensembl/NCBI use "MT", some assemblies use
-    /// "chrMT". This table enables matching across these conventions.
-    private static let mitochondrialSynonyms: Set<String> = [
-        "M", "MT", "chrM", "chrMT",
-        "m", "mt", "chrm", "chrmt",
-    ]
+    /// Derived from `canonicalMitochondrialNames` plus their lowercased variants;
+    /// this table enables matching across the naming conventions above.
+    private static let mitochondrialSynonyms: Set<String> =
+        Set(canonicalMitochondrialNames + canonicalMitochondrialNames.map { $0.lowercased() })
 
     /// Returns well-known synonyms for a chromosome name, if any.
     ///
@@ -201,7 +203,7 @@ public struct ChromosomeAliasResolver: Sendable, Equatable {
     static func wellKnownSynonyms(for name: String) -> [String] {
         if mitochondrialSynonyms.contains(name) {
             // Return all synonyms except the input itself
-            return ["M", "MT", "chrM", "chrMT"].filter { $0 != name }
+            return canonicalMitochondrialNames.filter { $0 != name }
         }
         return []
     }

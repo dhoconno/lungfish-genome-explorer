@@ -10,7 +10,7 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-Usage: build-notarized-dmg.sh --signing-identity "Developer ID Application: Example (TEAMID)" --team-id TEAMID --notary-profile PROFILE [--scratch-path PATH] [--archive-path PATH] [--release-dir PATH] [--derived-data-path PATH] [--reuse-archive] [--reuse-built-cli] [--github-release-tag TAG] [--sparkle-public-ed-key KEY] [--sparkle-generate-appcast PATH] [--sparkle-ed-key-file PATH] [--sparkle-appcast-dir PATH] [--sparkle-publish-release TAG]
+Usage: build-notarized-dmg.sh --signing-identity "Developer ID Application: Example (TEAMID)" --team-id TEAMID --notary-profile PROFILE [--scratch-path PATH] [--archive-path PATH] [--release-dir PATH] [--derived-data-path PATH] [--reuse-archive] [--reuse-built-cli] [--github-release-tag TAG] [--sparkle-public-ed-key KEY] [--sparkle-generate-appcast PATH] [--sparkle-ed-key-file PATH] [--sparkle-appcast-dir PATH] [--sparkle-publish-release TAG] [--defer-remote-publish]
 
 Required:
   --signing-identity  Developer ID Application identity used for codesign
@@ -29,7 +29,7 @@ Optional:
   --sparkle-public-ed-key KEY
                       Sparkle public EdDSA key embedded in the app (default: LUNGFISH_SPARKLE_PUBLIC_ED_KEY)
   --sparkle-generate-appcast PATH
-                      Sparkle generate_appcast tool path. When set, update appcast-alpha.xml after DMG notarization
+                      Sparkle generate_appcast tool path. When set, update appcast-beta.xml after DMG notarization
   --sparkle-ed-key-file PATH
                       Private Sparkle EdDSA key file passed to generate_appcast instead of using the Keychain
   --sparkle-appcast-dir PATH
@@ -37,7 +37,9 @@ Optional:
   --sparkle-download-url-prefix URL
                       URL prefix for versioned DMG downloads (default: GitHub release v<version>)
   --sparkle-publish-release TAG
-                      Upload appcast-alpha.xml and release notes to this GitHub release tag with gh
+                      Upload appcast-beta.xml and release notes to this GitHub release tag with gh
+  --defer-remote-publish
+                      Build, notarize, and generate appcast files without running gh uploads
 
 The archive step writes an Xcode timing summary to stdout and stores an
 archive result bundle under <release-dir>/logs/archive.xcresult.
@@ -66,6 +68,7 @@ SPARKLE_RELEASE_NOTES=""
 SPARKLE_BUILD_NUMBER="${LUNGFISH_BUILD_NUMBER:-}"
 SPARKLE_FEED_URL=""
 GITHUB_RELEASE_TAG=""
+DEFER_REMOTE_PUBLISH=0
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -133,6 +136,10 @@ while [ "$#" -gt 0 ]; do
             SPARKLE_PUBLISH_RELEASE="$2"
             shift 2
             ;;
+        --defer-remote-publish)
+            DEFER_REMOTE_PUBLISH=1
+            shift
+            ;;
         --sparkle-release-notes)
             SPARKLE_RELEASE_NOTES="$2"
             shift 2
@@ -162,7 +169,7 @@ fi
 if [ -z "$DERIVED_DATA_PATH" ]; then
     DERIVED_DATA_PATH="${PROJECT_ROOT}/.build/release-derived-data"
 fi
-SPARKLE_FEED_URL="https://github.com/dhoconno/lungfish-genome-explorer/releases/download/${SPARKLE_PUBLISH_RELEASE:-sparkle-alpha}/appcast-alpha.xml"
+SPARKLE_FEED_URL="https://github.com/dhoconno/lungfish-genome-explorer/releases/download/${SPARKLE_PUBLISH_RELEASE:-sparkle-beta}/appcast-beta.xml"
 RELEASE_LOG_DIR="${RELEASE_DIR}/logs"
 ARCHIVE_RESULT_BUNDLE_PATH="${RELEASE_LOG_DIR}/archive.xcresult"
 
@@ -182,7 +189,7 @@ for command in xcodebuild xcrun swift codesign hdiutil ditto shasum mktemp /usr/
     require_command "$command"
 done
 
-if [ -n "$SPARKLE_PUBLISH_RELEASE" ] || [ -n "$GITHUB_RELEASE_TAG" ]; then
+if [ "$DEFER_REMOTE_PUBLISH" -eq 0 ] && { [ -n "$SPARKLE_PUBLISH_RELEASE" ] || [ -n "$GITHUB_RELEASE_TAG" ]; }; then
     require_command gh
 fi
 
@@ -278,6 +285,9 @@ publish_github_release_dmg() {
     if [ -z "$GITHUB_RELEASE_TAG" ]; then
         return
     fi
+    if [ "$DEFER_REMOTE_PUBLISH" -eq 1 ]; then
+        return
+    fi
 
     local notes_source
     local target_commit
@@ -341,7 +351,7 @@ generate_sparkle_appcast() {
         /usr/bin/install -m 644 "$notes_source" "$notes_dest"
     fi
 
-    SPARKLE_APPCAST_PATH="${SPARKLE_APPCAST_DIR}/appcast-alpha.xml"
+    SPARKLE_APPCAST_PATH="${SPARKLE_APPCAST_DIR}/appcast-beta.xml"
     local appcast_args=(
         --download-url-prefix "$download_url_prefix"
         --release-notes-url-prefix "$release_notes_url_prefix"
@@ -358,13 +368,13 @@ generate_sparkle_appcast() {
         exit 72
     fi
 
-    if [ -n "$SPARKLE_PUBLISH_RELEASE" ]; then
+    if [ -n "$SPARKLE_PUBLISH_RELEASE" ] && [ "$DEFER_REMOTE_PUBLISH" -eq 0 ]; then
         if ! gh release view "$SPARKLE_PUBLISH_RELEASE" >/dev/null 2>&1; then
             local target_commit
             target_commit="$(git rev-parse HEAD)"
             gh release create "$SPARKLE_PUBLISH_RELEASE" \
-                --title "Lungfish Sparkle Alpha Appcast" \
-                --notes "Mutable Sparkle alpha appcast feed for Lungfish Genome Explorer." \
+                --title "Lungfish Sparkle Beta Appcast" \
+                --notes "Mutable Sparkle beta appcast feed for Lungfish Genome Explorer." \
                 --prerelease \
                 --target "$target_commit"
         else
@@ -446,6 +456,8 @@ SWIFT_BUILD_PREFIX_MAP_ARGS=(
 
 XCODE_OTHER_SWIFT_FLAGS="-debug-prefix-map $SCRATCH_PATH=/swiftpm-build -debug-prefix-map $PROJECT_ROOT=/workspace -file-compilation-dir /workspace"
 XCODE_OTHER_CFLAGS="-ffile-prefix-map=$SCRATCH_PATH=/swiftpm-build -fdebug-prefix-map=$SCRATCH_PATH=/swiftpm-build -ffile-prefix-map=$PROJECT_ROOT=/workspace -fdebug-prefix-map=$PROJECT_ROOT=/workspace"
+
+/bin/bash "$PROJECT_ROOT/scripts/check-package-resolved-consistency.sh" --repair "$PROJECT_ROOT"
 
 if [ "$REUSE_ARCHIVE" -eq 1 ]; then
     printf 'Reusing existing archive: %s\n' "$ARCHIVE_PATH"
@@ -580,6 +592,7 @@ sign_sparkle_framework "$APP_PATH/Contents/Frameworks/Sparkle.framework"
 /usr/bin/codesign --force --sign "$SIGNING_IDENTITY" \
     --options runtime \
     --timestamp \
+    --entitlements "${PROJECT_ROOT}/lungfish-cli.entitlements" \
     --generate-entitlement-der \
     "$APP_PATH"
 

@@ -4,6 +4,7 @@
 
 import ArgumentParser
 import Foundation
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
@@ -17,8 +18,8 @@ struct FastqMaterializeSubcommand: AsyncParsableCommand {
             copy full payload). Produces a single output FASTQ file.
 
             Examples:
-              lungfish fastq materialize myreads.lungfishfastq -o output.fastq
-              lungfish fastq materialize trimmed.lungfishfastq -o reads.fastq --temp-dir /tmp/work
+              lungfish-cli fastq materialize myreads.lungfishfastq -o output.fastq
+              lungfish-cli fastq materialize trimmed.lungfishfastq -o reads.fastq --temp-dir /tmp/work
             """
     )
 
@@ -73,9 +74,32 @@ struct FastqMaterializeSubcommand: AsyncParsableCommand {
                 FileHandle.standardError.write(Data("\(message)\n".utf8))
             }
         )
+        let materializedSequenceFormat = Self.materializedSequenceFormat(
+            inputURL: inputURL,
+            materializedURL: materializedURL,
+            outputURL: URL(fileURLWithPath: output.output)
+        )
+        let outputFileFormat = Self.provenanceFormat(for: materializedSequenceFormat)
 
         let outputURL = URL(fileURLWithPath: output.output)
-        if materializedURL != outputURL {
+        var gzipResult: FASTQGzipProvenanceResult?
+        if output.compress {
+            let gzipInputURL: URL
+            if materializedURL.standardizedFileURL == outputURL.standardizedFileURL {
+                let stagedInputURL = tempDirectory.appendingPathComponent(
+                    "materialized-uncompressed-\(UUID().uuidString).\(materializedSequenceFormat.fileExtension)"
+                )
+                try FileManager.default.copyItem(at: materializedURL, to: stagedInputURL)
+                gzipInputURL = stagedInputURL
+            } else {
+                gzipInputURL = materializedURL
+            }
+            gzipResult = try gzipCompressFASTQ(
+                sourceURL: gzipInputURL,
+                outputURL: outputURL,
+                failureDescription: "materialized FASTQ"
+            )
+        } else if materializedURL.standardizedFileURL != outputURL.standardizedFileURL {
             if FileManager.default.fileExists(atPath: outputURL.path) {
                 try FileManager.default.removeItem(at: outputURL)
             }
@@ -91,9 +115,7 @@ struct FastqMaterializeSubcommand: AsyncParsableCommand {
         if output.compress {
             cliArguments.append("--compress")
         }
-        let inputRecords = FASTQBundle.resolvePrimarySequenceURL(for: inputURL).map {
-            [ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input)]
-        } ?? []
+        let inputRecords = try CLISequenceInputMaterialization.originalInputRecords(for: inputURL)
         var parameters: [String: ParameterValue] = [
             "inputBundle": .file(inputURL),
             "output": .file(outputURL),
@@ -104,20 +126,53 @@ struct FastqMaterializeSubcommand: AsyncParsableCommand {
         if let inputPayload = FASTQBundle.resolvePrimarySequenceURL(for: inputURL) {
             parameters["inputPayload"] = .file(inputPayload)
         }
+        var extraSteps: [ProvenanceStep] = []
+        if let gzipResult {
+            let completedAt = Date()
+            let gzipInput = try ProvenanceFileDescriptor.file(
+                url: gzipResult.inputURL,
+                format: outputFileFormat,
+                role: .input
+            )
+            let gzipOutput = try ProvenanceFileDescriptor.file(
+                url: gzipResult.outputURL,
+                format: outputFileFormat,
+                role: .output
+            )
+            extraSteps.append(
+                ProvenanceStep(
+                    toolName: gzipResult.command.first ?? "/usr/bin/gzip",
+                    toolVersion: "system",
+                    argv: gzipResult.command,
+                    inputs: [gzipInput],
+                    outputs: [gzipOutput],
+                    exitStatus: Int(gzipResult.exitCode),
+                    wallTimeSeconds: gzipResult.wallTime,
+                    stderr: gzipResult.stderr,
+                    startedAt: completedAt.addingTimeInterval(-gzipResult.wallTime),
+                    completedAt: completedAt
+                )
+            )
+        }
         try await CLIProvenanceSupport.recordSingleStepRun(
-            name: "lungfish fastq materialize",
+            name: CLISequenceInputMaterialization.materializationToolName,
             parameters: parameters,
             defaults: [
                 "tempDir": .null,
                 "force": .boolean(false),
-                "compress": .boolean(false)
+                "compress": .boolean(false),
+                "outputFormat": .string("fastq")
             ],
-            toolName: "lungfish fastq materialize",
+            resolved: [
+                "outputFormat": .string(materializedSequenceFormat.rawValue)
+            ],
+            toolName: CLISequenceInputMaterialization.materializationToolName,
             toolVersion: WorkflowRun.currentAppVersion,
-            command: ["lungfish", "fastq"] + cliArguments,
-            stepCommand: ["lungfish", "fastq"] + cliArguments,
+            command: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
+            stepCommand: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
+            extraSteps: extraSteps,
             inputs: inputRecords,
-            outputs: [ProvenanceRecorder.fileRecord(url: outputURL, format: .fastq, role: .output)],
+            outputs: [ProvenanceRecorder.fileRecord(url: outputURL, format: outputFileFormat, role: .output)],
             exitCode: 0,
             wallTime: Date().timeIntervalSince(startedAt),
             stderr: nil,
@@ -125,5 +180,36 @@ struct FastqMaterializeSubcommand: AsyncParsableCommand {
             outputDirectory: outputURL.deletingLastPathComponent()
         )
         FileHandle.standardError.write(Data("Materialized to \(output.output)\n".utf8))
+    }
+
+    private static func materializedSequenceFormat(
+        inputURL: URL,
+        materializedURL: URL,
+        outputURL: URL
+    ) -> SequenceFormat {
+        if let manifest = FASTQBundle.loadDerivedManifest(in: inputURL),
+           let sequenceFormat = manifest.sequenceFormat {
+            return sequenceFormat
+        }
+        if let format = SequenceFormat.from(url: materializedURL) {
+            return format
+        }
+        if let format = SequenceFormat.from(url: outputURL) {
+            return format
+        }
+        if let inputPayload = FASTQBundle.resolvePrimarySequenceURL(for: inputURL),
+           let format = SequenceFormat.from(url: inputPayload) {
+            return format
+        }
+        return .fastq
+    }
+
+    private static func provenanceFormat(for sequenceFormat: SequenceFormat) -> FileFormat {
+        switch sequenceFormat {
+        case .fasta:
+            return .fasta
+        case .fastq:
+            return .fastq
+        }
     }
 }

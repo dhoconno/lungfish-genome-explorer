@@ -5,6 +5,7 @@
 import Foundation
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 import os.log
 
 private let universalSearchLogger = Logger(
@@ -57,7 +58,15 @@ public actor UniversalProjectSearchService {
     public func rebuild(projectURL: URL) async throws -> ProjectUniversalSearchBuildStats {
         let canonical = projectURL.standardizedFileURL
         let index = try index(for: canonical)
+        let startedAt = Date()
         let stats = try index.rebuild()
+        try writeIndexProvenance(
+            projectURL: canonical,
+            index: index,
+            operation: "rebuild",
+            stats: stats,
+            startedAt: startedAt
+        )
         hasIndexedOnce.insert(canonical)
         return stats
     }
@@ -77,7 +86,19 @@ public actor UniversalProjectSearchService {
         if ensureIndexed {
             let stats = try index.indexStats()
             if stats.entityCount == 0 && !hasIndexedOnce.contains(canonical) {
-                _ = try index.rebuild()
+                let startedAt = Date()
+                let buildStats = try index.rebuild()
+                try writeIndexProvenance(
+                    projectURL: canonical,
+                    index: index,
+                    operation: "build-on-demand",
+                    stats: buildStats,
+                    startedAt: startedAt,
+                    explicitOptions: [
+                        "query": .string(query),
+                        "limit": .integer(max(1, limit)),
+                    ]
+                )
                 hasIndexedOnce.insert(canonical)
             }
         }
@@ -98,7 +119,19 @@ public actor UniversalProjectSearchService {
 
         do {
             let idx = try index(for: canonical)
+            let startedAt = Date()
             try idx.update(changedPaths: changedPaths)
+            try writeIndexProvenance(
+                projectURL: canonical,
+                index: idx,
+                operation: "update",
+                stats: nil,
+                startedAt: startedAt,
+                explicitOptions: [
+                    "changedPathCount": .integer(changedPaths.count),
+                    "changedPaths": .array(changedPaths.map { .string($0.standardizedFileURL.path) }),
+                ]
+            )
         } catch {
             universalSearchLogger.error(
                 "update(changedPaths:) failed for \(canonical.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
@@ -123,5 +156,32 @@ public actor UniversalProjectSearchService {
         let created = try ProjectUniversalSearchIndex(projectURL: projectURL)
         indexes[projectURL] = created
         return created
+    }
+
+    private func writeIndexProvenance(
+        projectURL: URL,
+        index: ProjectUniversalSearchIndex,
+        operation: String,
+        stats: ProjectUniversalSearchBuildStats?,
+        startedAt: Date,
+        explicitOptions: [String: ParameterValue] = [:]
+    ) throws {
+        try UniversalSearchIndexProvenanceWriter.write(
+            UniversalSearchIndexProvenanceRequest(
+                workflowName: "lungfish app universal-search",
+                toolName: "Lungfish.app universal-search",
+                toolKind: "gui",
+                projectURL: projectURL,
+                databaseURL: index.databaseURL,
+                operation: operation,
+                argv: ["Lungfish.app", "universal-search", operation, projectURL.path],
+                explicitOptions: explicitOptions,
+                defaults: [:],
+                resolvedDefaults: ["operation": .string(operation)],
+                buildStats: stats,
+                startedAt: startedAt,
+                completedAt: Date()
+            )
+        )
     }
 }

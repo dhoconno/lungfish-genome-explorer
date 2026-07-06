@@ -4,6 +4,7 @@
 
 import ArgumentParser
 import Foundation
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
@@ -70,7 +71,6 @@ struct NvdCommand: AsyncParsableCommand {
         #endif
 
         func run() async throws {
-            let startedAt = Date()
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
             let fileManager = FileManager.default
             let inputURL = URL(fileURLWithPath: inputPath)
@@ -80,48 +80,11 @@ struct NvdCommand: AsyncParsableCommand {
                 throw CLIExitCode.inputError.exitCode
             }
 
-            // Locate blast_concatenated.csv
-            let labkeyDir = inputURL.appendingPathComponent("05_labkey_bundling", isDirectory: true)
-            guard fileManager.fileExists(atPath: labkeyDir.path) else {
-                print(formatter.error("Expected 05_labkey_bundling/ inside: \(inputPath)"))
-                throw CLIExitCode.inputError.exitCode
-            }
-
-            let labkeyContents = try fileManager.contentsOfDirectory(
-                at: labkeyDir,
-                includingPropertiesForKeys: nil
-            )
-            guard let csvURL = labkeyContents.first(where: NvdResultParser.isBlastConcatenatedCSV) else {
-                print(formatter.error("No *_blast_concatenated.csv or *.csv.gz found in 05_labkey_bundling/"))
-                throw CLIExitCode.inputError.exitCode
-            }
-
             if !globalOptions.quiet {
                 print(formatter.header("NVD Import"))
                 print("")
-                print(formatter.info("Parsing \(csvURL.lastPathComponent)..."))
             }
 
-            let parser = NvdResultParser()
-            let result: NvdParseResult
-            do {
-                result = try await parser.parse(at: csvURL)
-            } catch let error as NvdParserError {
-                print(formatter.error(error.localizedDescription))
-                throw nvdExitCode(for: error).exitCode
-            }
-
-            // Summary before import
-            print(formatter.keyValueTable([
-                ("Experiment", result.experiment.isEmpty ? "(none)" : result.experiment),
-                ("CSV file", csvURL.lastPathComponent),
-                ("Total hits", String(result.hits.count)),
-                ("Samples", String(result.sampleIds.count)),
-                ("Contigs", String(Set(result.hits.map { "\($0.sampleId)\u{1F}\($0.qseqid)" }).count)),
-            ]))
-            print("")
-
-            // Resolve output directory
             let outputDirectory: URL
             if let dir = outputDir {
                 outputDirectory = URL(fileURLWithPath: dir)
@@ -129,127 +92,56 @@ struct NvdCommand: AsyncParsableCommand {
                 outputDirectory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             }
 
-            let bundleName = name ?? "nvd-\(result.experiment.isEmpty ? inputURL.lastPathComponent : result.experiment)"
-            let bundleDir = outputDirectory.appendingPathComponent(bundleName, isDirectory: true)
-            let stagingBundleDir = outputDirectory.appendingPathComponent(
-                ".lungfish-nvd-import-\(UUID().uuidString)",
-                isDirectory: true
-            )
-
-            try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
-            guard !fileManager.fileExists(atPath: bundleDir.path) else {
-                print(formatter.error("NVD import output already exists: \(bundleDir.path)"))
-                throw CLIExitCode.outputError.exitCode
+            var provenanceCommand = [
+                CLICommandIdentity.executableName,
+                "nvd",
+                "import",
+                inputURL.path,
+                "--output-dir",
+                outputDirectory.path,
+            ]
+            if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                provenanceCommand += ["--name", name]
             }
+            let provenanceCollisionHook: Bool
+            #if DEBUG
+            provenanceCollisionHook = testingCreateProvenanceCollision
+            #else
+            provenanceCollisionHook = false
+            #endif
 
-            // Write summary JSON
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            encoder.dateEncodingStrategy = .iso8601
-
-            // Build sample summaries
-            var perSampleHits: [String: Int] = [:]
-            var perSampleContigs: [String: Set<String>] = [:]
-            var perSampleTotalReads: [String: Int] = [:]
-            for hit in result.hits {
-                perSampleHits[hit.sampleId, default: 0] += 1
-                perSampleContigs[hit.sampleId, default: []].insert(hit.qseqid)
-                if perSampleTotalReads[hit.sampleId] == nil {
-                    perSampleTotalReads[hit.sampleId] = hit.totalReads
-                }
-            }
-
-            let sampleSummaries = result.sampleIds.sorted().map { sampleId in
-                NvdSampleSummary(
-                    sampleId: sampleId,
-                    contigCount: perSampleContigs[sampleId]?.count ?? 0,
-                    hitCount: perSampleHits[sampleId] ?? 0,
-                    totalReads: perSampleTotalReads[sampleId] ?? 0,
-                    bamRelativePath: "bam/\(sampleId).filtered.bam",
-                    fastaRelativePath: "fasta/\(sampleId).human_virus.fasta"
-                )
-            }
-
-            let topContigs: [NvdContigRow] = result.hits
-                .filter { $0.hitRank == 1 }
-                .prefix(200)
-                .map { hit in
-                    NvdContigRow(
-                        sampleId: hit.sampleId,
-                        qseqid: hit.qseqid,
-                        qlen: hit.qlen,
-                        adjustedTaxidName: hit.adjustedTaxidName,
-                        adjustedTaxidRank: hit.adjustedTaxidRank,
-                        sseqid: hit.sseqid,
-                        stitle: hit.stitle,
-                        pident: hit.pident,
-                        evalue: hit.evalue,
-                        bitscore: hit.bitscore,
-                        mappedReads: hit.mappedReads,
-                        readsPerBillion: hit.readsPerBillion
-                    )
-                }
-
-            let manifest = NvdManifest(
-                experiment: result.experiment,
-                sampleCount: result.sampleIds.count,
-                contigCount: Set(result.hits.map { "\($0.sampleId)\u{1F}\($0.qseqid)" }).count,
-                hitCount: result.hits.count,
-                blastDbVersion: result.hits.first?.blastDbVersion,
-                snakemakeRunId: result.hits.first?.snakemakeRunId,
-                sourceDirectoryPath: inputURL.path,
-                samples: sampleSummaries,
-                cachedTopContigs: topContigs
-            )
-
-            let manifestData = try encoder.encode(manifest)
-            let stagingManifestURL = stagingBundleDir.appendingPathComponent("manifest.json")
             do {
-                try fileManager.createDirectory(at: stagingBundleDir, withIntermediateDirectories: true)
-                try manifestData.write(to: stagingManifestURL, options: .atomic)
-                let finalOutputRecords = try nvdFinalOutputRecords(
-                    stagingBundleDirectory: stagingBundleDir,
-                    finalBundleDirectory: bundleDir
-                )
-                #if DEBUG
-                if testingCreateProvenanceCollision {
-                    try fileManager.createDirectory(
-                        at: stagingBundleDir.appendingPathComponent(
-                            ProvenanceRecorder.provenanceFilename,
-                            isDirectory: true
-                        ),
-                        withIntermediateDirectories: true
-                    )
-                }
-                #endif
-                try await recordNvdImportProvenance(
-                    startedAt: startedAt,
+                let imported = try await MetagenomicsImportService.importNvd(
                     inputURL: inputURL,
-                    csvURL: csvURL,
                     outputDirectory: outputDirectory,
-                    provenanceDirectory: stagingBundleDir,
-                    bundleName: bundleName,
-                    outputRecords: finalOutputRecords,
-                    result: result
+                    preferredName: name,
+                    allowUniqueSuffix: false,
+                    samtoolsPath: nil,
+                    provenanceCommand: provenanceCommand,
+                    provenanceWorkflowName: "lungfish nvd import",
+                    provenanceToolName: "lungfish nvd import",
+                    provenanceCollisionTestHook: provenanceCollisionHook,
+                    progress: { progress, message in
+                        if !globalOptions.quiet, progress < 1.0 {
+                            print(formatter.info(message))
+                        }
+                    }
                 )
-                guard !fileManager.fileExists(atPath: bundleDir.path) else {
-                    throw CLIError.outputWriteFailed(
-                        path: bundleDir.path,
-                        reason: "output bundle appeared before finalization"
-                    )
-                }
-                try fileManager.moveItem(at: stagingBundleDir, to: bundleDir)
-            } catch {
-                try? fileManager.removeItem(at: stagingBundleDir)
-                print(formatter.error("Failed to write NVD import output: \(error.localizedDescription)"))
-                throw CLIExitCode.outputError.exitCode
-            }
 
-            print(formatter.success("Manifest written to \(bundleDir.appendingPathComponent("manifest.json").path)"))
-            print("")
-            print(formatter.success(
-                "Imported \(result.hits.count) BLAST hits from \(result.sampleIds.count) samples into \(bundleName)"
-            ))
+                if !globalOptions.quiet {
+                    print(formatter.keyValueTable([
+                        ("Total hits", String(imported.hitCount)),
+                        ("Samples", String(imported.sampleCount)),
+                        ("Contigs", String(imported.contigCount)),
+                        ("Output", imported.resultDirectory.lastPathComponent),
+                    ]))
+                    print("")
+                    print(formatter.success("NVD import complete: \(imported.resultDirectory.lastPathComponent)"))
+                }
+            } catch {
+                print(formatter.error(error.localizedDescription))
+                throw nvdImportExitCode(for: error).exitCode
+            }
         }
     }
 
@@ -369,137 +261,25 @@ struct NvdCommand: AsyncParsableCommand {
     }
 }
 
-private func recordNvdImportProvenance(
-    startedAt: Date,
-    inputURL: URL,
-    csvURL: URL,
-    outputDirectory: URL,
-    provenanceDirectory: URL,
-    bundleName: String,
-    outputRecords: [FileRecord],
-    result: NvdParseResult
-) async throws {
-    let command = [
-        "lungfish",
-        "nvd",
-        "import",
-        inputURL.path,
-        "--output-dir",
-        outputDirectory.path,
-        "--name",
-        bundleName,
-    ]
-    let defaultBundleName = "nvd-\(result.experiment.isEmpty ? inputURL.lastPathComponent : result.experiment)"
-
-    try await CLIProvenanceSupport.recordSingleStepRun(
-        name: "lungfish nvd import",
-        parameters: [
-            "inputPath": .string(inputURL.path),
-            "outputDir": .string(outputDirectory.path),
-            "name": .string(bundleName),
-        ],
-        defaults: [
-            "outputDir": .string(FileManager.default.currentDirectoryPath),
-            "name": .string(defaultBundleName),
-        ],
-        resolved: [
-            "inputPath": .string(inputURL.path),
-            "csvPath": .string(csvURL.path),
-            "outputDir": .string(outputDirectory.path),
-            "bundleName": .string(bundleName),
-            "experiment": .string(result.experiment),
-            "sampleCount": .integer(result.sampleIds.count),
-            "hitCount": .integer(result.hits.count),
-        ],
-        toolName: "lungfish nvd import",
-        toolVersion: WorkflowRun.currentAppVersion,
-        command: command,
-        inputs: [
-            ProvenanceRecorder.fileRecord(url: csvURL, format: .unknown, role: .input),
-        ],
-        outputs: outputRecords,
-        exitCode: 0,
-        wallTime: Date().timeIntervalSince(startedAt),
-        stderr: nil,
-        status: .completed,
-        outputDirectory: provenanceDirectory
-    )
-}
-
-func nvdFinalOutputRecords(
-    stagingBundleDirectory: URL,
-    finalBundleDirectory: URL,
-    fileManager: FileManager = .default
-) throws -> [FileRecord] {
-    guard let enumerator = fileManager.enumerator(
-        at: stagingBundleDirectory,
-        includingPropertiesForKeys: [.isRegularFileKey],
-        options: [.skipsHiddenFiles]
-    ) else {
-        return []
-    }
-
-    var records: [FileRecord] = []
-    for case let stagingURL as URL in enumerator {
-        guard stagingURL.lastPathComponent != ProvenanceRecorder.provenanceFilename else {
-            continue
+private func nvdImportExitCode(for error: Error) -> CLIExitCode {
+    if let importError = error as? MetagenomicsImportError {
+        switch importError {
+        case .inputNotFound:
+            return .inputError
+        case .parseFailed:
+            return .formatError
+        case .outputDirectoryCreationFailed, .copyFailed, .outputAlreadyExists:
+            return .outputError
+        case .toolUnavailable:
+            return .dependency
+        case .importAborted:
+            return .outputError
         }
-        let values = try stagingURL.resourceValues(forKeys: [.isRegularFileKey])
-        guard values.isRegularFile == true else {
-            continue
-        }
-
-        let relativeComponents = nvdBundleRelativePathComponents(
-            for: stagingURL,
-            stagingBundleDirectory: stagingBundleDirectory
-        )
-        let relativePath = relativeComponents.joined(separator: "/")
-        guard !relativePath.isEmpty else {
-            continue
-        }
-
-        let stagingRecord = ProvenanceRecorder.fileRecord(url: stagingURL, role: .output)
-        let finalURL = finalBundleDirectory.appendingPathComponent(relativePath)
-        records.append(
-            FileRecord(
-                path: finalURL.path,
-                sha256: stagingRecord.sha256,
-                sizeBytes: stagingRecord.sizeBytes,
-                format: stagingRecord.format,
-                role: stagingRecord.role
-            )
-        )
     }
-    return records.sorted { $0.path < $1.path }
-}
-
-private func nvdBundleRelativePathComponents(
-    for stagingURL: URL,
-    stagingBundleDirectory: URL
-) -> [String] {
-    let stagingMarker = stagingBundleDirectory.lastPathComponent
-    let pathComponents = stagingURL.pathComponents
-    if let markerIndex = pathComponents.lastIndex(of: stagingMarker),
-       markerIndex < pathComponents.index(before: pathComponents.endIndex) {
-        return Array(pathComponents[pathComponents.index(after: markerIndex)...])
+    if error is CancellationError {
+        return .cancelled
     }
-    if let markerIndex = pathComponents.lastIndex(where: {
-        $0 == ".staging"
-            || $0.hasSuffix(".staging")
-            || $0.hasPrefix(".lungfish-nvd-import-")
-    }), markerIndex < pathComponents.index(before: pathComponents.endIndex) {
-        return Array(pathComponents[pathComponents.index(after: markerIndex)...])
-    }
-
-    let stagingPrefix = stagingBundleDirectory.path.hasSuffix("/")
-        ? stagingBundleDirectory.path
-        : stagingBundleDirectory.path + "/"
-    if stagingURL.path.hasPrefix(stagingPrefix) {
-        return String(stagingURL.path.dropFirst(stagingPrefix.count))
-            .split(separator: "/")
-            .map(String.init)
-    }
-    return [stagingURL.lastPathComponent]
+    return .workflowError
 }
 
 private func nvdExitCode(for error: NvdParserError) -> CLIExitCode {

@@ -8,6 +8,11 @@
 
 **Tech Stack:** Swift 6.2, SwiftPM, macOS 26 (Tahoe), Apple Silicon. `@Observable` + `@MainActor` + strict concurrency. XCTest + swift-testing.
 
+2026-07-04 review note: this historical plan was executed and then reviewed against
+`origin/main` @ 56e3a21d. The original local-`main` diff references below are superseded by
+`origin/main...worktree-fable-codebase-quality`, and the clean post-baseline-fix gate in the
+results report supersedes the earlier "9 known environmental failures allowed" gate.
+
 ## Global Constraints
 
 Copied verbatim from the design spec; every task implicitly includes these.
@@ -16,7 +21,7 @@ Copied verbatim from the design spec; every task implicitly includes these.
 - **Behavior-preserving only.** No feature, behavior, API-surface, or user-visible changes.
 - **swift invocations:** always `swift build --package-path <wt> --skip-update` / `swift test --package-path <wt> --skip-update`. `swift` has NO `-C` flag. Always `--skip-update` (offline; avoids `testSRASearch` NCBI flake).
 - **Serialize ALL swift invocations.** Single `.build/.lock` per checkout. Never build while a subagent may be building; dispatch implementer subagents ONE AT A TIME. Check `ps aux | grep swift` + `.build/.lock` before treating a hang as a failure.
-- **Green bar =** XCTest failures ⊆ the 9 known-environmental (6 `GenotypeRealBundleSmokeTests` in `LungfishGenotypeUITests`, 2 `ZhangArtifactCanaryTests`, 1 `VCFRobustnessTests.testAllRealVCFsFromDownloads`) AND swift-testing failures = 0.
+- **Green bar =** originally XCTest failures ⊆ the 9 known-environmental (6 `GenotypeRealBundleSmokeTests` in `LungfishGenotypeUITests`, 2 `ZhangArtifactCanaryTests`, 1 `VCFRobustnessTests.testAllRealVCFsFromDownloads`) AND swift-testing failures = 0. Final completed-branch gate superseded this with a clean 9558 XCTest / 487 swift-testing baseline, 0 failures.
 - **Module layering:** a leaf or `LungfishKit` may NEVER reference a type defined in `LungfishApp`. `LungfishCLI` does NOT import `LungfishKit`. `LungfishApp` importing leaves is fine.
 - **macOS 26 API rules:** no `NSSplitViewController` delegate methods, `lockFocus`, `wantsLayer`, `runModal`, `synchronize`.
 - **Background→MainActor dispatch:** never `Task { @MainActor in }` from GCD background; never bare `DispatchQueue.main.async` to touch `@MainActor` state; never `await` `@MainActor` from `Task.detached`. Use `DispatchQueue.main.async { [weak self] in MainActor.assumeIsolated { ... } }` or actor-based pipelines.
@@ -139,7 +144,7 @@ For each batch (one large/tangled file, or a tight cluster of related files):
 ### Task 8: Finalize deliverable
 
 - [ ] **Step 1: Final full green-bar** across the whole worktree. Confirm failures ⊆ baseline, swift-testing = 0.
-- [ ] **Step 2: Complete the results report** `docs/reports/2026-07-03-codebase-quality-results.md`: per-module batches applied, LOC delta, deferral counts, final green-bar status, and a "how to review" note pointing the downstream LLM at the defer docs and the branch diff `git diff main...worktree-fable-codebase-quality`.
+- [ ] **Step 2: Complete the results report** `docs/reports/2026-07-03-codebase-quality-results.md`: per-module batches applied, LOC delta, deferral counts, final green-bar status, and a "how to review" note pointing the downstream LLM at the defer docs and the branch diff `git diff origin/main...worktree-fable-codebase-quality`.
 - [ ] **Step 3: Confirm clean tree** `git -C <wt> status` is clean; all batches committed.
 - [ ] **Step 4: Report to user** the worktree path, branch name, module summary, deferral count, and that it is ready for the downstream LLM. This is the completion point.
 

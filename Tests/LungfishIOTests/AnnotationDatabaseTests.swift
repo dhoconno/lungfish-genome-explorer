@@ -41,6 +41,73 @@ final class AnnotationDatabaseTests: XCTestCase {
         return (db, count)
     }
 
+    func testCreateFromBEDThrowsAndRemovesPartialDatabaseWhenInsertFails() throws {
+        let bedURL = try createBEDFile(lines: [
+            bed14(chrom: "chr1", start: 100, end: 200, name: "geneA", type: "gene"),
+        ])
+        let dbURL = tempDir.appendingPathComponent("failed-insert.db")
+        var buildPlan = AnnotationDatabaseBuildPlan.default
+        buildPlan.schemaSQL += """
+
+        CREATE TRIGGER fail_annotation_insert
+        BEFORE INSERT ON annotations
+        BEGIN
+            SELECT RAISE(FAIL, 'injected insert failure');
+        END;
+        """
+
+        XCTAssertThrowsError(
+            try AnnotationDatabase.createFromBED(
+                bedURL: bedURL,
+                outputURL: dbURL,
+                buildPlan: buildPlan
+            )
+        ) { error in
+            XCTAssertTrue(String(describing: error).contains("injected insert failure"))
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dbURL.path))
+    }
+
+    func testCreateFromBEDFailurePreservesExistingDatabase() throws {
+        let initialBEDURL = try createBEDFile(
+            lines: [
+                bed14(chrom: "chr1", start: 100, end: 200, name: "geneA", type: "gene"),
+            ],
+            filename: "initial.bed"
+        )
+        let dbURL = tempDir.appendingPathComponent("preserve-existing.db")
+        XCTAssertEqual(try AnnotationDatabase.createFromBED(bedURL: initialBEDURL, outputURL: dbURL), 1)
+
+        let failingBEDURL = try createBEDFile(
+            lines: [
+                bed14(chrom: "chr2", start: 300, end: 400, name: "geneB", type: "gene"),
+            ],
+            filename: "failing.bed"
+        )
+        var buildPlan = AnnotationDatabaseBuildPlan.default
+        buildPlan.schemaSQL += """
+
+        CREATE TRIGGER fail_annotation_insert
+        BEFORE INSERT ON annotations
+        BEGIN
+            SELECT RAISE(FAIL, 'injected insert failure');
+        END;
+        """
+
+        XCTAssertThrowsError(
+            try AnnotationDatabase.createFromBED(
+                bedURL: failingBEDURL,
+                outputURL: dbURL,
+                buildPlan: buildPlan
+            )
+        )
+
+        let preservedDB = try AnnotationDatabase(url: dbURL)
+        XCTAssertEqual(preservedDB.totalCount(), 1)
+        XCTAssertEqual(preservedDB.query(nameFilter: "geneA").map(\.name), ["geneA"])
+        XCTAssertTrue(preservedDB.query(nameFilter: "geneB").isEmpty)
+    }
+
     // MARK: - BED14 Helper
 
     /// Creates a full BED14 line (12 standard + type + attributes).
@@ -729,6 +796,30 @@ final class AnnotationDatabaseTests: XCTestCase {
         )
         let db = try AnnotationDatabase(url: dbURL)
         return (db, count)
+    }
+
+    func testCreateFromGFF3ThrowsAndRemovesPartialDatabaseWhenIndexCreationFails() async throws {
+        let gffURL = try createGFF3File(lines: [
+            "##gff-version 3",
+            gff3Line(seqid: "chr1", type: "gene", start: 1001, end: 2000, attributes: "ID=gene1;Name=TestGene"),
+        ])
+        let dbURL = tempDir.appendingPathComponent("failed-index.db")
+        var buildPlan = AnnotationDatabaseBuildPlan.default
+        buildPlan.indexSQLStatements = [
+            "CREATE INDEX idx_missing_table ON missing_annotations(name)"
+        ]
+
+        do {
+            _ = try await AnnotationDatabase.createFromGFF3(
+                gffURL: gffURL,
+                outputURL: dbURL,
+                buildPlan: buildPlan
+            )
+            XCTFail("Expected createFromGFF3 to fail when index creation fails")
+        } catch {
+            XCTAssertTrue(String(describing: error).contains("missing_annotations"))
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dbURL.path))
     }
 
     /// Builds a GFF3 feature line.

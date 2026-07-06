@@ -622,7 +622,7 @@ final class GenotypeSubcommandsTests: XCTestCase {
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL))
         XCTAssertEqual(envelope.workflowName, "lungfish genotype apply-annotations")
         XCTAssertEqual(envelope.argv, [
-            "lungfish",
+            "lungfish-cli",
             "genotype",
             "apply-annotations",
             "--bundle", bundleURL.path,

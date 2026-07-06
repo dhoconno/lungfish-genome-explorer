@@ -20,6 +20,9 @@ public actor MockHTTPClient: HTTPClient {
     /// Default response when no pattern matches
     private var defaultResponse: MockResponse?
 
+    /// Optional delay used by cancellation tests.
+    private var responseDelayNanoseconds: UInt64?
+
     public struct MockResponse: Sendable {
         public let data: Data
         public let statusCode: Int
@@ -43,6 +46,12 @@ public actor MockHTTPClient: HTTPClient {
         public static func error(statusCode: Int, message: String = "Error") -> MockResponse {
             return MockResponse(data: message.data(using: .utf8)!, statusCode: statusCode)
         }
+
+        public static let cancelled = MockResponse(
+            data: Data(),
+            statusCode: 499,
+            headers: ["X-Lungfish-Mock-Error": "cancelled"]
+        )
     }
 
     public init() {}
@@ -62,6 +71,11 @@ public actor MockHTTPClient: HTTPClient {
         defaultResponse = response
     }
 
+    /// Sets a cancellable delay before registered responses are returned.
+    public func setResponseDelayNanoseconds(_ nanoseconds: UInt64?) {
+        responseDelayNanoseconds = nanoseconds
+    }
+
     /// Clears all recorded requests.
     public func clearRequests() {
         requests.removeAll()
@@ -77,33 +91,40 @@ public actor MockHTTPClient: HTTPClient {
     public func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         requests.append(request)
 
+        if let responseDelayNanoseconds {
+            try await Task.sleep(nanoseconds: responseDelayNanoseconds)
+        }
+
         let urlString = request.url?.absoluteString ?? ""
 
         for index in sequencedResponses.indices {
             if urlString.contains(sequencedResponses[index].pattern),
                !sequencedResponses[index].responses.isEmpty {
                 let response = sequencedResponses[index].responses.removeFirst()
-                return makeResponse(response, for: request)
+                return try makeResponse(response, for: request)
             }
         }
 
         // Find matching response
         for (pattern, response) in responses {
             if urlString.contains(pattern) {
-                return makeResponse(response, for: request)
+                return try makeResponse(response, for: request)
             }
         }
 
         // Use default response
         if let response = defaultResponse {
-            return makeResponse(response, for: request)
+            return try makeResponse(response, for: request)
         }
 
         // No response configured - throw error
         throw URLError(.cannotFindHost)
     }
 
-    private func makeResponse(_ mock: MockResponse, for request: URLRequest) -> (Data, URLResponse) {
+    private func makeResponse(_ mock: MockResponse, for request: URLRequest) throws -> (Data, URLResponse) {
+        if mock.headers["X-Lungfish-Mock-Error"] == "cancelled" {
+            throw URLError(.cancelled)
+        }
         let response = HTTPURLResponse(
             url: request.url!,
             statusCode: mock.statusCode,

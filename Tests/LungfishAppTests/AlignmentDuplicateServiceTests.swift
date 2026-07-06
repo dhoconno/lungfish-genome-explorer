@@ -197,6 +197,48 @@ final class AlignmentDuplicateServiceTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: rolledBackMetadataURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.sourceBAMURL.path))
     }
+
+    func testMarkDuplicatesKeepsBookmarkedSourceScopeActiveDuringPipeline() async throws {
+        let sourceBookmark = Data("source-bookmark".utf8)
+        let fixture = try DuplicateWorkflowFixture.makeBookmarkedExternal(
+            rootURL: tempDir,
+            sourceBookmark: sourceBookmark
+        )
+        let access = DuplicateServiceBookmarkAccessProbe(
+            resolutions: [sourceBookmark: fixture.sourceBAMURL]
+        )
+        let attachmentService = PreparedAlignmentAttachmentService(
+            metadataCollector: DuplicateWorkflowMetadataCollector()
+        )
+        let markdupPipeline = ScopeCheckingDuplicateMarkdupPipeline(access: access)
+
+        let result = try await AlignmentDuplicateService.markDuplicatesInBundle(
+            bundleURL: fixture.bundleURL,
+            markdupPipeline: markdupPipeline,
+            attachmentService: attachmentService,
+            metadataAppender: { _, _, _, _, _ in },
+            referenceBundleFactory: { bundleURL, manifest in
+                ReferenceBundle(
+                    url: bundleURL,
+                    manifest: manifest,
+                    bookmarkAccess: ReferenceBundleBookmarkAccess(
+                        resolve: access.resolve,
+                        startAccessing: access.startAccessing,
+                        stopAccessing: access.stopAccessing
+                    )
+                )
+            },
+            trackIDProvider: { "marked-track" }
+        )
+
+        XCTAssertEqual(result.processedTracks, 1)
+        XCTAssertEqual(result.newTrackIds, ["marked-track"])
+        let inputURLs = await markdupPipeline.recordedInputURLs()
+        XCTAssertEqual(inputURLs, [fixture.sourceBAMURL.standardizedFileURL])
+        XCTAssertFalse(access.isAccessing(fixture.sourceBAMURL))
+        XCTAssertEqual(access.startedURLs(), [fixture.sourceBAMURL.standardizedFileURL])
+        XCTAssertEqual(access.stoppedURLs(), [fixture.sourceBAMURL.standardizedFileURL])
+    }
 }
 
 private struct DuplicateWorkflowFixture {
@@ -229,6 +271,41 @@ private struct DuplicateWorkflowFixture {
                     sourcePath: "alignments/source.bam",
                     indexPath: "alignments/source.bam.bai",
                     metadataDBPath: "alignments/source.stats.db"
+                )
+            ]
+        )
+        try manifest.save(to: bundleURL)
+        return DuplicateWorkflowFixture(bundleURL: bundleURL, sourceBAMURL: sourceBAMURL)
+    }
+
+    static func makeBookmarkedExternal(
+        rootURL: URL,
+        sourceBookmark: Data
+    ) throws -> DuplicateWorkflowFixture {
+        let bundleURL = rootURL.appendingPathComponent("external-fixture.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: bundleURL.appendingPathComponent("alignments", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        let externalDir = rootURL.appendingPathComponent("external-alignments", isDirectory: true)
+        try FileManager.default.createDirectory(at: externalDir, withIntermediateDirectories: true)
+        let sourceBAMURL = externalDir.appendingPathComponent("external-source.bam")
+        FileManager.default.createFile(atPath: sourceBAMURL.path, contents: Data("bam".utf8))
+
+        let manifest = BundleManifest(
+            formatVersion: "1.0",
+            name: "External Duplicates",
+            identifier: "external.duplicates.bundle",
+            source: SourceInfo(organism: "Virus", assembly: "Fixture", database: "FixtureDB"),
+            genome: nil,
+            alignments: [
+                AlignmentTrackInfo(
+                    id: "aln-1",
+                    name: "External BAM",
+                    format: .bam,
+                    sourcePath: "/missing/external-source.bam",
+                    sourceBookmark: sourceBookmark.base64EncodedString(),
+                    indexPath: "/missing/external-source.bam.bai"
                 )
             ]
         )
@@ -288,6 +365,58 @@ private actor RecordingDuplicateMarkdupPipeline: AlignmentMarkdupPipelining {
     }
 }
 
+private actor ScopeCheckingDuplicateMarkdupPipeline: AlignmentMarkdupPipelining {
+    private let access: DuplicateServiceBookmarkAccessProbe
+    private(set) var inputURLs: [URL] = []
+
+    init(access: DuplicateServiceBookmarkAccessProbe) {
+        self.access = access
+    }
+
+    func recordedInputURLs() -> [URL] {
+        inputURLs
+    }
+
+    func run(
+        inputURL: URL,
+        outputURL: URL,
+        removeDuplicates: Bool,
+        referenceFastaPath: String?,
+        progressHandler: (@Sendable (Double, String) -> Void)?
+    ) async throws -> AlignmentMarkdupPipelineResult {
+        let standardizedInputURL = inputURL.standardizedFileURL
+        guard access.isAccessing(standardizedInputURL) else {
+            throw DuplicateServiceBookmarkAccessError.scopeNotActiveDuringPipeline(standardizedInputURL.path)
+        }
+        inputURLs.append(standardizedInputURL)
+
+        try FileManager.default.createDirectory(
+            at: outputURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        FileManager.default.createFile(atPath: outputURL.path, contents: Data("bam".utf8))
+        FileManager.default.createFile(atPath: outputURL.path + ".bai", contents: Data("bai".utf8))
+
+        let tempDir = outputURL.deletingLastPathComponent()
+        return AlignmentMarkdupPipelineResult(
+            outputURL: outputURL,
+            indexURL: URL(fileURLWithPath: outputURL.path + ".bai"),
+            intermediateFiles: AlignmentMarkdupIntermediateFiles(
+                nameSortedBAM: tempDir.appendingPathComponent("name.sorted.bam"),
+                fixmateBAM: tempDir.appendingPathComponent("fixmate.bam"),
+                coordinateSortedBAM: tempDir.appendingPathComponent("coord.sorted.bam")
+            ),
+            commandHistory: [
+                AlignmentCommandExecutionRecord(
+                    arguments: ["markdup", outputURL.path],
+                    inputFile: inputURL.path,
+                    outputFile: outputURL.path
+                )
+            ]
+        )
+    }
+}
+
 private struct DuplicateWorkflowMetadataCollector: PreparedAlignmentMetadataCollecting {
     func collectMetadata(
         bamURL: URL,
@@ -312,4 +441,66 @@ private struct DuplicateWorkflowMetadataCollector: PreparedAlignmentMetadataColl
 
 private enum DuplicateMetadataAppendFailure: Error, Equatable {
     case injected
+}
+
+private enum DuplicateServiceBookmarkAccessError: Error {
+    case unresolvedBookmark
+    case scopeNotActiveDuringPipeline(String)
+}
+
+private final class DuplicateServiceBookmarkAccessProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private let resolutions: [Data: URL]
+    private var active = Set<URL>()
+    private var started = [URL]()
+    private var stopped = [URL]()
+
+    init(resolutions: [Data: URL]) {
+        self.resolutions = resolutions.mapValues { $0.standardizedFileURL }
+    }
+
+    func resolve(_ data: Data) throws -> ReferenceBundleBookmarkResolution {
+        guard let url = resolutions[data] else {
+            throw DuplicateServiceBookmarkAccessError.unresolvedBookmark
+        }
+        return ReferenceBundleBookmarkResolution(url: url, isStale: false)
+    }
+
+    func startAccessing(_ url: URL) -> Bool {
+        lock.lock()
+        let standardizedURL = url.standardizedFileURL
+        active.insert(standardizedURL)
+        started.append(standardizedURL)
+        lock.unlock()
+        return true
+    }
+
+    func stopAccessing(_ url: URL) {
+        lock.lock()
+        let standardizedURL = url.standardizedFileURL
+        active.remove(standardizedURL)
+        stopped.append(standardizedURL)
+        lock.unlock()
+    }
+
+    func isAccessing(_ url: URL) -> Bool {
+        lock.lock()
+        let contains = active.contains(url.standardizedFileURL)
+        lock.unlock()
+        return contains
+    }
+
+    func startedURLs() -> [URL] {
+        lock.lock()
+        let urls = started
+        lock.unlock()
+        return urls
+    }
+
+    func stoppedURLs() -> [URL] {
+        lock.lock()
+        let urls = stopped
+        lock.unlock()
+        return urls
+    }
 }

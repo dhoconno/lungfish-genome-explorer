@@ -4,6 +4,10 @@ Date: 2026-07-03
 Author: Fable (Claude Code)
 Status: Approved for planning
 
+2026-07-04 review note: the original planning base was local `main`, but final downstream review
+is against `origin/main` @ 56e3a21d. The green-bar definition below was superseded after the
+baseline fixes by the clean gate recorded in `docs/reports/2026-07-03-codebase-quality-results.md`.
+
 ## Goal
 
 Perform an aggressive but confidence-gated Swift-best-practices refactor of the
@@ -95,6 +99,10 @@ Only then is the module's work committed and the next module begun. If the full
 suite reveals a regression that batch-scoped tests missed, bisect to the batch,
 revert or fix, and re-run.
 
+Supersession: after two baseline fixes, the final gate used for the completed branch is a clean
+baseline of 9558 XCTest / 487 swift-testing, 0 failures, with the known ONT deadlock suite run in
+isolation where noted in the results report.
+
 ## Concurrency / build discipline
 
 - `swift` has no `-C` flag; always use `--package-path <wt>`.
@@ -131,7 +139,7 @@ future Opus pass. Defer docs follow the prose rules (no em dashes).
 
 ## Final deliverable
 
-- Worktree `worktree-fable-codebase-quality` off `main`, all module work
+- Worktree `worktree-fable-codebase-quality` reviewed against `origin/main`, all module work
   committed, tree clean.
 - Per-module defer docs under the reports directory.
 - A summary report `docs/reports/2026-07-03-codebase-quality-results.md`:

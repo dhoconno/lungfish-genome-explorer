@@ -72,7 +72,7 @@ If you genuinely need SPAdes' own upstream `--viral` pipeline, it is not a selec
 
 ## Worked example: SRR36291587
 
-The fixture for this walkthrough is the SARS-CoV-2 Illumina amplicon run `SRR36291587`. Citation for the fixture lives in its `README.md`. Download the run via `File > Import > From SRA` and run the Assembly wizard against the resulting FASTQ bundle with SPAdes and its default Isolate profile.
+The fixture for this walkthrough is the SARS-CoV-2 Illumina amplicon run `SRR36291587`. Citation for the fixture lives in its `README.md`. Download the run via `Tools > Search Online Databases > Search SRA...` and run the Assembly wizard against the resulting FASTQ bundle with SPAdes and its default Isolate profile.
 
 When SPAdes finishes, the result viewport opens with one striking row at the top of the contig list: a single contig roughly 29,900 bases long. The exact number varies a little run to run because the assembly graph traversal is not strictly deterministic when coverage is borderline at the genome ends, but you should expect something between 29.7 and 29.9 kb. Coverage on that contig will be in the hundreds of x for a typical amplicon library.
 

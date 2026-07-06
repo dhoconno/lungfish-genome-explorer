@@ -19,6 +19,61 @@ final class GenotypeHaplotypeAnalyzerTests: XCTestCase {
             GenotypeHaplotypeLocusResolver.canonicalLocusName("Mamu-AG3*02:06:02:01"),
             "MHC-AG"
         )
+        XCTAssertEqual(
+            GenotypeHaplotypeLocusResolver.canonicalLocusName("01_Mamu-A1*004:01:01:01"),
+            "MHC-A"
+        )
+    }
+
+    func testDiagnosticMatcherIgnoresLeadingNumericRunPrefix() {
+        XCTAssertTrue(
+            GenotypeHaplotypeDiagnosticMatcher.matches(
+                genotype: "M1_G_02_07_2mis_156bp",
+                diagnosticAllele: "02_M1_G_02_07_2mis_156bp"
+            )
+        )
+    }
+
+    func testAnalyzerMatchesDiagnosticAlleleAcrossLeadingNumericRunPrefix() throws {
+        let definition = GenotypeHaplotypeDefinitionSet(
+            id: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques.test",
+            assayID: "MHC-exon2-miSeq",
+            displayName: "MCM test",
+            speciesName: "Mauritian cynomolgus macaque",
+            speciesCode: "MCM",
+            prefix: "Mafa",
+            locusDefinitions: [
+                GenotypeHaplotypeLocusDefinition(
+                    locus: "MHC-A",
+                    sourceLocus: "MHC-A",
+                    haplotypes: [
+                        GenotypeHaplotypeDefinition(
+                            name: "M1A",
+                            diagnosticAlleles: ["02_M1_G_02_07_2mis_156bp"],
+                            minimumMatches: 1
+                        )
+                    ]
+                )
+            ]
+        )
+
+        let analysis = GenotypeHaplotypeAnalyzer.analyze(
+            calls: [
+                Self.call(
+                    sample: "LF0001",
+                    genotype: "M1_G_02_07_2mis_156bp|haplotype_groups=MHC-A",
+                    reads: 42
+                )
+            ],
+            definitionSet: definition
+        )
+
+        let sample = try XCTUnwrap(analysis.samples.first)
+        let a = try XCTUnwrap(sample.calls.first { $0.locus == "MHC-A" })
+        XCTAssertEqual(a.status, .called)
+        XCTAssertEqual(a.haplotype1, "M1A")
+        XCTAssertEqual(a.haplotype2, "-")
+        XCTAssertEqual(a.matchedHaplotypes.map(\.name), ["M1A"])
     }
 
     func testMCMAnalyzerOmitsMHCEFromDeterministicHaplotypeCalls() throws {

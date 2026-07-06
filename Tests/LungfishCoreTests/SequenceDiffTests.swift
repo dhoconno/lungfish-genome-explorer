@@ -9,6 +9,24 @@ final class SequenceDiffTests: XCTestCase {
 
     // MARK: - Compute Tests
 
+    func testVersioningHelpersRemainPublicAPI() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let diffSource = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishCore/Versioning/SequenceDiff.swift"),
+            encoding: .utf8
+        )
+        let versionSource = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishCore/Versioning/Version.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(diffSource.contains("public static func computeDetailed(from original: String, to modified: String)"))
+        XCTAssertTrue(versionSource.contains("public static func computeHash(_ content: String)"))
+    }
+
     func testComputeNoChange() {
         let diff = SequenceDiff.compute(from: "ATCGATCG", to: "ATCGATCG")
 

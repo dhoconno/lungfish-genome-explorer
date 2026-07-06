@@ -281,6 +281,15 @@ extension SidebarViewController: NSOutlineViewDataSource {
         return trimmedTitle.isEmpty ? "Merged Bundle" : "\(trimmedTitle) merged"
     }
 
+    static func mergeDialogInformativeText(for mergeKind: BundleMergeSelectionKind) -> String {
+        switch mergeKind {
+        case .fastq:
+            return "Enter a name for the merged FASTQ bundle:"
+        case .reference:
+            return "Enter a name for the merged sequence-only reference bundle. Bundles with annotations, variants, tracks, or alignments are rejected rather than partially merged."
+        }
+    }
+
     static func deepestCommonParent(for urls: [URL]) -> URL? {
         let parentComponents = urls.map { $0.deletingLastPathComponent().standardizedFileURL.pathComponents }
         guard var sharedComponents = parentComponents.first else { return nil }
@@ -610,6 +619,7 @@ extension SidebarViewController: NSOutlineViewDataSource {
                     continue  // Don't remove from sidebar if file deletion failed
                 }
             }
+            removeAnalysisManifestReferencesIfNeeded(forDeleted: url)
 
             for sidecarURL in sidecars {
                 // macOS moves an AppleDouble companion (._<name>) to Trash
@@ -711,7 +721,7 @@ extension SidebarViewController: NSOutlineViewDataSource {
         return false
     }
 
-    // MARK: - Surgical row removal (Task 18)
+    // MARK: - Surgical row removal
 
     /// A grouped set of rows to remove from the outline: the `parent` under which the
     /// rows live (`nil` for top-level `rootItems`) and the `IndexSet` of child indices
@@ -958,6 +968,7 @@ extension SidebarViewController: NSOutlineViewDataSource {
             do {
                 try FileManager.default.moveItem(at: sourceURL, to: destURL)
                 rehydrateScientificProvenance(from: sourceURL, to: destURL)
+                rewriteAnalysisManifestReferencesIfNeeded(from: sourceURL, to: destURL)
                 movedCount += 1
                 sidebarLogger.info("moveItems: File moved from \(sourceURL.path, privacy: .public) to \(destURL.path, privacy: .public)")
             } catch {

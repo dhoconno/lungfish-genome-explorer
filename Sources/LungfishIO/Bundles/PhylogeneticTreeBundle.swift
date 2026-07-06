@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import LungfishCore
 import SQLite3
 
 public struct PhylogeneticTreeBundle: Sendable, Equatable {
@@ -104,7 +105,7 @@ public struct PhylogeneticTreeBundle: Sendable, Equatable {
         var options = provenance.options
         options["column"] = column
         options["metadataPath"] = metadataURL.path
-        let transformed = try writeDerivedBundle(
+        return try writeDerivedBundle(
             newick: newick,
             destinationURL: destinationURL,
             workflowName: "phylogenetic-tree-relabel",
@@ -112,7 +113,6 @@ public struct PhylogeneticTreeBundle: Sendable, Equatable {
             provenance: provenance.withOptions(options),
             metadataURL: metadataURL
         )
-        return transformed
     }
 
     public func resolveNode(selector: String) throws -> PhylogeneticTreeNormalizedNode {
@@ -485,7 +485,9 @@ public enum PhylogeneticTreeBundleImporter {
             let provenance = PhylogeneticTreeProvenance(
                 toolName: options.toolName,
                 toolVersion: options.toolVersion,
+                createdAt: started,
                 argv: options.argv ?? defaultArgv(sourceURL: sourceURL, destinationURL: destinationURL),
+                durableReplayArgv: options.argv ?? defaultArgv(sourceURL: sourceURL, destinationURL: destinationURL),
                 command: options.command ?? shellCommand(defaultArgv(sourceURL: sourceURL, destinationURL: destinationURL)),
                 options: [
                     "sourceFormat": options.sourceFormat ?? "auto",
@@ -524,7 +526,7 @@ public enum PhylogeneticTreeBundleImporter {
     }
 
     private static func defaultArgv(sourceURL: URL, destinationURL: URL) -> [String] {
-        ["lungfish", "import", "tree", sourceURL.path, "--output", destinationURL.path]
+        [CLICommandIdentity.executableName, "import", "tree", sourceURL.path, "--output", destinationURL.path]
     }
 
     private static func shellCommand(_ argv: [String]) -> String {
@@ -594,42 +596,231 @@ public enum PhylogeneticTreeBundleImporter {
 }
 
 public struct PhylogeneticTreeProvenance: Codable, Sendable, Equatable {
+    public struct ToolIdentity: Codable, Sendable, Equatable {
+        public let name: String
+        public let version: String
+        public let kind: String?
+    }
+
+    public struct Options: Codable, Sendable, Equatable {
+        public let explicit: [String: String]
+        public let defaults: [String: String]
+        public let resolvedDefaults: [String: String]
+    }
+
     public struct RuntimeIdentity: Codable, Sendable, Equatable {
+        public let appVersion: String
+        public let executablePath: String
+        public let processIdentifier: Int
+        public let operatingSystemVersion: String
+        public let architecture: String
+        public let gitRevision: String?
+        public let user: String?
+        public let pluginPack: String?
         public let operatingSystem: String
         public let swiftRuntime: String
         public let condaEnvironment: String?
+        public let condaPrefix: String?
         public let containerImage: String?
+        public let containerDigest: String?
 
         public static var current: RuntimeIdentity {
-            RuntimeIdentity(
+            let environment = ProcessInfo.processInfo.environment
+            return RuntimeIdentity(
+                appVersion: PhylogeneticTreeBundleImporter.toolVersion,
+                executablePath: Bundle.main.executablePath ?? CommandLine.arguments.first ?? "unknown",
+                processIdentifier: Int(ProcessInfo.processInfo.processIdentifier),
+                operatingSystemVersion: Self.currentHostOS,
+                architecture: Self.currentArchitecture,
+                gitRevision: nil,
+                user: Self.currentUser,
+                pluginPack: nil,
                 operatingSystem: ProcessInfo.processInfo.operatingSystemVersionString,
                 swiftRuntime: "swift",
-                condaEnvironment: ProcessInfo.processInfo.environment["CONDA_DEFAULT_ENV"],
-                containerImage: nil
+                condaEnvironment: environment["CONDA_DEFAULT_ENV"],
+                condaPrefix: environment["CONDA_PREFIX"],
+                containerImage: nil,
+                containerDigest: nil
             )
+        }
+
+        private static var currentArchitecture: String {
+            #if arch(arm64)
+            return "arm64"
+            #elseif arch(x86_64)
+            return "x86_64"
+            #else
+            return "unknown"
+            #endif
+        }
+
+        private static var currentHostOS: String {
+            let os = ProcessInfo.processInfo.operatingSystemVersion
+            return "macOS \(os.majorVersion).\(os.minorVersion).\(os.patchVersion) (\(currentArchitecture))"
+        }
+
+        private static var currentUser: String {
+            let nsUser = NSUserName()
+            if !nsUser.isEmpty { return nsUser }
+            let environment = ProcessInfo.processInfo.environment
+            if let user = environment["USER"], !user.isEmpty { return user }
+            if let logname = environment["LOGNAME"], !logname.isEmpty { return logname }
+            return "unknown"
         }
     }
 
     public struct FileRecord: Codable, Sendable, Equatable {
         public let path: String
         public let sha256: String
+        public let checksumSHA256: String
         public let fileSizeBytes: Int64
+        public let fileSize: UInt64
+        public let role: String?
+
+        public init(path: String, sha256: String, fileSizeBytes: Int64, role: String? = nil) {
+            self.path = path
+            self.sha256 = sha256
+            checksumSHA256 = sha256
+            self.fileSizeBytes = fileSizeBytes
+            fileSize = UInt64(max(fileSizeBytes, 0))
+            self.role = role
+        }
     }
 
+    public struct Step: Codable, Sendable, Equatable {
+        public let id: UUID
+        public let toolName: String
+        public let toolVersion: String
+        public let argv: [String]
+        public let durableReplayArgv: [String]?
+        public let reproducibleCommand: String
+        public let inputs: [FileRecord]
+        public let outputs: [FileRecord]
+        public let exitStatus: Int
+        public let wallTimeSeconds: TimeInterval
+        public let stderr: String?
+        public let dependsOn: [UUID]
+        public let startedAt: Date
+        public let completedAt: Date
+    }
+
+    public let schemaVersion: Int
+    public let id: UUID
+    public let createdAt: Date
+    public let workflowName: String
+    public let workflowVersion: String
     public let toolName: String
     public let toolVersion: String
+    public let tool: ToolIdentity
     public let argv: [String]
+    public let durableReplayArgv: [String]?
+    public let reproducibleCommand: String
     public let command: String
-    public let options: [String: String]
+    public let options: Options
     public let runtime: RuntimeIdentity
+    public let runtimeIdentity: RuntimeIdentity
+    public let files: [FileRecord]
     public let input: FileRecord
     public let output: FileRecord
+    public let outputs: [FileRecord]
+    public let steps: [Step]
     public let checksums: [String: String]
     public let fileSizes: [String: Int64]
     public let exitStatus: Int
     public let wallTimeSeconds: TimeInterval
     public let warnings: [String]
     public let stderr: String?
+    public let signatures: [String]
+
+    public init(
+        toolName: String,
+        toolVersion: String,
+        createdAt: Date = Date(),
+        argv: [String],
+        durableReplayArgv: [String]? = nil,
+        command: String,
+        options: [String: String],
+        runtime: RuntimeIdentity,
+        input: FileRecord,
+        output: FileRecord,
+        checksums: [String: String],
+        fileSizes: [String: Int64],
+        exitStatus: Int,
+        wallTimeSeconds: TimeInterval,
+        warnings: [String],
+        stderr: String?
+    ) {
+        schemaVersion = 1
+        id = UUID()
+        self.createdAt = createdAt
+        workflowName = toolName
+        workflowVersion = toolVersion
+        self.toolName = toolName
+        self.toolVersion = toolVersion
+        tool = ToolIdentity(name: toolName, version: toolVersion, kind: CLICommandIdentity.executableName)
+        self.argv = argv
+        self.durableReplayArgv = durableReplayArgv
+        reproducibleCommand = command
+        self.command = command
+        self.options = Options(
+            explicit: [:],
+            defaults: [
+                "primaryTree": "first",
+                "normalizeComments": "true",
+                "writeSQLiteIndex": "true"
+            ],
+            resolvedDefaults: options
+        )
+        self.runtime = runtime
+        runtimeIdentity = runtime
+        self.input = FileRecord(
+            path: input.path,
+            sha256: input.sha256,
+            fileSizeBytes: input.fileSizeBytes,
+            role: "input"
+        )
+        self.output = FileRecord(
+            path: output.path,
+            sha256: output.sha256,
+            fileSizeBytes: output.fileSizeBytes,
+            role: "output"
+        )
+        let payloadOutputs = checksums.keys.sorted().map { path in
+            FileRecord(
+                path: path,
+                sha256: checksums[path] ?? "",
+                fileSizeBytes: fileSizes[path] ?? 0,
+                role: "output"
+            )
+        }
+        files = [self.input, self.output] + payloadOutputs
+        outputs = [self.output] + payloadOutputs
+        self.checksums = checksums
+        self.fileSizes = fileSizes
+        self.exitStatus = exitStatus
+        self.wallTimeSeconds = wallTimeSeconds
+        self.warnings = warnings
+        self.stderr = stderr
+        steps = [
+            Step(
+                id: UUID(),
+                toolName: toolName,
+                toolVersion: toolVersion,
+                argv: argv,
+                durableReplayArgv: durableReplayArgv,
+                reproducibleCommand: command,
+                inputs: [self.input],
+                outputs: outputs,
+                exitStatus: exitStatus,
+                wallTimeSeconds: wallTimeSeconds,
+                stderr: stderr,
+                dependsOn: [],
+                startedAt: createdAt,
+                completedAt: createdAt.addingTimeInterval(wallTimeSeconds)
+            )
+        ]
+        signatures = []
+    }
 }
 
 private struct PhylogeneticTreeViewState: Codable, Sendable {
@@ -653,1156 +844,3 @@ private struct PhylogeneticTreeViewState: Codable, Sendable {
         self.visibleMetadataColumns = []
     }
 }
-
-private final class ParsedTreeNode {
-    var rawLabel: String?
-    var displayLabel: String
-    var branchLength: Double?
-    var metadata: [String: String]
-    var children: [ParsedTreeNode]
-
-    init(
-        rawLabel: String? = nil,
-        displayLabel: String = "",
-        branchLength: Double? = nil,
-        metadata: [String: String] = [:],
-        children: [ParsedTreeNode] = []
-    ) {
-        self.rawLabel = rawLabel
-        self.displayLabel = displayLabel
-        self.branchLength = branchLength
-        self.metadata = metadata
-        self.children = children
-    }
-}
-
-private struct ParsedTree {
-    let tree: ParsedTreeNode
-    let sourceFormat: String
-    let treeCount: Int
-    let isRooted: Bool
-}
-
-private enum TreeInputParser {
-    static func parse(text: String, sourceURL: URL, requestedFormat: String?) throws -> ParsedTree {
-        let format = try resolvedFormat(text: text, sourceURL: sourceURL, requestedFormat: requestedFormat)
-        switch format {
-        case "newick":
-            let parser = NewickParser(text: text, translations: [:])
-            let root = try parser.parse()
-            return ParsedTree(tree: root, sourceFormat: "newick", treeCount: 1, isRooted: parser.isRooted(root: root))
-        case "nexus":
-            let nexus = try NexusTreeBlockParser.parse(text: text)
-            let parser = NewickParser(text: nexus.newick, translations: nexus.translations)
-            let root = try parser.parse()
-            let rooted = parser.explicitRooted ?? nexus.explicitRooted ?? parser.isRooted(root: root)
-            return ParsedTree(tree: root, sourceFormat: "nexus", treeCount: nexus.treeCount, isRooted: rooted)
-        default:
-            throw PhylogeneticTreeBundleError.unsupportedFormat(format)
-        }
-    }
-
-    private static func resolvedFormat(text: String, sourceURL: URL, requestedFormat: String?) throws -> String {
-        if let requestedFormat {
-            let lower = requestedFormat.lowercased()
-            if lower == "newick" || lower == "nexus" {
-                return lower
-            }
-            throw PhylogeneticTreeBundleError.unsupportedFormat(requestedFormat)
-        }
-        let ext = sourceURL.pathExtension.lowercased()
-        if ["nwk", "newick", "tree", "tre", "treefile", "contree"].contains(ext) {
-            return text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("#nexus")
-                ? "nexus" : "newick"
-        }
-        if ["nex", "nexus"].contains(ext) {
-            return "nexus"
-        }
-        if text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("#nexus") {
-            return "nexus"
-        }
-        return "newick"
-    }
-}
-
-private struct NexusTreeBlockParser {
-    let translations: [String: String]
-    let newick: String
-    let treeCount: Int
-    let explicitRooted: Bool?
-
-    static func parse(text: String) throws -> NexusTreeBlockParser {
-        guard let block = treeBlock(in: text) else {
-            throw PhylogeneticTreeBundleError.parseFailed("NEXUS file does not contain a trees block.")
-        }
-        let translations = parseTranslations(in: block)
-        let treeStatements = treeStatementPayloads(in: block)
-        guard let first = treeStatements.first else {
-            throw PhylogeneticTreeBundleError.parseFailed("NEXUS trees block does not contain a tree statement.")
-        }
-        return NexusTreeBlockParser(
-            translations: translations,
-            newick: first.newick,
-            treeCount: treeStatements.count,
-            explicitRooted: first.rooted
-        )
-    }
-
-    private static func treeBlock(in text: String) -> String? {
-        let lower = text.lowercased()
-        guard let beginRange = lower.range(of: "begin trees;") ?? lower.range(of: "begin trees") else {
-            return nil
-        }
-        guard let endRange = lower[beginRange.upperBound...].range(of: "end;")
-            ?? lower[beginRange.upperBound...].range(of: "end") else {
-            return nil
-        }
-        return String(text[beginRange.upperBound..<endRange.lowerBound])
-    }
-
-    private static func parseTranslations(in block: String) -> [String: String] {
-        let lower = block.lowercased()
-        guard let translateRange = lower.range(of: "translate") else { return [:] }
-        guard let semicolon = block[translateRange.upperBound...].firstIndex(of: ";") else { return [:] }
-        let body = block[translateRange.upperBound..<semicolon]
-        var result: [String: String] = [:]
-        for entry in body.split(separator: ",") {
-            let trimmed = entry.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            let parts = trimmed.split(maxSplits: 1, whereSeparator: { $0.isWhitespace })
-            guard parts.count == 2 else { continue }
-            result[String(parts[0])] = unquote(String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-        return result
-    }
-
-    private static func treeStatementPayloads(in block: String) -> [(newick: String, rooted: Bool?)] {
-        var results: [(String, Bool?)] = []
-        let scanner = NewickTextScanner(text: block)
-        while !scanner.isAtEnd {
-            scanner.skipWhitespace()
-            guard scanner.consumeKeyword("tree") || scanner.consumeKeyword("utree") else {
-                scanner.advance()
-                continue
-            }
-            guard scanner.consumeUntil("=") else { continue }
-            scanner.skipWhitespace()
-            var rooted: Bool?
-            if scanner.peekCommentPrefix() {
-                let comment = scanner.readComment() ?? ""
-                let lower = comment.lowercased()
-                if lower == "&r" { rooted = true }
-                if lower == "&u" { rooted = false }
-            }
-            let newick = scanner.readBalancedNewickStatement()
-            if !newick.isEmpty {
-                results.append((newick, rooted))
-            }
-        }
-        return results
-    }
-
-    private static func unquote(_ value: String) -> String {
-        var value = value
-        if value.hasSuffix(";") { value.removeLast() }
-        if value.count >= 2, value.first == "'", value.last == "'" {
-            return String(value.dropFirst().dropLast()).replacingOccurrences(of: "''", with: "'")
-        }
-        if value.count >= 2, value.first == "\"", value.last == "\"" {
-            return String(value.dropFirst().dropLast())
-        }
-        return value
-    }
-}
-
-private final class NewickParser {
-    private let scanner: NewickTextScanner
-    private let translations: [String: String]
-    private(set) var explicitRooted: Bool?
-
-    init(text: String, translations: [String: String]) {
-        self.scanner = NewickTextScanner(text: text)
-        self.translations = translations
-    }
-
-    func parse() throws -> ParsedTreeNode {
-        scanner.skipWhitespace()
-        if scanner.peekCommentPrefix(), let comment = scanner.readComment() {
-            if comment.lowercased() == "&r" { explicitRooted = true }
-            if comment.lowercased() == "&u" { explicitRooted = false }
-        }
-        let root = try parseSubtree()
-        scanner.skipWhitespace()
-        guard scanner.consume(";") else {
-            throw PhylogeneticTreeBundleError.parseFailed("Expected ';' at end of Newick tree.")
-        }
-        scanner.skipWhitespace()
-        if !scanner.isAtEnd {
-            throw PhylogeneticTreeBundleError.parseFailed("Unexpected content after Newick terminator.")
-        }
-        return root
-    }
-
-    func isRooted(root: ParsedTreeNode) -> Bool {
-        explicitRooted ?? (root.children.count == 2)
-    }
-
-    private func parseSubtree() throws -> ParsedTreeNode {
-        scanner.skipWhitespace()
-        if scanner.consume("(") {
-            var children: [ParsedTreeNode] = []
-            repeat {
-                children.append(try parseSubtree())
-                scanner.skipWhitespace()
-            } while scanner.consume(",")
-            guard scanner.consume(")") else {
-                throw PhylogeneticTreeBundleError.parseFailed("Expected ')' to close child list.")
-            }
-            let parsed = try parseNodeSuffix(allowsEmptyLabel: true)
-            parsed.children = children
-            return parsed
-        }
-
-        let parsed = try parseNodeSuffix(allowsEmptyLabel: false)
-        guard !parsed.displayLabel.isEmpty else {
-            throw PhylogeneticTreeBundleError.parseFailed("Tip node is missing a label.")
-        }
-        return parsed
-    }
-
-    private func parseNodeSuffix(allowsEmptyLabel: Bool) throws -> ParsedTreeNode {
-        var metadata: [String: String] = [:]
-        scanner.skipWhitespace()
-        while scanner.peekCommentPrefix(), let comment = scanner.readComment() {
-            metadata.merge(parseMetadataComment(comment)) { _, new in new }
-            scanner.skipWhitespace()
-        }
-
-        let label = scanner.readLabel()
-        scanner.skipWhitespace()
-        while scanner.peekCommentPrefix(), let comment = scanner.readComment() {
-            metadata.merge(parseMetadataComment(comment)) { _, new in new }
-            scanner.skipWhitespace()
-        }
-
-        var length: Double?
-        if scanner.consume(":") {
-            let token = scanner.readLengthToken()
-            guard let parsedLength = Double(token) else {
-                throw PhylogeneticTreeBundleError.parseFailed("Invalid branch length '\(token)'.")
-            }
-            length = parsedLength
-        }
-
-        let rawLabel = label.isEmpty ? nil : label
-        let display = rawLabel.flatMap { translations[$0] } ?? rawLabel ?? ""
-        if !allowsEmptyLabel && display.isEmpty {
-            throw PhylogeneticTreeBundleError.parseFailed("Tip node is missing a label.")
-        }
-        return ParsedTreeNode(
-            rawLabel: rawLabel,
-            displayLabel: display,
-            branchLength: length,
-            metadata: metadata
-        )
-    }
-
-    private func parseMetadataComment(_ comment: String) -> [String: String] {
-        var body = comment.trimmingCharacters(in: .whitespacesAndNewlines)
-        if body.hasPrefix("&") {
-            body.removeFirst()
-        }
-        if body.lowercased() == "r" {
-            explicitRooted = true
-            return [:]
-        }
-        if body.lowercased() == "u" {
-            explicitRooted = false
-            return [:]
-        }
-
-        var result: [String: String] = [:]
-        for part in splitMetadataList(body) {
-            let pieces = part.split(separator: "=", maxSplits: 1).map(String.init)
-            guard pieces.count == 2 else { continue }
-            result[pieces[0].trimmingCharacters(in: .whitespacesAndNewlines)] = unquote(
-                pieces[1].trimmingCharacters(in: .whitespacesAndNewlines)
-            )
-        }
-        return result
-    }
-
-    private func splitMetadataList(_ body: String) -> [String] {
-        var parts: [String] = []
-        var current = ""
-        var quote: Character?
-        for ch in body {
-            if ch == "\"" || ch == "'" {
-                if quote == ch {
-                    quote = nil
-                } else if quote == nil {
-                    quote = ch
-                }
-            }
-            if ch == ",", quote == nil {
-                parts.append(current)
-                current = ""
-            } else {
-                current.append(ch)
-            }
-        }
-        if !current.isEmpty { parts.append(current) }
-        return parts
-    }
-
-    private func unquote(_ value: String) -> String {
-        if value.count >= 2, value.first == "\"", value.last == "\"" {
-            return String(value.dropFirst().dropLast())
-        }
-        if value.count >= 2, value.first == "'", value.last == "'" {
-            return String(value.dropFirst().dropLast()).replacingOccurrences(of: "''", with: "'")
-        }
-        return value
-    }
-}
-
-private final class NewickTextScanner {
-    private let chars: [Character]
-    private var index: Int = 0
-
-    init(text: String) {
-        self.chars = Array(text)
-    }
-
-    var isAtEnd: Bool { index >= chars.count }
-
-    func advance() {
-        if !isAtEnd { index += 1 }
-    }
-
-    func skipWhitespace() {
-        while !isAtEnd, chars[index].isWhitespace {
-            index += 1
-        }
-    }
-
-    func consume(_ literal: Character) -> Bool {
-        skipWhitespace()
-        guard !isAtEnd, chars[index] == literal else { return false }
-        index += 1
-        return true
-    }
-
-    func consumeKeyword(_ keyword: String) -> Bool {
-        skipWhitespace()
-        let end = index + keyword.count
-        guard end <= chars.count else { return false }
-        let candidate = String(chars[index..<end]).lowercased()
-        guard candidate == keyword.lowercased() else { return false }
-        if end < chars.count, isLabelCharacter(chars[end]) {
-            return false
-        }
-        index = end
-        return true
-    }
-
-    func consumeUntil(_ literal: Character) -> Bool {
-        while !isAtEnd {
-            if chars[index] == literal {
-                index += 1
-                return true
-            }
-            index += 1
-        }
-        return false
-    }
-
-    func peekCommentPrefix() -> Bool {
-        skipWhitespace()
-        return !isAtEnd && chars[index] == "["
-    }
-
-    func readComment() -> String? {
-        skipWhitespace()
-        guard !isAtEnd, chars[index] == "[" else { return nil }
-        index += 1
-        var depth = 1
-        var result = ""
-        while !isAtEnd {
-            let ch = chars[index]
-            index += 1
-            if ch == "[" {
-                depth += 1
-            } else if ch == "]" {
-                depth -= 1
-                if depth == 0 {
-                    return result
-                }
-            }
-            if depth > 0 {
-                result.append(ch)
-            }
-        }
-        return nil
-    }
-
-    func readLabel() -> String {
-        skipWhitespace()
-        guard !isAtEnd else { return "" }
-        if chars[index] == "'" {
-            index += 1
-            var result = ""
-            while !isAtEnd {
-                let ch = chars[index]
-                index += 1
-                if ch == "'" {
-                    if !isAtEnd, chars[index] == "'" {
-                        result.append("'")
-                        index += 1
-                        continue
-                    }
-                    break
-                }
-                result.append(ch)
-            }
-            return result
-        }
-
-        var result = ""
-        while !isAtEnd, isLabelCharacter(chars[index]) {
-            result.append(chars[index])
-            index += 1
-        }
-        return result.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    func readLengthToken() -> String {
-        skipWhitespace()
-        var result = ""
-        while !isAtEnd {
-            let ch = chars[index]
-            if ch == "," || ch == ")" || ch == ";" || ch == "[" || ch.isWhitespace {
-                break
-            }
-            result.append(ch)
-            index += 1
-        }
-        return result
-    }
-
-    func readBalancedNewickStatement() -> String {
-        skipWhitespace()
-        var result = ""
-        var depth = 0
-        var inSingleQuote = false
-        var commentDepth = 0
-        while !isAtEnd {
-            let ch = chars[index]
-            index += 1
-            result.append(ch)
-            if commentDepth > 0 {
-                if ch == "[" { commentDepth += 1 }
-                if ch == "]" { commentDepth -= 1 }
-                continue
-            }
-            if ch == "'", !inSingleQuote {
-                inSingleQuote = true
-                continue
-            } else if ch == "'", inSingleQuote {
-                if !isAtEnd, chars[index] == "'" {
-                    result.append(chars[index])
-                    index += 1
-                    continue
-                }
-                inSingleQuote = false
-                continue
-            }
-            if inSingleQuote { continue }
-            if ch == "[" { commentDepth = 1 }
-            if ch == "(" { depth += 1 }
-            if ch == ")" { depth -= 1 }
-            if ch == ";", depth == 0 {
-                break
-            }
-        }
-        return result
-    }
-
-    private func isLabelCharacter(_ ch: Character) -> Bool {
-        !(ch == ":" || ch == "," || ch == ")" || ch == "(" || ch == ";" || ch == "[" || ch == "]")
-            && !ch.isWhitespace
-    }
-}
-
-private enum TreeNormalizer {
-    static func normalizedTree(from root: ParsedTreeNode, rooted: Bool) -> PhylogeneticTreeNormalizedTree {
-        var nodes: [PartialNode] = []
-        _ = collect(
-            node: root,
-            parentID: nil,
-            path: "root",
-            cumulativeDivergence: 0,
-            nodes: &nodes
-        )
-        let finalNodes = nodes.map { partial in
-            PhylogeneticTreeNormalizedNode(
-                id: partial.id,
-                rawLabel: partial.rawLabel,
-                displayLabel: partial.displayLabel,
-                parentID: partial.parentID,
-                childIDs: partial.childIDs,
-                isTip: partial.isTip,
-                branchLength: partial.branchLength,
-                cumulativeDivergence: partial.cumulativeDivergence,
-                metadata: partial.metadata,
-                support: partial.support,
-                descendantTipCount: partial.descendantTipCount
-            )
-        }
-        return PhylogeneticTreeNormalizedTree(schemaVersion: 1, treeID: "tree-1", rooted: rooted, nodes: finalNodes)
-    }
-
-    private static func collect(
-        node: ParsedTreeNode,
-        parentID: String?,
-        path: String,
-        cumulativeDivergence: Double,
-        nodes: inout [PartialNode]
-    ) -> (id: String, descendantTipCount: Int) {
-        let id = stableID(path: path, node: node)
-        var childIDs: [String] = []
-        var descendantTipCount = node.children.isEmpty ? 1 : 0
-        let nodeDivergence = cumulativeDivergence + (node.branchLength ?? 0)
-        for (idx, child) in node.children.enumerated() {
-            let childResult = collect(
-                node: child,
-                parentID: id,
-                path: "\(path).\(idx)",
-                cumulativeDivergence: nodeDivergence,
-                nodes: &nodes
-            )
-            childIDs.append(childResult.id)
-            descendantTipCount += childResult.descendantTipCount
-        }
-
-        let support = supportValue(for: node)
-        nodes.insert(
-            PartialNode(
-                id: id,
-                rawLabel: node.rawLabel,
-                displayLabel: node.displayLabel.isEmpty ? "Internal node" : node.displayLabel,
-                parentID: parentID,
-                childIDs: childIDs,
-                isTip: node.children.isEmpty,
-                branchLength: node.branchLength,
-                cumulativeDivergence: parentID == nil ? 0 : nodeDivergence,
-                metadata: node.metadata,
-                support: support,
-                descendantTipCount: descendantTipCount
-            ),
-            at: 0
-        )
-        return (id, descendantTipCount)
-    }
-
-    private static func stableID(path: String, node: ParsedTreeNode) -> String {
-        let content = "\(path)|\(node.rawLabel ?? "")|\(node.displayLabel)|\(node.children.count)"
-        let digest = PhylogeneticTreeBundleImporter.sha256Hex(for: Data(content.utf8))
-        return "node-\(digest.prefix(16))"
-    }
-
-    private static func supportValue(for node: ParsedTreeNode) -> PhylogeneticTreeSupport? {
-        if let posterior = node.metadata["posterior"] {
-            return PhylogeneticTreeSupport(rawValue: posterior, interpretation: "posterior")
-        }
-        guard !node.children.isEmpty, let raw = node.rawLabel else { return nil }
-        guard let value = Double(raw) else {
-            return PhylogeneticTreeSupport(rawValue: raw, interpretation: "unknown")
-        }
-        if value >= 0, value <= 1 {
-            return PhylogeneticTreeSupport(rawValue: raw, interpretation: "posterior")
-        }
-        if value > 1, value <= 100 {
-            return PhylogeneticTreeSupport(rawValue: raw, interpretation: "bootstrap")
-        }
-        return PhylogeneticTreeSupport(rawValue: raw, interpretation: "unknown")
-    }
-
-    private struct PartialNode {
-        let id: String
-        let rawLabel: String?
-        let displayLabel: String
-        let parentID: String?
-        let childIDs: [String]
-        let isTip: Bool
-        let branchLength: Double?
-        let cumulativeDivergence: Double?
-        let metadata: [String: String]
-        let support: PhylogeneticTreeSupport?
-        let descendantTipCount: Int
-    }
-}
-
-private enum TreeWarningCollector {
-    static func warnings(for tree: PhylogeneticTreeNormalizedTree) -> [String] {
-        var warnings: [String] = []
-        let nonRootNodes = tree.nodes.filter { $0.parentID != nil }
-        if nonRootNodes.contains(where: { $0.branchLength == nil }) {
-            warnings.append("Tree contains one or more edges without branch lengths.")
-        }
-        if nonRootNodes.contains(where: { ($0.branchLength ?? 0) < 0 }) {
-            warnings.append("Tree contains one or more negative branch lengths.")
-        }
-        for node in tree.nodes where !node.isTip {
-            if let support = node.support {
-                if support.interpretation == "posterior", node.rawLabel == support.rawValue {
-                    warnings.append("Internal support value '\(support.rawValue)' was interpreted as posterior probability.")
-                } else if support.interpretation == "unknown" {
-                    warnings.append("Internal support value '\(support.rawValue)' has unknown interpretation.")
-                }
-            }
-        }
-        return Array(NSOrderedSet(array: warnings)) as? [String] ?? warnings
-    }
-}
-
-private enum NewickWriter {
-    static func write(_ root: ParsedTreeNode) -> String {
-        writeNode(root) + ";"
-    }
-
-    private static func writeNode(_ node: ParsedTreeNode) -> String {
-        var result = ""
-        if !node.children.isEmpty {
-            result += "(" + node.children.map(writeNode).joined(separator: ",") + ")"
-        }
-        if !node.displayLabel.isEmpty {
-            result += escapedLabel(node.displayLabel)
-        } else if let rawLabel = node.rawLabel {
-            result += escapedLabel(rawLabel)
-        }
-        if let branchLength = node.branchLength {
-            result += ":\(branchLength)"
-        }
-        return result
-    }
-
-    private static func escapedLabel(_ label: String) -> String {
-        let safeCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-")
-        if label.unicodeScalars.allSatisfy({ safeCharacters.contains($0) }) {
-            return label
-        }
-        return "'" + label.replacingOccurrences(of: "'", with: "''") + "'"
-    }
-}
-
-private struct PhylogeneticTreeSubtreeExporter {
-    let bundle: PhylogeneticTreeBundle
-    let nodesByID: [String: PhylogeneticTreeNormalizedNode]
-
-    init(bundle: PhylogeneticTreeBundle) {
-        self.bundle = bundle
-        self.nodesByID = Dictionary(uniqueKeysWithValues: bundle.normalizedTree.nodes.map { ($0.id, $0) })
-    }
-
-    func export(nodeID: String) throws -> PhylogeneticTreeSubtreeExport {
-        let trimmed = nodeID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let node = nodesByID[trimmed] else {
-            throw PhylogeneticTreeBundleError.nodeNotFound("node \(nodeID)")
-        }
-        return try export(node: node)
-    }
-
-    func export(label: String) throws -> PhylogeneticTreeSubtreeExport {
-        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
-        let matches = bundle.normalizedTree.nodes.filter { node in
-            node.displayLabel == trimmed || node.rawLabel == trimmed
-        }
-        guard matches.isEmpty == false else {
-            throw PhylogeneticTreeBundleError.nodeNotFound("label \(label)")
-        }
-        guard matches.count == 1, let node = matches.first else {
-            throw PhylogeneticTreeBundleError.ambiguousNodeLabel(label)
-        }
-        return try export(node: node)
-    }
-
-    private func export(node: PhylogeneticTreeNormalizedNode) throws -> PhylogeneticTreeSubtreeExport {
-        PhylogeneticTreeSubtreeExport(
-            selectedNodeID: node.id,
-            selectedLabel: nodeLabel(for: node) ?? node.displayLabel,
-            newick: try writeNode(node) + ";",
-            descendantTipCount: node.descendantTipCount
-        )
-    }
-
-    private func writeNode(_ node: PhylogeneticTreeNormalizedNode) throws -> String {
-        var result = ""
-        if node.childIDs.isEmpty == false {
-            let children = try node.childIDs.map { childID in
-                guard let child = nodesByID[childID] else {
-                    throw PhylogeneticTreeBundleError.parseFailed("Normalized tree references missing child node \(childID).")
-                }
-                return try writeNode(child)
-            }
-            result += "(" + children.joined(separator: ",") + ")"
-        }
-        if let label = nodeLabel(for: node), label.isEmpty == false {
-            result += escapedLabel(label)
-        }
-        if let branchLength = node.branchLength {
-            result += ":\(branchLength)"
-        }
-        return result
-    }
-
-    private func nodeLabel(for node: PhylogeneticTreeNormalizedNode) -> String? {
-        if node.isTip {
-            return node.displayLabel
-        }
-        if node.rawLabel != nil {
-            return node.displayLabel
-        }
-        if node.displayLabel != "Internal node" {
-            return node.displayLabel
-        }
-        return nil
-    }
-
-    private func escapedLabel(_ label: String) -> String {
-        let safeCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-")
-        if label.unicodeScalars.allSatisfy({ safeCharacters.contains($0) }) {
-            return label
-        }
-        return "'" + label.replacingOccurrences(of: "'", with: "''") + "'"
-    }
-}
-
-private struct PhylogeneticTreeRerooter {
-    let bundle: PhylogeneticTreeBundle
-    let nodesByID: [String: PhylogeneticTreeNormalizedNode]
-    let neighborsByID: [String: [String]]
-
-    init(bundle: PhylogeneticTreeBundle) {
-        self.bundle = bundle
-        self.nodesByID = Dictionary(uniqueKeysWithValues: bundle.normalizedTree.nodes.map { ($0.id, $0) })
-        var neighbors: [String: [String]] = [:]
-        for node in bundle.normalizedTree.nodes {
-            neighbors[node.id, default: []].append(contentsOf: node.childIDs)
-            if let parentID = node.parentID {
-                neighbors[node.id, default: []].append(parentID)
-                neighbors[parentID, default: []].append(node.id)
-            }
-        }
-        self.neighborsByID = neighbors
-    }
-
-    func newick(rootedOn selected: PhylogeneticTreeNormalizedNode) throws -> String {
-        if selected.isTip, let parentID = selected.parentID {
-            let tip = label(for: selected) + ":0.0"
-            let rest = try writeDirected(nodeID: parentID, previousID: selected.id, branchLength: selected.branchLength)
-            return "(\(tip),\(rest));"
-        }
-        let children = try (neighborsByID[selected.id] ?? []).map { childID in
-            try writeDirected(nodeID: childID, previousID: selected.id, branchLength: edgeLength(between: selected.id, and: childID))
-        }
-        return "(\(children.joined(separator: ",")))\(labelForInternalRoot(selected));"
-    }
-
-    private func writeDirected(nodeID: String, previousID: String, branchLength: Double?) throws -> String {
-        guard let node = nodesByID[nodeID] else {
-            throw PhylogeneticTreeBundleError.nodeNotFound(nodeID)
-        }
-        let children = try (neighborsByID[nodeID] ?? []).filter { $0 != previousID }.map { childID in
-            try writeDirected(nodeID: childID, previousID: nodeID, branchLength: edgeLength(between: nodeID, and: childID))
-        }
-        var result = children.isEmpty ? "" : "(\(children.joined(separator: ",")))"
-        result += label(for: node)
-        if let branchLength {
-            result += ":\(branchLength)"
-        }
-        return result
-    }
-
-    private func edgeLength(between firstID: String, and secondID: String) -> Double? {
-        if nodesByID[secondID]?.parentID == firstID {
-            return nodesByID[secondID]?.branchLength
-        }
-        if nodesByID[firstID]?.parentID == secondID {
-            return nodesByID[firstID]?.branchLength
-        }
-        return nil
-    }
-
-    private func labelForInternalRoot(_ node: PhylogeneticTreeNormalizedNode) -> String {
-        node.isTip ? "" : label(for: node)
-    }
-
-    private func label(for node: PhylogeneticTreeNormalizedNode) -> String {
-        if node.isTip {
-            return escapedLabel(node.displayLabel)
-        }
-        if node.rawLabel != nil || node.displayLabel != "Internal node" {
-            return escapedLabel(node.displayLabel)
-        }
-        return ""
-    }
-
-    private func escapedLabel(_ label: String) -> String {
-        let safeCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-")
-        if label.unicodeScalars.allSatisfy({ safeCharacters.contains($0) }) {
-            return label
-        }
-        return "'" + label.replacingOccurrences(of: "'", with: "''") + "'"
-    }
-}
-
-private struct PhylogeneticTreeRelabeler {
-    let bundle: PhylogeneticTreeBundle
-    let nodesByID: [String: PhylogeneticTreeNormalizedNode]
-
-    init(bundle: PhylogeneticTreeBundle) {
-        self.bundle = bundle
-        self.nodesByID = Dictionary(uniqueKeysWithValues: bundle.normalizedTree.nodes.map { ($0.id, $0) })
-    }
-
-    func newick(labelsByTip: [String: String]) throws -> String {
-        guard let root = bundle.normalizedTree.nodes.first(where: { $0.parentID == nil }) else {
-            throw PhylogeneticTreeBundleError.parseFailed("Normalized tree has no root node.")
-        }
-        return try writeNode(root, labelsByTip: labelsByTip) + ";"
-    }
-
-    private func writeNode(_ node: PhylogeneticTreeNormalizedNode, labelsByTip: [String: String]) throws -> String {
-        var result = ""
-        if node.childIDs.isEmpty == false {
-            let children = try node.childIDs.map { childID in
-                guard let child = nodesByID[childID] else {
-                    throw PhylogeneticTreeBundleError.parseFailed("Normalized tree references missing child node \(childID).")
-                }
-                return try writeNode(child, labelsByTip: labelsByTip)
-            }
-            result += "(" + children.joined(separator: ",") + ")"
-        }
-        if let label = label(for: node, labelsByTip: labelsByTip), label.isEmpty == false {
-            result += escapedLabel(label)
-        }
-        if let branchLength = node.branchLength {
-            result += ":\(branchLength)"
-        }
-        return result
-    }
-
-    private func label(for node: PhylogeneticTreeNormalizedNode, labelsByTip: [String: String]) -> String? {
-        if node.isTip {
-            return labelsByTip[node.displayLabel] ?? labelsByTip[node.rawLabel ?? ""] ?? node.displayLabel
-        }
-        if node.rawLabel != nil || node.displayLabel != "Internal node" {
-            return node.displayLabel
-        }
-        return nil
-    }
-
-    private func escapedLabel(_ label: String) -> String {
-        let safeCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-")
-        if label.unicodeScalars.allSatisfy({ safeCharacters.contains($0) }) {
-            return label
-        }
-        return "'" + label.replacingOccurrences(of: "'", with: "''") + "'"
-    }
-}
-
-private struct TreeTipMetadataTable {
-    let headers: [String]
-    let rows: [[String: String]]
-
-    static func load(from url: URL) throws -> TreeTipMetadataTable {
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            throw PhylogeneticTreeBundleError.missingBundleFile("metadata.tsv")
-        }
-        let lines = try String(contentsOf: url, encoding: .utf8)
-            .split(whereSeparator: \.isNewline)
-            .map(String.init)
-            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        guard let headerLine = lines.first else {
-            throw PhylogeneticTreeBundleError.parseFailed("metadata.tsv is empty.")
-        }
-        let headers = headerLine.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
-        guard headers.isEmpty == false else {
-            throw PhylogeneticTreeBundleError.parseFailed("metadata.tsv has no header row.")
-        }
-        let rows = lines.dropFirst().map { line in
-            let values = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
-            return Dictionary(uniqueKeysWithValues: headers.enumerated().map { index, header in
-                (header, index < values.count ? values[index] : "")
-            })
-        }
-        return TreeTipMetadataTable(headers: headers, rows: rows)
-    }
-
-    func labelsByTip(column: String) throws -> [String: String] {
-        guard headers.contains(column) else {
-            throw PhylogeneticTreeBundleError.nodeNotFound("metadata column \(column)")
-        }
-        let idColumn = ["id", "sample", "sample_id", "name", "tip"].first { headers.contains($0) } ?? headers[0]
-        return rows.reduce(into: [String: String]()) { result, row in
-            guard let id = row[idColumn]?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  id.isEmpty == false,
-                  let label = row[column]?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  label.isEmpty == false else { return }
-            result[id] = label
-        }
-    }
-}
-
-private func derivedTreeProvenance(
-    workflowName: String,
-    actionID: String,
-    provenance: PhylogeneticTreeBundleTransformProvenance,
-    sourceBundleURL: URL,
-    outputBundleURL: URL,
-    payloadPaths: [String],
-    warnings: [String],
-    wallTimeSeconds: TimeInterval,
-    metadataURL: URL?
-) throws -> [String: Any] {
-    let command = provenance.command ?? treeShellCommand(provenance.argv)
-    var object: [String: Any] = [
-        "schemaVersion": 1,
-        "workflowName": workflowName,
-        "actionID": actionID,
-        "toolName": provenance.toolName,
-        "toolVersion": provenance.toolVersion,
-        "argv": provenance.argv,
-        "command": command,
-        "reproducibleCommand": command,
-        "options": provenance.options,
-        "runtime": treeRuntimeIdentityDictionary(),
-        "runtimeIdentity": treeRuntimeIdentityDictionary(),
-        "input": try treeFileRecord(path: sourceBundleURL.path, url: sourceBundleURL),
-        "inputBundle": try treeFileRecord(path: sourceBundleURL.path, url: sourceBundleURL),
-        "inputTreeFile": try treeFileRecord(
-            path: sourceBundleURL.appendingPathComponent("tree/primary.nwk").path,
-            url: sourceBundleURL.appendingPathComponent("tree/primary.nwk")
-        ),
-        "output": try treeFileRecord(path: outputBundleURL.path, url: outputBundleURL),
-        "outputBundle": try treeFileRecord(path: outputBundleURL.path, url: outputBundleURL),
-        "checksums": try treeChecksumMap(paths: payloadPaths, bundleURL: outputBundleURL),
-        "fileSizes": try treeFileSizeMap(paths: payloadPaths, bundleURL: outputBundleURL),
-        "exitStatus": 0,
-        "wallTimeSeconds": wallTimeSeconds,
-        "warnings": warnings,
-        "stderr": provenance.stderr as Any,
-        "createdAt": ISO8601DateFormatter().string(from: Date()),
-    ]
-    if let metadataURL {
-        object["metadataFile"] = try treeFileRecord(path: metadataURL.path, url: metadataURL)
-    }
-    return object
-}
-
-private func writeTreeJSONObject(_ object: [String: Any], to url: URL) throws {
-    let data = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
-    try data.write(to: url, options: .atomic)
-}
-
-private func treeRuntimeIdentityDictionary() -> [String: Any] {
-    [
-        "operatingSystem": ProcessInfo.processInfo.operatingSystemVersionString,
-        "swiftRuntime": "swift",
-        "condaEnvironment": ProcessInfo.processInfo.environment["CONDA_DEFAULT_ENV"] as Any,
-        "containerImage": NSNull(),
-    ]
-}
-
-private func treeFileRecord(path: String, url: URL) throws -> [String: Any] {
-    [
-        "path": path,
-        "sha256": try treeDigest(url: url),
-        "fileSizeBytes": try treeFileSize(at: url),
-    ]
-}
-
-private func treeChecksumMap(paths: [String], bundleURL: URL) throws -> [String: String] {
-    var result: [String: String] = [:]
-    for path in paths {
-        result[path] = try treeDigest(url: bundleURL.appendingPathComponent(path))
-    }
-    return result
-}
-
-private func treeFileSizeMap(paths: [String], bundleURL: URL) throws -> [String: Int64] {
-    var result: [String: Int64] = [:]
-    for path in paths {
-        result[path] = try treeFileSize(at: bundleURL.appendingPathComponent(path))
-    }
-    return result
-}
-
-private func treeDigest(url: URL) throws -> String {
-    if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
-        let checksums = try treeDirectoryChecksums(url: url)
-        let joined = checksums.keys.sorted().map { "\($0)=\(checksums[$0] ?? "")" }.joined(separator: "\n")
-        return PhylogeneticTreeBundleImporter.sha256Hex(for: Data(joined.utf8))
-    }
-    return PhylogeneticTreeBundleImporter.sha256Hex(for: try Data(contentsOf: url))
-}
-
-private func treeDirectoryChecksums(url: URL) throws -> [String: String] {
-    let fm = FileManager.default
-    guard let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: [.isRegularFileKey]) else {
-        return [:]
-    }
-    var result: [String: String] = [:]
-    for case let fileURL as URL in enumerator {
-        let values = try fileURL.resourceValues(forKeys: [.isRegularFileKey])
-        guard values.isRegularFile == true else { continue }
-        let relative = String(fileURL.path.dropFirst(url.path.count + 1))
-        result[relative] = PhylogeneticTreeBundleImporter.sha256Hex(for: try Data(contentsOf: fileURL))
-    }
-    return result
-}
-
-private func treeFileSize(at url: URL) throws -> Int64 {
-    if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
-        return try treeDirectorySize(at: url)
-    }
-    let attrs = try FileManager.default.attributesOfItem(atPath: url.path)
-    return (attrs[.size] as? NSNumber)?.int64Value ?? 0
-}
-
-private func treeDirectorySize(at url: URL) throws -> Int64 {
-    let fm = FileManager.default
-    guard let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey]) else {
-        return 0
-    }
-    var total: Int64 = 0
-    for case let fileURL as URL in enumerator {
-        let values = try fileURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
-        if values.isRegularFile == true {
-            total += Int64(values.fileSize ?? 0)
-        }
-    }
-    return total
-}
-
-private func treeShellCommand(_ argv: [String]) -> String {
-    argv.map(treeShellEscaped).joined(separator: " ")
-}
-
-private func treeShellEscaped(_ value: String) -> String {
-    guard !value.isEmpty else { return "''" }
-    let safe = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_+-=/:.,")
-    if value.unicodeScalars.allSatisfy({ safe.contains($0) }) {
-        return value
-    }
-    return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
-}
-
-private enum TreeIndexWriter {
-    static func write(normalizedTree: PhylogeneticTreeNormalizedTree, to url: URL) throws {
-        var db: OpaquePointer?
-        guard sqlite3_open(url.path, &db) == SQLITE_OK, let db else {
-            let message = db.map { String(cString: sqlite3_errmsg($0)) } ?? "Unknown SQLite open error"
-            if let db { sqlite3_close(db) }
-            throw PhylogeneticTreeBundleError.sqliteIndexFailed(message)
-        }
-        defer { sqlite3_close(db) }
-
-        let schema = """
-        CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-        CREATE TABLE nodes (
-          id TEXT PRIMARY KEY,
-          parent_id TEXT,
-          raw_label TEXT,
-          display_label TEXT NOT NULL,
-          is_tip INTEGER NOT NULL,
-          branch_length REAL,
-          cumulative_divergence REAL,
-          descendant_tip_count INTEGER NOT NULL,
-          metadata_json TEXT NOT NULL,
-          support_raw TEXT,
-          support_interpretation TEXT
-        );
-        CREATE INDEX nodes_parent_idx ON nodes(parent_id);
-        CREATE INDEX nodes_tip_idx ON nodes(is_tip, display_label);
-        """
-        try exec(schema, db: db)
-        try exec("BEGIN TRANSACTION", db: db)
-        do {
-            try exec(
-                "INSERT INTO metadata(key, value) VALUES ('schemaVersion', '1'), ('treeID', '\(normalizedTree.treeID)')",
-                db: db
-            )
-            let insertSQL = """
-            INSERT INTO nodes(
-              id, parent_id, raw_label, display_label, is_tip, branch_length,
-              cumulative_divergence, descendant_tip_count, metadata_json,
-              support_raw, support_interpretation
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """
-            var stmt: OpaquePointer?
-            guard sqlite3_prepare_v2(db, insertSQL, -1, &stmt, nil) == SQLITE_OK, let stmt else {
-                throw PhylogeneticTreeBundleError.sqliteIndexFailed(String(cString: sqlite3_errmsg(db)))
-            }
-            defer { sqlite3_finalize(stmt) }
-
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.sortedKeys]
-            for node in normalizedTree.nodes {
-                sqlite3_reset(stmt)
-                sqlite3_clear_bindings(stmt)
-                bindText(stmt, 1, node.id)
-                bindOptionalText(stmt, 2, node.parentID)
-                bindOptionalText(stmt, 3, node.rawLabel)
-                bindText(stmt, 4, node.displayLabel)
-                sqlite3_bind_int(stmt, 5, node.isTip ? 1 : 0)
-                bindOptionalDouble(stmt, 6, node.branchLength)
-                bindOptionalDouble(stmt, 7, node.cumulativeDivergence)
-                sqlite3_bind_int64(stmt, 8, Int64(node.descendantTipCount))
-                let metadataJSON = String(data: try encoder.encode(node.metadata), encoding: .utf8) ?? "{}"
-                bindText(stmt, 9, metadataJSON)
-                bindOptionalText(stmt, 10, node.support?.rawValue)
-                bindOptionalText(stmt, 11, node.support?.interpretation)
-                guard sqlite3_step(stmt) == SQLITE_DONE else {
-                    throw PhylogeneticTreeBundleError.sqliteIndexFailed(String(cString: sqlite3_errmsg(db)))
-                }
-            }
-            try exec("COMMIT", db: db)
-        } catch {
-            try? exec("ROLLBACK", db: db)
-            throw error
-        }
-    }
-
-    private static func exec(_ sql: String, db: OpaquePointer) throws {
-        var error: UnsafeMutablePointer<CChar>?
-        guard sqlite3_exec(db, sql, nil, nil, &error) == SQLITE_OK else {
-            let message = error.map { String(cString: $0) } ?? String(cString: sqlite3_errmsg(db))
-            if let error { sqlite3_free(error) }
-            throw PhylogeneticTreeBundleError.sqliteIndexFailed(message)
-        }
-    }
-
-    private static func bindText(_ stmt: OpaquePointer, _ index: Int32, _ value: String) {
-        sqlite3_bind_text(stmt, index, (value as NSString).utf8String, -1, SQLITE_TRANSIENT)
-    }
-
-    private static func bindOptionalText(_ stmt: OpaquePointer, _ index: Int32, _ value: String?) {
-        if let value {
-            bindText(stmt, index, value)
-        } else {
-            sqlite3_bind_null(stmt, index)
-        }
-    }
-
-    private static func bindOptionalDouble(_ stmt: OpaquePointer, _ index: Int32, _ value: Double?) {
-        if let value {
-            sqlite3_bind_double(stmt, index, value)
-        } else {
-            sqlite3_bind_null(stmt, index)
-        }
-    }
-}
-
-private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)

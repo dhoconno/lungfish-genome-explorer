@@ -1,4 +1,4 @@
-// MainSplitViewController.swift - Three-panel split view controller
+// MainSplitViewController+ShellLayout.swift - Shell pane sizing and layout persistence
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 

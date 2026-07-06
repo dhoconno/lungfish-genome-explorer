@@ -109,6 +109,9 @@ public struct ONTImportWorkflow: Sendable {
     }
 
     public typealias ProvenanceWriterClosure = @Sendable (ProvenanceEnvelope, URL) throws -> URL
+    /// Writes to a physical directory while using the third URL as the bundle root
+    /// for relative provenance sidecars. Staged imports use this to record final paths.
+    public typealias LayoutAwareProvenanceWriterClosure = @Sendable (ProvenanceEnvelope, URL, URL) throws -> URL
     public typealias OptimizationRunnerClosure = @Sendable (
         URL,
         OptimizationConfig,
@@ -116,13 +119,15 @@ public struct ONTImportWorkflow: Sendable {
     ) async throws -> [ProvenanceStep]
 
     private let importer: ONTDirectoryImporter
-    private let provenanceWriter: ProvenanceWriterClosure
+    private let provenanceWriter: LayoutAwareProvenanceWriterClosure
     private let optimizationRunner: OptimizationRunnerClosure
 
     private struct RollbackPlan {
         let outputDirectory: URL
+        let stagingOutputDirectory: URL
         let outputDirectoryExisted: Bool
         let bundleURLs: [URL]
+        let metadataURLs: [URL]
         let preexistingOutputPaths: Set<String>
         let manifestURL: URL
         let provenanceURL: URL
@@ -130,13 +135,38 @@ public struct ONTImportWorkflow: Sendable {
 
     public init(
         importer: ONTDirectoryImporter = ONTDirectoryImporter(),
-        provenanceWriter: @escaping ProvenanceWriterClosure = { envelope, directory in
-            try ProvenanceWriter().write(envelope, to: directory)
-        },
+        optimizationRunner: OptimizationRunnerClosure? = nil
+    ) {
+        self.init(
+            importer: importer,
+            layoutAwareProvenanceWriter: { envelope, directory, bundleLayoutRoot in
+                try ProvenanceWriter().write(envelope, to: directory, bundleLayoutRoot: bundleLayoutRoot)
+            },
+            optimizationRunner: optimizationRunner
+        )
+    }
+
+    public init(
+        importer: ONTDirectoryImporter = ONTDirectoryImporter(),
+        provenanceWriter: @escaping ProvenanceWriterClosure,
+        optimizationRunner: OptimizationRunnerClosure? = nil
+    ) {
+        self.init(
+            importer: importer,
+            layoutAwareProvenanceWriter: { envelope, directory, _ in
+                try provenanceWriter(envelope, directory)
+            },
+            optimizationRunner: optimizationRunner
+        )
+    }
+
+    public init(
+        importer: ONTDirectoryImporter = ONTDirectoryImporter(),
+        layoutAwareProvenanceWriter: @escaping LayoutAwareProvenanceWriterClosure,
         optimizationRunner: OptimizationRunnerClosure? = nil
     ) {
         self.importer = importer
-        self.provenanceWriter = provenanceWriter
+        self.provenanceWriter = layoutAwareProvenanceWriter
         self.optimizationRunner = optimizationRunner ?? ONTImportWorkflow.defaultOptimizationRunner
     }
 
@@ -169,17 +199,14 @@ public struct ONTImportWorkflow: Sendable {
         )
         try preflightOutputs(rollbackPlan)
 
-        let importResult: ONTImportResult
-        let importedOutputDescriptorsByBundle: [String: [ProvenanceFileDescriptor]]
-        let optimizationStepsByBundle: [String: [ProvenanceStep]]
+        let stagingConfig = stagedConfig(from: config, outputDirectory: rollbackPlan.stagingOutputDirectory)
+        let stagedImportResult: ONTImportResult
+        let stagedOptimizationStepsByBundle: [String: [ProvenanceStep]]
         do {
-            importResult = try await importer.importDirectory(config: config, progress: progress)
-            importedOutputDescriptorsByBundle = try concreteOutputDescriptorsByBundle(
-                importResult.bundleURLs
-            )
-            optimizationStepsByBundle = try await optimizeImportedBundlesIfNeeded(
-                bundleURLs: importResult.bundleURLs,
-                config: config,
+            stagedImportResult = try await importer.importDirectory(config: stagingConfig, progress: progress)
+            stagedOptimizationStepsByBundle = try await optimizeImportedBundlesIfNeeded(
+                bundleURLs: stagedImportResult.bundleURLs,
+                config: stagingConfig,
                 optimization: optimization,
                 progress: progress
             )
@@ -190,77 +217,127 @@ public struct ONTImportWorkflow: Sendable {
         let completedAt = Date()
 
         do {
-            let inputDescriptors = try inputChunkURLs.map {
-                try ProvenanceFileDescriptor.file(url: $0, format: .fastq, role: .input)
-            }
-            let parentOutputDescriptors = try parentOutputDescriptors(
-                outputDirectory: config.outputDirectory,
-                bundleURLs: importResult.bundleURLs
-            )
-            let parentEnvelope = try provenanceEnvelope(
+            _ = try writeImportProvenance(
+                config: stagingConfig,
                 context: context,
-                config: config,
                 optimization: optimization,
                 layout: layout,
-                importedBarcodeCount: importedBarcodeDirectories.count,
-                inputDescriptors: inputDescriptors,
-                outputDescriptors: parentOutputDescriptors,
+                importedBarcodeDirectories: importedBarcodeDirectories,
+                inputChunkURLs: inputChunkURLs,
+                importResult: stagedImportResult,
+                optimizationStepsByBundle: stagedOptimizationStepsByBundle,
                 startedAt: startedAt,
                 completedAt: completedAt
             )
 
-            var provenanceURLs: [URL] = []
-            for bundleURL in importResult.bundleURLs {
-                let barcodeDirectory = try barcodeDirectory(
-                    forBundleURL: bundleURL,
-                    in: importedBarcodeDirectories
-                )
-                let childInputDescriptors = try barcodeDirectory.chunkFiles
-                    .map(canonicalURL)
-                    .sorted { $0.path < $1.path }
-                    .map {
-                        try ProvenanceFileDescriptor.file(url: $0, format: .fastq, role: .input)
-                    }
-                let bundleKey = canonicalURL(bundleURL).path
-                let childOutputDescriptors: [ProvenanceFileDescriptor]
-                if let importedDescriptors = importedOutputDescriptorsByBundle[bundleKey] {
-                    childOutputDescriptors = importedDescriptors
-                } else {
-                    childOutputDescriptors = try concreteFiles(in: bundleURL).map {
-                        try ProvenanceFileDescriptor.file(
-                            url: $0,
-                            format: provenanceFormat(for: $0),
-                            role: .output
-                        )
-                    }
-                }
-                let childEnvelope = try provenanceEnvelope(
-                    context: context,
-                    config: config,
-                    optimization: optimization,
-                    layout: layout,
-                    importedBarcodeCount: 1,
-                    inputDescriptors: childInputDescriptors,
-                    outputDescriptors: childOutputDescriptors,
-                    startedAt: startedAt,
-                    completedAt: completedAt,
-                    barcodeName: barcodeDirectory.barcodeName,
-                    bundleURL: bundleURL,
-                    extraSteps: optimizationStepsByBundle[bundleKey] ?? []
-                )
-                provenanceURLs.append(try provenanceWriter(childEnvelope, canonicalURL(bundleURL)))
-            }
-            provenanceURLs.append(try provenanceWriter(parentEnvelope, canonicalURL(config.outputDirectory)))
+            try publishStagedOutputs(rollbackPlan)
+
+            let finalImportResult = finalImportResult(
+                from: stagedImportResult,
+                outputDirectory: config.outputDirectory
+            )
+            let finalOptimizationStepsByBundle = remapOptimizationStepsByBundle(
+                stagedOptimizationStepsByBundle,
+                from: stagedImportResult.bundleURLs,
+                to: finalImportResult.bundleURLs
+            )
+            let finalProvenance = try writeImportProvenance(
+                config: config,
+                context: context,
+                optimization: optimization,
+                layout: layout,
+                importedBarcodeDirectories: importedBarcodeDirectories,
+                inputChunkURLs: inputChunkURLs,
+                importResult: finalImportResult,
+                optimizationStepsByBundle: finalOptimizationStepsByBundle,
+                startedAt: startedAt,
+                completedAt: completedAt
+            )
 
             return Result(
-                importResult: importResult,
-                provenanceEnvelope: parentEnvelope,
-                provenanceURLs: provenanceURLs
+                importResult: finalImportResult,
+                provenanceEnvelope: finalProvenance.envelope,
+                provenanceURLs: finalProvenance.urls
             )
         } catch {
-            rollback(rollbackPlan, additionalBundleURLs: importResult.bundleURLs)
+            rollback(rollbackPlan)
             throw error
         }
+    }
+
+    private func writeImportProvenance(
+        config: ONTImportConfig,
+        context: CommandContext,
+        optimization: OptimizationConfig,
+        layout: ONTDirectoryLayout,
+        importedBarcodeDirectories: [ONTBarcodeDirectory],
+        inputChunkURLs: [URL],
+        importResult: ONTImportResult,
+        optimizationStepsByBundle: [String: [ProvenanceStep]],
+        startedAt: Date,
+        completedAt: Date
+    ) throws -> (envelope: ProvenanceEnvelope, urls: [URL]) {
+        let inputDescriptors = try inputChunkURLs.map {
+            try ProvenanceFileDescriptor.file(url: $0, format: .fastq, role: .input)
+        }
+        let parentOutputDescriptors = try parentOutputDescriptors(
+            outputDirectory: config.outputDirectory,
+            bundleURLs: importResult.bundleURLs
+        )
+        let parentEnvelope = try provenanceEnvelope(
+            context: context,
+            config: config,
+            optimization: optimization,
+            layout: layout,
+            importedBarcodeCount: importedBarcodeDirectories.count,
+            inputDescriptors: inputDescriptors,
+            outputDescriptors: parentOutputDescriptors,
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+
+        let importedOutputDescriptorsByBundle = try concreteOutputDescriptorsByBundle(importResult.bundleURLs)
+        var provenanceURLs: [URL] = []
+        for bundleURL in importResult.bundleURLs {
+            let barcodeDirectory = try barcodeDirectory(
+                forBundleURL: bundleURL,
+                in: importedBarcodeDirectories
+            )
+            let childInputDescriptors = try barcodeDirectory.chunkFiles
+                .map(canonicalURL)
+                .sorted { $0.path < $1.path }
+                .map {
+                    try ProvenanceFileDescriptor.file(url: $0, format: .fastq, role: .input)
+                }
+            let bundleKey = canonicalURL(bundleURL).path
+            let childOutputDescriptors = importedOutputDescriptorsByBundle[bundleKey] ?? []
+            let childEnvelope = try provenanceEnvelope(
+                context: context,
+                config: config,
+                optimization: optimization,
+                layout: layout,
+                importedBarcodeCount: 1,
+                inputDescriptors: childInputDescriptors,
+                outputDescriptors: childOutputDescriptors,
+                startedAt: startedAt,
+                completedAt: completedAt,
+                barcodeName: barcodeDirectory.barcodeName,
+                bundleURL: bundleURL,
+                extraSteps: optimizationStepsByBundle[bundleKey] ?? []
+            )
+            provenanceURLs.append(try provenanceWriter(
+                childEnvelope,
+                canonicalURL(bundleURL),
+                canonicalURL(bundleURL)
+            ))
+        }
+        provenanceURLs.append(try provenanceWriter(
+            parentEnvelope,
+            canonicalURL(config.outputDirectory),
+            canonicalURL(config.outputDirectory)
+        ))
+
+        return (parentEnvelope, provenanceURLs)
     }
 
     private func provenanceEnvelope(
@@ -387,6 +464,122 @@ public struct ONTImportWorkflow: Sendable {
             }
         }
         return descriptorsByBundle
+    }
+
+    private func stagedConfig(from config: ONTImportConfig, outputDirectory: URL) -> ONTImportConfig {
+        ONTImportConfig(
+            sourceDirectory: config.sourceDirectory,
+            outputDirectory: outputDirectory,
+            maxConcurrentBarcodes: config.maxConcurrentBarcodes,
+            includeUnclassified: config.includeUnclassified,
+            storageMode: config.storageMode
+        )
+    }
+
+    private func finalImportResult(
+        from stagedResult: ONTImportResult,
+        outputDirectory: URL
+    ) -> ONTImportResult {
+        ONTImportResult(
+            manifest: stagedResult.manifest,
+            bundleURLs: stagedResult.bundleURLs.map {
+                outputDirectory.appendingPathComponent($0.lastPathComponent, isDirectory: true)
+            },
+            flowCellID: stagedResult.flowCellID,
+            sampleID: stagedResult.sampleID,
+            basecallModel: stagedResult.basecallModel,
+            totalReadCount: stagedResult.totalReadCount,
+            wallClockSeconds: stagedResult.wallClockSeconds
+        )
+    }
+
+    private func publishStagedOutputs(_ plan: RollbackPlan) throws {
+        let fm = FileManager.default
+        try fm.createDirectory(at: plan.outputDirectory, withIntermediateDirectories: true)
+        let stagedArtifacts = try fm.contentsOfDirectory(
+            at: plan.stagingOutputDirectory,
+            includingPropertiesForKeys: nil,
+            options: []
+        )
+
+        for stagedURL in stagedArtifacts {
+            let finalURL = plan.outputDirectory.appendingPathComponent(stagedURL.lastPathComponent)
+            if fm.fileExists(atPath: finalURL.path) {
+                throw ImportError.outputAlreadyExists([finalURL.path])
+            }
+            try fm.moveItem(at: stagedURL, to: finalURL)
+        }
+
+        try? fm.removeItem(at: plan.stagingOutputDirectory)
+    }
+
+    private func remapOptimizationStepsByBundle(
+        _ stepsByStagedBundle: [String: [ProvenanceStep]],
+        from stagedBundleURLs: [URL],
+        to finalBundleURLs: [URL]
+    ) -> [String: [ProvenanceStep]] {
+        var remapped: [String: [ProvenanceStep]] = [:]
+        for (stagedBundleURL, finalBundleURL) in zip(stagedBundleURLs, finalBundleURLs) {
+            let stagedKey = canonicalURL(stagedBundleURL).path
+            let finalKey = canonicalURL(finalBundleURL).path
+            remapped[finalKey] = (stepsByStagedBundle[stagedKey] ?? []).map {
+                remapOptimizationStep($0, from: stagedBundleURL, to: finalBundleURL)
+            }
+        }
+        return remapped
+    }
+
+    private func remapOptimizationStep(
+        _ step: ProvenanceStep,
+        from stagedBundleURL: URL,
+        to finalBundleURL: URL
+    ) -> ProvenanceStep {
+        ProvenanceStep(
+            id: step.id,
+            toolName: step.toolName,
+            toolVersion: step.toolVersion,
+            githubReleaseVersion: step.githubReleaseVersion,
+            argv: step.argv.map { remapPathString($0, from: stagedBundleURL, to: finalBundleURL) },
+            durableReplayArgv: step.durableReplayArgv?.map {
+                remapPathString($0, from: stagedBundleURL, to: finalBundleURL)
+            },
+            reproducibleCommand: remapPathString(step.reproducibleCommand, from: stagedBundleURL, to: finalBundleURL),
+            inputs: step.inputs.map { remapDescriptor($0, from: stagedBundleURL, to: finalBundleURL) },
+            outputs: step.outputs.map { remapDescriptor($0, from: stagedBundleURL, to: finalBundleURL) },
+            exitStatus: step.exitStatus,
+            wallTimeSeconds: step.wallTimeSeconds,
+            stderr: step.stderr,
+            dependsOn: step.dependsOn,
+            startedAt: step.startedAt,
+            completedAt: step.completedAt
+        )
+    }
+
+    private func remapDescriptor(
+        _ descriptor: ProvenanceFileDescriptor,
+        from stagedBundleURL: URL,
+        to finalBundleURL: URL
+    ) -> ProvenanceFileDescriptor {
+        ProvenanceFileDescriptor(
+            path: remapPathString(descriptor.path, from: stagedBundleURL, to: finalBundleURL),
+            checksumSHA256: descriptor.checksumSHA256,
+            fileSize: descriptor.fileSize,
+            format: descriptor.format,
+            role: descriptor.role,
+            originPath: descriptor.originPath.map {
+                remapPathString($0, from: stagedBundleURL, to: finalBundleURL)
+            },
+            sourceProvenancePath: descriptor.sourceProvenancePath.map {
+                remapPathString($0, from: stagedBundleURL, to: finalBundleURL)
+            }
+        )
+    }
+
+    private func remapPathString(_ value: String, from stagedBundleURL: URL, to finalBundleURL: URL) -> String {
+        value.replacingOccurrences(
+            of: canonicalURL(stagedBundleURL).path,
+            with: canonicalURL(finalBundleURL).path
+        )
     }
 
     private func optimizeImportedBundlesIfNeeded(
@@ -531,26 +724,40 @@ public struct ONTImportWorkflow: Sendable {
 
     private func makeRollbackPlan(outputDirectory: URL, plannedBundleURLs: [URL]) -> RollbackPlan {
         let fm = FileManager.default
+        let stagingOutputDirectory = stagingOutputDirectory(for: outputDirectory)
         let manifestURL = outputDirectory.appendingPathComponent(DemultiplexManifest.filename)
         let provenanceURL = outputDirectory.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        let metadataURLs = plannedBundleURLs.map(FASTQMetadataStore.metadataURL(for:))
         let outputDirectoryExisted = fm.fileExists(atPath: outputDirectory.path)
         var preexistingOutputPaths = Set<String>()
-        for url in plannedBundleURLs + [manifestURL, provenanceURL] where fm.fileExists(atPath: url.path) {
+        for url in plannedBundleURLs + metadataURLs + [manifestURL, provenanceURL]
+            where fm.fileExists(atPath: url.path) {
             preexistingOutputPaths.insert(outputPathKey(url))
         }
 
         return RollbackPlan(
             outputDirectory: outputDirectory,
+            stagingOutputDirectory: stagingOutputDirectory,
             outputDirectoryExisted: outputDirectoryExisted,
             bundleURLs: plannedBundleURLs,
+            metadataURLs: metadataURLs,
             preexistingOutputPaths: preexistingOutputPaths,
             manifestURL: manifestURL,
             provenanceURL: provenanceURL
         )
     }
 
+    private func stagingOutputDirectory(for outputDirectory: URL) -> URL {
+        outputDirectory
+            .deletingLastPathComponent()
+            .appendingPathComponent(
+                ".\(outputDirectory.lastPathComponent).ont-import-staging-\(UUID().uuidString)",
+                isDirectory: true
+            )
+    }
+
     private func preflightOutputs(_ plan: RollbackPlan) throws {
-        let conflicts = (plan.bundleURLs + [plan.manifestURL, plan.provenanceURL])
+        let conflicts = (plan.bundleURLs + plan.metadataURLs + [plan.manifestURL, plan.provenanceURL])
             .filter { plan.preexistingOutputPaths.contains(outputPathKey($0)) }
             .map { $0.path }
             .sorted()
@@ -571,9 +778,11 @@ public struct ONTImportWorkflow: Sendable {
         for (path, bundleURL) in bundleURLs where !plan.preexistingOutputPaths.contains(path) {
             try? fm.removeItem(at: bundleURL)
         }
-        for url in [plan.manifestURL, plan.provenanceURL] where !plan.preexistingOutputPaths.contains(outputPathKey(url)) {
+        for url in plan.metadataURLs + [plan.manifestURL, plan.provenanceURL]
+            where !plan.preexistingOutputPaths.contains(outputPathKey(url)) {
             try? fm.removeItem(at: url)
         }
+        try? fm.removeItem(at: plan.stagingOutputDirectory)
 
         if !plan.outputDirectoryExisted,
            let contents = try? fm.contentsOfDirectory(atPath: plan.outputDirectory.path),

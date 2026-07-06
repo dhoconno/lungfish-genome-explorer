@@ -432,6 +432,7 @@ final class FASTQDashboardTests: XCTestCase {
 
         XCTAssertEqual(controller.numberOfRows(in: sidebar), FASTQOperationCategoryID.allCases.count)
         XCTAssertFalse(controller.tableView(sidebar, isGroupRow: 0))
+        XCTAssertEqual(controller.tableView(sidebar, heightOfRow: 0), 24)
 
         let nameColumn = sidebar.tableColumns.first { $0.identifier.rawValue == "name" }
         let firstRowView = controller.tableView(sidebar, viewFor: nameColumn, row: 0)
@@ -446,6 +447,68 @@ final class FASTQDashboardTests: XCTestCase {
         )
 
         XCTAssertEqual(launchedCategory, .qcReporting)
+    }
+
+    func testFASTQDatasetSidebarDoesNotCarryLegacyAccordionState() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = root
+            .appendingPathComponent("Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertFalse(source.contains("legacyOperationSections"))
+        XCTAssertFalse(source.contains("FASTQOperationSidebarExpansion"))
+        XCTAssertFalse(source.contains("expandedCategories"))
+        XCTAssertFalse(source.contains("operationKindForRow"))
+        XCTAssertFalse(source.contains("toggleCategory"))
+    }
+
+    func testFASTQDatasetCustomContaminantReferenceIsWired() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let controllerSourceURL = root
+            .appendingPathComponent("Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift")
+        let panelFactorySourceURL = root
+            .appendingPathComponent("Sources/LungfishApp/Views/Viewer/ViewerFilePanelFactory.swift")
+        let controllerSource = try String(contentsOf: controllerSourceURL, encoding: .utf8)
+        let panelFactorySource = try String(contentsOf: panelFactorySourceURL, encoding: .utf8)
+
+        XCTAssertFalse(controllerSource.contains("not yet implemented"))
+        XCTAssertTrue(controllerSource.contains("contaminantReferenceBrowseClicked"))
+        XCTAssertTrue(controllerSource.contains("fastqContaminantReferencePanel"))
+        XCTAssertTrue(controllerSource.contains("referenceFasta: referencePath"))
+        XCTAssertTrue(controllerSource.contains("contaminantReferenceURL.path"))
+        XCTAssertTrue(panelFactorySource.contains("Select a contaminant reference FASTA for filtering"))
+    }
+
+    @MainActor
+    func testFASTQDatasetCustomContaminantModeRequiresAndUsesReference() {
+        let controller = FASTQDatasetViewController()
+        let missingReference = controller.testingSelectContaminantFilter(mode: .custom)
+
+        XCTAssertFalse(missingReference.isRunEnabled)
+        XCTAssertNil(missingReference.request)
+
+        let referenceURL = URL(fileURLWithPath: "/tmp/contaminants.fasta")
+        let configured = controller.testingSelectContaminantFilter(
+            mode: .custom,
+            referenceURL: referenceURL
+        )
+
+        XCTAssertTrue(configured.isRunEnabled)
+        XCTAssertEqual(
+            configured.request,
+            .contaminantFilter(
+                mode: .custom,
+                referenceFasta: referenceURL.standardizedFileURL.path,
+                kmerSize: 31,
+                hammingDistance: 1
+            )
+        )
     }
 
     func testFASTQDatasetViewControllerLaunchPathRemovesDrawerFirstOperationsFlow() throws {

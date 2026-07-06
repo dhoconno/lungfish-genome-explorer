@@ -80,6 +80,33 @@ struct SRADownloadFallbackTests {
         )
         #expect(messages.count == 0)
     }
+
+    @Test("propagates ENA cancellation without toolkit fallback")
+    func propagatesENACancellationWithoutToolkitFallback() async throws {
+        let messages = MessageCollector()
+        let toolkitCalls = Counter()
+        let service = SRAService(
+            enaDownloader: { _, _ in
+                throw CancellationError()
+            },
+            toolkitDownloader: { _, _ in
+                toolkitCalls.increment()
+                return [URL(fileURLWithPath: "/tmp/should-not-run.fastq")]
+            }
+        )
+
+        await #expect(throws: CancellationError.self) {
+            try await service.downloadFASTQWithFallback(
+                accession: "SRR123",
+                outputDir: nil,
+                onFallback: { message in
+                    messages.append(message)
+                }
+            )
+        }
+        #expect(toolkitCalls.value == 0)
+        #expect(messages.count == 0)
+    }
 }
 
 /// Thread-safe call counter used by the injected download closures.

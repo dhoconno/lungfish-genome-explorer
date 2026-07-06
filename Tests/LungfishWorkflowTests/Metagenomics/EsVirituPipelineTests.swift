@@ -660,6 +660,13 @@ final class EsVirituPipelineErrorTests: XCTestCase {
         XCTAssertTrue(error.localizedDescription.contains("detection"))
     }
 
+    func testResultSidecarSaveFailedDescription() {
+        let url = URL(fileURLWithPath: "/tmp/esviritu-result.json")
+        let error = EsVirituPipelineError.resultSidecarSaveFailed(url, "permission denied")
+        XCTAssertTrue(error.localizedDescription.contains("result sidecar"))
+        XCTAssertTrue(error.localizedDescription.contains("permission denied"))
+    }
+
     func testCancelledDescription() {
         let error = EsVirituPipelineError.cancelled
         XCTAssertTrue(error.localizedDescription.contains("cancelled"))
@@ -734,7 +741,7 @@ final class EsVirituDatabaseManagerTests: XCTestCase {
         )
     }
 
-    func testSharedManagerFollowsActiveRootChanges() async throws {
+    func testManagerFollowsActiveRootChanges() async throws {
         let fm = FileManager.default
         let home = fm.temporaryDirectory
             .appendingPathComponent("esviritu-shared-home-\(UUID().uuidString)", isDirectory: true)
@@ -742,32 +749,30 @@ final class EsVirituDatabaseManagerTests: XCTestCase {
         defer { try? fm.removeItem(at: home) }
 
         let store = ManagedStorageConfigStore(homeDirectory: home)
-        let originalShared = EsVirituDatabaseManager.shared
-        EsVirituDatabaseManager.shared = EsVirituDatabaseManager(storageConfigStore: store)
-        defer { EsVirituDatabaseManager.shared = originalShared }
+        let manager = EsVirituDatabaseManager(storageConfigStore: store)
 
-        let initialURL = await EsVirituDatabaseManager.shared.databaseURL
+        let initialURL = await manager.databaseURL
         try fm.createDirectory(at: initialURL, withIntermediateDirectories: true)
         try Data("fake".utf8).write(to: initialURL.appendingPathComponent("refseq_viral.fasta"))
-        let initiallyInstalled = await EsVirituDatabaseManager.shared.isInstalled()
+        let initiallyInstalled = await manager.isInstalled()
         XCTAssertTrue(initiallyInstalled)
 
         let updatedRoot = home.appendingPathComponent("managed-storage", isDirectory: true)
         try store.setActiveRoot(updatedRoot)
 
-        let updatedURL = await EsVirituDatabaseManager.shared.databaseURL
+        let updatedURL = await manager.databaseURL
         XCTAssertEqual(
             updatedURL.standardizedFileURL.path,
             updatedRoot
                 .appendingPathComponent("databases/esviritu/\(EsVirituDatabaseManager.currentVersion)", isDirectory: true)
                 .standardizedFileURL.path
         )
-        let installedAfterRootChange = await EsVirituDatabaseManager.shared.isInstalled()
+        let installedAfterRootChange = await manager.isInstalled()
         XCTAssertFalse(installedAfterRootChange)
 
         try fm.createDirectory(at: updatedURL, withIntermediateDirectories: true)
         try Data("fake".utf8).write(to: updatedURL.appendingPathComponent("refseq_viral.fasta"))
-        let installedAtUpdatedRoot = await EsVirituDatabaseManager.shared.isInstalled()
+        let installedAtUpdatedRoot = await manager.isInstalled()
         XCTAssertTrue(installedAtUpdatedRoot)
     }
 

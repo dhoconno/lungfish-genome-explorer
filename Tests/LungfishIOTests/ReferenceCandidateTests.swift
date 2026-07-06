@@ -309,6 +309,47 @@ final class ReferenceCandidateTests: XCTestCase {
         XCTAssertNil(result)
     }
 
+    func testFastaURLRejectsTraversalManifestPath() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RefTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let projectDir = tempDir.appendingPathComponent("project.lungfish", isDirectory: true)
+        let refFolder = try ReferenceSequenceFolder.ensureFolder(in: projectDir)
+        let bundleURL = refFolder.appendingPathComponent("unsafe.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let outsideURL = refFolder.appendingPathComponent("outside.fasta")
+        try ">outside\nACGT\n".write(to: outsideURL, atomically: true, encoding: .utf8)
+        try writeReferenceManifest(
+            ReferenceSequenceManifest(
+                name: "Unsafe",
+                createdAt: Date(),
+                sourceFilename: "outside.fasta",
+                fastaFilename: "../outside.fasta"
+            ),
+            to: bundleURL
+        )
+
+        XCTAssertNil(ReferenceSequenceFolder.fastaURL(in: bundleURL))
+        XCTAssertTrue(ReferenceSequenceFolder.listReferences(in: projectDir).isEmpty)
+        XCTAssertTrue(ReferenceSequenceScanner.scanAll(in: projectDir).allSatisfy {
+            $0.fastaURL.standardizedFileURL != outsideURL.standardizedFileURL
+        })
+
+        let candidate = ReferenceCandidate.projectReference(
+            url: bundleURL,
+            manifest: ReferenceSequenceManifest(
+                name: "Unsafe",
+                createdAt: Date(),
+                sourceFilename: "outside.fasta",
+                fastaFilename: "../outside.fasta"
+            )
+        )
+        XCTAssertNotEqual(candidate.fastaURL.standardizedFileURL, outsideURL.standardizedFileURL)
+        XCTAssertTrue(candidate.fastaURL.standardizedFileURL.path.hasPrefix(bundleURL.standardizedFileURL.path))
+    }
+
     func testListReferencesSkipsMalformedBundles() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("RefTests-\(UUID().uuidString)", isDirectory: true)
@@ -356,5 +397,15 @@ final class ReferenceCandidateTests: XCTestCase {
         XCTAssertFalse(bundleURL.lastPathComponent.contains("/"))
         XCTAssertFalse(bundleURL.lastPathComponent.contains(":"))
         XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.path))
+    }
+
+    private func writeReferenceManifest(
+        _ manifest: ReferenceSequenceManifest,
+        to bundleURL: URL
+    ) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(to: bundleURL.appendingPathComponent("manifest.json"))
     }
 }

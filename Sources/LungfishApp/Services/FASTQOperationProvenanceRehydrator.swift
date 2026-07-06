@@ -61,6 +61,7 @@ struct FASTQOperationProvenanceRehydrator: Sendable {
             toolVersion: rehydrated.toolVersion,
             tool: rehydrated.tool,
             argv: rehydrated.argv,
+            durableReplayArgv: rehydrated.durableReplayArgv,
             reproducibleCommand: rehydrated.reproducibleCommand,
             options: rehydrated.options,
             runtimeIdentity: rehydrated.runtimeIdentity,
@@ -128,7 +129,11 @@ struct FASTQOperationProvenanceRehydrator: Sendable {
         let candidateURL: URL?
         switch manifest.payload {
         case .full(let filename), .fullFASTA(let filename):
-            candidateURL = bundleURL.appendingPathComponent(filename).standardizedFileURL
+            candidateURL = try? FASTQBundle.validatedBundleMemberURL(
+                for: filename,
+                in: bundleURL,
+                field: "payload.materialized.filename"
+            )
         default:
             candidateURL = nil
         }

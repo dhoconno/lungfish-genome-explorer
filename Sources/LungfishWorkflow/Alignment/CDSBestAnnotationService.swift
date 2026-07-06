@@ -6,29 +6,51 @@ import Foundation
 import LungfishCore
 import LungfishIO
 
+struct CDSBestAnnotationProvenanceContext: Sendable {
+    let request: CDSBestAnnotationRequest
+    let sourceBundleURL: URL
+    let outputBundleURL: URL
+    let mappingResult: MappingResult
+    let outputTrackID: String
+    let outputTrackName: String
+    let relativeDatabasePath: String
+    let databaseURL: URL
+    let viewArguments: [String]
+    let samtoolsExecution: MappedReadsAnnotationProvenanceWriter.SamtoolsExecution
+    let startedAt: Date
+    let completedAt: Date
+}
+
+typealias CDSBestAnnotationProvenancePublisher = @Sendable (CDSBestAnnotationProvenanceContext) throws -> Void
+
 public final class CDSBestAnnotationService: @unchecked Sendable {
     private let samtoolsRunner: any AlignmentSamtoolsRunning
     private let trackIDProvider: @Sendable (String) -> String
+    private let provenancePublisher: CDSBestAnnotationProvenancePublisher
 
     public init(
         samtoolsRunner: any AlignmentSamtoolsRunning = NativeToolSamtoolsRunner.shared
     ) {
         self.samtoolsRunner = samtoolsRunner
         self.trackIDProvider = { _ in "ann_\(String(UUID().uuidString.prefix(8)))" }
+        self.provenancePublisher = Self.defaultProvenancePublisher
     }
 
     init(
         samtoolsRunner: any AlignmentSamtoolsRunning = NativeToolSamtoolsRunner.shared,
-        trackIDProvider: @escaping @Sendable (String) -> String
+        trackIDProvider: @escaping @Sendable (String) -> String,
+        provenancePublisher: @escaping CDSBestAnnotationProvenancePublisher = CDSBestAnnotationService.defaultProvenancePublisher
     ) {
         self.samtoolsRunner = samtoolsRunner
         self.trackIDProvider = trackIDProvider
+        self.provenancePublisher = provenancePublisher
     }
 
     public func convertBestCDS(
         request: CDSBestAnnotationRequest,
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> CDSBestAnnotationResult {
+        let workflowStartedAt = Date()
         let sourceBundleURL = request.sourceBundleURL.standardizedFileURL
         let outputBundleURL = request.outputBundleURL.standardizedFileURL
         guard sourceBundleURL.path != outputBundleURL.path else {
@@ -44,107 +66,169 @@ public final class CDSBestAnnotationService: @unchecked Sendable {
         guard FileManager.default.fileExists(atPath: mappingResult.bamURL.path) else {
             throw CDSBestAnnotationServiceError.missingMappingBAM(mappingResult.bamURL)
         }
-
-        progressHandler?(0.1, "Copying source bundle...")
-        try prepareOutputBundle(sourceBundleURL: sourceBundleURL, outputBundleURL: outputBundleURL, replace: request.replaceExisting)
-
-        progressHandler?(0.25, "Reading mapped CDS alignments...")
-        let samtoolsResult = try await samtoolsRunner.runSamtools(
-            arguments: ["view", "-h", mappingResult.bamURL.path],
-            timeout: samtoolsTimeout(for: mappingResult.bamURL.path)
-        )
-        guard samtoolsResult.isSuccess else {
-            throw CDSBestAnnotationServiceError.samtoolsFailed(
-                samtoolsResult.stderr.isEmpty ? "samtools exited with \(samtoolsResult.exitCode)" : samtoolsResult.stderr
-            )
+        if FileManager.default.fileExists(atPath: outputBundleURL.path), !request.replaceExisting {
+            throw CDSBestAnnotationServiceError.outputBundleExists(outputBundleURL)
         }
 
-        progressHandler?(0.55, "Selecting best CDS models per locus...")
-        let selection = try selectBestModels(
-            fromSAM: samtoolsResult.stdout,
-            request: request,
-            mappingResult: mappingResult
+        let outputBundleSnapshot = try ProvenancePublicationSnapshot(
+            urls: [outputBundleURL],
+            backupNamePrefix: "lungfish-cds-best-annotation"
         )
+        defer { outputBundleSnapshot.discard() }
 
-        let outputTrackName = normalizedOutputTrackName(request.outputTrackName)
-        let outputTrackID: String
         do {
-            outputTrackID = try resolveAnnotationOutputTrackID(
-                explicitID: request.outputTrackID,
-                generatedID: trackIDProvider(outputTrackName)
+            progressHandler?(0.1, "Copying source bundle...")
+            try prepareOutputBundle(
+                sourceBundleURL: sourceBundleURL,
+                outputBundleURL: outputBundleURL,
+                replace: request.replaceExisting
             )
-        } catch AnnotationOutputTrackIDResolutionError.invalid(let id) {
-            throw CDSBestAnnotationServiceError.invalidOutputTrackID(id)
-        }
-        let relativeDatabasePath = "annotations/\(outputTrackID).db"
-        let databaseURL = outputBundleURL.appendingPathComponent(relativeDatabasePath)
 
-        var manifest = try BundleManifest.load(from: outputBundleURL)
-        let existingTracks = manifest.annotations.filter {
-            annotationOutputTrackMatches($0, id: outputTrackID, name: outputTrackName)
-        }
-        if !existingTracks.isEmpty && !request.replaceExisting {
-            throw CDSBestAnnotationServiceError.outputTrackExists(outputTrackName)
-        }
-        if existingTracks.isEmpty,
-           !request.replaceExisting,
-           annotationArtifactExistsCaseInsensitive(databaseURL) {
-            throw CDSBestAnnotationServiceError.outputTrackExists(outputTrackName)
-        }
-        if request.replaceExisting {
-            for track in existingTracks {
-                removeAnnotationArtifacts(for: track, bundleURL: outputBundleURL)
-                manifest = manifest.removingAnnotationTrack(id: track.id)
+            progressHandler?(0.25, "Reading mapped CDS alignments...")
+            let viewArguments = ["view", "-h", mappingResult.bamURL.path]
+            let samtoolsStartedAt = Date()
+            let samtoolsResult = try await samtoolsRunner.runSamtools(
+                arguments: viewArguments,
+                timeout: samtoolsTimeout(for: mappingResult.bamURL.path)
+            )
+            let samtoolsCompletedAt = Date()
+            guard samtoolsResult.isSuccess else {
+                throw CDSBestAnnotationServiceError.samtoolsFailed(
+                    samtoolsResult.stderr.isEmpty ? "samtools exited with \(samtoolsResult.exitCode)" : samtoolsResult.stderr
+                )
             }
-        }
+            let samtoolsVersion = await samtoolsRunner.samtoolsVersion()
 
-        progressHandler?(0.75, "Writing CDS annotation database...")
-        let featureCount = try MappedReadsAnnotationDatabaseWriter.write(
-            rows: selection.rows,
-            to: databaseURL,
-            metadata: [
-                "source_bundle_path": sourceBundleURL.path,
-                "mapping_result_path": request.mappingResultURL.standardizedFileURL.path,
-                "source_mapping_bam": mappingResult.bamURL.path,
-                "selection": "best_cds_model_by_nm_and_query_coverage",
-                "created_by": "cds_best_annotation_service",
-            ]
-        )
+            progressHandler?(0.55, "Selecting best CDS models per locus...")
+            let selection = try selectBestModels(
+                fromSAM: samtoolsResult.stdout,
+                request: request,
+                mappingResult: mappingResult
+            )
 
-        let trackInfo = AnnotationTrackInfo(
-            id: outputTrackID,
-            name: outputTrackName,
-            description: "Best CDS query models per overlapping genomic interval",
-            path: relativeDatabasePath,
-            databasePath: relativeDatabasePath,
-            annotationType: .custom,
-            featureCount: featureCount,
-            source: request.mappingResultURL.lastPathComponent,
-            version: nil
-        )
+            let outputTrackName = normalizedOutputTrackName(request.outputTrackName)
+            let outputTrackID: String
+            do {
+                outputTrackID = try resolveAnnotationOutputTrackID(
+                    explicitID: request.outputTrackID,
+                    generatedID: trackIDProvider(outputTrackName)
+                )
+            } catch AnnotationOutputTrackIDResolutionError.invalid(let id) {
+                throw CDSBestAnnotationServiceError.invalidOutputTrackID(id)
+            }
+            let relativeDatabasePath = "annotations/\(outputTrackID).db"
+            let databaseURL = outputBundleURL.appendingPathComponent(relativeDatabasePath)
 
-        progressHandler?(0.9, "Updating output bundle manifest...")
-        manifest = manifest.addingAnnotationTrack(trackInfo)
-        do {
-            try manifest.save(to: outputBundleURL)
+            var manifest = try BundleManifest.load(from: outputBundleURL)
+            let existingTracks = manifest.annotations.filter {
+                annotationOutputTrackMatches($0, id: outputTrackID, name: outputTrackName)
+            }
+            if !existingTracks.isEmpty && !request.replaceExisting {
+                throw CDSBestAnnotationServiceError.outputTrackExists(outputTrackName)
+            }
+            if existingTracks.isEmpty,
+               !request.replaceExisting,
+               annotationArtifactExistsCaseInsensitive(databaseURL) {
+                throw CDSBestAnnotationServiceError.outputTrackExists(outputTrackName)
+            }
+            if request.replaceExisting {
+                for track in existingTracks {
+                    removeAnnotationArtifacts(for: track, bundleURL: outputBundleURL)
+                    manifest = manifest.removingAnnotationTrack(id: track.id)
+                }
+            }
+
+            progressHandler?(0.75, "Writing CDS annotation database...")
+            let featureCount = try MappedReadsAnnotationDatabaseWriter.write(
+                rows: selection.rows,
+                to: databaseURL,
+                metadata: [
+                    "source_bundle_path": sourceBundleURL.path,
+                    "mapping_result_path": request.mappingResultURL.standardizedFileURL.path,
+                    "source_mapping_bam": mappingResult.bamURL.path,
+                    "selection": "best_cds_model_by_nm_and_query_coverage",
+                    "created_by": "cds_best_annotation_service",
+                ]
+            )
+
+            let trackInfo = AnnotationTrackInfo(
+                id: outputTrackID,
+                name: outputTrackName,
+                description: "Best CDS query models per overlapping genomic interval",
+                path: relativeDatabasePath,
+                databasePath: relativeDatabasePath,
+                annotationType: .custom,
+                featureCount: featureCount,
+                source: request.mappingResultURL.lastPathComponent,
+                version: nil
+            )
+
+            progressHandler?(0.9, "Updating output bundle manifest...")
+            manifest = manifest.addingAnnotationTrack(trackInfo)
+            do {
+                try manifest.save(to: outputBundleURL)
+            } catch {
+                throw CDSBestAnnotationServiceError.manifestWriteFailed(error.localizedDescription)
+            }
+            try provenancePublisher(CDSBestAnnotationProvenanceContext(
+                request: request,
+                sourceBundleURL: sourceBundleURL,
+                outputBundleURL: outputBundleURL,
+                mappingResult: mappingResult,
+                outputTrackID: outputTrackID,
+                outputTrackName: outputTrackName,
+                relativeDatabasePath: relativeDatabasePath,
+                databaseURL: databaseURL,
+                viewArguments: viewArguments,
+                samtoolsExecution: MappedReadsAnnotationProvenanceWriter.SamtoolsExecution(
+                    version: samtoolsVersion,
+                    result: samtoolsResult,
+                    startedAt: samtoolsStartedAt,
+                    completedAt: samtoolsCompletedAt
+                ),
+                startedAt: workflowStartedAt,
+                completedAt: Date()
+            ))
+
+            progressHandler?(1.0, "CDS annotation track created.")
+            return CDSBestAnnotationResult(
+                sourceBundleURL: sourceBundleURL,
+                mappingResultURL: request.mappingResultURL.standardizedFileURL,
+                outputBundleURL: outputBundleURL,
+                annotationTrackInfo: trackInfo,
+                databasePath: relativeDatabasePath,
+                geneCount: selection.geneCount,
+                cdsCount: selection.cdsCount,
+                candidateRecordCount: selection.candidateRecordCount,
+                selectedLocusCount: selection.selectedLocusCount,
+                skippedUnmappedCount: selection.skippedUnmappedCount,
+                skippedSecondaryCount: selection.skippedSecondaryCount,
+                skippedSupplementaryCount: selection.skippedSupplementaryCount
+            )
         } catch {
-            throw CDSBestAnnotationServiceError.manifestWriteFailed(error.localizedDescription)
+            if error as? CDSBestAnnotationServiceError != .outputBundleExists(outputBundleURL) {
+                try throwAfterProvenancePublicationFailure(error) {
+                    try outputBundleSnapshot.restore()
+                }
+            }
+            throw error
         }
+    }
 
-        progressHandler?(1.0, "CDS annotation track created.")
-        return CDSBestAnnotationResult(
-            sourceBundleURL: sourceBundleURL,
-            mappingResultURL: request.mappingResultURL.standardizedFileURL,
-            outputBundleURL: outputBundleURL,
-            annotationTrackInfo: trackInfo,
-            databasePath: relativeDatabasePath,
-            geneCount: selection.geneCount,
-            cdsCount: selection.cdsCount,
-            candidateRecordCount: selection.candidateRecordCount,
-            selectedLocusCount: selection.selectedLocusCount,
-            skippedUnmappedCount: selection.skippedUnmappedCount,
-            skippedSecondaryCount: selection.skippedSecondaryCount,
-            skippedSupplementaryCount: selection.skippedSupplementaryCount
+    private static func defaultProvenancePublisher(_ context: CDSBestAnnotationProvenanceContext) throws {
+        try MappedReadsAnnotationProvenanceWriter.writeCDSBest(
+            request: context.request,
+            sourceBundleURL: context.sourceBundleURL,
+            outputBundleURL: context.outputBundleURL,
+            mappingResult: context.mappingResult,
+            outputTrackID: context.outputTrackID,
+            outputTrackName: context.outputTrackName,
+            relativeDatabasePath: context.relativeDatabasePath,
+            databaseURL: context.databaseURL,
+            viewArguments: context.viewArguments,
+            samtoolsExecution: context.samtoolsExecution,
+            startedAt: context.startedAt,
+            completedAt: context.completedAt
         )
     }
 

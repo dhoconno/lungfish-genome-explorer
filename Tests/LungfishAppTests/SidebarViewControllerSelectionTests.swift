@@ -81,7 +81,7 @@ final class SidebarViewControllerSelectionTests: XCTestCase {
         )
 
         XCTAssertEqual(commands.count, 2)
-        XCTAssertTrue(commands[0].contains("lungfish convert"))
+        XCTAssertTrue(commands[0].contains("\(CLICommandIdentity.executableName) convert"))
         XCTAssertTrue(commands[0].contains("--to-format genbank"))
         XCTAssertTrue(commands[0].contains("--include-annotations"))
         XCTAssertTrue(commands[0].contains("--force"))
@@ -108,6 +108,57 @@ final class SidebarViewControllerSelectionTests: XCTestCase {
             "--force",
             "--quiet",
         ])
+    }
+
+    func testSidebarProvenanceRehydrationUsesFinalPathDurableReplayForCLICreatedBundles() throws {
+        let tempDir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let sourceBundle = tempDir.appendingPathComponent("staging/Source.lungfishfastq", isDirectory: true)
+        let destinationBundle = tempDir.appendingPathComponent("Project/Source copy.lungfishfastq", isDirectory: true)
+        let sourcePayload = sourceBundle.appendingPathComponent("reads/source.fastq")
+        let destinationPayload = destinationBundle.appendingPathComponent("reads/source.fastq")
+        try FileManager.default.createDirectory(at: sourcePayload.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("@r\nTGCA\n+\n!!!!\n".utf8).write(to: sourcePayload, options: .atomic)
+
+        let cliEnvelope = try ProvenanceRunBuilder(
+            workflowName: "CLI FASTQ Bundle Import",
+            workflowVersion: "2026.05",
+            toolName: "lungfish-cli",
+            toolVersion: "2026.05"
+        )
+        .argv(["lungfish-cli", "import", "fastq", "--bundle", sourceBundle.path])
+        .output(sourcePayload, format: .fastq, role: .output)
+        .step(
+            ProvenanceStep(
+                toolName: "lungfish-cli",
+                toolVersion: "2026.05",
+                argv: ["lungfish-cli", "import", "fastq", "--bundle", sourceBundle.path],
+                outputs: [try ProvenanceFileDescriptor.file(url: sourcePayload, format: .fastq, role: .output)],
+                exitStatus: 0,
+                wallTimeSeconds: 2
+            )
+        )
+        .runtime(ProvenanceRuntimeIdentity.fixture())
+        .complete(
+            exitStatus: 0,
+            startedAt: Date(timeIntervalSince1970: 20),
+            endedAt: Date(timeIntervalSince1970: 22)
+        )
+        try ProvenanceWriter(signingProvider: nil).write(cliEnvelope, to: sourceBundle)
+        try FileManager.default.createDirectory(at: destinationBundle.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: sourceBundle, to: destinationBundle)
+        try FileManager.default.removeItem(at: sourceBundle)
+
+        SidebarViewController().rehydrateScientificProvenance(from: sourceBundle, to: destinationBundle)
+
+        let stored = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: destinationBundle))
+        XCTAssertEqual(stored.steps.map(\.toolName), ["lungfish-cli", "lungfish-app"])
+        XCTAssertEqual(stored.output?.path, destinationPayload.path)
+        XCTAssertEqual(stored.steps[0].outputs.map(\.path), [destinationPayload.path])
+        XCTAssertEqual(stored.steps[0].argv.last, sourceBundle.path)
+        XCTAssertEqual(stored.steps[0].durableReplayArgv?.last, destinationBundle.path)
+        XCTAssertFalse(stored.outputs.contains { $0.path.hasPrefix(sourceBundle.path) })
     }
 
     func testFASTQExportSuggestedFilenameUsesBundleNameForONTChunkedBundles() throws {
@@ -150,6 +201,102 @@ final class SidebarViewControllerSelectionTests: XCTestCase {
         XCTAssertTrue(envelope.files.contains { $0.path.hasSuffix("chunks/barcode05_1.fastq") })
     }
 
+    func testFASTQExportReplacesExistingPayloadAndSidecarAfterSuccessfulStagedExport() async throws {
+        let temp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let bundleURL = try makeONTChunkedFASTQBundle(in: temp)
+        let outputURL = temp.appendingPathComponent("barcode05-export.fastq")
+        let sidecarURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
+        try "old payload\n".write(to: outputURL, atomically: true, encoding: .utf8)
+        try "old provenance\n".write(to: sidecarURL, atomically: true, encoding: .utf8)
+
+        try await AppDelegate.exportFASTQBundleForSidebar(
+            bundleURL: bundleURL,
+            outputURL: outputURL,
+            isDerived: false
+        )
+
+        var identifiers: [String] = []
+        for try await record in FASTQReader().records(from: outputURL) {
+            identifiers.append(record.identifier)
+        }
+        XCTAssertEqual(identifiers, ["read-1", "read-2"])
+        XCTAssertNotEqual(try String(contentsOf: sidecarURL, encoding: .utf8), "old provenance\n")
+
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL))
+        XCTAssertEqual(envelope.outputs.map(\.path), [outputURL.path])
+        XCTAssertEqual(envelope.output?.checksumSHA256, try ProvenanceFileHasher.sha256(of: outputURL))
+        XCTAssertEqual(envelope.output?.fileSize, try ProvenanceFileHasher.fileSize(of: outputURL))
+        let entries = try FileManager.default.contentsOfDirectory(atPath: temp.path)
+        XCTAssertFalse(entries.contains { $0.hasPrefix(".barcode05-export") })
+    }
+
+    func testFASTQExportStagedGzipOutputPreservesCompressionBehavior() async throws {
+        let temp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let bundleURL = try makeONTChunkedFASTQBundle(in: temp)
+        let outputURL = temp.appendingPathComponent("barcode05-export.fastq.gz")
+
+        try await AppDelegate.exportFASTQBundleForSidebar(
+            bundleURL: bundleURL,
+            outputURL: outputURL,
+            isDerived: false
+        )
+
+        var identifiers: [String] = []
+        for try await record in FASTQReader().records(from: outputURL) {
+            identifiers.append(record.identifier)
+        }
+
+        XCTAssertEqual(identifiers, ["read-1", "read-2"])
+        let headerBytes = try Data(contentsOf: outputURL).prefix(2)
+        XCTAssertEqual(Array(headerBytes), [0x1f, 0x8b])
+
+        let sidecarURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL))
+        XCTAssertEqual(envelope.outputs.map(\.path), [outputURL.path])
+        XCTAssertEqual(envelope.output?.checksumSHA256, try ProvenanceFileHasher.sha256(of: outputURL))
+        XCTAssertEqual(envelope.output?.fileSize, try ProvenanceFileHasher.fileSize(of: outputURL))
+        XCTAssertEqual(envelope.legacyRun?.parameters["outputGzipCompressed"], ParameterValue.boolean(true))
+
+        let entries = try FileManager.default.contentsOfDirectory(atPath: temp.path)
+        XCTAssertFalse(entries.contains { $0.hasPrefix(".barcode05-export") && !$0.hasSuffix(".lungfish-provenance.json") })
+    }
+
+    func testFASTQExportRestoresExistingPayloadAndSidecarWhenChunkExportFails() async throws {
+        let temp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let bundleURL = try makeONTChunkedFASTQBundle(in: temp)
+        let missingChunkURL = bundleURL
+            .appendingPathComponent("chunks", isDirectory: true)
+            .appendingPathComponent("barcode05_1.fastq")
+        try FileManager.default.removeItem(at: missingChunkURL)
+
+        let outputURL = temp.appendingPathComponent("barcode05-export.fastq")
+        let sidecarURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
+        try "old payload\n".write(to: outputURL, atomically: true, encoding: .utf8)
+        try "old provenance\n".write(to: sidecarURL, atomically: true, encoding: .utf8)
+
+        do {
+            try await AppDelegate.exportFASTQBundleForSidebar(
+                bundleURL: bundleURL,
+                outputURL: outputURL,
+                isDerived: false
+            )
+            XCTFail("Expected export to fail when a manifest chunk is missing")
+        } catch {
+            XCTAssertFalse(error.localizedDescription.isEmpty)
+        }
+
+        XCTAssertEqual(try String(contentsOf: outputURL, encoding: .utf8), "old payload\n")
+        XCTAssertEqual(try String(contentsOf: sidecarURL, encoding: .utf8), "old provenance\n")
+        let entries = try FileManager.default.contentsOfDirectory(atPath: temp.path)
+        XCTAssertFalse(entries.contains { $0.hasPrefix(".barcode05-export") })
+    }
+
     func testBatchSequenceExportCLICommandsOmitUnsupportedCompressionWrapper() {
         let folder = URL(fileURLWithPath: "/tmp/Exports", isDirectory: true)
         let bundles = [
@@ -183,6 +330,21 @@ final class SidebarViewControllerSelectionTests: XCTestCase {
         XCTAssertEqual(
             SidebarViewController.suggestedMergedBundleName(for: items),
             "Sample A merged"
+        )
+    }
+
+    func testMergeDialogInformativeTextClarifiesReferenceMergeLimit() {
+        XCTAssertEqual(
+            SidebarViewController.mergeDialogInformativeText(for: .fastq),
+            "Enter a name for the merged FASTQ bundle:"
+        )
+        XCTAssertTrue(
+            SidebarViewController.mergeDialogInformativeText(for: .reference)
+                .contains("sequence-only reference bundle")
+        )
+        XCTAssertTrue(
+            SidebarViewController.mergeDialogInformativeText(for: .reference)
+                .contains("rejected rather than partially merged")
         )
     }
 

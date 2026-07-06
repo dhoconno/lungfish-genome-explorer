@@ -5,6 +5,7 @@
 import Foundation
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 import os.log
 
 private let primerTrimRunnerLogger = Logger(
@@ -153,7 +154,7 @@ private final class CLIPrimerTrimProcessTermination: @unchecked Sendable {
 }
 
 actor CLIPrimerTrimRunner {
-    private var process: Process?
+    private let cancellationHandle = NativeProcessCancellationHandle()
 
     static func cliBinaryPath() -> URL? {
         CLIImportRunner.cliBinaryPath()
@@ -299,13 +300,13 @@ actor CLIPrimerTrimRunner {
             termination.markTerminated(status: terminatedProcess.terminationStatus)
         }
 
-        self.process = process
+        cancellationHandle.store(process)
 
         do {
             try process.run()
         } catch {
             process.terminationHandler = nil
-            self.process = nil
+            cancellationHandle.clear(process)
             throw CLIPrimerTrimRunnerError.processLaunchFailed(error.localizedDescription)
         }
 
@@ -342,9 +343,7 @@ actor CLIPrimerTrimRunner {
             state.appendStderr(remainingStderr)
         }
 
-        if self.process === process {
-            self.process = nil
-        }
+        cancellationHandle.clear(process)
 
         if Task.isCancelled {
             throw CancellationError()
@@ -356,7 +355,6 @@ actor CLIPrimerTrimRunner {
     }
 
     func cancel() {
-        guard let process, process.isRunning else { return }
-        process.terminate()
+        cancellationHandle.terminateProcessTree(gracePeriod: 0)
     }
 }

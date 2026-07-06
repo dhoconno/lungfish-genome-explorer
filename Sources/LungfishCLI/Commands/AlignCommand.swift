@@ -1,5 +1,6 @@
 import ArgumentParser
 import Foundation
+import LungfishCore
 import LungfishWorkflow
 
 struct AlignCommand: AsyncParsableCommand {
@@ -325,7 +326,7 @@ extension AlignCommand {
             outputURL: URL?,
             displayName: String
         ) -> [String] {
-            var argv = ["lungfish", "align", "mafft"] + inputURLs.map(\.path)
+            var argv = [CLICommandIdentity.executableName, "align", "mafft"] + inputURLs.map(\.path)
             argv += ["--project", projectURL.path]
             if let outputURL {
                 argv += ["--output", outputURL.path]

@@ -20,7 +20,7 @@ public enum CLIBinaryLocator {
     ///
     /// Search order:
     /// 1. `<AppBundle>/Contents/MacOS/lungfish-cli` (release)
-    /// 2. `.build/arm64-apple-macosx/debug/lungfish-cli` (development)
+    /// 2. SwiftPM's active package binary directory (development)
     /// 3. PATH lookup via `/usr/bin/which`
     public static func cliBinaryPath() -> URL? {
         resolveCLIPath(
@@ -32,6 +32,9 @@ public enum CLIBinaryLocator {
             environment: ProcessInfo.processInfo.environment,
             pathLookup: {
                 pathLookupForCLI()
+            },
+            swiftPMBinPathLookup: { packageRoot in
+                swiftPMDevelopmentBinPath(packageRoot: packageRoot)
             }
         )
     }
@@ -41,6 +44,24 @@ public enum CLIBinaryLocator {
         currentWorkingDirectoryURL: URL?,
         environment: [String: String] = [:],
         pathLookup: () -> URL?
+    ) -> URL? {
+        resolveCLIPath(
+            mainExecutableURL: mainExecutableURL,
+            currentWorkingDirectoryURL: currentWorkingDirectoryURL,
+            environment: environment,
+            pathLookup: pathLookup,
+            swiftPMBinPathLookup: { packageRoot in
+                swiftPMDevelopmentBinPath(packageRoot: packageRoot)
+            }
+        )
+    }
+
+    public static func resolveCLIPath(
+        mainExecutableURL: URL?,
+        currentWorkingDirectoryURL: URL?,
+        environment: [String: String] = [:],
+        pathLookup: () -> URL?,
+        swiftPMBinPathLookup: (URL) -> URL?
     ) -> URL? {
         if let explicitPath = environment["LUNGFISH_CLI_PATH"],
            !explicitPath.isEmpty {
@@ -52,26 +73,22 @@ public enum CLIBinaryLocator {
 
         if let mainExecutableURL {
             let executableDirectory = mainExecutableURL.deletingLastPathComponent()
-            let bundledCLI = executableDirectory.appendingPathComponent("lungfish-cli")
+            let bundledCLI = executableDirectory.appendingPathComponent(CLICommandIdentity.executableName)
             if FileManager.default.isExecutableFile(atPath: bundledCLI.path) {
                 return bundledCLI
             }
         }
 
-        let developmentCandidates = [
-            ".build/arm64-apple-macosx/debug/lungfish-cli",
-            ".build/debug/lungfish-cli",
-        ]
-
         for projectRoot in developmentProjectRoots(
             mainExecutableURL: mainExecutableURL,
             currentWorkingDirectoryURL: currentWorkingDirectoryURL
         ) {
-            for relativePath in developmentCandidates {
-                let candidate = projectRoot.appendingPathComponent(relativePath)
-                if FileManager.default.isExecutableFile(atPath: candidate.path) {
-                    return candidate
-                }
+            guard let binPath = swiftPMBinPathLookup(projectRoot) else {
+                continue
+            }
+            let candidate = binPath.appendingPathComponent(CLICommandIdentity.executableName)
+            if FileManager.default.isExecutableFile(atPath: candidate.path) {
+                return candidate
             }
         }
 
@@ -121,10 +138,48 @@ public enum CLIBinaryLocator {
         return roots
     }
 
+    private static func swiftPMDevelopmentBinPath(packageRoot: URL) -> URL? {
+        let swiftProcess = Process()
+        swiftProcess.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        swiftProcess.arguments = [
+            "swift",
+            "build",
+            "--package-path", packageRoot.path,
+            "--show-bin-path",
+        ]
+
+        let pipe = Pipe()
+        swiftProcess.standardOutput = pipe
+        swiftProcess.standardError = FileHandle.nullDevice
+
+        do {
+            try swiftProcess.run()
+            swiftProcess.waitUntilExit()
+            guard swiftProcess.terminationStatus == 0 else {
+                return nil
+            }
+
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            guard let path = String(data: data, encoding: .utf8)?
+                .split(whereSeparator: \.isNewline)
+                .map(String.init)
+                .last?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+                !path.isEmpty
+            else {
+                return nil
+            }
+            return URL(fileURLWithPath: path, isDirectory: true)
+        } catch {
+            logger.warning("SwiftPM bin path lookup for \(CLICommandIdentity.executableName, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
     private static func pathLookupForCLI() -> URL? {
         let whichProcess = Process()
         whichProcess.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-        whichProcess.arguments = ["lungfish-cli"]
+        whichProcess.arguments = [CLICommandIdentity.executableName]
         let pipe = Pipe()
         whichProcess.standardOutput = pipe
         whichProcess.standardError = FileHandle.nullDevice
@@ -139,7 +194,7 @@ public enum CLIBinaryLocator {
                 }
             }
         } catch {
-            logger.warning("PATH lookup for lungfish-cli failed: \(error.localizedDescription, privacy: .public)")
+            logger.warning("PATH lookup for \(CLICommandIdentity.executableName, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
         }
 
         return nil

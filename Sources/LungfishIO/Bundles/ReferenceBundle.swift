@@ -8,11 +8,38 @@ import LungfishCore
 
 // MARK: - ReferenceBundle
 
+struct ReferenceBundleBookmarkResolution: Sendable {
+    let url: URL
+    let isStale: Bool
+}
+
+struct ReferenceBundleBookmarkAccess: Sendable {
+    let resolve: @Sendable (Data) throws -> ReferenceBundleBookmarkResolution
+    let startAccessing: @Sendable (URL) -> Bool
+    let stopAccessing: @Sendable (URL) -> Void
+
+    static let live = ReferenceBundleBookmarkAccess(
+        resolve: { data in
+            var isStale = false
+            let url = try URL(
+                resolvingBookmarkData: data,
+                options: [.withoutUI, .withSecurityScope],
+                relativeTo: nil,
+                bookmarkDataIsStale: &isStale
+            )
+            return ReferenceBundleBookmarkResolution(url: url, isStale: isStale)
+        },
+        startAccessing: { $0.startAccessingSecurityScopedResource() },
+        stopAccessing: { $0.stopAccessingSecurityScopedResource() }
+    )
+}
+
 /// Reader for `.lungfishref` reference genome bundles.
 ///
 /// `ReferenceBundle` provides access to the contents of a reference genome bundle,
 /// including the genome sequence, annotation tracks, variant tracks, and signal tracks.
-/// All operations support efficient random access to specific genomic regions.
+/// Region access is available for tracks that include a supported random-access
+/// representation such as a SQLite sidecar.
 ///
 /// ## Bundle Structure
 ///
@@ -20,7 +47,7 @@ import LungfishCore
 /// - `manifest.json` - Bundle metadata and track definitions
 /// - `genome/` - bgzip-compressed FASTA with .fai and .gzi indices
 /// - `annotations/` - SQLite annotation databases
-/// - `variants/` - Indexed BCF variant files
+/// - `variants/` - Variant payloads and optional SQLite query sidecars
 /// - `tracks/` - BigWig signal tracks
 ///
 /// ## Thread Safety
@@ -52,6 +79,9 @@ public final class ReferenceBundle: Sendable {
     /// Bundle manifest containing metadata and track definitions.
     public let manifest: BundleManifest
 
+    private let bookmarkAccess: ReferenceBundleBookmarkAccess
+    private let activeSecurityScopedAlignmentURLs = OSAllocatedUnfairLock(initialState: [String: URL]())
+
     /// Logger for bundle operations.
     private let logger = Logger(
         subsystem: "com.lungfish.core",
@@ -66,6 +96,7 @@ public final class ReferenceBundle: Sendable {
     /// - Throws: `ReferenceBundleError` if the bundle cannot be opened
     public init(url: URL) async throws {
         self.url = url
+        self.bookmarkAccess = .live
 
         // Validate bundle exists and is a directory
         var isDirectory: ObjCBool = false
@@ -94,12 +125,12 @@ public final class ReferenceBundle: Sendable {
 
         // Verify essential genome files exist (variant-only bundles skip this).
         if let genome = manifest.genome {
-            let genomeURL = url.appendingPathComponent(genome.path)
+            let genomeURL = try validatedBundleMemberURL(path: genome.path, field: "genome.path")
             guard FileManager.default.fileExists(atPath: genomeURL.path) else {
                 throw ReferenceBundleError.missingFile(genome.path)
             }
 
-            let indexURL = url.appendingPathComponent(genome.indexPath)
+            let indexURL = try validatedBundleMemberURL(path: genome.indexPath, field: "genome.indexPath")
             guard FileManager.default.fileExists(atPath: indexURL.path) else {
                 throw ReferenceBundleError.missingFile(genome.indexPath)
             }
@@ -119,7 +150,30 @@ public final class ReferenceBundle: Sendable {
     public init(url: URL, manifest: BundleManifest) {
         self.url = url
         self.manifest = manifest
+        self.bookmarkAccess = .live
         logger.info("Created bundle from pre-loaded manifest: \(manifest.name) (\(manifest.identifier))")
+    }
+
+    init(
+        url: URL,
+        manifest: BundleManifest,
+        bookmarkAccess: ReferenceBundleBookmarkAccess
+    ) {
+        self.url = url
+        self.manifest = manifest
+        self.bookmarkAccess = bookmarkAccess
+        logger.info("Created bundle from pre-loaded manifest: \(manifest.name) (\(manifest.identifier))")
+    }
+
+    deinit {
+        let activeURLs = activeSecurityScopedAlignmentURLs.withLock { state in
+            let urls = Array(state.values)
+            state.removeAll()
+            return urls
+        }
+        for url in activeURLs {
+            bookmarkAccess.stopAccessing(url)
+        }
     }
 
     // MARK: - Bundle Information
@@ -198,12 +252,12 @@ public final class ReferenceBundle: Sendable {
         }
         let fetchRegion = canonicalRegion(region, for: chromInfo)
 
-        let genomeURL = url.appendingPathComponent(genome.path)
-        let faiURL = url.appendingPathComponent(genome.indexPath)
+        let genomeURL = try validatedBundleMemberURL(path: genome.path, field: "genome.path")
+        let faiURL = try validatedBundleMemberURL(path: genome.indexPath, field: "genome.indexPath")
 
         // Check if we have a bgzip-compressed file with GZI index
         if let gzipIndexPath = genome.gzipIndexPath {
-            let gziURL = url.appendingPathComponent(gzipIndexPath)
+            let gziURL = try validatedBundleMemberURL(path: gzipIndexPath, field: "genome.gzipIndexPath")
 
             // Use bgzip-aware reader for random access to compressed files
             let reader = try await BgzipIndexedFASTAReader(url: genomeURL, faiURL: faiURL, gziURL: gziURL)
@@ -250,12 +304,12 @@ public final class ReferenceBundle: Sendable {
         }
         let fetchRegion = canonicalRegion(region, for: chromInfo)
 
-        let genomeURL = url.appendingPathComponent(genome.path)
-        let faiURL = url.appendingPathComponent(genome.indexPath)
+        let genomeURL = try validatedBundleMemberURL(path: genome.path, field: "genome.path")
+        let faiURL = try validatedBundleMemberURL(path: genome.indexPath, field: "genome.indexPath")
 
         // Check if we have a bgzip-compressed file with GZI index
         if let gzipIndexPath = genome.gzipIndexPath {
-            let gziURL = url.appendingPathComponent(gzipIndexPath)
+            let gziURL = try validatedBundleMemberURL(path: gzipIndexPath, field: "genome.gzipIndexPath")
 
             logger.info("fetchSequenceSync: Creating SyncBgzipFASTAReader for \(genomeURL.lastPathComponent)")
             // Use synchronous bgzip reader
@@ -333,8 +387,8 @@ public final class ReferenceBundle: Sendable {
 
     /// Fetches variants from a track for a genomic region.
     ///
-    /// Queries the SQLite variant database for fast region-based retrieval.
-    /// Falls back to returning empty if no database is available.
+    /// Queries the SQLite variant database sidecar for fast region-based retrieval.
+    /// BCF/CSI-only tracks are detected but not queryable through this reader yet.
     ///
     /// - Parameters:
     ///   - trackId: The variant track ID
@@ -348,31 +402,35 @@ public final class ReferenceBundle: Sendable {
 
         // Try SQLite database first (fast path)
         if let dbPath = trackInfo.databasePath {
-            let dbURL = url.appendingPathComponent(dbPath)
-            if FileManager.default.fileExists(atPath: dbURL.path) {
-                do {
-                    let variantDB = try VariantDatabase(url: dbURL)
-                    let records = variantDB.query(
-                        chromosome: region.chromosome,
-                        start: region.start,
-                        end: region.end
-                    )
-                    logger.debug("getVariants: \(trackId) returned \(records.count) variants from SQLite for \(region.description)")
-                    return records.map { $0.toBundleVariant() }
-                } catch {
-                    logger.error("getVariants: SQLite query failed for \(trackId): \(error.localizedDescription)")
-                }
+            let dbURL = try validatedBundleMemberURL(path: dbPath, field: "variants[\(trackId)].databasePath")
+            guard FileManager.default.fileExists(atPath: dbURL.path) else {
+                throw ReferenceBundleError.variantReadFailed(
+                    "SQLite sidecar '\(dbPath)' for track '\(trackId)' is missing"
+                )
+            }
+            do {
+                let variantDB = try VariantDatabase(url: dbURL)
+                let records = try variantDB.queryRegionThrowing(
+                    chromosome: region.chromosome,
+                    start: region.start,
+                    end: region.end
+                )
+                logger.debug("getVariants: \(trackId) returned \(records.count) variants from SQLite for \(region.description)")
+                return records.map { $0.toBundleVariant() }
+            } catch {
+                logger.error("getVariants: SQLite query failed for \(trackId): \(error.localizedDescription)")
+                throw ReferenceBundleError.variantReadFailed(
+                    "SQLite sidecar '\(dbPath)' for track '\(trackId)' could not be read: \(error.localizedDescription)"
+                )
             }
         }
 
-        // Fallback: check for BCF file
-        let trackURL = url.appendingPathComponent(trackInfo.path)
+        let trackURL = try validatedBundleMemberURL(path: trackInfo.path, field: "variants[\(trackId)].path")
         guard FileManager.default.fileExists(atPath: trackURL.path) else {
             throw ReferenceBundleError.missingFile(trackInfo.path)
         }
 
-        logger.debug("getVariants: \(trackId) for \(region.description) - BCF reader not yet implemented, returning empty")
-        return []
+        throw unsupportedVariantTrackFormat(trackInfo)
     }
 
     /// Fetches variants as SequenceAnnotations for rendering in the annotation pipeline.
@@ -392,28 +450,39 @@ public final class ReferenceBundle: Sendable {
 
         // Try SQLite database (fast path)
         if let dbPath = trackInfo.databasePath {
-            let dbURL = url.appendingPathComponent(dbPath)
-            if FileManager.default.fileExists(atPath: dbURL.path) {
-                do {
-                    let variantDB = try VariantDatabase(url: dbURL)
-                    let records = variantDB.query(
-                        chromosome: region.chromosome,
-                        start: region.start,
-                        end: region.end
-                    )
-                    logger.debug("getVariantAnnotations: \(trackId) returned \(records.count) variant annotations for \(region.description)")
-                    return records.map { record in
-                        var annotation = record.toAnnotation()
-                        annotation.qualifiers["variant_track_id"] = AnnotationQualifier(trackId)
-                        return annotation
-                    }
-                } catch {
-                    logger.error("getVariantAnnotations: SQLite query failed for \(trackId): \(error.localizedDescription)")
+            let dbURL = try validatedBundleMemberURL(path: dbPath, field: "variants[\(trackId)].databasePath")
+            guard FileManager.default.fileExists(atPath: dbURL.path) else {
+                throw ReferenceBundleError.variantReadFailed(
+                    "SQLite sidecar '\(dbPath)' for track '\(trackId)' is missing"
+                )
+            }
+            do {
+                let variantDB = try VariantDatabase(url: dbURL)
+                let records = try variantDB.queryRegionThrowing(
+                    chromosome: region.chromosome,
+                    start: region.start,
+                    end: region.end
+                )
+                logger.debug("getVariantAnnotations: \(trackId) returned \(records.count) variant annotations for \(region.description)")
+                return records.map { record in
+                    var annotation = record.toAnnotation()
+                    annotation.qualifiers["variant_track_id"] = AnnotationQualifier(trackId)
+                    return annotation
                 }
+            } catch {
+                logger.error("getVariantAnnotations: SQLite query failed for \(trackId): \(error.localizedDescription)")
+                throw ReferenceBundleError.variantReadFailed(
+                    "SQLite sidecar '\(dbPath)' for track '\(trackId)' could not be read: \(error.localizedDescription)"
+                )
             }
         }
 
-        return []
+        let trackURL = try validatedBundleMemberURL(path: trackInfo.path, field: "variants[\(trackId)].path")
+        guard FileManager.default.fileExists(atPath: trackURL.path) else {
+            throw ReferenceBundleError.missingFile(trackInfo.path)
+        }
+
+        throw unsupportedVariantTrackFormat(trackInfo)
     }
 
     // MARK: - SQLite Annotation Access
@@ -436,7 +505,7 @@ public final class ReferenceBundle: Sendable {
         guard let dbPath = trackInfo.databasePath else {
             return []
         }
-        let dbURL = url.appendingPathComponent(dbPath)
+        let dbURL = try validatedBundleMemberURL(path: dbPath, field: "annotations[\(trackId)].databasePath")
         let db = try AnnotationDatabase(url: dbURL)
         let queryChromosomes = annotationQueryChromosomes(for: region.chromosome, database: db)
         var records: [AnnotationDatabaseRecord] = []
@@ -524,7 +593,10 @@ public final class ReferenceBundle: Sendable {
     /// - Returns: The resolved path to the alignment file
     /// - Throws: If the file cannot be found
     public func resolveAlignmentPath(_ trackInfo: AlignmentTrackInfo) throws -> String {
-        let sourcePath = resolveBundleRelativePath(trackInfo.sourcePath)
+        let sourcePath = try resolveBundleRelativePath(
+            trackInfo.sourcePath,
+            field: "alignments[\(trackInfo.id)].sourcePath"
+        )
 
         // Check if file exists at original path
         if FileManager.default.fileExists(atPath: sourcePath) {
@@ -533,16 +605,13 @@ public final class ReferenceBundle: Sendable {
 
         // Try to resolve via bookmark if available
         if let bookmarkString = trackInfo.sourceBookmark,
-           let bookmarkData = Data(base64Encoded: bookmarkString) {
-            var isStale = false
-            if let resolved = try? URL(resolvingBookmarkData: bookmarkData,
-                                       options: [.withoutUI, .withSecurityScope],
-                                       relativeTo: nil,
-                                       bookmarkDataIsStale: &isStale),
-               FileManager.default.fileExists(atPath: resolved.path) {
-                logger.info("Resolved stale alignment path via bookmark: \(resolved.path)")
-                return resolved.path
-            }
+           let bookmarkData = Data(base64Encoded: bookmarkString),
+           let resolvedPath = resolveBookmarkedAlignmentPath(
+                bookmarkData,
+                key: alignmentBookmarkKey(trackID: trackInfo.id, kind: "source")
+           ) {
+            logger.info("Resolved stale alignment path via bookmark: \(resolvedPath)")
+            return resolvedPath
         }
 
         throw ReferenceBundleError.missingFile(trackInfo.sourcePath)
@@ -552,23 +621,23 @@ public final class ReferenceBundle: Sendable {
     ///
     /// Supports both legacy absolute external paths and bundle-relative paths.
     public func resolveAlignmentIndexPath(_ trackInfo: AlignmentTrackInfo) throws -> String {
-        let indexPath = resolveBundleRelativePath(trackInfo.indexPath)
+        let indexPath = try resolveBundleRelativePath(
+            trackInfo.indexPath,
+            field: "alignments[\(trackInfo.id)].indexPath"
+        )
 
         if FileManager.default.fileExists(atPath: indexPath) {
             return indexPath
         }
 
         if let bookmarkString = trackInfo.indexBookmark,
-           let bookmarkData = Data(base64Encoded: bookmarkString) {
-            var isStale = false
-            if let resolved = try? URL(resolvingBookmarkData: bookmarkData,
-                                       options: [.withoutUI, .withSecurityScope],
-                                       relativeTo: nil,
-                                       bookmarkDataIsStale: &isStale),
-               FileManager.default.fileExists(atPath: resolved.path) {
-                logger.info("Resolved stale alignment index path via bookmark: \(resolved.path)")
-                return resolved.path
-            }
+           let bookmarkData = Data(base64Encoded: bookmarkString),
+           let resolvedPath = resolveBookmarkedAlignmentPath(
+                bookmarkData,
+                key: alignmentBookmarkKey(trackID: trackInfo.id, kind: "index")
+           ) {
+            logger.info("Resolved stale alignment index path via bookmark: \(resolvedPath)")
+            return resolvedPath
         }
 
         throw ReferenceBundleError.missingFile(trackInfo.indexPath)
@@ -580,24 +649,101 @@ public final class ReferenceBundle: Sendable {
     /// - Returns: The metadata database, or nil if not available
     public func alignmentMetadataDB(for trackInfo: AlignmentTrackInfo) -> AlignmentMetadataDatabase? {
         guard let dbPath = trackInfo.metadataDBPath else { return nil }
-        let dbURL = url.appendingPathComponent(dbPath)
+        guard let dbURL = try? validatedBundleMemberURL(path: dbPath, field: "alignments[\(trackInfo.id)].metadataDBPath") else {
+            return nil
+        }
         guard FileManager.default.fileExists(atPath: dbURL.path) else { return nil }
         return try? AlignmentMetadataDatabase(url: dbURL)
+    }
+
+    private func resolveBookmarkedAlignmentPath(_ bookmarkData: Data, key: String) -> String? {
+        guard let resolution = try? bookmarkAccess.resolve(bookmarkData) else {
+            return nil
+        }
+        let resolvedURL = resolution.url.standardizedFileURL
+        guard beginSecurityScopedAlignmentAccess(for: key, url: resolvedURL) else {
+            return nil
+        }
+        guard FileManager.default.fileExists(atPath: resolvedURL.path) else {
+            endSecurityScopedAlignmentAccess(for: key)
+            return nil
+        }
+        if resolution.isStale {
+            logger.info("Resolved stale alignment bookmark for \(key, privacy: .public): \(resolvedURL.path)")
+        }
+        return resolvedURL.path
+    }
+
+    private func alignmentBookmarkKey(trackID: String, kind: String) -> String {
+        "\(trackID):\(kind)"
+    }
+
+    @discardableResult
+    private func beginSecurityScopedAlignmentAccess(for key: String, url: URL) -> Bool {
+        let standardizedURL = url.standardizedFileURL
+        return activeSecurityScopedAlignmentURLs.withLock { state in
+            if state[key]?.standardizedFileURL == standardizedURL {
+                return true
+            }
+            if let existingURL = state.removeValue(forKey: key) {
+                bookmarkAccess.stopAccessing(existingURL)
+            }
+            guard bookmarkAccess.startAccessing(standardizedURL) else {
+                return false
+            }
+            state[key] = standardizedURL
+            return true
+        }
+    }
+
+    private func endSecurityScopedAlignmentAccess(for key: String) {
+        guard let url = activeSecurityScopedAlignmentURLs.withLock({ state in
+            state.removeValue(forKey: key)
+        }) else {
+            return
+        }
+        bookmarkAccess.stopAccessing(url)
     }
 
     /// Returns the absolute path to the reference FASTA within this bundle, if it exists.
     /// Needed by `AlignmentDataProvider` for CRAM file access.
     public func referenceFASTAPath() -> String? {
         guard let genome = manifest.genome else { return nil }
-        let fastaURL = url.appendingPathComponent(genome.path)
+        guard let fastaURL = try? validatedBundleMemberURL(path: genome.path, field: "genome.path") else {
+            return nil
+        }
         return FileManager.default.fileExists(atPath: fastaURL.path) ? fastaURL.path : nil
     }
 
-    private func resolveBundleRelativePath(_ path: String) -> String {
+    private func resolveBundleRelativePath(_ path: String, field: String) throws -> String {
         if URL(fileURLWithPath: path).isFileURL && path.hasPrefix("/") {
             return path
         }
-        return url.appendingPathComponent(path).path
+        return try validatedBundleMemberURL(path: path, field: field).path
+    }
+
+    private func validatedBundleMemberURL(path: String, field: String) throws -> URL {
+        do {
+            return try BundleManifest.validatedBundleMemberURL(for: path, in: url, field: field)
+        } catch let error as BundleValidationError {
+            throw ReferenceBundleError.validationFailed([error])
+        }
+    }
+
+    private func unsupportedVariantTrackFormat(_ trackInfo: VariantTrackInfo) -> ReferenceBundleError {
+        let path = trackInfo.path.lowercased()
+        let format: String
+        if path.hasSuffix(".vcf.gz") {
+            format = "VCF.GZ"
+        } else {
+            let ext = URL(fileURLWithPath: path).pathExtension
+            format = ext.isEmpty ? "unknown" : ext.uppercased()
+        }
+        return .unsupportedTrackFormat(
+            trackId: trackInfo.id,
+            format: format,
+            reason: "ReferenceBundle can query variant tracks only when the manifest includes a readable SQLite database_path sidecar."
+        )
     }
 
 }
@@ -698,6 +844,9 @@ public enum ReferenceBundleError: Error, LocalizedError, Sendable {
     /// Alignment file path is stale and cannot be resolved.
     case alignmentFileNotFound(String)
 
+    /// The track exists but has no supported query representation.
+    case unsupportedTrackFormat(trackId: String, format: String, reason: String)
+
     public var errorDescription: String? {
         switch self {
         case .notADirectory(let url):
@@ -729,6 +878,8 @@ public enum ReferenceBundleError: Error, LocalizedError, Sendable {
             return "Failed to read alignment data: \(reason)"
         case .alignmentFileNotFound(let path):
             return "Alignment file not found: '\(path)'"
+        case .unsupportedTrackFormat(let trackId, let format, let reason):
+            return "Track '\(trackId)' uses unsupported format '\(format)': \(reason)"
         }
     }
 
@@ -750,6 +901,8 @@ public enum ReferenceBundleError: Error, LocalizedError, Sendable {
             return "Adjust the region to be within chromosome bounds"
         case .trackNotFound:
             return "Check available tracks with bundle.*TrackIds"
+        case .unsupportedTrackFormat:
+            return "Rebuild or import the reference bundle with a SQLite variant database sidecar, or query the BCF with a workflow that supports BCF/CSI."
         default:
             return nil
         }

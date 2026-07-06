@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import LungfishCore
 import LungfishIO
 
 public struct HaplotypeDefinitionCommandResult: Equatable, Sendable {
@@ -131,6 +132,7 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         guard let definitionURL = store.definitionURL(for: definition.id) else {
             throw HaplotypeDefinitionCommandServiceError.missingDefinitionURL(definition.id)
         }
+        try canonicalizeProjectDefinitionProvenance(for: definitionURL)
         return HaplotypeDefinitionCommandResult(
             scope: scope,
             definitionSet: definition,
@@ -143,16 +145,16 @@ public struct HaplotypeDefinitionCommandService: Sendable {
     /// same location used by manager-created bundles), so it is immediately
     /// discoverable by `HaplotypeDefinitionLibrary.records()`.
     ///
-    /// The source bundle already carries its own provenance, so a plain copy does
-    /// not write new provenance. If a bundle of the same name already exists in
-    /// the destination directory, the name is disambiguated (` 2`, ` 3`, …) rather
-    /// than overwriting. Returns the destination bundle URL.
+    /// The install writes new provenance for the final stored project payload.
+    /// If a bundle of the same name already exists in the destination directory,
+    /// the name is disambiguated (` 2`, ` 3`, …) rather than overwriting. Returns
+    /// the destination bundle URL.
     @discardableResult
     public func installMHCReferenceBundle(
         from sourceURL: URL,
         argv: [String]
     ) throws -> URL {
-        _ = argv
+        let startedAt = Date()
         guard let projectRoot else {
             throw HaplotypeDefinitionCommandServiceError.missingProjectRoot
         }
@@ -183,6 +185,18 @@ public struct HaplotypeDefinitionCommandService: Sendable {
             named: sourceURL.lastPathComponent
         )
         try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+        do {
+            try writeMHCReferenceBundleInstallProvenance(
+                sourceURL: sourceURL,
+                destinationURL: destinationURL,
+                destinationDirectory: destinationDirectory,
+                argv: argv,
+                startedAt: startedAt
+            )
+        } catch {
+            try? FileManager.default.removeItem(at: destinationURL)
+            throw error
+        }
         return destinationURL.standardizedFileURL
     }
 
@@ -208,6 +222,7 @@ public struct HaplotypeDefinitionCommandService: Sendable {
             outputURL: outputURL,
             argv: argv
         )
+        try canonicalizeProjectDefinitionProvenance(for: outputURL)
     }
 
     @discardableResult
@@ -232,6 +247,7 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         guard let definitionURL = store.definitionURL(for: definition.id) else {
             throw HaplotypeDefinitionCommandServiceError.missingDefinitionURL(definition.id)
         }
+        try canonicalizeProjectDefinitionProvenance(for: definitionURL)
         return HaplotypeDefinitionCommandResult(
             scope: scope,
             definitionSet: definition,
@@ -254,10 +270,13 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         try validateDefinition(definition)
         let manifest = try MHCAmpliconReferenceBundle.loadManifest(from: bundleURL)
         let manifestURL = MHCAmpliconReferenceBundle.manifestURL(in: bundleURL)
-        let referenceURL = bundleURL.appendingPathComponent(manifest.referenceFastaPath).standardizedFileURL
+        guard let referenceURL = MHCAmpliconReferenceBundle.referenceFASTAURL(in: bundleURL) else {
+            throw HaplotypeDefinitionCommandServiceError.missingMHCReferenceBundleReference(manifest.referenceFastaPath)
+        }
         guard FileManager.default.fileExists(atPath: referenceURL.path) else {
             throw HaplotypeDefinitionCommandServiceError.missingMHCReferenceBundleReference(referenceURL.path)
         }
+        try MHCAmpliconReferenceBundle.validate(at: bundleURL)
 
         let existingPath = try existingDefinitionRelativePath(
             definitionID: definition.id,
@@ -358,10 +377,13 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         }
         let manifest = try MHCAmpliconReferenceBundle.loadManifest(from: bundleURL)
         let manifestURL = MHCAmpliconReferenceBundle.manifestURL(in: bundleURL)
-        let referenceURL = bundleURL.appendingPathComponent(manifest.referenceFastaPath).standardizedFileURL
+        guard let referenceURL = MHCAmpliconReferenceBundle.referenceFASTAURL(in: bundleURL) else {
+            throw HaplotypeDefinitionCommandServiceError.missingMHCReferenceBundleReference(manifest.referenceFastaPath)
+        }
         guard FileManager.default.fileExists(atPath: referenceURL.path) else {
             throw HaplotypeDefinitionCommandServiceError.missingMHCReferenceBundleReference(referenceURL.path)
         }
+        try MHCAmpliconReferenceBundle.validate(at: bundleURL)
 
         let priorReferenceDescriptor = try ProvenanceFileDescriptor.file(url: referenceURL, format: .fasta, role: .input)
         let priorManifestDescriptor = try? ProvenanceFileDescriptor.file(url: manifestURL, format: .json, role: .input)
@@ -541,6 +563,7 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         guard let definitionURL = store.definitionURL(for: copied.id) else {
             throw HaplotypeDefinitionCommandServiceError.missingDefinitionURL(copied.id)
         }
+        try canonicalizeProjectDefinitionProvenance(for: definitionURL)
         return HaplotypeDefinitionCommandResult(
             scope: toScope,
             definitionSet: copied,
@@ -564,6 +587,9 @@ public struct HaplotypeDefinitionCommandService: Sendable {
             resolvedDefaults: resolvedDefaults(scope: scope)
         )
         try store.delete(id: definitionID, provenanceContext: context)
+        if let provenanceURL = store.provenanceURL(for: definitionID) {
+            try canonicalizeProjectDefinitionProvenance(at: provenanceURL)
+        }
     }
 
     private var library: HaplotypeDefinitionLibrary {
@@ -660,13 +686,129 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         ]
     }
 
+    private func canonicalizeProjectDefinitionProvenance(for definitionURL: URL) throws {
+        try canonicalizeProjectDefinitionProvenance(at: definitionURL.appendingPathExtension("provenance.json"))
+    }
+
+    private func canonicalizeProjectDefinitionProvenance(at provenanceURL: URL) throws {
+        if (try? ProvenanceEnvelopeReader.loadCanonical(fromSidecar: provenanceURL)) != nil {
+            return
+        }
+        let primitive = try JSONDecoder().decode(
+            HaplotypeDefinitionEditProvenance.self,
+            from: Data(contentsOf: provenanceURL)
+        )
+        try ProvenanceWriter(signingProvider: nil).write(
+            canonicalEnvelope(from: primitive),
+            toSidecar: provenanceURL
+        )
+    }
+
+    private func canonicalEnvelope(from primitive: HaplotypeDefinitionEditProvenance) -> ProvenanceEnvelope {
+        let startedAt = Self.parseHaplotypeProvenanceDate(primitive.startedAt) ?? Date()
+        let endedAt = Self.parseHaplotypeProvenanceDate(primitive.endedAt)
+            ?? startedAt.addingTimeInterval(primitive.wallTimeSeconds)
+        let inputs = primitive.inputs.map(Self.canonicalDescriptor)
+        let outputs = primitive.outputs.map(Self.canonicalDescriptor)
+        let step = ProvenanceStep(
+            toolName: primitive.toolName,
+            toolVersion: primitive.toolVersion,
+            argv: primitive.argv,
+            durableReplayArgv: primitive.argv,
+            reproducibleCommand: primitive.reproducibleCommand,
+            inputs: inputs,
+            outputs: outputs,
+            exitStatus: primitive.exitStatus,
+            wallTimeSeconds: primitive.wallTimeSeconds,
+            stderr: primitive.stderr,
+            startedAt: startedAt,
+            completedAt: endedAt
+        )
+        return ProvenanceEnvelope(
+            createdAt: startedAt,
+            workflowName: primitive.workflowName,
+            workflowVersion: primitive.workflowVersion,
+            toolName: primitive.toolName,
+            toolVersion: primitive.toolVersion,
+            tool: ProvenanceToolIdentity(
+                name: primitive.toolName,
+                version: primitive.toolVersion,
+                kind: primitive.toolName == CLICommandIdentity.executableName ? "cli" : "gui"
+            ),
+            argv: primitive.argv,
+            durableReplayArgv: primitive.argv,
+            reproducibleCommand: primitive.reproducibleCommand,
+            options: ProvenanceOptions(
+                explicit: primitive.options.explicit.mapValues(ParameterValue.string),
+                resolvedDefaults: primitive.options.resolvedDefaults.mapValues(ParameterValue.string)
+            ),
+            runtimeIdentity: ProvenanceRuntimeIdentity(
+                appVersion: primitive.workflowVersion,
+                operatingSystemVersion: primitive.runtime.operatingSystem,
+                user: primitive.runtime.user
+            ),
+            files: inputs + outputs,
+            output: outputs.first,
+            outputs: outputs,
+            steps: [step],
+            wallTimeSeconds: primitive.wallTimeSeconds,
+            exitStatus: primitive.exitStatus,
+            stderr: primitive.stderr
+        )
+    }
+
+    private static func canonicalDescriptor(
+        from record: HaplotypeDefinitionEditProvenance.FileRecord
+    ) -> ProvenanceFileDescriptor {
+        ProvenanceFileDescriptor(
+            path: record.path,
+            checksumSHA256: record.checksumSHA256,
+            fileSize: record.fileSizeBytes,
+            format: .json,
+            role: canonicalFileRole(record.role)
+        )
+    }
+
+    private static func canonicalFileRole(_ raw: String) -> FileRole {
+        switch raw {
+        case FileRole.output.rawValue:
+            return .output
+        case FileRole.reference.rawValue:
+            return .reference
+        case FileRole.index.rawValue:
+            return .index
+        case FileRole.log.rawValue:
+            return .log
+        case FileRole.report.rawValue:
+            return .report
+        default:
+            return .input
+        }
+    }
+
+    private static func parseHaplotypeProvenanceDate(_ value: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: value) {
+            return date
+        }
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: value)
+    }
+
     private func existingDefinitionRelativePath(
         definitionID: String,
         manifest: MHCAmpliconReferenceBundleManifest,
         bundleURL: URL
     ) throws -> String? {
         for relativePath in manifest.haplotypeDefinitionPaths {
-            let url = bundleURL.appendingPathComponent(relativePath)
+            guard let url = try? BundleManifest.validatedBundleMemberURL(
+                for: relativePath,
+                in: bundleURL,
+                field: "haplotypeDefinitionPaths[]"
+            ) else {
+                continue
+            }
             guard let data = try? Data(contentsOf: url),
                   let definition = try? JSONDecoder().decode(GenotypeHaplotypeDefinitionSet.self, from: data) else {
                 continue
@@ -775,6 +917,33 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
     }
 
+    private func writeMHCReferenceBundleInstallProvenance(
+        sourceURL: URL,
+        destinationURL: URL,
+        destinationDirectory: URL,
+        argv: [String],
+        startedAt: Date
+    ) throws {
+        let destination = destinationURL.standardizedFileURL
+        let completedAt = Date()
+        let sourceDescriptor = try directoryDescriptor(url: sourceURL.standardizedFileURL, role: .input)
+        let destinationDescriptor = try directoryDescriptor(url: destination, role: .output)
+        try writeMHCReferenceBundleProvenance(
+            workflowName: "MHC reference bundle install",
+            bundleURL: destination,
+            argv: argv,
+            startedAt: startedAt,
+            completedAt: completedAt,
+            explicit: [
+                "sourceBundle": .file(sourceURL.standardizedFileURL),
+                "destinationDirectory": .file(destinationDirectory.standardizedFileURL),
+                "destinationBundle": .file(destination),
+            ],
+            inputs: [sourceDescriptor],
+            outputs: [destinationDescriptor]
+        )
+    }
+
     private func directoryDescriptor(url: URL, role: FileRole) throws -> ProvenanceFileDescriptor {
         let manifest = try ProvenanceFileHasher.directoryManifest(for: url, role: role)
         return ProvenanceFileDescriptor(
@@ -833,7 +1002,7 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         let provenance = HaplotypeDefinitionEditProvenance(
             workflowName: "Haplotype definition export",
             workflowVersion: HaplotypeDefinitionStore.currentToolVersion,
-            toolName: "lungfish-cli",
+            toolName: CLICommandIdentity.executableName,
             toolVersion: HaplotypeDefinitionStore.currentToolVersion,
             argv: argv,
             reproducibleCommand: HaplotypeDefinitionStore.shellCommand(argv),

@@ -1509,6 +1509,40 @@ final class NativeBundleBuilderRegressionTests: XCTestCase {
         XCTAssertTrue(info.description.contains("managed tools are unavailable"))
         XCTAssertTrue(info.description.contains("micromamba bootstrap"))
     }
+
+    func testSignalTrackProcessingDoesNotCopyNonBigWigInputsAsBigWig() throws {
+        let packageRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = packageRoot
+            .appendingPathComponent("Sources/LungfishWorkflow/Native/NativeBundleBuilder.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("NativeBundleBuilder requires an existing BigWig signal track"))
+        XCTAssertFalse(source.contains("else if ext == \"bedgraph\""))
+        XCTAssertFalse(source.contains("else if ext == \"bg\""))
+        XCTAssertFalse(source.contains("bedGraphToBigWig` - bedGraph to BigWig conversion"))
+    }
+
+    func testBundleStructureCreationRejectsExistingBundleWithoutDeletingIt() throws {
+        let packageRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = packageRoot
+            .appendingPathComponent("Sources/LungfishWorkflow/Native/NativeBundleBuilder.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let helperStart = try XCTUnwrap(source.range(of: "private func createBundleStructure(at bundleURL: URL) throws"))
+        let helperEnd = try XCTUnwrap(source[helperStart.lowerBound...].range(of: "logger.info(\"Bundle structure created\")"))
+        let helperSource = String(source[helperStart.lowerBound..<helperEnd.upperBound])
+
+        XCTAssertTrue(helperSource.contains("BundleBuildError.outputBundleAlreadyExists(bundleURL)"))
+        XCTAssertFalse(
+            helperSource.contains("removeItem(at: bundleURL)"),
+            "Native bundle structure creation must not delete an existing output bundle"
+        )
+    }
 }
 
 // MARK: - Architecture Tests

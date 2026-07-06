@@ -8,13 +8,13 @@ task: Produce a consensus FASTA from reads or an alignment and hand it to extern
 tags: [variants, consensus, lineage, pangolin, nextclade, freyja, viralrecon]
 tools: [ivar, bcftools, samtools, freyja]
 entry_points:
-  - "Tools > FASTQ/FASTA Operations > Viral Recon (consensus caller)"
+  - "Tools > FASTQ/FASTA Operations > Mapping… > Viral Recon tool row"
   - "CLI: lungfish msa consensus"
   - "Inspector consensus mode on an alignment track"
 shots: []
 planned_shots:
   - id: viralrecon-consensus-picker
-    caption: "The Viral Recon wizard with the Consensus caller picker set, the only reads-to-consensus-FASTA path in Lungfish."
+    caption: "The Viral Recon wizard with the Consensus caller picker set for the end-to-end surveillance consensus path."
   - id: inspector-consensus-mode
     caption: "The Inspector consensus controls on an alignment track: consensus mode, IUPAC ambiguity, gap masking, and the depth and quality minimums."
   - id: msa-consensus-cli
@@ -56,7 +56,7 @@ The surface you use depends on what you are starting from. The table names each 
 
 | Surface | Start from | Threshold control | When to use |
 |---|---|---|---|
-| Viral Recon wizard | Raw reads (FASTQ) | The wizard's `Consensus` caller picker (iVar or bcftools) | The amplicon-to-consensus surveillance workflow; the only reads-to-consensus-FASTA path |
+| Viral Recon wizard | Raw reads (FASTQ) | The wizard's `Consensus` caller picker (iVar or bcftools) | The end-to-end amplicon surveillance workflow that maps reads and emits consensus FASTA outputs |
 | `lungfish msa consensus` | An aligned `.lungfishmsa` bundle | `--threshold` (minimum non-gap residue fraction) and `--gap-policy` | A reproducible CLI consensus a technician can run identically each time |
 | Inspector consensus mode | A BAM alignment region | Consensus minimum depth, minimum MAPQ, and minimum base quality sliders | A quick look at the consensus over one region, not a deposit-grade whole-genome FASTA |
 
@@ -78,7 +78,7 @@ If you do not know which to pick, `0.75` is the safe default for a clinical isol
 
 The Viral Recon wizard runs the nf-core/viralrecon pipeline end to end and is the only path that takes reads all the way to a consensus FASTA inside Lungfish.
 
-1. Choose `Tools > FASTQ/FASTA Operations`, then select `Viral Recon` in the tool sidebar. The wizard appears in the dialog.
+1. Choose `Tools > FASTQ/FASTA Operations > Mapping…`, then select the `Viral Recon` tool row in the Mapping category. The wizard appears in the dialog.
 2. Set the platform, the reference, and the primer scheme to match your run, exactly as you would for mapping.
 3. In the wizard's caller row, set `Variants` to your variant caller and set `Consensus` to `iVar` or `bcftools`. The `Consensus` picker is what produces the consensus FASTA; the threshold biology in the table above applies here. <!-- planned: viralrecon-consensus-picker -->
 4. Choose the executor and click to run. The pipeline maps, calls variants, and builds a per-sample consensus FASTA as one of its outputs.
@@ -99,7 +99,7 @@ lungfish msa consensus my-alignment.lungfishmsa \
 
 The `--threshold` flag is the minimum non-gap residue fraction required to call a consensus base; `--gap-policy omit` drops gap-only columns rather than emitting them. The command writes a plain FASTA with one record. The same consensus action is available in the app from the multiple-sequence-alignment viewport as `Create Consensus Sequence`. <!-- planned: msa-consensus-cli -->
 
-For a quick consensus over one region of a BAM without leaving the alignment view, select an alignment track and turn on the Inspector's consensus mode. The controls there (`Consensus Mode`, `Use IUPAC ambiguity codes`, `Hide high-gap sites`, and sliders for consensus minimum depth, minimum MAPQ, and minimum base quality) drive a `samtools consensus` preview over the visible region. <!-- planned: inspector-consensus-mode --> This is for inspection. For a whole-genome deposit, use Viral Recon or `lungfish msa consensus`.
+For a quick consensus over one region of a BAM without leaving the alignment view, select an alignment track and turn on the Inspector's consensus mode. The controls there (`Consensus Mode`, `Use IUPAC ambiguity codes`, `Hide high-gap sites`, and sliders for consensus minimum depth, minimum MAPQ, and minimum base quality) drive the preview. `Extract Consensus…` exports the selected bases when there is an active base selection; otherwise it exports the visible viewport. <!-- planned: inspector-consensus-mode --> This is for inspection. For a whole-genome deposit, use Viral Recon or `lungfish msa consensus`.
 
 ## Wastewater: lineage abundances with Freyja
 

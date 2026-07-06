@@ -1504,11 +1504,6 @@ private struct CallTarget: Hashable, Sendable {
     let slot: String
 }
 
-private struct SampleLocus: Hashable, Sendable {
-    let sample: String
-    let locus: String
-}
-
 private struct SampleLocusLabel: Hashable, Sendable {
     let sample: String
     let locus: String

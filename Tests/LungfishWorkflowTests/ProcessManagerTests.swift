@@ -8,6 +8,40 @@ import Darwin
 
 final class ProcessManagerTests: XCTestCase {
 
+    func testRunAndWaitBuffersPartialOutputLines() async throws {
+        let tempDir = try makeTemporaryDirectory()
+        let scriptURL = tempDir.appendingPathComponent("partial-lines.sh")
+        let script = """
+        #!/bin/sh
+        printf 'alpha'
+        sleep 0.05
+        printf ' beta\\n'
+        sleep 0.05
+        printf 'gamma'
+        sleep 0.05
+        printf ' delta'
+        sleep 0.05
+        printf 'warn' >&2
+        sleep 0.05
+        printf ' ing\\n' >&2
+        sleep 0.05
+        printf 'tail' >&2
+        """
+        try script.write(to: scriptURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
+
+        let result = try await ProcessManager.shared.runAndWait(
+            executable: scriptURL,
+            arguments: [],
+            workingDirectory: tempDir,
+            environment: nil
+        )
+
+        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.stdout, "alpha beta\ngamma delta")
+        XCTAssertEqual(result.stderr, "warn ing\ntail")
+    }
+
     func testTerminateKillsSpawnedProcessTree() async throws {
         let tempDir = try makeTemporaryDirectory()
         let childPIDFile = tempDir.appendingPathComponent("child.pid")
@@ -50,6 +84,64 @@ final class ProcessManagerTests: XCTestCase {
 
         let childExited = await Self.waitUntilProcessExits(pid: childPID, timeout: 2.0)
         XCTAssertTrue(childExited, "Terminating a workflow process must terminate descendant tool processes")
+    }
+
+    func testRunAndWaitCancellationTerminatesProcessTree() async throws {
+        let tempDir = try makeTemporaryDirectory()
+        let rootPIDFile = tempDir.appendingPathComponent("root.pid")
+        let childPIDFile = tempDir.appendingPathComponent("child.pid")
+        let scriptURL = tempDir.appendingPathComponent("workflow-run-and-wait.sh")
+        let script = """
+        #!/bin/sh
+        echo $$ > "$LUNGFISH_TEST_ROOT_PID_FILE"
+        /bin/sh -c 'trap "" TERM HUP INT; echo $$ > "$LUNGFISH_TEST_CHILD_PID_FILE"; while true; do sleep 1; done' &
+        while true; do sleep 1; done
+        """
+        try script.write(to: scriptURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
+
+        let task = Task {
+            try await ProcessManager.shared.runAndWait(
+                executable: scriptURL,
+                arguments: [],
+                workingDirectory: tempDir,
+                environment: [
+                    "LUNGFISH_TEST_ROOT_PID_FILE": rootPIDFile.path,
+                    "LUNGFISH_TEST_CHILD_PID_FILE": childPIDFile.path
+                ]
+            )
+        }
+
+        let rootPID = try await waitForPIDFile(rootPIDFile)
+        let childPID = try await waitForPIDFile(childPIDFile)
+        addTeardownBlock {
+            ProcessTreeTerminator.terminate(rootPID: rootPID, gracePeriod: 0)
+            ProcessTreeTerminator.terminate(rootPID: childPID, gracePeriod: 0)
+        }
+
+        XCTAssertTrue(Self.isProcessRunning(pid: rootPID))
+        XCTAssertTrue(Self.isProcessRunning(pid: childPID))
+
+        task.cancel()
+
+        let rootExited = await Self.waitUntilProcessExits(pid: rootPID, timeout: 2.0)
+        let childExited = await Self.waitUntilProcessExits(pid: childPID, timeout: 2.0)
+        if !rootExited || !childExited {
+            ProcessTreeTerminator.terminate(rootPID: rootPID, gracePeriod: 0)
+            ProcessTreeTerminator.terminate(rootPID: childPID, gracePeriod: 0)
+        }
+
+        XCTAssertTrue(rootExited, "Cancelling runAndWait must terminate the root process")
+        XCTAssertTrue(childExited, "Cancelling runAndWait must terminate descendant tool processes")
+
+        do {
+            _ = try await task.value
+            XCTFail("Expected runAndWait to throw CancellationError")
+        } catch is CancellationError {
+            // Expected
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
     }
 
     private func makeTemporaryDirectory() throws -> URL {

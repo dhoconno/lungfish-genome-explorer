@@ -440,7 +440,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         }
 
         let arguments = makeArguments(trackID: group.key, rowIDs: group.value)
-        let command = (["lungfish-cli"] + arguments).map(shellEscape).joined(separator: " ")
+        let command = ([CLICommandIdentity.executableName] + arguments).map(shellEscape).joined(separator: " ")
         let deletedCount = group.value.count
         let opID = OperationCenter.shared.start(
             title: deletedCount == 1 ? "Delete Annotation" : "Delete Annotations",
@@ -450,9 +450,10 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             cliCommand: command
         )
 
-        Task.detached { [weak self] in
+        let cliCancellation = LungfishCLIRunner.CancellationHandle()
+        let task = Task.detached { [weak self] in
             do {
-                let output = try LungfishCLIRunner.run(arguments: arguments)
+                let output = try LungfishCLIRunner.run(arguments: arguments, cancellation: cliCancellation)
                 DispatchQueue.main.async { MainActor.assumeIsolated {
                     if !output.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         OperationCenter.shared.log(id: opID, level: .info, message: output.stdout)
@@ -462,7 +463,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
                     }
                 }}
                 DispatchQueue.main.async { MainActor.assumeIsolated {
-                    OperationCenter.shared.complete(
+                    _ = OperationCenter.shared.complete(
                         id: opID,
                         detail: "Deleted \(deletedCount) annotation\(deletedCount == 1 ? "" : "s")"
                     )
@@ -472,9 +473,13 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
                         self?.presentAnnotationTrackDeletionFailure(error, title: "Reload Failed")
                     }
                 }}
+            } catch LungfishCLIRunner.RunError.cancelled {
+                DispatchQueue.main.async { MainActor.assumeIsolated {
+                    OperationCenter.shared.log(id: opID, level: .info, message: "Delete Annotations cancelled")
+                }}
             } catch {
                 DispatchQueue.main.async { MainActor.assumeIsolated {
-                    OperationCenter.shared.fail(
+                    _ = OperationCenter.shared.fail(
                         id: opID,
                         detail: "Delete Annotations failed",
                         errorMessage: error.localizedDescription
@@ -482,6 +487,10 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
                     self?.presentAnnotationTrackDeletionFailure(error, title: "Delete Annotations Failed")
                 }}
             }
+        }
+        OperationCenter.shared.setCancelCallback(for: opID) {
+            task.cancel()
+            cliCancellation.cancel()
         }
     }
 
@@ -532,7 +541,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             trackID,
             "--quiet",
         ]
-        let command = (["lungfish-cli"] + arguments).map(shellEscape).joined(separator: " ")
+        let command = ([CLICommandIdentity.executableName] + arguments).map(shellEscape).joined(separator: " ")
         let opID = OperationCenter.shared.start(
             title: "Delete Annotation Track",
             detail: "Deleting \(trackName)...",
@@ -541,9 +550,10 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             cliCommand: command
         )
 
-        Task.detached { [weak self] in
+        let cliCancellation = LungfishCLIRunner.CancellationHandle()
+        let task = Task.detached { [weak self] in
             do {
-                let output = try LungfishCLIRunner.run(arguments: arguments)
+                let output = try LungfishCLIRunner.run(arguments: arguments, cancellation: cliCancellation)
                 DispatchQueue.main.async { MainActor.assumeIsolated {
                     if !output.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         OperationCenter.shared.log(id: opID, level: .info, message: output.stdout)
@@ -551,7 +561,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
                     if !output.stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         OperationCenter.shared.log(id: opID, level: .warning, message: output.stderr)
                     }
-                    OperationCenter.shared.complete(
+                    _ = OperationCenter.shared.complete(
                         id: opID,
                         detail: "Deleted annotation track \(trackName)"
                     )
@@ -561,9 +571,13 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
                         self?.presentAnnotationTrackDeletionFailure(error, title: "Reload Failed")
                     }
                 }}
+            } catch LungfishCLIRunner.RunError.cancelled {
+                DispatchQueue.main.async { MainActor.assumeIsolated {
+                    OperationCenter.shared.log(id: opID, level: .info, message: "Delete Annotation Track cancelled")
+                }}
             } catch {
                 DispatchQueue.main.async { MainActor.assumeIsolated {
-                    OperationCenter.shared.fail(
+                    _ = OperationCenter.shared.fail(
                         id: opID,
                         detail: "Delete Annotation Track failed",
                         errorMessage: error.localizedDescription
@@ -571,6 +585,10 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
                     self?.presentAnnotationTrackDeletionFailure(error, title: "Delete Annotation Track Failed")
                 }}
             }
+        }
+        OperationCenter.shared.setCancelCallback(for: opID) {
+            task.cancel()
+            cliCancellation.cancel()
         }
     }
 

@@ -41,15 +41,28 @@ jobs:
       - name: Build CLI executable
         run: swift build --product lungfish-cli
 
+      - name: Build Xcode app project without signing
+        run: |
+          LUNGFISH_SKIP_EMBED_LUNGFISH_CLI=1 \
+          LUNGFISH_SKIP_SANITIZE_BUNDLED_TOOLS=1 \
+          xcodebuild -project Lungfish.xcodeproj -scheme Lungfish \
+            -configuration Debug \
+            -destination 'platform=macOS,arch=arm64' \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Check Package.resolved consistency
+        run: bash scripts/check-package-resolved-consistency.sh
+
       - name: Run smoke package tests
-        run: swift test --filter '^(LungfishCoreTests\.(BundleManifestTests|GenomicRegionTests|RuntimeResourceLocatorTests|SequenceTests)|LungfishWorkflowTests\.(BAMPrimerTrimProvenanceTests|MappingProvenanceTests))(/|$)'
+        run: swift test --filter '^(LungfishCoreTests\.(BundleManifestTests|GenomicRegionTests|RuntimeResourceLocatorTests|SequenceTests)|LungfishWorkflowTests\.(BAMPrimerTrimProvenanceTests|MappingProvenanceTests|ScientificProvenancePolicyTests)|LungfishCLITests\.ScientificCLIProvenanceCoverageTests)(/|$)'
 
       - name: Install script test dependencies
         run: |
           brew install ripgrep
           python3 -m venv .ci-python
           .ci-python/bin/python -m pip install --upgrade pip
-          .ci-python/bin/python -m pip install Pillow
+          .ci-python/bin/python -m pip install Pillow openpyxl
 
       - name: Run release and fixture script tests
         env:

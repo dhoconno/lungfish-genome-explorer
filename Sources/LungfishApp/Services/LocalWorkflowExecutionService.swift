@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 import LungfishWorkflow
 import LungfishKit
 
@@ -57,7 +58,7 @@ final class LocalWorkflowExecutionService {
         operationCenter.log(id: operationID, level: .info, message: request.commandPreview)
         operationCenter.log(id: operationID, level: .info, message: "Status: prepared")
         operationCenter.log(id: operationID, level: .info, message: commandPreview)
-        operationCenter.complete(
+        _ = operationCenter.complete(
             id: operationID,
             detail: "Local workflow prepared. Run bundle: \(bundleURL.path)",
             bundleURLs: [bundleURL]
@@ -100,7 +101,7 @@ final class LocalWorkflowExecutionService {
             if result.exitCode == 0 {
                 try verifyCompletedRunBundle(at: bundleURL)
                 operationCenter.log(id: operationID, level: .info, message: "Status: completed")
-                operationCenter.complete(
+                _ = operationCenter.complete(
                     id: operationID,
                     detail: "Local workflow completed. Run bundle: \(bundleURL.path)",
                     bundleURLs: [bundleURL]
@@ -108,7 +109,7 @@ final class LocalWorkflowExecutionService {
             } else {
                 let detail = "Local workflow failed with exit code \(result.exitCode)"
                 operationCenter.log(id: operationID, level: .error, message: detail)
-                operationCenter.fail(
+                _ = operationCenter.fail(
                     id: operationID,
                     detail: detail,
                     errorMessage: "Local workflow failed",
@@ -118,7 +119,7 @@ final class LocalWorkflowExecutionService {
             }
         } catch {
             if operationCenter.items.first(where: { $0.id == operationID })?.state == .running {
-                operationCenter.fail(
+                _ = operationCenter.fail(
                     id: operationID,
                     detail: "Local workflow failed",
                     errorMessage: "Local workflow failed",
@@ -163,7 +164,7 @@ final class LocalWorkflowExecutionService {
         prepareOnly: Bool
     ) -> String {
         ViralReconWorkflowCommandPreview.build(
-            executableName: "lungfish-cli",
+            executableName: CLICommandIdentity.executableName,
             arguments: request.cliArguments(bundlePath: bundleURL, prepareOnly: prepareOnly)
         )
     }
@@ -188,14 +189,26 @@ final class LocalWorkflowExecutionService {
             throw LocalWorkflowExecutionError.missingProvenance(provenanceURL.path)
         }
 
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let provenance = try decoder.decode(WorkflowRun.self, from: Data(contentsOf: provenanceURL))
-        guard provenance.status == .completed,
-              let step = provenance.steps.first,
-              step.exitCode == 0,
-              !step.command.isEmpty,
-              step.outputs.contains(where: { $0.path == bundleURL.standardizedFileURL.path || $0.path == bundleURL.path }) else {
+        let provenance: ProvenanceEnvelope
+        do {
+            guard let loadedProvenance = try ProvenanceEnvelopeReader.loadCanonical(fromSidecar: provenanceURL) else {
+                throw LocalWorkflowExecutionError.missingProvenance(provenanceURL.path)
+            }
+            provenance = loadedProvenance
+        } catch LocalWorkflowExecutionError.missingProvenance {
+            throw LocalWorkflowExecutionError.missingProvenance(provenanceURL.path)
+        } catch {
+            throw LocalWorkflowExecutionError.invalidProvenance(provenanceURL.path)
+        }
+
+        let bundlePath = bundleURL.standardizedFileURL.path
+        let recordedOutputs = provenance.outputs + provenance.steps.flatMap(\.outputs)
+        let hasWorkflowRunStep = provenance.toolName == "lungfish-cli workflow run"
+            || provenance.steps.contains { $0.toolName == "lungfish-cli workflow run" }
+        guard provenance.exitStatus == 0,
+              hasWorkflowRunStep,
+              (!provenance.argv.isEmpty || !provenance.reproducibleCommand.isEmpty),
+              recordedOutputs.contains(where: { URL(fileURLWithPath: $0.path).standardizedFileURL.path == bundlePath }) else {
             throw LocalWorkflowExecutionError.invalidProvenance(provenanceURL.path)
         }
     }
@@ -205,12 +218,12 @@ final class LocalWorkflowExecutionService {
         bundleURL: URL,
         wallTime: TimeInterval
     ) throws {
-        let command = ["lungfish-cli"] + request.cliArguments(bundlePath: bundleURL, prepareOnly: true)
+        let command = [CLICommandIdentity.executableName] + request.cliArguments(bundlePath: bundleURL, prepareOnly: true)
         let inputs = [ProvenanceRecorder.fileRecord(url: request.workflowURL, format: .text, role: .input)]
             + request.inputURLs.map { ProvenanceRecorder.fileRecord(url: $0, role: .input) }
         let outputs = [
-            FileRecord(path: bundleURL.path, format: .unknown, role: .output),
-            FileRecord(path: request.outputDirectory.path, format: .unknown, role: .output),
+            ProvenanceRecorder.fileOrDirectoryRecord(url: bundleURL, role: .output),
+            ProvenanceRecorder.fileOrDirectoryRecord(url: request.outputDirectory, role: .output),
             ProvenanceRecorder.fileRecord(
                 url: bundleURL.appendingPathComponent("manifest.json"),
                 format: .json,
@@ -249,13 +262,7 @@ final class LocalWorkflowExecutionService {
             steps: [step],
             parameters: parameters
         )
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(run).write(
-            to: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
-            options: .atomic
-        )
+        try ProvenanceWriter(signingProvider: nil).write(run.canonicalEnvelope(), to: bundleURL)
     }
 }
 

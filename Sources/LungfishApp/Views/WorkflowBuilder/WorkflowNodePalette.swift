@@ -76,7 +76,7 @@ public class WorkflowNodePalette: NSView {
         // Group node types by category
         var categoryMap: [NodeCategory: [WorkflowNodeType]] = [:]
 
-        for nodeType in WorkflowNodeType.allCases where nodeType != .sampleInput && nodeType != .projectOutput {
+        for nodeType in WorkflowNodeType.allCases where nodeType.isBuilderNativeFASTQNode {
             categoryMap[nodeType.category, default: []].append(nodeType)
         }
 
@@ -399,3 +399,11 @@ extension WorkflowNodePalette {
         return tooltip
     }
 }
+
+#if DEBUG
+extension WorkflowNodePalette {
+    public var nodeTypesForTesting: [WorkflowNodeType] {
+        categories.flatMap(\.items)
+    }
+}
+#endif

@@ -291,6 +291,47 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertGreaterThan(state.workflowAvailabilityRevision, initialRevision)
     }
 
+    func testOperationsDialogStateInvalidatesWhenEnablementNotificationPostsOffMainThread() async throws {
+        let defaults = try makeDefaults()
+        let operationsStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let state = WorkflowOperationDialogState(
+            projectURL: nil,
+            enablementStore: operationsStore,
+            packageStore: packageStore
+        )
+        let initialRevision = state.workflowAvailabilityRevision
+        let posted = expectation(description: "background notification posted")
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            NotificationCenter.default.post(name: .workflowLibraryEnablementDidChange, object: nil)
+            posted.fulfill()
+        }
+
+        await fulfillment(of: [posted], timeout: 2)
+        for _ in 0..<50 where state.workflowAvailabilityRevision == initialRevision {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertGreaterThan(state.workflowAvailabilityRevision, initialRevision)
+    }
+
+    func testWorkflowEnablementObserverMarshalsNotificationsToMainQueue() throws {
+        let source = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationDialogState.swift"),
+            encoding: .utf8
+        )
+        let observerBlock = try sourceBlock(
+            startingAt: "        self.enablementObserver = WorkflowOperationNotificationObserver(",
+            endingBefore: "        if projectDiscoveryMode == .asynchronous {",
+            in: source
+        )
+
+        XCTAssertTrue(observerBlock.contains("queue: .main"))
+        XCTAssertFalse(observerBlock.contains("queue: nil"))
+    }
+
     func testFullLengthONTMHCGenotypingLaunchRequestUsesSavontAndAdvancedInputsWithoutGuide() throws {
         let defaults = try makeDefaults()
         let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)

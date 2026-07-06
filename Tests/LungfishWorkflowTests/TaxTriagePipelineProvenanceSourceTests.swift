@@ -61,6 +61,40 @@ final class TaxTriagePipelineProvenanceSourceTests: XCTestCase {
             "TaxTriage should prune downloaded taxonomy/reference intermediates after collecting durable outputs."
         )
     }
+
+    func testTaxTriagePipelineFailsWhenResultOrProvenanceCannotBeSaved() async throws {
+        let fixture = try FakeTaxTriageRuntimeFixture()
+        defer { fixture.cleanup() }
+
+        let fastqURL = fixture.root.appendingPathComponent("reads.fastq")
+        try "@read1\nACGT\n+\nIIII\n".write(to: fastqURL, atomically: true, encoding: .utf8)
+        let outputURL = fixture.root.appendingPathComponent("taxtriage-output", isDirectory: true)
+        let config = TaxTriageConfig(
+            samples: [
+                TaxTriageSample(sampleId: "S1", fastq1: fastqURL, platform: .illumina)
+            ],
+            outputDirectory: outputURL,
+            profile: "conda",
+            revision: "fixture-revision"
+        )
+        let pipeline = TaxTriagePipeline(
+            condaManager: fixture.condaManager,
+            homeDirectoryProvider: { fixture.home }
+        )
+
+        setenv("LUNGFISH_TAXTRIAGE_FAKE_READONLY_OUTPUT", "1", 1)
+        defer { unsetenv("LUNGFISH_TAXTRIAGE_FAKE_READONLY_OUTPUT") }
+
+        do {
+            _ = try await pipeline.run(config: config)
+            XCTFail("TaxTriage should fail closed when result/provenance sidecars cannot be saved")
+        } catch TaxTriagePipelineError.pipelineFailed(let exitCode, let stderr, _) {
+            XCTAssertEqual(exitCode, -1)
+            XCTAssertTrue(stderr.contains("Failed to save TaxTriage result metadata"))
+        } catch {
+            XCTFail("Expected TaxTriage persistence failure, got \(error)")
+        }
+    }
 }
 
 private struct FakeTaxTriageRuntimeFixture {
@@ -103,6 +137,16 @@ private struct FakeTaxTriageRuntimeFixture {
     }
 
     func cleanup() {
+        if let enumerator = FileManager.default.enumerator(
+            at: root,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) {
+            for case let url as URL in enumerator {
+                try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+            }
+        }
+        try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path)
         try? FileManager.default.removeItem(at: root)
     }
 
@@ -165,6 +209,9 @@ private struct FakeTaxTriageRuntimeFixture {
     if [ -n "$trace" ]; then
       mkdir -p "$(dirname "$trace")"
       printf 'task_id\\tprocess\\tstatus\\n1\\tTAXTRIAGE\\tCOMPLETED\\n' > "$trace"
+    fi
+    if [ "${LUNGFISH_TAXTRIAGE_FAKE_READONLY_OUTPUT:-0}" = "1" ]; then
+      chmod 0555 "$outdir"
     fi
     echo "[aa/000001] Submitted process > TAXTRIAGE (S1)"
     echo "[aa/000001] Completed process > TAXTRIAGE (S1)"

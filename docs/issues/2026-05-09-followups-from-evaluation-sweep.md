@@ -54,9 +54,9 @@ at `docs/user-manual/shots/captured/2026-05-09/`.
 | docs-037 | P3 | fastp combined adapter+quality | NON-RESPONSIVE | parent stays open |
 | **docs-038** | P1 | CZ-ID first-class import | **PARTIAL** | docs-038a |
 | docs-039 | P1 | GATK first-class | FIXED at CLI | — |
-| **docs-040** | P1 | Workflow Builder | **BROKEN — dead code** | docs-040a, b, c, d |
+| **docs-040** | P1 | Workflow Builder | **PARTIAL — reachable experimental feature** | docs-040a, b, d |
 
-**Tally:** 14 FIXED, 8 PARTIAL, 16 NON-RESPONSIVE, 1 BROKEN.
+**Tally:** 14 FIXED, 9 PARTIAL, 16 NON-RESPONSIVE, 0 BROKEN.
 
 The 11 follow-up entries below are ordered by parent issue id.
 
@@ -187,12 +187,12 @@ parameter. Provenance sidecar records the verbatim string under
 
 ---
 
-## docs-022a — Add `lungfish run-headless` subcommand and CI documentation
+## docs-022a — Add `lungfish run-headless` subcommand and CI documentation (resolved)
 
 **Parent:** docs-022 (Headless / batch CI mode)
 **Severity:** P2
 
-### Reproduction
+### Historical reproduction
 
 ```bash
 $ lungfish-cli --help | grep -i headless
@@ -200,23 +200,20 @@ The `lungfish` command provides headless access to the Lungfish Genome
 # (no run-headless subcommand)
 ```
 
-The CLI is headless by design — every subcommand runs without a display
-server. The spec called for an explicit `run-headless` subcommand plus a CI
-documentation chapter to make this discoverable.
+Resolved: `lungfish run-headless <workflow> ...` is now a quiet pass-through alias for
+`lungfish workflow run --quiet <workflow> ...`. It captures workflow-run flags after the workflow
+argument, including the `--expected-output` paths required for executed scientific runs.
 
-### Recommendation
+### Implemented behavior
 
-Add `lungfish run-headless <workflow.yaml>` as a thin alias for `lungfish
-workflow run --quiet <workflow>`. Its purpose is to be a single discoverable
-entry point in `--help` and in CI documentation. Add an
-`appendices/06-running-in-ci.md` chapter that walks through invoking
-`lungfish-cli` from GitHub Actions and CircleCI with cached conda packs.
+The CI appendix documents GitHub Actions and CircleCI examples with cached conda packs and
+declared expected outputs, so the examples satisfy the provenance contract.
 
 ### Acceptance criteria
 
-- [ ] `lungfish-cli run-headless --help` exists and points to the workflow run path
-- [ ] `appendices/06-running-in-ci.md` ships with a worked GitHub Actions example
-- [ ] The chapter references the offline conda export/install path (docs-031) for cached environments
+- [x] `lungfish-cli run-headless --help` exists and points to the workflow run path
+- [x] `appendices/06-running-in-ci.md` ships with a worked GitHub Actions example
+- [x] The chapter references the offline conda export/install path (docs-031) for cached environments
 
 ---
 
@@ -480,71 +477,52 @@ dependency order.
 **Parent:** docs-040 (Workflow Builder)
 **Severity:** P1
 
-### Reproduction
+### 2026-07-04 reconciliation
 
-The Workflow Builder is **dead code**.
+Resolved. Workflow Builder is reachable as `Tools > Workflow Builder
+(Experimental)…` when experimental features are enabled. Current wiring lives in
+`MainMenu.swift` and `AppDelegate+ToolsMenu.swift`; the window accessibility ID
+is `WorkflowBuilderWindow`, and
+`MainWindowNavigationXCUITests.testToolsMenuOpensWorkflowBuilderWindow` covers
+the menu path.
 
-```bash
-$ grep -rn "WorkflowBuilderViewController" Sources/ Tests/
-# Sources/LungfishApp/Views/WorkflowBuilder/WorkflowBuilderViewController.swift
-#   12, 25, 64, 375, 394, 585: self-references inside its own file only
-
-$ grep -rn "Workflow" Sources/LungfishApp/App/MainMenu.swift
-# 260:    withTitle: "Snakemake Workflow…",  # provenance export, not the builder
-```
-
-Tools menu (verified by screenshot `tools-menu.png`):
-
-- Tools > FASTQ/FASTA Operations (submenu)
-- Tools > Call Variants...
-- Tools > Search Online Databases...
-- Tools > Plugin Manager...
-
-The 2,809-line WorkflowBuilder view + 1,300-line model are unreachable from
-the GUI.
-
-### Recommendation
-
-Add `Tools > Workflow Builder...` menu item that opens a borderless-titlebar
-window containing `WorkflowBuilderViewController`. Default size 1024x720.
-Lazy creation on first menu invocation; reuse on subsequent. Cmd-W prompts
-to save unsaved changes.
+The remaining docs-040 follow-ups track feature completeness and documentation
+scope. Do not use this item as evidence that Workflow Builder code is
+unreachable.
 
 ### Acceptance criteria
 
-- [ ] `MainMenu.swift` adds `withTitle: "Workflow Builder…"` under Tools, before Plugin Manager…
-- [ ] Selecting the menu item opens a window with `accessibilityIdentifier = "WorkflowBuilderWindow"`
-- [ ] The window survives close-and-reopen with state
-- [ ] Cmd-W prompts to save before closing if `hasUnsavedChanges` is true
-- [ ] XCUI test asserts the menu item exists and opens the window
+- [x] `MainMenu.swift` adds `withTitle: "Workflow Builder (Experimental)…"` under Tools when experimental features are enabled
+- [x] Selecting the menu item opens a window with `accessibilityIdentifier = "WorkflowBuilderWindow"`
+- [x] XCUI test asserts the menu item exists and opens the window
 
 ---
 
-## docs-040d — Delete chapter 08-workflows/01-the-workflow-builder.md until docs-040a-c land
+## docs-040d — Re-audit chapter 08-workflows/01-the-workflow-builder.md
 
 **Parent:** docs-040 (Workflow Builder)
 **Severity:** P1 (documentation correctness)
 
 ### Background
 
-`chapters/08-workflows/01-the-workflow-builder.md` describes a feature that
-does not exist for end users. Every step in the procedure section fails at
-the first instruction (no Tools > Workflow Builder menu item). Anyone
-reading this chapter will conclude the manual is broken.
+`chapters/08-workflows/01-the-workflow-builder.md` originally described a
+feature that was not reachable from the app. That premise is superseded:
+docs-040c is resolved, and the builder is now available as
+`Tools > Workflow Builder (Experimental)…` when experimental features are
+enabled.
 
 ### Recommendation
 
-Delete the chapter file in the same commit as docs-040c menu wiring lands.
-Until that point, the chapter must not ship in any rendered manual build.
-If a TOC stub is needed, a one-line "this chapter is being written; the
-Workflow Builder is shipping in 0.5.0" placeholder is acceptable; the
-current full-procedure chapter is not.
+Keep the chapter only if it matches the current experimental UI and clearly
+labels any non-beta workflow export or execution limitations. Otherwise replace
+it with a short experimental-feature note until the chapter can be reverified
+against the beta1 build.
 
 ### Acceptance criteria
 
-- [ ] Chapter file removed in the same PR as docs-040c
-- [ ] If a stub replaces it, the stub is no longer than 5 lines and links to docs-040
-- [ ] `docs/user-manual/ARCHITECTURE.md` TOC entry updated
-- [ ] `docs/user-manual/help-ids.yaml` does not point any in-app surface at the deleted chapter
+- [ ] Chapter entry point says `Tools > Workflow Builder (Experimental)…`
+- [ ] Procedure screenshots and text are verified against the beta1 app
+- [ ] Unsupported workflow export or execution paths are labeled as unavailable rather than implied
+- [ ] `docs/user-manual/ARCHITECTURE.md` and `docs/user-manual/help-ids.yaml` match the final chapter/stub decision
 
 ---

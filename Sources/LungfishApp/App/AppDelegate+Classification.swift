@@ -103,32 +103,46 @@ extension AppDelegate {
         let candidates: [URL]
         switch payload {
         case .subset(let readIDListFilename):
-            candidates = [bundleURL.appendingPathComponent(readIDListFilename)]
+            candidates = [
+                validatedFASTQBundleMember(readIDListFilename, in: bundleURL, field: "payload.subset.readIDListFilename"),
+            ].compactMap { $0 }
         case .trim(let trimPositionFilename):
-            candidates = [bundleURL.appendingPathComponent(trimPositionFilename)]
+            candidates = [
+                validatedFASTQBundleMember(trimPositionFilename, in: bundleURL, field: "payload.trim.trimPositionFilename"),
+            ].compactMap { $0 }
         case .full(let fastqFilename):
-            candidates = [bundleURL.appendingPathComponent(fastqFilename)]
+            candidates = [
+                validatedFASTQBundleMember(fastqFilename, in: bundleURL, field: "payload.full.fastqFilename"),
+            ].compactMap { $0 }
         case .fullFASTA(let fastaFilename):
-            candidates = [bundleURL.appendingPathComponent(fastaFilename)]
+            candidates = [
+                validatedFASTQBundleMember(fastaFilename, in: bundleURL, field: "payload.fullFASTA.fastaFilename"),
+            ].compactMap { $0 }
         case .fullPaired(let r1Filename, let r2Filename):
             candidates = [
-                bundleURL.appendingPathComponent(r1Filename),
-                bundleURL.appendingPathComponent(r2Filename),
-            ]
+                validatedFASTQBundleMember(r1Filename, in: bundleURL, field: "payload.fullPaired.r1Filename"),
+                validatedFASTQBundleMember(r2Filename, in: bundleURL, field: "payload.fullPaired.r2Filename"),
+            ].compactMap { $0 }
         case .fullMixed(let classification):
-            candidates = classification.files.map { bundleURL.appendingPathComponent($0.filename) }
+            candidates = classification.files.compactMap {
+                validatedFASTQBundleMember($0.filename, in: bundleURL, field: "readClassification.files[].filename")
+            }
         case .demuxedVirtual(_, let readIDListFilename, let previewFilename, let trimPositionsFilename, let orientMapFilename):
             candidates = [
-                bundleURL.appendingPathComponent(readIDListFilename),
-                bundleURL.appendingPathComponent(previewFilename),
-                trimPositionsFilename.map { bundleURL.appendingPathComponent($0) },
-                orientMapFilename.map { bundleURL.appendingPathComponent($0) },
+                validatedFASTQBundleMember(readIDListFilename, in: bundleURL, field: "payload.demuxedVirtual.readIDListFilename"),
+                validatedFASTQBundleMember(previewFilename, in: bundleURL, field: "payload.demuxedVirtual.previewFilename"),
+                trimPositionsFilename.flatMap {
+                    validatedFASTQBundleMember($0, in: bundleURL, field: "payload.demuxedVirtual.trimPositionsFilename")
+                },
+                orientMapFilename.flatMap {
+                    validatedFASTQBundleMember($0, in: bundleURL, field: "payload.demuxedVirtual.orientMapFilename")
+                },
             ].compactMap { $0 }
         case .orientMap(let orientMapFilename, let previewFilename):
             candidates = [
-                bundleURL.appendingPathComponent(orientMapFilename),
-                bundleURL.appendingPathComponent(previewFilename),
-            ]
+                validatedFASTQBundleMember(orientMapFilename, in: bundleURL, field: "payload.orientMap.orientMapFilename"),
+                validatedFASTQBundleMember(previewFilename, in: bundleURL, field: "payload.orientMap.previewFilename"),
+            ].compactMap { $0 }
         case .demuxGroup:
             candidates = []
         }
@@ -166,10 +180,12 @@ extension AppDelegate {
                 relativePath: manifest.rootBundleRelativePath,
                 from: bundleURL
             )
-            let rootSequenceURL = rootBundleURL
-                .appendingPathComponent(manifest.rootFASTQFilename)
-                .standardizedFileURL
-            if FileManager.default.fileExists(atPath: rootSequenceURL.path) {
+            if let rootSequenceURL = try? FASTQBundle.validatedBundleMemberURL(
+                for: manifest.rootFASTQFilename,
+                in: rootBundleURL,
+                field: "rootFASTQFilename",
+                allowExistingSymlinkEscape: true
+            ), FileManager.default.fileExists(atPath: rootSequenceURL.path) {
                 durableURLs.append(rootSequenceURL)
             }
 
@@ -180,6 +196,14 @@ extension AppDelegate {
                 return ProvenanceRecorder.fileRecord(url: url, role: .input)
             }
         }
+    }
+
+    nonisolated private static func validatedFASTQBundleMember(
+        _ relativePath: String,
+        in bundleURL: URL,
+        field: String
+    ) -> URL? {
+        try? FASTQBundle.validatedBundleMemberURL(for: relativePath, in: bundleURL, field: field)
     }
 
     ///
@@ -237,9 +261,11 @@ extension AppDelegate {
             windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
             workflowName: "Classification"
         ) else { return }
+        var ownsOutputDirectory = false
         if let projectURL = routeContext?.projectURL {
             if let analysisDir = try? AnalysesFolder.createAnalysisDirectory(tool: "kraken2", in: projectURL) {
                 config.outputDirectory = analysisDir
+                ownsOutputDirectory = true
             }
         }
 
@@ -256,7 +282,7 @@ extension AppDelegate {
         let operationTitle = "\(goalLabel) \(inputName)"
 
         // Register the operation with OperationCenter so it appears in the Operations Panel.
-        let cliCmd = OperationCenter.buildCLICommand(subcommand: "classify", args: {
+        let cliCmd = OperationCenter.buildCLICommand(subcommand: "conda classify", args: {
             var args = ["--db", config.databasePath.path]
             args += config.inputFiles.map(\.path)
             return args
@@ -284,7 +310,7 @@ extension AppDelegate {
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
                                 viewerController.showProgress(message)
-                                OperationCenter.shared.update(id: opID, progress: 0, detail: message)
+                                _ = OperationCenter.shared.update(id: opID, progress: 0, detail: message)
                                 OperationCenter.shared.log(id: opID, level: .info, message: message)
                             }
                         }
@@ -313,7 +339,7 @@ extension AppDelegate {
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
                             viewerController.showProgress(message)
-                            OperationCenter.shared.update(
+                            _ = OperationCenter.shared.update(
                                 id: opID,
                                 progress: max(0, min(1, progress)),
                                 detail: message
@@ -331,15 +357,6 @@ extension AppDelegate {
                     result = try await pipeline.profile(config: resolvedConfig, progress: progressCallback)
                 }
 
-                // Persist the classification result sidecar so the sidebar can
-                // rediscover this result when the project is reopened.
-                do {
-                    try result.save(to: config.outputDirectory)
-                } catch {
-                    // Non-fatal: the result is still displayed, just not persisted.
-                    appDelegateLogger.warning("runClassification: Failed to save result sidecar - \(error.localizedDescription, privacy: .public)")
-                }
-
                 let capturedConfig = config
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
@@ -348,14 +365,13 @@ extension AppDelegate {
                         let readCount = result.tree.totalReads
                         let classifiedCount = result.tree.classifiedReads
                         let summaryDetail = "\(classifiedCount) of \(readCount) reads classified"
-                        OperationCenter.shared.complete(id: opID, detail: summaryDetail)
+                        _ = OperationCenter.shared.complete(id: opID, detail: summaryDetail)
 
                         viewerController.displayTaxonomyResult(result)
 
                         // For the extract goal, auto-present the unified
                         // extraction dialog after showing the taxonomy browser
-                        // so the user can pick taxa. Phase 5 routes through
-                        // TaxonomyReadExtractionAction.shared.present(...).
+                        // so the user can pick taxa.
                         if capturedConfig.goal == .extract,
                            viewerController.taxonomyViewController != nil,
                            let topSpecies = result.tree.dominantSpecies,
@@ -383,7 +399,10 @@ extension AppDelegate {
                         if let bundleURL = Self.findSourceBundle(for: capturedConfig.originalInputFiles ?? capturedConfig.inputFiles) {
                             let entry = AnalysisManifestEntry(
                                 tool: "kraken2",
-                                analysisDirectoryName: capturedConfig.outputDirectory.lastPathComponent,
+                                analysisDirectoryName: Self.analysisManifestDirectoryName(
+                                    for: capturedConfig.outputDirectory,
+                                    projectURL: routeContext?.projectURL
+                                ),
                                 displayName: "Kraken2 Classification",
                                 parameters: capturedConfig.summaryParameters(),
                                 summary: "\(readCount) reads, \(classifiedCount) classified",
@@ -394,10 +413,19 @@ extension AppDelegate {
                     }
                 }
             } catch {
+                if ownsOutputDirectory {
+                    do {
+                        try FileManager.default.removeItem(at: config.outputDirectory)
+                    } catch {
+                        appDelegateLogger.error(
+                            "runClassification: Failed to remove incomplete analysis directory \(config.outputDirectory.path, privacy: .public) - \(error.localizedDescription, privacy: .public)"
+                        )
+                    }
+                }
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         viewerController.hideProgress()
-                        OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                        _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
 
                         let alert = NSAlert()
                         alert.messageText = "Classification Failed"
@@ -465,7 +493,7 @@ extension AppDelegate {
             return args
         }()
         let esCliCmd = OperationCenter.buildCLICommand(subcommand: "esviritu detect", args: esCliArgs)
-        let esCliArgv = ["lungfish", "esviritu", "detect"] + esCliArgs
+        let esCliArgv = [CLICommandIdentity.executableName, "esviritu", "detect"] + esCliArgs
         let opID = OperationCenter.shared.start(
             title: "EsViritu \(config.sampleName)",
             detail: "Starting EsViritu viral detection\u{2026}",
@@ -488,7 +516,7 @@ extension AppDelegate {
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
                                 viewerController.showProgress(message)
-                                OperationCenter.shared.update(id: opID, progress: 0, detail: message)
+                                _ = OperationCenter.shared.update(id: opID, progress: 0, detail: message)
                                 OperationCenter.shared.log(id: opID, level: .info, message: message)
                             }
                         }
@@ -505,7 +533,7 @@ extension AppDelegate {
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
                                 viewerController.showProgress(message)
-                                OperationCenter.shared.update(
+                                _ = OperationCenter.shared.update(
                                     id: opID,
                                     progress: max(0, min(1, progress)),
                                     detail: message
@@ -553,7 +581,7 @@ extension AppDelegate {
                 var dbBuildErrorDescription: String?
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.update(id: opID, progress: 0.95, detail: "Building EsViritu database\u{2026}")
+                        _ = OperationCenter.shared.update(id: opID, progress: 0.95, detail: "Building EsViritu database\u{2026}")
                         OperationCenter.shared.log(id: opID, level: .info, message: "Building esviritu.sqlite from single-sample result")
                     }
                 }
@@ -608,17 +636,13 @@ extension AppDelegate {
                     appDelegateLogger.warning("runEsViritu: Failed to save batch manifest - \(error.localizedDescription, privacy: .public)")
                 }
 
-                do {
-                    try MetagenomicsBatchProvenanceWriter.writeEsVirituBatchProvenance(
-                        batchRoot: esvBatchRoot,
-                        manifest: manifest,
-                        summaryURL: summaryURL,
-                        sqliteURL: esvBatchRoot.appendingPathComponent("esviritu.sqlite"),
-                        command: esCliArgv
-                    )
-                } catch {
-                    appDelegateLogger.warning("runEsViritu: Failed to write root provenance - \(error.localizedDescription, privacy: .public)")
-                }
+                try MetagenomicsBatchProvenanceWriter.writeEsVirituBatchProvenance(
+                    batchRoot: esvBatchRoot,
+                    manifest: manifest,
+                    summaryURL: summaryURL,
+                    sqliteURL: esvBatchRoot.appendingPathComponent("esviritu.sqlite"),
+                    command: esCliArgv
+                )
 
                 let capturedResult = ioResult
                 let capturedConfig = config
@@ -633,7 +657,7 @@ extension AppDelegate {
                                 message: "Database build failed: \(dbError) — batch will rebuild lazily on open"
                             )
                         }
-                        OperationCenter.shared.complete(
+                        _ = OperationCenter.shared.complete(
                             id: opID,
                             detail: "\(capturedResult.detections.count) viruses detected in \(capturedResult.detectedFamilyCount) families"
                         )
@@ -646,7 +670,10 @@ extension AppDelegate {
                         if let bundleURL = Self.findSourceBundle(for: capturedConfig.inputFiles) {
                             let entry = AnalysisManifestEntry(
                                 tool: "esviritu",
-                                analysisDirectoryName: capturedConfig.outputDirectory.lastPathComponent,
+                                analysisDirectoryName: Self.analysisManifestDirectoryName(
+                                    for: capturedConfig.outputDirectory,
+                                    projectURL: routeContext?.projectURL
+                                ),
                                 displayName: "EsViritu Detection",
                                 parameters: capturedConfig.summaryParameters(),
                                 summary: "\(capturedResult.detections.count) viruses detected in \(capturedResult.detectedFamilyCount) families",
@@ -661,7 +688,7 @@ extension AppDelegate {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         viewerController.hideProgress()
-                        OperationCenter.shared.fail(id: opID, detail: errorDesc)
+                        _ = OperationCenter.shared.fail(id: opID, detail: errorDesc)
 
                         let alert = NSAlert()
                         alert.messageText = "EsViritu Failed"
@@ -696,7 +723,9 @@ extension AppDelegate {
             windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
             workflowName: "Classification batch"
         ) else { return }
+        var ownsBatchRoot = false
         if let projectURL, let batchDir = try? AnalysesFolder.createAnalysisDirectory(tool: "kraken2", in: projectURL, isBatch: true) {
+            ownsBatchRoot = true
             for i in configs.indices {
                 let sampleSubdir = batchDir.appendingPathComponent(configs[i].outputDirectory.lastPathComponent, isDirectory: true)
                 try? FileManager.default.createDirectory(at: sampleSubdir, withIntermediateDirectories: true)
@@ -706,13 +735,7 @@ extension AppDelegate {
 
         let sampleCount = configs.count
         let firstConfig = configs[0]
-        let batchRoot: URL = {
-            let parent = firstConfig.outputDirectory.deletingLastPathComponent()
-            if parent.lastPathComponent.hasPrefix("kraken2-batch-") {
-                return parent
-            }
-            return parent
-        }()
+        let batchRoot = firstConfig.outputDirectory.deletingLastPathComponent()
 
         let sampleIDs: [String] = configs.enumerated().map { index, config in
             let outputName = config.outputDirectory.lastPathComponent
@@ -728,12 +751,12 @@ extension AppDelegate {
         }
 
         let batchCliCmd: String = {
-            guard let first = configs.first else { return "lungfish classify --batch" }
+            guard let first = configs.first else { return "\(CLICommandIdentity.executableName) conda classify --batch" }
             var args = ["--db", first.databasePath.path]
             for c in configs {
                 args += c.inputFiles.map(\.path)
             }
-            return OperationCenter.buildCLICommand(subcommand: "classify", args: args)
+            return OperationCenter.buildCLICommand(subcommand: "conda classify", args: args)
         }()
         let opID = OperationCenter.shared.start(
             title: "Classification Batch (\(sampleCount) sample\(sampleCount == 1 ? "" : "s"))",
@@ -754,6 +777,17 @@ extension AppDelegate {
             var successfulResults: [(sampleId: String, config: ClassificationConfig, result: ClassificationResult)] = []
             var failedResults: [(sampleId: String, error: String)] = []
 
+            func removeOwnedBatchRoot(context: String) {
+                guard ownsBatchRoot else { return }
+                do {
+                    try FileManager.default.removeItem(at: batchRoot)
+                } catch {
+                    appDelegateLogger.error(
+                        "runClassificationBatch: Failed to remove incomplete batch directory \(batchRoot.path, privacy: .public) after \(context, privacy: .public) - \(error.localizedDescription, privacy: .public)"
+                    )
+                }
+            }
+
             for (index, config) in configs.enumerated() {
                 if Task.isCancelled {
                     break
@@ -768,7 +802,7 @@ extension AppDelegate {
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
                             viewerController.showProgress("\(samplePrefix): \(message)")
-                            OperationCenter.shared.update(
+                            _ = OperationCenter.shared.update(
                                 id: opID,
                                 progress: overall,
                                 detail: "\(samplePrefix): \(message)"
@@ -786,7 +820,7 @@ extension AppDelegate {
                             DispatchQueue.main.async {
                                 MainActor.assumeIsolated {
                                     viewerController.showProgress(prefixed)
-                                    OperationCenter.shared.update(id: opID, progress: Double(index) / Double(sampleCount), detail: prefixed)
+                                    _ = OperationCenter.shared.update(id: opID, progress: Double(index) / Double(sampleCount), detail: prefixed)
                                     OperationCenter.shared.log(id: opID, level: .info, message: prefixed)
                                 }
                             }
@@ -812,17 +846,52 @@ extension AppDelegate {
                         result = try await pipeline.profile(config: resolvedConfig, progress: progressCallback)
                     }
 
-                    do {
-                        try result.save(to: config.outputDirectory)
-                    } catch {
-                        appDelegateLogger.warning("runClassificationBatch: Failed to save sidecar for \(sampleID, privacy: .public) - \(error.localizedDescription, privacy: .public)")
-                    }
-
                     successfulResults.append((sampleID, config, result))
                 } catch {
+                    if ownsBatchRoot {
+                        do {
+                            try FileManager.default.removeItem(at: config.outputDirectory)
+                        } catch {
+                            appDelegateLogger.error(
+                                "runClassificationBatch: Failed to remove incomplete sample directory \(config.outputDirectory.path, privacy: .public) - \(error.localizedDescription, privacy: .public)"
+                            )
+                        }
+                    }
                     failedResults.append((sampleID, error.localizedDescription))
                     appDelegateLogger.warning("runClassificationBatch: Sample \(sampleID, privacy: .public) failed - \(error.localizedDescription, privacy: .public)")
                 }
+            }
+
+            if Task.isCancelled {
+                removeOwnedBatchRoot(context: "cancellation")
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        viewerController.hideProgress()
+                        _ = OperationCenter.shared.fail(id: opID, detail: "Batch cancelled")
+                    }
+                }
+                return
+            }
+
+            if successfulResults.isEmpty && ownsBatchRoot {
+                let detail = failedResults.first?.error ?? "All samples failed"
+                removeOwnedBatchRoot(context: "all samples failed")
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        viewerController.hideProgress()
+                        _ = OperationCenter.shared.fail(id: opID, detail: detail)
+
+                        let alert = NSAlert()
+                        alert.messageText = "Classification Batch Failed"
+                        alert.informativeText = detail
+                        alert.alertStyle = .warning
+                        alert.addButton(withTitle: "OK")
+                        if let window = viewerController.view.window {
+                            alert.beginSheetModal(for: window)
+                        }
+                    }
+                }
+                return
             }
 
             let fm = FileManager.default
@@ -902,12 +971,18 @@ extension AppDelegate {
             if successfulCountForDB > 0 {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.update(id: opID, progress: 0.95, detail: "Building Kraken2 database\u{2026}")
+                        _ = OperationCenter.shared.update(id: opID, progress: 0.95, detail: "Building Kraken2 database\u{2026}")
                         OperationCenter.shared.log(id: opID, level: .info, message: "Building kraken2.sqlite from \(successfulCountForDB) sample(s)")
                     }
                 }
                 do {
-                    try LungfishCLIRunner.buildClassifierDatabase(tool: "kraken2", resultURL: batchRoot, force: true)
+                    let successfulSampleDirectories = successfulResults.map { $0.config.outputDirectory }
+                    try LungfishCLIRunner.buildClassifierDatabase(
+                        tool: "kraken2",
+                        resultURL: batchRoot,
+                        force: true,
+                        sampleDirectories: successfulSampleDirectories
+                    )
                 } catch {
                     dbBuildErrorDescription = error.localizedDescription
                     appDelegateLogger.warning(
@@ -916,22 +991,28 @@ extension AppDelegate {
                 }
             }
 
+            if Task.isCancelled {
+                removeOwnedBatchRoot(context: "cancellation")
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        viewerController.hideProgress()
+                        _ = OperationCenter.shared.fail(id: opID, detail: "Batch cancelled")
+                    }
+                }
+                return
+            }
+
             let capturedDBBuildError = dbBuildErrorDescription
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     viewerController.hideProgress()
-
-                    if Task.isCancelled {
-                        OperationCenter.shared.fail(id: opID, detail: "Batch cancelled")
-                        return
-                    }
 
                     let successCount = successfulResults.count
                     let failureCount = failedResults.count
 
                     if successCount == 0 {
                         let detail = failedResults.first?.error ?? "All samples failed"
-                        OperationCenter.shared.fail(id: opID, detail: detail)
+                        _ = OperationCenter.shared.fail(id: opID, detail: detail)
 
                         let alert = NSAlert()
                         alert.messageText = "Classification Batch Failed"
@@ -953,12 +1034,12 @@ extension AppDelegate {
                     }
 
                     if failureCount == 0 {
-                        OperationCenter.shared.complete(
+                        _ = OperationCenter.shared.complete(
                             id: opID,
                             detail: "\(successCount) of \(sampleCount) samples completed"
                         )
                     } else {
-                        OperationCenter.shared.complete(
+                        _ = OperationCenter.shared.complete(
                             id: opID,
                             detail: "\(successCount) completed, \(failureCount) failed"
                         )
@@ -979,7 +1060,10 @@ extension AppDelegate {
                             let tree = entry.result.tree
                             let manifestEntry = AnalysisManifestEntry(
                                 tool: "kraken2",
-                                analysisDirectoryName: batchRoot.lastPathComponent,
+                                analysisDirectoryName: Self.analysisManifestDirectoryName(
+                                    for: batchRoot,
+                                    projectURL: projectURL
+                                ),
                                 displayName: "Kraken2 Batch",
                                 parameters: entry.config.summaryParameters(),
                                 summary: "\(tree.totalReads) reads, \(tree.classifiedReads) classified",
@@ -1022,13 +1106,7 @@ extension AppDelegate {
 
         let sampleCount = configs.count
         let firstConfig = configs[0]
-        let batchRoot: URL = {
-            let parent = firstConfig.outputDirectory.deletingLastPathComponent()
-            if parent.lastPathComponent.hasPrefix("esviritu-batch-") {
-                return parent
-            }
-            return parent
-        }()
+        let batchRoot = firstConfig.outputDirectory.deletingLastPathComponent()
 
         let esBatchCliArgs: [String] = {
             var args = ["--input"]
@@ -1039,7 +1117,7 @@ extension AppDelegate {
             return args
         }()
         let esBatchCliCmd = OperationCenter.buildCLICommand(subcommand: "esviritu detect", args: esBatchCliArgs)
-        let esBatchCliArgv = ["lungfish", "esviritu", "detect"] + esBatchCliArgs
+        let esBatchCliArgv = [CLICommandIdentity.executableName, "esviritu", "detect"] + esBatchCliArgs
         let opID = OperationCenter.shared.start(
             title: "EsViritu Batch (\(sampleCount) sample\(sampleCount == 1 ? "" : "s"))",
             detail: "Starting EsViritu batch\u{2026}",
@@ -1076,7 +1154,7 @@ extension AppDelegate {
                             DispatchQueue.main.async {
                                 MainActor.assumeIsolated {
                                     viewerController.showProgress(prefixed)
-                                    OperationCenter.shared.update(id: opID, progress: Double(index) / Double(sampleCount), detail: prefixed)
+                                    _ = OperationCenter.shared.update(id: opID, progress: Double(index) / Double(sampleCount), detail: prefixed)
                                     OperationCenter.shared.log(id: opID, level: .info, message: prefixed)
                                 }
                             }
@@ -1094,7 +1172,7 @@ extension AppDelegate {
                             DispatchQueue.main.async {
                                 MainActor.assumeIsolated {
                                     viewerController.showProgress("\(samplePrefix): \(message)")
-                                    OperationCenter.shared.update(
+                                    _ = OperationCenter.shared.update(
                                         id: opID,
                                         progress: overall,
                                         detail: "\(samplePrefix): \(message)"
@@ -1207,7 +1285,7 @@ extension AppDelegate {
             if successfulCountForDB > 0 {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.update(id: opID, progress: 0.95, detail: "Building EsViritu database\u{2026}")
+                        _ = OperationCenter.shared.update(id: opID, progress: 0.95, detail: "Building EsViritu database\u{2026}")
                         OperationCenter.shared.log(id: opID, level: .info, message: "Building esviritu.sqlite from \(successfulCountForDB) sample(s)")
                     }
                 }
@@ -1222,17 +1300,13 @@ extension AppDelegate {
             }
 
             if !successfulResults.isEmpty {
-                do {
-                    try MetagenomicsBatchProvenanceWriter.writeEsVirituBatchProvenance(
-                        batchRoot: batchRoot,
-                        manifest: manifest,
-                        summaryURL: summaryURL,
-                        sqliteURL: batchRoot.appendingPathComponent("esviritu.sqlite"),
-                        command: esBatchCliArgv
-                    )
-                } catch {
-                    appDelegateLogger.warning("runEsVirituBatch: Failed to write root provenance - \(error.localizedDescription, privacy: .public)")
-                }
+                try MetagenomicsBatchProvenanceWriter.writeEsVirituBatchProvenance(
+                    batchRoot: batchRoot,
+                    manifest: manifest,
+                    summaryURL: summaryURL,
+                    sqliteURL: batchRoot.appendingPathComponent("esviritu.sqlite"),
+                    command: esBatchCliArgv
+                )
             }
 
             let capturedDBBuildError = dbBuildErrorDescription
@@ -1241,7 +1315,7 @@ extension AppDelegate {
                     viewerController.hideProgress()
 
                     if Task.isCancelled {
-                        OperationCenter.shared.fail(id: opID, detail: "Batch cancelled")
+                        _ = OperationCenter.shared.fail(id: opID, detail: "Batch cancelled")
                         return
                     }
 
@@ -1250,7 +1324,7 @@ extension AppDelegate {
 
                     if successCount == 0 {
                         let detail = failedResults.first?.error ?? "All samples failed"
-                        OperationCenter.shared.fail(id: opID, detail: detail)
+                        _ = OperationCenter.shared.fail(id: opID, detail: detail)
 
                         let alert = NSAlert()
                         alert.messageText = "EsViritu Batch Failed"
@@ -1272,12 +1346,12 @@ extension AppDelegate {
                     }
 
                     if failureCount == 0 {
-                        OperationCenter.shared.complete(
+                        _ = OperationCenter.shared.complete(
                             id: opID,
                             detail: "\(successCount) of \(sampleCount) samples completed"
                         )
                     } else {
-                        OperationCenter.shared.complete(
+                        _ = OperationCenter.shared.complete(
                             id: opID,
                             detail: "\(successCount) completed, \(failureCount) failed"
                         )
@@ -1295,7 +1369,10 @@ extension AppDelegate {
                         if let bundleURL {
                             let manifestEntry = AnalysisManifestEntry(
                                 tool: "esviritu",
-                                analysisDirectoryName: batchRoot.lastPathComponent,
+                                analysisDirectoryName: Self.analysisManifestDirectoryName(
+                                    for: batchRoot,
+                                    projectURL: projectURL
+                                ),
                                 displayName: "EsViritu Batch",
                                 parameters: entry.config.summaryParameters(),
                                 summary: "\(entry.ioResult.detections.count) viruses in \(entry.ioResult.detectedFamilyCount) families",
@@ -1371,7 +1448,7 @@ extension AppDelegate {
                             DispatchQueue.main.async {
                                 MainActor.assumeIsolated {
                                     viewerController.showProgress(message)
-                                    OperationCenter.shared.update(id: opID, progress: 0, detail: message)
+                                    _ = OperationCenter.shared.update(id: opID, progress: 0, detail: message)
                                     OperationCenter.shared.log(id: opID, level: .info, message: message)
                                 }
                             }
@@ -1390,7 +1467,7 @@ extension AppDelegate {
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
                                 viewerController.showProgress(message)
-                                OperationCenter.shared.update(
+                                _ = OperationCenter.shared.update(
                                     id: opID,
                                     progress: max(0, min(1, progress)),
                                     detail: message
@@ -1406,7 +1483,7 @@ extension AppDelegate {
                 var dbBuildErrorDescription: String?
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.update(id: opID, progress: 0.95, detail: "Building TaxTriage database\u{2026}")
+                        _ = OperationCenter.shared.update(id: opID, progress: 0.95, detail: "Building TaxTriage database\u{2026}")
                         OperationCenter.shared.log(id: opID, level: .info, message: "Building taxtriage.sqlite from TaxTriage outputs")
                     }
                 }
@@ -1419,7 +1496,7 @@ extension AppDelegate {
                     )
                 }
 
-                _ = MetagenomicsBatchProvenanceWriter.ensureTaxTriageProvenanceIfPossible(
+                _ = try MetagenomicsBatchProvenanceWriter.ensureTaxTriageProvenanceIfPossible(
                     resultDirectory: result.outputDirectory
                 )
 
@@ -1481,7 +1558,7 @@ extension AppDelegate {
                         } else {
                             completionDetail = capturedResult.summary
                         }
-                        OperationCenter.shared.complete(
+                        _ = OperationCenter.shared.complete(
                             id: opID,
                             detail: completionDetail
                         )
@@ -1502,7 +1579,10 @@ extension AppDelegate {
                             if let bundleURL = Self.findSourceBundle(for: [sample.fastq1] + (sample.fastq2.map { [$0] } ?? [])) {
                                 let entry = AnalysisManifestEntry(
                                     tool: "taxtriage",
-                                    analysisDirectoryName: capturedConfig.outputDirectory.lastPathComponent,
+                                    analysisDirectoryName: Self.analysisManifestDirectoryName(
+                                        for: capturedConfig.outputDirectory,
+                                        projectURL: routeContext?.projectURL
+                                    ),
                                     displayName: "TaxTriage Classification",
                                     parameters: capturedConfig.summaryParameters(),
                                     summary: capturedResult.summary,
@@ -1518,7 +1598,7 @@ extension AppDelegate {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         viewerController.hideProgress()
-                        OperationCenter.shared.fail(id: opID, detail: errorDesc)
+                        _ = OperationCenter.shared.fail(id: opID, detail: errorDesc)
 
                         let alert = NSAlert()
                         alert.messageText = "TaxTriage Failed"

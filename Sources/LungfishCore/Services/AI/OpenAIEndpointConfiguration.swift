@@ -73,10 +73,7 @@ public enum OpenAIEndpointConfiguration: Sendable, Equatable {
     }
 
     public var supportsResponsesAPI: Bool {
-        switch self {
-        case .direct: return true
-        case .azure: return true
-        }
+        true
     }
 
     public var chatCompletionsURL: URL {
@@ -107,17 +104,9 @@ public enum OpenAIEndpointConfiguration: Sendable, Equatable {
     }
 
     public func apiVersionLabel(for operation: OpenAIEndpointOperation) -> String {
-        switch self {
-        case .direct:
-            switch operation {
-            case .chatCompletions: return "chat.completions.v1"
-            case .responses: return "responses.v1"
-            }
-        case .azure:
-            switch operation {
-            case .chatCompletions: return "chat.completions.v1"
-            case .responses: return "responses.v1"
-            }
+        switch operation {
+        case .chatCompletions: return "chat.completions.v1"
+        case .responses: return "responses.v1"
         }
     }
 

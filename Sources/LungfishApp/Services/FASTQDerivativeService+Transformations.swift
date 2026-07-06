@@ -478,7 +478,7 @@ extension FASTQDerivativeService {
 
         case .demultiplex:
             throw FASTQDerivativeError.invalidOperation(
-                "Demultiplexing is not implemented in FASTQDerivativeService. Use the demultiplexing pipeline."
+                "Demultiplexing is not supported by FASTQDerivativeService. Route through DemultiplexingPipeline or FASTQOperationExecutionService."
             )
 
         case .orient:

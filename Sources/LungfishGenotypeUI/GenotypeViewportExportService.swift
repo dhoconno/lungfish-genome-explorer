@@ -2,7 +2,6 @@ import Foundation
 import LungfishKit
 import LungfishCore
 import LungfishIO
-import LungfishTwelveSUI
 import LungfishWorkflow
 import UniformTypeIdentifiers
 
@@ -74,10 +73,11 @@ struct DefaultGenotypeViewportExportRunner: GenotypeViewportExportRunning {
 ///
 /// The viewport's colored matrix is serialized into a ``GenotypeViewProjection``
 /// (the contract `LungfishIO` defines and the CLI deserializes), written to a
-/// temporary JSON file, and handed to the canonical CLI exporter. This keeps
-/// the binding "every scientific GUI action shells to `lungfish-cli`" rule:
-/// the produced provenance is stamped by the CLI (`toolName == "lungfish-cli"`)
-/// rather than the GUI faking it. Mirrors ``TwelveSAmpliconResultExportService``.
+/// durable sidecar beside the export, and handed to the canonical CLI exporter.
+/// This export deliberately reuses CLI-authored provenance (`toolName ==
+/// "lungfish-cli"`) because the output must be replayable from the recorded
+/// argv.
+/// Uses the same CLI-backed export pattern as the 12S amplicon export path.
 struct GenotypeViewportExportService {
     private let runner: GenotypeViewportExportRunning
     private let fileManager: FileManager
@@ -102,14 +102,12 @@ struct GenotypeViewportExportService {
         let standardizedOutputURL = outputURL.standardizedFileURL
         let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: standardizedOutputURL)
 
-        // Serialize exactly what the viewport rendered, then hand the JSON to
-        // the CLI. The temp file is removed regardless of outcome.
+        // Serialize exactly what the viewport rendered, then keep the JSON
+        // beside the export so the provenance argv can be replayed later.
         let projection = GenotypeViewProjectionSerializer.makeProjection(from: snapshot)
-        let projectionURL = fileManager.temporaryDirectory
-            .appendingPathComponent("genotype-view-projection-\(UUID().uuidString).json")
+        let projectionURL = standardizedOutputURL.appendingPathExtension("view-projection.json")
         let projectionData = try JSONEncoder().encode(projection)
-        try projectionData.write(to: projectionURL)
-        defer { try? fileManager.removeItem(at: projectionURL) }
+        try projectionData.write(to: projectionURL, options: .atomic)
 
         var arguments = [
             "genotype", "export",
@@ -148,7 +146,7 @@ struct GenotypeViewportExportService {
             try verifyProvenance(
                 provenanceURL: provenanceURL,
                 outputURL: standardizedOutputURL,
-                expectedInputURLs: snapshot.annotationSidecarURL.map { [$0] } ?? []
+                expectedInputURLs: [projectionURL] + (snapshot.annotationSidecarURL.map { [$0] } ?? [])
             )
             return GenotypeViewportExportResult(
                 outputURL: standardizedOutputURL,
@@ -157,6 +155,7 @@ struct GenotypeViewportExportService {
         } catch {
             try? fileManager.removeItem(at: standardizedOutputURL)
             try? fileManager.removeItem(at: provenanceURL)
+            try? fileManager.removeItem(at: projectionURL)
             throw error
         }
     }
@@ -167,7 +166,7 @@ struct GenotypeViewportExportService {
         expectedInputURLs: [URL] = []
     ) throws {
         guard let envelope = try ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL),
-              envelope.toolName == "lungfish-cli",
+              envelope.toolName == CLICommandIdentity.executableName,
               envelope.workflowName == "lungfish genotype export",
               envelope.exitStatus == 0,
               !envelope.argv.isEmpty else {
@@ -187,7 +186,8 @@ struct GenotypeViewportExportService {
                     .map { URL(fileURLWithPath: $0.path).standardizedFileURL.path }
             )
             for expectedInputURL in expectedInputURLs {
-                guard inputPaths.contains(expectedInputURL.standardizedFileURL.path) else {
+                guard fileManager.fileExists(atPath: expectedInputURL.path),
+                      inputPaths.contains(expectedInputURL.standardizedFileURL.path) else {
                     throw GenotypeViewportExportError.invalidProvenance(provenanceURL.path)
                 }
             }

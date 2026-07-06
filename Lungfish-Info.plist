@@ -24,7 +24,7 @@
     <key>CFBundleName</key>
     <string>$(PRODUCT_NAME)</string>
     <key>CFBundleDisplayName</key>
-    <string>Lungfish</string>
+    <string>Lungfish Genome Explorer</string>
     <key>CFBundleExecutable</key>
     <string>$(EXECUTABLE_NAME)</string>
     <key>CFBundlePackageType</key>
@@ -61,7 +61,7 @@
     <!-- Sparkle auto-update (overwritten authoritatively by the release script's
          configure_sparkle_info_plist; absent/disabled in the debug build) -->
     <key>SUFeedURL</key>
-    <string>https://github.com/dhoconno/lungfish-genome-explorer/releases/download/sparkle-alpha/appcast-alpha.xml</string>
+    <string>https://github.com/dhoconno/lungfish-genome-explorer/releases/download/sparkle-beta/appcast-beta.xml</string>
     <key>SUPublicEDKey</key>
     <string>$(LUNGFISH_SPARKLE_PUBLIC_ED_KEY)</string>
     <key>SUVerifyUpdateBeforeExtraction</key>

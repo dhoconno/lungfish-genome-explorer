@@ -80,7 +80,9 @@ public final class AnnotationConverter: Sendable {
         /// Feature types to include (nil = all)
         public let featureTypes: Set<String>?
 
-        /// Whether to merge overlapping features
+        /// Whether to merge overlapping or touching features that share the
+        /// same chromosome, name, strand, color, feature type, and retained
+        /// attributes into one continuous BED row.
         public let mergeOverlapping: Bool
 
         /// Minimum feature length to include
@@ -162,10 +164,14 @@ public final class AnnotationConverter: Sendable {
             features = try await readGenBankAsBED(from: sourceURL, options: options)
         }
 
-        progress?(0.5, "Sorting \(features.count) features...")
+        let normalizedFeatures = options.mergeOverlapping
+            ? mergeOverlappingFeatures(features)
+            : features
+
+        progress?(0.5, "Sorting \(normalizedFeatures.count) features...")
 
         // Sort by chromosome, then by start position
-        let sortedFeatures = features.sorted { a, b in
+        let sortedFeatures = normalizedFeatures.sorted { a, b in
             if a.chrom != b.chrom {
                 return a.chrom.localizedStandardCompare(b.chrom) == .orderedAscending
             }
@@ -211,6 +217,15 @@ public final class AnnotationConverter: Sendable {
         let parentID: String?
         let name: String
         let attributes: [String: String]
+    }
+
+    /// Returns `true` when the already-computed feature `length` passes the
+    /// optional min/max length gates in `options`. Callers must supply the length
+    /// using their own coordinate convention (e.g. 1-based inclusive vs half-open).
+    private func passesLengthFilter(_ length: Int, _ options: ConversionOptions) -> Bool {
+        if let minLen = options.minLength, length < minLen { return false }
+        if let maxLen = options.maxLength, length > maxLen { return false }
+        return true
     }
 
     private func readGFF3AsBED(
@@ -289,8 +304,7 @@ public final class AnnotationConverter: Sendable {
             }
 
             let length = feature.end - feature.start + 1
-            if let minLen = options.minLength, length < minLen { continue }
-            if let maxLen = options.maxLength, length > maxLen { continue }
+            if !passesLengthFilter(length, options) { continue }
 
             // Collect key attributes for extra column 14
             var extraAttrs: [String] = []
@@ -420,8 +434,7 @@ public final class AnnotationConverter: Sendable {
 
             // Filter by length
             let length = chromEnd - chromStart
-            if let minLen = options.minLength, length < minLen { continue }
-            if let maxLen = options.maxLength, length > maxLen { continue }
+            if !passesLengthFilter(length, options) { continue }
 
             let entry = BEDEntry(
                 chrom: fields[0],
@@ -599,8 +612,7 @@ public final class AnnotationConverter: Sendable {
 
         // Filter by length
         let length = end - start
-        if let minLen = options.minLength, length < minLen { return nil }
-        if let maxLen = options.maxLength, length > maxLen { return nil }
+        if !passesLengthFilter(length, options) { return nil }
 
         let name = qualifiers["gene"] ?? qualifiers["locus_tag"] ?? qualifiers["product"] ?? type
 
@@ -675,6 +687,90 @@ public final class AnnotationConverter: Sendable {
 
         let content = lines.joined(separator: "\n") + (lines.isEmpty ? "" : "\n")
         try content.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private struct MergeKey: Hashable {
+        let chrom: String
+        let name: String
+        let strand: String
+        let itemRgb: String
+        let featureType: String?
+        let featureAttributes: String?
+    }
+
+    private func mergeOverlappingFeatures(_ entries: [BEDEntry]) -> [BEDEntry] {
+        let indexedEntries = entries.enumerated()
+        let grouped = Dictionary(grouping: indexedEntries) { _, entry in
+            MergeKey(
+                chrom: entry.chrom,
+                name: entry.name,
+                strand: entry.strand,
+                itemRgb: entry.itemRgb,
+                featureType: entry.featureType,
+                featureAttributes: entry.featureAttributes
+            )
+        }
+
+        var mergedEntries: [(firstIndex: Int, entry: BEDEntry)] = []
+        for group in grouped.values {
+            let sortedGroup = group.sorted {
+                if $0.element.chromStart != $1.element.chromStart {
+                    return $0.element.chromStart < $1.element.chromStart
+                }
+                return $0.element.chromEnd < $1.element.chromEnd
+            }
+
+            var currentFirstIndex: Int?
+            var currentEntry: BEDEntry?
+
+            for (index, entry) in sortedGroup {
+                guard let existing = currentEntry, let firstIndex = currentFirstIndex else {
+                    currentFirstIndex = index
+                    currentEntry = entry
+                    continue
+                }
+
+                if entry.chromStart <= existing.chromEnd {
+                    currentEntry = mergedEntry(existing, with: entry)
+                    currentFirstIndex = min(firstIndex, index)
+                } else {
+                    mergedEntries.append((firstIndex, existing))
+                    currentFirstIndex = index
+                    currentEntry = entry
+                }
+            }
+
+            if let currentEntry, let currentFirstIndex {
+                mergedEntries.append((currentFirstIndex, currentEntry))
+            }
+        }
+
+        return mergedEntries
+            .sorted { $0.firstIndex < $1.firstIndex }
+            .map(\.entry)
+    }
+
+    private func mergedEntry(_ lhs: BEDEntry, with rhs: BEDEntry) -> BEDEntry {
+        let chromStart = min(lhs.chromStart, rhs.chromStart)
+        let chromEnd = max(lhs.chromEnd, rhs.chromEnd)
+        let thickStart = min(lhs.thickStart, rhs.thickStart)
+        let thickEnd = max(lhs.thickEnd, rhs.thickEnd)
+        return BEDEntry(
+            chrom: lhs.chrom,
+            chromStart: chromStart,
+            chromEnd: chromEnd,
+            name: lhs.name,
+            score: max(lhs.score, rhs.score),
+            strand: lhs.strand,
+            thickStart: thickStart,
+            thickEnd: thickEnd,
+            itemRgb: lhs.itemRgb,
+            blockCount: 1,
+            blockSizes: [chromEnd - chromStart],
+            blockStarts: [0],
+            featureType: lhs.featureType,
+            featureAttributes: lhs.featureAttributes
+        )
     }
 }
 

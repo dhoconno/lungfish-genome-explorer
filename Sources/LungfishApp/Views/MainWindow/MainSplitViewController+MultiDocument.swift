@@ -1,4 +1,4 @@
-// MainSplitViewController.swift - Three-panel split view controller
+// MainSplitViewController+MultiDocument.swift - Project session and document coordination
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -202,7 +202,8 @@ extension MainSplitViewController {
         // With the filesystem-backed sidebar model:
         // - Files inside the project are shown via FileSystemWatcher (no manual add needed)
         // - Files outside the project can optionally be shown in "Open Documents"
-        // For now, only add to sidebar if NOT inside the current project
+        // Only outside-project files are added to Open Documents; project files
+        // are surfaced by FileSystemWatcher.
         if let projectURL = sidebarController.currentProjectURL {
             let docPath = document.url.standardizedFileURL.path
             let projectPath = projectURL.standardizedFileURL.path

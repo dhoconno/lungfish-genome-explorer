@@ -22,7 +22,25 @@ public struct ManagedStorageBootstrapConfig: Codable, Equatable, Sendable {
 }
 
 public final class ManagedStorageConfigStore: @unchecked Sendable {
-    @MainActor public static var shared = ManagedStorageConfigStore()
+    private static let defaultShared = ManagedStorageConfigStore()
+
+    @MainActor private static var sharedOverride: ManagedStorageConfigStore?
+
+    /// App-wide managed storage config source.
+    ///
+    /// Public code can read the singleton but cannot replace its identity; tests that need an
+    /// isolated home directory should use ``overrideSharedForTesting(_:)`` under `@testable`.
+    @MainActor public static var shared: ManagedStorageConfigStore {
+        sharedOverride ?? defaultShared
+    }
+
+    /// Replaces ``shared`` for tests that must isolate managed storage under a temporary home.
+    /// Pass `nil` to restore the process default.
+    @MainActor
+    static func overrideSharedForTesting(_ store: ManagedStorageConfigStore?) {
+        sharedOverride = store
+    }
+
     private static let legacyDatabaseStorageLocationKey = "DatabaseStorageLocation"
 
     public enum BootstrapConfigLoadState: Sendable, Equatable {

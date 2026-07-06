@@ -86,12 +86,19 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
             XCTAssertEqual(hex.dropFirst().count, 6)
         }
 
-        // The temp projection JSON the service wrote is cleaned up.
-        XCTAssertFalse(FileManager.default.fileExists(atPath: projectionPath))
+        // The projection JSON is part of the replay contract recorded in
+        // provenance, so it must survive as a durable export sidecar.
+        XCTAssertEqual(
+            projectionPath,
+            outputURL.standardizedFileURL.appendingPathExtension("view-projection.json").path
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: projectionPath))
 
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: result.provenanceURL))
         XCTAssertEqual(envelope.toolName, "lungfish-cli")
         XCTAssertEqual(envelope.workflowName, "lungfish genotype export")
+        let inputPaths = Set((envelope.files + envelope.steps.flatMap(\.inputs)).map(\.path))
+        XCTAssertTrue(inputPaths.contains(projectionPath))
     }
 
     func testExportFailsWhenCLIOmitsProvenanceSidecar() throws {
@@ -456,6 +463,9 @@ private final class StubGenotypeExportCLIRunner: GenotypeViewportExportRunning {
             .reproducibleCommand(argv.joined(separator: " "))
             .output(outputURL, format: .unknown, role: .output)
             .runtime(ProvenanceRuntimeIdentity(user: "test"))
+            if let projectionPath = try? value(after: "--view-projection", in: arguments) {
+                builder = try builder.input(URL(fileURLWithPath: projectionPath), format: .json, role: .input)
+            }
             if recordsAnnotationInput,
                let annotationsPath = try? value(after: "--annotations", in: arguments) {
                 builder = try builder.input(URL(fileURLWithPath: annotationsPath), format: .json, role: .input)

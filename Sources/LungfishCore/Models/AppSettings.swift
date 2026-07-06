@@ -60,7 +60,7 @@ public enum ManagedStorageDisplayState: Sendable, Equatable {
 /// ```
 @Observable
 @MainActor
-public final class AppSettings: Sendable {
+public final class AppSettings {
 
     // MARK: - Singleton
 
@@ -476,9 +476,10 @@ public final class AppSettings: Sendable {
     }
 
     private static func normalizedProvenanceSigningProvider(_ raw: String) -> String {
-        switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch normalized {
         case "local", "cosign":
-            return raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return normalized
         default:
             return "off"
         }

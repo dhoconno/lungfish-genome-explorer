@@ -86,9 +86,7 @@ public enum EsVirituDatabaseError: Error, LocalizedError, Sendable {
 public actor EsVirituDatabaseManager {
 
     /// Shared singleton instance.
-    public nonisolated(unsafe) static var shared = EsVirituDatabaseManager(
-        storageConfigStore: ManagedStorageConfigStore()
-    )
+    public static let shared = EsVirituDatabaseManager()
 
     /// Current database version.
     public static let currentVersion = "v3.2.4"

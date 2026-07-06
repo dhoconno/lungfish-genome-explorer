@@ -423,6 +423,54 @@ final class NativeToolRunnerTests: XCTestCase {
         XCTAssertFalse(output.isEmpty, "Output file should not be empty")
     }
 
+    func testRunWithFileOutputDoesNotPublishPartialOutputOnFailure() async throws {
+        let (runner, root) = try makeManagedNativeToolRunner()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RunFileFailureTest-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let outputURL = tempDir.appendingPathComponent("output.txt")
+        try "original output\n".write(to: outputURL, atomically: true, encoding: .utf8)
+
+        let result = try await runner.runWithFileOutput(
+            .seqkit,
+            arguments: ["fail-after-output"],
+            outputFile: outputURL
+        )
+
+        XCTAssertFalse(result.isSuccess)
+        XCTAssertEqual(result.exitCode, 7)
+        XCTAssertEqual(try String(contentsOf: outputURL, encoding: .utf8), "original output\n")
+        XCTAssertFalse(try containsTemporaryOutput(for: outputURL, in: tempDir))
+    }
+
+    func testPipelineWithFileOutputDoesNotPublishPartialOutputOnFailure() async throws {
+        let (runner, root) = try makeManagedNativeToolRunner()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PipelineFileFailureTest-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let outputURL = tempDir.appendingPathComponent("pipeline-output.txt")
+        let result = try await runner.runPipelineWithFileOutput(
+            [
+                NativePipelineStage(.seqkit, arguments: ["short-output", "input"]),
+                NativePipelineStage(.seqkit, arguments: ["fail-after-output"]),
+            ],
+            outputFile: outputURL
+        )
+
+        XCTAssertFalse(result.isSuccess)
+        XCTAssertEqual(result.exitCodes.last, 7)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+        XCTAssertFalse(try containsTemporaryOutput(for: outputURL, in: tempDir))
+    }
+
     func testEmptyPipelineThrows() async {
         let runner = NativeToolRunner()
         do {
@@ -852,6 +900,12 @@ final class NativeToolRunnerTests: XCTestCase {
               short-output)
                 printf 'short-output-%s\\n' "$2"
                 ;;
+              fail-after-output)
+                cat >/dev/null
+                printf 'partial output\\n'
+                printf 'simulated failure\\n' >&2
+                exit 7
+                ;;
               *)
                 echo "seqkit v2.0"
                 ;;
@@ -895,6 +949,16 @@ final class NativeToolRunnerTests: XCTestCase {
         }
 
         return (NativeToolRunner(toolsDirectory: nil, homeDirectory: root), root)
+    }
+
+    private func containsTemporaryOutput(for outputURL: URL, in directory: URL) throws -> Bool {
+        try FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        ).contains {
+            $0.lastPathComponent.hasPrefix(".\(outputURL.lastPathComponent).")
+                && $0.lastPathComponent.hasSuffix(".tmp")
+        }
     }
 
     private enum TimeoutError: Error {

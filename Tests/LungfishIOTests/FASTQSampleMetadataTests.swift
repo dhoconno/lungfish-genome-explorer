@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import LungfishCore
 @testable import LungfishIO
 
 // MARK: - SampleRole Tests
@@ -399,6 +400,24 @@ final class BundleAttachmentManagerTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: destURL.path))
     }
 
+    func testListAttachmentsHidesProvenanceSidecars() throws {
+        let bundleDir = tmpDir.appendingPathComponent("S1.lungfishfastq")
+        try FileManager.default.createDirectory(at: bundleDir, withIntermediateDirectories: true)
+
+        let sourceFile = tmpDir.appendingPathComponent("report.pdf")
+        try "test content".write(to: sourceFile, atomically: true, encoding: .utf8)
+
+        let mgr = BundleAttachmentManager(bundleURL: bundleDir)
+        let filename = try mgr.addAttachment(from: sourceFile)
+        try "{}".write(
+            to: BundleAttachmentFilenamePolicy.provenanceSidecarURL(forAttachmentURL: mgr.urlForAttachment(filename)),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        XCTAssertEqual(mgr.listAttachments(), ["report.pdf"])
+    }
+
     func testAddDuplicateRenames() throws {
         let bundleDir = tmpDir.appendingPathComponent("S1.lungfishfastq")
         try FileManager.default.createDirectory(at: bundleDir, withIntermediateDirectories: true)
@@ -432,6 +451,25 @@ final class BundleAttachmentManagerTests: XCTestCase {
 
         // Attachments directory should be removed when empty
         XCTAssertFalse(FileManager.default.fileExists(atPath: mgr.attachmentsDirectory.path))
+    }
+
+    func testRemoveAttachmentRemovesProvenanceSidecar() throws {
+        let bundleDir = tmpDir.appendingPathComponent("S1.lungfishfastq")
+        try FileManager.default.createDirectory(at: bundleDir, withIntermediateDirectories: true)
+
+        let sourceFile = tmpDir.appendingPathComponent("data.txt")
+        try "data".write(to: sourceFile, atomically: true, encoding: .utf8)
+
+        let mgr = BundleAttachmentManager(bundleURL: bundleDir)
+        let filename = try mgr.addAttachment(from: sourceFile)
+        let sidecarURL = BundleAttachmentFilenamePolicy.provenanceSidecarURL(
+            forAttachmentURL: mgr.urlForAttachment(filename)
+        )
+        try "{}".write(to: sidecarURL, atomically: true, encoding: .utf8)
+
+        try mgr.removeAttachment(filename)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sidecarURL.path))
     }
 }
 
@@ -492,6 +530,33 @@ final class FASTQSampleMetadataLegacyTests: XCTestCase {
         XCTAssertEqual(restored.collectionDate, "2026-01-15")
         XCTAssertEqual(restored.sampleRole, .positiveControl)
         XCTAssertEqual(restored.customFields["extra"], "value")
+    }
+
+    func testBundleCSVSaveLoadPreservesQuotedNewlinesAndQuotes() throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FASTQBundleCSVMetadataRoundTrip_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let metadata = FASTQBundleCSVMetadata(
+            headers: ["sample_name", "geo_loc_name", "notes"],
+            rows: [[
+                "Sample, A",
+                "USA:Georgia:Atlanta, GA",
+                "Line 1\nLine 2 with \"quoted\" text",
+            ]]
+        )
+
+        try FASTQBundleCSVMetadata.save(metadata, to: tmpDir)
+
+        let loaded = try XCTUnwrap(FASTQBundleCSVMetadata.load(from: tmpDir))
+        XCTAssertEqual(loaded.headers, metadata.headers)
+        XCTAssertEqual(loaded.rows, metadata.rows)
+
+        let restored = FASTQSampleMetadata(from: loaded, fallbackName: "Fallback")
+        XCTAssertEqual(restored.sampleName, "Sample, A")
+        XCTAssertEqual(restored.geoLocName, "USA:Georgia:Atlanta, GA")
+        XCTAssertEqual(restored.notes, "Line 1\nLine 2 with \"quoted\" text")
     }
 }
 

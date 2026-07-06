@@ -132,9 +132,14 @@ public final class OperationCenter: ObservableObject {
     public struct Item: Identifiable, Sendable {
         public enum State: String, Sendable {
             case running
+            case cancelling
             case completed
             case cancelled
             case failed
+
+            public var isActive: Bool {
+                self == .running || self == .cancelling
+            }
         }
 
         public let id: UUID
@@ -183,6 +188,8 @@ public final class OperationCenter: ObservableObject {
             switch state {
             case .running:
                 return retryEvents.isEmpty ? "Running" : "Retrying"
+            case .cancelling:
+                return "Cancelling"
             case .completed:
                 return hasWarnings ? "Completed with Warnings" : "Completed"
             case .cancelled:
@@ -193,7 +200,7 @@ public final class OperationCenter: ObservableObject {
         }
 
         public var isCancellable: Bool {
-            onCancel != nil
+            state == .running && onCancel != nil
         }
 
         // MARK: - Byte-level progress tracking
@@ -220,7 +227,9 @@ public final class OperationCenter: ObservableObject {
             onCancel: (@Sendable () -> Void)? = nil,
             cliCommand: String? = nil,
             workflowRunID: UUID? = nil,
-            routeContext: OperationRouteContext? = nil
+            routeContext: OperationRouteContext? = nil,
+            errorMessage: String? = nil,
+            errorDetail: String? = nil
         ) {
             self.id = id
             self.title = title
@@ -239,6 +248,8 @@ public final class OperationCenter: ObservableObject {
             self.cliCommand = cliCommand
             self.workflowRunID = workflowRunID
             self.routeContext = routeContext
+            self.errorMessage = errorMessage
+            self.errorDetail = errorDetail
         }
     }
 
@@ -265,7 +276,7 @@ public final class OperationCenter: ObservableObject {
     public init() {}
 
     public var activeCount: Int {
-        items.filter { $0.state == .running }.count
+        items.filter { $0.state.isActive }.count
     }
 
     // MARK: - Bundle Locking
@@ -276,7 +287,7 @@ public final class OperationCenter: ObservableObject {
         let key = bundleURL.standardizedFileURL.path
         guard let lockHolder = bundleLocks[key] else { return true }
         // Verify the lock holder is still running (stale lock protection)
-        return items.first(where: { $0.id == lockHolder && $0.state == .running }) == nil
+        return items.first(where: { $0.id == lockHolder && $0.state.isActive }) == nil
     }
 
     /// Returns the running item that currently holds the lock on the given bundle, if any.
@@ -284,7 +295,7 @@ public final class OperationCenter: ObservableObject {
         guard let bundleURL else { return nil }
         let key = bundleURL.standardizedFileURL.path
         guard let lockHolder = bundleLocks[key] else { return nil }
-        return items.first(where: { $0.id == lockHolder && $0.state == .running })
+        return items.first(where: { $0.id == lockHolder && $0.state.isActive })
     }
 
     private func lockBundle(for id: UUID, url: URL?) {
@@ -310,20 +321,20 @@ public final class OperationCenter: ObservableObject {
 
     // MARK: - CLI Command Builder
 
-    /// Builds a properly shell-quoted `lungfish` CLI command string.
+    /// Builds a properly shell-quoted Lungfish CLI command string.
     ///
     /// Arguments containing spaces, quotes, or shell metacharacters are
     /// wrapped in single quotes with internal single quotes escaped.
     ///
     /// - Parameters:
-    ///   - subcommand: The lungfish subcommand path (e.g. `"fetch"`, `"classify"`, `"fastq import-ont"`).
+    ///   - subcommand: The lungfish-cli subcommand path (e.g. `"fetch"`, `"conda classify"`, `"fastq import-ont"`).
     ///   - args: Positional and flag arguments.
     /// - Returns: A copy-pasteable shell command string.
     public nonisolated static func buildCLICommand(subcommand: String, args: [String]) -> String {
         let subcommandParts = subcommand
             .split(whereSeparator: { $0.isWhitespace })
             .map(String.init)
-        let allParts = ["lungfish"] + subcommandParts + args
+        let allParts = [CLICommandIdentity.executableName] + subcommandParts + args
         let quoted = allParts.map { shellEscape($0) }
         return quoted.joined(separator: " ")
     }
@@ -352,6 +363,33 @@ public final class OperationCenter: ObservableObject {
         onCancel: (@Sendable () -> Void)? = nil
     ) -> UUID {
         let id = UUID()
+        if let targetBundleURL,
+           let lockHolder = activeLockHolder(for: targetBundleURL) {
+            let finishedAt = Date()
+            let blockedDetail = "\"\(lockHolder.title)\" is currently running on this bundle. Please wait for it to finish."
+            items.insert(
+                Item(
+                    id: id,
+                    title: title,
+                    detail: blockedDetail,
+                    progress: 1,
+                    state: .failed,
+                    operationType: operationType,
+                    startedAt: startedAt,
+                    finishedAt: finishedAt,
+                    wallTimeSeconds: max(0, finishedAt.timeIntervalSince(startedAt)),
+                    targetBundleURL: targetBundleURL,
+                    routeContext: routeContext,
+                    errorMessage: "Bundle is busy"
+                ),
+                at: 0
+            )
+            changes.send(.inserted(id: id, index: 0))
+            notifyRemovedItems(trimCompletedItemsIfNeeded())
+            postStateChangedNotification(id: id, state: .failed)
+            return id
+        }
+
         items.insert(
             Item(
                 id: id,
@@ -384,27 +422,30 @@ public final class OperationCenter: ObservableObject {
         changes.send(.updated(id: id, index: index))
     }
 
-    public func update(id: UUID, progress: Double, detail: String) {
-        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
-        guard items[index].state == .running else { return }
+    @discardableResult
+    public func update(id: UUID, progress: Double, detail: String) -> Bool {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return false }
+        guard items[index].state == .running else { return false }
         items[index].progress = max(0, min(1, progress))
         items[index].detail = detail
         changes.send(.updated(id: id, index: index))
+        return true
     }
 
     /// Updates visible progress and records the same status in operation history.
     ///
     /// Progress callbacks can fire many times with identical text, so adjacent
     /// duplicate messages are suppressed by default.
+    @discardableResult
     public func updateWithLog(
         id: UUID,
         progress: Double,
         detail: String,
         level: OperationLogLevel = .info,
         deduplicateAdjacent: Bool = true
-    ) {
-        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
-        guard items[index].state == .running else { return }
+    ) -> Bool {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return false }
+        guard items[index].state == .running else { return false }
         items[index].progress = max(0, min(1, progress))
         items[index].detail = detail
 
@@ -412,11 +453,12 @@ public final class OperationCenter: ObservableObject {
            items[index].logEntries.last?.message == detail,
            items[index].logEntries.last?.level == level {
             changes.send(.updated(id: id, index: index))
-            return
+            return true
         }
         let entry = OperationLogEntry(level: level, message: detail)
         items[index].logEntries.append(entry)
         changes.send(.updated(id: id, index: index))
+        return true
     }
 
     /// Updates resource usage observed for an operation.
@@ -519,9 +561,10 @@ public final class OperationCenter: ObservableObject {
         changes.send(.updated(id: id, index: index))
     }
 
-    public func complete(id: UUID, detail: String, finishedAt: Date = Date()) {
-        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
-        guard items[index].state == .running else { return }
+    @discardableResult
+    public func complete(id: UUID, detail: String, finishedAt: Date = Date()) -> Bool {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return false }
+        guard items[index].state == .running else { return false }
         let previousOrder = items.map(\.id)
         items[index].state = .completed
         items[index].progress = 1
@@ -531,15 +574,17 @@ public final class OperationCenter: ObservableObject {
         _ = trimCompletedItemsIfNeeded()
         publishTerminalChange(id: id, previousOrder: previousOrder)
         postStateChangedNotification(id: id, state: .completed)
+        return true
     }
 
     /// Completes an operation in the warning state.
     ///
     /// The warning detail is surfaced both in the item's detail text and as a
     /// warning log entry so the Operations UI presents "Completed with Warnings".
-    public func completeWithWarning(id: UUID, detail: String) {
-        log(id: id, level: .warning, message: detail)
-        complete(id: id, detail: detail)
+    @discardableResult
+    public func completeWithWarning(id: UUID, detail: String) -> Bool {
+        guard appendWarningLogIfRunning(id: id, detail: detail) else { return false }
+        return complete(id: id, detail: detail)
     }
 
     /// Completes an operation and delivers bundle URLs to the app for import.
@@ -547,9 +592,10 @@ public final class OperationCenter: ObservableObject {
     /// This is the primary mechanism for getting built bundles from background
     /// tasks to the AppDelegate for import into the sidebar. It avoids
     /// fragile callback chains through sheet controllers that get deallocated.
-    public func complete(id: UUID, detail: String, bundleURLs: [URL], finishedAt: Date = Date()) {
-        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
-        guard items[index].state == .running else { return }
+    @discardableResult
+    public func complete(id: UUID, detail: String, bundleURLs: [URL], finishedAt: Date = Date()) -> Bool {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return false }
+        guard items[index].state == .running else { return false }
         let previousOrder = items.map(\.id)
         items[index].state = .completed
         items[index].progress = 1
@@ -570,12 +616,14 @@ public final class OperationCenter: ObservableObject {
             }
         }
         postStateChangedNotification(id: id, state: .completed)
+        return true
     }
 
     /// Completes an operation in the warning state and delivers bundle URLs.
-    public func completeWithWarning(id: UUID, detail: String, bundleURLs: [URL]) {
-        log(id: id, level: .warning, message: detail)
-        complete(id: id, detail: detail, bundleURLs: bundleURLs)
+    @discardableResult
+    public func completeWithWarning(id: UUID, detail: String, bundleURLs: [URL]) -> Bool {
+        guard appendWarningLogIfRunning(id: id, detail: detail) else { return false }
+        return complete(id: id, detail: detail, bundleURLs: bundleURLs)
     }
 
     /// Completes an operation and records non-bundle file outputs.
@@ -583,9 +631,10 @@ public final class OperationCenter: ObservableObject {
     /// Unlike ``complete(id:detail:bundleURLs:)``, these URLs are not sent to
     /// `onBundleReady` because they are user-facing files rather than project
     /// bundles that should be imported into the sidebar.
-    public func complete(id: UUID, detail: String, outputURLs: [URL], finishedAt: Date = Date()) {
-        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
-        guard items[index].state == .running else { return }
+    @discardableResult
+    public func complete(id: UUID, detail: String, outputURLs: [URL], finishedAt: Date = Date()) -> Bool {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return false }
+        guard items[index].state == .running else { return false }
         let previousOrder = items.map(\.id)
         items[index].state = .completed
         items[index].progress = 1
@@ -597,12 +646,21 @@ public final class OperationCenter: ObservableObject {
         _ = trimCompletedItemsIfNeeded()
         publishTerminalChange(id: id, previousOrder: previousOrder)
         postStateChangedNotification(id: id, state: .completed)
+        return true
     }
 
     /// Completes an operation in the warning state and records non-bundle file outputs.
-    public func completeWithWarning(id: UUID, detail: String, outputURLs: [URL]) {
-        log(id: id, level: .warning, message: detail)
-        complete(id: id, detail: detail, outputURLs: outputURLs)
+    @discardableResult
+    public func completeWithWarning(id: UUID, detail: String, outputURLs: [URL]) -> Bool {
+        guard appendWarningLogIfRunning(id: id, detail: detail) else { return false }
+        return complete(id: id, detail: detail, outputURLs: outputURLs)
+    }
+
+    private func appendWarningLogIfRunning(id: UUID, detail: String) -> Bool {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return false }
+        guard items[index].state == .running else { return false }
+        items[index].logEntries.append(OperationLogEntry(level: .warning, message: detail))
+        return true
     }
 
     /// Marks an operation as failed.
@@ -612,15 +670,16 @@ public final class OperationCenter: ObservableObject {
     ///   - detail: Status detail text (shown in the detail row).
     ///   - errorMessage: Optional user-facing error summary (shown prominently in red).
     ///   - errorDetail: Optional extended diagnostic text (stderr, stack trace, etc.).
+    @discardableResult
     public func fail(
         id: UUID,
         detail: String,
         errorMessage: String? = nil,
         errorDetail: String? = nil,
         finishedAt: Date = Date()
-    ) {
-        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
-        guard items[index].state == .running else { return }
+    ) -> Bool {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return false }
+        guard items[index].state == .running else { return false }
         let previousOrder = items.map(\.id)
         items[index].state = .failed
         items[index].detail = detail
@@ -631,26 +690,26 @@ public final class OperationCenter: ObservableObject {
         _ = trimCompletedItemsIfNeeded()
         publishTerminalChange(id: id, previousOrder: previousOrder)
         postStateChangedNotification(id: id, state: .failed)
+        return true
     }
 
-    /// Cancels a running operation by marking it cancelled and then invoking its cancel callback.
+    /// Cancels a running operation by invoking its cancel callback before releasing any bundle lock.
+    /// Running operations without a cancel callback are left unchanged because the
+    /// center has no mechanism to stop their underlying work.
     public func cancel(id: UUID) {
         guard let index = items.firstIndex(where: { $0.id == id }),
-              items[index].state == .running else { return }
-        let onCancel = items[index].onCancel
-        let previousOrder = items.map(\.id)
+              items[index].state == .running,
+              let onCancel = items[index].onCancel else { return }
+        items[index].state = .cancelling
+        items[index].detail = "Cancelling..."
+        items[index].onCancel = nil
+        changes.send(.updated(id: id, index: index))
+        postStateChangedNotification(id: id, state: .cancelling)
 
-        items[index].state = .cancelled
-        items[index].detail = "Cancelled by user"
-        finishItem(at: index, finishedAt: Date())
-        unlockBundle(for: id)
-        _ = trimCompletedItemsIfNeeded()
-        publishTerminalChange(id: id, previousOrder: previousOrder)
-        postStateChangedNotification(id: id, state: .cancelled)
-
-        if let onCancel {
-            DispatchQueue.global(qos: .userInitiated).async {
-                onCancel()
+        DispatchQueue.global(qos: .userInitiated).async {
+            onCancel()
+            Task { @MainActor [weak self] in
+                self?.finishCancellation(id: id)
             }
         }
     }
@@ -664,8 +723,8 @@ public final class OperationCenter: ObservableObject {
     }
 
     public func clearCompleted() {
-        let removedIDs = items.filter { $0.state != .running }.map(\.id)
-        items.removeAll { $0.state != .running }
+        let removedIDs = items.filter { !$0.state.isActive }.map(\.id)
+        items.removeAll { !$0.state.isActive }
         notifyRemovedItems(removedIDs)
     }
 
@@ -675,8 +734,8 @@ public final class OperationCenter: ObservableObject {
     ///
     /// - Parameter id: The item to remove.
     public func clearItem(id: UUID) {
-        let shouldRemove = items.contains { $0.id == id && $0.state != .running }
-        items.removeAll { $0.id == id && $0.state != .running }
+        let shouldRemove = items.contains { $0.id == id && !$0.state.isActive }
+        items.removeAll { $0.id == id && !$0.state.isActive }
         if shouldRemove {
             changes.send(.removed(ids: [id]))
         }
@@ -685,9 +744,9 @@ public final class OperationCenter: ObservableObject {
     private func trimCompletedItemsIfNeeded() -> [UUID] {
         let keepLimit = 20
         let previousIDs = Set(items.map(\.id))
-        let running = items.filter { $0.state == .running }
+        let running = items.filter { $0.state.isActive }
         let finished = items
-            .filter { $0.state != .running }
+            .filter { !$0.state.isActive }
             .sorted { ($0.finishedAt ?? .distantPast) > ($1.finishedAt ?? .distantPast) }
 
         items = running + Array(finished.prefix(max(0, keepLimit - running.count)))
@@ -698,6 +757,19 @@ public final class OperationCenter: ObservableObject {
     private func finishItem(at index: Int, finishedAt: Date) {
         items[index].finishedAt = finishedAt
         items[index].wallTimeSeconds = max(0, finishedAt.timeIntervalSince(items[index].startedAt))
+    }
+
+    private func finishCancellation(id: UUID, finishedAt: Date = Date()) {
+        guard let index = items.firstIndex(where: { $0.id == id }),
+              items[index].state == .cancelling else { return }
+        let previousOrder = items.map(\.id)
+        items[index].state = .cancelled
+        items[index].detail = "Cancelled by user"
+        finishItem(at: index, finishedAt: finishedAt)
+        unlockBundle(for: id)
+        _ = trimCompletedItemsIfNeeded()
+        publishTerminalChange(id: id, previousOrder: previousOrder)
+        postStateChangedNotification(id: id, state: .cancelled)
     }
 
     private func notifyRemovedItems(_ ids: [UUID]) {

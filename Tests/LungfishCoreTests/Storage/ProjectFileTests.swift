@@ -173,6 +173,14 @@ final class ProjectFileTests: XCTestCase {
         XCTAssertEqual(try project.getSequenceContent(id: sequenceId, atVersion: 0), originalContent)
         XCTAssertEqual(try project.getSequenceContent(id: sequenceId, atVersion: 1), version1Content)
         XCTAssertEqual(try project.getSequenceContent(id: sequenceId, atVersion: 2), version2Content)
+
+        XCTAssertThrowsError(try project.getSequenceContent(id: sequenceId, atVersion: 3)) { error in
+            guard case ProjectStoreError.invalidVersionIndex(let index) = error else {
+                XCTFail("Expected invalidVersionIndex, got \(error)")
+                return
+            }
+            XCTAssertEqual(index, 3)
+        }
     }
 
     func testGetSequenceContent() throws {
@@ -363,6 +371,18 @@ final class ProjectFileTests: XCTestCase {
         XCTAssertEqual(annotations.count, 1)
 
         XCTAssertEqual(reloaded.getCustomMetadata(key: "key1"), "value1")
+    }
+
+    func testProjectMetadataWritesAreAtomic() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = root.appendingPathComponent("Sources/LungfishCore/Storage/ProjectFile.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("data.write(to: metadataURL, options: .atomic)"))
     }
 
     func testDirtyFlag() throws {

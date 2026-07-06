@@ -59,8 +59,7 @@ public actor PathoplexusService: DatabaseService {
     // MARK: - DatabaseService Protocol
 
     public func search(_ query: SearchQuery) async throws -> SearchResults {
-        // Default to mpox if no organism specified
-        let organism = query.organism ?? "mpox"
+        let organism = try Self.requireExplicitOrganism(query.organism)
 
         var filters = PathoplexusFilters()
         filters.geoLocCountry = query.location
@@ -97,12 +96,14 @@ public actor PathoplexusService: DatabaseService {
     }
 
     public func fetch(accession: String) async throws -> DatabaseRecord {
-        try await fetch(accession: accession, organism: nil)
+        throw DatabaseServiceError.invalidQuery(
+            reason: "Pathoplexus accessions do not encode an organism; call fetch(accession:organism:) with an explicit organism id."
+        )
     }
 
     public func fetch(accession: String, organism: String?) async throws -> DatabaseRecord {
         let normalizedAccession = accession.trimmingCharacters(in: .whitespacesAndNewlines)
-        let organism = organism ?? "mpox"
+        let organism = try Self.requireExplicitOrganism(organism)
 
         var filters = PathoplexusFilters()
         filters.accession = normalizedAccession
@@ -353,6 +354,16 @@ public actor PathoplexusService: DatabaseService {
     }
 
     // MARK: - Private Methods
+
+    private nonisolated static func requireExplicitOrganism(_ organism: String?) throws -> String {
+        let trimmed = organism?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty else {
+            throw DatabaseServiceError.invalidQuery(
+                reason: "Pathoplexus requires an explicit organism id because accessions are not organism-scoped."
+            )
+        }
+        return trimmed
+    }
 
     private func fetchUnalignedSequencesRaw(
         organism: String,

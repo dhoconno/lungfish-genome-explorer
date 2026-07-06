@@ -302,6 +302,39 @@ final class SequenceAnnotationCommandTests: XCTestCase {
         }
     }
 
+    func testAnnotateORFsReportsRollbackFailureWhenProvenanceRestoreFails() async throws {
+        let bundleURL = try makeReferenceBundle(sequence: "AATGAAATAA")
+        let provenanceURL = bundleURL.appendingPathComponent("provenance", isDirectory: true)
+        try FileManager.default.createDirectory(at: provenanceURL, withIntermediateDirectories: true)
+        let annotationsBlockerURL = provenanceURL.appendingPathComponent("annotations")
+        try "not a directory".write(to: annotationsBlockerURL, atomically: true, encoding: .utf8)
+        try setUserImmutable(true, at: annotationsBlockerURL)
+        defer { try? setUserImmutable(false, at: annotationsBlockerURL) }
+
+        let command = try SequenceCommand.AnnotateORFs.parse([
+            bundleURL.path,
+            "--sequence", "chr1",
+            "--start", "1",
+            "--end", "10",
+            "--frames", "+1",
+            "--track-id", "orfs_rollback_fail",
+            "--track-name", "ORFs rollback fail",
+            "--min-length", "3",
+            "--quiet"
+        ])
+
+        do {
+            try await command.run()
+            XCTFail("Expected ORF annotation rollback failure to be reported.")
+        } catch let error as ProvenancePublicationRollbackError {
+            XCTAssertTrue(error.originalErrorDescription.contains("provenance/annotations"))
+            XCTAssertTrue(error.rollbackErrorDescription.contains("Cocoa"))
+            XCTAssertTrue(error.errorDescription?.contains("rollback failed") == true)
+        } catch {
+            XCTFail("Expected ProvenancePublicationRollbackError, got \(error).")
+        }
+    }
+
     func testDeleteAnnotationsRewritesTrackThenRemovesTrackWhenEmpty() async throws {
         let bundleURL = try makeReferenceBundle(sequence: "ATGTAAATGTAA")
         let create = try SequenceCommand.AnnotateORFs.parse([
@@ -598,5 +631,16 @@ final class SequenceAnnotationCommandTests: XCTestCase {
         )
         try manifest.save(to: bundleURL)
         return bundleURL
+    }
+
+    private func setUserImmutable(_ enabled: Bool, at url: URL) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/chflags")
+        process.arguments = [enabled ? "uchg" : "nouchg", url.path]
+        try process.run()
+        process.waitUntilExit()
+        if process.terminationStatus != 0 {
+            throw POSIXError(.EPERM)
+        }
     }
 }

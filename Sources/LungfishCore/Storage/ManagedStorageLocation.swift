@@ -50,7 +50,14 @@ public struct ManagedStorageLocation: Sendable, Codable, Equatable {
         ManagedStorageLocation(rootURL: homeDirectory.appendingPathComponent(".lungfish", isDirectory: true))
     }
 
-    public static func validateSelection(_ url: URL) -> ValidationResult {
+    public static func validateSelection(
+        _ url: URL,
+        fileManager: FileManager = .default
+    ) -> ValidationResult {
+        guard url.isFileURL else {
+            return .invalid(.unsupportedFilesystem)
+        }
+
         let resolved = url.resolvingSymlinksInPath().standardizedFileURL
 
         if resolved.path.contains(" ") {
@@ -70,6 +77,51 @@ public struct ManagedStorageLocation: Sendable, Codable, Equatable {
             return .invalid(.nestedInsideAppBundle)
         }
 
+        guard let existingDirectory = nearestExistingDirectory(for: resolved, fileManager: fileManager) else {
+            return .invalid(.unreachable)
+        }
+
+        guard canWriteProbe(in: existingDirectory, fileManager: fileManager) else {
+            return .invalid(.notWritable)
+        }
+
         return .valid
+    }
+
+    private static func nearestExistingDirectory(
+        for url: URL,
+        fileManager: FileManager
+    ) -> URL? {
+        var candidate = url
+        while true {
+            var isDirectory = ObjCBool(false)
+            if fileManager.fileExists(atPath: candidate.path, isDirectory: &isDirectory) {
+                return isDirectory.boolValue ? candidate : nil
+            }
+
+            let parent = candidate.deletingLastPathComponent()
+            guard parent.path != candidate.path else {
+                return nil
+            }
+            candidate = parent
+        }
+    }
+
+    private static func canWriteProbe(
+        in directory: URL,
+        fileManager: FileManager
+    ) -> Bool {
+        let probeURL = directory.appendingPathComponent(
+            ".lungfish-write-test-\(UUID().uuidString)",
+            isDirectory: false
+        )
+        do {
+            try Data().write(to: probeURL, options: [.atomic])
+            try? fileManager.removeItem(at: probeURL)
+            return true
+        } catch {
+            try? fileManager.removeItem(at: probeURL)
+            return false
+        }
     }
 }

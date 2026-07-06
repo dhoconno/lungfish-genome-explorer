@@ -93,7 +93,7 @@ public struct VCFVariant: Identifiable, Codable, Sendable, Hashable {
     ///
     /// Each key is a sample name, value is a dictionary of format fields.
     /// Common format fields include GT (genotype), DP (depth), GQ (genotype quality).
-    public var sampleData: [String: [String: String]]
+    public let sampleData: [String: [String: String]]
 
     // MARK: - Initialization
 
@@ -818,6 +818,9 @@ extension VariantTrack: Codable {
         case metadata
     }
 
+    /// Hand-rolled decode: the tolerant `displaySettings ?? VariantTrackDisplaySettings()`
+    /// fallback is load-bearing so older persisted payloads that predate the
+    /// `displaySettings` key still decode successfully.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(UUID.self, forKey: .id)
@@ -848,6 +851,9 @@ extension VariantTrack: Codable {
 
 // MARK: - VariantTrackDisplaySettings Codable
 
+// Hand-rolled Codable is REQUIRED here: the VariantType-keyed `customColors`
+// dictionary and the `visibleTypes` Set must serialize using VariantType's
+// String rawValues rather than the synthesized (non-String-keyed) form.
 extension VariantTrackDisplaySettings: Codable {
 
     enum CodingKeys: String, CodingKey {

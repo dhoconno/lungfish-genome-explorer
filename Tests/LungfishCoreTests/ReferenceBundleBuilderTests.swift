@@ -38,6 +38,21 @@ final class ReferenceBundleBuilderTests: XCTestCase {
         XCTAssertEqual(BuildStep.complete.rawValue, "Complete")
     }
 
+    func testObservableBuilderDispatchesBundleWorkOffMainActor() throws {
+        let sourceURL = try repoRoot()
+            .appendingPathComponent("Sources/LungfishCore/Bundles/ReferenceBundleBuilder.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(
+            source.contains("Task.detached"),
+            "ReferenceBundleBuilder must keep UI-observable state on MainActor while dispatching file parsing/copy/index work off-main."
+        )
+        XCTAssertTrue(
+            source.contains("ReferenceBundleBuildExecutor"),
+            "Bundle file operations should live in a non-MainActor executor instead of private MainActor methods."
+        )
+    }
+
     // MARK: - BuildConfiguration Tests
 
     func testBuildConfigurationCreation() {
@@ -205,6 +220,7 @@ final class ReferenceBundleBuilderTests: XCTestCase {
         XCTAssertNotNil(BundleBuildError.invalidFASTAFormat("test").recoverySuggestion)
         XCTAssertNotNil(BundleBuildError.cancelled.recoverySuggestion)
         XCTAssertNotNil(BundleBuildError.containerRuntimeNotAvailable.recoverySuggestion)
+        XCTAssertNotNil(BundleBuildError.outputBundleAlreadyExists(url).recoverySuggestion)
     }
 
     // MARK: - ReferenceBundleBuilder Tests
@@ -245,7 +261,49 @@ final class ReferenceBundleBuilderTests: XCTestCase {
     }
 
     @MainActor
-    func testBuildWithValidFASTA() async throws {
+    func testBuildRejectsExistingOutputBundleWithoutDeletingIt() async throws {
+        let builder = ReferenceBundleBuilder()
+
+        let fastaURL = tempDirectory.appendingPathComponent("test.fa")
+        try ">chr1\nATCG\n".write(to: fastaURL, atomically: true, encoding: .utf8)
+
+        let outputDir = tempDirectory.appendingPathComponent("output")
+        let existingBundleURL = outputDir.appendingPathComponent("Test.lungfishref")
+        let sentinelURL = existingBundleURL.appendingPathComponent("do-not-delete.txt")
+        try FileManager.default.createDirectory(at: existingBundleURL, withIntermediateDirectories: true)
+        try "existing user data".write(to: sentinelURL, atomically: true, encoding: .utf8)
+
+        let config = BuildConfiguration(
+            name: "Test",
+            identifier: "test",
+            fastaURL: fastaURL,
+            outputDirectory: outputDir,
+            source: SourceInfo(organism: "Test", assembly: "v1"),
+            compressFASTA: false
+        )
+
+        do {
+            _ = try await builder.build(configuration: config)
+            XCTFail("Expected existing output bundle to be rejected")
+        } catch let error as BundleBuildError {
+            guard case .outputBundleAlreadyExists(let url) = error else {
+                XCTFail("Expected outputBundleAlreadyExists, got \(error)")
+                return
+            }
+            let actualPath = url.path.hasSuffix("/") ? String(url.path.dropLast()) : url.path
+            let expectedPath = existingBundleURL.path.hasSuffix("/") ? String(existingBundleURL.path.dropLast()) : existingBundleURL.path
+            XCTAssertEqual(actualPath, expectedPath)
+        }
+
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: sentinelURL.path),
+            "Rejecting an existing output bundle must not delete user data"
+        )
+        XCTAssertEqual(try String(contentsOf: sentinelURL, encoding: .utf8), "existing user data")
+    }
+
+    @MainActor
+    func testBuildWithValidUncompressedFASTA() async throws {
         let builder = ReferenceBundleBuilder()
 
         // Create a test FASTA file
@@ -268,7 +326,7 @@ final class ReferenceBundleBuilderTests: XCTestCase {
             fastaURL: fastaURL,
             outputDirectory: outputDir,
             source: SourceInfo(organism: "Test organism", assembly: "TestAssembly"),
-            compressFASTA: true
+            compressFASTA: false
         )
 
         let progressCollector = BuildProgressCollector()
@@ -299,6 +357,415 @@ final class ReferenceBundleBuilderTests: XCTestCase {
         } else {
             XCTFail("No progress updates received")
         }
+    }
+
+    @MainActor
+    func testCoreBuilderRejectsCompressedFASTAWithoutNativeBgzip() async throws {
+        let builder = ReferenceBundleBuilder()
+
+        let fastaURL = tempDirectory.appendingPathComponent("test.fa")
+        try ">chr1\nATCG\n".write(to: fastaURL, atomically: true, encoding: .utf8)
+
+        let outputDir = tempDirectory.appendingPathComponent("output")
+        let config = BuildConfiguration(
+            name: "Compressed Test",
+            identifier: "compressed.test",
+            fastaURL: fastaURL,
+            outputDirectory: outputDir,
+            source: SourceInfo(organism: "Test", assembly: "v1"),
+            compressFASTA: true
+        )
+
+        do {
+            _ = try await builder.build(configuration: config)
+            XCTFail("Expected Core builder to reject bgzip compression without native tools")
+        } catch let error as BundleBuildError {
+            guard case .compressionFailed(let reason) = error else {
+                XCTFail("Expected compressionFailed, got \(error)")
+                return
+            }
+            XCTAssertTrue(reason.contains("NativeBundleBuilder"))
+            XCTAssertTrue(reason.contains("bgzip"))
+        }
+    }
+
+    @MainActor
+    func testCoreBuilderRejectsProvenanceConfigurationWithoutCreatingBundle() async throws {
+        let builder = ReferenceBundleBuilder()
+
+        let fastaURL = tempDirectory.appendingPathComponent("test.fa")
+        try ">chr1\nATCG\n".write(to: fastaURL, atomically: true, encoding: .utf8)
+
+        let outputDir = tempDirectory.appendingPathComponent("output")
+        let expectedBundleURL = outputDir.appendingPathComponent("Provenance_Test.lungfishref")
+        let config = BuildConfiguration(
+            name: "Provenance Test",
+            identifier: "provenance.test",
+            fastaURL: fastaURL,
+            outputDirectory: outputDir,
+            source: SourceInfo(organism: "Test", assembly: "v1"),
+            compressFASTA: false,
+            provenanceWorkflowName: "test provenance"
+        )
+
+        do {
+            _ = try await builder.build(configuration: config)
+            XCTFail("Expected Core builder to reject provenance-bearing configurations")
+        } catch let error as BundleBuildError {
+            guard case .unsupportedProvenanceConfiguration(let reason) = error else {
+                XCTFail("Expected unsupportedProvenanceConfiguration, got \(error)")
+                return
+            }
+            XCTAssertTrue(reason.contains("cannot write provenance"))
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: expectedBundleURL.path))
+    }
+
+    @MainActor
+    func testCancellingParentTaskCancelsDetachedBuildWork() async throws {
+        let builder = ReferenceBundleBuilder()
+
+        let fastaURL = tempDirectory.appendingPathComponent("large.fa")
+        let fastaContent = ">chr1\n" + String(
+            repeating: "ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG\n",
+            count: 50_000
+        )
+        try fastaContent.write(to: fastaURL, atomically: true, encoding: .utf8)
+
+        let outputDir = tempDirectory.appendingPathComponent("output")
+        let expectedBundleURL = outputDir.appendingPathComponent("Cancellation_Test.lungfishref")
+        let config = BuildConfiguration(
+            name: "Cancellation Test",
+            identifier: "cancellation.test",
+            fastaURL: fastaURL,
+            outputDirectory: outputDir,
+            source: SourceInfo(organism: "Test", assembly: "v1"),
+            compressFASTA: false
+        )
+
+        let buildStarted = expectation(description: "build started")
+        buildStarted.assertForOverFulfill = false
+
+        let task = Task { @MainActor in
+            try await builder.build(configuration: config) { step, _, _ in
+                if step == .creatingStructure {
+                    buildStarted.fulfill()
+                }
+            }
+        }
+
+        await fulfillment(of: [buildStarted], timeout: 2.0)
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            XCTFail("Expected parent cancellation to cancel detached bundle work")
+        } catch let error as BundleBuildError {
+            guard case .cancelled = error else {
+                XCTFail("Expected cancelled error, got \(error)")
+                return
+            }
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: expectedBundleURL.path))
+    }
+
+    @MainActor
+    func testFASTAIndexUsesExactCRLFByteOffsets() async throws {
+        let builder = ReferenceBundleBuilder()
+
+        let fastaURL = tempDirectory.appendingPathComponent("crlf.fa")
+        let fastaBytes = Data(">chr1\r\nACGT\r\nACGT\r\n>chr2\r\nNN\r\n".utf8)
+        try fastaBytes.write(to: fastaURL)
+
+        let outputDir = tempDirectory.appendingPathComponent("output")
+        let config = BuildConfiguration(
+            name: "CRLF Test",
+            identifier: "crlf.test",
+            fastaURL: fastaURL,
+            outputDirectory: outputDir,
+            source: SourceInfo(organism: "Test", assembly: "v1"),
+            compressFASTA: false
+        )
+
+        let bundleURL = try await builder.build(configuration: config)
+        let indexURL = bundleURL.appendingPathComponent("genome/sequence.fa.fai")
+        let index = try String(contentsOf: indexURL, encoding: .utf8)
+
+        XCTAssertEqual(index, "chr1\t8\t7\t4\t6\nchr2\t2\t26\t2\t4\n")
+    }
+
+    @MainActor
+    func testFASTAIndexUsesSamtoolsWidthForSingleLineWithoutTrailingNewline() async throws {
+        let builder = ReferenceBundleBuilder()
+
+        let fastaURL = tempDirectory.appendingPathComponent("single-line.fa")
+        try Data(">chr1\nACGT".utf8).write(to: fastaURL)
+
+        let outputDir = tempDirectory.appendingPathComponent("output")
+        let config = BuildConfiguration(
+            name: "Single Line Test",
+            identifier: "single-line.test",
+            fastaURL: fastaURL,
+            outputDirectory: outputDir,
+            source: SourceInfo(organism: "Test", assembly: "v1"),
+            compressFASTA: false
+        )
+
+        let bundleURL = try await builder.build(configuration: config)
+        let indexURL = bundleURL.appendingPathComponent("genome/sequence.fa.fai")
+        let index = try String(contentsOf: indexURL, encoding: .utf8)
+
+        XCTAssertEqual(index, "chr1\t4\t6\t4\t5\n")
+    }
+
+    @MainActor
+    func testFASTAIndexRejectsInconsistentInternalLineWidths() async throws {
+        let builder = ReferenceBundleBuilder()
+
+        let fastaURL = tempDirectory.appendingPathComponent("ragged.fa")
+        try Data(">chr1\nACGT\nAC\nACGT\n".utf8).write(to: fastaURL)
+
+        let outputDir = tempDirectory.appendingPathComponent("output")
+        let expectedBundleURL = outputDir.appendingPathComponent("Ragged_Test.lungfishref")
+        let config = BuildConfiguration(
+            name: "Ragged Test",
+            identifier: "ragged.test",
+            fastaURL: fastaURL,
+            outputDirectory: outputDir,
+            source: SourceInfo(organism: "Test", assembly: "v1"),
+            compressFASTA: false
+        )
+
+        do {
+            _ = try await builder.build(configuration: config)
+            XCTFail("Expected ragged internal FASTA line to be rejected")
+        } catch let error as BundleBuildError {
+            guard case .invalidFASTAFormat(let message) = error else {
+                XCTFail("Expected invalidFASTAFormat, got \(error)")
+                return
+            }
+            XCTAssertTrue(message.contains("Inconsistent sequence line"))
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: expectedBundleURL.path))
+    }
+
+    @MainActor
+    func testFASTAIndexRejectsMixedInternalNewlineWidths() async throws {
+        let builder = ReferenceBundleBuilder()
+
+        let fastaURL = tempDirectory.appendingPathComponent("mixed-newlines.fa")
+        try Data(">chr1\r\nACGT\r\nACGT\nACGT\r\n".utf8).write(to: fastaURL)
+
+        let outputDir = tempDirectory.appendingPathComponent("output")
+        let expectedBundleURL = outputDir.appendingPathComponent("Mixed_Newlines_Test.lungfishref")
+        let config = BuildConfiguration(
+            name: "Mixed Newlines Test",
+            identifier: "mixed-newlines.test",
+            fastaURL: fastaURL,
+            outputDirectory: outputDir,
+            source: SourceInfo(organism: "Test", assembly: "v1"),
+            compressFASTA: false
+        )
+
+        do {
+            _ = try await builder.build(configuration: config)
+            XCTFail("Expected mixed internal newline widths to be rejected")
+        } catch let error as BundleBuildError {
+            guard case .invalidFASTAFormat(let message) = error else {
+                XCTFail("Expected invalidFASTAFormat, got \(error)")
+                return
+            }
+            XCTAssertTrue(message.contains("Inconsistent sequence line"))
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: expectedBundleURL.path))
+    }
+
+    @MainActor
+    func testFASTAIndexRejectsBlankLineBeforeMoreSequence() async throws {
+        let builder = ReferenceBundleBuilder()
+
+        let fastaURL = tempDirectory.appendingPathComponent("blank-before-sequence.fa")
+        try Data(">chr1\nACGT\n\nACGT\n".utf8).write(to: fastaURL)
+
+        let outputDir = tempDirectory.appendingPathComponent("output")
+        let expectedBundleURL = outputDir.appendingPathComponent("Blank_Sequence_Test.lungfishref")
+        let config = BuildConfiguration(
+            name: "Blank Sequence Test",
+            identifier: "blank-sequence.test",
+            fastaURL: fastaURL,
+            outputDirectory: outputDir,
+            source: SourceInfo(organism: "Test", assembly: "v1"),
+            compressFASTA: false
+        )
+
+        do {
+            _ = try await builder.build(configuration: config)
+            XCTFail("Expected blank line before more sequence to be rejected")
+        } catch let error as BundleBuildError {
+            guard case .invalidFASTAFormat(let message) = error else {
+                XCTFail("Expected invalidFASTAFormat, got \(error)")
+                return
+            }
+            XCTAssertTrue(message.contains("Blank FASTA line"))
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: expectedBundleURL.path))
+    }
+
+    @MainActor
+    func testFASTAIndexRejectsWhitespaceOnlyLineBeforeMoreSequence() async throws {
+        let builder = ReferenceBundleBuilder()
+
+        let fastaURL = tempDirectory.appendingPathComponent("whitespace-before-sequence.fa")
+        try Data(">chr1\nACGT\n \t \nACGT\n".utf8).write(to: fastaURL)
+
+        let outputDir = tempDirectory.appendingPathComponent("output")
+        let expectedBundleURL = outputDir.appendingPathComponent("Whitespace_Sequence_Test.lungfishref")
+        let config = BuildConfiguration(
+            name: "Whitespace Sequence Test",
+            identifier: "whitespace-sequence.test",
+            fastaURL: fastaURL,
+            outputDirectory: outputDir,
+            source: SourceInfo(organism: "Test", assembly: "v1"),
+            compressFASTA: false
+        )
+
+        do {
+            _ = try await builder.build(configuration: config)
+            XCTFail("Expected whitespace-only line before more sequence to be rejected")
+        } catch let error as BundleBuildError {
+            guard case .invalidFASTAFormat(let message) = error else {
+                XCTFail("Expected invalidFASTAFormat, got \(error)")
+                return
+            }
+            XCTAssertTrue(message.contains("Blank FASTA line"))
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: expectedBundleURL.path))
+    }
+
+    @MainActor
+    func testFASTAIndexAllowsBlankLinesAtRecordBoundaries() async throws {
+        let builder = ReferenceBundleBuilder()
+
+        let fastaURL = tempDirectory.appendingPathComponent("boundary-blanks.fa")
+        try Data("\n>chr1\nACGT\n\n>chr2\nNN\n\n".utf8).write(to: fastaURL)
+
+        let outputDir = tempDirectory.appendingPathComponent("output")
+        let config = BuildConfiguration(
+            name: "Boundary Blanks Test",
+            identifier: "boundary-blanks.test",
+            fastaURL: fastaURL,
+            outputDirectory: outputDir,
+            source: SourceInfo(organism: "Test", assembly: "v1"),
+            compressFASTA: false
+        )
+
+        let bundleURL = try await builder.build(configuration: config)
+        let indexURL = bundleURL.appendingPathComponent("genome/sequence.fa.fai")
+        let index = try String(contentsOf: indexURL, encoding: .utf8)
+
+        XCTAssertEqual(index, "chr1\t4\t7\t4\t5\nchr2\t2\t19\t2\t3\n")
+    }
+
+    @MainActor
+    func testFASTAIndexRejectsFinalLineWiderThanIndexedLineWidth() async throws {
+        let builder = ReferenceBundleBuilder()
+
+        let fastaURL = tempDirectory.appendingPathComponent("wide-final.fa")
+        try Data(">chr1\nACGT\nACGT\r\n".utf8).write(to: fastaURL)
+
+        let outputDir = tempDirectory.appendingPathComponent("output")
+        let expectedBundleURL = outputDir.appendingPathComponent("Wide_Final_Test.lungfishref")
+        let config = BuildConfiguration(
+            name: "Wide Final Test",
+            identifier: "wide-final.test",
+            fastaURL: fastaURL,
+            outputDirectory: outputDir,
+            source: SourceInfo(organism: "Test", assembly: "v1"),
+            compressFASTA: false
+        )
+
+        do {
+            _ = try await builder.build(configuration: config)
+            XCTFail("Expected final line wider than indexed width to be rejected")
+        } catch let error as BundleBuildError {
+            guard case .invalidFASTAFormat(let message) = error else {
+                XCTFail("Expected invalidFASTAFormat, got \(error)")
+                return
+            }
+            XCTAssertTrue(message.contains("Final sequence line"))
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: expectedBundleURL.path))
+    }
+
+    @MainActor
+    func testFASTAIndexRejectsHeaderOnlyRecords() async throws {
+        let builder = ReferenceBundleBuilder()
+
+        let fastaURL = tempDirectory.appendingPathComponent("empty-record.fa")
+        try Data(">chr1\n>chr2\nNN\n".utf8).write(to: fastaURL)
+
+        let outputDir = tempDirectory.appendingPathComponent("output")
+        let expectedBundleURL = outputDir.appendingPathComponent("Empty_Record_Test.lungfishref")
+        let config = BuildConfiguration(
+            name: "Empty Record Test",
+            identifier: "empty-record.test",
+            fastaURL: fastaURL,
+            outputDirectory: outputDir,
+            source: SourceInfo(organism: "Test", assembly: "v1"),
+            compressFASTA: false
+        )
+
+        do {
+            _ = try await builder.build(configuration: config)
+            XCTFail("Expected header-only FASTA record to be rejected")
+        } catch let error as BundleBuildError {
+            guard case .invalidFASTAFormat(let message) = error else {
+                XCTFail("Expected invalidFASTAFormat, got \(error)")
+                return
+            }
+            XCTAssertTrue(message.contains("no sequence"))
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: expectedBundleURL.path))
+    }
+
+    @MainActor
+    func testFASTAIndexRejectsCROnlyLineEndings() async throws {
+        let builder = ReferenceBundleBuilder()
+
+        let fastaURL = tempDirectory.appendingPathComponent("cr-only.fa")
+        try Data(">chr1\rACGT\r".utf8).write(to: fastaURL)
+
+        let outputDir = tempDirectory.appendingPathComponent("output")
+        let expectedBundleURL = outputDir.appendingPathComponent("CR_Only_Test.lungfishref")
+        let config = BuildConfiguration(
+            name: "CR Only Test",
+            identifier: "cr-only.test",
+            fastaURL: fastaURL,
+            outputDirectory: outputDir,
+            source: SourceInfo(organism: "Test", assembly: "v1"),
+            compressFASTA: false
+        )
+
+        do {
+            _ = try await builder.build(configuration: config)
+            XCTFail("Expected CR-only FASTA line endings to be rejected")
+        } catch let error as BundleBuildError {
+            guard case .invalidFASTAFormat(let message) = error else {
+                XCTFail("Expected invalidFASTAFormat, got \(error)")
+                return
+            }
+            XCTAssertTrue(message.contains("CR-only"))
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: expectedBundleURL.path))
     }
 
     @MainActor
@@ -371,8 +838,8 @@ final class ReferenceBundleBuilderTests: XCTestCase {
         let annotationsDir = bundleURL.appendingPathComponent("annotations")
         XCTAssertTrue(FileManager.default.fileExists(atPath: annotationsDir.path))
 
-        // Verify annotation file exists (as .bb placeholder)
-        let annotationFile = annotationsDir.appendingPathComponent("genes.bb")
+        // Verify annotation file keeps its source format instead of pretending to be BigBed.
+        let annotationFile = annotationsDir.appendingPathComponent("genes.gff3")
         XCTAssertTrue(FileManager.default.fileExists(atPath: annotationFile.path))
     }
 
@@ -409,7 +876,39 @@ final class ReferenceBundleBuilderTests: XCTestCase {
     }
 
     @MainActor
-    func testBuildWithVariants() async throws {
+    func testBuildWithGzippedAnnotationDoesNotFabricateFeatureCountOrDescription() async throws {
+        let builder = ReferenceBundleBuilder()
+
+        let fastaURL = tempDirectory.appendingPathComponent("test.fa")
+        try ">chr1\nATCG\n".write(to: fastaURL, atomically: true, encoding: .utf8)
+
+        let gffURL = tempDirectory.appendingPathComponent("genes.gff3.gz")
+        try Data([0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00]).write(to: gffURL)
+
+        let outputDir = tempDirectory.appendingPathComponent("output")
+        let config = BuildConfiguration(
+            name: "Compressed Annotation Test",
+            identifier: "compressed.annotation.test",
+            fastaURL: fastaURL,
+            annotationFiles: [
+                AnnotationInput(url: gffURL, name: "Compressed annotations", annotationType: .gene)
+            ],
+            outputDirectory: outputDir,
+            source: SourceInfo(organism: "Test", assembly: "v1"),
+            compressFASTA: false
+        )
+
+        let bundleURL = try await builder.build(configuration: config)
+        let manifest = try BundleManifest.load(from: bundleURL)
+        let track = try XCTUnwrap(manifest.annotations.first)
+
+        XCTAssertNil(track.featureCount)
+        XCTAssertNil(track.description)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent(track.path).path))
+    }
+
+    @MainActor
+    func testBuildWithVariantsRequiresIndexedBCF() async throws {
         let builder = ReferenceBundleBuilder()
 
         // Create test files
@@ -438,18 +937,50 @@ final class ReferenceBundleBuilderTests: XCTestCase {
             compressFASTA: false
         )
 
+        do {
+            _ = try await builder.build(configuration: config)
+            XCTFail("Expected Core builder to reject VCF-to-BCF conversion without native tools")
+        } catch let error as BundleBuildError {
+            guard case .variantConversionFailed(let file, let reason) = error else {
+                XCTFail("Expected variantConversionFailed, got \(error)")
+                return
+            }
+            XCTAssertEqual(file, "SNPs")
+            XCTAssertTrue(reason.contains("cannot convert VCF to BCF"))
+            XCTAssertTrue(reason.contains("NativeBundleBuilder"))
+        }
+    }
+
+    @MainActor
+    func testBuildWithIndexedBCFCopiesBCFAndCSI() async throws {
+        let builder = ReferenceBundleBuilder()
+
+        let fastaURL = tempDirectory.appendingPathComponent("test.fa")
+        try ">chr1\nATCG".write(to: fastaURL, atomically: true, encoding: .utf8)
+
+        let bcfURL = tempDirectory.appendingPathComponent("variants.bcf")
+        try Data([0x42, 0x43, 0x46, 0x02, 0x02]).write(to: bcfURL)
+        let csiURL = URL(fileURLWithPath: bcfURL.path + ".csi")
+        try Data([0x43, 0x53, 0x49, 0x01]).write(to: csiURL)
+
+        let outputDir = tempDirectory.appendingPathComponent("output")
+        let config = BuildConfiguration(
+            name: "Test",
+            identifier: "test",
+            fastaURL: fastaURL,
+            variantFiles: [
+                VariantInput(url: bcfURL, name: "SNPs", variantType: .snp)
+            ],
+            outputDirectory: outputDir,
+            source: SourceInfo(organism: "Test", assembly: "v1"),
+            compressFASTA: false
+        )
+
         let bundleURL = try await builder.build(configuration: config)
 
-        // Verify variants directory was created
-        let variantsDir = bundleURL.appendingPathComponent("variants")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: variantsDir.path))
-
-        // Verify BCF file exists
-        let bcfFile = variantsDir.appendingPathComponent("variants.bcf")
+        let bcfFile = bundleURL.appendingPathComponent("variants/variants.bcf")
+        let indexFile = bundleURL.appendingPathComponent("variants/variants.bcf.csi")
         XCTAssertTrue(FileManager.default.fileExists(atPath: bcfFile.path))
-
-        // Verify index exists
-        let indexFile = variantsDir.appendingPathComponent("variants.bcf.csi")
         XCTAssertTrue(FileManager.default.fileExists(atPath: indexFile.path))
     }
 
@@ -535,4 +1066,16 @@ private final class BuildProgressCollector: @unchecked Sendable {
         defer { lock.unlock() }
         _values.append((step, progress, message))
     }
+}
+
+private func repoRoot() throws -> URL {
+    var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+    let fileManager = FileManager.default
+    for _ in 0..<10 {
+        if fileManager.fileExists(atPath: directory.appendingPathComponent("Package.swift").path) {
+            return directory
+        }
+        directory = directory.deletingLastPathComponent()
+    }
+    throw XCTSkip("Could not locate Package.swift above \(#filePath)")
 }

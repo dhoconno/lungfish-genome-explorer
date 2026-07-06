@@ -29,6 +29,9 @@ public enum ClassificationPipelineError: Error, LocalizedError, Sendable {
     /// The kreport output file was not produced by kraken2.
     case kreportNotProduced(URL)
 
+    /// The result sidecar could not be persisted.
+    case resultSidecarSaveFailed(URL, String)
+
     /// Could not determine the kraken2 version.
     case versionDetectionFailed
 
@@ -47,6 +50,8 @@ public enum ClassificationPipelineError: Error, LocalizedError, Sendable {
             return "bracken is not installed. Run: lungfish conda install --pack metagenomics"
         case .kreportNotProduced(let url):
             return "kraken2 did not produce a report file at \(url.path)"
+        case .resultSidecarSaveFailed(let url, let reason):
+            return "Failed to save classification result sidecar at \(url.path): \(reason)"
         case .versionDetectionFailed:
             return "Could not determine kraken2 version"
         case .cancelled:
@@ -428,18 +433,6 @@ public actor ClassificationPipeline {
             dependsOn: kraken2StepID.map { [$0] } ?? []
         ) ?? effectiveConfig.outputURL
 
-        progress?(0.98, "Saving provenance...")
-
-        // Phase 6: Complete provenance (0.95 -- 1.0)
-        await provenanceRecorder.completeRun(runID, status: .completed)
-
-        do {
-            try await provenanceRecorder.save(runID: runID, to: effectiveConfig.outputDirectory)
-        } catch {
-            // Provenance save failure is non-fatal.
-            logger.warning("Failed to save provenance: \(error.localizedDescription, privacy: .public)")
-        }
-
         let totalRuntime = Date().timeIntervalSince(startTime)
 
         let result = ClassificationResult(
@@ -453,12 +446,102 @@ public actor ClassificationPipeline {
             provenanceId: runID
         )
 
+        progress?(0.97, "Saving result metadata...")
+
+        let sidecarURL = effectiveConfig.outputDirectory.appendingPathComponent(ClassificationResult.sidecarFilename)
+        try? fm.removeItem(at: sidecarURL)
+        let sidecarInputRecords = classificationResultOutputRecords(
+            reportURL: effectiveConfig.reportURL,
+            outputURL: retainedOutputURL,
+            brackenURL: brackenOutputURL
+        )
+        let sidecarSaveStart = Date()
+        do {
+            try result.save(to: effectiveConfig.outputDirectory)
+        } catch let sidecarError {
+            await provenanceRecorder.recordStep(
+                runID: runID,
+                toolName: "Lungfish Classification Result Sidecar",
+                toolVersion: WorkflowRun.currentAppVersion,
+                command: ["LungfishWorkflow", "ClassificationResult.save", sidecarURL.path],
+                inputs: sidecarInputRecords,
+                outputs: [
+                    ProvenanceRecorder.fileRecord(url: sidecarURL, format: .json, role: .output),
+                ],
+                exitCode: 1,
+                wallTime: Date().timeIntervalSince(sidecarSaveStart),
+                stderr: sidecarError.localizedDescription,
+                dependsOn: kraken2StepID.map { [$0] } ?? []
+            )
+            await provenanceRecorder.completeRun(runID, status: .failed)
+            do {
+                try await provenanceRecorder.save(runID: runID, to: effectiveConfig.outputDirectory)
+            } catch let provenanceError {
+                throw ClassificationPipelineError.resultSidecarSaveFailed(
+                    sidecarURL,
+                    "\(sidecarError.localizedDescription); additionally failed to save failed-run provenance: \(provenanceError.localizedDescription)"
+                )
+            }
+            throw ClassificationPipelineError.resultSidecarSaveFailed(
+                sidecarURL,
+                sidecarError.localizedDescription
+            )
+        }
+        let sidecarWallTime = Date().timeIntervalSince(sidecarSaveStart)
+
+        await provenanceRecorder.recordStep(
+            runID: runID,
+            toolName: "Lungfish Classification Result Sidecar",
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: ["LungfishWorkflow", "ClassificationResult.save", sidecarURL.path],
+            inputs: sidecarInputRecords,
+            outputs: [
+                ProvenanceRecorder.fileRecord(url: sidecarURL, format: .json, role: .output),
+            ],
+            exitCode: 0,
+            wallTime: sidecarWallTime,
+            dependsOn: kraken2StepID.map { [$0] } ?? []
+        )
+
+        progress?(0.98, "Saving provenance...")
+
+        // Phase 6: Complete provenance (0.95 -- 1.0)
+        await provenanceRecorder.completeRun(runID, status: .completed)
+
+        do {
+            try await provenanceRecorder.save(runID: runID, to: effectiveConfig.outputDirectory)
+        } catch {
+            try? fm.removeItem(at: sidecarURL)
+            await provenanceRecorder.completeRun(runID, status: .failed)
+            throw error
+        }
+
         progress?(1.0, "Classification complete")
 
         let runtimeStr = String(format: "%.1f", totalRuntime)
         logger.info("Pipeline complete: \(totalReads, privacy: .public) reads, \(speciesCount, privacy: .public) species, \(runtimeStr, privacy: .public)s")
 
         return result
+    }
+
+    private func classificationResultOutputRecords(
+        reportURL: URL,
+        outputURL: URL,
+        brackenURL: URL?
+    ) -> [FileRecord] {
+        let fm = FileManager.default
+        var records = [
+            ProvenanceRecorder.fileRecord(url: reportURL, format: .text, role: .report),
+            ProvenanceRecorder.fileRecord(url: outputURL, format: .text, role: .output),
+        ]
+        let indexURL = KrakenIndexDatabase.indexURL(for: outputURL)
+        if fm.fileExists(atPath: indexURL.path) {
+            records.append(ProvenanceRecorder.fileRecord(url: indexURL, format: .unknown, role: .index))
+        }
+        if let brackenURL {
+            records.append(ProvenanceRecorder.fileRecord(url: brackenURL, format: .text, role: .output))
+        }
+        return records
     }
 
     private func compactKrakenOutputIfPossible(
@@ -487,7 +570,7 @@ public actor ClassificationPipeline {
                 toolName: "lungfish-kraken2-index",
                 toolVersion: Self.kraken2GithubReleaseVersion,
                 command: [
-                    "lungfish",
+                    CLICommandIdentity.executableName,
                     "internal",
                     "kraken2-index",
                     "--classified-only",
@@ -512,7 +595,7 @@ public actor ClassificationPipeline {
                 runID: runID,
                 toolName: "gzip",
                 toolVersion: "system",
-                command: ["/usr/bin/gzip", "-c", rawURL.path],
+                command: gzipReplayCommand(source: rawURL, destination: compressedURL),
                 inputs: [
                     ProvenanceRecorder.fileRecord(url: rawURL, format: .text, role: .input),
                 ],
@@ -535,6 +618,11 @@ public actor ClassificationPipeline {
             try? fm.removeItem(at: indexURL)
             return nil
         }
+    }
+
+    private func gzipReplayCommand(source: URL, destination: URL) -> [String] {
+        let command = "/usr/bin/gzip -c \(shellEscape(source.path)) > \(shellEscape(destination.path))"
+        return ["/bin/sh", "-c", command]
     }
 
     private func gzipCopy(source: URL, destination: URL) throws {

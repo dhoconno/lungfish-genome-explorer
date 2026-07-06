@@ -1,6 +1,7 @@
 import ArgumentParser
 import CryptoKit
 import Foundation
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
@@ -151,7 +152,7 @@ struct TreeCommand: AsyncParsableCommand {
 
             private func canonicalArgv(bundleURL: URL, outputURL: URL) -> [String] {
                 var argv = [
-                    "lungfish",
+                    CLICommandIdentity.executableName,
                     "tree",
                     "export",
                     "subtree",
@@ -260,7 +261,7 @@ struct TreeCommand: AsyncParsableCommand {
         }
 
         private func canonicalArgv() -> [String] {
-            var argv = ["lungfish", "tree", "reroot", "--bundle", URL(fileURLWithPath: bundlePath).standardizedFileURL.path, "--on", selector, "--output", URL(fileURLWithPath: outputPath).standardizedFileURL.path]
+            var argv = [CLICommandIdentity.executableName, "tree", "reroot", "--bundle", URL(fileURLWithPath: bundlePath).standardizedFileURL.path, "--on", selector, "--output", URL(fileURLWithPath: outputPath).standardizedFileURL.path]
             if globalOptions.outputFormat == .json {
                 argv += ["--format", "json"]
             }
@@ -303,7 +304,7 @@ struct TreeCommand: AsyncParsableCommand {
         }
 
         private func canonicalArgv() -> [String] {
-            var argv = ["lungfish", "tree", "extract-subtree", "--bundle", URL(fileURLWithPath: bundlePath).standardizedFileURL.path, "--node", node, "--output", URL(fileURLWithPath: outputPath).standardizedFileURL.path]
+            var argv = [CLICommandIdentity.executableName, "tree", "extract-subtree", "--bundle", URL(fileURLWithPath: bundlePath).standardizedFileURL.path, "--node", node, "--output", URL(fileURLWithPath: outputPath).standardizedFileURL.path]
             if globalOptions.outputFormat == .json {
                 argv += ["--format", "json"]
             }
@@ -346,7 +347,7 @@ struct TreeCommand: AsyncParsableCommand {
         }
 
         private func canonicalArgv() -> [String] {
-            var argv = ["lungfish", "tree", "relabel", "--bundle", URL(fileURLWithPath: bundlePath).standardizedFileURL.path, "--column", column, "--output", URL(fileURLWithPath: outputPath).standardizedFileURL.path]
+            var argv = [CLICommandIdentity.executableName, "tree", "relabel", "--bundle", URL(fileURLWithPath: bundlePath).standardizedFileURL.path, "--column", column, "--output", URL(fileURLWithPath: outputPath).standardizedFileURL.path]
             if globalOptions.outputFormat == .json {
                 argv += ["--format", "json"]
             }
@@ -603,7 +604,7 @@ struct TreeCommand: AsyncParsableCommand {
 
         private func canonicalArgv(msaBundleURL: URL, projectURL: URL, outputURL: URL) -> [String] {
             var argv = [
-                "lungfish",
+                CLICommandIdentity.executableName,
                 "tree",
                 "infer",
                 "iqtree",

@@ -298,6 +298,7 @@ struct ClassifyCommand: AsyncParsableCommand {
                 executionInputURLs: executionInputURLs,
                 argv: CommandLine.arguments,
                 durableReplayArgv: durableReplayArguments,
+                preset: preset.rawValue,
                 profile: profile,
                 brackenReadLength: brackenReadLength,
                 brackenLevel: brackenLevel,
@@ -387,6 +388,7 @@ struct ClassifyCommand: AsyncParsableCommand {
         executionInputURLs: [URL],
         argv: [String],
         durableReplayArgv: [String]? = nil,
+        preset: String = "balanced",
         profile: Bool = false,
         brackenReadLength: Int = 150,
         brackenLevel: String = "S",
@@ -399,6 +401,7 @@ struct ClassifyCommand: AsyncParsableCommand {
         writer: ProvenanceWriter = ProvenanceWriter()
     ) throws -> URL {
         let config = result.config
+        let pipelineEnvelope = ProvenanceRecorder.loadEnvelope(from: config.outputDirectory)
         let inputPairs = zipOriginalAndExecutionInputs(
             originalInputURLs: originalInputURLs,
             executionInputURLs: executionInputURLs
@@ -427,10 +430,11 @@ struct ClassifyCommand: AsyncParsableCommand {
         .argv(argv)
         .durableReplayArgv(durableReplayArgv)
         .options(
-            explicit: classificationResolvedOptions(
+            explicit: classificationExplicitOptions(
                 for: config,
                 originalInputURLs: originalInputURLs,
-                executionInputURLs: executionInputURLs,
+                argv: argv,
+                preset: preset,
                 profile: profile,
                 brackenReadLength: brackenReadLength,
                 brackenLevel: brackenLevel,
@@ -441,6 +445,7 @@ struct ClassifyCommand: AsyncParsableCommand {
                 for: config,
                 originalInputURLs: originalInputURLs,
                 executionInputURLs: executionInputURLs,
+                preset: preset,
                 profile: profile,
                 brackenReadLength: brackenReadLength,
                 brackenLevel: brackenLevel,
@@ -485,11 +490,16 @@ struct ClassifyCommand: AsyncParsableCommand {
             builder = builder.step(brackenStep)
         }
 
-        let envelope = try builder.complete(
+        let synthesizedEnvelope = try builder.complete(
             exitStatus: 0,
             stderr: stderr,
             startedAt: startedAt,
             endedAt: endedAt
+        )
+        let envelope = preservingPipelineOnlySteps(
+            in: synthesizedEnvelope,
+            from: pipelineEnvelope,
+            result: result
         )
         return try writer.write(envelope, to: config.outputDirectory)
     }
@@ -523,6 +533,7 @@ struct ClassifyCommand: AsyncParsableCommand {
         for config: ClassificationConfig,
         originalInputURLs: [URL],
         executionInputURLs: [URL],
+        preset: String,
         profile: Bool,
         brackenReadLength: Int,
         brackenLevel: String,
@@ -532,6 +543,7 @@ struct ClassifyCommand: AsyncParsableCommand {
             "databaseName": .string(config.databaseName),
             "databasePath": .file(config.databasePath),
             "inputFormat": .string(config.inputFormat.rawValue),
+            "preset": .string(preset),
             "pairedEnd": .boolean(config.isPairedEnd),
             "profile": .boolean(profile),
             "confidence": .number(config.confidence),
@@ -547,6 +559,72 @@ struct ClassifyCommand: AsyncParsableCommand {
             "originalInputs": .array(originalInputURLs.map { .file($0.standardizedFileURL) }),
             "executionInputs": .array(executionInputURLs.map { .file($0.standardizedFileURL) }),
         ]
+    }
+
+    private static func classificationExplicitOptions(
+        for config: ClassificationConfig,
+        originalInputURLs: [URL],
+        argv: [String],
+        preset: String,
+        profile: Bool,
+        brackenReadLength: Int,
+        brackenLevel: String,
+        brackenThreshold: Int
+    ) -> [String: ParameterValue] {
+        var options: [String: ParameterValue] = [
+            "databaseName": .string(config.databaseName),
+            "originalInputs": .array(originalInputURLs.map { .file($0.standardizedFileURL) }),
+        ]
+
+        if argvContainsOption(argv, names: ["--output-dir", "-o"]) {
+            options["outputDirectory"] = .file(config.outputDirectory)
+        }
+        if argvContainsOption(argv, names: ["--preset"]) {
+            options["preset"] = .string(preset)
+        }
+        if argvContainsOption(argv, names: ["--paired"]) {
+            options["pairedEnd"] = .boolean(config.isPairedEnd)
+        }
+        if argvContainsOption(argv, names: ["--profile"]) {
+            options["profile"] = .boolean(profile)
+        }
+        if argvContainsOption(argv, names: ["--confidence"]) {
+            options["confidence"] = .number(config.confidence)
+        }
+        if argvContainsOption(argv, names: ["--min-hit-groups"]) {
+            options["minimumHitGroups"] = .integer(config.minimumHitGroups)
+        }
+        if argvContainsOption(argv, names: ["--threads"]) {
+            options["threads"] = .integer(config.threads)
+        }
+        if argvContainsOption(argv, names: ["--memory-mapping"]) {
+            options["memoryMapping"] = .boolean(config.memoryMapping)
+        }
+        if argvContainsOption(argv, names: ["--quick"]) {
+            options["quickMode"] = .boolean(config.quickMode)
+        }
+        if argvContainsOption(argv, names: ["--bracken-read-length"]) {
+            options["brackenReadLength"] = .integer(brackenReadLength)
+        }
+        if argvContainsOption(argv, names: ["--bracken-level"]) {
+            options["brackenLevel"] = .string(brackenLevel)
+        }
+        if argvContainsOption(argv, names: ["--bracken-threshold"]) {
+            options["brackenThreshold"] = .integer(brackenThreshold)
+        }
+        if argvContainsOption(argv, names: ["--extra-args"]) {
+            options["extraArguments"] = .array(config.extraArguments.map(ParameterValue.string))
+        }
+
+        return options
+    }
+
+    private static func argvContainsOption(_ argv: [String], names: Set<String>) -> Bool {
+        argv.contains { argument in
+            let name = argument.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false).first
+                .map(String.init) ?? argument
+            return names.contains(name)
+        }
     }
 
     private static func brackenProvenanceStep(
@@ -590,6 +668,125 @@ struct ClassifyCommand: AsyncParsableCommand {
             stderr: legacyStep?.stderr,
             startedAt: legacyStep?.startTime ?? fallbackStartedAt,
             completedAt: legacyStep?.endTime ?? fallbackStartedAt
+        )
+    }
+
+    private static func preservingPipelineOnlySteps(
+        in envelope: ProvenanceEnvelope,
+        from pipelineEnvelope: ProvenanceEnvelope?,
+        result: ClassificationResult
+    ) -> ProvenanceEnvelope {
+        guard let pipelineEnvelope,
+              isCurrentClassificationPipelineEnvelope(pipelineEnvelope, result: result) else {
+            return envelope
+        }
+
+        let synthesizedToolNames = Set(envelope.steps.map(\.toolName))
+        let synthesizedStepByToolName = Dictionary(
+            envelope.steps.map { ($0.toolName, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let dependencyIDRemap = Dictionary(
+            pipelineEnvelope.steps.compactMap { pipelineStep -> (UUID, UUID)? in
+                guard let synthesizedStep = synthesizedStepByToolName[pipelineStep.toolName] else {
+                    return nil
+                }
+                return (pipelineStep.id, synthesizedStep.id)
+            },
+            uniquingKeysWith: { _, final in final }
+        )
+        let preservedSteps = pipelineEnvelope.steps.compactMap { step -> ProvenanceStep? in
+            guard !synthesizedToolNames.contains(step.toolName) else {
+                return nil
+            }
+            let remappedDependencies = step.dependsOn.map { dependencyIDRemap[$0] ?? $0 }
+            return replacingDependencies(in: step, with: remappedDependencies)
+        }
+        guard !preservedSteps.isEmpty else {
+            return envelope
+        }
+
+        let preservedStepFiles = preservedSteps.flatMap { $0.inputs + $0.outputs }
+        let mergedFiles = deduplicatedDescriptors(envelope.files + preservedStepFiles)
+        let mergedOutputs = deduplicatedDescriptors(envelope.outputs + preservedSteps.flatMap(\.outputs))
+
+        return ProvenanceEnvelope(
+            schemaVersion: envelope.schemaVersion,
+            id: envelope.id,
+            createdAt: envelope.createdAt,
+            workflowName: envelope.workflowName,
+            workflowVersion: envelope.workflowVersion,
+            toolName: envelope.toolName,
+            toolVersion: envelope.toolVersion,
+            githubReleaseVersion: envelope.githubReleaseVersion,
+            tool: envelope.tool,
+            argv: envelope.argv,
+            durableReplayArgv: envelope.durableReplayArgv,
+            reproducibleCommand: envelope.reproducibleCommand,
+            options: envelope.options,
+            runtimeIdentity: envelope.runtimeIdentity,
+            files: mergedFiles,
+            output: envelope.output ?? mergedOutputs.first,
+            outputs: mergedOutputs,
+            steps: envelope.steps + preservedSteps,
+            wallTimeSeconds: envelope.wallTimeSeconds,
+            exitStatus: envelope.exitStatus,
+            stderr: envelope.stderr,
+            signatures: envelope.signatures,
+            legacyWorkflowRun: envelope.legacyRun
+        )
+    }
+
+    private static func isCurrentClassificationPipelineEnvelope(
+        _ envelope: ProvenanceEnvelope,
+        result: ClassificationResult
+    ) -> Bool {
+        let pipelineNames: Set<String> = ["Metagenomics Classification", "Metagenomics Profiling"]
+        guard pipelineNames.contains(envelope.workflowName) else {
+            return false
+        }
+        let currentPaths = Set([
+            result.reportURL.standardizedFileURL.path,
+            result.outputURL.standardizedFileURL.path,
+        ])
+        let envelopePaths = Set((envelope.files + envelope.outputs).map { URL(fileURLWithPath: $0.path).standardizedFileURL.path })
+        return !currentPaths.isDisjoint(with: envelopePaths)
+    }
+
+    private static func deduplicatedDescriptors(
+        _ descriptors: [ProvenanceFileDescriptor]
+    ) -> [ProvenanceFileDescriptor] {
+        var seen = Set<String>()
+        var result: [ProvenanceFileDescriptor] = []
+        for descriptor in descriptors {
+            guard seen.insert(descriptor.path).inserted else {
+                continue
+            }
+            result.append(descriptor)
+        }
+        return result
+    }
+
+    private static func replacingDependencies(
+        in step: ProvenanceStep,
+        with dependsOn: [UUID]
+    ) -> ProvenanceStep {
+        ProvenanceStep(
+            id: step.id,
+            toolName: step.toolName,
+            toolVersion: step.toolVersion,
+            githubReleaseVersion: step.githubReleaseVersion,
+            argv: step.argv,
+            durableReplayArgv: step.durableReplayArgv,
+            reproducibleCommand: step.reproducibleCommand,
+            inputs: step.inputs,
+            outputs: step.outputs,
+            exitStatus: step.exitStatus,
+            wallTimeSeconds: step.wallTimeSeconds,
+            stderr: step.stderr,
+            dependsOn: dependsOn,
+            startedAt: step.startedAt,
+            completedAt: step.completedAt
         )
     }
 

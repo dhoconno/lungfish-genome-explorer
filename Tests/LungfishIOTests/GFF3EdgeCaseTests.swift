@@ -132,6 +132,26 @@ final class GFF3EdgeCaseTests: XCTestCase {
         XCTAssertEqual(features[2].score, 100.0)
         XCTAssertEqual(features[3].score!, 1e-10, accuracy: 1e-15)
     }
+
+    func testInvalidScoreThrows() async throws {
+        let gff = """
+        chr1\ttest\tgene\t1\t100\tbadscore\t+\t.\tID=bad_score
+        """
+        let url = try createTempFile(content: gff)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let reader = GFF3Reader()
+
+        do {
+            _ = try await reader.readAll(from: url)
+            XCTFail("Expected invalid score error")
+        } catch GFF3Error.invalidScore(let line, let value) {
+            XCTAssertEqual(line, 1)
+            XCTAssertEqual(value, "badscore")
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
     
     // MARK: - Phase Tests
     
@@ -152,6 +172,46 @@ final class GFF3EdgeCaseTests: XCTestCase {
         XCTAssertEqual(features[1].phase, 1)
         XCTAssertEqual(features[2].phase, 2)
         XCTAssertNil(features[3].phase)
+    }
+
+    func testInvalidPhaseThrows() async throws {
+        let gff = """
+        chr1\ttest\tCDS\t1\t100\t.\t+\tbadphase\tID=bad_phase
+        """
+        let url = try createTempFile(content: gff)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let reader = GFF3Reader()
+
+        do {
+            _ = try await reader.readAll(from: url)
+            XCTFail("Expected invalid phase error")
+        } catch GFF3Error.invalidPhase(let line, let value) {
+            XCTAssertEqual(line, 1)
+            XCTAssertEqual(value, "badphase")
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testOutOfRangePhaseThrows() async throws {
+        let gff = """
+        chr1\ttest\tCDS\t1\t100\t.\t+\t3\tID=bad_phase
+        """
+        let url = try createTempFile(content: gff)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let reader = GFF3Reader()
+
+        do {
+            _ = try await reader.readAll(from: url)
+            XCTFail("Expected invalid phase error")
+        } catch GFF3Error.invalidPhase(let line, let value) {
+            XCTAssertEqual(line, 1)
+            XCTAssertEqual(value, "3")
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
     }
     
     // MARK: - Type Mapping Tests

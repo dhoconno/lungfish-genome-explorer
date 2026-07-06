@@ -5,6 +5,49 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class ScientificCLIProvenanceCoverageTests: XCTestCase {
+    func testSingleStepHelperPreservesCallerStatusAndPeakMemoryInCompatibilityRun() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("single-step-helper-provenance-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let inputURL = root.appendingPathComponent("reads.fastq")
+        let outputURL = root.appendingPathComponent("cancelled.fastq")
+        try "@r1\nACGT\n+\nIIII\n".write(to: inputURL, atomically: true, encoding: .utf8)
+        try Data().write(to: outputURL)
+
+        let envelope = try await CLIProvenanceSupport.recordSingleStepRun(
+            name: "lungfish fastq cancelled-fixture",
+            parameters: ["limit": .integer(10)],
+            toolName: "lungfish fastq cancelled-fixture",
+            toolVersion: "fixture",
+            command: [CLICommandIdentity.executableName, "fastq", "cancelled-fixture", inputURL.path],
+            inputs: [
+                FileRecord(path: inputURL.path, format: .fastq, role: .input),
+            ],
+            outputs: [
+                FileRecord(path: outputURL.path, format: .fastq, role: .output),
+            ],
+            exitCode: 130,
+            wallTime: 0.25,
+            peakMemoryBytes: 42_000_000,
+            stderr: "cancelled by user",
+            status: .cancelled,
+            outputDirectory: root,
+            writeFileSidecars: false
+        )
+
+        let compatibilityRun = envelope.legacyWorkflowRun()
+        XCTAssertEqual(compatibilityRun.status, .cancelled)
+        XCTAssertEqual(compatibilityRun.steps.first?.peakMemoryBytes, 42_000_000)
+
+        let decoded = try ProvenanceEnvelopeReader.decode(try Data(
+            contentsOf: root.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        ))
+        XCTAssertEqual(decoded.legacyWorkflowRun().status, .cancelled)
+        XCTAssertEqual(decoded.legacyWorkflowRun().steps.first?.peakMemoryBytes, 42_000_000)
+    }
+
     func testScientificTopLevelCommandsHavePolicyEntries() {
         let nonScientificTopLevelCommands: Set<String> = [
             "version",
@@ -163,6 +206,10 @@ final class ScientificCLIProvenanceCoverageTests: XCTestCase {
         XCTAssertEqual(readsEnvelope.output?.path, extractedReadsActualURL.path)
         XCTAssertTrue(readsEnvelope.files.contains { $0.path == idsURL.path && $0.checksumSHA256 != nil })
         XCTAssertTrue(readsEnvelope.files.contains { $0.path == readsURL.path && $0.checksumSHA256 != nil })
+        XCTAssertEqual(readsEnvelope.options.defaults["keepReadPairs"]?.booleanValue, true)
+        XCTAssertEqual(readsEnvelope.options.defaults["excludeUnmapped"]?.booleanValue, false)
+        XCTAssertEqual(readsEnvelope.options.resolvedDefaults["keepReadPairs"]?.booleanValue, true)
+        XCTAssertEqual(readsEnvelope.options.resolvedDefaults["excludeUnmapped"]?.booleanValue, false)
 
         let contigsURL = root.appendingPathComponent("contigs.fa")
         let contigSequence = try Sequence(name: "contig1", alphabet: .dna, bases: "ATGCGT")
@@ -186,6 +233,10 @@ final class ScientificCLIProvenanceCoverageTests: XCTestCase {
         XCTAssertEqual(contigEnvelope.workflowName, "lungfish extract contigs")
         XCTAssertEqual(contigEnvelope.output?.path, extractedContigURL.path)
         XCTAssertTrue(contigEnvelope.files.contains { $0.path == contigsURL.path && $0.checksumSHA256 != nil })
+        XCTAssertEqual(contigEnvelope.options.defaults["lineWidth"]?.integerValue, 60)
+        XCTAssertEqual(contigEnvelope.options.defaults["bundle"]?.booleanValue, false)
+        XCTAssertEqual(contigEnvelope.options.resolvedDefaults["lineWidth"]?.integerValue, 60)
+        XCTAssertEqual(contigEnvelope.options.resolvedDefaults["bundle"]?.booleanValue, false)
     }
 
     func testExtractBundleCommandsRecordFinalStoredPayloads() async throws {
@@ -257,9 +308,9 @@ final class ScientificCLIProvenanceCoverageTests: XCTestCase {
             try FileManager.default.contentsOfDirectory(at: referenceFolderURL, includingPropertiesForKeys: nil)
                 .first { $0.pathExtension == "lungfishref" }
         )
-        let referencePayloadURL = referenceBundleURL
-            .appendingPathComponent("genome", isDirectory: true)
-            .appendingPathComponent("sequence.fa.gz")
+        let referenceManifest = try BundleManifest.load(from: referenceBundleURL)
+        let referenceGenome = try XCTUnwrap(referenceManifest.genome)
+        let referencePayloadURL = referenceBundleURL.appendingPathComponent(referenceGenome.path)
         let referencePayloadPath = referencePayloadURL.standardizedFileURL.path
         let contigBundleEnvelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: referenceBundleURL))
         XCTAssertEqual(contigBundleEnvelope.workflowName, "lungfish extract contigs")
@@ -270,6 +321,56 @@ final class ScientificCLIProvenanceCoverageTests: XCTestCase {
             try loadFileSidecarEnvelope(for: referencePayloadURL).output.map { URL(fileURLWithPath: $0.path).standardizedFileURL.path },
             referencePayloadPath
         )
+    }
+
+    func testBundleExtractAnnotationsRecordsDurableSourceInputs() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("scientific-annotation-extract-provenance-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let sourceBundleURL = try makeTinyReferenceBundle(in: root, sequence: "ATGAAATAA")
+        try addTinyAnnotationTrack(to: sourceBundleURL)
+        let outputBundleURL = root.appendingPathComponent("genes-only.lungfishref", isDirectory: true)
+
+        let command = try BundleExtractAnnotationsSubcommand.parse([
+            "--bundle", sourceBundleURL.path,
+            "--track", "genes",
+            "--output-bundle", outputBundleURL.path,
+            "--feature-type", "gene",
+        ])
+        try await command.run()
+
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: outputBundleURL))
+        XCTAssertEqual(envelope.workflowName, "lungfish bundle extract-annotations")
+        XCTAssertTrue(envelope.argv.contains("extract-annotations"))
+        XCTAssertTrue(envelope.argv.contains("--feature-type"))
+
+        let inputPaths = Set(envelope.steps.flatMap(\.inputs).map {
+            URL(fileURLWithPath: $0.path).standardizedFileURL.path
+        })
+        let expectedInputs = [
+            sourceBundleURL.appendingPathComponent("manifest.json"),
+            sourceBundleURL.appendingPathComponent("genome/sequence.fa"),
+            sourceBundleURL.appendingPathComponent("genome/sequence.fa.fai"),
+            sourceBundleURL.appendingPathComponent("annotations/genes.bed"),
+            sourceBundleURL.appendingPathComponent("annotations/genes.db"),
+        ].map { $0.standardizedFileURL.path }
+
+        for expectedInput in expectedInputs {
+            XCTAssertTrue(inputPaths.contains(expectedInput), "Missing durable provenance input \(expectedInput)")
+            let descriptor = envelope.steps.flatMap(\.inputs).first {
+                URL(fileURLWithPath: $0.path).standardizedFileURL.path == expectedInput
+            }
+            XCTAssertNotNil(descriptor?.checksumSHA256, "Missing checksum for \(expectedInput)")
+            XCTAssertNotNil(descriptor?.fileSize, "Missing file size for \(expectedInput)")
+        }
+        XCTAssertFalse(inputPaths.contains { $0.contains("lungfish-cli-annotation-sequences-") })
+        XCTAssertFalse(inputPaths.contains { $0.hasSuffix("annotation-sequences.fa") })
+        let encodedEnvelope = String(decoding: try JSONEncoder().encode(envelope), as: UTF8.self)
+        XCTAssertFalse(encodedEnvelope.contains("lungfish-cli-annotation-sequences-"))
+        XCTAssertFalse(encodedEnvelope.contains("annotation-sequences.fa"))
+        XCTAssertTrue(envelope.outputs.contains { $0.path.hasPrefix(outputBundleURL.path) && $0.checksumSHA256 != nil })
     }
 
     func testDirectFileSidecarsProtectMultipleOutputsInSameDirectory() async throws {
@@ -348,6 +449,44 @@ final class ScientificCLIProvenanceCoverageTests: XCTestCase {
         XCTAssertEqual(try loadFileSidecarEnvelope(for: out1URL).outputs.map(\.path), [out1URL.path])
         XCTAssertEqual(try loadFileSidecarEnvelope(for: out2URL).output?.path, out2URL.path)
         XCTAssertEqual(try loadFileSidecarEnvelope(for: out2URL).outputs.map(\.path), [out2URL.path])
+    }
+
+    func testSingleStepRunPreservesCompleteRemoteInputDescriptor() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("scientific-cli-remote-input-provenance-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let outputURL = root.appendingPathComponent("reference.fa")
+        try ">chr1\nACGT\n".write(to: outputURL, atomically: true, encoding: .utf8)
+        let remoteInput = FileRecord(
+            path: "https://example.org/reference.fa.gz",
+            sha256: String(repeating: "a", count: 64),
+            sizeBytes: 128,
+            format: .fasta,
+            role: .reference
+        )
+
+        try await CLIProvenanceSupport.recordSingleStepRun(
+            name: "lungfish fetch genome",
+            parameters: ["accession": .string("GCF_000001405.40")],
+            toolName: "lungfish fetch genome",
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: ["lungfish", "fetch", "genome", "GCF_000001405.40"],
+            inputs: [remoteInput],
+            outputs: [ProvenanceRecorder.fileRecord(url: outputURL, format: .fasta, role: .output)],
+            exitCode: 0,
+            wallTime: 0.25,
+            stderr: nil,
+            status: .completed,
+            outputDirectory: root
+        )
+
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: root))
+        let recordedInput = try XCTUnwrap(envelope.files.first { $0.path == remoteInput.path })
+        XCTAssertEqual(recordedInput.checksumSHA256, remoteInput.sha256)
+        XCTAssertEqual(recordedInput.fileSize, remoteInput.sizeBytes)
+        XCTAssertEqual(recordedInput.role, .reference)
     }
 
     func testConvertReferenceBundleWritesPayloadInputProvenance() async throws {

@@ -68,15 +68,7 @@ public enum SRAAccessionParser {
            first == "acc" || first == "accession" || first == "run" {
             lines.removeFirst()
         }
-        var seen = Set<String>()
-        var result: [String] = []
-        for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard !trimmed.isEmpty, isSRAAccession(trimmed), !seen.contains(trimmed) else { continue }
-            seen.insert(trimmed)
-            result.append(trimmed)
-        }
-        return result
+        return parseAccessionList(lines.joined(separator: "\n"))
     }
 
     /// Reads and parses a CSV file at the given URL.

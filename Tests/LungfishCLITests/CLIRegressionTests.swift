@@ -4,11 +4,7 @@
 //
 // Tests command parsing, subcommand structure, option validation, and help
 // text generation for all top-level CLI commands. Uses ArgumentParser's
-// parse() method -- NEVER creates GlobalOptions() directly (see MEMORY.md).
-//
-// NOTE: ClassifyCommand, MapCommand, and OrientCommand still have a duplicate
-// local/global --threads bug. AssembleCommand no longer does, so it can be
-// exercised with real help/parse coverage.
+// parse() method so global defaults are exercised the same way users invoke them.
 
 import ArgumentParser
 import Foundation
@@ -23,11 +19,11 @@ import LungfishIO
 final class CLITopLevelRegressionTests: XCTestCase {
 
     func testLungfishCLICommandName() {
-        XCTAssertEqual(LungfishCLI.configuration.commandName, "lungfish")
+        XCTAssertEqual(LungfishCLI.configuration.commandName, CLICommandIdentity.executableName)
     }
 
     func testLungfishCLIVersion() {
-        XCTAssertEqual(LungfishCLI.configuration.version, "0.5.0-alpha35")
+        XCTAssertEqual(LungfishCLI.configuration.version, LungfishAppVersion.short)
     }
 
     func testLungfishCLIAbstractIsNonEmpty() {
@@ -39,9 +35,9 @@ final class CLITopLevelRegressionTests: XCTestCase {
     }
 
     func testLungfishCLISubcommandCount() {
-        // 21 subcommands registered at the time of writing.
-        // If a subcommand is added or removed, update this count.
         let subcommands = LungfishCLI.configuration.subcommands
+        // Keep this threshold loose so adding commands does not create churn; exact
+        // command discoverability is covered by focused command registration tests.
         XCTAssertGreaterThanOrEqual(subcommands.count, 20,
             "Expected at least 20 subcommands; found \(subcommands.count)")
     }
@@ -349,13 +345,13 @@ final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
             .appendingPathComponent(".lungfish-classify-inputs", isDirectory: true)
             .appendingPathComponent("materialized.fastq")
         let replayArgv = CLISequenceInputMaterialization.durableReplayArgv(
-            argv: ["lungfish", "classify", "derived.lungfishfastq", "--db", "FixtureDB"],
+            argv: ["lungfish-cli", "classify", "derived.lungfishfastq", "--db", "FixtureDB"],
             originalInputArguments: ["derived.lungfishfastq"],
             originalInputURLs: [fixture.derivedBundleURL],
             executionInputURLs: [materializedURL]
         )
 
-        XCTAssertEqual(replayArgv, ["lungfish", "classify", materializedURL.path, "--db", "FixtureDB"])
+        XCTAssertEqual(replayArgv, ["lungfish-cli", "classify", materializedURL.path, "--db", "FixtureDB"])
     }
 
     func testMaterializationOnlyProvenanceUsesReplayableTopLevelCommand() throws {
@@ -373,8 +369,8 @@ final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
         let sidecarURL = try XCTUnwrap(CLISequenceInputMaterialization.writeMaterializationProvenance(
             workflowName: "lungfish.classify.input-materialization",
             workflowVersion: "test-version",
-            parentArgv: ["lungfish", "classify", "derived.lungfishfastq", "--db", "FixtureDB"],
-            parentDurableReplayArgv: ["lungfish", "classify", materializedURL.path, "--db", "FixtureDB"],
+            parentArgv: ["lungfish-cli", "classify", "derived.lungfishfastq", "--db", "FixtureDB"],
+            parentDurableReplayArgv: ["lungfish-cli", "classify", materializedURL.path, "--db", "FixtureDB"],
             originalInputURLs: [fixture.derivedBundleURL],
             executionInputURLs: [materializedURL],
             outputDirectory: tempDir,
@@ -387,12 +383,12 @@ final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
             ProvenanceEnvelope.self,
             from: Data(contentsOf: sidecarURL)
         )
-        let expected = ["lungfish", "fastq", "materialize", fixture.derivedBundleURL.path, "--output", materializedURL.path]
+        let expected = ["lungfish-cli", "fastq", "materialize", fixture.derivedBundleURL.path, "--output", materializedURL.path]
         XCTAssertEqual(envelope.argv, expected)
         XCTAssertEqual(envelope.durableReplayArgv, expected)
         XCTAssertEqual(envelope.steps.first?.argv, expected)
         XCTAssertEqual(envelope.options.explicit["parentArgv"], .array([
-            .string("lungfish"), .string("classify"), .string("derived.lungfishfastq"), .string("--db"), .string("FixtureDB")
+            .string("lungfish-cli"), .string("classify"), .string("derived.lungfishfastq"), .string("--db"), .string("FixtureDB")
         ]))
     }
 
@@ -413,8 +409,8 @@ final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
         XCTAssertThrowsError(try CLISequenceInputMaterialization.writeMaterializationProvenanceOrCleanup(
             workflowName: "lungfish.classify.input-materialization",
             workflowVersion: "test-version",
-            parentArgv: ["lungfish", "classify", fixture.derivedBundleURL.path, "--db", "FixtureDB"],
-            parentDurableReplayArgv: ["lungfish", "classify", materializedURL.path, "--db", "FixtureDB"],
+            parentArgv: ["lungfish-cli", "classify", fixture.derivedBundleURL.path, "--db", "FixtureDB"],
+            parentDurableReplayArgv: ["lungfish-cli", "classify", materializedURL.path, "--db", "FixtureDB"],
             originalInputURLs: [fixture.derivedBundleURL],
             executionInputURLs: [materializedURL],
             outputDirectory: blockedOutputDirectory,
@@ -473,8 +469,8 @@ final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
             result: result,
             originalInputURLs: [fixture.derivedBundleURL],
             executionInputURLs: [materializedURL],
-            argv: ["lungfish", "classify", fixture.derivedBundleURL.path, "--db", "FixtureDB"],
-            durableReplayArgv: ["lungfish", "classify", materializedURL.path, "--db", "FixtureDB"],
+            argv: ["lungfish-cli", "classify", fixture.derivedBundleURL.path, "--db", "FixtureDB"],
+            durableReplayArgv: ["lungfish-cli", "classify", materializedURL.path, "--db", "FixtureDB"],
             startedAt: Date(timeIntervalSince1970: 100),
             endedAt: Date(timeIntervalSince1970: 104),
             materializationStartedAt: Date(timeIntervalSince1970: 100),
@@ -487,8 +483,22 @@ final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
             from: Data(contentsOf: sidecarURL)
         )
         XCTAssertEqual(envelope.workflowName, "lungfish.classify")
-        XCTAssertEqual(envelope.argv, ["lungfish", "classify", fixture.derivedBundleURL.path, "--db", "FixtureDB"])
-        XCTAssertEqual(envelope.durableReplayArgv, ["lungfish", "classify", materializedURL.path, "--db", "FixtureDB"])
+        XCTAssertEqual(envelope.argv, ["lungfish-cli", "classify", fixture.derivedBundleURL.path, "--db", "FixtureDB"])
+        XCTAssertEqual(envelope.durableReplayArgv, ["lungfish-cli", "classify", materializedURL.path, "--db", "FixtureDB"])
+        XCTAssertEqual(envelope.options.explicit["databaseName"], .string("FixtureDB"))
+        XCTAssertEqual(envelope.options.explicit["originalInputs"], .array([.file(fixture.derivedBundleURL.standardizedFileURL)]))
+        XCTAssertNil(envelope.options.explicit["databasePath"])
+        XCTAssertNil(envelope.options.explicit["inputFormat"])
+        XCTAssertNil(envelope.options.explicit["executionInputs"])
+        XCTAssertNil(envelope.options.explicit["threads"])
+        XCTAssertNil(envelope.options.explicit["pairedEnd"])
+        XCTAssertNil(envelope.options.explicit["profile"])
+        XCTAssertEqual(envelope.options.resolvedDefaults["databasePath"], .file(dbURL.standardizedFileURL))
+        XCTAssertEqual(envelope.options.resolvedDefaults["inputFormat"], .string("fastq"))
+        XCTAssertEqual(envelope.options.resolvedDefaults["executionInputs"], .array([.file(materializedURL.standardizedFileURL)]))
+        XCTAssertEqual(envelope.options.resolvedDefaults["threads"], .integer(2))
+        XCTAssertEqual(envelope.options.resolvedDefaults["pairedEnd"], .boolean(false))
+        XCTAssertEqual(envelope.options.resolvedDefaults["profile"], .boolean(false))
         XCTAssertTrue(envelope.files.contains {
             $0.path == fixture.derivedBundleURL.path && $0.checksumSHA256 != nil && $0.fileSize != nil
         })
@@ -502,14 +512,212 @@ final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
                 && $0.fileSize != nil
         })
         let materializationStep = try XCTUnwrap(
-            envelope.steps.first { $0.toolName == "lungfish fastq materialize" }
+            envelope.steps.first { $0.toolName == "\(CLICommandIdentity.executableName) fastq materialize" }
         )
         XCTAssertEqual(
             materializationStep.argv,
-            ["lungfish", "fastq", "materialize", fixture.derivedBundleURL.path, "--output", materializedURL.path]
+            ["lungfish-cli", "fastq", "materialize", fixture.derivedBundleURL.path, "--output", materializedURL.path]
         )
         XCTAssertTrue(materializationStep.inputs.contains { $0.path == fixture.derivedBundleURL.path })
         XCTAssertTrue(materializationStep.outputs.contains { $0.path == materializedURL.path })
+    }
+
+    func testClassifyProvenanceRecordsOnlySuppliedFlagsAsExplicitOptions() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("classify-explicit-options-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        let inputURL = tempDir.appendingPathComponent("reads.fastq")
+        try "@read\nACGT\n+\nIIII\n".write(to: inputURL, atomically: true, encoding: .utf8)
+        let reportURL = tempDir.appendingPathComponent("classification.kreport")
+        let outputURL = tempDir.appendingPathComponent("classification.kraken")
+        try """
+          0.00\t0\t0\tU\t0\tunclassified
+        100.00\t1\t1\tR\t1\troot
+        """.write(to: reportURL, atomically: true, encoding: .utf8)
+        try "C\tread\t1\t4\t1:4\n".write(to: outputURL, atomically: true, encoding: .utf8)
+        let dbURL = tempDir.appendingPathComponent("kraken-db", isDirectory: true)
+        try FileManager.default.createDirectory(at: dbURL, withIntermediateDirectories: true)
+
+        var config = ClassificationConfig.fromPreset(
+            .precise,
+            inputFiles: [inputURL],
+            isPairedEnd: false,
+            databaseName: "FixtureDB",
+            inputFormat: .fastq,
+            databasePath: dbURL,
+            threads: 8,
+            outputDirectory: tempDir,
+            extraArguments: ["--minimum-base-quality", "20"]
+        )
+        config.confidence = 0.2
+        let result = ClassificationResult(
+            config: config,
+            tree: try KreportParser.parse(url: reportURL),
+            reportURL: reportURL,
+            outputURL: outputURL,
+            brackenURL: nil,
+            runtime: 4.0,
+            toolVersion: "2.1.3",
+            provenanceId: nil
+        )
+
+        let sidecarURL = try ClassifyCommand.writeProvenance(
+            result: result,
+            originalInputURLs: [inputURL],
+            executionInputURLs: [inputURL],
+            argv: [
+                "lungfish-cli", "conda", "classify", inputURL.path,
+                "--db", "FixtureDB",
+                "--preset", "precise",
+                "--profile",
+                "--confidence", "0.2",
+                "--threads", "8",
+                "--extra-args", "--minimum-base-quality 20",
+            ],
+            preset: "precise",
+            profile: true,
+            startedAt: Date(timeIntervalSince1970: 100),
+            endedAt: Date(timeIntervalSince1970: 104),
+            writer: ProvenanceWriter(signingProvider: nil)
+        )
+
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: sidecarURL)
+        )
+        XCTAssertEqual(envelope.options.explicit["preset"], .string("precise"))
+        XCTAssertEqual(envelope.options.explicit["profile"], .boolean(true))
+        XCTAssertEqual(envelope.options.explicit["confidence"], .number(0.2))
+        XCTAssertEqual(envelope.options.explicit["threads"], .integer(8))
+        XCTAssertEqual(envelope.options.explicit["extraArguments"], .array([
+            .string("--minimum-base-quality"),
+            .string("20"),
+        ]))
+        XCTAssertNil(envelope.options.explicit["databasePath"])
+        XCTAssertNil(envelope.options.explicit["executionInputs"])
+        XCTAssertEqual(envelope.options.resolvedDefaults["preset"], .string("precise"))
+        XCTAssertEqual(envelope.options.resolvedDefaults["databasePath"], .file(dbURL.standardizedFileURL))
+        XCTAssertEqual(envelope.options.resolvedDefaults["executionInputs"], .array([.file(inputURL.standardizedFileURL)]))
+    }
+
+    func testClassifyProvenancePreservesPipelineOnlySteps() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("classify-preserve-pipeline-steps-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        let inputURL = tempDir.appendingPathComponent("reads.fastq")
+        try "@read\nACGT\n+\nIIII\n".write(to: inputURL, atomically: true, encoding: .utf8)
+        let reportURL = tempDir.appendingPathComponent("classification.kreport")
+        let outputURL = tempDir.appendingPathComponent("classification.kraken.gz")
+        let indexURL = KrakenIndexDatabase.indexURL(for: outputURL)
+        try """
+          0.00\t0\t0\tU\t0\tunclassified
+        100.00\t1\t1\tR\t1\troot
+        """.write(to: reportURL, atomically: true, encoding: .utf8)
+        try "compressed kraken output\n".write(to: outputURL, atomically: true, encoding: .utf8)
+        try "sqlite index placeholder\n".write(to: indexURL, atomically: true, encoding: .utf8)
+        let dbURL = tempDir.appendingPathComponent("kraken-db", isDirectory: true)
+        try FileManager.default.createDirectory(at: dbURL, withIntermediateDirectories: true)
+
+        let config = ClassificationConfig.fromPreset(
+            .balanced,
+            inputFiles: [inputURL],
+            isPairedEnd: false,
+            databaseName: "FixtureDB",
+            inputFormat: .fastq,
+            databasePath: dbURL,
+            threads: 2,
+            outputDirectory: tempDir
+        )
+        let result = ClassificationResult(
+            config: config,
+            tree: try KreportParser.parse(url: reportURL),
+            reportURL: reportURL,
+            outputURL: outputURL,
+            brackenURL: nil,
+            runtime: 4.0,
+            toolVersion: "2.1.3",
+            provenanceId: nil
+        )
+
+        let outputDescriptor = try ProvenanceFileDescriptor.file(url: outputURL, format: .text, role: .output)
+        let indexDescriptor = try ProvenanceFileDescriptor.file(url: indexURL, format: .unknown, role: .index)
+        let pipelineKrakenStepID = UUID()
+        let pipelineKrakenStep = ProvenanceStep(
+            id: pipelineKrakenStepID,
+            toolName: "kraken2",
+            toolVersion: "2.1.3",
+            argv: ["kraken2", "--db", dbURL.path],
+            inputs: [
+                try ProvenanceFileDescriptor.file(url: inputURL, format: .fastq, role: .input),
+            ],
+            outputs: [outputDescriptor],
+            exitStatus: 0,
+            wallTimeSeconds: 1.0,
+            startedAt: Date(timeIntervalSince1970: 100),
+            completedAt: Date(timeIntervalSince1970: 101)
+        )
+        let pipelineOnlyStep = ProvenanceStep(
+            toolName: "lungfish-kraken2-index",
+            toolVersion: "v2.17.1",
+            argv: ["lungfish-cli", "internal", "kraken2-index", outputURL.path, indexURL.path],
+            inputs: [outputDescriptor],
+            outputs: [indexDescriptor],
+            exitStatus: 0,
+            wallTimeSeconds: 1.0,
+            dependsOn: [pipelineKrakenStepID],
+            startedAt: Date(timeIntervalSince1970: 101),
+            completedAt: Date(timeIntervalSince1970: 102)
+        )
+        let existingPipelineEnvelope = ProvenanceEnvelope(
+            workflowName: "Metagenomics Classification",
+            workflowVersion: "pipeline-version",
+            toolName: "kraken2",
+            toolVersion: "2.1.3",
+            argv: ["kraken2", "--db", dbURL.path],
+            runtimeIdentity: .fixture(),
+            files: [outputDescriptor, indexDescriptor],
+            output: outputDescriptor,
+            outputs: [outputDescriptor, indexDescriptor],
+            steps: [pipelineKrakenStep, pipelineOnlyStep],
+            wallTimeSeconds: 2.0,
+            exitStatus: 0
+        )
+        try ProvenanceWriter(signingProvider: nil).write(existingPipelineEnvelope, to: tempDir)
+
+        let sidecarURL = try ClassifyCommand.writeProvenance(
+            result: result,
+            originalInputURLs: [inputURL],
+            executionInputURLs: [inputURL],
+            argv: ["lungfish-cli", "conda", "classify", inputURL.path, "--db", "FixtureDB"],
+            startedAt: Date(timeIntervalSince1970: 100),
+            endedAt: Date(timeIntervalSince1970: 104),
+            writer: ProvenanceWriter(signingProvider: nil)
+        )
+
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: sidecarURL)
+        )
+        XCTAssertTrue(
+            envelope.steps.contains { $0.toolName == "lungfish-kraken2-index" },
+            "CLI wrapper provenance must preserve pipeline-only compaction/indexing steps"
+        )
+        let preservedIndexStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "lungfish-kraken2-index" })
+        let finalStepIDs = Set(envelope.steps.map(\.id))
+        XCTAssertTrue(
+            preservedIndexStep.dependsOn.allSatisfy(finalStepIDs.contains),
+            "Preserved pipeline-only steps must not keep dangling dependencies on skipped pipeline steps"
+        )
+        XCTAssertTrue(
+            preservedIndexStep.dependsOn.contains { dependencyID in
+                envelope.steps.contains { $0.id == dependencyID && $0.toolName == "kraken2" }
+            },
+            "Preserved index step should depend on the synthesized kraken2 step"
+        )
     }
 
 }
@@ -816,6 +1024,42 @@ final class WorkflowCommandRegressionTests: XCTestCase {
         XCTAssertEqual(command.workflow, "/tmp/workflow.nf")
     }
 
+    func testRunHeadlessForwardsWorkflowRunOptionsWithQuietMode() throws {
+        let command = try RunHeadlessSubcommand.parse([
+            "nf-core/viralrecon",
+            "--input", "/tmp/samplesheet.csv",
+            "--expected-output", "/tmp/results",
+            "--bundle-path", "/tmp/viralrecon.lungfishrun",
+            "--executor", "local",
+        ])
+
+        let forwarded = try RunSubcommand.parse(command.forwardedWorkflowRunArguments)
+
+        XCTAssertEqual(forwarded.workflow, "nf-core/viralrecon")
+        XCTAssertEqual(forwarded.input, ["/tmp/samplesheet.csv"])
+        XCTAssertEqual(forwarded.expectedOutput, ["/tmp/results"])
+        XCTAssertEqual(forwarded.bundlePath, "/tmp/viralrecon.lungfishrun")
+        XCTAssertEqual(forwarded.executor, .local)
+        XCTAssertTrue(forwarded.globalOptions.quiet)
+    }
+
+    func testRunHeadlessForwardsOptionsAfterPassthroughDelimiter() throws {
+        let command = try RunHeadlessSubcommand.parse([
+            "nf-core/viralrecon",
+            "--",
+            "--input", "/tmp/samplesheet.csv",
+            "--expected-output", "/tmp/results",
+            "--dry-run",
+        ])
+
+        let forwarded = try RunSubcommand.parse(command.forwardedWorkflowRunArguments)
+
+        XCTAssertEqual(forwarded.input, ["/tmp/samplesheet.csv"])
+        XCTAssertEqual(forwarded.expectedOutput, ["/tmp/results"])
+        XCTAssertTrue(forwarded.dryRun)
+        XCTAssertTrue(forwarded.globalOptions.quiet)
+    }
+
     func testRunSubcommandAllowsOnlyViralReconNFCoreWorkflow() throws {
         let command = try RunSubcommand.parse([
             "nf-core/viralrecon",
@@ -917,20 +1161,17 @@ final class WorkflowCommandRegressionTests: XCTestCase {
 
         let provenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
         XCTAssertTrue(FileManager.default.fileExists(atPath: provenanceURL.path))
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let provenance = try decoder.decode(WorkflowRun.self, from: Data(contentsOf: provenanceURL))
-        XCTAssertEqual(provenance.status, .completed)
-        XCTAssertEqual(provenance.steps.first?.toolName, "lungfish-cli workflow run")
-        XCTAssertEqual(provenance.steps.first?.githubReleaseVersion, "3.0.0")
-        XCTAssertEqual(provenance.parameters["github_release_version"], .string("3.0.0"))
-        XCTAssertEqual(provenance.steps.first?.exitCode, 0)
-        XCTAssertTrue(provenance.steps.first?.command.contains("--prepare-only") == true)
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: bundleURL))
+        XCTAssertEqual(provenance.exitStatus, 0)
+        XCTAssertEqual(provenance.toolName, "lungfish-cli workflow run")
+        XCTAssertEqual(provenance.githubReleaseVersion, "3.0.0")
+        XCTAssertEqual(provenance.options.explicit["github_release_version"], .string("3.0.0"))
+        XCTAssertTrue(provenance.argv.contains("--prepare-only"))
         XCTAssertTrue(provenance.steps.first?.inputs.contains { input in
-            input.path == samplesheet.path && input.sha256 != nil && input.sizeBytes != nil
+            input.path == samplesheet.path && input.checksumSHA256 != nil && input.fileSize != nil
         } == true)
-        XCTAssertTrue(provenance.steps.first?.outputs.contains { output in
-            output.path == bundleURL.path
+        XCTAssertTrue(provenance.outputs.contains { output in
+            output.path == bundleURL.standardizedFileURL.path && output.checksumSHA256 != nil && output.fileSize != nil
         } == true)
     }
 
@@ -1085,23 +1326,59 @@ final class WorkflowCommandRegressionTests: XCTestCase {
 
         let provenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
         XCTAssertTrue(FileManager.default.fileExists(atPath: provenanceURL.path))
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let provenance = try decoder.decode(WorkflowRun.self, from: Data(contentsOf: provenanceURL))
-        XCTAssertEqual(provenance.status, .completed)
-        XCTAssertEqual(provenance.steps.first?.toolName, "lungfish-cli workflow run")
-        XCTAssertEqual(provenance.steps.first?.exitCode, 0)
-        XCTAssertTrue(provenance.steps.first?.command.contains(workflowURL.path) == true)
-        XCTAssertTrue(provenance.steps.first?.command.contains("--prepare-only") == true)
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: bundleURL))
+        XCTAssertEqual(provenance.exitStatus, 0)
+        XCTAssertEqual(provenance.toolName, "lungfish-cli workflow run")
+        XCTAssertTrue(provenance.argv.contains(workflowURL.path))
+        XCTAssertTrue(provenance.argv.contains("--prepare-only"))
         XCTAssertTrue(provenance.steps.first?.inputs.contains { input in
-            input.path == workflowURL.standardizedFileURL.path && input.sha256 != nil && input.sizeBytes != nil
+            input.path == workflowURL.standardizedFileURL.path && input.checksumSHA256 != nil && input.fileSize != nil
         } == true)
         XCTAssertTrue(provenance.steps.first?.inputs.contains { input in
-            input.path == readsURL.standardizedFileURL.path && input.sha256 != nil && input.sizeBytes != nil
+            input.path == readsURL.standardizedFileURL.path && input.checksumSHA256 != nil && input.fileSize != nil
         } == true)
-        XCTAssertTrue(provenance.steps.first?.outputs.contains { output in
-            output.path == bundleURL.standardizedFileURL.path
+        XCTAssertTrue(provenance.outputs.contains { output in
+            output.path == bundleURL.standardizedFileURL.path && output.checksumSHA256 != nil && output.fileSize != nil
         } == true)
+    }
+
+    func testLocalExecutionRequiresExpectedOutputBeforeLaunchingWorkflow() async throws {
+        let originalRunner = RunSubcommand.localWorkflowProcessRunner
+        let runner = StubLocalWorkflowProcessRunner(result: .init(
+            exitCode: 0,
+            standardOutput: "unexpected launch\n",
+            standardError: ""
+        ))
+        RunSubcommand.localWorkflowProcessRunner = runner
+        defer { RunSubcommand.localWorkflowProcessRunner = originalRunner }
+
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("local-missing-expected-output-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        let snakefileURL = tempDirectory.appendingPathComponent("Snakefile")
+        try "rule all:\n    shell: \"true\"\n".write(to: snakefileURL, atomically: true, encoding: .utf8)
+        let readsURL = tempDirectory.appendingPathComponent("reads.fastq")
+        try "@r1\nACGT\n+\n!!!!\n".write(to: readsURL, atomically: true, encoding: .utf8)
+        let bundleURL = tempDirectory.appendingPathComponent("snake.lungfishrun", isDirectory: true)
+
+        let command = try RunSubcommand.parse([
+            snakefileURL.path,
+            "--input", readsURL.path,
+            "--results-dir", tempDirectory.appendingPathComponent("results", isDirectory: true).path,
+            "--bundle-path", bundleURL.path,
+            "--quiet",
+        ])
+
+        do {
+            try await command.run()
+            XCTFail("Expected workflow run without --expected-output to fail before launching")
+        } catch let error as CLIError {
+            XCTAssertEqual(error.exitCode, .workflowError)
+            XCTAssertTrue(error.localizedDescription.contains("--expected-output"))
+        }
+        XCTAssertTrue(runner.invocations.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: bundleURL.path))
     }
 
     func testLocalSnakemakeExecutionUsesInjectedRunnerAndUpdatesBundleStatusLogsAndProvenance() async throws {
@@ -1176,23 +1453,155 @@ final class WorkflowCommandRegressionTests: XCTestCase {
             "snakemake warning\n"
         )
 
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let provenance = try decoder.decode(
-            WorkflowRun.self,
-            from: Data(contentsOf: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
-        )
-        XCTAssertEqual(provenance.status, .completed)
-        XCTAssertEqual(provenance.steps.first?.exitCode, 0)
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: bundleURL))
+        XCTAssertEqual(provenance.exitStatus, 0)
+        XCTAssertEqual(provenance.steps.first?.exitStatus, 0)
         XCTAssertEqual(provenance.steps.first?.stderr, "snakemake warning\n")
-        XCTAssertEqual(provenance.parameters["cores"], .string("all"))
-        XCTAssertTrue(provenance.steps.first?.command.contains("--expected-output") == true)
-        XCTAssertTrue(provenance.steps.first?.outputs.contains { $0.path == expectedOutputURL.standardizedFileURL.path } == true)
+        XCTAssertEqual(provenance.options.explicit["cores"], .string("all"))
+        XCTAssertTrue(provenance.argv.contains("--expected-output"))
+        XCTAssertTrue(provenance.outputs.contains { $0.path == bundleURL.standardizedFileURL.path && $0.checksumSHA256 != nil })
+        XCTAssertTrue(provenance.outputs.contains { $0.path == expectedOutputURL.standardizedFileURL.path && $0.checksumSHA256 != nil })
 
         let outputEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: expectedOutputURL))
         XCTAssertEqual(outputEnvelope.workflowName, "Run Local Snakemake workflow")
+        XCTAssertEqual(outputEnvelope.output?.path, expectedOutputURL.standardizedFileURL.path)
         XCTAssertTrue(outputEnvelope.outputs.contains { $0.path == expectedOutputURL.standardizedFileURL.path })
         XCTAssertTrue(outputEnvelope.argv.contains("--expected-output"))
+    }
+
+    func testNFCoreExecutionRequiresExpectedOutputBeforeLaunchingWorkflow() async throws {
+        let originalRunner = RunSubcommand.nfCoreWorkflowProcessRunner
+        let runner = StubNFCoreWorkflowProcessRunner(result: .init(
+            exitCode: 0,
+            standardOutput: "unexpected launch\n",
+            standardError: ""
+        ))
+        RunSubcommand.nfCoreWorkflowProcessRunner = runner
+        defer { RunSubcommand.nfCoreWorkflowProcessRunner = originalRunner }
+
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("nfcore-missing-expected-output-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        let samplesheetURL = tempDirectory.appendingPathComponent("samplesheet.csv")
+        try "sample,fastq_1,fastq_2\nS1,R1.fastq.gz,R2.fastq.gz\n".write(
+            to: samplesheetURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        let bundleURL = tempDirectory.appendingPathComponent("viralrecon.lungfishrun", isDirectory: true)
+
+        let command = try RunSubcommand.parse([
+            "nf-core/viralrecon",
+            "--input", samplesheetURL.path,
+            "--results-dir", tempDirectory.appendingPathComponent("results", isDirectory: true).path,
+            "--bundle-path", bundleURL.path,
+            "--executor", "local",
+            "--quiet",
+        ])
+
+        do {
+            try await command.run()
+            XCTFail("Expected nf-core workflow run without --expected-output to fail before launching")
+        } catch let error as CLIError {
+            XCTAssertEqual(error.exitCode, .workflowError)
+            XCTAssertTrue(error.localizedDescription.contains("--expected-output"))
+        }
+        XCTAssertTrue(runner.invocations.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: bundleURL.path))
+    }
+
+    func testNFCoreExecutionWritesExpectedOutputProvenance() async throws {
+        let originalRunner = RunSubcommand.nfCoreWorkflowProcessRunner
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("nfcore-cli-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            RunSubcommand.nfCoreWorkflowProcessRunner = originalRunner
+            try? FileManager.default.removeItem(at: tempDirectory)
+        }
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        let samplesheetURL = tempDirectory.appendingPathComponent("samplesheet.csv")
+        try "sample,fastq_1,fastq_2\nS1,R1.fastq.gz,R2.fastq.gz\n".write(
+            to: samplesheetURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        let resultsURL = tempDirectory.appendingPathComponent("results", isDirectory: true)
+        let expectedOutputURL = resultsURL.appendingPathComponent("consensus.lungfishref", isDirectory: true)
+        let expectedReportURL = resultsURL.appendingPathComponent("summary.tsv")
+        let bundleURL = tempDirectory.appendingPathComponent("viralrecon.lungfishrun", isDirectory: true)
+        let runner = StubNFCoreWorkflowProcessRunner(result: .init(
+            exitCode: 0,
+            standardOutput: "nextflow complete\n",
+            standardError: "nextflow warning\n"
+        )) { _ in
+            try FileManager.default.createDirectory(at: expectedOutputURL, withIntermediateDirectories: true)
+            try ">consensus\nACGT\n".write(
+                to: expectedOutputURL.appendingPathComponent("sequence.fasta"),
+                atomically: true,
+                encoding: .utf8
+            )
+            try "sample\tstatus\nS1\tok\n".write(to: expectedReportURL, atomically: true, encoding: .utf8)
+        }
+        RunSubcommand.nfCoreWorkflowProcessRunner = runner
+
+        let command = try RunSubcommand.parse([
+            "nf-core/viralrecon",
+            "--input", samplesheetURL.path,
+            "--expected-output", expectedOutputURL.path,
+            "--expected-output", expectedReportURL.path,
+            "--results-dir", resultsURL.path,
+            "--bundle-path", bundleURL.path,
+            "--executor", "local",
+            "--quiet",
+        ])
+
+        try await command.run()
+
+        let invocation = try XCTUnwrap(runner.invocations.first)
+        XCTAssertEqual(invocation.arguments.first, "run")
+        XCTAssertTrue(invocation.arguments.contains("nf-core/viralrecon"))
+        XCTAssertEqual(invocation.workingDirectory.path, bundleURL.appendingPathComponent("outputs", isDirectory: true).path)
+
+        let manifest = try NFCoreRunBundleStore.read(from: bundleURL)
+        XCTAssertEqual(manifest.workflowName, "viralrecon")
+        XCTAssertEqual(manifest.executionStatus, .completed)
+        XCTAssertEqual(manifest.exitCode, 0)
+        XCTAssertEqual(manifest.stdoutLogPath, "logs/stdout.log")
+        XCTAssertEqual(manifest.stderrLogPath, "logs/stderr.log")
+
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: bundleURL))
+        XCTAssertEqual(provenance.exitStatus, 0)
+        XCTAssertEqual(provenance.steps.first?.exitStatus, 0)
+        XCTAssertEqual(provenance.steps.first?.stderr, "nextflow warning\n")
+        XCTAssertEqual(provenance.options.explicit["executor"], .string("local"))
+        XCTAssertEqual(provenance.options.explicit["expectedOutputs"], .array([
+            .file(expectedOutputURL.standardizedFileURL),
+            .file(expectedReportURL.standardizedFileURL)
+        ]))
+        XCTAssertTrue(provenance.argv.contains("--expected-output"))
+        XCTAssertTrue(provenance.outputs.contains {
+            $0.path == expectedOutputURL.standardizedFileURL.path && $0.checksumSHA256 != nil && $0.fileSize != nil
+        })
+        XCTAssertTrue(provenance.outputs.contains {
+            $0.path == expectedReportURL.standardizedFileURL.path && $0.checksumSHA256 != nil && $0.fileSize != nil
+        })
+        XCTAssertTrue(provenance.outputs.contains {
+            $0.path == bundleURL.standardizedFileURL.path && $0.checksumSHA256 != nil && $0.fileSize != nil
+        })
+
+        let outputEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: expectedOutputURL))
+        XCTAssertEqual(outputEnvelope.workflowName, "Run nf-core/viralrecon")
+        XCTAssertEqual(outputEnvelope.output?.path, expectedOutputURL.standardizedFileURL.path)
+        XCTAssertTrue(outputEnvelope.outputs.contains { $0.path == expectedOutputURL.standardizedFileURL.path })
+        XCTAssertTrue(outputEnvelope.argv.contains("--expected-output"))
+
+        let reportEnvelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: expectedReportURL))
+        )
+        XCTAssertEqual(reportEnvelope.output?.path, expectedReportURL.standardizedFileURL.path)
+        XCTAssertEqual(reportEnvelope.outputs.map(\.path), [expectedReportURL.standardizedFileURL.path])
+        XCTAssertTrue(reportEnvelope.argv.contains("--expected-output"))
     }
 
     func testRunHelpAdvertisesOnlyViralReconNFCoreWorkflow() {
@@ -1278,6 +1687,35 @@ private final class StubLocalWorkflowProcessRunner: LocalWorkflowProcessRunning,
             arguments: arguments,
             workingDirectory: workingDirectory
         ))
+        return result
+    }
+}
+
+private final class StubNFCoreWorkflowProcessRunner: NFCoreWorkflowProcessRunning, @unchecked Sendable {
+    struct Invocation: Equatable {
+        let arguments: [String]
+        let workingDirectory: URL
+    }
+
+    private(set) var invocations: [Invocation] = []
+    let result: NFCoreWorkflowProcessResult
+    let onRun: ((Invocation) throws -> Void)?
+
+    init(
+        result: NFCoreWorkflowProcessResult,
+        onRun: ((Invocation) throws -> Void)? = nil
+    ) {
+        self.result = result
+        self.onRun = onRun
+    }
+
+    func runNextflow(
+        arguments: [String],
+        workingDirectory: URL
+    ) async throws -> NFCoreWorkflowProcessResult {
+        let invocation = Invocation(arguments: arguments, workingDirectory: workingDirectory)
+        invocations.append(invocation)
+        try onRun?(invocation)
         return result
     }
 }
@@ -1735,7 +2173,7 @@ final class AssembleCommandRegressionTests: XCTestCase {
             extraArguments: ["--k-min", "21"]
         )
         let argv = [
-            "lungfish", "assemble", inputURL.path,
+            "lungfish-cli", "assemble", inputURL.path,
             "--assembler", "megahit",
             "--threads", "4",
         ]
@@ -1841,7 +2279,7 @@ final class AssembleCommandRegressionTests: XCTestCase {
             result: result,
             originalInputURLs: [derivedBundleURL],
             executionInputURLs: [materializedURL],
-            argv: ["lungfish", "assemble", derivedBundleURL.path],
+            argv: ["lungfish-cli", "assemble", derivedBundleURL.path],
             startedAt: Date(timeIntervalSince1970: 200),
             endedAt: Date(timeIntervalSince1970: 203),
             materializationStartedAt: Date(timeIntervalSince1970: 200),
@@ -1866,7 +2304,7 @@ final class AssembleCommandRegressionTests: XCTestCase {
                 && $0.fileSize != nil
         })
         let materializationStep = try XCTUnwrap(
-            envelope.steps.first { $0.toolName == "lungfish fastq materialize" }
+            envelope.steps.first { $0.toolName == "\(CLICommandIdentity.executableName) fastq materialize" }
         )
         let expectedCommand = CLISequenceInputMaterialization.materializationCommand(
             originalURL: derivedBundleURL,
@@ -2160,7 +2598,6 @@ final class AssembleCommandRegressionTests: XCTestCase {
 }
 
 // MARK: - OrientCommand
-// NOTE: Has duplicate --threads option (own + GlobalOptions).
 
 final class OrientCommandRegressionTests: XCTestCase {
 
@@ -2259,7 +2696,6 @@ private func makeVirtualDerivedFASTQFixture(under tempDir: URL) throws -> Virtua
 }
 
 // MARK: - MapCommand
-// NOTE: Has duplicate --threads option (own + GlobalOptions).
 
 final class MapCommandRegressionTests: XCTestCase {
 
@@ -2412,8 +2848,8 @@ final class MapCommandRegressionTests: XCTestCase {
         try CLISequenceInputMaterialization.writeMaterializationProvenance(
             workflowName: "lungfish.map.input-materialization",
             workflowVersion: "test-version",
-            parentArgv: ["lungfish", "map", fixture.derivedBundleURL.path, "--reference", referenceURL.path],
-            parentDurableReplayArgv: ["lungfish", "map", materializedURL.path, "--reference", referenceURL.path],
+            parentArgv: ["lungfish-cli", "map", fixture.derivedBundleURL.path, "--reference", referenceURL.path],
+            parentDurableReplayArgv: ["lungfish-cli", "map", materializedURL.path, "--reference", referenceURL.path],
             originalInputURLs: [fixture.derivedBundleURL],
             executionInputURLs: [materializedURL],
             outputDirectory: tempDir,
@@ -2539,7 +2975,7 @@ final class MapCommandRegressionTests: XCTestCase {
             executionURL: materializedURL
         )
         XCTAssertEqual(steps.count, 1)
-        XCTAssertEqual(step.toolName, "lungfish fastq materialize")
+        XCTAssertEqual(step.toolName, "\(CLICommandIdentity.executableName) fastq materialize")
         XCTAssertEqual(step.command, expectedCommand)
         XCTAssertEqual(step.durableReplayArgv, expectedCommand)
         XCTAssertFalse(step.command.contains("materialize-inputs"))
@@ -2638,6 +3074,38 @@ final class DebugCommandRegressionTests: XCTestCase {
 
     func testDefaultSubcommand() {
         XCTAssertNotNil(DebugCommand.configuration.defaultSubcommand)
+    }
+
+    func testFastqIngestWritesCanonicalProvenanceForFinalOutput() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("debug-fastq-ingest-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let inputURL = root.appendingPathComponent("reads.fastq.gz")
+        try "@r1\nACGT\n+\nIIII\n".write(to: inputURL, atomically: true, encoding: .utf8)
+        let outputDirectory = root.appendingPathComponent("out", isDirectory: true)
+
+        let command = try FASTQIngestSubcommand.parse([
+            inputURL.path,
+            "--output-dir", outputDirectory.path,
+            "--skip-clumpify",
+            "--quiet"
+        ])
+        try await command.run()
+
+        let sidecarURL = ProvenanceRecorder.fileSidecarURL(for: inputURL)
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL))
+        XCTAssertEqual(envelope.workflowName, "lungfish debug fastq-ingest")
+        XCTAssertEqual(envelope.toolName, "FASTQIngestionPipeline")
+        XCTAssertEqual(envelope.output?.path, inputURL.path)
+        XCTAssertEqual(envelope.options.explicit["skipClumpify"], .boolean(true))
+        XCTAssertEqual(envelope.options.defaults["skipClumpify"], .boolean(false))
+        XCTAssertEqual(envelope.options.resolvedDefaults["threads"], .integer(max(1, ProcessInfo.processInfo.activeProcessorCount)))
+        XCTAssertTrue(envelope.argv.starts(with: [CLICommandIdentity.executableName, "debug", "fastq-ingest"]))
+        XCTAssertNotNil(envelope.output?.checksumSHA256)
+        XCTAssertNotNil(envelope.output?.fileSize)
+        XCTAssertEqual(envelope.exitStatus, 0)
     }
 }
 

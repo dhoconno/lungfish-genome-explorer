@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import SQLite3
 @testable import LungfishCore
 @testable import LungfishIO
 
@@ -14,6 +15,29 @@ final class Kraken2DatabaseTests: XCTestCase {
         return dir
     }
 
+    private func buildStateValue(at url: URL) throws -> String? {
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY, nil), SQLITE_OK)
+        defer { sqlite3_close(db) }
+
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(
+            db,
+            "SELECT value FROM lungfish_database_state WHERE key = 'build_state'",
+            -1,
+            &stmt,
+            nil
+        ) == SQLITE_OK else {
+            return nil
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        guard sqlite3_step(stmt) == SQLITE_ROW, let value = sqlite3_column_text(stmt, 0) else {
+            return nil
+        }
+        return String(cString: value)
+    }
+
     func testCreateAndOpen() throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -22,6 +46,75 @@ final class Kraken2DatabaseTests: XCTestCase {
         let rows = [makeTestRow(sample: "s1", taxonName: "Virus A", taxId: 12345)]
         let db = try Kraken2Database.create(at: dbURL, rows: rows, metadata: ["tool": "kraken2"])
         XCTAssertEqual(try db.fetchRows(samples: ["s1"]).count, 1)
+        XCTAssertEqual(try db.fetchMetadata()["tool"], "kraken2")
+        XCTAssertNil(try db.fetchMetadata()["build_state"])
+        XCTAssertEqual(try buildStateValue(at: dbURL), "complete")
+    }
+
+    func testOpenRejectsIncompleteBuildState() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let dbURL = dir.appendingPathComponent("building.sqlite")
+
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(dbURL.path, &db), SQLITE_OK)
+        defer { sqlite3_close(db) }
+        XCTAssertEqual(sqlite3_exec(db, """
+            CREATE TABLE lungfish_database_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            INSERT INTO lungfish_database_state VALUES ('build_state', 'building');
+            """, nil, nil, nil), SQLITE_OK)
+
+        XCTAssertThrowsError(try Kraken2Database(at: dbURL)) { error in
+            XCTAssertTrue(String(describing: error).contains("build_state"))
+            XCTAssertTrue(String(describing: error).contains("building"))
+        }
+    }
+
+    func testOpenAcceptsLegacyCompleteDatabaseWithoutBuildState() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let dbURL = dir.appendingPathComponent("legacy.sqlite")
+
+        _ = try Kraken2Database.create(
+            at: dbURL,
+            rows: [makeTestRow(sample: "legacy", taxonName: "Legacy", taxId: 10)],
+            metadata: ["source": "legacy"]
+        )
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open_v2(dbURL.path, &db, SQLITE_OPEN_READWRITE, nil), SQLITE_OK)
+        defer { sqlite3_close(db) }
+        XCTAssertEqual(sqlite3_exec(db, "DROP TABLE lungfish_database_state", nil, nil, nil), SQLITE_OK)
+        sqlite3_close(db)
+        db = nil
+
+        let reopened = try Kraken2Database(at: dbURL)
+        let rows = try reopened.fetchRows(samples: ["legacy"])
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.taxonName, "Legacy")
+        XCTAssertNil(try buildStateValue(at: dbURL))
+    }
+
+    func testFailedCreatePreservesExistingDatabase() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let dbURL = dir.appendingPathComponent("test.sqlite")
+
+        _ = try Kraken2Database.create(
+            at: dbURL,
+            rows: [makeTestRow(sample: "original", taxonName: "Original", taxId: 1)],
+            metadata: [:]
+        )
+
+        let duplicates = [
+            makeTestRow(sample: "replacement", taxonName: "Virus A", taxId: 2),
+            makeTestRow(sample: "replacement", taxonName: "Virus B", taxId: 2),
+        ]
+        XCTAssertThrowsError(try Kraken2Database.create(at: dbURL, rows: duplicates, metadata: [:]))
+
+        let reopened = try Kraken2Database(at: dbURL)
+        let rows = try reopened.fetchRows(samples: ["original"])
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.taxonName, "Original")
     }
 
     func testFetchRowsFiltersBySample() throws {

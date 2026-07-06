@@ -5,6 +5,7 @@
 import XCTest
 @testable import LungfishCLI
 @testable import LungfishIO
+@testable import LungfishWorkflow
 
 final class BuildDbCommandEsVirituCleanupTests: XCTestCase {
     private func makeTempDir() throws -> URL {
@@ -53,5 +54,16 @@ final class BuildDbCommandEsVirituCleanupTests: XCTestCase {
         let absolute = resultDir.appendingPathComponent(storedBam).path
         XCTAssertTrue(FileManager.default.fileExists(atPath: absolute),
                       "BAM at stored path must exist after cleanup: \(absolute)")
+
+        let provenance = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: resultDir))
+        XCTAssertEqual(provenance.workflowName, "lungfish build-db esviritu")
+        let dbPath = resultDir.appendingPathComponent("esviritu.sqlite").standardizedFileURL.path
+        let bamPath = URL(fileURLWithPath: absolute).standardizedFileURL.path
+        XCTAssertTrue(provenance.outputs.contains {
+            URL(fileURLWithPath: $0.path).standardizedFileURL.path == dbPath && $0.checksumSHA256 != nil
+        })
+        XCTAssertTrue(provenance.outputs.contains {
+            URL(fileURLWithPath: $0.path).standardizedFileURL.path == bamPath && $0.checksumSHA256 != nil
+        })
     }
 }

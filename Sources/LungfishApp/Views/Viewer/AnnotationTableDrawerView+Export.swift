@@ -3,11 +3,20 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishWorkflow
 import SwiftUI
 import UniformTypeIdentifiers
 import os.log
 
 private let exportLogger = Logger(subsystem: "com.lungfish.app", category: "TableExport")
+
+private enum TableExportError: LocalizedError {
+    case noSourceInputs
+
+    var errorDescription: String? {
+        "Cannot export annotation table because no durable source databases are available for provenance."
+    }
+}
 
 extension AnnotationTableDrawerView {
     private enum TableExportScope: String {
@@ -44,6 +53,13 @@ extension AnnotationTableDrawerView {
             case .csv: return "csv"
             case .tsv: return "tsv"
             case .json: return "json"
+            }
+        }
+
+        var provenanceFileFormat: FileFormat {
+            switch self {
+            case .csv, .tsv: return .text
+            case .json: return .json
             }
         }
     }
@@ -117,9 +133,36 @@ extension AnnotationTableDrawerView {
             guard response == .OK, let url = panel.url, let self else { return }
 
             do {
+                let startedAt = Date()
                 let outputURL = self.normalizedExportURL(from: url, format: format)
+                let sourceURLs = try self.tableExportSourceURLs()
                 let content = self.buildExportContent(format: format, rowIndexes: rowIndexes)
-                try content.write(to: outputURL, atomically: true, encoding: .utf8)
+                try ScientificFileExportProvenance.writeAtomically(.init(
+                    workflowName: "lungfish app annotation table export",
+                    sourceURLs: sourceURLs,
+                    outputURL: outputURL,
+                    outputFormat: format.provenanceFileFormat,
+                    argv: self.tableExportArgv(
+                        scope: scope,
+                        format: format,
+                        outputURL: outputURL,
+                        sourceURLs: sourceURLs
+                    ),
+                    explicitOptions: [
+                        "sourceDatabasePaths": .array(sourceURLs.map { .file($0) }),
+                        "outputPath": .file(outputURL),
+                        "outputFormat": .string(format.rawValue),
+                        "scope": .string(scope.rawValue),
+                        "tab": .string(self.exportTabName()),
+                    ],
+                    resolved: [
+                        "rowCount": .integer(rowIndexes.count),
+                        "columnCount": .integer(self.tableView.tableColumns.count),
+                    ],
+                    startedAt: startedAt
+                )) { tempURL in
+                    try content.write(to: tempURL, atomically: true, encoding: .utf8)
+                }
                 exportLogger.info("Exported \(rowIndexes.count) rows to \(outputURL.lastPathComponent)")
             } catch {
                 exportLogger.error("Export failed: \(error)")
@@ -312,6 +355,50 @@ extension AnnotationTableDrawerView {
     /// Generates a default filename based on tab + export scope + format.
     private func defaultExportFilename(scope: TableExportScope, format: TableExportFormat) -> String {
         "\(exportTabName())-\(scope.rawValue).\(format.fileExtension)"
+    }
+
+    private func tableExportSourceURLs() throws -> [URL] {
+        guard let index = searchIndex else {
+            throw TableExportError.noSourceInputs
+        }
+        var candidates: [URL] = []
+        candidates.append(contentsOf: index.annotationDatabaseHandles.map { $0.db.databaseURL })
+        candidates.append(contentsOf: index.variantDatabaseHandles.map { $0.db.databaseURL })
+        guard !candidates.isEmpty else {
+            throw TableExportError.noSourceInputs
+        }
+        var seen = Set<String>()
+        var sourceURLs: [URL] = []
+        for url in candidates {
+            let standardized = url.standardizedFileURL
+            guard FileManager.default.fileExists(atPath: standardized.path) else {
+                throw TableExportError.noSourceInputs
+            }
+            if seen.insert(standardized.path).inserted {
+                sourceURLs.append(standardized)
+            }
+        }
+        return sourceURLs
+    }
+
+    private func tableExportArgv(
+        scope: TableExportScope,
+        format: TableExportFormat,
+        outputURL: URL,
+        sourceURLs: [URL]
+    ) -> [String] {
+        var argv = [
+            "Lungfish.app",
+            "export-annotation-table",
+            "--tab", exportTabName(),
+            "--scope", scope.rawValue,
+            "--format", format.rawValue,
+            "--output", outputURL.path,
+        ]
+        for sourceURL in sourceURLs {
+            argv.append(contentsOf: ["--source-database", sourceURL.path])
+        }
+        return argv
     }
 
     /// Escapes a field value for CSV/TSV output.

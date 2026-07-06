@@ -105,6 +105,7 @@ struct ExtractSubcommand: AsyncParsableCommand {
         let sourceURLs = sourceFiles.map { URL(fileURLWithPath: $0) }
         let outputURLs = outputFiles.map { URL(fileURLWithPath: $0) }
         let krakenOutputURL = URL(fileURLWithPath: krakenOutput)
+        let kreportURL = kreportFile.map { URL(fileURLWithPath: $0) }
 
         // Verify source files exist
         let fm = FileManager.default
@@ -121,10 +122,9 @@ struct ExtractSubcommand: AsyncParsableCommand {
 
         // Build taxonomy tree if needed for descendant lookup
         let tree: TaxonTree
-        if includeChildren, let kreport = kreportFile {
-            let kreportURL = URL(fileURLWithPath: kreport)
+        if includeChildren, let kreportURL {
             guard fm.fileExists(atPath: kreportURL.path) else {
-                print(formatter.error("Kreport file not found: \(kreport)"))
+                print(formatter.error("Kreport file not found: \(kreportFile ?? kreportURL.path)"))
                 throw CLIExitCode.inputError.exitCode
             }
             tree = try KreportParser.parse(url: kreportURL)
@@ -144,6 +144,7 @@ struct ExtractSubcommand: AsyncParsableCommand {
             sourceFiles: sourceURLs,
             outputFiles: outputURLs,
             classificationOutput: krakenOutputURL,
+            taxonomyReport: includeChildren ? kreportURL : nil,
             keepReadPairs: !noReadPairs
         )
 
@@ -190,8 +191,8 @@ struct ExtractSubcommand: AsyncParsableCommand {
 
 /// Formats a byte count as a human-readable string.
 ///
-/// Module-level free function to avoid `@MainActor` isolation issues in
-/// `@Sendable` closures per the project convention in MEMORY.md.
+/// Module-level free function so `@Sendable` closures can format byte counts
+/// without capturing actor-isolated formatter state.
 private func formatExtractBytes(_ bytes: Int64) -> String {
     if bytes >= 1_000_000_000 { return String(format: "%.1f GB", Double(bytes) / 1_000_000_000) }
     if bytes >= 1_000_000 { return String(format: "%.1f MB", Double(bytes) / 1_000_000) }

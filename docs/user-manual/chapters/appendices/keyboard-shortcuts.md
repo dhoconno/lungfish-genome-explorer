@@ -80,7 +80,7 @@ Move the viewport to a coordinate or named feature. Both work in any sequence-aw
 | Action | Shortcut |
 |---|---|
 | Go to Location | Cmd-L |
-| Go to Gene | Cmd-Shift-G |
+| Go to Gene | Cmd-Option-G |
 
 `Go to Location` accepts numeric coordinates or `chr:start-end` style ranges. `Go to Gene` matches gene names from the active GFF or GenBank annotation.
 
@@ -110,8 +110,10 @@ Standard Mac editing shortcuts work in every text field, table, and viewport sel
 | Paste | Cmd-V |
 | Select All | Cmd-A |
 | Find | Cmd-F |
+| Find Next | Cmd-G |
+| Find Previous | Cmd-Shift-G |
 
-`Cmd-G` steps to the next find match. Find Previous has no default chord, because `Cmd-Shift-G` is reserved for `Go to Gene` in the sequence viewport. To step backward through matches, use the Find bar's previous-match control or remap Find Previous in System Settings.
+The Find shortcuts follow standard macOS text navigation. `Go to Gene` uses `Cmd-Option-G` so it does not conflict with stepping backward through Find results.
 
 ## Help
 

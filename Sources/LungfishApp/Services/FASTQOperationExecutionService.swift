@@ -551,13 +551,19 @@ private struct FASTQSourceResolverAdapter: FASTQOperationInputResolving {
     }
 }
 
-private struct LungfishCLIProcessRunner: FASTQOperationCommandRunning {
+struct LungfishCLIProcessRunner: FASTQOperationCommandRunning {
+    private let cliURLProvider: @Sendable () -> URL?
+
+    init(cliURLProvider: @escaping @Sendable () -> URL? = { LungfishCLIRunner.findCLI() }) {
+        self.cliURLProvider = cliURLProvider
+    }
+
     func run(
         invocation: CLIInvocation,
         outputDirectory: URL,
         progress: @escaping FASTQOperationProgressHandler
     ) async throws -> FASTQCLIExecutionResult {
-        guard let cliURL = LungfishCLIRunner.findCLI() else {
+        guard let cliURL = cliURLProvider() else {
             throw LungfishCLIRunner.RunError.cliNotFound
         }
 
@@ -569,6 +575,7 @@ private struct LungfishCLIProcessRunner: FASTQOperationCommandRunning {
         let stderr = Pipe()
         process.standardOutput = stdout
         process.standardError = stderr
+        let cancellationHandle = NativeProcessCancellationHandle()
         let stdoutTask = Task.detached(priority: .userInitiated) {
             stdout.fileHandleForReading.readDataToEndOfFile()
         }
@@ -590,29 +597,52 @@ private struct LungfishCLIProcessRunner: FASTQOperationCommandRunning {
 
         let terminationStatus: Int32
         do {
-            terminationStatus = try await withCheckedThrowingContinuation { continuation in
-                process.terminationHandler = { terminatedProcess in
-                    continuation.resume(returning: terminatedProcess.terminationStatus)
-                }
+            terminationStatus = try await withTaskCancellationHandler {
+                try Task.checkCancellation()
+                return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Int32, Error>) in
+                    process.terminationHandler = { terminatedProcess in
+                        continuation.resume(returning: terminatedProcess.terminationStatus)
+                    }
 
-                do {
-                    try process.run()
-                } catch {
-                    stdout.fileHandleForWriting.closeFile()
-                    stderr.fileHandleForWriting.closeFile()
-                    continuation.resume(
-                        throwing: LungfishCLIRunner.RunError.launchFailed(error.localizedDescription)
-                    )
+                    do {
+                        try process.run()
+                        cancellationHandle.store(process)
+                        cancellationHandle.terminateIfRequested(gracePeriod: 0)
+                    } catch {
+                        stdout.fileHandleForWriting.closeFile()
+                        stderr.fileHandleForWriting.closeFile()
+                        if cancellationHandle.isTerminationRequested || Task.isCancelled {
+                            continuation.resume(throwing: LungfishCLIRunner.RunError.cancelled)
+                        } else {
+                            continuation.resume(
+                                throwing: LungfishCLIRunner.RunError.launchFailed(error.localizedDescription)
+                            )
+                        }
+                    }
                 }
+            } onCancel: {
+                cancellationHandle.terminateProcessTree(gracePeriod: 0)
             }
+        } catch is CancellationError {
+            stdoutTask.cancel()
+            stderrTask.cancel()
+            throw LungfishCLIRunner.RunError.cancelled
         } catch {
             stdoutTask.cancel()
             stderrTask.cancel()
             throw error
         }
 
+        let wasCancelled = cancellationHandle.isTerminationRequested || Task.isCancelled
+        cancellationHandle.clear(process)
         stdout.fileHandleForWriting.closeFile()
         stderr.fileHandleForWriting.closeFile()
+        if wasCancelled {
+            stdoutTask.cancel()
+            stderrTask.cancel()
+            throw LungfishCLIRunner.RunError.cancelled
+        }
+
         await stderrTask.value
         let stderrData = stderrCapture.data
         let stdoutData = await stdoutTask.value

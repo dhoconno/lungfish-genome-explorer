@@ -65,7 +65,9 @@ extension ViewerViewController {
                         progress: { fraction, message in
                             DispatchQueue.main.async {
                                 MainActor.assumeIsolated {
-                                    OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
+                                    guard OperationCenter.shared.update(id: opID, progress: fraction, detail: message) else {
+                                        return
+                                    }
                                     let lower = message.lowercased()
                                     if lower.contains("waiting") {
                                         blastController.showBlastLoading(phase: .waiting, requestId: nil)
@@ -81,10 +83,10 @@ extension ViewerViewController {
 
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.complete(
+                            guard OperationCenter.shared.complete(
                                 id: opID,
                                 detail: "Results ready for \(request.readCount) contig\(request.readCount == 1 ? "" : "s")"
-                            )
+                            ) else { return }
                             blastController.showBlastResults(result)
                         }
                     }
@@ -92,11 +94,11 @@ extension ViewerViewController {
                     let errorText = error.localizedDescription
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.fail(
+                            guard OperationCenter.shared.fail(
                                 id: opID,
                                 detail: errorText,
                                 errorMessage: errorText
-                            )
+                            ) else { return }
                             blastController.showBlastFailure(errorText)
                         }
                     }

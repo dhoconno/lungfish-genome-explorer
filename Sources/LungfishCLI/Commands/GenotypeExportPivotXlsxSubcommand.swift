@@ -71,7 +71,7 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
             workflowName: "genotype.export.pivot-xlsx",
             toolName: "lungfish genotype export-pivot-xlsx",
             command: [
-                "lungfish", "genotype", "export-pivot-xlsx",
+                CLICommandIdentity.executableName, "genotype", "export-pivot-xlsx",
                 "--bundle", bundleURL.path,
                 "--output", outputURL.path,
             ],

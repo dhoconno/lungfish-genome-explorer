@@ -361,6 +361,215 @@ final class MappingResultViewControllerTests: XCTestCase {
         XCTAssertEqual(request.minMapQ, 27)
     }
 
+    func testInspectorConsensusExportUsesVisibleViewportScope() throws {
+        let vc = MappingResultViewController()
+        _ = vc.view
+
+        vc.configureForTesting(result: makeMappingResult(viewerBundleURL: try makeReferenceBundleWithAnnotationDatabase()))
+
+        let request = try vc.testBuildInspectorConsensusExportRequest()
+
+        XCTAssertEqual(request.chromosome, "chr1")
+        XCTAssertEqual(request.start, 0)
+        XCTAssertEqual(request.end, 100)
+        XCTAssertEqual(request.recordName, "example chr1:1-100 visible consensus")
+        XCTAssertEqual(request.suggestedName, "example-chr1-1-100-visible-consensus")
+    }
+
+    func testInspectorConsensusExportPrefersUserSelectedRegion() throws {
+        let vc = MappingResultViewController()
+        _ = vc.view
+
+        vc.configureForTesting(result: makeMappingResult(viewerBundleURL: try makeReferenceBundleWithAnnotationDatabase()))
+        vc.testSetEmbeddedSelectionRange(10..<40)
+
+        let request = try vc.testBuildInspectorConsensusExportRequest()
+
+        XCTAssertEqual(request.chromosome, "chr1")
+        XCTAssertEqual(request.start, 10)
+        XCTAssertEqual(request.end, 40)
+        XCTAssertEqual(request.recordName, "example chr1:11-40 selection consensus")
+        XCTAssertEqual(request.suggestedName, "example-chr1-11-40-selection-consensus")
+    }
+
+    func testInspectorConsensusExportIgnoresNonUserViewportSelectionState() throws {
+        let vc = MappingResultViewController()
+        _ = vc.view
+
+        vc.configureForTesting(result: makeMappingResult(viewerBundleURL: try makeReferenceBundleWithAnnotationDatabase()))
+        vc.testSetEmbeddedSelectionRange(10..<40, isUserColumnSelection: false)
+
+        let request = try vc.testBuildInspectorConsensusExportRequest()
+
+        XCTAssertEqual(request.chromosome, "chr1")
+        XCTAssertEqual(request.start, 0)
+        XCTAssertEqual(request.end, 100)
+        XCTAssertEqual(request.suggestedName, "example-chr1-1-100-visible-consensus")
+    }
+
+    func testChangingMappingContigsClearsStaleUserSelectedRegionBeforeConsensusExport() throws {
+        let vc = MappingResultViewController()
+        _ = vc.view
+
+        let result = MappingResult(
+            mapper: .minimap2,
+            modeID: MappingMode.defaultShortRead.id,
+            sourceReferenceBundleURL: nil,
+            viewerBundleURL: try makeReferenceBundleWithAlignmentTracks(),
+            bamURL: URL(fileURLWithPath: "/tmp/example.sorted.bam"),
+            baiURL: URL(fileURLWithPath: "/tmp/example.sorted.bam.bai"),
+            totalReads: 200,
+            mappedReads: 198,
+            unmappedReads: 2,
+            wallClockSeconds: 1.5,
+            contigs: [
+                MappingContigSummary(
+                    contigName: "alpha",
+                    contigLength: 100,
+                    mappedReads: 120,
+                    mappedReadPercent: 60,
+                    meanDepth: 10,
+                    coverageBreadth: 90,
+                    medianMAPQ: 60,
+                    meanIdentity: 99
+                ),
+                MappingContigSummary(
+                    contigName: "gamma",
+                    contigLength: 100,
+                    mappedReads: 80,
+                    mappedReadPercent: 40,
+                    meanDepth: 8,
+                    coverageBreadth: 85,
+                    medianMAPQ: 55,
+                    meanIdentity: 98
+                ),
+            ]
+        )
+
+        vc.configureForTesting(result: result)
+        vc.testSelectContig(named: "alpha")
+        vc.testSetEmbeddedSelectionRange(10..<40)
+        XCTAssertEqual(
+            try vc.testBuildInspectorConsensusExportRequest().suggestedName,
+            "example-alpha-11-40-selection-consensus"
+        )
+
+        vc.testSelectContig(named: "gamma")
+        let request = try vc.testBuildInspectorConsensusExportRequest()
+
+        XCTAssertEqual(request.chromosome, "gamma")
+        XCTAssertEqual(request.start, 0)
+        XCTAssertEqual(request.end, 100)
+        XCTAssertEqual(request.suggestedName, "example-gamma-1-100-visible-consensus")
+    }
+
+    func testExportResultsWritesMappingSummaryCSV() throws {
+        let vc = MappingResultViewController()
+        _ = vc.view
+        let resultDirectory = tempDir.appendingPathComponent("mapping-run", isDirectory: true)
+        try FileManager.default.createDirectory(at: resultDirectory, withIntermediateDirectories: true)
+        let result = MappingResult(
+            mapper: .minimap2,
+            modeID: MappingMode.defaultShortRead.id,
+            bamURL: resultDirectory.appendingPathComponent("example.sorted.bam"),
+            baiURL: resultDirectory.appendingPathComponent("example.sorted.bam.bai"),
+            totalReads: 200,
+            mappedReads: 198,
+            unmappedReads: 2,
+            wallClockSeconds: 1.5,
+            contigs: [
+                MappingContigSummary(
+                    contigName: "alpha,quoted",
+                    contigLength: 100,
+                    mappedReads: 42,
+                    mappedReadPercent: 21,
+                    meanDepth: 2.4,
+                    coverageBreadth: 8,
+                    medianMAPQ: 32,
+                    meanIdentity: 98.5
+                ),
+            ]
+        )
+        try Data("bam".utf8).write(to: result.bamURL)
+        try Data("bai".utf8).write(to: result.baiURL)
+        try result.save(to: resultDirectory)
+
+        vc.configureForTesting(result: result, resultDirectoryURL: resultDirectory)
+
+        let outputURL = tempDir.appendingPathComponent("mapping-summary.csv")
+        try vc.exportResults(to: outputURL, format: .csv)
+
+        let content = try String(contentsOf: outputURL, encoding: .utf8)
+        XCTAssertEqual(
+            content,
+            """
+            Contig,Length,Mapped Reads,% Mapped,Mean Depth,Coverage Breadth,Median MAPQ,Mean Identity
+            "alpha,quoted",100,42,21.0000,2.4000,8.0000,32.0000,98.5000
+
+            """
+        )
+
+        let envelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: outputURL))
+        )
+        XCTAssertEqual(envelope.workflowName, "lungfish app mapping result export")
+        XCTAssertEqual(envelope.output?.path, outputURL.path)
+        XCTAssertEqual(envelope.output?.format, .text)
+        XCTAssertNotNil(envelope.output?.checksumSHA256)
+        XCTAssertEqual(envelope.options.explicit["format"]?.stringValue, "csv")
+        XCTAssertEqual(envelope.options.resolvedDefaults["contigCount"]?.integerValue, 1)
+        XCTAssertEqual(envelope.options.resolvedDefaults["totalReads"]?.integerValue, 200)
+        XCTAssertTrue(envelope.argv.contains("export-mapping-results"))
+        XCTAssertTrue(envelope.files.contains { $0.path == resultDirectory.standardizedFileURL.path && $0.role == .input })
+    }
+
+    func testExportResultsWritesMappingSummaryTSV() throws {
+        let vc = MappingResultViewController()
+        _ = vc.view
+
+        vc.configureForTesting(result: makeMappingResult())
+
+        let outputURL = tempDir.appendingPathComponent("mapping-summary.tsv")
+        try vc.exportResults(to: outputURL, format: .tsv)
+
+        let lines = try String(contentsOf: outputURL, encoding: .utf8)
+            .split(separator: "\n", omittingEmptySubsequences: false)
+        XCTAssertEqual(
+            String(lines[0]),
+            "Contig\tLength\tMapped Reads\t% Mapped\tMean Depth\tCoverage Breadth\tMedian MAPQ\tMean Identity"
+        )
+        XCTAssertEqual(
+            String(lines[1]),
+            "alpha\t29903\t42\t21.0000\t2.4000\t8.0000\t32.0000\t98.5000"
+        )
+    }
+
+    func testExportResultsRejectsFASTAExplicitly() throws {
+        let vc = MappingResultViewController()
+        _ = vc.view
+
+        vc.configureForTesting(result: makeMappingResult())
+
+        XCTAssertThrowsError(
+            try vc.exportResults(to: tempDir.appendingPathComponent("mapping.fa"), format: .fasta)
+        ) { error in
+            XCTAssertTrue(error.localizedDescription.contains("not supported for mapping results"))
+        }
+    }
+
+    func testExportResultsRejectsJSONExplicitly() throws {
+        let vc = MappingResultViewController()
+        _ = vc.view
+
+        vc.configureForTesting(result: makeMappingResult())
+
+        XCTAssertThrowsError(
+            try vc.exportResults(to: tempDir.appendingPathComponent("mapping.json"), format: .json)
+        ) { error in
+            XCTAssertTrue(error.localizedDescription.contains("not supported for mapping results"))
+        }
+    }
+
     func testLiveResizeDelegatePreservesUserMovedVerticalDivider() {
         UserDefaults.standard.set(
             MappingPanelLayout.listLeading.rawValue,

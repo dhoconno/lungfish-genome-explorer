@@ -69,11 +69,14 @@ enum ReferenceBundleMergeService {
                 try await appendFASTAContents(from: fastaURL, to: outputHandle)
             }
 
-            // TODO: Merge annotations, variants, and tracks when merging .lungfishref bundles.
+            // Keep this as an explicit sequence-only merge. Rich bundles are
+            // rejected before this point so annotations, variants, tracks, and
+            // alignments cannot be silently dropped from the output bundle.
             let result = try await ReferenceBundleImportService.shared.importAsReferenceBundle(
                 sourceURL: mergedFASTA,
                 outputDirectory: outputDirectory,
-                preferredBundleName: bundleName
+                preferredBundleName: bundleName,
+                provenanceWorkflowName: nil
             )
             createdBundleURL = result.bundleURL
             let builderProvenance = try ProvenanceEnvelopeReader.load(from: result.bundleURL)
@@ -253,8 +256,13 @@ enum ReferenceBundleMergeService {
 
     private static func finalGenomePayloadURL(in bundleURL: URL, outputPayloadURLs: [URL]) -> URL? {
         if let manifest = try? BundleManifest.load(from: bundleURL),
-           let genome = manifest.genome {
-            return bundleURL.appendingPathComponent(genome.path).standardizedFileURL
+           let genome = manifest.genome,
+           let genomeURL = try? BundleManifest.validatedBundleMemberURL(
+               for: genome.path,
+               in: bundleURL,
+               field: "genome.path"
+           ) {
+            return genomeURL.standardizedFileURL
         }
         return outputPayloadURLs.first(where: isFASTAFileURL(_:))?.standardizedFileURL
     }

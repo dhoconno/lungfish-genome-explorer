@@ -1,4 +1,5 @@
 import Foundation
+import LungfishTestSupport
 import XCTest
 
 final class ApplicationExportImportE2ETests: XCTestCase {
@@ -302,16 +303,9 @@ final class ApplicationExportImportE2ETests: XCTestCase {
     }
 
     private var cliBinaryPath: URL? {
-        let repoRoot = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let candidates = [
-            repoRoot.appendingPathComponent(".build/debug/lungfish-cli"),
-            repoRoot.appendingPathComponent(".build/arm64-apple-macosx/debug/lungfish-cli"),
-            repoRoot.appendingPathComponent(".build/x86_64-apple-macosx/debug/lungfish-cli"),
-        ]
-        return candidates.first { fileManager.isExecutableFile(atPath: $0.path) }
+        CLITestBinaryResolver.cliBinaryURL(
+            repoRoot: CLITestBinaryResolver.repositoryRoot(containing: #filePath)
+        )
     }
 
     private func runCLI(_ arguments: [String]) throws -> (exitCode: Int32, stdout: String, stderr: String) {

@@ -410,13 +410,18 @@ extension SequenceViewerView {
             sourceBundleChromosomes = bundle.manifest.genome?.chromosomes ?? []
             sourceAnnotationTracks = bundle.annotationTrackIds.compactMap { trackID in
                 guard let trackInfo = bundle.annotationTrack(id: trackID),
-                      let dbPath = trackInfo.databasePath else {
+                      let dbPath = trackInfo.databasePath,
+                      let databaseURL = try? BundleManifest.validatedBundleMemberURL(
+                          for: dbPath,
+                          in: bundle.url,
+                          field: "annotations[\(trackID)].databasePath"
+                      ) else {
                     return nil
                 }
                 return SequenceExtractionPipeline.SourceAnnotationTrack(
                     id: trackInfo.id,
                     name: trackInfo.name,
-                    databaseURL: bundle.url.appendingPathComponent(dbPath),
+                    databaseURL: databaseURL,
                     annotationType: trackInfo.annotationType
                 )
             }
@@ -424,13 +429,18 @@ extension SequenceViewerView {
             // Collect variant tracks with SQLite databases
             sourceVariantTracks = bundle.variantTrackIds.compactMap { trackID in
                 guard let trackInfo = bundle.variantTrack(id: trackID),
-                      let dbPath = trackInfo.databasePath else {
+                      let dbPath = trackInfo.databasePath,
+                      let databaseURL = try? BundleManifest.validatedBundleMemberURL(
+                          for: dbPath,
+                          in: bundle.url,
+                          field: "variants[\(trackID)].databasePath"
+                      ) else {
                     return nil
                 }
                 return SequenceExtractionPipeline.SourceVariantTrack(
                     id: trackInfo.id,
                     name: trackInfo.name,
-                    databaseURL: bundle.url.appendingPathComponent(dbPath),
+                    databaseURL: databaseURL,
                     variantType: trackInfo.variantType
                 )
             }
@@ -482,7 +492,7 @@ extension SequenceViewerView {
                     progressHandler: { progress, message in
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
-                                DownloadCenter.shared.update(
+                                _ = DownloadCenter.shared.update(
                                     id: itemId,
                                     progress: progress,
                                     detail: message
@@ -498,7 +508,7 @@ extension SequenceViewerView {
                         extractionLogger.info("createExtractionBundle: SUCCESS -> \(finalBundleURL.path)")
 
                         // Mark as complete for UI cards.
-                        DownloadCenter.shared.complete(id: itemId, detail: "Bundle ready", bundleURLs: [finalBundleURL])
+                        _ = DownloadCenter.shared.complete(id: itemId, detail: "Bundle ready", bundleURLs: [finalBundleURL])
                     }
                 }
             } catch {
@@ -507,7 +517,7 @@ extension SequenceViewerView {
                 scheduleExtractionOnMainRunLoop {
                     MainActor.assumeIsolated {
                         extractionLogger.error("Bundle creation failed: \(errorStr)")
-                        DownloadCenter.shared.fail(
+                        _ = DownloadCenter.shared.fail(
                             id: itemId,
                             detail: "Failed: \(errorDesc)"
                         )
@@ -539,8 +549,12 @@ extension SequenceViewerView {
         var seen = Set<String>()
         for trackId in bundle.variantTrackIds {
             guard let trackInfo = bundle.variantTrack(id: trackId),
-                  let dbPath = trackInfo.databasePath else { continue }
-            let dbURL = bundle.url.appendingPathComponent(dbPath)
+                  let dbPath = trackInfo.databasePath,
+                  let dbURL = try? BundleManifest.validatedBundleMemberURL(
+                      for: dbPath,
+                      in: bundle.url,
+                      field: "variants[\(trackId)].databasePath"
+                  ) else { continue }
             guard let db = try? VariantDatabase(url: dbURL) else { continue }
             for name in db.sampleNames() where seen.insert(name).inserted {
                 allSamples.append(name)

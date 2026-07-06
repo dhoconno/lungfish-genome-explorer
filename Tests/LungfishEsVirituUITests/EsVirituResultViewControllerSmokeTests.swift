@@ -39,6 +39,40 @@ final class EsVirituResultViewControllerSmokeTests: XCTestCase {
         XCTAssertEqual(table.testDisplayedAssemblyCount, 1)
     }
 
+    @MainActor func testDelimitedDetectionExportWritesScientificProvenanceSidecar() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("EsVirituDetectionExport-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let result = Self.esvirituResult([
+            Self.viralAssembly(name: "Alpha virus", sampleId: "sample-A", assembly: "GCF_A", accession: "NC_A", reads: 40),
+            Self.viralAssembly(name: "Beta virus", sampleId: "sample-B", assembly: "GCF_B", accession: "NC_B", reads: 20),
+        ])
+        let vc = EsVirituResultViewController()
+        _ = vc.view
+        vc.isBatchMode = true
+        vc.samplePickerState = ClassifierSamplePickerState(allSamples: Set(["sample-A", "sample-B"]))
+        vc.samplePickerState.selectedSamples = ["sample-A"]
+
+        let outputURL = tempDir.appendingPathComponent("detections.tsv")
+        try vc.writeDelimitedDetections(result: result, separator: "\t", fileExtension: "tsv", to: outputURL)
+
+        let envelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: outputURL))
+        )
+        XCTAssertEqual(envelope.workflowName, "lungfish app esviritu detections export")
+        XCTAssertEqual(envelope.output?.path, outputURL.path)
+        XCTAssertNotNil(envelope.output?.checksumSHA256)
+        XCTAssertEqual(envelope.options.resolvedDefaults["rowCount"]?.integerValue, 2)
+        XCTAssertEqual(
+            envelope.options.resolvedDefaults["selectedSamples"]?.arrayValue?.compactMap(\.stringValue),
+            ["sample-A"]
+        )
+        XCTAssertEqual(envelope.options.resolvedDefaults["tableMode"]?.stringValue, "batchHierarchical")
+        XCTAssertEqual(envelope.options.resolvedDefaults["searchText"]?.stringValue, "")
+    }
+
     private static func esvirituResult(_ assemblies: [ViralAssembly]) -> LungfishIO.EsVirituResult {
         LungfishIO.EsVirituResult(
             sampleId: "esviritu-ui",

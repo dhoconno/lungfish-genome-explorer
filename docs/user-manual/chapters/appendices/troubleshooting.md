@@ -139,7 +139,7 @@ For team workflows, the right answer is currently: one project per researcher pe
 
 Bundle formats are versioned. The bundle's `manifest.json` declares its `version` field. Lungfish reads older bundle versions transparently but will refuse to write to a bundle version older than the current.
 
-If you need to migrate an old project, run the migration report from the command line: `lungfish project migrate <project>` scans bundles, reports the schema versions it can see, and synthesizes the current reference-bundle fields where it safely can. Add `--dry-run` to scan without writing. See [Shared Projects](shared-projects.md) for the full migration behavior. Bundles whose legacy schema has no transformer are reported, not rewritten; for those, re-create the bundles from their source FASTAs by re-importing. The provenance in the original bundles is preserved if you copy the `provenance/` subdirectory into the new bundles by hand.
+If you need to migrate an old project, run the migration report from the command line: `lungfish project migrate <project>` scans bundles, reports the schema versions it can see, and synthesizes the current reference-bundle fields where it safely can. Add `--dry-run` to scan without writing. See [Shared Projects](shared-projects.md) for the full migration behavior. Bundles whose legacy schema has no transformer are reported, not rewritten; for those, re-create the bundles from their source FASTAs by re-importing. Existing provenance sidecars stay with untouched bundles, and schema-maintenance migrations write a new migration provenance record before publishing the changed manifest.
 
 ## Collecting diagnostics for a bug report
 

@@ -1248,24 +1248,6 @@ extension SequenceViewerView {
         sequenceViewerLogger.info("Copied \(bases.count) bases from annotation '\(annotation.name)' to clipboard")
     }
 
-    /// Copies the current selection's reverse complement to the clipboard.
-    /// Called by the Sequence > Reverse Complement menu item.
-    func performReverseComplement() {
-        guard let seq = sequence,
-              let range = selectionRange else {
-            NSSound.beep()
-            return
-        }
-        let start = max(0, range.lowerBound)
-        let end = min(seq.length, range.upperBound)
-        let selectedBases = seq[start..<end]
-        let revComp = reverseComplementString(selectedBases)
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(revComp, forType: .string)
-        sequenceViewerLogger.info("Reverse complement: copied \(end - start) bases to clipboard")
-    }
-
     struct FASTAOperationInput {
         let records: [String]
         let suggestedName: String
@@ -1298,6 +1280,25 @@ extension SequenceViewerView {
         } catch {
             presentFASTAOperationInputError(error)
         }
+    }
+
+    func canRunSelectedSequenceFASTAOperation() -> Bool {
+        guard viewController?.contentMode == .genomics, !isHidden else {
+            return false
+        }
+
+        if let seq = activeSequence ?? sequence {
+            return hasNonEmptySelectedOrVisibleSequenceRange(sequenceLength: seq.length)
+        }
+
+        guard let bundle = currentReferenceBundle,
+              let frame = viewController?.referenceFrame,
+              let chromosome = viewController?.currentBundleDataProvider?.chromosomeInfo(named: frame.chromosome)
+                ?? bundle.chromosome(named: frame.chromosome) else {
+            return false
+        }
+
+        return hasNonEmptySelectedOrVisibleSequenceRange(sequenceLength: Int(chromosome.length))
     }
 
     func selectedFASTAOperationInput() throws -> FASTAOperationInput {
@@ -1334,6 +1335,13 @@ extension SequenceViewerView {
         let sequenceName = selectedSequenceName(chromosome: chromosome.name, start: start, end: end)
         let fasta = formatFASTA(name: sequenceName, sequence: bases)
         return FASTAOperationInput(records: [fasta], suggestedName: sequenceName)
+    }
+
+    private func hasNonEmptySelectedOrVisibleSequenceRange(sequenceLength: Int) -> Bool {
+        let range = selectedOrVisibleSequenceRange(sequenceLength: sequenceLength)
+        let start = max(0, range.lowerBound)
+        let end = min(sequenceLength, range.upperBound)
+        return start < end
     }
 
     func selectedOrVisibleSequenceRange(sequenceLength: Int) -> Range<Int> {
@@ -1663,6 +1671,17 @@ extension SequenceViewerView {
             selectedReadIDs.removeAll()
             NotificationCenter.default.post(name: .readSelected, object: self, userInfo: windowScopedUserInfo())
         }
+        setNeedsDisplay(bounds)
+        updateSelectionStatus()
+    }
+
+    func clearUserColumnSelection() {
+        guard isUserColumnSelection else { return }
+        selectionRange = nil
+        selectionStartBase = nil
+        isSelecting = false
+        isUserColumnSelection = false
+        columnDragStartBase = nil
         setNeedsDisplay(bounds)
         updateSelectionStatus()
     }

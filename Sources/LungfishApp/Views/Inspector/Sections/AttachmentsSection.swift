@@ -10,6 +10,7 @@ import AppKit
 struct AttachmentsSection: View {
     @Bindable var store: BundleAttachmentStore
     @State private var isExpanded = true
+    @State private var attachmentErrorMessage: String?
 
     var body: some View {
         DisclosureGroup("Attachments", isExpanded: $isExpanded) {
@@ -29,6 +30,13 @@ struct AttachmentsSection: View {
             }
             .controlSize(.small)
             .padding(.top, 4)
+
+            if let attachmentErrorMessage {
+                Text(attachmentErrorMessage)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .font(.caption.weight(.semibold))
     }
@@ -70,8 +78,13 @@ struct AttachmentsSection: View {
         let panel = FeatureFilePanelFactory.attachmentImportPanel()
         panel.begin { response in
             guard response == .OK else { return }
+            attachmentErrorMessage = nil
             for url in panel.urls {
-                try? store.attach(fileAt: url)
+                do {
+                    try ProvenanceAwareAttachmentImporter.attach(fileAt: url, to: store)
+                } catch {
+                    attachmentErrorMessage = GenericAttachmentPolicy.userFacingMessage(for: error)
+                }
             }
         }
     }

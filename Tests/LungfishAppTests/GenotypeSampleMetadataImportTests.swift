@@ -52,6 +52,52 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
         XCTAssertTrue(provenance.outputs.contains(where: { $0.path == finalMetadataURL.path && $0.role == .output }))
     }
 
+    func testImportRollsBackMetadataWhenProvenanceLayoutFails() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeSampleMetadataImportTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let bundleURL = root.appendingPathComponent("barcode05-mhc.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: bundleURL.appendingPathComponent("genotype-result.json"))
+
+        let blockedProvenanceDirectory = bundleURL.appendingPathComponent(
+            ProvenanceWriter.bundleProvenanceDirectoryName,
+            isDirectory: true
+        )
+        try "blocked".write(to: blockedProvenanceDirectory, atomically: true, encoding: .utf8)
+
+        let sourceURL = root.appendingPathComponent("metadata.tsv")
+        let metadata = Data("""
+        Sample\tCohort\tAnimal
+        AnimalA\ttreated\tmacaque
+        """.utf8)
+        try metadata.write(to: sourceURL)
+        let knownSampleIds: Set<String> = ["AnimalA"]
+        let scanResult = try SampleMetadataStore.scanForSampleColumn(
+            csvData: metadata,
+            knownSampleIds: knownSampleIds
+        )
+        let bestColumn = try XCTUnwrap(scanResult.bestColumn)
+
+        XCTAssertThrowsError(
+            try SampleMetadataBundleImportService().importMetadata(
+                data: metadata,
+                sourceURL: sourceURL,
+                scanResult: scanResult,
+                sampleColumnIndex: bestColumn.index,
+                knownSampleIds: knownSampleIds,
+                bundleURL: bundleURL
+            )
+        )
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent("metadata").path),
+            "Metadata payloads must be removed when provenance cannot be published."
+        )
+        XCTAssertEqual(try String(contentsOf: blockedProvenanceDirectory, encoding: .utf8), "blocked")
+    }
+
     func testImportPersistsTwelveSMetadataAndProvenanceWithResultPayload() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeSampleMetadataImportTests-\(UUID().uuidString)", isDirectory: true)

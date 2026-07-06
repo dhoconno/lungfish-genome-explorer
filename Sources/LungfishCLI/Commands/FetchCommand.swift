@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import ArgumentParser
+import CryptoKit
 import Foundation
 import LungfishCore
 import LungfishIO
@@ -144,6 +145,7 @@ struct NCBISubcommand: AsyncParsableCommand {
                     outputURL: URL(fileURLWithPath: outputPath),
                     startedAt: startedAt,
                     completedAt: Date(),
+                    fetchedRecords: fetchedRecords,
                     retryEvents: retryEvents
                 )
                 if !globalOptions.quiet {
@@ -179,9 +181,13 @@ struct NCBISubcommand: AsyncParsableCommand {
         startedAt: Date,
         completedAt: Date,
         environment: [String: String] = ProcessInfo.processInfo.environment,
+        fetchedRecords: [(accession: String, content: String)]? = nil,
         retryEvents: [NCBIRetryEvent] = []
     ) throws {
         let fm = FileManager.default
+        guard !Self.isExistingDirectory(outputURL, fileManager: fm) else {
+            throw CocoaError(.fileWriteFileExists)
+        }
         let outputDirectoryURL = outputURL.deletingLastPathComponent()
         let token = UUID().uuidString
         let tempOutputURL = outputDirectoryURL
@@ -211,14 +217,17 @@ struct NCBISubcommand: AsyncParsableCommand {
                 format: tempRecord.format,
                 role: tempRecord.role
             )
-            try ncbiFetchProvenanceData(
+            let provenanceEnvelope = try ncbiFetchProvenanceEnvelope(
                 outputURL: outputURL,
                 outputRecord: finalOutputRecord,
                 startedAt: startedAt,
                 completedAt: completedAt,
                 environment: environment,
+                outputContent: content,
+                fetchedRecords: fetchedRecords,
                 retryEvents: retryEvents
-            ).write(to: tempProvenanceURL, options: .atomic)
+            )
+            try ProvenanceWriter(signingProvider: nil).write(provenanceEnvelope, toSidecar: tempProvenanceURL)
 
             if fm.fileExists(atPath: outputURL.path) {
                 try fm.moveItem(at: outputURL, to: backupOutputURL)
@@ -251,6 +260,11 @@ struct NCBISubcommand: AsyncParsableCommand {
         }
     }
 
+    private static func isExistingDirectory(_ url: URL, fileManager: FileManager) -> Bool {
+        var isDirectory: ObjCBool = false
+        return fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+
     func writeNCBIFetchProvenance(
         outputURL: URL,
         startedAt: Date,
@@ -263,72 +277,107 @@ struct NCBISubcommand: AsyncParsableCommand {
             format: fileFormat(forFetchFormat: fetchFormat),
             role: .output
         )
-        try ncbiFetchProvenanceData(
+        let outputContent = try String(contentsOf: outputURL, encoding: .utf8)
+        let provenanceEnvelope = try ncbiFetchProvenanceEnvelope(
             outputURL: outputURL,
             outputRecord: outputRecord,
             startedAt: startedAt,
             completedAt: completedAt,
             environment: environment,
+            outputContent: outputContent,
+            fetchedRecords: nil,
             retryEvents: retryEvents
-        ).write(
-            to: Self.provenanceSidecarURL(for: outputURL),
-            options: .atomic
+        )
+        try ProvenanceWriter(signingProvider: nil).write(
+            provenanceEnvelope,
+            toSidecar: Self.provenanceSidecarURL(for: outputURL)
         )
     }
 
-    private func ncbiFetchProvenanceData(
+    private func ncbiFetchProvenanceEnvelope(
         outputURL: URL,
         outputRecord: FileRecord,
         startedAt: Date,
         completedAt: Date,
         environment: [String: String],
+        outputContent: String,
+        fetchedRecords: [(accession: String, content: String)]?,
         retryEvents: [NCBIRetryEvent]
-    ) throws -> Data {
-        let step = StepExecution(
+    ) throws -> ProvenanceEnvelope {
+        let command = ncbiFetchCommand(outputPath: outputURL.path)
+        let inputDescriptors = ncbiInputDescriptors(outputContent: outputContent, fetchedRecords: fetchedRecords)
+        let outputDescriptor = ProvenanceFileDescriptor(fileRecord: outputRecord)
+        let step = ProvenanceStep(
             toolName: "ncbi-efetch",
             toolVersion: "NCBI E-utilities API",
-            command: ncbiFetchCommand(outputPath: outputURL.path),
-            inputs: ncbiInputRecords(),
-            outputs: [outputRecord],
-            exitCode: 0,
-            wallTime: completedAt.timeIntervalSince(startedAt),
+            argv: command,
+            durableReplayArgv: command,
+            inputs: inputDescriptors,
+            outputs: [outputDescriptor],
+            exitStatus: 0,
+            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
             stderr: nil,
-            startTime: startedAt,
-            endTime: completedAt
+            startedAt: startedAt,
+            completedAt: completedAt
         )
-        let run = WorkflowRun(
+        let legacyRun = WorkflowRun(
             name: "ncbi-sequence-fetch",
             startTime: startedAt,
             endTime: completedAt,
             status: .completed,
             appVersion: "lungfish-cli \(LungfishCLI.configuration.version)",
             hostOS: WorkflowRun.currentHostOS,
-            steps: [step],
-            parameters: [
-                "accessions": .array(accessions.map { .string($0) }),
-                "database": .string(database),
-                "fetchFormat": .string(fetchFormat),
-                "resolvedFetchFormat": .string(Self.resolvedFetchFormatName(for: fetchFormat)),
-                "saveTo": .string(outputURL.standardizedFileURL.path),
-                "apiKeyProvided": .boolean(Self.apiKeyProvided(explicitAPIKey: apiKey, environment: environment)),
-                "retryEnabled": .boolean(!noRetry),
-                "retryCount": .integer(retryEvents.count),
-                "retryEvents": .array(Self.retryEventParameterValues(retryEvents)),
-                "outputFormat": .string(globalOptions.outputFormat.rawValue),
-                "quiet": .boolean(globalOptions.quiet),
-                "endpoint": .string("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"),
-                "containerRuntime": .string("none"),
-                "condaEnvironment": .string("none")
-            ]
+            steps: [StepExecution(
+                toolName: "ncbi-efetch",
+                toolVersion: "NCBI E-utilities API",
+                command: command,
+                inputs: inputDescriptors.map(FileRecord.init(provenanceFile:)),
+                outputs: [outputRecord],
+                exitCode: 0,
+                wallTime: completedAt.timeIntervalSince(startedAt),
+                stderr: nil,
+                startTime: startedAt,
+                endTime: completedAt
+            )],
+            parameters: ncbiFetchParameters(
+                outputURL: outputURL,
+                environment: environment,
+                retryEvents: retryEvents
+            )
         )
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        return try encoder.encode(run)
+        let parameters = ncbiFetchParameters(
+            outputURL: outputURL,
+            environment: environment,
+            retryEvents: retryEvents
+        )
+        let defaults = ncbiFetchDefaults()
+        return ProvenanceEnvelope(
+            createdAt: startedAt,
+            workflowName: "ncbi-sequence-fetch",
+            workflowVersion: WorkflowRun.currentAppVersion,
+            toolName: "ncbi-efetch",
+            toolVersion: "NCBI E-utilities API",
+            argv: command,
+            durableReplayArgv: command,
+            reproducibleCommand: command.map(fetchShellEscape).joined(separator: " "),
+            options: ProvenanceOptions(
+                explicit: parameters,
+                defaults: defaults,
+                resolvedDefaults: resolvedProvenanceOptions(explicit: parameters, defaults: defaults)
+            ),
+            runtimeIdentity: ProvenanceRuntimeIdentity(),
+            files: inputDescriptors + [outputDescriptor],
+            output: outputDescriptor,
+            outputs: [outputDescriptor],
+            steps: [step],
+            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            exitStatus: 0,
+            legacyWorkflowRun: legacyRun
+        )
     }
 
     private func ncbiFetchCommand(outputPath: String) -> [String] {
-        var command = ["lungfish", "fetch", "ncbi"] + accessions + [
+        var command = [CLICommandIdentity.executableName, "fetch", "ncbi"] + accessions + [
             "--db", database,
             "--fetch-format", fetchFormat,
             "--save-to", outputPath,
@@ -344,6 +393,65 @@ struct NCBISubcommand: AsyncParsableCommand {
             command.append("--quiet")
         }
         return command
+    }
+
+    private func ncbiFetchParameters(
+        outputURL: URL,
+        environment: [String: String],
+        retryEvents: [NCBIRetryEvent]
+    ) -> [String: ParameterValue] {
+        [
+            "accessions": .array(accessions.map { .string($0) }),
+            "database": .string(database),
+            "fetchFormat": .string(fetchFormat),
+            "resolvedFetchFormat": .string(Self.resolvedFetchFormatName(for: fetchFormat)),
+            "saveTo": .string(outputURL.standardizedFileURL.path),
+            "apiKeyProvided": .boolean(Self.apiKeyProvided(explicitAPIKey: apiKey, environment: environment)),
+            "retryEnabled": .boolean(!noRetry),
+            "retryCount": .integer(retryEvents.count),
+            "retryEvents": .array(Self.retryEventParameterValues(retryEvents)),
+            "outputFormat": .string(globalOptions.outputFormat.rawValue),
+            "quiet": .boolean(globalOptions.quiet),
+            "endpoint": .string("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"),
+            "containerRuntime": .string("none"),
+            "condaEnvironment": .string("none")
+        ]
+    }
+
+    private func ncbiFetchDefaults() -> [String: ParameterValue] {
+        [
+            "database": .string("nucleotide"),
+            "fetchFormat": .string("fasta"),
+            "resolvedFetchFormat": .string("fasta"),
+            "saveTo": .null,
+            "apiKeyProvided": .boolean(false),
+            "retryEnabled": .boolean(true),
+            "retryCount": .integer(0),
+            "retryEvents": .array([]),
+            "outputFormat": .string(OutputFormat.text.rawValue),
+            "quiet": .boolean(false),
+            "endpoint": .string("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"),
+            "containerRuntime": .string("none"),
+            "condaEnvironment": .string("none")
+        ]
+    }
+
+    private func ncbiInputDescriptors(
+        outputContent: String,
+        fetchedRecords: [(accession: String, content: String)]?
+    ) -> [ProvenanceFileDescriptor] {
+        let rettype = Self.ncbiRettype(for: fetchFormat)
+        let records = fetchedRecords ?? accessions.map { (accession: $0, content: outputContent) }
+        return records.map { record in
+            let data = Data(record.content.utf8)
+            return ProvenanceFileDescriptor(
+                path: "ncbi://\(database)/\(record.accession)?rettype=\(rettype)",
+                checksumSHA256: Self.sha256Hex(data),
+                fileSize: UInt64(data.count),
+                format: fileFormat(forFetchFormat: fetchFormat),
+                role: .input
+            )
+        }
     }
 
     static func resolvedAPIKey(explicitAPIKey: String?, environment: [String: String]) -> String? {
@@ -372,17 +480,6 @@ struct NCBISubcommand: AsyncParsableCommand {
         }
     }
 
-    private func ncbiInputRecords() -> [FileRecord] {
-        let rettype = Self.ncbiRettype(for: fetchFormat)
-        return accessions.map { accession in
-            FileRecord(
-                path: "ncbi://\(database)/\(accession)?rettype=\(rettype)",
-                format: fileFormat(forFetchFormat: fetchFormat),
-                role: .input
-            )
-        }
-    }
-
     static func ncbiRettype(for fetchFormat: String) -> String {
         guard let format = try? ncbiFormat(for: fetchFormat) else {
             return fetchFormat
@@ -397,6 +494,10 @@ struct NCBISubcommand: AsyncParsableCommand {
         case .xml:
             return "native"
         }
+    }
+
+    private static func sha256Hex(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     private func fileFormat(forFetchFormat fetchFormat: String) -> FileFormat {
@@ -821,7 +922,7 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
 
     private func sraDownloadCommand() -> [String] {
         var command = [
-            "lungfish",
+            CLICommandIdentity.executableName,
             "fetch",
             "sra",
             "download",
@@ -883,7 +984,7 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
         }
         steps.append(
             StepExecution(
-                toolName: "lungfish-cli",
+                toolName: CLICommandIdentity.executableName,
                 toolVersion: LungfishCLI.configuration.version,
                 command: sraDownloadCommand(),
                 inputs: trace.sourceInputs.map { input in
@@ -1290,6 +1391,7 @@ struct ENAFastaSubcommand: AsyncParsableCommand {
     @OptionGroup var globalOptions: GlobalOptions
 
     func run() async throws {
+        let startedAt = Date()
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
 
         if !globalOptions.quiet {
@@ -1302,7 +1404,16 @@ struct ENAFastaSubcommand: AsyncParsableCommand {
             let fasta = try await service.fetchFASTA(accession: accession)
 
             if let outputPath = saveTo {
-                try fasta.write(toFile: outputPath, atomically: true, encoding: .utf8)
+                do {
+                    try writeENAFastaOutputWithProvenance(
+                        content: fasta,
+                        outputURL: URL(fileURLWithPath: outputPath),
+                        startedAt: startedAt,
+                        completedAt: Date()
+                    )
+                } catch {
+                    throw CLIError.outputWriteFailed(path: outputPath, reason: error.localizedDescription)
+                }
                 if !globalOptions.quiet {
                     print(formatter.success("Saved to \(outputPath)"))
                 }
@@ -1319,10 +1430,232 @@ struct ENAFastaSubcommand: AsyncParsableCommand {
                 let handler = JSONOutputHandler()
                 handler.writeData(result, label: nil)
             }
+        } catch let error as CLIError {
+            throw error
         } catch {
             throw CLIError.networkError(reason: "ENA fetch failed: \(error.localizedDescription)")
         }
     }
+
+    static func provenanceSidecarURL(for outputURL: URL) -> URL {
+        ProvenanceRecorder.fileSidecarURL(for: outputURL)
+    }
+
+    func writeENAFastaOutputWithProvenance(
+        content: String,
+        outputURL: URL,
+        startedAt: Date,
+        completedAt: Date
+    ) throws {
+        let fm = FileManager.default
+        guard !Self.isExistingDirectory(outputURL, fileManager: fm) else {
+            throw CocoaError(.fileWriteFileExists)
+        }
+        let outputDirectoryURL = outputURL.deletingLastPathComponent()
+        let token = UUID().uuidString
+        let tempOutputURL = outputDirectoryURL
+            .appendingPathComponent(".\(outputURL.lastPathComponent).\(token).tmp")
+        let tempProvenanceURL = outputDirectoryURL
+            .appendingPathComponent(".\(outputURL.lastPathComponent).\(token).lungfish-provenance.tmp")
+        let finalProvenanceURL = Self.provenanceSidecarURL(for: outputURL)
+        let backupOutputURL = outputDirectoryURL
+            .appendingPathComponent(".\(outputURL.lastPathComponent).\(token).backup")
+        let backupProvenanceURL = outputDirectoryURL
+            .appendingPathComponent(".\(finalProvenanceURL.lastPathComponent).\(token).backup")
+        var outputBackedUp = false
+        var provenanceBackedUp = false
+        var outputInstalled = false
+
+        do {
+            try content.write(to: tempOutputURL, atomically: true, encoding: .utf8)
+            let tempRecord = ProvenanceRecorder.fileRecord(url: tempOutputURL, format: .fasta, role: .output)
+            let remoteInputRecord = FileRecord(
+                path: "ena://fasta/\(accession)",
+                sha256: tempRecord.sha256,
+                sizeBytes: tempRecord.sizeBytes,
+                format: .fasta,
+                role: .input
+            )
+            let finalOutputRecord = FileRecord(
+                path: outputURL.standardizedFileURL.path,
+                sha256: tempRecord.sha256,
+                sizeBytes: tempRecord.sizeBytes,
+                format: tempRecord.format,
+                role: tempRecord.role
+            )
+            let provenanceEnvelope = try enaFastaProvenanceEnvelope(
+                outputURL: outputURL,
+                inputRecord: remoteInputRecord,
+                outputRecord: finalOutputRecord,
+                startedAt: startedAt,
+                completedAt: completedAt
+            )
+            try ProvenanceWriter(signingProvider: nil).write(provenanceEnvelope, toSidecar: tempProvenanceURL)
+
+            if fm.fileExists(atPath: outputURL.path) {
+                try fm.moveItem(at: outputURL, to: backupOutputURL)
+                outputBackedUp = true
+            }
+            if fm.fileExists(atPath: finalProvenanceURL.path) {
+                try fm.moveItem(at: finalProvenanceURL, to: backupProvenanceURL)
+                provenanceBackedUp = true
+            }
+
+            try fm.moveItem(at: tempOutputURL, to: outputURL)
+            outputInstalled = true
+            try fm.moveItem(at: tempProvenanceURL, to: finalProvenanceURL)
+
+            try? fm.removeItem(at: backupOutputURL)
+            try? fm.removeItem(at: backupProvenanceURL)
+        } catch {
+            if outputInstalled {
+                try? fm.removeItem(at: outputURL)
+            }
+            if outputBackedUp {
+                try? fm.moveItem(at: backupOutputURL, to: outputURL)
+            }
+            if provenanceBackedUp {
+                try? fm.moveItem(at: backupProvenanceURL, to: finalProvenanceURL)
+            }
+            try? fm.removeItem(at: tempOutputURL)
+            try? fm.removeItem(at: tempProvenanceURL)
+            throw error
+        }
+    }
+
+    private static func isExistingDirectory(_ url: URL, fileManager: FileManager) -> Bool {
+        var isDirectory: ObjCBool = false
+        return fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+
+    private func enaFastaProvenanceEnvelope(
+        outputURL: URL,
+        inputRecord: FileRecord,
+        outputRecord: FileRecord,
+        startedAt: Date,
+        completedAt: Date
+    ) throws -> ProvenanceEnvelope {
+        let command = enaFastaFetchCommand(outputPath: outputURL.path)
+        let inputDescriptor = ProvenanceFileDescriptor(fileRecord: inputRecord)
+        let outputDescriptor = ProvenanceFileDescriptor(fileRecord: outputRecord)
+        let step = ProvenanceStep(
+            toolName: "ena-fetch-fasta",
+            toolVersion: "ENA Browser API",
+            argv: command,
+            durableReplayArgv: command,
+            inputs: [inputDescriptor],
+            outputs: [outputDescriptor],
+            exitStatus: 0,
+            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            stderr: nil,
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+        let parameters = enaFastaParameters(outputURL: outputURL)
+        let legacyRun = WorkflowRun(
+            name: "ena-fasta-fetch",
+            startTime: startedAt,
+            endTime: completedAt,
+            status: .completed,
+            appVersion: "lungfish-cli \(LungfishCLI.configuration.version)",
+            hostOS: WorkflowRun.currentHostOS,
+            steps: [StepExecution(
+                toolName: "ena-fetch-fasta",
+                toolVersion: "ENA Browser API",
+                command: command,
+                inputs: [inputRecord],
+                outputs: [outputRecord],
+                exitCode: 0,
+                wallTime: completedAt.timeIntervalSince(startedAt),
+                stderr: nil,
+                startTime: startedAt,
+                endTime: completedAt
+            )],
+            parameters: parameters
+        )
+        let defaults = enaFastaDefaults()
+        return ProvenanceEnvelope(
+            createdAt: startedAt,
+            workflowName: "ena-fasta-fetch",
+            workflowVersion: WorkflowRun.currentAppVersion,
+            toolName: "ena-fetch-fasta",
+            toolVersion: "ENA Browser API",
+            argv: command,
+            durableReplayArgv: command,
+            reproducibleCommand: command.map(fetchShellEscape).joined(separator: " "),
+            options: ProvenanceOptions(
+                explicit: parameters,
+                defaults: defaults,
+                resolvedDefaults: resolvedProvenanceOptions(explicit: parameters, defaults: defaults)
+            ),
+            runtimeIdentity: ProvenanceRuntimeIdentity(),
+            files: [inputDescriptor, outputDescriptor],
+            output: outputDescriptor,
+            outputs: [outputDescriptor],
+            steps: [step],
+            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            exitStatus: 0,
+            legacyWorkflowRun: legacyRun
+        )
+    }
+
+    private func enaFastaParameters(outputURL: URL) -> [String: ParameterValue] {
+        [
+            "accession": .string(accession),
+            "saveTo": .string(outputURL.standardizedFileURL.path),
+            "outputFormat": .string(globalOptions.outputFormat.rawValue),
+            "quiet": .boolean(globalOptions.quiet),
+            "endpoint": .string("https://www.ebi.ac.uk/ena/browser/api/fasta"),
+            "containerRuntime": .string("none"),
+            "condaEnvironment": .string("none")
+        ]
+    }
+
+    private func enaFastaDefaults() -> [String: ParameterValue] {
+        [
+            "saveTo": .null,
+            "outputFormat": .string(OutputFormat.text.rawValue),
+            "quiet": .boolean(false),
+            "endpoint": .string("https://www.ebi.ac.uk/ena/browser/api/fasta"),
+            "containerRuntime": .string("none"),
+            "condaEnvironment": .string("none")
+        ]
+    }
+
+    private func enaFastaFetchCommand(outputPath: String) -> [String] {
+        var command = [
+            CLICommandIdentity.executableName, "fetch", "ena", "fasta", accession,
+            "--save-to", outputPath,
+            "--format", globalOptions.outputFormat.rawValue
+        ]
+        if globalOptions.quiet {
+            command.append("--quiet")
+        }
+        return command
+    }
+
+}
+
+private func resolvedProvenanceOptions(
+    explicit: [String: ParameterValue],
+    defaults: [String: ParameterValue]
+) -> [String: ParameterValue] {
+    var resolved = defaults
+    explicit.forEach { key, value in
+        resolved[key] = value
+    }
+    return resolved
+}
+
+private func fetchShellEscape(_ value: String) -> String {
+    if value.isEmpty {
+        return "''"
+    }
+    let safeCharacters = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_./:=+-")
+    if value.unicodeScalars.allSatisfy({ safeCharacters.contains($0) }) {
+        return value
+    }
+    return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
 }
 
 /// JSON output for ENA search
@@ -1424,6 +1757,7 @@ struct GenomeSubcommand: AsyncParsableCommand {
     @OptionGroup var globalOptions: GlobalOptions
 
     func run() async throws {
+        let startedAt = Date()
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
         let fileManager = FileManager.default
 
@@ -1443,6 +1777,15 @@ struct GenomeSubcommand: AsyncParsableCommand {
             print(formatter.info("Searching for assembly \(accession)..."))
         }
 
+        let explicitAPIKeyProvided = NCBIAPIKeyResolver.resolve(explicitAPIKey: apiKey, environment: [:]) != nil
+        let resolvedAPIKeyProvided = NCBIAPIKeyResolver.resolve(explicitAPIKey: apiKey) != nil
+        let apiKeySource: GenomeFetchProvenanceWriter.APIKeySource = if explicitAPIKeyProvided {
+            .explicit
+        } else if resolvedAPIKeyProvided {
+            .environment
+        } else {
+            .none
+        }
         let ncbiService = NCBIService(apiKey: apiKey)
 
         // Search the assembly database
@@ -1515,6 +1858,7 @@ struct GenomeSubcommand: AsyncParsableCommand {
 
         // Download GFF3 annotations (if not fasta-only)
         var gffPath: URL?
+        var gffSourceURL: URL?
         if !fastaOnly {
             if !globalOptions.quiet {
                 print(formatter.info("Downloading annotations (GFF3)..."))
@@ -1540,6 +1884,7 @@ struct GenomeSubcommand: AsyncParsableCommand {
                             if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
                                 try fileManager.moveItem(at: tempURL, to: downloadedGffPath)
                                 gffPath = downloadedGffPath
+                                gffSourceURL = gffURL
                                 if !globalOptions.quiet {
                                     print(formatter.success("Annotations downloaded"))
                                 }
@@ -1561,11 +1906,40 @@ struct GenomeSubcommand: AsyncParsableCommand {
         // If fasta-only or no-bundle, just decompress and save
         if fastaOnly || noBundle {
             let finalFastaPath = outputURL.appendingPathComponent("\(bundleName).fna.gz")
-            try fileManager.copyItem(at: fastaGzPath, to: finalFastaPath)
+            let finalGffPath = gffPath.map { _ in outputURL.appendingPathComponent("\(bundleName).gff.gz") }
+            var copiedOutputURLs: [URL] = []
 
-            if let gff = gffPath {
-                let finalGffPath = outputURL.appendingPathComponent("\(bundleName).gff.gz")
-                try fileManager.copyItem(at: gff, to: finalGffPath)
+            do {
+                try fileManager.copyItem(at: fastaGzPath, to: finalFastaPath)
+                copiedOutputURLs.append(finalFastaPath)
+                if let gff = gffPath, let finalGffPath {
+                    try fileManager.copyItem(at: gff, to: finalGffPath)
+                    copiedOutputURLs.append(finalGffPath)
+                }
+                try await GenomeFetchProvenanceWriter().writeDirectOutputs(
+                    .init(
+                        accession: accession,
+                        assemblyAccession: assemblyAccession,
+                        organism: organism,
+                        outputDirectory: outputURL,
+                        bundleName: name,
+                        fastaOnly: fastaOnly,
+                        noBundle: noBundle,
+                        apiKeySource: apiKeySource,
+                        outputFormat: globalOptions.outputFormat,
+                        quiet: globalOptions.quiet,
+                        fastaSourceURL: genomeFileInfo.url,
+                        downloadedFastaURL: fastaGzPath,
+                        gffSourceURL: gffSourceURL,
+                        downloadedGFFURL: gffPath,
+                        finalFastaURL: finalFastaPath,
+                        finalGFFURL: finalGffPath,
+                        startedAt: startedAt
+                    )
+                )
+            } catch {
+                cleanupGenomeFetchDirectOutputs(copiedOutputURLs)
+                throw error
             }
 
             if !globalOptions.quiet {
@@ -1582,7 +1956,7 @@ struct GenomeSubcommand: AsyncParsableCommand {
                     accession: assemblyAccession,
                     organism: organism,
                     fastaPath: outputURL.appendingPathComponent("\(bundleName).fna.gz").path,
-                    gffPath: gffPath != nil ? outputURL.appendingPathComponent("\(bundleName).gff.gz").path : nil,
+                    gffPath: finalGffPath?.path,
                     bundlePath: nil
                 )
                 let handler = JSONOutputHandler()
@@ -1629,6 +2003,9 @@ struct GenomeSubcommand: AsyncParsableCommand {
             annotationInputs.append(AnnotationInput(url: gff, name: "genes"))
         }
 
+        let bundleStagingOutputURL = tempDir.appendingPathComponent("bundle-staging", isDirectory: true)
+        try fileManager.createDirectory(at: bundleStagingOutputURL, withIntermediateDirectories: true)
+
         // Create build configuration
         let config = BuildConfiguration(
             name: name ?? organism,
@@ -1637,7 +2014,7 @@ struct GenomeSubcommand: AsyncParsableCommand {
             annotationFiles: annotationInputs,
             variantFiles: [],
             signalFiles: [],
-            outputDirectory: outputURL,
+            outputDirectory: bundleStagingOutputURL,
             source: SourceInfo(
                 organism: organism,
                 commonName: nil,
@@ -1651,15 +2028,49 @@ struct GenomeSubcommand: AsyncParsableCommand {
             ),
             compressFASTA: true
         )
+        let finalBundleURL = outputURL.appendingPathComponent(
+            "\(Self.bundleDirectoryName(for: config.name)).lungfishref",
+            isDirectory: true
+        )
+        if fileManager.fileExists(atPath: finalBundleURL.path) {
+            throw CLIError.outputWriteFailed(path: finalBundleURL.path, reason: "Path already exists")
+        }
 
         // Build the bundle
-        let bundleURL = try await builder.build(configuration: config) { step, progress, message in
+        let stagedBundleURL = try await builder.build(configuration: config) { step, progress, message in
             if !globalOptions.quiet && globalOptions.outputFormat == .text {
                 let progressPercent = Int(progress * 100)
                 print("\r  [\(progressPercent)%] \(message)", terminator: "")
                 fflush(stdout)
             }
         }
+
+        try fileManager.moveItem(at: stagedBundleURL, to: finalBundleURL)
+        do {
+            try await GenomeFetchProvenanceWriter().writeBundle(
+                .init(
+                    bundleURL: finalBundleURL,
+                    accession: accession,
+                    assemblyAccession: assemblyAccession,
+                    organism: organism,
+                    outputDirectory: outputURL,
+                    bundleName: name,
+                    fastaOnly: fastaOnly,
+                    noBundle: noBundle,
+                    apiKeySource: apiKeySource,
+                    outputFormat: globalOptions.outputFormat,
+                    quiet: globalOptions.quiet,
+                    fastaSourceURL: genomeFileInfo.url,
+                    downloadedFastaURL: fastaGzPath,
+                    gffSourceURL: gffSourceURL,
+                    downloadedGFFURL: gffPath,
+                    startedAt: startedAt
+                )
+            )
+        } catch {
+            try removeGenomeFetchBundleAfterProvenanceFailure(finalBundleURL, provenanceError: error)
+        }
+        let bundleURL = finalBundleURL
 
         if !globalOptions.quiet {
             print("") // newline after progress
@@ -1687,6 +2098,35 @@ struct GenomeSubcommand: AsyncParsableCommand {
             let handler = JSONOutputHandler()
             handler.writeData(result, label: nil)
         }
+    }
+
+    private static func bundleDirectoryName(for name: String) -> String {
+        name
+            .replacingOccurrences(of: " ", with: "_")
+            .replacingOccurrences(of: "/", with: "-")
+    }
+
+    private func cleanupGenomeFetchDirectOutputs(_ outputURLs: [URL]) {
+        let fileManager = FileManager.default
+        for outputURL in outputURLs {
+            try? fileManager.removeItem(at: outputURL)
+            try? fileManager.removeItem(at: ProvenanceRecorder.fileSidecarURL(for: outputURL))
+        }
+    }
+
+    private func removeGenomeFetchBundleAfterProvenanceFailure(
+        _ bundleURL: URL,
+        provenanceError: Error
+    ) throws {
+        do {
+            try FileManager.default.removeItem(at: bundleURL)
+        } catch {
+            throw CLIError.outputWriteFailed(
+                path: bundleURL.path,
+                reason: "Provenance write failed (\(provenanceError.localizedDescription)); cleanup failed (\(error.localizedDescription))"
+            )
+        }
+        throw provenanceError
     }
 }
 

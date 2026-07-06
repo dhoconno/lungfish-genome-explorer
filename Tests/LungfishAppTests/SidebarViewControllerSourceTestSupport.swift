@@ -32,6 +32,7 @@ func sidebarViewControllerSourceDirectory() -> URL {
 /// range-based source assertions that span method boundaries still resolve start < end.
 private let sidebarViewControllerOrderedSourceFiles: [String] = [
     "SidebarViewController.swift",
+    "SidebarViewController+AnalysisManifest.swift",
     "SidebarViewController+OutlineDataSource.swift",
     "SidebarViewController+OutlineDelegate.swift",
     "SidebarItem.swift",

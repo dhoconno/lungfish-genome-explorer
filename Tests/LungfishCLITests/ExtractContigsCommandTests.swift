@@ -1,6 +1,7 @@
 import XCTest
 import ArgumentParser
 import Foundation
+import LungfishTestSupport
 import LungfishWorkflow
 @testable import LungfishCLI
 @testable import LungfishCore
@@ -8,18 +9,9 @@ import LungfishWorkflow
 
 final class ExtractContigsCommandTests: XCTestCase {
     private var cliBinaryPath: URL? {
-        let thisFile = URL(fileURLWithPath: #filePath)
-        let repoRoot = thisFile
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-
-        let candidates = [
-            repoRoot.appendingPathComponent(".build/debug/lungfish-cli"),
-            repoRoot.appendingPathComponent(".build/arm64-apple-macosx/debug/lungfish-cli"),
-            repoRoot.appendingPathComponent(".build/x86_64-apple-macosx/debug/lungfish-cli"),
-        ]
-        return candidates.first { FileManager.default.fileExists(atPath: $0.path) }
+        CLITestBinaryResolver.cliBinaryURL(
+            repoRoot: CLITestBinaryResolver.repositoryRoot(containing: #filePath)
+        )
     }
 
     func testParseBundleModeRequiresProjectRoot() throws {
@@ -171,6 +163,38 @@ final class ExtractContigsCommandTests: XCTestCase {
 
             """
         )
+    }
+
+    func testBundleModeWritesBundleProvenanceForManifestAndGenomePayload() async throws {
+        let fixture = try makeAssemblyFixture()
+        let projectRoot = fixture.root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let args = [
+            "--assembly", fixture.root.path,
+            "--bundle",
+            "--bundle-name", "Selected Contigs",
+            "--project-root", projectRoot.path,
+            "--contig", "beta",
+            "--line-width", "4",
+            "--quiet",
+        ]
+        var command = try ExtractContigsSubcommand.parse(args)
+        command.rawSelectionArguments = args
+
+        try await command.run()
+
+        let bundleURL = projectRoot
+            .appendingPathComponent(ReferenceSequenceFolder.folderName, isDirectory: true)
+            .appendingPathComponent("Selected_Contigs.lungfishref", isDirectory: true)
+        let provenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: provenanceURL.path))
+
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL))
+        let outputPaths = Set(envelope.outputs.map(\.path))
+        XCTAssertTrue(outputPaths.contains(bundleURL.appendingPathComponent("manifest.json").path))
+        XCTAssertTrue(outputPaths.contains(bundleURL.appendingPathComponent("genome/sequence.fa").path))
+        XCTAssertTrue(outputPaths.contains(bundleURL.appendingPathComponent("genome/sequence.fa.fai").path))
+        XCTAssertTrue(envelope.outputs.allSatisfy { $0.checksumSHA256 != nil })
+        XCTAssertTrue(envelope.outputs.allSatisfy { $0.fileSize != nil })
     }
 
     private func makeAssemblyFixture() throws -> (root: URL, result: AssemblyResult) {

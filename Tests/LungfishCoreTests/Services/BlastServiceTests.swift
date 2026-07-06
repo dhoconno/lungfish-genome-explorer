@@ -457,6 +457,20 @@ final class BlastServiceTests: XCTestCase {
         service = BlastService(httpClient: mockClient)
     }
 
+    func testRequestLifecycleMethodsRemainPublicAPI() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishCore/Services/Blast/BlastService.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("public func submit("))
+        XCTAssertTrue(source.contains("public func checkStatus(rid:"))
+        XCTAssertTrue(source.contains("public func getResults(rid:"))
+    }
+
     // MARK: - Submission Tests
 
     func testSubmitBuildsPOSTRequest() async throws {
@@ -494,6 +508,37 @@ final class BlastServiceTests: XCTestCase {
         XCTAssertTrue(body.contains("MEGABLAST=on"))
         XCTAssertTrue(body.contains("FORMAT_TYPE=JSON2"))
         XCTAssertTrue(body.contains("TOOL=lungfish"))
+    }
+
+    func testSubmitFormEncodesBLASTBodyDelimiters() async throws {
+        await mockClient.register(
+            pattern: "blast/Blast.cgi",
+            response: .text(mockSubmissionResponse(rid: "SAFE123", rtoe: 30))
+        )
+
+        let query = ">read&FORMAT_TYPE=HTML=x+1\nATGC"
+        let entrezQuery = "txid123[Organism:exp]&src=a+b"
+        let filter = "L+low&FORMAT_TYPE=HTML"
+
+        _ = try await service.submit(
+            query: query,
+            program: "blastn",
+            database: "nt",
+            entrezQuery: entrezQuery,
+            evalue: 1e-10,
+            maxTargetSeqs: 10,
+            megablast: true,
+            extraParameters: ["FILTER": filter]
+        )
+
+        let requests = await mockClient.requests
+        let body = String(data: try XCTUnwrap(requests.first?.httpBody), encoding: .utf8)!
+        let fields = formFields(from: body)
+
+        XCTAssertEqual(fields["QUERY"], [query])
+        XCTAssertEqual(fields["ENTREZ_QUERY"], [entrezQuery])
+        XCTAssertEqual(fields["FILTER"], [filter])
+        XCTAssertEqual(fields["FORMAT_TYPE"], ["JSON2"])
     }
 
     func testSubmitWithoutMegablast() async throws {
@@ -843,6 +888,32 @@ final class BlastServiceTests: XCTestCase {
         } catch {
             XCTFail("Unexpected error type: \(error)")
         }
+    }
+
+    func testGetResultsDoesNotPersistDebugArtifacts() async throws {
+        let rid = "NODEBUG123"
+        let debugDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lungfish-blast-debug")
+        try? FileManager.default.removeItem(at: debugDir)
+        defer { try? FileManager.default.removeItem(at: debugDir) }
+
+        await mockClient.register(
+            pattern: "blast/Blast.cgi",
+            response: .text(mockBlastJSON2Response())
+        )
+
+        let results = try await service.getResults(rid: rid)
+        XCTAssertEqual(results.count, 2)
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: debugDir.appendingPathComponent("\(rid)-raw-response").path
+            )
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: debugDir.appendingPathComponent("\(rid)-extracted.json").path
+            )
+        )
     }
 
     // MARK: - Verdict Assignment Tests
@@ -1199,6 +1270,7 @@ final class BlastServiceTests: XCTestCase {
             .jobFailed(rid: "DEF456", message: "Search expired"),
             .resultParsingFailed(message: "Invalid JSON"),
             .noSequences,
+            .inputReadFailed(message: "gzip decompression failed"),
             .rateLimitExceeded(retryAfter: 30),
             .httpError(statusCode: 503, body: "Service Unavailable"),
             .networkFailed(message: "The network connection was lost"),
@@ -1258,6 +1330,23 @@ final class BlastServiceTests: XCTestCase {
         </body>
         </html>
         """
+    }
+
+    private func formFields(from body: String) -> [String: [String]] {
+        body.split(separator: "&", omittingEmptySubsequences: false).reduce(into: [:]) { fields, pair in
+            let parts = pair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            let rawKey = parts.first.map(String.init) ?? ""
+            let rawValue = parts.count > 1 ? String(parts[1]) : ""
+            let key = Self.decodeFormComponent(rawKey)
+            let value = Self.decodeFormComponent(rawValue)
+            fields[key, default: []].append(value)
+        }
+    }
+
+    private static func decodeFormComponent(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "+", with: " ")
+            .removingPercentEncoding ?? value
     }
 
     /// Generates a mock BLAST JSON2 response with 2 query results.
@@ -1577,6 +1666,37 @@ final class BlastBuildRequestTests: XCTestCase {
         XCTAssertEqual(request.sequences.first?.id, "read_001")
     }
 
+    func testCorruptCompressedKrakenOutputThrowsInputReadFailure() async throws {
+        let classURL = tempDir.appendingPathComponent("output.kraken.gz")
+        try Data("not a gzip stream".utf8).write(to: classURL)
+
+        let sourceURL = tempDir.appendingPathComponent("reads.fastq")
+        try "@read_001\nATGCATGC\n+\nIIIIIIII\n"
+            .write(to: sourceURL, atomically: true, encoding: .utf8)
+
+        do {
+            _ = try await service.buildVerificationRequest(
+                taxonName: "E. coli",
+                taxId: 562,
+                targetTaxIds: [562],
+                classificationOutputURL: classURL,
+                sourceURL: sourceURL,
+                readCount: 20
+            )
+            XCTFail("Expected corrupt gzipped Kraken output to fail before sequence extraction")
+        } catch let error as BlastServiceError {
+            if case .noSequences = error {
+                XCTFail("Corrupt gzipped Kraken output should report gzip failure, not no matching sequences")
+            }
+            XCTAssertTrue(
+                error.localizedDescription.localizedCaseInsensitiveContains("gzip"),
+                "Expected gzip/decompression error, got \(error.localizedDescription)"
+            )
+        } catch {
+            XCTFail("Expected BlastServiceError, got \(error)")
+        }
+    }
+
     func testPairedEndSuffixStripping() async throws {
         // Kraken2 output uses /1 suffix, FASTQ uses /1 suffix — both should be stripped
         let classURL = tempDir.appendingPathComponent("output.kraken")
@@ -1646,5 +1766,72 @@ final class BlastBuildRequestTests: XCTestCase {
         )
 
         XCTAssertEqual(request.sequences.count, 5, "Should extract all 5 reads from gzipped FASTQ")
+    }
+
+    func testGzipExtractionRetryBackoffHonorsCancellation() async throws {
+        let gzURL = tempDir.appendingPathComponent("reads.fastq.gz")
+        try Data("not a gzip stream".utf8).write(to: gzURL)
+        let blastService = try XCTUnwrap(service)
+
+        let task = Task {
+            try await blastService.buildVerificationRequestFromReadIds(
+                taxonName: "E. coli",
+                taxId: 562,
+                matchingReadIds: ["read_0"],
+                sourceURL: gzURL,
+                readCount: 20
+            )
+        }
+
+        try await Task.sleep(nanoseconds: 50_000_000)
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            XCTFail("Expected cancellation during gzip retry backoff")
+        } catch is CancellationError {
+            // Expected: retry backoff must be cooperative and cancellation-aware.
+        } catch {
+            XCTFail("Expected CancellationError, got \(error)")
+        }
+    }
+
+    func testCorruptGzipFASTQExtractionThrowsInsteadOfReturningPartialReads() async throws {
+        let rawURL = tempDir.appendingPathComponent("reads.fastq")
+        try "@read_0\nATGCATGC\n+\nIIIIIIII\n"
+            .write(to: rawURL, atomically: true, encoding: .utf8)
+
+        let gzipProc = Process()
+        gzipProc.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+        gzipProc.arguments = ["-c", rawURL.path]
+        let outPipe = Pipe()
+        gzipProc.standardOutput = outPipe
+        try gzipProc.run()
+        let compressed = outPipe.fileHandleForReading.readDataToEndOfFile()
+        gzipProc.waitUntilExit()
+        XCTAssertEqual(gzipProc.terminationStatus, 0)
+        XCTAssertGreaterThan(compressed.count, 8)
+
+        let gzURL = tempDir.appendingPathComponent("reads.fastq.gz")
+        try Data(compressed.dropLast(8)).write(to: gzURL)
+
+        do {
+            _ = try await service.buildVerificationRequestFromReadIds(
+                taxonName: "E. coli",
+                taxId: 562,
+                matchingReadIds: ["read_0"],
+                sourceURL: gzURL,
+                readCount: 20
+            )
+            XCTFail("Expected corrupt gzip input to fail instead of returning partial reads")
+        } catch let error as BlastServiceError {
+            if case .noSequences = error {
+                XCTFail("Corrupt gzip should report decompression failure, not look like an empty match set")
+            }
+            XCTAssertTrue(
+                error.localizedDescription.localizedCaseInsensitiveContains("gzip"),
+                "Expected gzip/decompression error, got \(error.localizedDescription)"
+            )
+        }
     }
 }

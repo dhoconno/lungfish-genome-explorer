@@ -6,12 +6,16 @@ import Foundation
 
 // MARK: - NextflowExporter
 
-/// Exports a workflow graph to Nextflow DSL2 format.
+/// Exports the legacy runnable subset of a workflow graph to Nextflow DSL2 format.
 ///
-/// Generates a complete Nextflow pipeline script with:
+/// Generates a Nextflow pipeline script for supported legacy workflow nodes with:
 /// - Process definitions for each node
 /// - Channel definitions for data flow
 /// - Workflow block connecting processes
+///
+/// Native Workflow Builder FASTQ operations are executed by
+/// `WorkflowBuilderNativeRunner` and are intentionally rejected here instead of
+/// being rendered as incomplete placeholder processes.
 ///
 /// ## Example
 /// ```swift
@@ -98,7 +102,7 @@ public struct NextflowExporter: Sendable {
             throw NextflowExportError.cycleDetected
         }
 
-        if let unsupported = orderedNodes.first(where: { $0.type.isBuilderNativeFASTQNode }) {
+        if let unsupported = orderedNodes.first(where: { !Self.supportsExporting($0.type) }) {
             throw NextflowExportError.unsupportedNodeType(unsupported.type)
         }
 
@@ -197,6 +201,34 @@ public struct NextflowExporter: Sendable {
     }
 
     // MARK: - Process Generation
+
+    private static let supportedInputNodeTypes: Set<WorkflowNodeType> = [
+        .sampleInput,
+        .fastqInput,
+        .fastaInput,
+        .bamInput,
+        .sampleSheet,
+    ]
+
+    private static let supportedProcessNodeTypes: Set<WorkflowNodeType> = [
+        .qualityControl,
+        .trimming,
+        .alignment,
+        .variantCalling,
+        .quantification,
+        .assembly,
+        .report,
+        .export,
+    ]
+
+    private static func supportsExporting(_ type: WorkflowNodeType) -> Bool {
+        switch type.category {
+        case .input:
+            return supportedInputNodeTypes.contains(type)
+        default:
+            return supportedProcessNodeTypes.contains(type)
+        }
+    }
 
     private func generateProcess(node: WorkflowNode, graph: WorkflowGraph) throws -> String {
         var process = ""
@@ -364,7 +396,7 @@ public struct NextflowExporter: Sendable {
         case .export:
             return "    cp ${input} .\n"
         default:
-            return "    # TODO: Add script for \(node.type.displayName)\n"
+            throw NextflowExportError.unsupportedNodeType(node.type)
         }
     }
 

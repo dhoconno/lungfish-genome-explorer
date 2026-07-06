@@ -5,6 +5,7 @@
 import Foundation
 import LungfishCore
 import LungfishIO
+import SQLite3
 import os.log
 
 private let logger = Logger(subsystem: LogSubsystem.workflow, category: "MetagenomicsImport")
@@ -36,6 +37,16 @@ public enum MetagenomicsImportKind: String, CaseIterable, Codable, Sendable {
     /// The canonical tool identifier used in `AnalysesFolder.knownTools`.
     public var toolIdentifier: String {
         rawValue
+    }
+
+    /// Token used by the `lungfish-cli import <token>` command family.
+    public var importCommandToken: String {
+        switch self {
+        case .naomgs:
+            return "nao-mgs"
+        default:
+            return rawValue
+        }
     }
 }
 
@@ -104,6 +115,41 @@ public struct NaoMgsImportResult: Sendable {
     }
 }
 
+/// Result metadata for an imported NVD result directory.
+public struct NvdImportResult: Sendable {
+    public let resultDirectory: URL
+    public let sampleCount: Int
+    public let hitCount: Int
+    public let contigCount: Int
+    public let copiedBAMCount: Int
+    public let copiedBAMIndexCount: Int
+    public let copiedFASTACount: Int
+    public let markdupBAMCount: Int
+    public let uniqueReadRowsUpdated: Int
+
+    public init(
+        resultDirectory: URL,
+        sampleCount: Int,
+        hitCount: Int,
+        contigCount: Int,
+        copiedBAMCount: Int,
+        copiedBAMIndexCount: Int,
+        copiedFASTACount: Int,
+        markdupBAMCount: Int,
+        uniqueReadRowsUpdated: Int
+    ) {
+        self.resultDirectory = resultDirectory
+        self.sampleCount = sampleCount
+        self.hitCount = hitCount
+        self.contigCount = contigCount
+        self.copiedBAMCount = copiedBAMCount
+        self.copiedBAMIndexCount = copiedBAMIndexCount
+        self.copiedFASTACount = copiedFASTACount
+        self.markdupBAMCount = markdupBAMCount
+        self.uniqueReadRowsUpdated = uniqueReadRowsUpdated
+    }
+}
+
 /// Intermediate result from importing a single pre-partitioned sample into staging.
 private struct NaoMgsSingleSampleStageResult {
     let sampleName: String
@@ -111,6 +157,7 @@ private struct NaoMgsSingleSampleStageResult {
     let taxonCount: Int
     let createdBAM: Bool
     let stageInput: NaoMgsStageDatabaseInput
+    let materializationSteps: [NaoMgsBamMaterializationStep]
 }
 
 /// Errors thrown while importing classifier outputs.
@@ -120,6 +167,7 @@ public enum MetagenomicsImportError: Error, LocalizedError, Sendable {
     case copyFailed(source: URL, destination: URL, reason: String)
     case parseFailed(URL, String)
     case toolUnavailable(String)
+    case outputAlreadyExists(URL)
     case importAborted(resultDirectory: URL, underlying: Error)
 
     public var errorDescription: String? {
@@ -134,6 +182,8 @@ public enum MetagenomicsImportError: Error, LocalizedError, Sendable {
             return "Failed to parse \(url.lastPathComponent): \(reason)"
         case .toolUnavailable(let tool):
             return "Required tool is unavailable: \(tool)"
+        case .outputAlreadyExists(let url):
+            return "Output already exists: \(url.path)"
         case .importAborted(_, let underlying):
             return "Import aborted: \(underlying.localizedDescription)"
         }
@@ -155,8 +205,10 @@ public enum MetagenomicsImportService {
         outputDirectory: URL,
         outputFileURL: URL? = nil,
         preferredName: String? = nil,
+        provenanceCommand: [String]? = nil,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) throws -> Kraken2ImportResult {
+        let startedAt = Date()
         let fm = FileManager.default
 
         guard fm.fileExists(atPath: kreportURL.path) else {
@@ -182,7 +234,8 @@ public enum MetagenomicsImportService {
         try ensureDirectoryExists(resultDirectory)
         writeAnalysisMetadataIfNeeded(tool: MetagenomicsImportKind.kraken2.toolIdentifier, to: resultDirectory)
         OperationMarker.markInProgress(resultDirectory, detail: "Importing Kraken2 results\u{2026}")
-        defer { OperationMarker.clearInProgress(resultDirectory) }
+        var importCompleted = false
+        defer { finalizeImportDirectory(resultDirectory, completed: importCompleted) }
 
         let canonicalReportURL = resultDirectory.appendingPathComponent("classification.kreport")
         progress?(0.25, "Copying report...")
@@ -241,8 +294,34 @@ public enum MetagenomicsImportService {
                 reason: error.localizedDescription
             )
         }
+        do {
+            try writeMetagenomicsImportProvenance(
+                kind: .kraken2,
+                sourceURLs: [kreportURL] + (outputFileURL.map { [$0] } ?? []),
+                resultDirectory: resultDirectory,
+                command: provenanceCommand,
+                explicitOptions: [
+                    "kreport": .file(kreportURL),
+                    "outputFile": outputFileURL.map(ParameterValue.file) ?? .null,
+                    "preferredName": preferredName.map(ParameterValue.string) ?? .null,
+                    "outputRoot": .file(outputDirectory),
+                ],
+                resolvedDefaults: [
+                    "classificationReport": .file(canonicalReportURL),
+                    "classificationOutput": .file(retainedOutputURL),
+                    "outputDirectory": .file(resultDirectory),
+                    "totalReads": .integer(tree.totalReads),
+                    "speciesCount": .integer(tree.speciesCount),
+                ],
+                startedAt: startedAt
+            )
+        } catch {
+            try? fm.removeItem(at: resultDirectory)
+            throw error
+        }
 
         progress?(1.0, "Kraken2 import complete")
+        importCompleted = true
         return Kraken2ImportResult(
             resultDirectory: resultDirectory,
             totalReads: tree.totalReads,
@@ -268,8 +347,10 @@ public enum MetagenomicsImportService {
         inputURL: URL,
         outputDirectory: URL,
         preferredName: String? = nil,
+        provenanceCommand: [String]? = nil,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) throws -> EsVirituImportResult {
+        let startedAt = Date()
         let fm = FileManager.default
         guard fm.fileExists(atPath: inputURL.path) else {
             throw MetagenomicsImportError.inputNotFound(inputURL)
@@ -289,7 +370,8 @@ public enum MetagenomicsImportService {
         try ensureDirectoryExists(resultDirectory)
         writeAnalysisMetadataIfNeeded(tool: MetagenomicsImportKind.esviritu.toolIdentifier, to: resultDirectory)
         OperationMarker.markInProgress(resultDirectory, detail: "Importing EsViritu results\u{2026}")
-        defer { OperationMarker.clearInProgress(resultDirectory) }
+        var importCompleted = false
+        defer { finalizeImportDirectory(resultDirectory, completed: importCompleted) }
         progress?(0.05, "Copying EsViritu files...")
 
         let copiedFiles = try copyInputPayload(from: inputURL, into: resultDirectory)
@@ -350,8 +432,37 @@ public enum MetagenomicsImportService {
             provenanceId: nil
         )
         try pipelineResult.save(to: resultDirectory)
+        do {
+            try writeMetagenomicsImportProvenance(
+                kind: .esviritu,
+                sourceURLs: sourcePayloadURLs(
+                    inputURL: inputURL,
+                    copiedRegularFiles: copiedRegularFiles,
+                    resultDirectory: resultDirectory
+                ),
+                resultDirectory: resultDirectory,
+                command: provenanceCommand,
+                explicitOptions: [
+                    "input": .file(inputURL),
+                    "preferredName": preferredName.map(ParameterValue.string) ?? .null,
+                    "outputRoot": .file(outputDirectory),
+                ],
+                resolvedDefaults: [
+                    "detectionFile": .file(detectionURL),
+                    "outputDirectory": .file(resultDirectory),
+                    "importedFileCount": .integer(copiedRegularFiles.count),
+                    "virusCount": .integer(virusCount),
+                    "sampleName": .string(sampleName),
+                ],
+                startedAt: startedAt
+            )
+        } catch {
+            try? fm.removeItem(at: resultDirectory)
+            throw error
+        }
 
         progress?(1.0, "EsViritu import complete")
+        importCompleted = true
         return EsVirituImportResult(
             resultDirectory: resultDirectory,
             importedFileCount: copiedRegularFiles.count,
@@ -364,8 +475,10 @@ public enum MetagenomicsImportService {
         inputURL: URL,
         outputDirectory: URL,
         preferredName: String? = nil,
+        provenanceCommand: [String]? = nil,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) throws -> TaxTriageImportResult {
+        let startedAt = Date()
         let fm = FileManager.default
         guard fm.fileExists(atPath: inputURL.path) else {
             throw MetagenomicsImportError.inputNotFound(inputURL)
@@ -385,10 +498,12 @@ public enum MetagenomicsImportService {
         try ensureDirectoryExists(resultDirectory)
         writeAnalysisMetadataIfNeeded(tool: MetagenomicsImportKind.taxtriage.toolIdentifier, to: resultDirectory)
         OperationMarker.markInProgress(resultDirectory, detail: "Importing TaxTriage results\u{2026}")
-        defer { OperationMarker.clearInProgress(resultDirectory) }
+        var importCompleted = false
+        defer { finalizeImportDirectory(resultDirectory, completed: importCompleted) }
         progress?(0.05, "Copying TaxTriage files...")
 
-        _ = try copyInputPayload(from: inputURL, into: resultDirectory)
+        let copiedFiles = try copyInputPayload(from: inputURL, into: resultDirectory)
+        let copiedRegularFiles = copiedFiles.filter { isRegularFile($0) }
         let allOutputFiles = scanRegularFilesRecursively(in: resultDirectory)
 
         progress?(0.55, "Detecting report files...")
@@ -450,13 +565,262 @@ public enum MetagenomicsImportService {
             ignoredFailures: ignoredFailures
         )
         try result.save()
+        do {
+            try writeMetagenomicsImportProvenance(
+                kind: .taxtriage,
+                sourceURLs: sourcePayloadURLs(
+                    inputURL: inputURL,
+                    copiedRegularFiles: copiedRegularFiles,
+                    resultDirectory: resultDirectory
+                ),
+                resultDirectory: resultDirectory,
+                command: provenanceCommand,
+                explicitOptions: [
+                    "input": .file(inputURL),
+                    "preferredName": preferredName.map(ParameterValue.string) ?? .null,
+                    "outputRoot": .file(outputDirectory),
+                ],
+                resolvedDefaults: [
+                    "outputDirectory": .file(resultDirectory),
+                    "importedFileCount": .integer(allOutputFiles.count),
+                    "reportEntryCount": .integer(reportEntries),
+                    "ignoredFailureCount": .integer(ignoredFailures.count),
+                ],
+                startedAt: startedAt
+            )
+        } catch {
+            try? fm.removeItem(at: resultDirectory)
+            throw error
+        }
 
         progress?(1.0, "TaxTriage import complete")
+        importCompleted = true
         return TaxTriageImportResult(
             resultDirectory: resultDirectory,
             importedFileCount: allOutputFiles.count,
             reportEntryCount: reportEntries
         )
+    }
+
+    /// Imports an NVD run directory into a canonical app-viewable result bundle.
+    ///
+    /// The imported folder contains `manifest.json`, `hits.sqlite`, and any
+    /// discoverable per-sample BAM/BAI/FASTA assets. The bundle is assembled in a
+    /// hidden staging directory, provenance is written with final output paths,
+    /// and only then is the directory promoted into place.
+    public static func importNvd(
+        inputURL: URL,
+        outputDirectory: URL,
+        preferredName: String? = nil,
+        allowUniqueSuffix: Bool = true,
+        samtoolsPath: String? = nil,
+        provenanceCommand: [String]? = nil,
+        provenanceWorkflowName: String = "lungfish import nvd",
+        provenanceToolName: String = "lungfish import",
+        provenanceCollisionTestHook: Bool = false,
+        progress: (@Sendable (Double, String) -> Void)? = nil
+    ) async throws -> NvdImportResult {
+        let startedAt = Date()
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: inputURL.path) else {
+            throw MetagenomicsImportError.inputNotFound(inputURL)
+        }
+
+        let labkeyDir = inputURL.appendingPathComponent("05_labkey_bundling", isDirectory: true)
+        guard fm.fileExists(atPath: labkeyDir.path) else {
+            throw MetagenomicsImportError.inputNotFound(labkeyDir)
+        }
+
+        let labkeyContents = try fm.contentsOfDirectory(at: labkeyDir, includingPropertiesForKeys: nil)
+        guard let csvURL = labkeyContents.first(where: NvdResultParser.isBlastConcatenatedCSV) else {
+            throw MetagenomicsImportError.parseFailed(
+                labkeyDir,
+                "No *_blast_concatenated.csv or *.csv.gz found in 05_labkey_bundling/"
+            )
+        }
+
+        progress?(0.05, "Parsing NVD CSV...")
+        let parser = NvdResultParser()
+        let parseResult: NvdParseResult
+        do {
+            parseResult = try await parser.parse(at: csvURL) { lineCount in
+                if lineCount % 5000 == 0 {
+                    progress?(0.05 + min(0.25, Double(lineCount) / 100_000.0 * 0.25), "Parsing CSV... \(lineCount) rows")
+                }
+            }
+        } catch {
+            throw MetagenomicsImportError.parseFailed(csvURL, error.localizedDescription)
+        }
+
+        let defaultBundleName = "nvd-\(parseResult.experiment.isEmpty ? inputURL.lastPathComponent : parseResult.experiment)"
+        let bundleName = normalizedBaseName(preferredName: preferredName, fallback: defaultBundleName)
+        try ensureDirectoryExists(outputDirectory)
+        let finalDirectory = try nvdResultDirectory(
+            named: bundleName,
+            in: outputDirectory,
+            allowUniqueSuffix: allowUniqueSuffix
+        )
+        let stagingDirectory = outputDirectory.appendingPathComponent(
+            ".lungfish-nvd-import-\(UUID().uuidString)",
+            isDirectory: true
+        )
+
+        do {
+            progress?(0.35, "Preparing NVD bundle...")
+            try ensureDirectoryExists(stagingDirectory)
+            writeAnalysisMetadataIfNeeded(tool: MetagenomicsImportKind.nvd.toolIdentifier, to: stagingDirectory)
+            OperationMarker.markInProgress(stagingDirectory, detail: "Importing NVD results...")
+            defer { OperationMarker.clearInProgress(stagingDirectory) }
+
+            let bamDirectory = stagingDirectory.appendingPathComponent("bam", isDirectory: true)
+            let fastaDirectory = stagingDirectory.appendingPathComponent("fasta", isDirectory: true)
+            try ensureDirectoryExists(bamDirectory)
+            try ensureDirectoryExists(fastaDirectory)
+
+            let sampleBuild = try nvdBuildSampleMetadata(inputURL: inputURL, result: parseResult)
+
+            progress?(0.45, "Creating NVD database...")
+            let databaseURL = stagingDirectory.appendingPathComponent("hits.sqlite")
+            try NvdDatabase.create(
+                at: databaseURL,
+                hits: parseResult.hits,
+                samples: sampleBuild.samples
+            ) { fraction, message in
+                progress?(0.45 + fraction * 0.15, message)
+            }
+
+            progress?(0.62, "Copying NVD BAM files...")
+            let copiedBAMs = try nvdCopyBAMAssets(
+                sampleMetadata: sampleBuild.samples,
+                assetSources: sampleBuild.assetSources,
+                bundleDirectory: stagingDirectory
+            )
+
+            var markdupBAMCount = 0
+            var uniqueReadRowsUpdated = 0
+            var auxiliarySamtoolsSteps: [NvdAuxiliaryStep] = []
+            if let samtoolsPath, !copiedBAMs.bamURLs.isEmpty {
+                let samtoolsVersion = metagenomicsExternalToolVersion(executablePath: samtoolsPath)
+                progress?(0.72, "Marking duplicate reads...")
+                let markdupResults = try MarkdupService.markdupDirectory(
+                    bamDirectory,
+                    samtoolsPath: samtoolsPath
+                )
+                markdupBAMCount = markdupResults.filter { !$0.wasAlreadyMarkduped }.count
+                auxiliarySamtoolsSteps.append(contentsOf: nvdMarkdupAuxiliarySteps(
+                    from: markdupResults,
+                    samtoolsPath: samtoolsPath,
+                    samtoolsVersion: samtoolsVersion
+                ))
+
+                progress?(0.78, "Counting unique reads...")
+                let uniqueReadResult = nvdPopulateUniqueReads(
+                    dbPath: databaseURL.path,
+                    bundleDir: stagingDirectory,
+                    samtoolsPath: samtoolsPath,
+                    samtoolsVersion: samtoolsVersion
+                )
+                uniqueReadRowsUpdated = uniqueReadResult.updatedRows
+                auxiliarySamtoolsSteps.append(contentsOf: uniqueReadResult.steps)
+            }
+
+            progress?(0.82, "Copying NVD FASTA files...")
+            let copiedFASTACount = try nvdCopyFASTAAssets(
+                sampleMetadata: sampleBuild.samples,
+                assetSources: sampleBuild.assetSources,
+                bundleDirectory: stagingDirectory
+            )
+
+            progress?(0.90, "Writing NVD manifest...")
+            let manifest = nvdManifest(
+                inputURL: inputURL,
+                result: parseResult,
+                sampleMetadata: sampleBuild.samples
+            )
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            encoder.dateEncodingStrategy = .iso8601
+            try encoder.encode(manifest).write(
+                to: stagingDirectory.appendingPathComponent("manifest.json"),
+                options: .atomic
+            )
+
+            if provenanceCollisionTestHook {
+                try fm.createDirectory(
+                    at: stagingDirectory.appendingPathComponent(
+                        ProvenanceRecorder.provenanceFilename,
+                        isDirectory: true
+                    ),
+                    withIntermediateDirectories: true
+                )
+            }
+
+            progress?(0.95, "Writing NVD provenance...")
+            try writeMetagenomicsImportProvenance(
+                kind: .nvd,
+                sourceURLs: [inputURL],
+                resultDirectory: stagingDirectory,
+                publishedResultDirectory: finalDirectory,
+                command: provenanceCommand,
+                explicitOptions: [
+                    "inputPath": .string(inputURL.path),
+                    "csvPath": .string(csvURL.path),
+                    "name": preferredName.map(ParameterValue.string) ?? .null,
+                    "outputDir": .string(outputDirectory.path),
+                    "outputRoot": .file(outputDirectory),
+                    "samtoolsPath": samtoolsPath.map { .file(URL(fileURLWithPath: $0)) } ?? .null,
+                ],
+                resolvedDefaults: [
+                    "inputPath": .string(inputURL.path),
+                    "csvPath": .string(csvURL.path),
+                    "outputDir": .string(outputDirectory.path),
+                    "outputDirectory": .file(finalDirectory),
+                    "bundleName": .string(finalDirectory.lastPathComponent),
+                    "experiment": .string(parseResult.experiment),
+                    "sampleCount": .integer(parseResult.sampleIds.count),
+                    "hitCount": .integer(parseResult.hits.count),
+                    "contigCount": .integer(sampleBuild.contigCount),
+                    "copiedBAMCount": .integer(copiedBAMs.bamURLs.count),
+                    "copiedBAMIndexCount": .integer(copiedBAMs.indexCount),
+                    "copiedFASTACount": .integer(copiedFASTACount),
+                    "markdupBAMCount": .integer(markdupBAMCount),
+                    "uniqueReadRowsUpdated": .integer(uniqueReadRowsUpdated),
+                ],
+                startedAt: startedAt,
+                workflowName: provenanceWorkflowName,
+                toolName: provenanceToolName,
+                additionalSteps: try nvdAuxiliaryProvenanceSteps(
+                    from: auxiliarySamtoolsSteps,
+                    stagingRoot: stagingDirectory,
+                    publishedRoot: finalDirectory
+                )
+            )
+
+            guard !fm.fileExists(atPath: finalDirectory.path) else {
+                throw MetagenomicsImportError.outputAlreadyExists(finalDirectory)
+            }
+            OperationMarker.clearInProgress(stagingDirectory)
+            try fm.moveItem(at: stagingDirectory, to: finalDirectory)
+
+            progress?(1.0, "NVD import complete")
+            return NvdImportResult(
+                resultDirectory: finalDirectory,
+                sampleCount: parseResult.sampleIds.count,
+                hitCount: parseResult.hits.count,
+                contigCount: sampleBuild.contigCount,
+                copiedBAMCount: copiedBAMs.bamURLs.count,
+                copiedBAMIndexCount: copiedBAMs.indexCount,
+                copiedFASTACount: copiedFASTACount,
+                markdupBAMCount: markdupBAMCount,
+                uniqueReadRowsUpdated: uniqueReadRowsUpdated
+            )
+        } catch {
+            try? fm.removeItem(at: stagingDirectory)
+            throw MetagenomicsImportError.importAborted(
+                resultDirectory: stagingDirectory,
+                underlying: error
+            )
+        }
     }
 
     /// Imports NAO-MGS results into a canonical result directory:
@@ -470,8 +834,10 @@ public enum MetagenomicsImportService {
         minIdentity: Double = 0,
         fetchReferences: Bool = true,
         preferredName: String? = nil,
+        provenanceCommand: [String]? = nil,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> NaoMgsImportResult {
+        let startedAt = Date()
         let fm = FileManager.default
         guard fm.fileExists(atPath: inputURL.path) else {
             throw MetagenomicsImportError.inputNotFound(inputURL)
@@ -499,7 +865,8 @@ public enum MetagenomicsImportService {
         try ensureDirectoryExists(resultDirectory)
         writeAnalysisMetadataIfNeeded(tool: MetagenomicsImportKind.naomgs.toolIdentifier, to: resultDirectory)
         OperationMarker.markInProgress(resultDirectory, detail: "Importing NAO-MGS results\u{2026}")
-        defer { OperationMarker.clearInProgress(resultDirectory) }
+        var importCompleted = false
+        defer { finalizeImportDirectory(resultDirectory, completed: importCompleted) }
 
         do {
 
@@ -519,6 +886,7 @@ public enum MetagenomicsImportService {
         var totalHitCount = 0
         var totalTaxonCount = 0
         var firstSampleName: String?
+        var materializationSteps: [NaoMgsBamMaterializationStep] = []
         let sortedSamples = partition.sampleFiles.keys.sorted()
         let sampleCount = sortedSamples.count
 
@@ -536,6 +904,7 @@ public enum MetagenomicsImportService {
             )
             totalHitCount += stageResult.hitCount
             totalTaxonCount += stageResult.taxonCount
+            materializationSteps.append(contentsOf: stageResult.materializationSteps)
             // Skip samples where all rows were filtered out (e.g. by minIdentity).
             if stageResult.hitCount > 0 {
                 stageInputs.append(stageResult.stageInput)
@@ -556,6 +925,18 @@ public enum MetagenomicsImportService {
         // Copy per-sample BAMs into the final bundle's bams/ directory.
         let finalBamsDir = resultDirectory.appendingPathComponent("bams", isDirectory: true)
         try ensureDirectoryExists(finalBamsDir)
+        // Per-sample staging databases are merged and deleted. Provenance reports
+        // the durable bundle database as their final bundle representative while
+        // replay stays anchored to the public import command below.
+        var naoMgsStageArtifactRelocations: [String: URL] = [:]
+        for stageInput in stageInputs {
+            recordNaoMgsStageArtifactRelocation(
+                from: stageInput.databaseURL,
+                to: hitsDBURL,
+                in: &naoMgsStageArtifactRelocations
+            )
+        }
+        var copiedBAMCount = 0
         for stageInput in stageInputs {
             let stageBamsDir = stageInput.databaseURL.deletingLastPathComponent()
                 .appendingPathComponent("bams", isDirectory: true)
@@ -565,6 +946,10 @@ public enum MetagenomicsImportService {
                     let dst = finalBamsDir.appendingPathComponent(src.lastPathComponent)
                     try? fm.removeItem(at: dst)
                     try fm.copyItem(at: src, to: dst)
+                    recordNaoMgsStageArtifactRelocation(from: src, to: dst, in: &naoMgsStageArtifactRelocations)
+                    if src.pathExtension.lowercased() == "bam" {
+                        copiedBAMCount += 1
+                    }
                 }
             }
         }
@@ -697,14 +1082,60 @@ public enum MetagenomicsImportService {
         // ── Phase 6: Clean up staging artifacts ─────────────────────────
         try? fm.removeItem(at: stagingRoot)
 
+        let explicitProvenanceOptions: [String: ParameterValue] = [
+            "input": .file(inputURL),
+            "sampleName": sampleName.map(ParameterValue.string) ?? .null,
+            "preferredName": preferredName.map(ParameterValue.string) ?? .null,
+            "outputRoot": .file(outputDirectory),
+            "minIdentity": .number(minIdentity),
+            "fetchReferences": .boolean(fetchReferences),
+        ]
+        let materializationReplayArgv = provenanceCommand ?? defaultMetagenomicsImportCommand(
+            kind: .naomgs,
+            sourceURLs: [inputURL] + virusHitsFiles,
+            resultDirectory: resultDirectory,
+            explicitOptions: explicitProvenanceOptions
+        )
+
+        do {
+            try writeMetagenomicsImportProvenance(
+                kind: .naomgs,
+                sourceURLs: [inputURL] + virusHitsFiles,
+                resultDirectory: resultDirectory,
+                command: provenanceCommand,
+                explicitOptions: explicitProvenanceOptions,
+                resolvedDefaults: [
+                    "outputDirectory": .file(resultDirectory),
+                    "sampleName": .string(normalizedSampleName),
+                    "sourceFileCount": .integer(virusHitsFiles.count),
+                    "totalHitReads": .integer(totalHitCount),
+                    "taxonCount": .integer(mergedTaxonCount),
+                    "fetchedReferenceCount": .integer(fetchedAccessions.count),
+                    "createdBAM": .boolean(copiedBAMCount > 0),
+                    "copiedBAMCount": .integer(copiedBAMCount),
+                ],
+                startedAt: startedAt,
+                additionalSteps: try naoMgsMaterializationProvenanceSteps(
+                    from: materializationSteps,
+                    sourceURLs: [inputURL] + virusHitsFiles,
+                    relocatedArtifacts: naoMgsStageArtifactRelocations,
+                    materializationReplayArgv: materializationReplayArgv
+                )
+            )
+        } catch {
+            try? fm.removeItem(at: resultDirectory)
+            throw error
+        }
+
         progress?(1.0, "NAO-MGS import complete")
+        importCompleted = true
         return NaoMgsImportResult(
             resultDirectory: resultDirectory,
             sampleName: normalizedSampleName,
             totalHitReads: totalHitCount,
             taxonCount: mergedTaxonCount,
             fetchedReferenceCount: fetchedAccessions.count,
-            createdBAM: !stageInputs.isEmpty
+            createdBAM: copiedBAMCount > 0
         )
         } catch {
             // Clean up staging on failure too.
@@ -739,12 +1170,16 @@ public enum MetagenomicsImportService {
 
         // Materialize BAMs for this sample.
         var createdBAM = false
+        var materializationSteps: [NaoMgsBamMaterializationStep] = []
         if let samtoolsPath = managedSamtoolsExecutableURL()?.path {
-            let generated = try NaoMgsBamMaterializer.materializeAll(
+            let materialized = try NaoMgsBamMaterializer.materializeAllWithProvenance(
                 dbPath: hitsDBURL.path,
                 resultURL: stageDir,
-                samtoolsPath: samtoolsPath
+                samtoolsPath: samtoolsPath,
+                lungfishVersion: WorkflowRun.currentAppVersion
             )
+            let generated = materialized.bamURLs
+            materializationSteps.append(contentsOf: materialized.steps)
             createdBAM = !generated.isEmpty
 
             if !generated.isEmpty {
@@ -797,7 +1232,8 @@ public enum MetagenomicsImportService {
                 databaseURL: hitsDBURL,
                 bamRelativePath: bamRelative,
                 bamIndexRelativePath: indexRelative
-            )
+            ),
+            materializationSteps: materializationSteps
         )
     }
 
@@ -1006,6 +1442,23 @@ private struct EsVirituDetectedFiles {
     let coverageURL: URL?
 }
 
+private struct NvdSampleBuildResult {
+    let samples: [NvdSampleMetadata]
+    let assetSources: [String: NvdSampleAssetSources]
+    let contigCount: Int
+}
+
+private struct NvdSampleAssetSources {
+    let bam: URL?
+    let bamIndex: URL?
+    let fasta: URL?
+}
+
+private struct NvdBAMCopyResult {
+    let bamURLs: [URL]
+    let indexCount: Int
+}
+
 private func ensureDirectoryExists(_ directory: URL) throws {
     do {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -1017,11 +1470,432 @@ private func ensureDirectoryExists(_ directory: URL) throws {
     }
 }
 
+private func finalizeImportDirectory(_ directory: URL, completed: Bool) {
+    if completed {
+        OperationMarker.clearInProgress(directory)
+    } else {
+        try? FileManager.default.removeItem(at: directory)
+    }
+}
+
 /// Writes `analysis-metadata.json` into a result directory so that it remains
 /// identifiable by ``AnalysesFolder`` even after the user renames it.
 private func writeAnalysisMetadataIfNeeded(tool: String, to directory: URL) {
     let metadata = AnalysesFolder.AnalysisMetadata(tool: tool, isBatch: false)
     try? AnalysesFolder.writeAnalysisMetadata(metadata, to: directory)
+}
+
+private func writeMetagenomicsImportProvenance(
+    kind: MetagenomicsImportKind,
+    sourceURLs: [URL],
+    resultDirectory: URL,
+    publishedResultDirectory: URL? = nil,
+    command: [String]?,
+    explicitOptions: [String: ParameterValue],
+    resolvedDefaults: [String: ParameterValue],
+    startedAt: Date,
+    workflowName: String? = nil,
+    toolName: String = "lungfish import",
+    additionalSteps: [ProvenanceStep] = []
+) throws {
+    let completedAt = Date()
+    let reportedResultDirectory = publishedResultDirectory ?? resultDirectory
+    let argv = command ?? defaultMetagenomicsImportCommand(
+        kind: kind,
+        sourceURLs: sourceURLs,
+        resultDirectory: reportedResultDirectory,
+        explicitOptions: explicitOptions
+    )
+    let inputDescriptors = try metagenomicsInputDescriptors(for: sourceURLs)
+    let resultDirectoryDescriptor = ProvenanceFileDescriptor(
+        path: reportedResultDirectory.path,
+        format: .unknown,
+        role: .output
+    )
+    let outputDescriptors = try metagenomicsOutputDescriptors(
+        in: resultDirectory,
+        publishedRoot: reportedResultDirectory
+    )
+    let outputs = [resultDirectoryDescriptor] + outputDescriptors
+    let wallTime = completedAt.timeIntervalSince(startedAt)
+    let toolVersion = WorkflowRun.currentAppVersion
+    let step = ProvenanceStep(
+        toolName: toolName,
+        toolVersion: toolVersion,
+        argv: argv,
+        durableReplayArgv: argv,
+        inputs: inputDescriptors,
+        outputs: outputs,
+        exitStatus: 0,
+        wallTimeSeconds: wallTime,
+        startedAt: startedAt,
+        completedAt: completedAt
+    )
+    let envelope = ProvenanceEnvelope(
+        createdAt: startedAt,
+        workflowName: workflowName ?? "lungfish import \(kind.importCommandToken)",
+        workflowVersion: toolVersion,
+        toolName: toolName,
+        toolVersion: toolVersion,
+        tool: ProvenanceToolIdentity(name: toolName, version: toolVersion, kind: "cli"),
+        argv: argv,
+        durableReplayArgv: argv,
+        options: ProvenanceOptions(
+            explicit: explicitOptions,
+            defaults: defaultMetagenomicsImportOptions(kind: kind),
+            resolvedDefaults: resolvedDefaults.merging([
+                "outputDirectory": .file(reportedResultDirectory),
+                "resultBundle": .file(reportedResultDirectory),
+            ]) { existing, _ in existing }
+        ),
+        files: uniqueProvenanceDescriptors(
+            inputDescriptors
+                + outputs
+                + additionalSteps.flatMap(\.inputs)
+                + additionalSteps.flatMap(\.outputs)
+        ),
+        output: resultDirectoryDescriptor,
+        outputs: outputs,
+        steps: [step] + additionalSteps,
+        wallTimeSeconds: wallTime,
+        exitStatus: 0
+    )
+
+    try ProvenanceWriter(signingProvider: nil).write(envelope, to: resultDirectory)
+}
+
+private func naoMgsMaterializationProvenanceSteps(
+    from materializationSteps: [NaoMgsBamMaterializationStep],
+    sourceURLs: [URL],
+    relocatedArtifacts: [String: URL],
+    materializationReplayArgv: [String]
+) throws -> [ProvenanceStep] {
+    guard !materializationSteps.isEmpty else { return [] }
+    let sourceInputDescriptors = try metagenomicsInputDescriptors(for: sourceURLs)
+    return try materializationSteps.map { step in
+        let directInputs = try uniqueProvenanceDescriptors(step.inputURLs.compactMap { inputURL in
+            try naoMgsRelocatedDescriptor(
+                for: inputURL,
+                role: .input,
+                relocatedArtifacts: relocatedArtifacts
+            )
+        })
+        let inputDescriptors = directInputs.isEmpty ? sourceInputDescriptors : directInputs
+        let outputDescriptors = try uniqueProvenanceDescriptors(step.outputURLs.compactMap { outputURL in
+            try naoMgsRelocatedDescriptor(
+                for: outputURL,
+                role: metagenomicsOutputRole(for: relocatedNaoMgsArtifactURL(
+                    for: outputURL,
+                    relocatedArtifacts: relocatedArtifacts
+                )),
+                relocatedArtifacts: relocatedArtifacts
+            )
+        })
+        let durableReplayArgv = naoMgsMaterializationDurableReplayArgv(
+            for: step,
+            relocatedArtifacts: relocatedArtifacts,
+            materializationReplayArgv: materializationReplayArgv
+        )
+        return ProvenanceStep(
+            toolName: step.toolName,
+            toolVersion: step.toolVersion,
+            argv: step.argv,
+            durableReplayArgv: durableReplayArgv,
+            reproducibleCommand: durableReplayArgv.map(metagenomicsShellEscape).joined(separator: " "),
+            inputs: inputDescriptors,
+            outputs: outputDescriptors,
+            exitStatus: step.exitStatus,
+            wallTimeSeconds: step.wallTimeSeconds,
+            stderr: step.stderr,
+            startedAt: step.startedAt,
+            completedAt: step.completedAt
+        )
+    }
+}
+
+private func naoMgsRelocatedDescriptor(
+    for url: URL,
+    role: FileRole,
+    relocatedArtifacts: [String: URL]
+) throws -> ProvenanceFileDescriptor? {
+    let finalURL = relocatedNaoMgsArtifactURL(for: url, relocatedArtifacts: relocatedArtifacts)
+    guard FileManager.default.fileExists(atPath: finalURL.path) else { return nil }
+    return try ProvenanceFileDescriptor.file(
+        url: finalURL,
+        format: metagenomicsFileFormat(for: finalURL),
+        role: role,
+        originPath: finalURL.path == url.path ? nil : url.path
+    )
+}
+
+private func recordNaoMgsStageArtifactRelocation(from sourceURL: URL, to destinationURL: URL, in relocations: inout [String: URL]) {
+    for path in naoMgsPathCandidates(for: sourceURL) {
+        relocations[path] = destinationURL
+    }
+}
+
+private func relocatedNaoMgsArtifactURL(for url: URL, relocatedArtifacts: [String: URL]) -> URL {
+    for path in naoMgsPathCandidates(for: url) {
+        if let relocated = relocatedArtifacts[path] {
+            return relocated
+        }
+    }
+    return url
+}
+
+private func naoMgsMaterializationDurableReplayArgv(
+    for step: NaoMgsBamMaterializationStep,
+    relocatedArtifacts: [String: URL],
+    materializationReplayArgv: [String]
+) -> [String] {
+    if step.toolName == "lungfish nao-mgs materialize-bam" {
+        return materializationReplayArgv
+    }
+    return step.argv.map {
+        naoMgsRewriteRelocatedPathReferences(in: $0, relocatedArtifacts: relocatedArtifacts)
+    }
+}
+
+private func naoMgsRewriteRelocatedPathReferences(
+    in value: String,
+    relocatedArtifacts: [String: URL]
+) -> String {
+    var rewritten = value
+    for (sourcePath, finalURL) in relocatedArtifacts.sorted(by: { $0.key.count > $1.key.count }) {
+        rewritten = rewritten.replacingOccurrences(of: sourcePath, with: finalURL.path)
+    }
+    return rewritten
+}
+
+private func naoMgsPathCandidates(for url: URL) -> Set<String> {
+    var candidates = Set([
+        url.path,
+        url.standardizedFileURL.path,
+        url.resolvingSymlinksInPath().path,
+    ])
+    for candidate in candidates {
+        if candidate.hasPrefix("/var/") {
+            candidates.insert("/private" + candidate)
+        } else if candidate.hasPrefix("/private/var/") {
+            candidates.insert(String(candidate.dropFirst("/private".count)))
+        }
+    }
+    return candidates
+}
+
+private func defaultMetagenomicsImportCommand(
+    kind: MetagenomicsImportKind,
+    sourceURLs: [URL],
+    resultDirectory: URL,
+    explicitOptions: [String: ParameterValue]
+) -> [String] {
+    let source = sourceURLs.first?.path ?? "<input>"
+    var argv = [
+        CLICommandIdentity.executableName,
+        "import",
+        kind.importCommandToken,
+        source,
+        "--output-dir",
+        resultDirectory.deletingLastPathComponent().path,
+    ]
+
+    switch kind {
+    case .kraken2:
+        if let preferredName = explicitOptions["preferredName"]?.stringValue, !preferredName.isEmpty {
+            argv += ["--name", preferredName]
+        }
+        if let outputFile = explicitOptions["outputFile"]?.fileValue {
+            argv += ["--output", outputFile.path]
+        }
+    case .esviritu, .taxtriage:
+        if let preferredName = explicitOptions["preferredName"]?.stringValue, !preferredName.isEmpty {
+            argv += ["--name", preferredName]
+        }
+    case .naomgs:
+        if let sampleName = explicitOptions["sampleName"]?.stringValue, !sampleName.isEmpty {
+            argv += ["--sample-name", sampleName]
+        }
+        if explicitOptions["fetchReferences"]?.booleanValue == false {
+            argv.append("--no-fetch-references")
+        }
+    case .nvd:
+        if let name = explicitOptions["name"]?.stringValue, !name.isEmpty {
+            argv += ["--name", name]
+        }
+    }
+
+    return argv
+}
+
+private func defaultMetagenomicsImportOptions(kind: MetagenomicsImportKind) -> [String: ParameterValue] {
+    switch kind {
+    case .kraken2:
+        return [
+            "outputFile": .null,
+            "preferredName": .null,
+        ]
+    case .esviritu, .taxtriage:
+        return [
+            "preferredName": .null,
+        ]
+    case .naomgs:
+        return [
+            "sampleName": .null,
+            "preferredName": .null,
+            "minIdentity": .number(0),
+            "fetchReferences": .boolean(true),
+        ]
+    case .nvd:
+        return [
+            "name": .null,
+            "samtoolsPath": .null,
+        ]
+    }
+}
+
+private func metagenomicsInputDescriptors(for sourceURLs: [URL]) throws -> [ProvenanceFileDescriptor] {
+    var descriptors: [ProvenanceFileDescriptor] = []
+    for sourceURL in uniqueURLs(sourceURLs) {
+        if isDirectory(sourceURL) {
+            descriptors.append(ProvenanceFileDescriptor(
+                path: sourceURL.path,
+                format: .unknown,
+                role: .input
+            ))
+            descriptors.append(contentsOf: try scanRegularFilesRecursively(in: sourceURL).map {
+                try metagenomicsFileDescriptor(url: $0, role: .input)
+            })
+        } else {
+            descriptors.append(try metagenomicsFileDescriptor(url: sourceURL, role: .input))
+        }
+    }
+    return uniqueProvenanceDescriptors(descriptors)
+}
+
+private func sourcePayloadURLs(
+    inputURL: URL,
+    copiedRegularFiles: [URL],
+    resultDirectory: URL
+) -> [URL] {
+    guard isDirectory(inputURL) else {
+        return [inputURL]
+    }
+
+    let originalFiles = copiedRegularFiles.map { copiedURL in
+        inputURL.appendingPathComponent(relativePath(from: resultDirectory, to: copiedURL))
+    }
+    return [inputURL] + originalFiles
+}
+
+private func metagenomicsOutputDescriptors(
+    in resultDirectory: URL,
+    publishedRoot: URL? = nil
+) throws -> [ProvenanceFileDescriptor] {
+    try scanRegularFilesRecursively(in: resultDirectory)
+        .filter { !isGeneratedProvenanceArtifact($0, root: resultDirectory) }
+        .map { outputURL in
+            let descriptor = try metagenomicsFileDescriptor(
+                url: outputURL,
+                role: metagenomicsOutputRole(for: outputURL)
+            )
+            guard let publishedRoot else { return descriptor }
+            let publishedURL = publishedRoot.appendingPathComponent(
+                relativePath(from: resultDirectory, to: outputURL)
+            )
+            return ProvenanceFileDescriptor(
+                path: publishedURL.path,
+                checksumSHA256: descriptor.checksumSHA256,
+                fileSize: descriptor.fileSize,
+                format: descriptor.format,
+                role: descriptor.role,
+                originPath: descriptor.originPath,
+                sourceProvenancePath: descriptor.sourceProvenancePath
+            )
+        }
+}
+
+private func metagenomicsFileDescriptor(url: URL, role: FileRole) throws -> ProvenanceFileDescriptor {
+    try ProvenanceFileDescriptor.file(
+        url: url,
+        format: metagenomicsFileFormat(for: url),
+        role: role
+    )
+}
+
+private func metagenomicsOutputRole(for url: URL) -> FileRole {
+    let name = url.lastPathComponent.lowercased()
+    if name.hasSuffix(".bai") || name.hasSuffix(".csi") || name.hasSuffix(".fai") || name.hasSuffix(".idx.sqlite") {
+        return .index
+    }
+    if name.contains("report") || name.hasSuffix(".kreport") || name == "manifest.json" {
+        return .report
+    }
+    if name.contains("log") || name.hasSuffix(".trace") || name == "trace.txt" {
+        return .log
+    }
+    return .output
+}
+
+private func metagenomicsFileFormat(for url: URL) -> FileFormat {
+    let name = url.lastPathComponent.lowercased()
+    if name.hasSuffix(".fa") || name.hasSuffix(".fasta") || name.hasSuffix(".fna") {
+        return .fasta
+    }
+    if name.hasSuffix(".fastq") || name.hasSuffix(".fq") || name.hasSuffix(".fastq.gz") || name.hasSuffix(".fq.gz") {
+        return .fastq
+    }
+    if name.hasSuffix(".bam") {
+        return .bam
+    }
+    if name.hasSuffix(".sam") {
+        return .sam
+    }
+    if name.hasSuffix(".json") || name.hasSuffix(".json.gz") {
+        return .json
+    }
+    if name.hasSuffix(".html") || name.hasSuffix(".htm") {
+        return .html
+    }
+    if name.hasSuffix(".tsv") || name.hasSuffix(".tsv.gz") || name.hasSuffix(".txt") || name.hasSuffix(".log") || name.hasSuffix(".kreport") {
+        return .text
+    }
+    return .unknown
+}
+
+private func isGeneratedProvenanceArtifact(_ url: URL, root: URL) -> Bool {
+    let relativePath = relativePath(from: root, to: url)
+    return url.lastPathComponent == ProvenanceRecorder.provenanceFilename
+        || relativePath == ProvenanceWriter.bundleRollupFilename
+        || relativePath.hasPrefix("\(ProvenanceWriter.bundleProvenanceDirectoryName)/")
+        || url.lastPathComponent.hasSuffix(".sig")
+}
+
+private func uniqueURLs(_ urls: [URL]) -> [URL] {
+    var seen: Set<String> = []
+    var result: [URL] = []
+    for url in urls {
+        let key = url.standardizedFileURL.path
+        guard seen.insert(key).inserted else { continue }
+        result.append(url)
+    }
+    return result
+}
+
+private func uniqueProvenanceDescriptors(_ descriptors: [ProvenanceFileDescriptor]) -> [ProvenanceFileDescriptor] {
+    var seen: Set<String> = []
+    var result: [ProvenanceFileDescriptor] = []
+    for descriptor in descriptors {
+        guard seen.insert("\(descriptor.role.rawValue):\(descriptor.path)").inserted else { continue }
+        result.append(descriptor)
+    }
+    return result
+}
+
+private func relativePath(from root: URL, to url: URL) -> String {
+    let rootPath = root.standardizedFileURL.path
+    let path = url.standardizedFileURL.path
+    guard path.hasPrefix(rootPath + "/") else { return url.lastPathComponent }
+    return String(path.dropFirst(rootPath.count + 1))
 }
 
 private func copyFile(_ source: URL, to destination: URL) throws {
@@ -1127,6 +2001,603 @@ private func copyDirectoryContents(from sourceDirectory: URL, into destinationDi
     }
 
     return copiedURLs
+}
+
+private func nvdResultDirectory(named bundleName: String, in outputDirectory: URL, allowUniqueSuffix: Bool) throws -> URL {
+    let fm = FileManager.default
+    let firstCandidate = outputDirectory.appendingPathComponent(bundleName, isDirectory: true)
+    if !fm.fileExists(atPath: firstCandidate.path) {
+        return firstCandidate
+    }
+    guard allowUniqueSuffix else {
+        throw MetagenomicsImportError.outputAlreadyExists(firstCandidate)
+    }
+
+    var index = 2
+    while true {
+        let candidate = outputDirectory.appendingPathComponent("\(bundleName)-\(index)", isDirectory: true)
+        if !fm.fileExists(atPath: candidate.path) {
+            return candidate
+        }
+        index += 1
+    }
+}
+
+private func nvdBuildSampleMetadata(inputURL: URL, result: NvdParseResult) throws -> NvdSampleBuildResult {
+    let fm = FileManager.default
+    let humanVirusDir = inputURL
+        .appendingPathComponent("02_human_viruses", isDirectory: true)
+        .appendingPathComponent("03_human_virus_results", isDirectory: true)
+    let bamSourceDir = humanVirusDir.appendingPathComponent("mapped_reads", isDirectory: true)
+    let sourceBamFiles = (try? fm.contentsOfDirectory(at: bamSourceDir, includingPropertiesForKeys: nil)) ?? []
+    let sourceFastaFiles = (try? fm.contentsOfDirectory(at: humanVirusDir, includingPropertiesForKeys: nil)) ?? []
+
+    var perSampleHits: [String: Int] = [:]
+    var perSampleContigs: [String: Set<String>] = [:]
+    var perSampleTotalReads: [String: Int] = [:]
+    for hit in result.hits {
+        perSampleHits[hit.sampleId, default: 0] += 1
+        perSampleContigs[hit.sampleId, default: []].insert(hit.qseqid)
+        if perSampleTotalReads[hit.sampleId] == nil {
+            perSampleTotalReads[hit.sampleId] = hit.totalReads
+        }
+    }
+
+    var samples: [NvdSampleMetadata] = []
+    var assetSources: [String: NvdSampleAssetSources] = [:]
+    for sampleId in result.sampleIds.sorted() {
+        let bamSource = sourceBamFiles.first { url in
+            let name = url.lastPathComponent
+            return url.pathExtension.lowercased() == "bam"
+                && name.localizedCaseInsensitiveContains(sampleId)
+        }
+        let bamIndexSource: URL? = {
+            guard let bamSource else { return nil }
+            let bai = URL(fileURLWithPath: bamSource.path + ".bai")
+            let csi = URL(fileURLWithPath: bamSource.path + ".csi")
+            if fm.fileExists(atPath: bai.path) { return bai }
+            if fm.fileExists(atPath: csi.path) { return csi }
+            let bamBai = sourceBamFiles.first { $0.lastPathComponent == bamSource.lastPathComponent + ".bai" }
+            let bamCsi = sourceBamFiles.first { $0.lastPathComponent == bamSource.lastPathComponent + ".csi" }
+            return bamBai ?? bamCsi
+        }()
+        let fastaSource = sourceFastaFiles.first { url in
+            let name = url.lastPathComponent
+            return name.hasSuffix(".human_virus.fasta")
+                && name.localizedCaseInsensitiveContains(sampleId)
+        }
+
+        let canonicalBamName = "\(sampleId).bam"
+        let bamRelPath = "bam/\(canonicalBamName)"
+        let bamIndexRelPath: String? = {
+            guard let bamIndexSource else { return nil }
+            if bamIndexSource.pathExtension.lowercased() == "csi" {
+                return "bam/\(canonicalBamName).csi"
+            }
+            return "bam/\(canonicalBamName).bai"
+        }()
+        let fastaRelPath = "fasta/\(sampleId).human_virus.fasta"
+
+        samples.append(NvdSampleMetadata(
+            sampleId: sampleId,
+            bamPath: bamRelPath,
+            bamIndexPath: bamIndexRelPath,
+            fastaPath: fastaRelPath,
+            totalReads: perSampleTotalReads[sampleId] ?? 0,
+            contigCount: perSampleContigs[sampleId]?.count ?? 0,
+            hitCount: perSampleHits[sampleId] ?? 0
+        ))
+        assetSources[sampleId] = NvdSampleAssetSources(
+            bam: bamSource,
+            bamIndex: bamIndexSource,
+            fasta: fastaSource
+        )
+    }
+
+    let contigCount = Set(result.hits.map { "\($0.sampleId)\u{1F}\($0.qseqid)" }).count
+    return NvdSampleBuildResult(
+        samples: samples,
+        assetSources: assetSources,
+        contigCount: contigCount
+    )
+}
+
+private func nvdCopyBAMAssets(
+    sampleMetadata: [NvdSampleMetadata],
+    assetSources: [String: NvdSampleAssetSources],
+    bundleDirectory: URL
+) throws -> NvdBAMCopyResult {
+    var copiedBAMs: [URL] = []
+    var copiedIndexes = 0
+    for sample in sampleMetadata {
+        guard let sources = assetSources[sample.sampleId] else { continue }
+        if let bamSource = sources.bam {
+            let bamDestination = bundleDirectory.appendingPathComponent(sample.bamPath)
+            try copyFile(bamSource, to: bamDestination)
+            copiedBAMs.append(bamDestination)
+        }
+        if let bamIndexSource = sources.bamIndex,
+           let bamIndexPath = sample.bamIndexPath {
+            try copyFile(bamIndexSource, to: bundleDirectory.appendingPathComponent(bamIndexPath))
+            copiedIndexes += 1
+        }
+    }
+    return NvdBAMCopyResult(bamURLs: copiedBAMs, indexCount: copiedIndexes)
+}
+
+private func nvdCopyFASTAAssets(
+    sampleMetadata: [NvdSampleMetadata],
+    assetSources: [String: NvdSampleAssetSources],
+    bundleDirectory: URL
+) throws -> Int {
+    var copied = 0
+    for sample in sampleMetadata {
+        guard let fastaSource = assetSources[sample.sampleId]?.fasta else { continue }
+        try copyFile(fastaSource, to: bundleDirectory.appendingPathComponent(sample.fastaPath))
+        copied += 1
+    }
+    return copied
+}
+
+private func nvdManifest(
+    inputURL: URL,
+    result: NvdParseResult,
+    sampleMetadata: [NvdSampleMetadata]
+) -> NvdManifest {
+    let topContigs: [NvdContigRow] = result.hits
+        .filter { $0.hitRank == 1 }
+        .prefix(200)
+        .map { hit in
+            NvdContigRow(
+                sampleId: hit.sampleId,
+                qseqid: hit.qseqid,
+                qlen: hit.qlen,
+                adjustedTaxidName: hit.adjustedTaxidName,
+                adjustedTaxidRank: hit.adjustedTaxidRank,
+                sseqid: hit.sseqid,
+                stitle: hit.stitle,
+                pident: hit.pident,
+                evalue: hit.evalue,
+                bitscore: hit.bitscore,
+                mappedReads: hit.mappedReads,
+                readsPerBillion: hit.readsPerBillion
+            )
+        }
+
+    let sampleSummaries = sampleMetadata.map { sample in
+        NvdSampleSummary(
+            sampleId: sample.sampleId,
+            contigCount: sample.contigCount,
+            hitCount: sample.hitCount,
+            totalReads: sample.totalReads,
+            bamRelativePath: sample.bamPath,
+            fastaRelativePath: sample.fastaPath
+        )
+    }
+
+    return NvdManifest(
+        experiment: result.experiment,
+        sampleCount: result.sampleIds.count,
+        contigCount: Set(result.hits.map { "\($0.sampleId)\u{1F}\($0.qseqid)" }).count,
+        hitCount: result.hits.count,
+        blastDbVersion: result.hits.first?.blastDbVersion,
+        snakemakeRunId: result.hits.first?.snakemakeRunId,
+        sourceDirectoryPath: inputURL.path,
+        samples: sampleSummaries,
+        cachedTopContigs: topContigs
+    )
+}
+
+private struct NvdAuxiliaryStep {
+    let toolName: String
+    let toolVersion: String
+    let argv: [String]
+    let reproducibleCommand: String
+    let inputURLs: [URL]
+    let outputURLs: [URL]
+    let exitStatus: Int?
+    let wallTimeSeconds: TimeInterval?
+    let stderr: String?
+    let startedAt: Date?
+    let completedAt: Date?
+}
+
+private struct NvdUniqueReadPopulationResult {
+    let updatedRows: Int
+    let steps: [NvdAuxiliaryStep]
+}
+
+private func nvdMarkdupAuxiliarySteps(
+    from results: [MarkdupResult],
+    samtoolsPath: String,
+    samtoolsVersion: String
+) -> [NvdAuxiliaryStep] {
+    results.map { result in
+        let baiURL = URL(fileURLWithPath: result.bamURL.path + ".bai")
+        var outputURLs = [result.bamURL]
+        if FileManager.default.fileExists(atPath: baiURL.path) {
+            outputURLs.append(baiURL)
+        }
+        let argv: [String]
+        let command: String
+        if result.wasAlreadyMarkduped {
+            argv = [samtoolsPath, "view", "-H", result.bamURL.path]
+            command = argv.map(metagenomicsShellEscape).joined(separator: " ")
+        } else {
+            command = nvdMarkdupReplayCommand(
+                bamURL: result.bamURL,
+                samtoolsPath: samtoolsPath,
+                threads: 4
+            )
+            argv = ["/bin/sh", "-c", command]
+        }
+        return NvdAuxiliaryStep(
+            toolName: "samtools",
+            toolVersion: samtoolsVersion,
+            argv: argv,
+            reproducibleCommand: command,
+            inputURLs: [result.bamURL],
+            outputURLs: outputURLs,
+            exitStatus: 0,
+            wallTimeSeconds: result.durationSeconds,
+            stderr: nil,
+            startedAt: nil,
+            completedAt: nil
+        )
+    }
+}
+
+private func nvdMarkdupReplayCommand(bamURL: URL, samtoolsPath: String, threads: Int) -> String {
+    let tempBamPath = bamURL.path + ".markdup.tmp"
+    let tempBaiPath = tempBamPath + ".bai"
+    let baiPath = bamURL.path + ".bai"
+    let csiPath = bamURL.path + ".csi"
+    let escapedSamtoolsPath = metagenomicsShellEscape(samtoolsPath)
+    return [
+        "\(escapedSamtoolsPath) sort -n -@ \(threads) \(metagenomicsShellEscape(bamURL.path))",
+        "\(escapedSamtoolsPath) fixmate -m - -",
+        "\(escapedSamtoolsPath) sort -@ \(threads) -",
+        "\(escapedSamtoolsPath) markdup - \(metagenomicsShellEscape(tempBamPath))",
+    ].joined(separator: " | ")
+        + " && \(escapedSamtoolsPath) index \(metagenomicsShellEscape(tempBamPath))"
+        + " && rm -f \(metagenomicsShellEscape(baiPath)) \(metagenomicsShellEscape(csiPath))"
+        + " && mv \(metagenomicsShellEscape(tempBamPath)) \(metagenomicsShellEscape(bamURL.path))"
+        + " && mv \(metagenomicsShellEscape(tempBaiPath)) \(metagenomicsShellEscape(baiPath))"
+}
+
+private func nvdPopulateUniqueReads(
+    dbPath: String,
+    bundleDir: URL,
+    samtoolsPath: String,
+    samtoolsVersion: String
+) -> NvdUniqueReadPopulationResult {
+    var db: OpaquePointer?
+    guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK, let db else {
+        sqlite3_close(db)
+        return NvdUniqueReadPopulationResult(updatedRows: 0, steps: [])
+    }
+    defer { sqlite3_close(db) }
+
+    let selectSQL = "SELECT rowid, sample_id, sseqid FROM blast_hits"
+    var selectStmt: OpaquePointer?
+    guard sqlite3_prepare_v2(db, selectSQL, -1, &selectStmt, nil) == SQLITE_OK else {
+        return NvdUniqueReadPopulationResult(updatedRows: 0, steps: [])
+    }
+    defer { sqlite3_finalize(selectStmt) }
+
+    struct Row { let rowid: Int64; let sampleId: String; let sseqid: String }
+    var rows: [Row] = []
+    var step = sqlite3_step(selectStmt)
+    while step == SQLITE_ROW {
+        guard let samplePtr = sqlite3_column_text(selectStmt, 1),
+              let accessionPtr = sqlite3_column_text(selectStmt, 2) else {
+            step = sqlite3_step(selectStmt)
+            continue
+        }
+        rows.append(Row(
+            rowid: sqlite3_column_int64(selectStmt, 0),
+            sampleId: String(cString: samplePtr),
+            sseqid: String(cString: accessionPtr)
+        ))
+        step = sqlite3_step(selectStmt)
+    }
+    guard step == SQLITE_DONE, !rows.isEmpty else {
+        return NvdUniqueReadPopulationResult(updatedRows: 0, steps: [])
+    }
+
+    let sampleSQL = "SELECT sample_id, bam_path FROM samples"
+    var sampleStmt: OpaquePointer?
+    guard sqlite3_prepare_v2(db, sampleSQL, -1, &sampleStmt, nil) == SQLITE_OK else {
+        return NvdUniqueReadPopulationResult(updatedRows: 0, steps: [])
+    }
+    defer { sqlite3_finalize(sampleStmt) }
+
+    var bamBySample: [String: URL] = [:]
+    step = sqlite3_step(sampleStmt)
+    while step == SQLITE_ROW {
+        guard let samplePtr = sqlite3_column_text(sampleStmt, 0),
+              let bamPtr = sqlite3_column_text(sampleStmt, 1) else {
+            step = sqlite3_step(sampleStmt)
+            continue
+        }
+        bamBySample[String(cString: samplePtr)] = bundleDir.appendingPathComponent(String(cString: bamPtr))
+        step = sqlite3_step(sampleStmt)
+    }
+    guard step == SQLITE_DONE, !bamBySample.isEmpty else {
+        return NvdUniqueReadPopulationResult(updatedRows: 0, steps: [])
+    }
+
+    let updateSQL = "UPDATE blast_hits SET unique_reads = ? WHERE rowid = ?"
+    var updateStmt: OpaquePointer?
+    guard sqlite3_prepare_v2(db, updateSQL, -1, &updateStmt, nil) == SQLITE_OK else {
+        return NvdUniqueReadPopulationResult(updatedRows: 0, steps: [])
+    }
+    defer { sqlite3_finalize(updateStmt) }
+
+    guard sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, nil) == SQLITE_OK else {
+        return NvdUniqueReadPopulationResult(updatedRows: 0, steps: [])
+    }
+    var cache: [String: Int] = [:]
+    var updated = 0
+    var steps: [NvdAuxiliaryStep] = []
+    let databaseURL = URL(fileURLWithPath: dbPath)
+    for row in rows {
+        guard let bamURL = bamBySample[row.sampleId],
+              FileManager.default.fileExists(atPath: bamURL.path) else { continue }
+
+        let cacheKey = "\(bamURL.path)\t\(row.sseqid)"
+        let unique: Int
+        if let cached = cache[cacheKey] {
+            unique = cached
+        } else {
+            let countResult = nvdCountReadsWithTelemetry(
+                bamURL: bamURL,
+                accession: row.sseqid,
+                flagFilter: 0x404,
+                samtoolsPath: samtoolsPath,
+                samtoolsVersion: samtoolsVersion,
+                databaseURL: databaseURL
+            )
+            steps.append(countResult.step)
+            guard let counted = countResult.count else {
+                continue
+            }
+            cache[cacheKey] = counted
+            unique = counted
+        }
+
+        sqlite3_reset(updateStmt)
+        sqlite3_clear_bindings(updateStmt)
+        sqlite3_bind_int64(updateStmt, 1, Int64(unique))
+        sqlite3_bind_int64(updateStmt, 2, row.rowid)
+        guard sqlite3_step(updateStmt) == SQLITE_DONE else { continue }
+        updated += 1
+    }
+
+    if sqlite3_exec(db, "COMMIT", nil, nil, nil) != SQLITE_OK {
+        sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
+        return NvdUniqueReadPopulationResult(updatedRows: 0, steps: steps)
+    }
+    return NvdUniqueReadPopulationResult(updatedRows: updated, steps: steps)
+}
+
+private func nvdCountReadsWithTelemetry(
+    bamURL: URL,
+    accession: String,
+    flagFilter: Int,
+    samtoolsPath: String,
+    samtoolsVersion: String,
+    databaseURL: URL
+) -> (count: Int?, step: NvdAuxiliaryStep) {
+    let startedAt = Date()
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: samtoolsPath)
+    let argv = [samtoolsPath, "view", "-c", "-F", String(flagFilter), bamURL.path, accession]
+    process.arguments = Array(argv.dropFirst())
+    let stdout = Pipe()
+    let stderr = Pipe()
+    process.standardOutput = stdout
+    process.standardError = stderr
+
+    do {
+        try process.run()
+    } catch {
+        let completedAt = Date()
+        return (
+            nil,
+            NvdAuxiliaryStep(
+                toolName: "samtools",
+                toolVersion: samtoolsVersion,
+                argv: argv,
+                reproducibleCommand: argv.map(metagenomicsShellEscape).joined(separator: " "),
+                inputURLs: [bamURL],
+                outputURLs: [],
+                exitStatus: 1,
+                wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+                stderr: error.localizedDescription,
+                startedAt: startedAt,
+                completedAt: completedAt
+            )
+        )
+    }
+
+    let outputData = stdout.fileHandleForReading.readDataToEndOfFile()
+    let stderrData = stderr.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+    let completedAt = Date()
+    let stderrText = String(data: stderrData, encoding: .utf8)?
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let output = String(data: outputData, encoding: .utf8)?
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? "0"
+    let count = process.terminationStatus == 0 ? Int(output) : nil
+    return (
+        count,
+        NvdAuxiliaryStep(
+            toolName: "samtools",
+            toolVersion: samtoolsVersion,
+            argv: argv,
+            reproducibleCommand: argv.map(metagenomicsShellEscape).joined(separator: " "),
+            inputURLs: [bamURL],
+            outputURLs: count == nil ? [] : [databaseURL],
+            exitStatus: Int(process.terminationStatus),
+            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            stderr: stderrText.isEmpty ? nil : stderrText,
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+    )
+}
+
+private func nvdAuxiliaryProvenanceSteps(
+    from auxiliarySteps: [NvdAuxiliaryStep],
+    stagingRoot: URL,
+    publishedRoot: URL
+) throws -> [ProvenanceStep] {
+    try auxiliarySteps.map { step in
+        let inputs = try uniqueProvenanceDescriptors(step.inputURLs.compactMap { inputURL in
+            try nvdReportedDescriptor(
+                for: inputURL,
+                role: .input,
+                stagingRoot: stagingRoot,
+                publishedRoot: publishedRoot
+            )
+        })
+        let outputs = try uniqueProvenanceDescriptors(step.outputURLs.compactMap { outputURL in
+            try nvdReportedDescriptor(
+                for: outputURL,
+                role: metagenomicsOutputRole(for: outputURL),
+                stagingRoot: stagingRoot,
+                publishedRoot: publishedRoot
+            )
+        })
+        let durableReplayArgv = nvdDurableReplayArgv(
+            for: step,
+            stagingRoot: stagingRoot,
+            publishedRoot: publishedRoot
+        )
+        return ProvenanceStep(
+            toolName: step.toolName,
+            toolVersion: step.toolVersion,
+            argv: step.argv,
+            durableReplayArgv: durableReplayArgv,
+            reproducibleCommand: durableReplayArgv.map(metagenomicsShellEscape).joined(separator: " "),
+            inputs: inputs,
+            outputs: outputs,
+            exitStatus: step.exitStatus,
+            wallTimeSeconds: step.wallTimeSeconds,
+            stderr: step.stderr,
+            startedAt: step.startedAt,
+            completedAt: step.completedAt
+        )
+    }
+}
+
+private func nvdDurableReplayArgv(
+    for step: NvdAuxiliaryStep,
+    stagingRoot: URL,
+    publishedRoot: URL
+) -> [String] {
+    step.argv.map {
+        nvdRewritePublishedPathReferences(in: $0, stagingRoot: stagingRoot, publishedRoot: publishedRoot)
+    }
+}
+
+private func nvdRewritePublishedPathReferences(
+    in value: String,
+    stagingRoot: URL,
+    publishedRoot: URL
+) -> String {
+    var rewritten = value
+    for (sourcePath, publishedPath) in nvdPublishedRootReplacements(
+        stagingRoot: stagingRoot,
+        publishedRoot: publishedRoot
+    ).sorted(by: { $0.source.count > $1.source.count }) {
+        rewritten = rewritten.replacingOccurrences(of: sourcePath, with: publishedPath)
+    }
+    return rewritten
+}
+
+private func nvdPublishedRootReplacements(
+    stagingRoot: URL,
+    publishedRoot: URL
+) -> [(source: String, published: String)] {
+    nvdPathCandidates(for: stagingRoot).map { (source: $0, published: publishedRoot.path) }
+}
+
+private func nvdReportedDescriptor(
+    for url: URL,
+    role: FileRole,
+    stagingRoot: URL,
+    publishedRoot: URL
+) throws -> ProvenanceFileDescriptor? {
+    guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+    let reportedURL = nvdPublishedURL(for: url, stagingRoot: stagingRoot, publishedRoot: publishedRoot)
+    return ProvenanceFileDescriptor(
+        path: reportedURL.path,
+        checksumSHA256: try ProvenanceFileHasher.sha256(of: url),
+        fileSize: try ProvenanceFileHasher.fileSize(of: url),
+        format: metagenomicsFileFormat(for: reportedURL),
+        role: role,
+        originPath: reportedURL.path == url.path ? nil : url.path
+    )
+}
+
+private func nvdPublishedURL(for url: URL, stagingRoot: URL, publishedRoot: URL) -> URL {
+    let stagingPath = stagingRoot.standardizedFileURL.path
+    let path = url.standardizedFileURL.path
+    guard path == stagingPath || path.hasPrefix(stagingPath + "/") else {
+        return url
+    }
+    let relativePath = String(path.dropFirst(stagingPath.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    guard !relativePath.isEmpty else { return publishedRoot }
+    return publishedRoot.appendingPathComponent(relativePath)
+}
+
+private func nvdPathCandidates(for url: URL) -> Set<String> {
+    var candidates = Set([
+        url.path,
+        url.standardizedFileURL.path,
+        url.resolvingSymlinksInPath().path,
+    ])
+    for candidate in candidates {
+        if candidate.hasPrefix("/var/") {
+            candidates.insert("/private" + candidate)
+        } else if candidate.hasPrefix("/private/var/") {
+            candidates.insert(String(candidate.dropFirst("/private".count)))
+        }
+    }
+    return candidates
+}
+
+private func metagenomicsExternalToolVersion(executablePath: String) -> String {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: executablePath)
+    process.arguments = ["--version"]
+    let pipe = Pipe()
+    process.standardOutput = pipe
+    process.standardError = pipe
+    do {
+        try process.run()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        let output = String(data: data, encoding: .utf8) ?? ""
+        if let firstLine = output.split(separator: "\n").first {
+            return String(firstLine).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    } catch {
+        logger.warning("Could not detect external tool version for \(executablePath, privacy: .public): \(error.localizedDescription, privacy: .public)")
+    }
+    return "unknown"
+}
+
+private func metagenomicsShellEscape(_ value: String) -> String {
+    if value.isEmpty { return "''" }
+    let safeCharacters = CharacterSet.alphanumerics
+        .union(CharacterSet(charactersIn: "-_./:=@+,"))
+    if value.unicodeScalars.allSatisfy({ safeCharacters.contains($0) }) {
+        return value
+    }
+    return "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
 }
 
 private func scanRegularFilesRecursively(in directory: URL) -> [URL] {

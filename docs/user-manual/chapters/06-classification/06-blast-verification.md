@@ -86,7 +86,7 @@ respiratory syndrome coronavirus 2*. The goal is to confirm that hit
 against NCBI before treating the sample as a confirmed positive. The same
 flow is available from the Kraken2, EsViritu, TaxTriage, and NAO-MGS
 viewports, and from the
-[Novel Virus Diagnostics](08-novel-virus-detection.md) viewport, where
+[Novel Virus Diagnostics](09-novel-virus-detection.md) viewport, where
 **BLAST Verify** submits the selected contig sequence rather than a sample
 of reads.
 
@@ -200,7 +200,7 @@ local-BLAST escape hatch: the database and program are fixed at NCBI `nt` and
 ## Next
 
 This is the last verification chapter in [Classification](.). Continue to
-[Novel Virus Diagnostics](08-novel-virus-detection.md) for the contig-level
+[Novel Virus Diagnostics](09-novel-virus-detection.md) for the contig-level
 BLAST import, to [Assembly](../07-assembly/) for de novo assembly workflows,
 or back to
 [Reading the Variant Browser](../05-variants/02-reading-the-variant-browser.md)

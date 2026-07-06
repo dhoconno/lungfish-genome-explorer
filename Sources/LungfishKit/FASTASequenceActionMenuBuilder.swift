@@ -31,16 +31,6 @@ public struct FASTASequenceActionHandlers {
         self.onAlignWithMAFFT = onAlignWithMAFFT
         self.onRunOperation = onRunOperation
     }
-
-    static let noop = FASTASequenceActionHandlers(
-        onExtractSequence: {},
-        onBlast: {},
-        onCopy: {},
-        onExport: {},
-        onCreateBundle: {},
-        onAlignWithMAFFT: {},
-        onRunOperation: {}
-    )
 }
 
 @MainActor

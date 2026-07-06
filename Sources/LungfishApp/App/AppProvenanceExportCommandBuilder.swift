@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import LungfishWorkflow
 
 enum AppProvenanceExportCommandBuilder {
@@ -12,7 +13,7 @@ enum AppProvenanceExportCommandBuilder {
         outputDirectory: URL
     ) -> [String] {
         [
-            "lungfish",
+            CLICommandIdentity.executableName,
             "provenance",
             "export",
             sourceURL.path,

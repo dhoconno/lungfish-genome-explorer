@@ -207,11 +207,13 @@ final class BundleBrowserLoaderTests: XCTestCase {
         defer { sqlite3_close(db) }
         try createVariantDatabaseSchema(in: db)
         try insertVariantRecord(into: db, chromosome: "segmentA", position: 5, end: 200, variantID: "var-0")
+        try finalizeVariantDatabaseFixture(in: db)
 
         let manifest = fixture.manifestVariantOnly(databasePath: "variants/variants.sqlite")
         let originalKey = BundleBrowserLoader.bundleKey(for: fixture.bundleURL, manifest: manifest)
 
         try insertVariantRecord(into: db, chromosome: "segmentA", position: 250, end: 4_000, variantID: "var-1")
+        try refreshVariantDatabaseFixtureCount(in: db)
         let walURL = URL(fileURLWithPath: variantDBURL.path + "-wal")
         XCTAssertTrue(FileManager.default.fileExists(atPath: walURL.path))
 
@@ -283,6 +285,7 @@ final class BundleBrowserLoaderTests: XCTestCase {
                 variantID: "var-\(index)"
             )
         }
+        try finalizeVariantDatabaseFixture(in: db)
     }
 
     private func createVariantDatabaseSchema(in db: OpaquePointer?) throws {
@@ -315,7 +318,9 @@ final class BundleBrowserLoaderTests: XCTestCase {
         );
         CREATE TABLE samples (
             name TEXT PRIMARY KEY,
-            metadata_json TEXT
+            display_name TEXT,
+            source_file TEXT,
+            metadata TEXT
         );
         CREATE TABLE variant_info (
             variant_id INTEGER NOT NULL,
@@ -333,6 +338,7 @@ final class BundleBrowserLoaderTests: XCTestCase {
             value TEXT NOT NULL
         );
         INSERT INTO db_metadata (key, value) VALUES ('schema_version', '3');
+        INSERT INTO db_metadata (key, value) VALUES ('import_state', 'inserting');
         """
         guard sqlite3_exec(db, createSQL, nil, nil, nil) == SQLITE_OK else {
             let message = String(cString: sqlite3_errmsg(db)!)
@@ -395,9 +401,40 @@ final class BundleBrowserLoaderTests: XCTestCase {
             end: end,
             variantID: "var-appended-\(end)"
         )
+        try refreshVariantDatabaseFixtureCount(in: db)
 
         let updatedDate = Date(timeIntervalSinceNow: 2)
         try FileManager.default.setAttributes([.modificationDate: updatedDate], ofItemAtPath: url.path)
+    }
+
+    private func finalizeVariantDatabaseFixture(in db: OpaquePointer?) throws {
+        let indexSQL = """
+        CREATE INDEX IF NOT EXISTS idx_variants_region ON variants(chromosome, position, end_pos);
+        CREATE INDEX IF NOT EXISTS idx_variants_type ON variants(variant_type);
+        CREATE INDEX IF NOT EXISTS idx_variants_id ON variants(variant_id COLLATE NOCASE);
+        CREATE INDEX IF NOT EXISTS idx_samples_name ON samples(name);
+        CREATE INDEX IF NOT EXISTS idx_genotypes_variant ON genotypes(variant_id);
+        CREATE INDEX IF NOT EXISTS idx_genotypes_sample ON genotypes(sample_name);
+        CREATE INDEX IF NOT EXISTS idx_variant_info_key ON variant_info(key);
+        CREATE INDEX IF NOT EXISTS idx_variant_info_key_value ON variant_info(key, value);
+        INSERT OR REPLACE INTO db_metadata (key, value) VALUES ('import_state', 'complete');
+        """
+        guard sqlite3_exec(db, indexSQL, nil, nil, nil) == SQLITE_OK else {
+            let message = String(cString: sqlite3_errmsg(db)!)
+            throw XCTSkip(message)
+        }
+        try refreshVariantDatabaseFixtureCount(in: db)
+    }
+
+    private func refreshVariantDatabaseFixtureCount(in db: OpaquePointer?) throws {
+        let countSQL = """
+        INSERT OR REPLACE INTO db_metadata (key, value)
+        SELECT 'import_variant_count', CAST(COUNT(*) AS TEXT) FROM variants;
+        """
+        guard sqlite3_exec(db, countSQL, nil, nil, nil) == SQLITE_OK else {
+            let message = String(cString: sqlite3_errmsg(db)!)
+            throw XCTSkip(message)
+        }
     }
 
     private func openVariantDatabaseForWAL(at url: URL) throws -> OpaquePointer {

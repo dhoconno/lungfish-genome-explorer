@@ -111,13 +111,13 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             }
             switch tool {
             case .kraken2:
-                return CLIInvocation(subcommand: "classify", arguments: arguments)
+                return CLIInvocation(subcommand: "conda classify", arguments: arguments)
             case .esViritu:
                 return CLIInvocation(subcommand: "esviritu", arguments: ["detect"] + arguments)
             case .taxTriage:
                 return CLIInvocation(subcommand: "taxtriage", arguments: ["run"] + arguments)
             default:
-                return CLIInvocation(subcommand: "classify", arguments: arguments)
+                return CLIInvocation(subcommand: "conda classify", arguments: arguments)
             }
 
         case .pbaa(let request):

@@ -26,6 +26,19 @@ public actor AnthropicProvider: StructuredAIProvider {
         self.httpClient = httpClient
     }
 
+    /// Builds a POST request to the Messages API with the standard Anthropic headers.
+    private func makeRequest(body: Data) -> URLRequest {
+        var request = URLRequest(url: baseURL)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        request.setValue(apiVersion, forHTTPHeaderField: "anthropic-version")
+        request.setValue("Lungfish Genome Explorer", forHTTPHeaderField: "User-Agent")
+        request.httpBody = body
+        request.timeoutInterval = 120
+        return request
+    }
+
     public func sendMessage(
         messages: [AIMessage],
         systemPrompt: String,
@@ -35,14 +48,7 @@ public actor AnthropicProvider: StructuredAIProvider {
 
         let jsonData = try JSONSerialization.data(withJSONObject: requestBody)
 
-        var request = URLRequest(url: baseURL)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
-        request.setValue(apiVersion, forHTTPHeaderField: "anthropic-version")
-        request.setValue("Lungfish Genome Explorer", forHTTPHeaderField: "User-Agent")
-        request.httpBody = jsonData
-        request.timeoutInterval = 120
+        let request = makeRequest(body: jsonData)
 
         let (data, response) = try await httpClient.data(for: request)
 
@@ -74,14 +80,7 @@ public actor AnthropicProvider: StructuredAIProvider {
         let requestBody = buildStructuredRequestBody(structuredRequest)
         let jsonData = try JSONSerialization.data(withJSONObject: requestBody)
 
-        var request = URLRequest(url: baseURL)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
-        request.setValue(apiVersion, forHTTPHeaderField: "anthropic-version")
-        request.setValue("Lungfish Genome Explorer", forHTTPHeaderField: "User-Agent")
-        request.httpBody = jsonData
-        request.timeoutInterval = 120
+        let request = makeRequest(body: jsonData)
 
         let (data, response) = try await httpClient.data(for: request)
 
@@ -152,6 +151,21 @@ public actor AnthropicProvider: StructuredAIProvider {
         return body
     }
 
+    /// Builds the `tool_result` content blocks for a set of tool results.
+    private func toolResultBlocks(_ results: [AIToolResult]) -> [[String: Any]] {
+        results.map { toolResult in
+            var block: [String: Any] = [
+                "type": "tool_result",
+                "tool_use_id": toolResult.toolCallId,
+                "content": toolResult.content,
+            ]
+            if toolResult.isError {
+                block["is_error"] = true
+            }
+            return block
+        }
+    }
+
     private func buildMessages(_ messages: [AIMessage]) -> [[String: Any]] {
         var result: [[String: Any]] = []
 
@@ -160,17 +174,7 @@ public actor AnthropicProvider: StructuredAIProvider {
             case .user:
                 if !message.toolResults.isEmpty {
                     // Tool results are sent as user messages with tool_result content blocks
-                    let content: [[String: Any]] = message.toolResults.map { toolResult in
-                        var block: [String: Any] = [
-                            "type": "tool_result",
-                            "tool_use_id": toolResult.toolCallId,
-                            "content": toolResult.content,
-                        ]
-                        if toolResult.isError {
-                            block["is_error"] = true
-                        }
-                        return block
-                    }
+                    let content = toolResultBlocks(message.toolResults)
                     result.append(["role": "user", "content": content])
                 } else {
                     result.append(["role": "user", "content": message.content])
@@ -198,17 +202,7 @@ public actor AnthropicProvider: StructuredAIProvider {
                 // Tool results are combined into the next user message
                 // This is handled by the user case above
                 if !message.toolResults.isEmpty {
-                    let content: [[String: Any]] = message.toolResults.map { toolResult in
-                        var block: [String: Any] = [
-                            "type": "tool_result",
-                            "tool_use_id": toolResult.toolCallId,
-                            "content": toolResult.content,
-                        ]
-                        if toolResult.isError {
-                            block["is_error"] = true
-                        }
-                        return block
-                    }
+                    let content = toolResultBlocks(message.toolResults)
                     result.append(["role": "user", "content": content])
                 }
 

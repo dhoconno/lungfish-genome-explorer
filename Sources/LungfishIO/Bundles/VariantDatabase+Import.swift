@@ -90,13 +90,7 @@ extension VariantDatabase {
         defer { sqlite3_close(destDB) }
 
         func exec(_ sql: String, on db: OpaquePointer, context: String) throws {
-            var err: UnsafeMutablePointer<CChar>?
-            sqlite3_exec(db, sql, nil, nil, &err)
-            if let err {
-                let msg = String(cString: err)
-                sqlite3_free(err)
-                throw VariantDatabaseError.createFailed("\(context): \(msg)")
-            }
+            try Self.executeSQLite(db, sql, context: context)
         }
 
         // Ensure merge writes are deterministic and low-overhead.
@@ -199,7 +193,13 @@ extension VariantDatabase {
             rhs: readAttachedMetadataValue(db: destDB, alias: sourceAlias, key: "contig_lengths")
         )
         if let mergedContigs {
-            Self.insertMetadataRow(destDB, key: "contig_lengths", value: mergedContigs, replace: true)
+            try Self.requireMetadataRow(
+                destDB,
+                key: "contig_lengths",
+                value: mergedContigs,
+                replace: true,
+                context: "Merge contig_lengths metadata"
+            )
         }
 
         // Token cache tables are import-time snapshots; invalidate so stale caches
@@ -215,10 +215,28 @@ extension VariantDatabase {
         try exec("DROP TABLE IF EXISTS _high_impact", on: destDB, context: "Drop token cache table")
 
         // Keep import state resumable and import count accurate.
-        let totalCount = currentVariantCount(destDB)
-        Self.insertMetadataRow(destDB, key: "import_variant_count", value: "\(totalCount)", replace: true)
-        Self.insertMetadataRow(destDB, key: "import_state", value: "indexing", replace: true)
-        Self.insertMetadataRow(destDB, key: "import_partition_mode", value: "helper-subprocess-per-chromosome", replace: true)
+        let totalCount = try actualVariantRowCount(destDB)
+        try Self.requireMetadataRow(
+            destDB,
+            key: "import_variant_count",
+            value: "\(totalCount)",
+            replace: true,
+            context: "Merge import_variant_count metadata"
+        )
+        try Self.requireMetadataRow(
+            destDB,
+            key: "import_state",
+            value: "indexing",
+            replace: true,
+            context: "Merge import_state metadata"
+        )
+        try Self.requireMetadataRow(
+            destDB,
+            key: "import_partition_mode",
+            value: "helper-subprocess-per-chromosome",
+            replace: true,
+            context: "Merge import_partition_mode metadata"
+        )
 
         // Keep AUTOINCREMENT sequence aligned with appended explicit IDs.
         try exec(
@@ -234,6 +252,22 @@ extension VariantDatabase {
         committed = true
         _ = sqlite3_db_release_memory(destDB)
         sqlite3_exec(destDB, "PRAGMA shrink_memory", nil, nil, nil)
+
+        let skipVariantInfo = destSkipInfo == "true"
+        let requiredIndexes = skipVariantInfo
+            ? allIndexStatements.filter { !$0.name.contains("variant_info") }
+            : allIndexStatements
+        for (name, sql) in requiredIndexes {
+            try createRequiredIndex(db: destDB, name: name, sql: sql, context: "mergeImportedDatabase")
+        }
+        createSmartTokenTables(db: destDB, skipVariantInfo: skipVariantInfo)
+        try Self.requireMetadataRow(
+            destDB,
+            key: "import_state",
+            value: "complete",
+            replace: true,
+            context: "Merge import_state metadata"
+        )
 
         return appendedVariants
     }
@@ -311,13 +345,7 @@ extension VariantDatabase {
             }
             let fraction = Double(i) / Double(neededIndexes.count)
             progressHandler?(fraction, "Creating index \(i + 1) of \(neededIndexes.count) (\(name))...")
-            var idxErr: UnsafeMutablePointer<CChar>?
-            sqlite3_exec(db, sql, nil, nil, &idxErr)
-            if let idxErr {
-                let msg = String(cString: idxErr)
-                sqlite3_free(idxErr)
-                variantDBLogger.warning("resumeImport: Index '\(name)' failed: \(msg)")
-            }
+            try createRequiredIndex(db: db, name: name, sql: sql, context: "resumeImport")
             sqlite3_exec(db, "INSERT OR REPLACE INTO db_metadata VALUES ('idx_\(name)', 'created')", nil, nil, nil)
             _ = sqlite3_db_release_memory(db)
             sqlite3_exec(db, "PRAGMA shrink_memory", nil, nil, nil)
@@ -342,6 +370,18 @@ extension VariantDatabase {
         }
         defer { sqlite3_finalize(stmt) }
         guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
+        return Int(sqlite3_column_int64(stmt, 0))
+    }
+
+    static func actualVariantRowCount(_ db: OpaquePointer) throws -> Int {
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM variants", -1, &stmt, nil) == SQLITE_OK else {
+            throw VariantDatabaseError.createFailed("Failed to prepare variant row count: \(String(cString: sqlite3_errmsg(db)))")
+        }
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_step(stmt) == SQLITE_ROW else {
+            throw VariantDatabaseError.createFailed("Failed to read variant row count: \(String(cString: sqlite3_errmsg(db)))")
+        }
         return Int(sqlite3_column_int64(stmt, 0))
     }
 
@@ -426,6 +466,41 @@ extension VariantDatabase {
         return rc == SQLITE_DONE
     }
 
+    static func requireMetadataRow(
+        _ db: OpaquePointer,
+        key: String,
+        value: String,
+        replace: Bool = false,
+        context: String
+    ) throws {
+        guard insertMetadataRow(db, key: key, value: value, replace: replace) else {
+            throw VariantDatabaseError.createFailed(
+                "\(context): failed to write db_metadata value for '\(key)': \(String(cString: sqlite3_errmsg(db)))"
+            )
+        }
+    }
+
+    static func executeSQLite(
+        _ db: OpaquePointer?,
+        _ sql: String,
+        context: String
+    ) throws {
+        var error: UnsafeMutablePointer<CChar>?
+        let rc = sqlite3_exec(db, sql, nil, nil, &error)
+        guard rc != SQLITE_OK else { return }
+
+        let message: String
+        if let error {
+            message = String(cString: error)
+            sqlite3_free(error)
+        } else if let db {
+            message = String(cString: sqlite3_errmsg(db))
+        } else {
+            message = "SQLite error \(rc)"
+        }
+        throw VariantDatabaseError.createFailed("\(context): \(message)")
+    }
+
     static func readMetadataValue(_ db: OpaquePointer, key: String) -> String? {
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, "SELECT value FROM db_metadata WHERE key = ?", -1, &stmt, nil) == SQLITE_OK else {
@@ -451,6 +526,30 @@ extension VariantDatabase {
             }
         }
         return result
+    }
+
+    static func createRequiredIndex(
+        db: OpaquePointer?,
+        name: String,
+        sql: String,
+        context: String
+    ) throws {
+        var idxErr: UnsafeMutablePointer<CChar>?
+        let rc = sqlite3_exec(db, sql, nil, nil, &idxErr)
+        if rc == SQLITE_OK {
+            return
+        }
+
+        let message: String
+        if let idxErr {
+            message = String(cString: idxErr)
+            sqlite3_free(idxErr)
+        } else if let db {
+            message = String(cString: sqlite3_errmsg(db))
+        } else {
+            message = "SQLite error \(rc)"
+        }
+        throw VariantDatabaseError.createFailed("\(context): failed to create index '\(name)': \(message)")
     }
 
     // MARK: - Post-Import EAV Materialization
@@ -648,13 +747,7 @@ extension VariantDatabase {
             }
             let indexProgress = 0.92 + (Double(i) / Double(max(1, variantInfoIndexes.count))) * 0.06
             progressHandler?(indexProgress, "Creating index \(name)...")
-            var idxErr: UnsafeMutablePointer<CChar>?
-            sqlite3_exec(db, sql, nil, nil, &idxErr)
-            if let idxErr {
-                let msg = String(cString: idxErr)
-                sqlite3_free(idxErr)
-                variantDBLogger.warning("materializeVariantInfo: Index '\(name)' failed: \(msg)")
-            }
+            try createRequiredIndex(db: db, name: name, sql: sql, context: "materializeVariantInfo")
             _ = sqlite3_db_release_memory(db)
             sqlite3_exec(db, "PRAGMA shrink_memory", nil, nil, nil)
         }
