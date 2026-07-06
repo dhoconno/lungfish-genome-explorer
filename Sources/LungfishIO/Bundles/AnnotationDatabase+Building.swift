@@ -7,49 +7,13 @@ import LungfishCore
 import SQLite3
 import os.log
 
-extension AnnotationDatabase {
+struct AnnotationDatabaseBuildPlan {
+    var schemaSQL: String
+    var metadataSQL: String
+    var indexSQLStatements: [String]
 
-    // MARK: - Attribute Parsing
-
-    /// Parses a GFF3- or GTF-style attributes string into a dictionary.
-    ///
-    /// Formats: `key1=value1;key2=value2` or `key1 "value1"; key2 "value2";`
-    /// Values are URL-decoded (percent-encoded spaces, commas, etc.).
-    ///
-    /// - Parameter attrs: Raw attributes string
-    /// - Returns: Dictionary of key-value pairs
-    public static func parseAttributes(_ attrs: String) -> [String: String] {
-        parseFlexibleAttributes(attrs)
-    }
-
-    // MARK: - Static Creation (for bundle building)
-
-    /// Creates a new annotation database from BED file content.
-    ///
-    /// Parses BED lines (tab-separated) extracting: chromosome (col 0), start (col 1),
-    /// end (col 2), name (col 3), strand (col 5), feature type (col 12 if present),
-    /// and GFF3 attributes (col 13 if present).
-    ///
-    /// - Parameters:
-    ///   - bedURL: URL to the BED file
-    ///   - outputURL: URL for the SQLite database to create
-    /// - Returns: Number of records inserted
-    @discardableResult
-    public static func createFromBED(bedURL: URL, outputURL: URL) throws -> Int {
-        // Remove existing database
-        try? FileManager.default.removeItem(at: outputURL)
-
-        var db: OpaquePointer?
-        let rc = sqlite3_open(outputURL.path, &db)
-        guard rc == SQLITE_OK, let db else {
-            let msg = db.flatMap { String(cString: sqlite3_errmsg($0)) } ?? "Unknown error"
-            sqlite3_close(db)
-            throw AnnotationDatabaseError.createFailed(msg)
-        }
-        defer { sqlite3_close(db) }
-
-        // Create schema (v4 with attributes, block columns, and gene_name)
-        let schema = """
+    static let `default` = AnnotationDatabaseBuildPlan(
+        schemaSQL: """
         CREATE TABLE annotations (
             name TEXT NOT NULL,
             type TEXT NOT NULL,
@@ -67,129 +31,232 @@ extension AnnotationDatabase {
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
-        """
-        var errMsg: UnsafeMutablePointer<CChar>?
-        sqlite3_exec(db, schema, nil, nil, &errMsg)
-        if let errMsg {
-            let msg = String(cString: errMsg)
-            sqlite3_free(errMsg)
+        """,
+        metadataSQL: "INSERT INTO db_metadata VALUES ('schema_version', '4')",
+        indexSQLStatements: [
+            "CREATE INDEX idx_annotations_name ON annotations(name COLLATE NOCASE)",
+            "CREATE INDEX idx_annotations_type ON annotations(type)",
+            "CREATE INDEX idx_annotations_chrom ON annotations(chromosome)",
+            "CREATE INDEX idx_annotations_region ON annotations(chromosome, start, end)",
+            "CREATE INDEX idx_annotations_gene_name ON annotations(gene_name COLLATE NOCASE)",
+        ]
+    )
+}
+
+extension AnnotationDatabase {
+
+    // MARK: - Attribute Parsing
+
+    /// Parses a GFF3- or GTF-style attributes string into a dictionary.
+    ///
+    /// Formats: `key1=value1;key2=value2` or `key1 "value1"; key2 "value2";`
+    /// Values are URL-decoded (percent-encoded spaces, commas, etc.).
+    ///
+    /// - Parameter attrs: Raw attributes string
+    /// - Returns: Dictionary of key-value pairs
+    public static func parseAttributes(_ attrs: String) -> [String: String] {
+        parseFlexibleAttributes(attrs)
+    }
+
+    private static func withNewSQLiteDatabase<T>(at outputURL: URL, _ body: (OpaquePointer) throws -> T) throws -> T {
+        var db: OpaquePointer?
+        let rc = sqlite3_open(outputURL.path, &db)
+        guard rc == SQLITE_OK, let db else {
+            let msg = db.flatMap { String(cString: sqlite3_errmsg($0)) } ?? "Unknown error"
+            sqlite3_close(db)
             throw AnnotationDatabaseError.createFailed(msg)
         }
-        sqlite3_exec(db, "INSERT INTO db_metadata VALUES ('schema_version', '4')", nil, nil, nil)
+        defer { sqlite3_close(db) }
+        return try body(db)
+    }
 
-        // Begin transaction for bulk insert
-        sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, nil)
-
-        let insertSQL = "INSERT INTO annotations (name, type, chromosome, start, end, strand, attributes, block_count, block_sizes, block_starts, gene_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-        var insertStmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, insertSQL, -1, &insertStmt, nil) == SQLITE_OK else {
-            throw AnnotationDatabaseError.createFailed("Failed to prepare INSERT statement")
+    private static func sqliteMessage(db: OpaquePointer, errorMessage: UnsafeMutablePointer<CChar>?) -> String {
+        if let errorMessage {
+            defer { sqlite3_free(errorMessage) }
+            return String(cString: errorMessage)
         }
-        defer { sqlite3_finalize(insertStmt) }
+        return String(cString: sqlite3_errmsg(db))
+    }
 
-        let content = try String(contentsOf: bedURL, encoding: .utf8)
-        var insertCount = 0
-
-        for line in content.split(separator: "\n") {
-            guard !line.hasPrefix("#") else { continue }
-            let fields = line.split(separator: "\t", omittingEmptySubsequences: false)
-            guard fields.count >= 4 else { continue }
-
-            let chrom = String(fields[0])
-            let start = Int(fields[1]) ?? 0
-            let end = Int(fields[2]) ?? 0
-            let strand = fields.count > 5 ? String(fields[5]) : "."
-
-            // Extract BED12 block data (columns 9-11, 0-indexed)
-            let blockCount: Int? = fields.count > 9 ? Int(fields[9]) : nil
-            let blockSizes: String? = fields.count > 10 ? String(fields[10]) : nil
-            let blockStarts: String? = fields.count > 11 ? String(fields[11]) : nil
-
-            // Extract type from column 12 (0-indexed) if present, otherwise infer
-            let type: String
-            if fields.count > 12 {
-                type = String(fields[12])
-            } else {
-                type = "gene"
-            }
-
-            let rawName = String(fields[3])
-            let name: String
-            if rawName.isEmpty {
-                name = "\(type):\(chrom):\(start)-\(end)"
-            } else {
-                name = rawName
-            }
-
-            // Extract GFF3 attributes from column 13 if present
-            let attributes: String?
-            if fields.count > 13 {
-                let attr = String(fields[13])
-                attributes = attr.isEmpty ? nil : attr
-            } else {
-                attributes = nil
-            }
-
-            // Extract gene_name from attributes
-            let geneName: String?
-            if let attributes {
-                let parsed = parseAttributes(attributes)
-                geneName = parsed["gene"]
-            } else {
-                geneName = nil
-            }
-
-            sqlite3_reset(insertStmt)
-            sqlite3_bind_text(insertStmt, 1, (name as NSString).utf8String, -1, nil)
-            sqlite3_bind_text(insertStmt, 2, (type as NSString).utf8String, -1, nil)
-            sqlite3_bind_text(insertStmt, 3, (chrom as NSString).utf8String, -1, nil)
-            sqlite3_bind_int64(insertStmt, 4, Int64(start))
-            sqlite3_bind_int64(insertStmt, 5, Int64(end))
-            sqlite3_bind_text(insertStmt, 6, (strand as NSString).utf8String, -1, nil)
-            if let attributes {
-                sqlite3_bind_text(insertStmt, 7, (attributes as NSString).utf8String, -1, nil)
-            } else {
-                sqlite3_bind_null(insertStmt, 7)
-            }
-            if let blockCount {
-                sqlite3_bind_int64(insertStmt, 8, Int64(blockCount))
-            } else {
-                sqlite3_bind_null(insertStmt, 8)
-            }
-            if let blockSizes {
-                sqlite3_bind_text(insertStmt, 9, (blockSizes as NSString).utf8String, -1, nil)
-            } else {
-                sqlite3_bind_null(insertStmt, 9)
-            }
-            if let blockStarts {
-                sqlite3_bind_text(insertStmt, 10, (blockStarts as NSString).utf8String, -1, nil)
-            } else {
-                sqlite3_bind_null(insertStmt, 10)
-            }
-            if let geneName {
-                sqlite3_bind_text(insertStmt, 11, (geneName as NSString).utf8String, -1, nil)
-            } else {
-                sqlite3_bind_null(insertStmt, 11)
-            }
-
-            if sqlite3_step(insertStmt) != SQLITE_DONE {
-                dbLogger.warning("Failed to insert annotation: \(name)")
-            }
-            insertCount += 1
+    private static func executeSQLite(_ db: OpaquePointer, _ sql: String, context: String) throws {
+        var errMsg: UnsafeMutablePointer<CChar>?
+        let rc = sqlite3_exec(db, sql, nil, nil, &errMsg)
+        guard rc == SQLITE_OK else {
+            let msg = sqliteMessage(db: db, errorMessage: errMsg)
+            throw AnnotationDatabaseError.createFailed("\(context): \(msg)")
         }
+    }
 
-        // Create indexes after bulk insert (faster than indexing during inserts)
-        sqlite3_exec(db, "CREATE INDEX idx_annotations_name ON annotations(name COLLATE NOCASE)", nil, nil, nil)
-        sqlite3_exec(db, "CREATE INDEX idx_annotations_type ON annotations(type)", nil, nil, nil)
-        sqlite3_exec(db, "CREATE INDEX idx_annotations_chrom ON annotations(chromosome)", nil, nil, nil)
-        // Composite index for fast genomic interval queries (chromosome + coordinate range)
-        sqlite3_exec(db, "CREATE INDEX idx_annotations_region ON annotations(chromosome, start, end)", nil, nil, nil)
-        sqlite3_exec(db, "CREATE INDEX idx_annotations_gene_name ON annotations(gene_name COLLATE NOCASE)", nil, nil, nil)
+    private static func executeSQLiteStep(_ db: OpaquePointer, statement: OpaquePointer?, context: String) throws {
+        let rc = sqlite3_step(statement)
+        guard rc == SQLITE_DONE else {
+            throw AnnotationDatabaseError.createFailed("\(context): \(String(cString: sqlite3_errmsg(db)))")
+        }
+    }
 
-        sqlite3_exec(db, "COMMIT", nil, nil, nil)
+    private static func rollbackSQLiteTransaction(_ db: OpaquePointer) {
+        sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
+    }
 
-        dbLogger.info("Created annotation database with \(insertCount) records at \(outputURL.lastPathComponent)")
-        return insertCount
+    private static func createSchema(in db: OpaquePointer, buildPlan: AnnotationDatabaseBuildPlan) throws {
+        try executeSQLite(db, buildPlan.schemaSQL, context: "create annotation schema")
+        try executeSQLite(db, buildPlan.metadataSQL, context: "write annotation schema metadata")
+    }
+
+    private static func createIndexes(in db: OpaquePointer, buildPlan: AnnotationDatabaseBuildPlan) throws {
+        for sql in buildPlan.indexSQLStatements {
+            try executeSQLite(db, sql, context: "create annotation index")
+        }
+    }
+
+    // MARK: - Static Creation (for bundle building)
+
+    /// Creates a new annotation database from BED file content.
+    ///
+    /// Parses BED lines (tab-separated) extracting: chromosome (col 0), start (col 1),
+    /// end (col 2), name (col 3), strand (col 5), feature type (col 12 if present),
+    /// and GFF3 attributes (col 13 if present).
+    ///
+    /// - Parameters:
+    ///   - bedURL: URL to the BED file
+    ///   - outputURL: URL for the SQLite database to create
+    /// - Returns: Number of records inserted
+    @discardableResult
+    public static func createFromBED(bedURL: URL, outputURL: URL) throws -> Int {
+        try createFromBED(bedURL: bedURL, outputURL: outputURL, buildPlan: .default)
+    }
+
+    @discardableResult
+    static func createFromBED(
+        bedURL: URL,
+        outputURL: URL,
+        buildPlan: AnnotationDatabaseBuildPlan
+    ) throws -> Int {
+        try? FileManager.default.removeItem(at: outputURL)
+
+        do {
+            return try withNewSQLiteDatabase(at: outputURL) { db in
+                try createSchema(in: db, buildPlan: buildPlan)
+
+                // Begin transaction for bulk insert
+                try executeSQLite(db, "BEGIN TRANSACTION", context: "begin annotation import transaction")
+                var transactionOpen = true
+
+                do {
+                    let insertSQL = "INSERT INTO annotations (name, type, chromosome, start, end, strand, attributes, block_count, block_sizes, block_starts, gene_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                    var insertStmt: OpaquePointer?
+                    guard sqlite3_prepare_v2(db, insertSQL, -1, &insertStmt, nil) == SQLITE_OK else {
+                        throw AnnotationDatabaseError.createFailed("Failed to prepare INSERT statement: \(String(cString: sqlite3_errmsg(db)))")
+                    }
+                    defer { sqlite3_finalize(insertStmt) }
+
+                    let content = try String(contentsOf: bedURL, encoding: .utf8)
+                    var insertCount = 0
+
+                    for line in content.split(separator: "\n") {
+                        guard !line.hasPrefix("#") else { continue }
+                        let fields = line.split(separator: "\t", omittingEmptySubsequences: false)
+                        guard fields.count >= 4 else { continue }
+
+                        let chrom = String(fields[0])
+                        let start = Int(fields[1]) ?? 0
+                        let end = Int(fields[2]) ?? 0
+                        let strand = fields.count > 5 ? String(fields[5]) : "."
+
+                        // Extract BED12 block data (columns 9-11, 0-indexed)
+                        let blockCount: Int? = fields.count > 9 ? Int(fields[9]) : nil
+                        let blockSizes: String? = fields.count > 10 ? String(fields[10]) : nil
+                        let blockStarts: String? = fields.count > 11 ? String(fields[11]) : nil
+
+                        // Extract type from column 12 (0-indexed) if present, otherwise infer
+                        let type: String
+                        if fields.count > 12 {
+                            type = String(fields[12])
+                        } else {
+                            type = "gene"
+                        }
+
+                        let rawName = String(fields[3])
+                        let name: String
+                        if rawName.isEmpty {
+                            name = "\(type):\(chrom):\(start)-\(end)"
+                        } else {
+                            name = rawName
+                        }
+
+                        // Extract GFF3 attributes from column 13 if present
+                        let attributes: String?
+                        if fields.count > 13 {
+                            let attr = String(fields[13])
+                            attributes = attr.isEmpty ? nil : attr
+                        } else {
+                            attributes = nil
+                        }
+
+                        // Extract gene_name from attributes
+                        let geneName: String?
+                        if let attributes {
+                            let parsed = parseAttributes(attributes)
+                            geneName = parsed["gene"]
+                        } else {
+                            geneName = nil
+                        }
+
+                        sqlite3_reset(insertStmt)
+                        sqlite3_bind_text(insertStmt, 1, (name as NSString).utf8String, -1, nil)
+                        sqlite3_bind_text(insertStmt, 2, (type as NSString).utf8String, -1, nil)
+                        sqlite3_bind_text(insertStmt, 3, (chrom as NSString).utf8String, -1, nil)
+                        sqlite3_bind_int64(insertStmt, 4, Int64(start))
+                        sqlite3_bind_int64(insertStmt, 5, Int64(end))
+                        sqlite3_bind_text(insertStmt, 6, (strand as NSString).utf8String, -1, nil)
+                        if let attributes {
+                            sqlite3_bind_text(insertStmt, 7, (attributes as NSString).utf8String, -1, nil)
+                        } else {
+                            sqlite3_bind_null(insertStmt, 7)
+                        }
+                        if let blockCount {
+                            sqlite3_bind_int64(insertStmt, 8, Int64(blockCount))
+                        } else {
+                            sqlite3_bind_null(insertStmt, 8)
+                        }
+                        if let blockSizes {
+                            sqlite3_bind_text(insertStmt, 9, (blockSizes as NSString).utf8String, -1, nil)
+                        } else {
+                            sqlite3_bind_null(insertStmt, 9)
+                        }
+                        if let blockStarts {
+                            sqlite3_bind_text(insertStmt, 10, (blockStarts as NSString).utf8String, -1, nil)
+                        } else {
+                            sqlite3_bind_null(insertStmt, 10)
+                        }
+                        if let geneName {
+                            sqlite3_bind_text(insertStmt, 11, (geneName as NSString).utf8String, -1, nil)
+                        } else {
+                            sqlite3_bind_null(insertStmt, 11)
+                        }
+
+                        try executeSQLiteStep(db, statement: insertStmt, context: "insert annotation \(name)")
+                        insertCount += 1
+                    }
+
+                    try createIndexes(in: db, buildPlan: buildPlan)
+
+                    try executeSQLite(db, "COMMIT", context: "commit annotation import transaction")
+                    transactionOpen = false
+
+                    dbLogger.info("Created annotation database with \(insertCount) records at \(outputURL.lastPathComponent)")
+                    return insertCount
+                } catch {
+                    if transactionOpen {
+                        rollbackSQLiteTransaction(db)
+                    }
+                    throw error
+                }
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: outputURL)
+            throw error
+        }
     }
 
     // MARK: - Static Creation from GFF3
@@ -212,45 +279,22 @@ extension AnnotationDatabase {
         outputURL: URL,
         chromosomeSizes: [(String, Int64)]? = nil
     ) async throws -> Int {
+        try await createFromGFF3(
+            gffURL: gffURL,
+            outputURL: outputURL,
+            chromosomeSizes: chromosomeSizes,
+            buildPlan: .default
+        )
+    }
+
+    @discardableResult
+    static func createFromGFF3(
+        gffURL: URL,
+        outputURL: URL,
+        chromosomeSizes: [(String, Int64)]? = nil,
+        buildPlan: AnnotationDatabaseBuildPlan
+    ) async throws -> Int {
         try? FileManager.default.removeItem(at: outputURL)
-
-        var db: OpaquePointer?
-        let rc = sqlite3_open(outputURL.path, &db)
-        guard rc == SQLITE_OK, let db else {
-            let msg = db.flatMap { String(cString: sqlite3_errmsg($0)) } ?? "Unknown error"
-            sqlite3_close(db)
-            throw AnnotationDatabaseError.createFailed(msg)
-        }
-        defer { sqlite3_close(db) }
-
-        // Create schema (v4 with gene_name)
-        let schema = """
-        CREATE TABLE annotations (
-            name TEXT NOT NULL,
-            type TEXT NOT NULL,
-            chromosome TEXT NOT NULL,
-            start INTEGER NOT NULL,
-            end INTEGER NOT NULL,
-            strand TEXT NOT NULL DEFAULT '.',
-            attributes TEXT,
-            block_count INTEGER,
-            block_sizes TEXT,
-            block_starts TEXT,
-            gene_name TEXT
-        );
-        CREATE TABLE db_metadata (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL
-        );
-        """
-        var errMsg: UnsafeMutablePointer<CChar>?
-        sqlite3_exec(db, schema, nil, nil, &errMsg)
-        if let errMsg {
-            let msg = String(cString: errMsg)
-            sqlite3_free(errMsg)
-            throw AnnotationDatabaseError.createFailed(msg)
-        }
-        sqlite3_exec(db, "INSERT INTO db_metadata VALUES ('schema_version', '4')", nil, nil, nil)
 
         let chromSizeMap: [String: Int64]?
         if let sizes = chromosomeSizes {
@@ -334,251 +378,261 @@ extension AnnotationDatabase {
 
         dbLogger.info("createFromGFF3: Parsed \(allFeatures.count) features from \(gffURL.lastPathComponent)")
 
-        // Group features by GFF3 ID for same-ID merging (e.g., CDS with multiple intervals)
-        var featuresByID: [String: [Int]] = [:]
-        for (index, feature) in allFeatures.enumerated() {
-            if let id = feature.id {
-                featuresByID[id, default: []].append(index)
-            }
-        }
+        do {
+            return try withNewSQLiteDatabase(at: outputURL) { db in
+                try createSchema(in: db, buildPlan: buildPlan)
 
-        // ── Pass 2: Build database records with parent-child aggregation ──
-        sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, nil)
-
-        let insertSQL = "INSERT INTO annotations (name, type, chromosome, start, end, strand, attributes, block_count, block_sizes, block_starts, gene_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-        var insertStmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, insertSQL, -1, &insertStmt, nil) == SQLITE_OK else {
-            throw AnnotationDatabaseError.createFailed("Failed to prepare INSERT statement")
-        }
-        defer { sqlite3_finalize(insertStmt) }
-
-        var insertCount = 0
-        var seenKeys = Set<String>()
-        var processedIDs = Set<String>()
-
-        /// GFF3 type validation here is intentionally syntactic, not ontology-enforcing.
-        /// Column 3 should be a Sequence Ontology term, but scientific review files
-        /// often carry workflow-specific feature types that are still useful tracks.
-        func isImportableFeatureType(_ type: String) -> Bool {
-            let trimmed = type.trimmingCharacters(in: .whitespacesAndNewlines)
-            return !trimmed.isEmpty && trimmed != "."
-        }
-
-        /// Helper: serialize GFF3 attributes (excluding ID and Parent) with percent-encoding.
-        func serializeAttributes(_ attrs: [String: String]) -> String? {
-            var attrPairs: [String] = []
-            for (key, value) in attrs.sorted(by: { $0.key < $1.key }) {
-                let encoded = value
-                    .replacingOccurrences(of: "%", with: "%25")
-                    .replacingOccurrences(of: ";", with: "%3B")
-                    .replacingOccurrences(of: "=", with: "%3D")
-                    .replacingOccurrences(of: "&", with: "%26")
-                    .replacingOccurrences(of: ",", with: "%2C")
-                attrPairs.append("\(key)=\(encoded)")
-            }
-            return attrPairs.isEmpty ? nil : attrPairs.joined(separator: ";")
-        }
-
-        /// Helper: bind all 11 columns and execute the INSERT.
-        func insertRecord(
-            name: String, type: String, seqid: String,
-            chromStart: Int, chromEnd: Int, strand: String,
-            attrString: String?, blockCount: Int?,
-            blockSizesStr: String?, blockStartsStr: String?,
-            geneName: String?
-        ) {
-            sqlite3_reset(insertStmt)
-            sqlite3_bind_text(insertStmt, 1, (name as NSString).utf8String, -1, nil)
-            sqlite3_bind_text(insertStmt, 2, (type as NSString).utf8String, -1, nil)
-            sqlite3_bind_text(insertStmt, 3, (seqid as NSString).utf8String, -1, nil)
-            sqlite3_bind_int64(insertStmt, 4, Int64(chromStart))
-            sqlite3_bind_int64(insertStmt, 5, Int64(chromEnd))
-            sqlite3_bind_text(insertStmt, 6, (strand as NSString).utf8String, -1, nil)
-            if let attrString {
-                sqlite3_bind_text(insertStmt, 7, (attrString as NSString).utf8String, -1, nil)
-            } else {
-                sqlite3_bind_null(insertStmt, 7)
-            }
-            if let blockCount {
-                sqlite3_bind_int64(insertStmt, 8, Int64(blockCount))
-            } else {
-                sqlite3_bind_null(insertStmt, 8)
-            }
-            if let blockSizesStr {
-                sqlite3_bind_text(insertStmt, 9, (blockSizesStr as NSString).utf8String, -1, nil)
-            } else {
-                sqlite3_bind_null(insertStmt, 9)
-            }
-            if let blockStartsStr {
-                sqlite3_bind_text(insertStmt, 10, (blockStartsStr as NSString).utf8String, -1, nil)
-            } else {
-                sqlite3_bind_null(insertStmt, 10)
-            }
-            if let geneName {
-                sqlite3_bind_text(insertStmt, 11, (geneName as NSString).utf8String, -1, nil)
-            } else {
-                sqlite3_bind_null(insertStmt, 11)
-            }
-
-            if sqlite3_step(insertStmt) != SQLITE_DONE {
-                dbLogger.warning("Failed to insert annotation: \(name)")
-            }
-            insertCount += 1
-        }
-
-        for feature in allFeatures {
-            guard isImportableFeatureType(feature.featureType) else { continue }
-
-            let geneName = geneName(from: feature.attributes)
-
-            // ── Same-ID merging: CDS features sharing a GFF3 ID are intervals of one CDS ──
-            if let featureID = feature.id,
-               let siblings = featuresByID[featureID],
-               siblings.count > 1,
-               feature.featureType == "CDS",
-               !transcriptTypes.contains(feature.featureType) {
-
-                // Already merged this ID? Skip.
-                guard processedIDs.insert(featureID).inserted else { continue }
-
-                // Merge all same-ID features into a single BED12 entry
-                let siblingFeatures = siblings.map { allFeatures[$0] }
-
-                // Compute merged span (0-based)
-                let allStarts = siblingFeatures.map { $0.start - 1 }
-                let allEnds = siblingFeatures.map { $0.end }
-                var mergedStart = allStarts.min()!
-                var mergedEnd = allEnds.max()!
-
-                // Clip to chromosome boundaries
-                if let chromSize = chromSizeMap?[feature.seqid] {
-                    mergedStart = max(0, min(mergedStart, Int(chromSize)))
-                    mergedEnd = max(mergedStart, min(mergedEnd, Int(chromSize)))
-                }
-
-                // Build BED12 blocks from sorted intervals
-                let sortedIntervals = zip(allStarts, allEnds)
-                    .map { (start: $0, end: $1) }
-                    .sorted { $0.start < $1.start }
-
-                var clippedBlocks: [(size: Int, start: Int)] = []
-                for interval in sortedIntervals {
-                    let clippedStart = max(interval.start, mergedStart)
-                    let clippedEnd = min(interval.end, mergedEnd)
-                    if clippedEnd > clippedStart {
-                        clippedBlocks.append((
-                            size: clippedEnd - clippedStart,
-                            start: clippedStart - mergedStart
-                        ))
+                // Group features by GFF3 ID for same-ID merging (e.g., CDS with multiple intervals)
+                var featuresByID: [String: [Int]] = [:]
+                for (index, feature) in allFeatures.enumerated() {
+                    if let id = feature.id {
+                        featuresByID[id, default: []].append(index)
                     }
                 }
 
-                let blockCount: Int?
-                let blockSizesStr: String?
-                let blockStartsStr: String?
-                if clippedBlocks.count > 1 {
-                    blockCount = clippedBlocks.count
-                    blockSizesStr = clippedBlocks.map { "\($0.size)" }.joined(separator: ",")
-                    blockStartsStr = clippedBlocks.map { "\($0.start)" }.joined(separator: ",")
-                } else {
-                    blockCount = nil
-                    blockSizesStr = nil
-                    blockStartsStr = nil
-                }
+                // ── Pass 2: Build database records with parent-child aggregation ──
+                try executeSQLite(db, "BEGIN TRANSACTION", context: "begin annotation import transaction")
+                var transactionOpen = true
 
-                // Use attributes from the first occurrence
-                let attrString = serializeAttributes(feature.attributes)
-
-                // Deduplicate (using merged coordinates)
-                let key = "\(feature.name)|\(feature.featureType)|\(feature.seqid)|\(mergedStart)|\(mergedEnd)"
-                guard seenKeys.insert(key).inserted else { continue }
-
-                insertRecord(
-                    name: feature.name, type: feature.featureType, seqid: feature.seqid,
-                    chromStart: mergedStart, chromEnd: mergedEnd, strand: feature.strand,
-                    attrString: attrString, blockCount: blockCount,
-                    blockSizesStr: blockSizesStr, blockStartsStr: blockStartsStr,
-                    geneName: geneName
-                )
-                continue
-            }
-
-            // ── Transcript-level features: aggregate child exons into blocks ──
-            let attrString = serializeAttributes(feature.attributes)
-
-            var chromStart = feature.start - 1
-            var chromEnd = feature.end
-            if let chromSize = chromSizeMap?[feature.seqid] {
-                chromStart = max(0, min(chromStart, Int(chromSize)))
-                chromEnd = max(chromStart, min(chromEnd, Int(chromSize)))
-            }
-
-            var blockCount: Int? = nil
-            var blockSizesStr: String? = nil
-            var blockStartsStr: String? = nil
-
-            if transcriptTypes.contains(feature.featureType),
-               let featureID = feature.id,
-               let childIndices = childrenByParent[featureID] {
-
-                var exonIntervals: [(start: Int, end: Int)] = []
-                var cdsIntervals: [(start: Int, end: Int)] = []
-
-                for childIdx in childIndices {
-                    let child = allFeatures[childIdx]
-                    if exonTypes.contains(child.featureType) {
-                        exonIntervals.append((start: child.start - 1, end: child.end))
-                    } else if cdsTypes.contains(child.featureType) {
-                        cdsIntervals.append((start: child.start - 1, end: child.end))
+                do {
+                    let insertSQL = "INSERT INTO annotations (name, type, chromosome, start, end, strand, attributes, block_count, block_sizes, block_starts, gene_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                    var insertStmt: OpaquePointer?
+                    guard sqlite3_prepare_v2(db, insertSQL, -1, &insertStmt, nil) == SQLITE_OK else {
+                        throw AnnotationDatabaseError.createFailed("Failed to prepare INSERT statement: \(String(cString: sqlite3_errmsg(db)))")
                     }
-                }
+                    defer { sqlite3_finalize(insertStmt) }
 
-                let blockIntervals = exonIntervals.isEmpty ? cdsIntervals : exonIntervals
+                    var insertCount = 0
+                    var seenKeys = Set<String>()
+                    var processedIDs = Set<String>()
 
-                if blockIntervals.count > 1 {
-                    let sortedIntervals = blockIntervals.sorted { $0.start < $1.start }
+                    /// GFF3 type validation here is intentionally syntactic, not ontology-enforcing.
+                    /// Column 3 should be a Sequence Ontology term, but scientific review files
+                    /// often carry workflow-specific feature types that are still useful tracks.
+                    func isImportableFeatureType(_ type: String) -> Bool {
+                        let trimmed = type.trimmingCharacters(in: .whitespacesAndNewlines)
+                        return !trimmed.isEmpty && trimmed != "."
+                    }
 
-                    var clippedBlocks: [(size: Int, start: Int)] = []
-                    for exon in sortedIntervals {
-                        let clippedStart = max(exon.start, chromStart)
-                        let clippedEnd = min(exon.end, chromEnd)
-                        if clippedEnd > clippedStart {
-                            clippedBlocks.append((size: clippedEnd - clippedStart, start: clippedStart - chromStart))
+                    /// Helper: serialize GFF3 attributes (excluding ID and Parent) with percent-encoding.
+                    func serializeAttributes(_ attrs: [String: String]) -> String? {
+                        var attrPairs: [String] = []
+                        for (key, value) in attrs.sorted(by: { $0.key < $1.key }) {
+                            let encoded = value
+                                .replacingOccurrences(of: "%", with: "%25")
+                                .replacingOccurrences(of: ";", with: "%3B")
+                                .replacingOccurrences(of: "=", with: "%3D")
+                                .replacingOccurrences(of: "&", with: "%26")
+                                .replacingOccurrences(of: ",", with: "%2C")
+                            attrPairs.append("\(key)=\(encoded)")
                         }
+                        return attrPairs.isEmpty ? nil : attrPairs.joined(separator: ";")
                     }
 
-                    if clippedBlocks.count > 1 {
-                        blockCount = clippedBlocks.count
-                        blockSizesStr = clippedBlocks.map { "\($0.size)" }.joined(separator: ",")
-                        blockStartsStr = clippedBlocks.map { "\($0.start)" }.joined(separator: ",")
+                    /// Helper: bind all 11 columns and execute the INSERT.
+                    func insertRecord(
+                        name: String, type: String, seqid: String,
+                        chromStart: Int, chromEnd: Int, strand: String,
+                        attrString: String?, blockCount: Int?,
+                        blockSizesStr: String?, blockStartsStr: String?,
+                        geneName: String?
+                    ) throws {
+                        sqlite3_reset(insertStmt)
+                        sqlite3_bind_text(insertStmt, 1, (name as NSString).utf8String, -1, nil)
+                        sqlite3_bind_text(insertStmt, 2, (type as NSString).utf8String, -1, nil)
+                        sqlite3_bind_text(insertStmt, 3, (seqid as NSString).utf8String, -1, nil)
+                        sqlite3_bind_int64(insertStmt, 4, Int64(chromStart))
+                        sqlite3_bind_int64(insertStmt, 5, Int64(chromEnd))
+                        sqlite3_bind_text(insertStmt, 6, (strand as NSString).utf8String, -1, nil)
+                        if let attrString {
+                            sqlite3_bind_text(insertStmt, 7, (attrString as NSString).utf8String, -1, nil)
+                        } else {
+                            sqlite3_bind_null(insertStmt, 7)
+                        }
+                        if let blockCount {
+                            sqlite3_bind_int64(insertStmt, 8, Int64(blockCount))
+                        } else {
+                            sqlite3_bind_null(insertStmt, 8)
+                        }
+                        if let blockSizesStr {
+                            sqlite3_bind_text(insertStmt, 9, (blockSizesStr as NSString).utf8String, -1, nil)
+                        } else {
+                            sqlite3_bind_null(insertStmt, 9)
+                        }
+                        if let blockStartsStr {
+                            sqlite3_bind_text(insertStmt, 10, (blockStartsStr as NSString).utf8String, -1, nil)
+                        } else {
+                            sqlite3_bind_null(insertStmt, 10)
+                        }
+                        if let geneName {
+                            sqlite3_bind_text(insertStmt, 11, (geneName as NSString).utf8String, -1, nil)
+                        } else {
+                            sqlite3_bind_null(insertStmt, 11)
+                        }
+
+                        try executeSQLiteStep(db, statement: insertStmt, context: "insert annotation \(name)")
+                        insertCount += 1
                     }
+
+                    for feature in allFeatures {
+                        guard isImportableFeatureType(feature.featureType) else { continue }
+
+                        let geneName = geneName(from: feature.attributes)
+
+                        // ── Same-ID merging: CDS features sharing a GFF3 ID are intervals of one CDS ──
+                        if let featureID = feature.id,
+                           let siblings = featuresByID[featureID],
+                           siblings.count > 1,
+                           feature.featureType == "CDS",
+                           !transcriptTypes.contains(feature.featureType) {
+
+                            // Already merged this ID? Skip.
+                            guard processedIDs.insert(featureID).inserted else { continue }
+
+                            // Merge all same-ID features into a single BED12 entry
+                            let siblingFeatures = siblings.map { allFeatures[$0] }
+
+                            // Compute merged span (0-based)
+                            let allStarts = siblingFeatures.map { $0.start - 1 }
+                            let allEnds = siblingFeatures.map { $0.end }
+                            var mergedStart = allStarts.min()!
+                            var mergedEnd = allEnds.max()!
+
+                            // Clip to chromosome boundaries
+                            if let chromSize = chromSizeMap?[feature.seqid] {
+                                mergedStart = max(0, min(mergedStart, Int(chromSize)))
+                                mergedEnd = max(mergedStart, min(mergedEnd, Int(chromSize)))
+                            }
+
+                            // Build BED12 blocks from sorted intervals
+                            let sortedIntervals = zip(allStarts, allEnds)
+                                .map { (start: $0, end: $1) }
+                                .sorted { $0.start < $1.start }
+
+                            var clippedBlocks: [(size: Int, start: Int)] = []
+                            for interval in sortedIntervals {
+                                let clippedStart = max(interval.start, mergedStart)
+                                let clippedEnd = min(interval.end, mergedEnd)
+                                if clippedEnd > clippedStart {
+                                    clippedBlocks.append((
+                                        size: clippedEnd - clippedStart,
+                                        start: clippedStart - mergedStart
+                                    ))
+                                }
+                            }
+
+                            let blockCount: Int?
+                            let blockSizesStr: String?
+                            let blockStartsStr: String?
+                            if clippedBlocks.count > 1 {
+                                blockCount = clippedBlocks.count
+                                blockSizesStr = clippedBlocks.map { "\($0.size)" }.joined(separator: ",")
+                                blockStartsStr = clippedBlocks.map { "\($0.start)" }.joined(separator: ",")
+                            } else {
+                                blockCount = nil
+                                blockSizesStr = nil
+                                blockStartsStr = nil
+                            }
+
+                            // Use attributes from the first occurrence
+                            let attrString = serializeAttributes(feature.attributes)
+
+                            // Deduplicate (using merged coordinates)
+                            let key = "\(feature.name)|\(feature.featureType)|\(feature.seqid)|\(mergedStart)|\(mergedEnd)"
+                            guard seenKeys.insert(key).inserted else { continue }
+
+                            try insertRecord(
+                                name: feature.name, type: feature.featureType, seqid: feature.seqid,
+                                chromStart: mergedStart, chromEnd: mergedEnd, strand: feature.strand,
+                                attrString: attrString, blockCount: blockCount,
+                                blockSizesStr: blockSizesStr, blockStartsStr: blockStartsStr,
+                                geneName: geneName
+                            )
+                            continue
+                        }
+
+                        // ── Transcript-level features: aggregate child exons into blocks ──
+                        let attrString = serializeAttributes(feature.attributes)
+
+                        var chromStart = feature.start - 1
+                        var chromEnd = feature.end
+                        if let chromSize = chromSizeMap?[feature.seqid] {
+                            chromStart = max(0, min(chromStart, Int(chromSize)))
+                            chromEnd = max(chromStart, min(chromEnd, Int(chromSize)))
+                        }
+
+                        var blockCount: Int? = nil
+                        var blockSizesStr: String? = nil
+                        var blockStartsStr: String? = nil
+
+                        if transcriptTypes.contains(feature.featureType),
+                           let featureID = feature.id,
+                           let childIndices = childrenByParent[featureID] {
+
+                            var exonIntervals: [(start: Int, end: Int)] = []
+                            var cdsIntervals: [(start: Int, end: Int)] = []
+
+                            for childIdx in childIndices {
+                                let child = allFeatures[childIdx]
+                                if exonTypes.contains(child.featureType) {
+                                    exonIntervals.append((start: child.start - 1, end: child.end))
+                                } else if cdsTypes.contains(child.featureType) {
+                                    cdsIntervals.append((start: child.start - 1, end: child.end))
+                                }
+                            }
+
+                            let blockIntervals = exonIntervals.isEmpty ? cdsIntervals : exonIntervals
+
+                            if blockIntervals.count > 1 {
+                                let sortedIntervals = blockIntervals.sorted { $0.start < $1.start }
+
+                                var clippedBlocks: [(size: Int, start: Int)] = []
+                                for exon in sortedIntervals {
+                                    let clippedStart = max(exon.start, chromStart)
+                                    let clippedEnd = min(exon.end, chromEnd)
+                                    if clippedEnd > clippedStart {
+                                        clippedBlocks.append((size: clippedEnd - clippedStart, start: clippedStart - chromStart))
+                                    }
+                                }
+
+                                if clippedBlocks.count > 1 {
+                                    blockCount = clippedBlocks.count
+                                    blockSizesStr = clippedBlocks.map { "\($0.size)" }.joined(separator: ",")
+                                    blockStartsStr = clippedBlocks.map { "\($0.start)" }.joined(separator: ",")
+                                }
+                            }
+                        }
+
+                        // Deduplicate
+                        let key = "\(feature.name)|\(feature.featureType)|\(feature.seqid)|\(chromStart)|\(chromEnd)"
+                        guard seenKeys.insert(key).inserted else { continue }
+
+                        try insertRecord(
+                            name: feature.name, type: feature.featureType, seqid: feature.seqid,
+                            chromStart: chromStart, chromEnd: chromEnd, strand: feature.strand,
+                            attrString: attrString, blockCount: blockCount,
+                            blockSizesStr: blockSizesStr, blockStartsStr: blockStartsStr,
+                            geneName: geneName
+                        )
+                    }
+
+                    try createIndexes(in: db, buildPlan: buildPlan)
+                    try executeSQLite(db, "COMMIT", context: "commit annotation import transaction")
+                    transactionOpen = false
+
+                    dbLogger.info("Created GFF3 annotation database with \(insertCount) records at \(outputURL.lastPathComponent)")
+                    return insertCount
+                } catch {
+                    if transactionOpen {
+                        rollbackSQLiteTransaction(db)
+                    }
+                    throw error
                 }
             }
-
-            // Deduplicate
-            let key = "\(feature.name)|\(feature.featureType)|\(feature.seqid)|\(chromStart)|\(chromEnd)"
-            guard seenKeys.insert(key).inserted else { continue }
-
-            insertRecord(
-                name: feature.name, type: feature.featureType, seqid: feature.seqid,
-                chromStart: chromStart, chromEnd: chromEnd, strand: feature.strand,
-                attrString: attrString, blockCount: blockCount,
-                blockSizesStr: blockSizesStr, blockStartsStr: blockStartsStr,
-                geneName: geneName
-            )
+        } catch {
+            try? FileManager.default.removeItem(at: outputURL)
+            throw error
         }
-
-        // Create indexes
-        sqlite3_exec(db, "CREATE INDEX idx_annotations_name ON annotations(name COLLATE NOCASE)", nil, nil, nil)
-        sqlite3_exec(db, "CREATE INDEX idx_annotations_type ON annotations(type)", nil, nil, nil)
-        sqlite3_exec(db, "CREATE INDEX idx_annotations_chrom ON annotations(chromosome)", nil, nil, nil)
-        sqlite3_exec(db, "CREATE INDEX idx_annotations_region ON annotations(chromosome, start, end)", nil, nil, nil)
-        sqlite3_exec(db, "CREATE INDEX idx_annotations_gene_name ON annotations(gene_name COLLATE NOCASE)", nil, nil, nil)
-
-        sqlite3_exec(db, "COMMIT", nil, nil, nil)
-
-        dbLogger.info("Created GFF3 annotation database with \(insertCount) records at \(outputURL.lastPathComponent)")
-        return insertCount
     }
 
     /// Parses GFF3 or GTF-style attributes string into a dictionary.
