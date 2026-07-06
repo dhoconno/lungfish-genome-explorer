@@ -70,7 +70,7 @@ Lungfish Genome Explorer is built around five viewport classes (sequence, alignm
 
 ### Workflows
 
-- Run curated local workflows from inside the app, including the experimental FASTQ Workflow Builder and the supported `nf-core/viralrecon` adapter.
+- Run curated local workflows from inside the app, including the supported `nf-core/viralrecon` adapter and the FASTQ Workflow Builder when **Settings > Advanced > Show Experimental Features** is enabled.
 - Export recorded provenance as shell, Python, Nextflow, Snakemake, methods text, or raw JSON for external replay and review.
 - Direct import path for the [NVD (Novel Virus Diagnostics)](https://github.com/dholab/nvd) workflow. Point Lungfish Genome Explorer at an NVD output directory and the run lands in the taxonomy browser with reads, hits, and reports cross-linked.
 - Workflow outputs from supported adapters auto-import as project datasets in the appropriate viewport.
@@ -102,12 +102,12 @@ The `fastq` command group includes 40+ subcommands; common examples include `mat
 
 ## File Format Support
 
-| Category    | Read                                | Write                |
-|-------------|-------------------------------------|----------------------|
-| Sequences   | FASTA, FASTQ, GenBank               | FASTA, FASTQ         |
-| Alignments  | BAM, CRAM, SAM (via HTSlib)         | sorted/indexed BAM   |
-| Variants    | VCF, VCF.GZ + TBI                   | VCF                  |
-| Annotations | GFF3, GTF, BED                      | BED                  |
+| Category    | Read                                | Write                 |
+|-------------|-------------------------------------|-----------------------|
+| Sequences   | FASTA, FASTQ, GenBank               | FASTA, FASTQ, GenBank |
+| Alignments  | BAM, CRAM, SAM (via HTSlib)         | sorted/indexed BAM    |
+| Variants    | VCF, VCF.GZ + TBI                   | VCF                   |
+| Annotations | GFF3, GTF, BED                      | BED                   |
 | Coverage    | bedGraph                            | BigWig via bedGraph conversion |
 | Reports     | Kraken2 kreport, EsViritu, TaxTriage, NAO-MGS | JSON, TSV |
 
@@ -141,7 +141,7 @@ A signed and notarized `.dmg` can be produced with `bash scripts/release/build-n
 
 ## User Manual
 
-User documentation is available on Read the Docs at [lungfish.readthedocs.io](https://lungfish.readthedocs.io/). The manual is still being hardened for beta, and it is the canonical place for user-facing workflow documentation as it matures.
+User documentation is available on Read the Docs at [lungfish-genome-explorer.readthedocs.io](https://lungfish-genome-explorer.readthedocs.io/en/latest/). The manual is still being hardened for beta, and it is the canonical place for user-facing workflow documentation as it matures.
 
 ## Architecture
 
