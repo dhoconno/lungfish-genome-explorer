@@ -25,9 +25,9 @@ final class FASTQBundleCopyImportWorkflowTests: XCTestCase {
         )
 
         XCTAssertTrue(source.contains("removeItem(at: stagingBundleURL)"))
-        XCTAssertFalse(
-            source.contains("removeItem(at: destinationBundleURL)"),
-            "Failure cleanup must not delete a final destination that another process may have created after the initial collision check."
+        XCTAssertTrue(
+            source.contains("if didPublishBundle"),
+            "Destination cleanup must only run after this workflow has published its owned staging bundle."
         )
     }
 
@@ -39,11 +39,13 @@ final class FASTQBundleCopyImportWorkflowTests: XCTestCase {
 
         let sourceBundleURL = root.appendingPathComponent("source.lungfishfastq", isDirectory: true)
         try FileManager.default.createDirectory(at: sourceBundleURL, withIntermediateDirectories: true)
+        let sourceFASTQURL = sourceBundleURL.appendingPathComponent("reads.fastq")
         try "@r1\nACGT\n+\n!!!!\n".write(
-            to: sourceBundleURL.appendingPathComponent("reads.fastq"),
+            to: sourceFASTQURL,
             atomically: true,
             encoding: .utf8
         )
+        try writeSourceFASTQBundleProvenance(bundleURL: sourceBundleURL, fastqURL: sourceFASTQURL)
 
         let destinationBundleURL = root
             .appendingPathComponent("imports", isDirectory: true)
@@ -78,6 +80,94 @@ final class FASTQBundleCopyImportWorkflowTests: XCTestCase {
         XCTAssertTrue(allPaths.contains(destinationBundleURL.path))
         XCTAssertTrue(allPaths.contains(destinationBundleURL.appendingPathComponent("reads.fastq").path))
         XCTAssertFalse(allPaths.contains { $0.contains("/.copied.") || $0.contains(".processing") })
+        XCTAssertTrue(envelope.steps.contains { $0.toolName == "source-fastq-tool" })
+        XCTAssertTrue(envelope.steps.contains { $0.toolName == "lungfish-cli" })
+        XCTAssertFalse(envelope.steps.flatMap(\.outputs).contains { $0.path.hasPrefix(sourceBundleURL.path) })
+    }
+
+    func testImportRejectsFASTQBundleWithoutReadableSourceProvenance() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FASTQBundleCopyImport-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let sourceBundleURL = root.appendingPathComponent("source.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceBundleURL, withIntermediateDirectories: true)
+        try "@r1\nACGT\n+\n!!!!\n".write(
+            to: sourceBundleURL.appendingPathComponent("reads.fastq"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let destinationBundleURL = root.appendingPathComponent("copied.lungfishfastq", isDirectory: true)
+
+        XCTAssertThrowsError(
+            try FASTQBundleCopyImportWorkflow().importBundle(
+                sourceBundleURL: sourceBundleURL,
+                outputURL: destinationBundleURL,
+                context: FASTQBundleCopyImportWorkflow.CommandContext(
+                    workflowName: "test fastq bundle import",
+                    toolName: "lungfish-cli",
+                    argv: ["lungfish", "fastq", "import-bundle", sourceBundleURL.path]
+                )
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? FASTQBundleCopyImportError,
+                .sourceProvenanceMissing(sourceBundleURL.standardizedFileURL.path)
+            )
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destinationBundleURL.path))
+    }
+
+    func testImportScrubsCopiedProvenanceArtifactsBeforeWritingDestinationProvenance() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FASTQBundleCopyImport-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let sourceBundleURL = root.appendingPathComponent("source.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceBundleURL, withIntermediateDirectories: true)
+        let sourceFASTQURL = sourceBundleURL.appendingPathComponent("reads.fastq")
+        try "@r1\nACGT\n+\n!!!!\n".write(to: sourceFASTQURL, atomically: true, encoding: .utf8)
+        try writeSourceFASTQBundleProvenance(bundleURL: sourceBundleURL, fastqURL: sourceFASTQURL)
+
+        let sourceProvenanceDirectoryURL = sourceBundleURL.appendingPathComponent(
+            ProvenanceWriter.bundleProvenanceDirectoryName,
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: sourceProvenanceDirectoryURL, withIntermediateDirectories: true)
+        try #"{"stale":"stale-source-marker"}"#.write(
+            to: sourceProvenanceDirectoryURL.appendingPathComponent("stale.lungfish-provenance.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try #"{"stale":"stale-source-marker"}"#.write(
+            to: sourceBundleURL.appendingPathComponent("reads.fastq.lungfish-provenance.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let destinationBundleURL = root.appendingPathComponent("copied.lungfishfastq", isDirectory: true)
+        _ = try FASTQBundleCopyImportWorkflow().importBundle(
+            sourceBundleURL: sourceBundleURL,
+            outputURL: destinationBundleURL,
+            context: FASTQBundleCopyImportWorkflow.CommandContext(
+                workflowName: "test fastq bundle import",
+                toolName: "lungfish-cli",
+                argv: ["lungfish", "fastq", "import-bundle", sourceBundleURL.path]
+            )
+        )
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: destinationBundleURL.appendingPathComponent("reads.fastq.lungfish-provenance.json").path
+            )
+        )
+        for provenanceJSON in try provenanceJSONFiles(in: destinationBundleURL) {
+            let text = try String(contentsOf: provenanceJSON, encoding: .utf8)
+            XCTAssertFalse(text.contains("stale-source-marker"))
+            _ = try ProvenanceEnvelopeReader.loadCanonical(fromSidecar: provenanceJSON)
+        }
     }
 
     private func packageRoot() -> URL {
@@ -89,5 +179,49 @@ final class FASTQBundleCopyImportWorkflowTests: XCTestCase {
             candidate.deleteLastPathComponent()
         }
         return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    }
+
+    private func writeSourceFASTQBundleProvenance(bundleURL: URL, fastqURL: URL) throws {
+        let output = try ProvenanceFileDescriptor.file(url: fastqURL, format: .fastq, role: .output)
+        let step = ProvenanceStep(
+            toolName: "source-fastq-tool",
+            toolVersion: "1.0",
+            argv: ["source-fastq-tool", fastqURL.path],
+            outputs: [output],
+            exitStatus: 0,
+            wallTimeSeconds: 0.1
+        )
+        let envelope = ProvenanceEnvelope(
+            workflowName: "source FASTQ bundle",
+            workflowVersion: "1.0",
+            toolName: "source-fastq-tool",
+            toolVersion: "1.0",
+            argv: ["source-fastq-tool", fastqURL.path],
+            files: [output],
+            output: output,
+            outputs: [output],
+            steps: [step],
+            wallTimeSeconds: 0.1,
+            exitStatus: 0
+        )
+        try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
+    }
+
+    private func provenanceJSONFiles(in bundleURL: URL) throws -> [URL] {
+        guard let enumerator = FileManager.default.enumerator(
+            at: bundleURL,
+            includingPropertiesForKeys: [.isRegularFileKey]
+        ) else {
+            return []
+        }
+
+        var urls: [URL] = []
+        for case let url as URL in enumerator where url.lastPathComponent.hasSuffix(".json") {
+            let values = try url.resourceValues(forKeys: [.isRegularFileKey])
+            if values.isRegularFile == true {
+                urls.append(url)
+            }
+        }
+        return urls.sorted { $0.path < $1.path }
     }
 }
