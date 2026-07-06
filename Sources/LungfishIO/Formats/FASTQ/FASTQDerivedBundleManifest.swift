@@ -194,7 +194,14 @@ public struct FASTQDerivedBundleManifest: Codable, Sendable, Equatable {
     /// Returns `nil` if the root bundle cannot be resolved.
     public func isStale(bundleURL: URL) -> Bool? {
         let rootURL = FASTQBundle.resolveBundle(relativePath: rootBundleRelativePath, from: bundleURL)
-        let rootFASTQ = rootURL.appendingPathComponent(rootFASTQFilename)
+        guard let rootFASTQ = try? FASTQBundle.validatedBundleMemberURL(
+            for: rootFASTQFilename,
+            in: rootURL,
+            field: "rootFASTQFilename",
+            allowExistingSymlinkEscape: true
+        ) else {
+            return nil
+        }
 
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: rootFASTQ.path),
               let rootModDate = attrs[.modificationDate] as? Date else {
@@ -302,39 +309,58 @@ public struct FASTQDerivedBundleManifest: Codable, Sendable, Equatable {
 
         let parentExists = fm.fileExists(atPath: parentURL.path)
         let rootExists = fm.fileExists(atPath: rootURL.path)
-        let rootPayloadExists = rootExists && fm.fileExists(
-            atPath: rootURL.appendingPathComponent(rootFASTQFilename).path
+        let rootPayloadURL = try? FASTQBundle.validatedBundleMemberURL(
+            for: rootFASTQFilename,
+            in: rootURL,
+            field: "rootFASTQFilename",
+            allowExistingSymlinkEscape: true
         )
+        let rootPayloadExists = rootExists && rootPayloadURL.map { fm.fileExists(atPath: $0.path) } == true
 
         // Check payload sidecar files exist
+        func payloadFileExists(_ relativePath: String, field: String) -> Bool {
+            guard let url = try? FASTQBundle.validatedBundleMemberURL(
+                for: relativePath,
+                in: bundleURL,
+                field: field
+            ) else {
+                return false
+            }
+            return fm.fileExists(atPath: url.path)
+        }
+
         let payloadExists: Bool
         switch payload {
         case .subset(let filename):
-            payloadExists = fm.fileExists(atPath: bundleURL.appendingPathComponent(filename).path)
+            payloadExists = payloadFileExists(filename, field: "payload.subset.readIDListFilename")
         case .trim(let filename):
-            payloadExists = fm.fileExists(atPath: bundleURL.appendingPathComponent(filename).path)
+            payloadExists = payloadFileExists(filename, field: "payload.trim.trimPositionFilename")
         case .full(let filename):
-            payloadExists = fm.fileExists(atPath: bundleURL.appendingPathComponent(filename).path)
+            payloadExists = payloadFileExists(filename, field: "payload.full.fastqFilename")
         case .fullFASTA(let filename):
-            payloadExists = fm.fileExists(atPath: bundleURL.appendingPathComponent(filename).path)
+            payloadExists = payloadFileExists(filename, field: "payload.fullFASTA.fastaFilename")
         case .fullPaired(let r1, let r2):
-            payloadExists = fm.fileExists(atPath: bundleURL.appendingPathComponent(r1).path)
-                && fm.fileExists(atPath: bundleURL.appendingPathComponent(r2).path)
+            payloadExists = payloadFileExists(r1, field: "payload.fullPaired.r1Filename")
+                && payloadFileExists(r2, field: "payload.fullPaired.r2Filename")
         case .fullMixed(let classification):
-            payloadExists = classification.files.map(\.filename).allSatisfy {
-                fm.fileExists(atPath: bundleURL.appendingPathComponent($0).path)
+            payloadExists = classification.files.allSatisfy {
+                payloadFileExists($0.filename, field: "readClassification.files[].filename")
             }
         case .demuxedVirtual(_, let readIDFile, let previewFile, let trimFile, let orientFile):
-            var exists = fm.fileExists(atPath: bundleURL.appendingPathComponent(readIDFile).path)
-                && fm.fileExists(atPath: bundleURL.appendingPathComponent(previewFile).path)
-            if let trimFile { exists = exists && fm.fileExists(atPath: bundleURL.appendingPathComponent(trimFile).path) }
-            if let orientFile { exists = exists && fm.fileExists(atPath: bundleURL.appendingPathComponent(orientFile).path) }
+            var exists = payloadFileExists(readIDFile, field: "payload.demuxedVirtual.readIDListFilename")
+                && payloadFileExists(previewFile, field: "payload.demuxedVirtual.previewFilename")
+            if let trimFile {
+                exists = exists && payloadFileExists(trimFile, field: "payload.demuxedVirtual.trimPositionsFilename")
+            }
+            if let orientFile {
+                exists = exists && payloadFileExists(orientFile, field: "payload.demuxedVirtual.orientMapFilename")
+            }
             payloadExists = exists
         case .demuxGroup:
             payloadExists = true // Directory-level, always valid
         case .orientMap(let mapFile, let previewFile):
-            payloadExists = fm.fileExists(atPath: bundleURL.appendingPathComponent(mapFile).path)
-                && fm.fileExists(atPath: bundleURL.appendingPathComponent(previewFile).path)
+            payloadExists = payloadFileExists(mapFile, field: "payload.orientMap.orientMapFilename")
+                && payloadFileExists(previewFile, field: "payload.orientMap.previewFilename")
         }
 
         // Validate checksums if present (streams file in chunks to avoid loading large files into memory)
@@ -342,7 +368,14 @@ public struct FASTQDerivedBundleManifest: Codable, Sendable, Equatable {
         if let checksums = payloadChecksums, !checksums.checksums.isEmpty {
             checksumValid = true
             for (filename, expectedHash) in checksums.checksums {
-                let fileURL = bundleURL.appendingPathComponent(filename)
+                guard let fileURL = try? FASTQBundle.validatedBundleMemberURL(
+                    for: filename,
+                    in: bundleURL,
+                    field: "payloadChecksums"
+                ) else {
+                    checksumValid = false
+                    break
+                }
                 guard let actualHash = try? PayloadChecksum.sha256Hex(fileAt: fileURL) else {
                     checksumValid = false
                     break

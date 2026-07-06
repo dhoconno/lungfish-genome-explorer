@@ -738,7 +738,14 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                 let capturedInputFASTQ = inputFASTQ
                 let capturedTrimBarcodes = config.trimBarcodes
                 let capturedRootFASTQURL = config.rootBundleURL.flatMap { rootBundleURL in
-                    config.rootFASTQFilename.map { rootBundleURL.appendingPathComponent($0) }
+                    config.rootFASTQFilename.flatMap {
+                        try? FASTQBundle.validatedBundleMemberURL(
+                            for: $0,
+                            in: rootBundleURL,
+                            field: "rootFASTQFilename",
+                            allowExistingSymlinkEscape: true
+                        )
+                    }
                 }
                 group.addTask { [self] in
                     try Task.checkCancellation()

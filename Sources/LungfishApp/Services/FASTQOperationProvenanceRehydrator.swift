@@ -129,7 +129,11 @@ struct FASTQOperationProvenanceRehydrator: Sendable {
         let candidateURL: URL?
         switch manifest.payload {
         case .full(let filename), .fullFASTA(let filename):
-            candidateURL = bundleURL.appendingPathComponent(filename).standardizedFileURL
+            candidateURL = try? FASTQBundle.validatedBundleMemberURL(
+                for: filename,
+                in: bundleURL,
+                field: "payload.materialized.filename"
+            )
         default:
             candidateURL = nil
         }

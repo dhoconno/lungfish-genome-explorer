@@ -45,10 +45,12 @@ public enum AssemblyInputMaterialization {
                 relativePath: manifest.rootBundleRelativePath,
                 from: bundleURL
             )
-            let rootPayloadURL = rootBundleURL
-                .appendingPathComponent(manifest.rootFASTQFilename)
-                .standardizedFileURL
-            if FileManager.default.fileExists(atPath: rootPayloadURL.path) {
+            if let rootPayloadURL = try? FASTQBundle.validatedBundleMemberURL(
+                for: manifest.rootFASTQFilename,
+                in: rootBundleURL,
+                field: "rootFASTQFilename",
+                allowExistingSymlinkEscape: true
+            ), FileManager.default.fileExists(atPath: rootPayloadURL.path) {
                 descriptors.append(
                     try ProvenanceFileDescriptor.file(
                         url: rootPayloadURL,
@@ -123,10 +125,12 @@ public enum AssemblyInputMaterialization {
                 relativePath: manifest.rootBundleRelativePath,
                 from: bundleURL
             )
-            let rootPayloadURL = rootBundleURL
-                .appendingPathComponent(manifest.rootFASTQFilename)
-                .standardizedFileURL
-            if FileManager.default.fileExists(atPath: rootPayloadURL.path) {
+            if let rootPayloadURL = try? FASTQBundle.validatedBundleMemberURL(
+                for: manifest.rootFASTQFilename,
+                in: rootBundleURL,
+                field: "rootFASTQFilename",
+                allowExistingSymlinkEscape: true
+            ), FileManager.default.fileExists(atPath: rootPayloadURL.path) {
                 records.append(inputRecord(forFile: rootPayloadURL, originPath: rootPayloadURL.path))
             }
             return records

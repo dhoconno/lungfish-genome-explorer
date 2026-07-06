@@ -782,16 +782,20 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         }
         if FASTQSourceFileManifest.exists(in: standardized) {
             let manifest = try FASTQSourceFileManifest.load(from: standardized)
-            return manifest.files.map { entry in
-                let bundleRelativeURL = standardized.appendingPathComponent(entry.filename).standardizedFileURL
-                if FileManager.default.fileExists(atPath: bundleRelativeURL.path) {
+            return manifest.files.compactMap { entry in
+                if let bundleRelativeURL = try? FASTQBundle.validatedBundleMemberURL(
+                    for: entry.filename,
+                    in: standardized,
+                    field: "source-files[].filename",
+                    allowExistingSymlinkEscape: true
+                ), FileManager.default.fileExists(atPath: bundleRelativeURL.path) {
                     return bundleRelativeURL
                 }
                 let originalURL = URL(fileURLWithPath: entry.originalPath).standardizedFileURL
                 if FileManager.default.fileExists(atPath: originalURL.path) {
                     return originalURL
                 }
-                return bundleRelativeURL
+                return nil
             }
         }
         return FASTQBundle.resolveAllFASTQURLs(for: standardized)?.map(\.standardizedFileURL) ?? []

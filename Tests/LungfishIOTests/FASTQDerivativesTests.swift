@@ -258,6 +258,55 @@ final class FASTQDerivativesTests: XCTestCase {
         XCTAssertNil(FASTQBundle.trimPositionsURL(forDerivedBundle: bundleURL))
     }
 
+    func testFullPayloadURLRejectsTraversalPath() throws {
+        let (tempDir, bundleURL) = try makeTempBundle()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let op = FASTQDerivativeOperation(kind: .pairedEndMerge)
+        let manifest = FASTQDerivedBundleManifest(
+            name: "unsafe-full",
+            parentBundleRelativePath: "../example.lungfishfastq",
+            rootBundleRelativePath: "../example.lungfishfastq",
+            rootFASTQFilename: "example.fastq.gz",
+            payload: .full(fastqFilename: "../outside.fastq"),
+            lineage: [op],
+            operation: op,
+            cachedStatistics: .empty,
+            pairingMode: .interleaved
+        )
+
+        try FASTQBundle.saveDerivedManifest(manifest, in: bundleURL)
+
+        XCTAssertNil(FASTQBundle.fullPayloadFASTQURL(forDerivedBundle: bundleURL))
+    }
+
+    func testSequenceInputResolverRejectsFullFASTATraversalPath() throws {
+        let (tempDir, bundleURL) = try makeTempBundle()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let outsideURL = tempDir.appendingPathComponent("outside.fa")
+        try Data(">chr1\nACGT\n".utf8).write(to: outsideURL)
+
+        let op = FASTQDerivativeOperation(kind: .translate)
+        let manifest = FASTQDerivedBundleManifest(
+            name: "unsafe-fasta",
+            parentBundleRelativePath: "../example.lungfishfastq",
+            rootBundleRelativePath: "../example.lungfishfastq",
+            rootFASTQFilename: "example.fastq.gz",
+            payload: .fullFASTA(fastaFilename: "../outside.fa"),
+            lineage: [op],
+            operation: op,
+            cachedStatistics: .empty,
+            pairingMode: .interleaved,
+            sequenceFormat: .fasta
+        )
+
+        try FASTQBundle.saveDerivedManifest(manifest, in: bundleURL)
+
+        XCTAssertNil(SequenceInputResolver.resolvePrimarySequenceURL(for: bundleURL))
+        XCTAssertNil(FASTQBundle.resolvePrimarySequenceURL(for: bundleURL))
+    }
+
     func testSequenceInputResolverUsesFullDerivedPayloadInsteadOfVirtualRoot() throws {
         let (tempDir, bundleURL) = try makeTempBundle()
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -586,6 +635,56 @@ final class FASTQDerivativesTests: XCTestCase {
         XCTAssertNil(FASTQBundle.fullPayloadFASTQURL(forDerivedBundle: bundleURL))
         XCTAssertNil(FASTQBundle.readIDListURL(forDerivedBundle: bundleURL))
         XCTAssertNil(FASTQBundle.trimPositionsURL(forDerivedBundle: bundleURL))
+    }
+
+    func testFullPairedPayloadURLsRejectTraversalPath() throws {
+        let (tempDir, bundleURL) = try makeTempBundle()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let op = FASTQDerivativeOperation(kind: .interleaveReformat)
+        let manifest = FASTQDerivedBundleManifest(
+            name: "unsafe-paired",
+            parentBundleRelativePath: "../example.lungfishfastq",
+            rootBundleRelativePath: "../example.lungfishfastq",
+            rootFASTQFilename: "example.fastq.gz",
+            payload: .fullPaired(r1Filename: "R1.fastq", r2Filename: "../R2.fastq"),
+            lineage: [op],
+            operation: op,
+            cachedStatistics: .empty,
+            pairingMode: .interleaved
+        )
+
+        try FASTQBundle.saveDerivedManifest(manifest, in: bundleURL)
+
+        XCTAssertNil(FASTQBundle.pairedFASTQURLs(forDerivedBundle: bundleURL))
+    }
+
+    func testClassifiedFileURLsRejectTraversalPath() throws {
+        let (tempDir, bundleURL) = try makeTempBundle()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let outsideURL = tempDir.appendingPathComponent("outside.fastq")
+        try Data("@r1\nACGT\n+\nIIII\n".utf8).write(to: outsideURL)
+
+        let op = FASTQDerivativeOperation(kind: .pairedEndRepair)
+        let classification = ReadClassification(files: [
+            .init(filename: "../outside.fastq", role: .merged, readCount: 1),
+        ])
+        let manifest = FASTQDerivedBundleManifest(
+            name: "unsafe-mixed",
+            parentBundleRelativePath: "../example.lungfishfastq",
+            rootBundleRelativePath: "../example.lungfishfastq",
+            rootFASTQFilename: "example.fastq.gz",
+            payload: .fullMixed(classification),
+            lineage: [op],
+            operation: op,
+            cachedStatistics: .empty,
+            pairingMode: .interleaved
+        )
+
+        try FASTQBundle.saveDerivedManifest(manifest, in: bundleURL)
+
+        XCTAssertNil(FASTQBundle.classifiedFileURLs(for: bundleURL))
     }
 
     func testPayloadCategories() {

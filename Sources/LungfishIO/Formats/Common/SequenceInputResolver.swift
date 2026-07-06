@@ -30,9 +30,14 @@ public enum SequenceInputResolver {
                     relativePath: manifest.rootBundleRelativePath,
                     from: bundleURL
                 )
-                let resolvedURL = rootBundleURL
-                    .appendingPathComponent(manifest.rootFASTQFilename)
-                    .standardizedFileURL
+                guard let resolvedURL = try? FASTQBundle.validatedBundleMemberURL(
+                    for: manifest.rootFASTQFilename,
+                    in: rootBundleURL,
+                    field: "rootFASTQFilename",
+                    allowExistingSymlinkEscape: true
+                ) else {
+                    return nil
+                }
                 if FileManager.default.fileExists(atPath: resolvedURL.path) {
                     return resolvedURL
                 }
@@ -75,7 +80,14 @@ public enum SequenceInputResolver {
                         relativePath: manifest.rootBundleRelativePath,
                         from: bundleURL
                     )
-                    let rootURL = rootBundleURL.appendingPathComponent(manifest.rootFASTQFilename)
+                    guard let rootURL = try? FASTQBundle.validatedBundleMemberURL(
+                        for: manifest.rootFASTQFilename,
+                        in: rootBundleURL,
+                        field: "rootFASTQFilename",
+                        allowExistingSymlinkEscape: true
+                    ) else {
+                        return nil
+                    }
                     return SequenceFormat.from(url: rootURL)
                 }
             }
@@ -102,14 +114,36 @@ public enum SequenceInputResolver {
         let candidateURL: URL?
         switch manifest.payload {
         case .full(let fastqFilename):
-            candidateURL = bundleURL.appendingPathComponent(fastqFilename).standardizedFileURL
+            candidateURL = try? FASTQBundle.validatedBundleMemberURL(
+                for: fastqFilename,
+                in: bundleURL,
+                field: "payload.full.fastqFilename"
+            )
         case .fullFASTA(let fastaFilename):
-            candidateURL = bundleURL.appendingPathComponent(fastaFilename).standardizedFileURL
+            candidateURL = try? FASTQBundle.validatedBundleMemberURL(
+                for: fastaFilename,
+                in: bundleURL,
+                field: "payload.fullFASTA.fastaFilename"
+            )
         case .fullPaired(let r1Filename, _):
-            candidateURL = bundleURL.appendingPathComponent(r1Filename).standardizedFileURL
+            candidateURL = try? FASTQBundle.validatedBundleMemberURL(
+                for: r1Filename,
+                in: bundleURL,
+                field: "payload.fullPaired.r1Filename"
+            )
         case .fullMixed(let classification):
-            candidateURL = classification.files
-                .map { bundleURL.appendingPathComponent($0.filename).standardizedFileURL }
+            var urls: [URL] = []
+            for entry in classification.files {
+                guard let url = try? FASTQBundle.validatedBundleMemberURL(
+                    for: entry.filename,
+                    in: bundleURL,
+                    field: "readClassification.files[].filename"
+                ) else {
+                    return nil
+                }
+                urls.append(url)
+            }
+            candidateURL = urls
                 .sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
                 .first { FileManager.default.fileExists(atPath: $0.path) }
         default:

@@ -201,8 +201,12 @@ extension FASTQDerivativeService {
                 args += ["--adapter_sequence_r2", sequenceR2]
             }
         case .fastaFile:
-            if let fastaFilename {
-                let fastaURL = sourceBundleURL.appendingPathComponent(fastaFilename)
+            if let fastaFilename,
+               let fastaURL = try? FASTQBundle.validatedBundleMemberURL(
+                for: fastaFilename,
+                in: sourceBundleURL,
+                field: "adapterTrim.fastaFilename"
+               ) {
                 args += ["--adapter_fasta", fastaURL.path]
             }
         }

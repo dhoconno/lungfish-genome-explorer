@@ -1014,8 +1014,14 @@ private struct ProvenanceFASTQBundlePresentation {
         mapping[standardizedPath(bundlePath)] = bundlePath
         guard let manifest = try? FASTQSourceFileManifest.load(from: bundleURL) else { return }
         for entry in manifest.files {
-            let bundledPath = bundleURL.appendingPathComponent(entry.filename).path
-            mapping[standardizedPath(bundledPath)] = bundlePath
+            if let bundledURL = try? FASTQBundle.validatedBundleMemberURL(
+                for: entry.filename,
+                in: bundleURL,
+                field: "source-files[].filename",
+                allowExistingSymlinkEscape: true
+            ) {
+                mapping[standardizedPath(bundledURL.path)] = bundlePath
+            }
             if !entry.originalPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 mapping[standardizedPath(entry.originalPath)] = bundlePath
             }
