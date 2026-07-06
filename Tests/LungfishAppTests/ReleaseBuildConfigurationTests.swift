@@ -930,6 +930,17 @@ struct ReleaseBuildConfigurationTests {
         #expect(workflow.contains("ScientificCLIProvenanceCoverageTests"))
     }
 
+    @Test("CI fast gate runs native scientific provenance policy coverage")
+    func ciFastGateRunsNativeScientificProvenancePolicyCoverage() throws {
+        let workflow = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent(".github/workflows/ci.yml"),
+            encoding: .utf8
+        )
+
+        #expect(workflow.contains("ScientificProvenancePolicyTests"))
+    }
+
     @Test("CI fast gate builds the Xcode project path used for release packaging")
     func ciFastGateBuildsXcodeProjectPathUsedForReleasePackaging() throws {
         let workflow = try String(
