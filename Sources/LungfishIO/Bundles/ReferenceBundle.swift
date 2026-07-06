@@ -8,6 +8,32 @@ import LungfishCore
 
 // MARK: - ReferenceBundle
 
+struct ReferenceBundleBookmarkResolution: Sendable {
+    let url: URL
+    let isStale: Bool
+}
+
+struct ReferenceBundleBookmarkAccess: Sendable {
+    let resolve: @Sendable (Data) throws -> ReferenceBundleBookmarkResolution
+    let startAccessing: @Sendable (URL) -> Bool
+    let stopAccessing: @Sendable (URL) -> Void
+
+    static let live = ReferenceBundleBookmarkAccess(
+        resolve: { data in
+            var isStale = false
+            let url = try URL(
+                resolvingBookmarkData: data,
+                options: [.withoutUI, .withSecurityScope],
+                relativeTo: nil,
+                bookmarkDataIsStale: &isStale
+            )
+            return ReferenceBundleBookmarkResolution(url: url, isStale: isStale)
+        },
+        startAccessing: { $0.startAccessingSecurityScopedResource() },
+        stopAccessing: { $0.stopAccessingSecurityScopedResource() }
+    )
+}
+
 /// Reader for `.lungfishref` reference genome bundles.
 ///
 /// `ReferenceBundle` provides access to the contents of a reference genome bundle,
@@ -53,6 +79,9 @@ public final class ReferenceBundle: Sendable {
     /// Bundle manifest containing metadata and track definitions.
     public let manifest: BundleManifest
 
+    private let bookmarkAccess: ReferenceBundleBookmarkAccess
+    private let activeSecurityScopedAlignmentURLs = OSAllocatedUnfairLock(initialState: [String: URL]())
+
     /// Logger for bundle operations.
     private let logger = Logger(
         subsystem: "com.lungfish.core",
@@ -67,6 +96,7 @@ public final class ReferenceBundle: Sendable {
     /// - Throws: `ReferenceBundleError` if the bundle cannot be opened
     public init(url: URL) async throws {
         self.url = url
+        self.bookmarkAccess = .live
 
         // Validate bundle exists and is a directory
         var isDirectory: ObjCBool = false
@@ -120,7 +150,30 @@ public final class ReferenceBundle: Sendable {
     public init(url: URL, manifest: BundleManifest) {
         self.url = url
         self.manifest = manifest
+        self.bookmarkAccess = .live
         logger.info("Created bundle from pre-loaded manifest: \(manifest.name) (\(manifest.identifier))")
+    }
+
+    init(
+        url: URL,
+        manifest: BundleManifest,
+        bookmarkAccess: ReferenceBundleBookmarkAccess
+    ) {
+        self.url = url
+        self.manifest = manifest
+        self.bookmarkAccess = bookmarkAccess
+        logger.info("Created bundle from pre-loaded manifest: \(manifest.name) (\(manifest.identifier))")
+    }
+
+    deinit {
+        let activeURLs = activeSecurityScopedAlignmentURLs.withLock { state in
+            let urls = Array(state.values)
+            state.removeAll()
+            return urls
+        }
+        for url in activeURLs {
+            bookmarkAccess.stopAccessing(url)
+        }
     }
 
     // MARK: - Bundle Information
@@ -552,16 +605,13 @@ public final class ReferenceBundle: Sendable {
 
         // Try to resolve via bookmark if available
         if let bookmarkString = trackInfo.sourceBookmark,
-           let bookmarkData = Data(base64Encoded: bookmarkString) {
-            var isStale = false
-            if let resolved = try? URL(resolvingBookmarkData: bookmarkData,
-                                       options: [.withoutUI, .withSecurityScope],
-                                       relativeTo: nil,
-                                       bookmarkDataIsStale: &isStale),
-               FileManager.default.fileExists(atPath: resolved.path) {
-                logger.info("Resolved stale alignment path via bookmark: \(resolved.path)")
-                return resolved.path
-            }
+           let bookmarkData = Data(base64Encoded: bookmarkString),
+           let resolvedPath = resolveBookmarkedAlignmentPath(
+                bookmarkData,
+                key: alignmentBookmarkKey(trackID: trackInfo.id, kind: "source")
+           ) {
+            logger.info("Resolved stale alignment path via bookmark: \(resolvedPath)")
+            return resolvedPath
         }
 
         throw ReferenceBundleError.missingFile(trackInfo.sourcePath)
@@ -581,16 +631,13 @@ public final class ReferenceBundle: Sendable {
         }
 
         if let bookmarkString = trackInfo.indexBookmark,
-           let bookmarkData = Data(base64Encoded: bookmarkString) {
-            var isStale = false
-            if let resolved = try? URL(resolvingBookmarkData: bookmarkData,
-                                       options: [.withoutUI, .withSecurityScope],
-                                       relativeTo: nil,
-                                       bookmarkDataIsStale: &isStale),
-               FileManager.default.fileExists(atPath: resolved.path) {
-                logger.info("Resolved stale alignment index path via bookmark: \(resolved.path)")
-                return resolved.path
-            }
+           let bookmarkData = Data(base64Encoded: bookmarkString),
+           let resolvedPath = resolveBookmarkedAlignmentPath(
+                bookmarkData,
+                key: alignmentBookmarkKey(trackID: trackInfo.id, kind: "index")
+           ) {
+            logger.info("Resolved stale alignment index path via bookmark: \(resolvedPath)")
+            return resolvedPath
         }
 
         throw ReferenceBundleError.missingFile(trackInfo.indexPath)
@@ -607,6 +654,55 @@ public final class ReferenceBundle: Sendable {
         }
         guard FileManager.default.fileExists(atPath: dbURL.path) else { return nil }
         return try? AlignmentMetadataDatabase(url: dbURL)
+    }
+
+    private func resolveBookmarkedAlignmentPath(_ bookmarkData: Data, key: String) -> String? {
+        guard let resolution = try? bookmarkAccess.resolve(bookmarkData) else {
+            return nil
+        }
+        let resolvedURL = resolution.url.standardizedFileURL
+        guard beginSecurityScopedAlignmentAccess(for: key, url: resolvedURL) else {
+            return nil
+        }
+        guard FileManager.default.fileExists(atPath: resolvedURL.path) else {
+            endSecurityScopedAlignmentAccess(for: key)
+            return nil
+        }
+        if resolution.isStale {
+            logger.info("Resolved stale alignment bookmark for \(key, privacy: .public): \(resolvedURL.path)")
+        }
+        return resolvedURL.path
+    }
+
+    private func alignmentBookmarkKey(trackID: String, kind: String) -> String {
+        "\(trackID):\(kind)"
+    }
+
+    @discardableResult
+    private func beginSecurityScopedAlignmentAccess(for key: String, url: URL) -> Bool {
+        let standardizedURL = url.standardizedFileURL
+        return activeSecurityScopedAlignmentURLs.withLock { state in
+            if state[key]?.standardizedFileURL == standardizedURL {
+                return true
+            }
+            if let existingURL = state.removeValue(forKey: key) {
+                bookmarkAccess.stopAccessing(existingURL)
+            }
+            guard bookmarkAccess.startAccessing(standardizedURL) else {
+                return false
+            }
+            state[key] = standardizedURL
+            return true
+        }
+    }
+
+    private func endSecurityScopedAlignmentAccess(for key: String) {
+        guard let url = activeSecurityScopedAlignmentURLs.withLock({ state in
+            state.removeValue(forKey: key)
+        }) else {
+            return
+        }
+        bookmarkAccess.stopAccessing(url)
     }
 
     /// Returns the absolute path to the reference FASTA within this bundle, if it exists.

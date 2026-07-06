@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import os
 @testable import LungfishIO
 @testable import LungfishCore
 
@@ -389,6 +390,54 @@ final class ReferenceBundleTests: XCTestCase {
 
         XCTAssertEqual(try bundle.resolveAlignmentPath(track), alignmentURL.path)
         XCTAssertEqual(try bundle.resolveAlignmentIndexPath(track), indexURL.path)
+    }
+
+    func testBookmarkedAlignmentPathsKeepSecurityScopedAccessAlive() async throws {
+        let bundleURL = try createValidTestBundle()
+        let manifest = try BundleManifest.load(from: bundleURL)
+        let externalDir = tempDirectory.appendingPathComponent("external-alignments", isDirectory: true)
+        try FileManager.default.createDirectory(at: externalDir, withIntermediateDirectories: true)
+
+        let alignmentURL = externalDir.appendingPathComponent("sample.sorted.bam")
+        let indexURL = externalDir.appendingPathComponent("sample.sorted.bam.bai")
+        try Data([0x42, 0x41, 0x4D]).write(to: alignmentURL)
+        try Data([0x42, 0x41, 0x49]).write(to: indexURL)
+
+        let sourceBookmark = Data([0x01, 0x02, 0x03])
+        let indexBookmark = Data([0x04, 0x05, 0x06])
+        let probe = ReferenceBundleBookmarkAccessProbe(
+            resolutions: [
+                sourceBookmark: alignmentURL,
+                indexBookmark: indexURL,
+            ]
+        )
+        var bundle: ReferenceBundle? = ReferenceBundle(
+            url: bundleURL,
+            manifest: manifest,
+            bookmarkAccess: ReferenceBundleBookmarkAccess(
+                resolve: probe.resolve,
+                startAccessing: probe.startAccessing,
+                stopAccessing: probe.stopAccessing
+            )
+        )
+        let track = AlignmentTrackInfo(
+            id: "external",
+            name: "sample.sorted.bam",
+            format: .bam,
+            sourcePath: "/missing/sample.sorted.bam",
+            sourceBookmark: sourceBookmark.base64EncodedString(),
+            indexPath: "/missing/sample.sorted.bam.bai",
+            indexBookmark: indexBookmark.base64EncodedString()
+        )
+
+        XCTAssertEqual(try bundle?.resolveAlignmentPath(track), alignmentURL.standardizedFileURL.path)
+        XCTAssertEqual(try bundle?.resolveAlignmentIndexPath(track), indexURL.standardizedFileURL.path)
+        XCTAssertEqual(probe.startedURLs(), [alignmentURL.standardizedFileURL, indexURL.standardizedFileURL])
+        XCTAssertTrue(probe.stoppedURLs().isEmpty)
+
+        bundle = nil
+
+        XCTAssertEqual(Set(probe.stoppedURLs()), Set([alignmentURL.standardizedFileURL, indexURL.standardizedFileURL]))
     }
 
     // MARK: - Error Description Tests
@@ -797,5 +846,43 @@ final class ReferenceBundleTests: XCTestCase {
 
         try manifest.save(to: bundleURL)
         return bundleURL
+    }
+}
+
+private final class ReferenceBundleBookmarkAccessProbe: @unchecked Sendable {
+    private struct State {
+        var startedURLs: [URL] = []
+        var stoppedURLs: [URL] = []
+    }
+
+    private let resolutions: [Data: URL]
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    init(resolutions: [Data: URL]) {
+        self.resolutions = resolutions
+    }
+
+    func resolve(_ data: Data) throws -> ReferenceBundleBookmarkResolution {
+        guard let url = resolutions[data] else {
+            throw CocoaError(.fileReadNoSuchFile)
+        }
+        return ReferenceBundleBookmarkResolution(url: url, isStale: false)
+    }
+
+    func startAccessing(_ url: URL) -> Bool {
+        state.withLock { $0.startedURLs.append(url) }
+        return true
+    }
+
+    func stopAccessing(_ url: URL) {
+        state.withLock { $0.stoppedURLs.append(url) }
+    }
+
+    func startedURLs() -> [URL] {
+        state.withLock { $0.startedURLs }
+    }
+
+    func stoppedURLs() -> [URL] {
+        state.withLock { $0.stoppedURLs }
     }
 }
