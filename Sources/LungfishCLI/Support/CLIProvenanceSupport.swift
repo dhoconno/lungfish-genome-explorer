@@ -107,7 +107,10 @@ enum CLIProvenanceSupport {
         toolName: String,
         toolVersion: String,
         command: [String],
+        stepID: UUID = UUID(),
         stepCommand: [String]? = nil,
+        stepInputs: [FileRecord]? = nil,
+        stepOutputs: [FileRecord]? = nil,
         extraSteps: [ProvenanceStep] = [],
         inputs: [FileRecord],
         outputs: [FileRecord],
@@ -124,14 +127,15 @@ enum CLIProvenanceSupport {
 
         let startedAt = Date().addingTimeInterval(-wallTime)
         let completedAt = Date()
-        let inputDescriptors = inputs.map { ProvenanceFileDescriptor(fileRecord: $0) }
-        let outputDescriptors = outputs.map { ProvenanceFileDescriptor(fileRecord: $0) }
+        let stepInputDescriptors = (stepInputs ?? inputs).map { ProvenanceFileDescriptor(fileRecord: $0) }
+        let stepOutputDescriptors = (stepOutputs ?? outputs).map { ProvenanceFileDescriptor(fileRecord: $0) }
         let step = ProvenanceStep(
+            id: stepID,
             toolName: toolName,
             toolVersion: toolVersion,
             argv: stepCommand ?? command,
-            inputs: inputDescriptors,
-            outputs: outputDescriptors,
+            inputs: stepInputDescriptors,
+            outputs: stepOutputDescriptors,
             exitStatus: Int(exitCode),
             wallTimeSeconds: wallTime,
             stderr: stderr,
