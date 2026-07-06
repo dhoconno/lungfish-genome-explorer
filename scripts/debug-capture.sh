@@ -3,7 +3,7 @@
 #
 # Usage: ./debug-capture.sh [--live SECONDS]
 #
-# This script captures debugging information for the Lungfish Genome Browser:
+# This script captures debugging information for Lungfish Genome Explorer:
 # - Console logs from the unified logging system
 # - Screenshot of the app window
 # - Process information

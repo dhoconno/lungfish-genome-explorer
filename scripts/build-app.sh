@@ -11,8 +11,8 @@ BUNDLE_ID="com.lungfish.browser"
 DEBUG_BUNDLE_ID="com.lungfish.browser.debug"
 BUNDLE_NAME="Lungfish"
 DEBUG_BUNDLE_NAME="Lungfish Debug"
-BUNDLE_DISPLAY_NAME="Lungfish Genome Browser"
-DEBUG_BUNDLE_DISPLAY_NAME="Lungfish Genome Browser Debug"
+BUNDLE_DISPLAY_NAME="Lungfish Genome Explorer"
+DEBUG_BUNDLE_DISPLAY_NAME="Lungfish Genome Explorer Debug"
 # VERSION is sourced from Lungfish.xcodeproj's MARKETING_VERSION below (after
 # PROJECT_ROOT is resolved) so the debug bundle and the notarized build share a
 # single version source of truth.
@@ -135,7 +135,7 @@ MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
 FRAMEWORKS_DIR="$CONTENTS_DIR/Frameworks"
 
-echo -e "${GREEN}Building Lungfish Genome Browser${NC}"
+echo -e "${GREEN}Building Lungfish Genome Explorer${NC}"
 echo "=================================="
 echo "Configuration: $BUILD_LABEL"
 echo "Bundle identifier: $BUNDLE_ID"
