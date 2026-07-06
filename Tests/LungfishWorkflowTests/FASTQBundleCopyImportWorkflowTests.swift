@@ -170,6 +170,44 @@ final class FASTQBundleCopyImportWorkflowTests: XCTestCase {
         }
     }
 
+    func testImportMaterializesSymlinkPayloadsInsideDestinationBundle() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FASTQBundleCopyImport-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let externalFASTQURL = root.appendingPathComponent("external.fastq")
+        try "@r1\nACGT\n+\n!!!!\n".write(to: externalFASTQURL, atomically: true, encoding: .utf8)
+
+        let sourceBundleURL = root.appendingPathComponent("source.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceBundleURL, withIntermediateDirectories: true)
+        let symlinkFASTQURL = sourceBundleURL.appendingPathComponent("reads.fastq")
+        try FileManager.default.createSymbolicLink(at: symlinkFASTQURL, withDestinationURL: externalFASTQURL)
+        try writeSourceFASTQBundleProvenance(bundleURL: sourceBundleURL, fastqURL: symlinkFASTQURL)
+
+        let destinationBundleURL = root.appendingPathComponent("copied.lungfishfastq", isDirectory: true)
+        _ = try FASTQBundleCopyImportWorkflow().importBundle(
+            sourceBundleURL: sourceBundleURL,
+            outputURL: destinationBundleURL,
+            context: FASTQBundleCopyImportWorkflow.CommandContext(
+                workflowName: "test fastq bundle import",
+                toolName: "lungfish-cli",
+                argv: ["lungfish", "fastq", "import-bundle", sourceBundleURL.path]
+            )
+        )
+
+        let destinationFASTQURL = destinationBundleURL.appendingPathComponent("reads.fastq")
+        let destinationValues = try destinationFASTQURL.resourceValues(forKeys: [.isSymbolicLinkKey])
+        XCTAssertFalse(destinationValues.isSymbolicLink == true)
+        XCTAssertEqual(try String(contentsOf: destinationFASTQURL, encoding: .utf8), "@r1\nACGT\n+\n!!!!\n")
+
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: destinationBundleURL))
+        let allPaths = envelope.files.map(\.path) + envelope.outputs.map(\.path)
+        XCTAssertTrue(allPaths.contains(destinationFASTQURL.path))
+        XCTAssertFalse(allPaths.contains(externalFASTQURL.path), allPaths.joined(separator: "\n"))
+        XCTAssertFalse(allPaths.contains(destinationBundleURL.appendingPathComponent("external.fastq").path))
+    }
+
     private func packageRoot() -> URL {
         var candidate = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         while candidate.path != "/" {

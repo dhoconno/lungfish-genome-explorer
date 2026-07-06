@@ -19,6 +19,7 @@ public enum FASTQBundleCopyImportError: Error, LocalizedError, Sendable, Equatab
     case sourceProvenanceMissing(String)
     case destinationExists(String)
     case cannotCreateDestinationParent(String)
+    case unsupportedSymlinkPayload(String)
 
     public var errorDescription: String? {
         switch self {
@@ -30,6 +31,8 @@ public enum FASTQBundleCopyImportError: Error, LocalizedError, Sendable, Equatab
             return "Destination FASTQ bundle already exists: \(path)"
         case .cannotCreateDestinationParent(let path):
             return "Could not create destination directory: \(path)"
+        case .unsupportedSymlinkPayload(let path):
+            return "FASTQ bundle symlink payload must resolve to a regular file: \(path)"
         }
     }
 }
@@ -121,6 +124,7 @@ public final class FASTQBundleCopyImportWorkflow: @unchecked Sendable {
             let sourceProvenanceURL = try requiredSourceProvenanceURL(in: sourceBundleURL)
             try fileManager.copyItem(at: sourceBundleURL, to: stagingBundleURL)
             try removeProvenanceArtifacts(in: stagingBundleURL)
+            try materializeSymlinkFiles(in: stagingBundleURL)
             let sourceFiles = try concreteFiles(in: sourceBundleURL)
             let copiedFiles = try concreteFiles(in: stagingBundleURL)
             let completedAt = Date()
@@ -331,7 +335,7 @@ public final class FASTQBundleCopyImportWorkflow: @unchecked Sendable {
     private func concreteFiles(in rootURL: URL) throws -> [URL] {
         guard let enumerator = fileManager.enumerator(
             at: rootURL,
-            includingPropertiesForKeys: [.isRegularFileKey],
+            includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey],
             options: [.skipsHiddenFiles]
         ) else {
             return []
@@ -346,12 +350,66 @@ public final class FASTQBundleCopyImportWorkflow: @unchecked Sendable {
             if isProvenanceArtifact(url) {
                 continue
             }
-            let values = try url.resourceValues(forKeys: [.isRegularFileKey])
-            if values.isRegularFile == true {
-                urls.append(url.standardizedFileURL.resolvingSymlinksInPath())
+            let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+            if values.isRegularFile == true || symlinkResolvesToRegularFile(url, values: values) {
+                urls.append(url.standardizedFileURL)
             }
         }
         return urls.sorted { $0.path < $1.path }
+    }
+
+    private func symlinkResolvesToRegularFile(_ url: URL, values: URLResourceValues) -> Bool {
+        guard values.isSymbolicLink == true,
+              let targetPath = try? fileManager.destinationOfSymbolicLink(atPath: url.path) else {
+            return false
+        }
+        let targetURL = resolvedSymlinkTarget(targetPath, from: url)
+        var isDirectory: ObjCBool = false
+        return fileManager.fileExists(atPath: targetURL.path, isDirectory: &isDirectory)
+            && !isDirectory.boolValue
+    }
+
+    private func materializeSymlinkFiles(in rootURL: URL) throws {
+        guard let enumerator = fileManager.enumerator(
+            at: rootURL,
+            includingPropertiesForKeys: [.isSymbolicLinkKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return
+        }
+
+        for case let url as URL in enumerator {
+            if url.lastPathComponent == ProvenanceWriter.bundleProvenanceDirectoryName {
+                enumerator.skipDescendants()
+                continue
+            }
+            if isProvenanceArtifact(url) {
+                continue
+            }
+            let values = try url.resourceValues(forKeys: [.isSymbolicLinkKey])
+            guard values.isSymbolicLink == true else { continue }
+
+            let targetPath = try fileManager.destinationOfSymbolicLink(atPath: url.path)
+            let targetURL = resolvedSymlinkTarget(targetPath, from: url)
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: targetURL.path, isDirectory: &isDirectory),
+                  !isDirectory.boolValue else {
+                throw FASTQBundleCopyImportError.unsupportedSymlinkPayload(url.path)
+            }
+
+            let materializedURL = url.deletingLastPathComponent()
+                .appendingPathComponent(".\(url.lastPathComponent).\(UUID().uuidString).materialized")
+            try fileManager.copyItem(at: targetURL, to: materializedURL)
+            try fileManager.removeItem(at: url)
+            try fileManager.moveItem(at: materializedURL, to: url)
+        }
+    }
+
+    private func resolvedSymlinkTarget(_ targetPath: String, from symlinkURL: URL) -> URL {
+        let targetURL = targetPath.hasPrefix("/")
+            ? URL(fileURLWithPath: targetPath)
+            : symlinkURL.deletingLastPathComponent().appendingPathComponent(targetPath)
+        return targetURL.standardizedFileURL.resolvingSymlinksInPath()
     }
 
     private func requiredSourceProvenanceURL(in sourceBundleURL: URL) throws -> URL {
