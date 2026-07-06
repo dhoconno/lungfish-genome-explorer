@@ -99,6 +99,16 @@ public enum MetagenomicsDatabaseRegistryError: Error, LocalizedError, Sendable {
 /// every method.
 public actor MetagenomicsDatabaseRegistry {
 
+    struct BookmarkResolution: Sendable {
+        let url: URL
+        let isStale: Bool
+
+        init(url: URL, isStale: Bool) {
+            self.url = url
+            self.isStale = isStale
+        }
+    }
+
     /// Shared singleton instance.
     ///
     /// Uses the current shared managed storage root for each access.
@@ -118,6 +128,13 @@ public actor MetagenomicsDatabaseRegistry {
     /// In-memory database entries, keyed by name.
     private var databases: [String: MetagenomicsDatabaseInfo] = [:]
 
+    private let externalVolumeDetector: @Sendable (URL) -> Bool
+    private let bookmarkCreator: @Sendable (URL) throws -> Data
+    private let bookmarkResolver: @Sendable (Data) throws -> BookmarkResolution
+    private let securityScopedAccessStarter: @Sendable (URL) -> Bool
+    private let securityScopedAccessStopper: @Sendable (URL) -> Void
+    private var activeSecurityScopedURLs: [String: URL] = [:]
+
     /// Files required for a valid Kraken2 database directory.
     static let requiredKraken2Files = ["hash.k2d", "opts.k2d", "taxo.k2d"]
 
@@ -130,6 +147,11 @@ public actor MetagenomicsDatabaseRegistry {
         self.storageConfigStore = storageConfigStore
         self.databasesBaseURL = base
         self.manifestURL = base.appendingPathComponent("metagenomics-db-registry.json")
+        self.externalVolumeDetector = Self.isExternalVolume
+        self.bookmarkCreator = Self.defaultBookmarkData
+        self.bookmarkResolver = Self.defaultBookmarkResolution
+        self.securityScopedAccessStarter = { $0.startAccessingSecurityScopedResource() }
+        self.securityScopedAccessStopper = { $0.stopAccessingSecurityScopedResource() }
     }
 
     init(storageConfigStore: ManagedStorageConfigStore) {
@@ -137,6 +159,11 @@ public actor MetagenomicsDatabaseRegistry {
         self.storageConfigStore = storageConfigStore
         self.databasesBaseURL = base
         self.manifestURL = base.appendingPathComponent("metagenomics-db-registry.json")
+        self.externalVolumeDetector = Self.isExternalVolume
+        self.bookmarkCreator = Self.defaultBookmarkData
+        self.bookmarkResolver = Self.defaultBookmarkResolution
+        self.securityScopedAccessStarter = { $0.startAccessingSecurityScopedResource() }
+        self.securityScopedAccessStopper = { $0.stopAccessingSecurityScopedResource() }
     }
 
     /// Creates a registry backed by a custom directory.
@@ -148,6 +175,35 @@ public actor MetagenomicsDatabaseRegistry {
         self.storageConfigStore = nil
         self.databasesBaseURL = baseDirectory
         self.manifestURL = baseDirectory.appendingPathComponent("metagenomics-db-registry.json")
+        self.externalVolumeDetector = Self.isExternalVolume
+        self.bookmarkCreator = Self.defaultBookmarkData
+        self.bookmarkResolver = Self.defaultBookmarkResolution
+        self.securityScopedAccessStarter = { $0.startAccessingSecurityScopedResource() }
+        self.securityScopedAccessStopper = { $0.stopAccessingSecurityScopedResource() }
+    }
+
+    init(
+        baseDirectory: URL,
+        externalVolumeDetector: @escaping @Sendable (URL) -> Bool = MetagenomicsDatabaseRegistry.isExternalVolume,
+        bookmarkCreator: @escaping @Sendable (URL) throws -> Data = MetagenomicsDatabaseRegistry.defaultBookmarkData,
+        bookmarkResolver: @escaping @Sendable (Data) throws -> BookmarkResolution = MetagenomicsDatabaseRegistry.defaultBookmarkResolution,
+        securityScopedAccessStarter: @escaping @Sendable (URL) -> Bool = { $0.startAccessingSecurityScopedResource() },
+        securityScopedAccessStopper: @escaping @Sendable (URL) -> Void = { $0.stopAccessingSecurityScopedResource() }
+    ) {
+        self.storageConfigStore = nil
+        self.databasesBaseURL = baseDirectory
+        self.manifestURL = baseDirectory.appendingPathComponent("metagenomics-db-registry.json")
+        self.externalVolumeDetector = externalVolumeDetector
+        self.bookmarkCreator = bookmarkCreator
+        self.bookmarkResolver = bookmarkResolver
+        self.securityScopedAccessStarter = securityScopedAccessStarter
+        self.securityScopedAccessStopper = securityScopedAccessStopper
+    }
+
+    deinit {
+        for url in activeSecurityScopedURLs.values {
+            securityScopedAccessStopper(url)
+        }
     }
 
     // MARK: - Storage Location Management
@@ -355,6 +411,20 @@ public actor MetagenomicsDatabaseRegistry {
 
         // Compute size on disk.
         let sizeOnDisk = Self.directorySize(at: url)
+        let isExternal = externalVolumeDetector(url)
+        let bookmarkData: Data?
+        if isExternal {
+            do {
+                bookmarkData = try createBookmark(for: url)
+            } catch {
+                bookmarkData = nil
+                logger.warning(
+                    "Failed to create bookmark for imported database '\(dbName, privacy: .public)': \(error.localizedDescription, privacy: .public)"
+                )
+            }
+        } else {
+            bookmarkData = nil
+        }
 
         // Determine if this matches a catalog entry.
         let matchingCollection = DatabaseCollection.allCases.first { collection in
@@ -371,6 +441,8 @@ public actor MetagenomicsDatabaseRegistry {
             info.status = .ready
             info.installedAt = info.installedAt ?? now
             info.lastUpdated = now
+            info.isExternal = isExternal
+            info.bookmarkData = bookmarkData
         } else {
             // Create a new entry for a user-imported database.
             info = MetagenomicsDatabaseInfo(
@@ -383,8 +455,8 @@ public actor MetagenomicsDatabaseRegistry {
                 description: "User-imported Kraken2 database",
                 collection: matchingCollection,
                 path: url,
-                isExternal: false,
-                bookmarkData: nil,
+                isExternal: isExternal,
+                bookmarkData: bookmarkData,
                 installedAt: now,
                 lastUpdated: now,
                 status: .ready,
@@ -416,6 +488,7 @@ public actor MetagenomicsDatabaseRegistry {
         // If this is a catalog entry, reset to undownloaded state rather than deleting.
         if let collection = databases[name]?.collection {
             if let catalogEntry = MetagenomicsDatabaseInfo.catalogEntry(for: collection) {
+                endSecurityScopedAccess(for: name)
                 databases[name] = catalogEntry
                 try saveManifest()
                 logger.info("Reset catalog database '\(name, privacy: .public)' to undownloaded state")
@@ -423,6 +496,7 @@ public actor MetagenomicsDatabaseRegistry {
             }
         }
 
+        endSecurityScopedAccess(for: name)
         databases.removeValue(forKey: name)
         try saveManifest()
         logger.info("Removed database '\(name, privacy: .public)' from registry")
@@ -501,7 +575,7 @@ public actor MetagenomicsDatabaseRegistry {
         }
 
         db.path = destination
-        db.isExternal = Self.isExternalVolume(destination)
+        db.isExternal = externalVolumeDetector(destination)
         db.lastUpdated = Date()
         db.status = .ready
 
@@ -520,6 +594,7 @@ public actor MetagenomicsDatabaseRegistry {
             }
         } else {
             db.bookmarkData = nil
+            endSecurityScopedAccess(for: name)
         }
 
         databases[name] = db
@@ -540,18 +615,19 @@ public actor MetagenomicsDatabaseRegistry {
     /// - Parameter db: The database info containing bookmark data.
     /// - Returns: The resolved URL, or `nil` if the volume is not mounted.
     public func resolveBookmark(for db: MetagenomicsDatabaseInfo) -> URL? {
-        guard let bookmarkData = db.bookmarkData else { return db.path }
+        guard let bookmarkData = db.bookmarkData else {
+            if db.isExternal, let path = db.path {
+                beginSecurityScopedAccess(for: db.name, url: path)
+            }
+            return db.path
+        }
 
-        var isStale = false
         do {
-            let url = try URL(
-                resolvingBookmarkData: bookmarkData,
-                options: .withSecurityScope,
-                relativeTo: nil,
-                bookmarkDataIsStale: &isStale
-            )
+            let resolution = try bookmarkResolver(bookmarkData)
+            let url = resolution.url
+            beginSecurityScopedAccess(for: db.name, url: url)
 
-            if isStale {
+            if resolution.isStale {
                 logger.info("Bookmark for '\(db.name, privacy: .public)' is stale, refreshing")
                 // Update the bookmark in the background -- not critical if it fails.
                 if var updated = databases[db.name] {
@@ -574,6 +650,7 @@ public actor MetagenomicsDatabaseRegistry {
                 databases[db.name] = updated
                 try? saveManifest()
             }
+            endSecurityScopedAccess(for: db.name)
             return nil
         }
     }
@@ -583,11 +660,50 @@ public actor MetagenomicsDatabaseRegistry {
     /// - Parameter url: The URL to bookmark.
     /// - Returns: Bookmark data that can be stored and later resolved.
     public func createBookmark(for url: URL) throws -> Data {
+        try bookmarkCreator(url)
+    }
+
+    static func defaultBookmarkData(for url: URL) throws -> Data {
         try url.bookmarkData(
             options: .withSecurityScope,
             includingResourceValuesForKeys: nil,
             relativeTo: nil
         )
+    }
+
+    static func defaultBookmarkResolution(for data: Data) throws -> BookmarkResolution {
+        var isStale = false
+        let url = try URL(
+            resolvingBookmarkData: data,
+            options: .withSecurityScope,
+            relativeTo: nil,
+            bookmarkDataIsStale: &isStale
+        )
+        return BookmarkResolution(url: url, isStale: isStale)
+    }
+
+    @discardableResult
+    private func beginSecurityScopedAccess(for name: String, url: URL) -> Bool {
+        let standardizedURL = url.standardizedFileURL
+        if activeSecurityScopedURLs[name]?.standardizedFileURL == standardizedURL {
+            return true
+        }
+        endSecurityScopedAccess(for: name)
+        guard securityScopedAccessStarter(standardizedURL) else {
+            logger.warning(
+                "Security-scoped access failed for external database '\(name, privacy: .public)' at \(standardizedURL.path, privacy: .public)"
+            )
+            return false
+        }
+        activeSecurityScopedURLs[name] = standardizedURL
+        return true
+    }
+
+    private func endSecurityScopedAccess(for name: String) {
+        guard let url = activeSecurityScopedURLs.removeValue(forKey: name) else {
+            return
+        }
+        securityScopedAccessStopper(url)
     }
 
     /// Resolves all bookmarks for external databases and updates their status.

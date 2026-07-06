@@ -899,6 +899,63 @@ final class MetagenomicsDatabaseRegistryTests: XCTestCase {
 
     // MARK: - Bookmark Support
 
+    func testRegisterExistingExternalDatabaseStoresBookmark() async throws {
+        let dbDir = createMockKraken2Database(name: "external-db")
+        let bookmark = Data([0x4c, 0x46, 0x45])
+        let registry = MetagenomicsDatabaseRegistry(
+            baseDirectory: tempDir,
+            externalVolumeDetector: { url in
+                XCTAssertEqual(url.standardizedFileURL, dbDir.standardizedFileURL)
+                return true
+            },
+            bookmarkCreator: { url in
+                XCTAssertEqual(url.standardizedFileURL, dbDir.standardizedFileURL)
+                return bookmark
+            }
+        )
+
+        let info = try await registry.registerExisting(at: dbDir, name: "External DB")
+
+        XCTAssertTrue(info.isExternal)
+        XCTAssertEqual(info.bookmarkData, bookmark)
+        let stored = try await registry.database(named: "External DB")
+        XCTAssertTrue(try XCTUnwrap(stored).isExternal)
+        XCTAssertEqual(stored?.bookmarkData, bookmark)
+    }
+
+    func testResolveBookmarkStartsSecurityScopedAccess() async throws {
+        let dbDir = createMockKraken2Database(name: "scoped-db")
+        let bookmark = Data([0x73, 0x63, 0x6f, 0x70, 0x65])
+        final class AccessCounter: @unchecked Sendable {
+            private let lock = NSLock()
+            private(set) var starts: [URL] = []
+
+            func start(_ url: URL) -> Bool {
+                lock.lock()
+                starts.append(url)
+                lock.unlock()
+                return true
+            }
+        }
+        let counter = AccessCounter()
+        let registry = MetagenomicsDatabaseRegistry(
+            baseDirectory: tempDir,
+            externalVolumeDetector: { _ in true },
+            bookmarkCreator: { _ in bookmark },
+            bookmarkResolver: { data in
+                XCTAssertEqual(data, bookmark)
+                return MetagenomicsDatabaseRegistry.BookmarkResolution(url: dbDir, isStale: false)
+            },
+            securityScopedAccessStarter: counter.start
+        )
+        let info = try await registry.registerExisting(at: dbDir, name: "Scoped DB")
+
+        let resolved = await registry.resolveBookmark(for: info)
+
+        XCTAssertEqual(resolved?.standardizedFileURL, dbDir.standardizedFileURL)
+        XCTAssertEqual(counter.starts.map(\.standardizedFileURL), [dbDir.standardizedFileURL])
+    }
+
     func testBookmarkCreationForLocalPath() async throws {
         let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
 
