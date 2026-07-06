@@ -398,7 +398,7 @@ struct ReleaseBuildConfigurationTests {
         let resourcesRoot = Self.repositoryRoot()
             .appendingPathComponent("Sources/LungfishWorkflow/Resources", isDirectory: true)
         let leakPatterns = ["/Users/"]
-        let scannedExtensions = Set(["json", "txt"])
+        let scannedExtensions = Set(["json", "md", "txt"])
         var leaks: [String] = []
 
         guard let enumerator = FileManager.default.enumerator(
