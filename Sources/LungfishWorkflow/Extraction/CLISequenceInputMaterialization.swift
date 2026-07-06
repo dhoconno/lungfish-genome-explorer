@@ -418,29 +418,9 @@ public enum CLISequenceInputMaterialization {
 
     public static func originalInputDescriptors(for inputURL: URL) throws -> [ProvenanceFileDescriptor] {
         let standardizedURL = inputURL.standardizedFileURL
-        if let bundleURL = bundleRequiringMaterialization(for: standardizedURL),
+        if let bundleURL = derivedBundleURL(for: standardizedURL),
            let manifest = FASTQBundle.loadDerivedManifest(in: bundleURL) {
-            var descriptors = [try bundleAggregateDescriptor(for: bundleURL)]
-            let rootBundleURL = FASTQBundle.resolveBundle(
-                relativePath: manifest.rootBundleRelativePath,
-                from: bundleURL
-            )
-            if let rootPayloadURL = try? FASTQBundle.validatedBundleMemberURL(
-                for: manifest.rootFASTQFilename,
-                in: rootBundleURL,
-                field: "rootFASTQFilename",
-                allowExistingSymlinkEscape: true
-            ), FileManager.default.fileExists(atPath: rootPayloadURL.path) {
-                descriptors.append(
-                    try ProvenanceFileDescriptor.file(
-                        url: rootPayloadURL,
-                        format: provenanceFormat(for: rootPayloadURL),
-                        role: .input,
-                        originPath: bundleURL.path
-                    )
-                )
-            }
-            return descriptors
+            return try derivedBundleInputDescriptors(for: bundleURL, manifest: manifest)
         }
 
         guard let resolvedURL = SequenceInputResolver.resolvePrimarySequenceURL(for: standardizedURL) else {
@@ -453,6 +433,10 @@ public enum CLISequenceInputMaterialization {
                 role: .input
             )
         ]
+    }
+
+    public static func originalInputRecords(for inputURL: URL) throws -> [FileRecord] {
+        try originalInputDescriptors(for: inputURL).map(fileRecord)
     }
 
     public static func executionInputDescriptor(
@@ -503,6 +487,131 @@ public enum CLISequenceInputMaterialization {
         case .demuxGroup:
             return false
         }
+    }
+
+    private static func derivedBundleURL(for inputURL: URL) -> URL? {
+        if FASTQBundle.isBundleURL(inputURL),
+           FASTQBundle.loadDerivedManifest(in: inputURL) != nil {
+            return inputURL.standardizedFileURL
+        }
+
+        guard let enclosing = SequenceInputResolver.enclosingFASTQBundleURL(for: inputURL),
+              FASTQBundle.loadDerivedManifest(in: enclosing) != nil else {
+            return nil
+        }
+        return enclosing.standardizedFileURL
+    }
+
+    private static func derivedBundleInputDescriptors(
+        for bundleURL: URL,
+        manifest: FASTQDerivedBundleManifest
+    ) throws -> [ProvenanceFileDescriptor] {
+        var descriptors = [try bundleAggregateDescriptor(for: bundleURL)]
+        let manifestURL = FASTQBundle.derivedManifestURL(in: bundleURL)
+        if FileManager.default.fileExists(atPath: manifestURL.path) {
+            descriptors.append(
+                try ProvenanceFileDescriptor.file(
+                    url: manifestURL,
+                    format: .json,
+                    role: .input,
+                    originPath: bundleURL.path
+                )
+            )
+        }
+
+        let rootBundleURL = FASTQBundle.resolveBundle(
+            relativePath: manifest.rootBundleRelativePath,
+            from: bundleURL
+        )
+        if let rootPayloadURL = existingBundleMemberURL(
+            manifest.rootFASTQFilename,
+            in: rootBundleURL,
+            field: "rootFASTQFilename",
+            allowExistingSymlinkEscape: true
+        ) {
+            descriptors.append(
+                try ProvenanceFileDescriptor.file(
+                    url: rootPayloadURL,
+                    format: provenanceFormat(for: rootPayloadURL),
+                    role: .input,
+                    originPath: bundleURL.path
+                )
+            )
+        }
+
+        for payloadURL in payloadMemberURLs(for: manifest.payload, in: bundleURL) {
+            descriptors.append(
+                try ProvenanceFileDescriptor.file(
+                    url: payloadURL,
+                    format: provenanceFormat(for: payloadURL),
+                    role: .input,
+                    originPath: bundleURL.path
+                )
+            )
+        }
+
+        return deduplicatedDescriptors(descriptors)
+    }
+
+    private static func payloadMemberURLs(
+        for payload: FASTQDerivativePayload,
+        in bundleURL: URL
+    ) -> [URL] {
+        var urls: [URL] = []
+        func append(_ relativePath: String?, field: String) {
+            guard let relativePath,
+                  let url = existingBundleMemberURL(relativePath, in: bundleURL, field: field) else {
+                return
+            }
+            urls.append(url)
+        }
+
+        switch payload {
+        case .subset(let readIDListFilename):
+            append(readIDListFilename, field: "payload.subset.readIDListFilename")
+        case .trim(let trimPositionFilename):
+            append(trimPositionFilename, field: "payload.trim.trimPositionFilename")
+        case .full(let fastqFilename):
+            append(fastqFilename, field: "payload.full.fastqFilename")
+        case .fullFASTA(let fastaFilename):
+            append(fastaFilename, field: "payload.fullFASTA.fastaFilename")
+        case .fullPaired(let r1Filename, let r2Filename):
+            append(r1Filename, field: "payload.fullPaired.r1Filename")
+            append(r2Filename, field: "payload.fullPaired.r2Filename")
+        case .fullMixed(let classification):
+            for file in classification.files {
+                append(file.filename, field: "readClassification.files[].filename")
+            }
+        case .demuxedVirtual(_, let readIDListFilename, let previewFilename, let trimPositionsFilename, let orientMapFilename):
+            append(readIDListFilename, field: "payload.demuxedVirtual.readIDListFilename")
+            append(previewFilename, field: "payload.demuxedVirtual.previewFilename")
+            append(trimPositionsFilename, field: "payload.demuxedVirtual.trimPositionsFilename")
+            append(orientMapFilename, field: "payload.demuxedVirtual.orientMapFilename")
+        case .demuxGroup:
+            break
+        case .orientMap(let orientMapFilename, let previewFilename):
+            append(orientMapFilename, field: "payload.orientMap.orientMapFilename")
+            append(previewFilename, field: "payload.orientMap.previewFilename")
+        }
+
+        return urls
+    }
+
+    private static func existingBundleMemberURL(
+        _ relativePath: String,
+        in bundleURL: URL,
+        field: String,
+        allowExistingSymlinkEscape: Bool = false
+    ) -> URL? {
+        guard let url = try? FASTQBundle.validatedBundleMemberURL(
+            for: relativePath,
+            in: bundleURL,
+            field: field,
+            allowExistingSymlinkEscape: allowExistingSymlinkEscape
+        ), FileManager.default.fileExists(atPath: url.path) else {
+            return nil
+        }
+        return url
     }
 
     private static func bundleAggregateDescriptor(for bundleURL: URL) throws -> ProvenanceFileDescriptor {
@@ -576,6 +685,17 @@ public enum CLISequenceInputMaterialization {
         var result: [FileRecord] = []
         for record in records where seen.insert(record.path).inserted {
             result.append(record)
+        }
+        return result
+    }
+
+    private static func deduplicatedDescriptors(
+        _ descriptors: [ProvenanceFileDescriptor]
+    ) -> [ProvenanceFileDescriptor] {
+        var seen = Set<String>()
+        var result: [ProvenanceFileDescriptor] = []
+        for descriptor in descriptors where seen.insert(descriptor.path).inserted {
+            result.append(descriptor)
         }
         return result
     }
