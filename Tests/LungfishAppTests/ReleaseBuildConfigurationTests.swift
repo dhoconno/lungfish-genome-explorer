@@ -930,6 +930,20 @@ struct ReleaseBuildConfigurationTests {
         #expect(workflow.contains("ScientificCLIProvenanceCoverageTests"))
     }
 
+    @Test("CI fast gate builds the Xcode project path used for release packaging")
+    func ciFastGateBuildsXcodeProjectPathUsedForReleasePackaging() throws {
+        let workflow = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent(".github/workflows/ci.yml"),
+            encoding: .utf8
+        )
+
+        #expect(workflow.contains("xcodebuild -project Lungfish.xcodeproj -scheme Lungfish"))
+        #expect(workflow.contains("CODE_SIGNING_ALLOWED=NO"))
+        #expect(workflow.contains("LUNGFISH_SKIP_EMBED_LUNGFISH_CLI=1"))
+        #expect(workflow.contains("LUNGFISH_SKIP_SANITIZE_BUNDLED_TOOLS=1"))
+    }
+
     @Test("Git ignore rules do not hide tracked files")
     func gitIgnoreRulesDoNotHideTrackedFiles() throws {
         let result = try Self.runCommand(

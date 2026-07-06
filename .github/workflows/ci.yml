@@ -41,6 +41,16 @@ jobs:
       - name: Build CLI executable
         run: swift build --product lungfish-cli
 
+      - name: Build Xcode app project without signing
+        run: |
+          LUNGFISH_SKIP_EMBED_LUNGFISH_CLI=1 \
+          LUNGFISH_SKIP_SANITIZE_BUNDLED_TOOLS=1 \
+          xcodebuild -project Lungfish.xcodeproj -scheme Lungfish \
+            -configuration Debug \
+            -destination 'platform=macOS,arch=arm64' \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
       - name: Run smoke package tests
         run: swift test --filter '^(LungfishCoreTests\.(BundleManifestTests|GenomicRegionTests|RuntimeResourceLocatorTests|SequenceTests)|LungfishWorkflowTests\.(BAMPrimerTrimProvenanceTests|MappingProvenanceTests)|LungfishCLITests\.ScientificCLIProvenanceCoverageTests)(/|$)'
 
