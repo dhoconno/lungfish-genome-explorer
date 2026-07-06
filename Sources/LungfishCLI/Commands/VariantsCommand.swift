@@ -66,6 +66,39 @@ struct VariantsCommand: AsyncParsableCommand {
         }
     }
 
+    struct PhaseToolResult {
+        let stdout: String
+        let stderr: String
+        let exitCode: Int32
+    }
+
+    struct PhaseRuntime {
+        typealias RunTool = (PhasedVariantCommand) async throws -> PhaseToolResult
+
+        let runTool: RunTool
+
+        init(_ runTool: @escaping RunTool) {
+            self.runTool = runTool
+        }
+
+        static func live() -> PhaseRuntime {
+            PhaseRuntime { command in
+                let result = try await CondaManager.shared.runTool(
+                    name: command.executable,
+                    arguments: command.arguments,
+                    environment: command.environment,
+                    workingDirectory: nil,
+                    timeout: 24 * 60 * 60
+                )
+                return PhaseToolResult(
+                    stdout: result.stdout,
+                    stderr: result.stderr,
+                    exitCode: result.exitCode
+                )
+            }
+        }
+    }
+
     struct CallContext {
         let stagingRoot: URL
         let emitStageProgress: @Sendable (Double, String) -> Void
@@ -285,7 +318,8 @@ extension VariantsCommand {
         startedAt: Date,
         completedAt: Date,
         exitCode: Int32 = 0,
-        stderr: String? = nil
+        stderr: String? = nil,
+        additionalSteps: [StepExecution] = []
     ) throws {
         let step = StepExecution(
             toolName: workflowName,
@@ -306,7 +340,7 @@ extension VariantsCommand {
             status: exitCode == 0 ? .completed : .failed,
             appVersion: workflowVersion,
             hostOS: WorkflowRun.currentHostOS,
-            steps: [step],
+            steps: additionalSteps + [step],
             parameters: parameters
         )
         let encoder = JSONEncoder()
@@ -363,10 +397,13 @@ extension VariantsCommand {
         }
 
         func run() async throws {
-            try await executeForTesting { print($0) }
+            try await executeForTesting(runtime: .live()) { print($0) }
         }
 
-        func executeForTesting(emit: @escaping (String) -> Void) async throws {
+        func executeForTesting(
+            runtime: VariantsCommand.PhaseRuntime = .live(),
+            emit: @escaping (String) -> Void
+        ) async throws {
             let startedAt = Date()
             let outputVCFURL = URL(fileURLWithPath: outputVCF)
             let outputDirURL = URL(fileURLWithPath: outputDirectory ?? outputVCFURL.deletingLastPathComponent().path)
@@ -381,8 +418,9 @@ extension VariantsCommand {
                 emit(command.shellCommand)
             }
 
+            var toolSteps: [VariantCallingProvenanceStep] = []
             if execute && !dryRun {
-                try await runPlan(plan)
+                toolSteps = try await runPlan(plan, runtime: runtime)
                 emit("Phased variant calling complete.")
             } else {
                 emit("Command plan: \(planURL.path)")
@@ -394,7 +432,7 @@ extension VariantsCommand {
                 workflowVersion: plan.workflowVersion,
                 command: ["lungfish", "variants", "phase"] + originalArguments(outputDirURL: outputDirURL, outputVCFURL: outputVCFURL),
                 inputs: plan.inputs,
-                outputs: [ProvenanceRecorder.fileRecord(url: planURL, format: .json, role: .output)] + plan.outputs,
+                outputs: [ProvenanceRecorder.fileRecord(url: planURL, format: .json, role: .output)] + phaseOutputRecords(for: plan),
                 parameters: [
                     "packIDs": .string(plan.packIDs.joined(separator: ",")),
                     "execute": .string(String(execute && !dryRun)),
@@ -407,7 +445,8 @@ extension VariantsCommand {
                 ],
                 outputDirectory: outputDirURL,
                 startedAt: startedAt,
-                completedAt: completedAt
+                completedAt: completedAt,
+                additionalSteps: toolSteps.map { $0.stepExecution() }
             )
         }
 
@@ -436,19 +475,112 @@ extension VariantsCommand {
             )
         }
 
-        private func runPlan(_ plan: PhasedVariantCallingPlan) async throws {
+        private func runPlan(
+            _ plan: PhasedVariantCallingPlan,
+            runtime: VariantsCommand.PhaseRuntime
+        ) async throws -> [VariantCallingProvenanceStep] {
+            var steps: [VariantCallingProvenanceStep] = []
             for command in plan.commands {
-                let result = try await CondaManager.shared.runTool(
-                    name: command.executable,
-                    arguments: command.arguments,
-                    environment: command.environment,
-                    workingDirectory: nil,
-                    timeout: 24 * 60 * 60
+                let startedAt = Date()
+                let result = try await runtime.runTool(command)
+                let completedAt = Date()
+                steps.append(
+                    phaseToolStep(
+                        for: command,
+                        plan: plan,
+                        result: result,
+                        startedAt: startedAt,
+                        completedAt: completedAt
+                    )
                 )
                 guard result.exitCode == 0 else {
                     throw CLIError.workflowFailed(reason: result.stderr.isEmpty ? result.stdout : result.stderr)
                 }
             }
+            return steps
+        }
+
+        private func phaseOutputRecords(for plan: PhasedVariantCallingPlan) -> [FileRecord] {
+            plan.outputs.map { record in
+                ProvenanceRecorder.fileRecord(
+                    url: URL(fileURLWithPath: record.path),
+                    format: record.format,
+                    role: record.role
+                )
+            }
+        }
+
+        private func phaseToolStep(
+            for command: PhasedVariantCommand,
+            plan: PhasedVariantCallingPlan,
+            result: VariantsCommand.PhaseToolResult,
+            startedAt: Date,
+            completedAt: Date
+        ) -> VariantCallingProvenanceStep {
+            let outputs = phaseToolOutputs(for: command)
+            return VariantCallingProvenanceStep(
+                toolName: command.executable,
+                toolVersion: plan.toolVersions[command.executable] ?? "unknown",
+                command: reproducibleCondaCommand(for: command),
+                inputs: phaseToolInputs(for: command, plan: plan),
+                outputs: outputs,
+                exitCode: result.exitCode,
+                wallTime: completedAt.timeIntervalSince(startedAt),
+                stderr: provenanceStderr(result.stderr),
+                startedAt: startedAt,
+                completedAt: completedAt
+            )
+        }
+
+        private func phaseToolInputs(for command: PhasedVariantCommand, plan: PhasedVariantCallingPlan) -> [FileRecord] {
+            guard command.executable == "whatshap",
+                  let unphasedPath = command.arguments.dropLast().last else {
+                return plan.inputs
+            }
+            return plan.inputs + [
+                ProvenanceRecorder.fileRecord(url: URL(fileURLWithPath: unphasedPath), format: .vcf, role: .input),
+            ]
+        }
+
+        private func phaseToolOutputs(for command: PhasedVariantCommand) -> [FileRecord] {
+            let outputFlag: String
+            switch command.executable {
+            case "gatk":
+                outputFlag = "-O"
+            case "whatshap":
+                outputFlag = "-o"
+            default:
+                return []
+            }
+            guard let outputPath = argument(after: outputFlag, in: command.arguments) else {
+                return []
+            }
+            return [
+                ProvenanceRecorder.fileRecord(url: URL(fileURLWithPath: outputPath), format: .vcf, role: .output),
+            ]
+        }
+
+        private func argument(after flag: String, in arguments: [String]) -> String? {
+            guard let index = arguments.firstIndex(of: flag) else {
+                return nil
+            }
+            let nextIndex = arguments.index(after: index)
+            guard arguments.indices.contains(nextIndex) else {
+                return nil
+            }
+            return arguments[nextIndex]
+        }
+
+        private func reproducibleCondaCommand(for command: PhasedVariantCommand) -> [String] {
+            let micromambaPath = CondaManager.shared.rootPrefix
+                .appendingPathComponent("bin/micromamba")
+                .path
+            return [micromambaPath, "run", "-n", command.environment, command.executable] + command.arguments
+        }
+
+        private func provenanceStderr(_ stderr: String) -> String? {
+            let trimmed = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : stderr
         }
 
         private func originalArguments(outputDirURL: URL, outputVCFURL: URL) -> [String] {

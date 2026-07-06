@@ -248,6 +248,75 @@ final class VariantsCommandTests: XCTestCase {
         XCTAssertEqual(provenance.steps.first?.outputs.first?.path, planURL.path)
     }
 
+    func testPhaseSubcommandExecuteRecordsToolStepsAndFinalOutputChecksums() async throws {
+        let reference = try write("ref.fa", contents: ">chr1\nACGT\n", in: tempDir)
+        let bam = try write("sample.bam", contents: "bam-bytes", in: tempDir)
+        let outputVCF = tempDir.appendingPathComponent("phased.vcf.gz")
+        let outputDir = tempDir.appendingPathComponent("phase-execute", isDirectory: true)
+        let command = try VariantsCommand.PhaseSubcommand.parse([
+            "phase",
+            "--execute",
+            "--reference", reference.path,
+            "--bam", bam.path,
+            "--output-vcf", outputVCF.path,
+            "--output-dir", outputDir.path,
+            "--threads", "2",
+        ])
+        var executedCommands: [PhasedVariantCommand] = []
+        let runtime = VariantsCommand.PhaseRuntime { phaseCommand in
+            executedCommands.append(phaseCommand)
+            switch phaseCommand.executable {
+            case "gatk":
+                let outputPath = try XCTUnwrap(argument(after: "-O", in: phaseCommand.arguments))
+                try "unphased-vcf\n".write(to: URL(fileURLWithPath: outputPath), atomically: true, encoding: .utf8)
+            case "whatshap":
+                let outputPath = try XCTUnwrap(argument(after: "-o", in: phaseCommand.arguments))
+                try "phased-vcf\n".write(to: URL(fileURLWithPath: outputPath), atomically: true, encoding: .utf8)
+            default:
+                XCTFail("Unexpected phased variant command: \(phaseCommand.executable)")
+            }
+            return VariantsCommand.PhaseToolResult(
+                stdout: "\(phaseCommand.executable) stdout",
+                stderr: "\(phaseCommand.executable) stderr",
+                exitCode: 0
+            )
+        }
+        var lines: [String] = []
+
+        try await command.executeForTesting(runtime: runtime) { lines.append($0) }
+
+        let planURL = outputDir.appendingPathComponent("phased-variant-command-plan.json")
+        let unphasedVCF = outputDir.appendingPathComponent("gatk-unphased.vcf.gz")
+        let provenance = try decodeProvenance(at: outputDir.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+        XCTAssertEqual(executedCommands.map(\.executable), ["gatk", "whatshap"])
+        XCTAssertTrue(lines.contains("Phased variant calling complete."))
+
+        let gatkStep = try XCTUnwrap(provenance.steps.first { $0.toolName == "gatk" })
+        XCTAssertEqual(gatkStep.exitCode, 0)
+        XCTAssertNotNil(gatkStep.wallTime)
+        XCTAssertEqual(gatkStep.stderr, "gatk stderr")
+        XCTAssertTrue(gatkStep.command.contains("HaplotypeCaller"))
+        XCTAssertTrue(gatkStep.outputs.contains { output in
+            output.path == unphasedVCF.path
+                && output.sha256 != nil
+                && (output.sizeBytes ?? 0) > 0
+        })
+
+        let whatsHapStep = try XCTUnwrap(provenance.steps.first { $0.toolName == "whatshap" })
+        XCTAssertEqual(whatsHapStep.exitCode, 0)
+        XCTAssertNotNil(whatsHapStep.wallTime)
+        XCTAssertEqual(whatsHapStep.stderr, "whatshap stderr")
+        XCTAssertTrue(whatsHapStep.command.contains("phase"))
+        XCTAssertTrue(whatsHapStep.outputs.contains { output in
+            output.path == outputVCF.path
+                && output.sha256 != nil
+                && (output.sizeBytes ?? 0) > 0
+        })
+
+        XCTAssertEqual(provenance.steps.last?.toolName, "lungfish variants phase")
+        XCTAssertTrue(provenance.steps.last?.outputs.contains { $0.path == planURL.path } == true)
+    }
+
     func testCallSubcommandKeepsAdvancedOptionsAliasForExistingScripts() throws {
         let command = try VariantsCommand.CallSubcommand.parse([
             "call",
@@ -541,6 +610,14 @@ private func write(_ name: String, contents: String, in directory: URL) throws -
     let url = directory.appendingPathComponent(name)
     try contents.write(to: url, atomically: true, encoding: .utf8)
     return url
+}
+
+private func argument(after flag: String, in arguments: [String]) -> String? {
+    guard let index = arguments.firstIndex(of: flag),
+          arguments.indices.contains(arguments.index(after: index)) else {
+        return nil
+    }
+    return arguments[arguments.index(after: index)]
 }
 
 private func decodeProvenance(at url: URL) throws -> WorkflowRun {
